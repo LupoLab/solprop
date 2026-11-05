@@ -31,10 +31,12 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.model.display import (
+    beam_reach,
     decibels,
     duration_text,
     even_rows,
     length_unit,
+    mirrored_rows,
     pulse_window,
     scaled_unit,
     size_text,
@@ -51,9 +53,13 @@ from solprop_gui.views.page_plots import ORANGE, LinePlot, MapPlot
 __all__ = [
     "PAGE_VIEWS",
     "AlongPage",
+    "BeamOverviewPage",
+    "BeamPlanePage",
     "CompressPage",
+    "FarFieldPage",
     "HealthPage",
     "ModesPage",
+    "OnAxisPage",
     "OverviewPage",
     "PageView",
     "PlanePage",
@@ -290,6 +296,15 @@ class OverviewPage(PageView):
         self._map_rows = np.zeros(0, dtype=int)
         self._unit = ("m", 1.0)
 
+        self._build()
+        self._timer = QTimer(self)
+        self._timer.setSingleShot(True)
+        self._timer.setInterval(_LIVE_MS)
+        self._timer.timeout.connect(self._draw_maps)
+
+    def _build(self) -> None:
+        """Make the plots and their controls."""
+        session = self.session
         self.spectrum_map = MapPlot(
             xlabel=_AXIS_LABEL["wavelength"],
             ylabel="z",
@@ -331,10 +346,6 @@ class OverviewPage(PageView):
         self.range = LabelledSlider("Time range", 5, 500, 40, " fs")
         self.range.moved.connect(self._range_moved)
         self.controls = control_panel(self.axis_choice, self.floor, self.range)
-        self._timer = QTimer(self)
-        self._timer.setSingleShot(True)
-        self._timer.setInterval(_LIVE_MS)
-        self._timer.timeout.connect(self._draw_maps)
 
     # -------------------------------------------------- what a run's panel calls
 
@@ -1151,6 +1162,8 @@ class AlongPage(PageView):
         """Make the empty grid and the chooser."""
         super().__init__(session)
         self.wanted: tuple[str, ...] = ()
+        self.reference: float | None = None
+        self._said = ""
         self._stats: Mapping[str, Mapping[str, Any]] = {}
         self._z = np.zeros(0)
         self._plots: list[LinePlot] = []
@@ -1209,6 +1222,19 @@ class AlongPage(PageView):
         """Drop what was read, as another file opens."""
         self._stats = {}
 
+    def set_reference(self, z: float | None) -> None:
+        """Say where to mark a reference distance, as Marburger's is for a filament.
+
+        Parameters
+        ----------
+        z : float or None
+            The distance, m; ``None`` for none.
+        """
+        if z != self.reference:
+            self.reference = z
+            if self._stats:
+                self._draw()
+
     def _show(self, value: Mapping[str, Any]) -> None:
         """Take what was recorded.
 
@@ -1221,7 +1247,7 @@ class AlongPage(PageView):
         self._z = np.asarray(value["z"], float)
         accepted = np.asarray(value["steps"]["z"]).size
         rejected = np.asarray(value["steps"]["rejected_z"]).size
-        self.note.setText(
+        self._said = (
             f"{len(self._stats)} quantities at {self._z.size} planes; "
             f"{accepted} steps, {rejected} rejected."
         )
@@ -1284,6 +1310,8 @@ class AlongPage(PageView):
         """Lay out a plot per quantity ticked."""
         clear_layout(self.grid)
         self._plots = []
+        marked = "" if self.reference is None else " Dotted: Marburger's distance."
+        self.note.setText(self._said + marked)
         name, factor = length_unit(float(self._z[-1]) if self._z.size else 1.0)
         names = self._names()
         for index, stat in enumerate(names):
@@ -1296,7 +1324,7 @@ class AlongPage(PageView):
             plot = LinePlot(
                 xlabel=f"z ({name})",
                 ylabel=label,
-                names=[str(c["label"]) for c in columns],
+                names=_column_names(stat, columns),
                 unit=shown_unit,
             )
             plot.along = "x"
@@ -1309,6 +1337,13 @@ class AlongPage(PageView):
             plot.set_data(self._z * factor, [y * scale for y in ys])
             plot.fit()
             plot.setProperty("z_factor", factor)
+            if self.reference is not None:
+                line = pg.InfiniteLine(
+                    self.reference * factor,
+                    angle=90,
+                    pen=pg.mkPen(ORANGE, style=Qt.PenStyle.DotLine),
+                )
+                plot.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             self._plots.append(plot)
             row, col = (index // 2, index % 2) if len(names) > 1 else (0, 0)
             self.grid.addLayout(_plotted(_title(stat), plot), row, col)
@@ -1366,6 +1401,38 @@ class AlongPage(PageView):
             Its key.
         """
         return "along"
+
+
+_COLUMNS = {"beam_radius": ("second moment", "1/e²")}
+"""What the columns of a statistic mean, where solprop numbers them."""
+
+
+def _column_names(stat: str, columns: Sequence[Mapping[str, Any]]) -> list[str]:
+    """Return what a statistic's curves are called.
+
+    Parameters
+    ----------
+    stat : str
+        The statistic.
+    columns : Sequence of Mapping
+        Its columns, as the kernel gives them.
+
+    Returns
+    -------
+    list of str
+        Their names.
+
+    Examples
+    --------
+    >>> _column_names("beam_radius", [{"label": "a"}, {"label": "b"}])
+    ['second moment', '1/e²']
+    >>> _column_names("energy", [{"label": "a"}])
+    ['a']
+    """
+    named = _COLUMNS.get(stat)
+    if named is not None and len(named) == len(columns):
+        return list(named)
+    return [str(column["label"]) for column in columns]
 
 
 def _title(name: str) -> str:
@@ -1772,6 +1839,765 @@ def _facts_text(facts: Mapping[str, Any]) -> str:
     return "\n".join(lines)
 
 
+class BeamOverviewPage(OverviewPage):
+    """A filament: its fluence along z, on-axis spectrum, and the plane across the beam.
+
+    While a run goes it shows the fluence and the beam's spectrum, which each plane
+    reports; the on-axis spectrum and the plane's map are read from the file after.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the maps and the plane's profile."""
+        self._data: Mapping[str, Any] | None = None
+        self._scale = "dB"
+        self._fluence_floor = -30.0
+        super().__init__(session)
+
+    def _build(self) -> None:
+        """Make the plots and their controls."""
+        session = self.session
+        self.fluence_map = MapPlot(
+            xlabel="z", ylabel="r (µm)", colours="inferno", unit="dB"
+        )
+        self.fluence_map.set_along("x")
+        self.spectrum_map = MapPlot(
+            xlabel=_AXIS_LABEL["wavelength"], ylabel="z", colours="viridis", unit="dB"
+        )
+        self.spectrum_map.set_along("y")
+        self.across_map = MapPlot(
+            xlabel=_AXIS_LABEL["wavelength"],
+            ylabel="r (µm)",
+            colours="viridis",
+            unit="dB",
+        )
+        self.profile = LinePlot(xlabel="r (µm)", ylabel="Fluence (J/cm²)", unit="J/cm²")
+        for plot in (self.fluence_map, self.spectrum_map):
+            plot.plane_at.connect(self._picked)
+        self.fluence_map.reader = self._read_fluence
+        self.spectrum_title = named_label("Beam spectrum along z", "plotTitle")
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        grid.setRowStretch(0, 3)
+        grid.setRowStretch(1, 2)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.addLayout(_plotted("Fluence along z", self.fluence_map), 0, 0)
+        right = QVBoxLayout()
+        right.setContentsMargins(0, 0, 0, 0)
+        right.setSpacing(2)
+        right.addWidget(self.spectrum_title)
+        right.addWidget(self.spectrum_map, 1)
+        grid.addLayout(right, 0, 1)
+        grid.addLayout(_plotted("Across the beam at this plane", self.across_map), 1, 0)
+        grid.addLayout(_plotted("Fluence at this plane", self.profile), 1, 1)
+        self.axis_choice = Segments("Spectral axis", _AXES, session.options.axis)
+        self.axis_choice.chosen.connect(lambda axis: session.set_options(axis=axis))
+        self.scale_choice = Segments(
+            "Fluence scale", (("dB", "dB"), ("linear", "Linear")), self._scale
+        )
+        self.scale_choice.chosen.connect(self._scale_chosen)
+        self.fluence_floor = LabelledSlider("Fluence floor", -50, -5, -30, " dB")
+        self.fluence_floor.moved.connect(self._fluence_floor_moved)
+        self.floor = LabelledSlider(
+            "Spectrum floor", -80, -10, int(session.options.floor), " dB"
+        )
+        self.floor.moved.connect(self._floor_moved)
+        self.controls = control_panel(
+            self.axis_choice, self.scale_choice, self.fluence_floor, self.floor
+        )
+        self._z = np.zeros(0)
+        self._r = np.zeros(0)
+        self._flu = np.zeros((0, 0))
+        self._spec = np.zeros((0, 0))
+        self._x = np.zeros(0)
+        self._reach = 0.0
+        self._spectral_view = (0.0, 1.0)
+
+    def forget(self) -> None:
+        """Drop what was read, as another file opens."""
+        self._data = None
+
+    def clear(self) -> None:
+        """Start empty, for a new run."""
+        self._data = None
+        self.rows = []
+        self.extent = None
+        self.shown = 0
+        self.following = True
+        self._live = True
+        self._flu = np.zeros((0, 0))
+        for plot in (self.fluence_map, self.spectrum_map, self.across_map):
+            plot.say("Waiting for the first plane…")
+        self.profile.set_data(np.zeros(0), [np.zeros(0)])
+
+    def refresh(self) -> None:
+        """Read the file back; a run going draws from its rows."""
+        session = self.session
+        if session.path is None or self._live:
+            self._draw_maps()
+            return
+        if self._data is None or self._data["axis"] != session.options.axis:
+            if not self.rows:
+                self.fluence_map.say("Reading…")
+                self.spectrum_map.say("Reading…")
+            session.ask(
+                "beam_overview",
+                {"path": session.path, "axis": session.options.axis},
+                self._read_back,
+                key="page-beam-overview",
+                failed=self._refused,
+            )
+            return
+        self._draw_maps()
+
+    def _read_back(self, value: Mapping[str, Any]) -> None:
+        """Take what the file holds.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_overview`` reply.
+        """
+        self._data = value
+        self._draw_maps()
+
+    def _refused(self, reason: str) -> None:
+        """Say why there is nothing to draw.
+
+        Parameters
+        ----------
+        reason : str
+            The reason solprop gave.
+        """
+        self.fluence_map.say(reason)
+
+    def _gather(self) -> bool:
+        """Take the maps' data from the file, or from a run's rows so far.
+
+        Returns
+        -------
+        bool
+            Whether there is anything to draw.
+        """
+        axis = self.session.options.axis
+        if self._data is not None and not self._live:
+            self._z = np.asarray(self._data["z"], float)
+            self._r = np.asarray(self._data["r"], float) * 1e6
+            self._flu = np.asarray(self._data["fluence"], float) * 1e-4
+            self._x = np.asarray(self._data["x"], float) * _AXIS_SCALE[axis]
+            self._spec = decibels(np.maximum(self._data["on_axis"], 0.0))
+            self.spectrum_title.setText("On-axis spectrum along z")
+            return self._z.size > 0
+        rows = [row for row in self.rows if "profile" in row]
+        if not rows or axis not in self.spectra:
+            return False
+        self._z = np.array([float(row["z"]) for row in rows])
+        self._r = np.asarray(rows[0]["profile"]["x"], float) * 1e6
+        self._flu = (
+            np.array([np.asarray(r["profile"]["y"], float) for r in rows]) * 1e-4
+        )
+        self._x = self.spectra[axis] * _AXIS_SCALE[axis]
+        self._spec = decibels(
+            np.array([np.asarray(r["density"][axis], float) for r in rows])
+        )
+        self.spectrum_title.setText("Beam spectrum along z")
+        return True
+
+    def _draw_maps(self) -> None:
+        """Draw the fluence and the spectrum along z."""
+        if not self._gather():
+            return
+        options = self.session.options
+        z = self._z
+        reach = self.extent[1] if self.extent and self._live else float(z[-1])
+        name, factor = length_unit(reach or 1.0)
+        self._unit = (name, factor)
+        self._reach = beam_reach(self._r, self._flu)
+        rows, first, step = even_rows(z)
+        y, mirrored = mirrored_rows(self._r, self._flu[rows], self._reach)
+        x_low = (first - step / 2) * factor
+        width = step * rows.size * factor
+        view = (float(z[0]) * factor, max(reach, float(z[-1])) * factor)
+        self.fluence_map.set_xlabel(f"z ({name})")
+        self.spectrum_map.set_ylabel(f"z ({name})")
+        self.spectrum_map.set_xlabel(_AXIS_LABEL[options.axis])
+        self.across_map.set_xlabel(_AXIS_LABEL[options.axis])
+        self._mirrored = mirrored.T
+        self._y = y
+        self._fluence_rect = (x_low, float(y[0]), width, float(y[-1] - y[0]))
+        self._fluence_view = (view, (float(y[0]), float(y[-1])))
+        self._show_fluence()
+        x = self._x
+        lit = x[(self._spec > options.floor).any(axis=0)]
+        span = (
+            (float(lit[0]), float(lit[-1])) if lit.size else (float(x[0]), float(x[-1]))
+        )
+        margin = 0.05 * (span[1] - span[0])
+        self._spectral_view = (span[0] - margin, span[1] + margin)
+        self.spectrum_map.show_map(
+            self._spec[rows],
+            (float(x[0]), x_low, float(x[-1] - x[0]), width),
+            (self._spectral_view, view),
+            (options.floor, 0.0),
+        )
+        self.profile.set_view(
+            (0.0, self._reach), (0.0, float(np.nanmax(self._flu)) * 1.05 or 1.0)
+        )
+        self._draw_plane()
+
+    def _show_fluence(self) -> None:
+        """Draw the fluence map on the scale chosen."""
+        data = self._mirrored
+        top = float(np.nanmax(data)) or 1.0
+        linear = self._scale == "linear"
+        self.fluence_map.show_map(
+            data if linear else decibels(np.maximum(data, 0.0)),
+            self._fluence_rect,
+            self._fluence_view,
+            (0.0, top) if linear else (self._fluence_floor, 0.0),
+        )
+
+    def _draw_plane(self) -> None:
+        """Draw the plane selected, and mark it on the maps."""
+        if self._flu.size == 0:
+            return
+        at = min(self.shown, self._flu.shape[0] - 1)
+        z = float(self._z[at]) * self._unit[1]
+        self.fluence_map.set_mark(z)
+        self.spectrum_map.set_mark(z)
+        self.profile.set_data(self._r, [self._flu[at]])
+        session = self.session
+        if self._live or session.path is None or not session.planes:
+            self.across_map.say("Shown when the run has finished.")
+            return
+        session.ask(
+            "beam_plane",
+            {
+                "path": session.path,
+                "index": session.index,
+                "axis": session.options.axis,
+            },
+            self._show_across,
+            key="page-beam-across",
+            failed=self.across_map.say,
+        )
+
+    def _show_across(self, value: Mapping[str, Any]) -> None:
+        """Draw the plane's spectrum across the beam.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_plane`` reply.
+        """
+        axis = str(value["axis"])
+        x = np.asarray(value["x"], float) * _AXIS_SCALE[axis]
+        r = np.asarray(value["r"], float) * 1e6
+        image = np.maximum(np.asarray(value["spectrum"], float), 0.0)
+        reach = self._reach or float(r[-1])
+        y, rows = mirrored_rows(r, image.T, reach)
+        half = y >= 0
+        self.across_map.show_map(
+            decibels(rows[:, half].T),
+            (float(x[0]), 0.0, float(x[-1] - x[0]), reach),
+            (self._spectral_view, (0.0, reach)),
+            (self.session.options.floor, 0.0),
+        )
+
+    def _scale_chosen(self, value: object) -> None:
+        """Take the fluence's scale.
+
+        Parameters
+        ----------
+        value : object
+            ``"dB"`` or ``"linear"``.
+        """
+        self._scale = str(value)
+        unit = "dB" if self._scale == "dB" else "J/cm²"
+        self.fluence_map.bar.axis.setLabel(unit)
+        if self._flu.size:
+            self._show_fluence()
+
+    def _fluence_floor_moved(self, value: int) -> None:
+        """Move the fluence's floor, at no cost in the data.
+
+        Parameters
+        ----------
+        value : int
+            The floor, dB.
+        """
+        self._fluence_floor = float(value)
+        if self._scale == "dB":
+            self.fluence_map.set_levels((float(value), 0.0))
+
+    def _floor_moved(self, value: int) -> None:
+        """Move the spectrum's floor, at no cost in the data.
+
+        Parameters
+        ----------
+        value : int
+            The floor, dB.
+        """
+        self.session.options = replace(self.session.options, floor=float(value))
+        self.spectrum_map.set_levels((float(value), 0.0))
+        self.across_map.set_levels((float(value), 0.0))
+
+    def _read_fluence(self, x: float, y: float) -> str:
+        """Say what is at a point of the fluence map.
+
+        Parameters
+        ----------
+        x : float
+            The position along z, in the map's unit.
+        y : float
+            The radius, µm.
+
+        Returns
+        -------
+        str
+            The readout.
+        """
+        if self._flu.size == 0:
+            return ""
+        z = self._z * self._unit[1]
+        row = int(np.argmin(np.abs(z - x)))
+        at = int(np.argmin(np.abs(self._r - abs(y))))
+        text = f"{x:.3g} {self._unit[0]}, {abs(y):.3g} µm"
+        return f"{text}: {self._flu[row, at]:.3g} J/cm²"
+
+    def data(self) -> tuple[list[str], np.ndarray] | None:
+        """Return the plane's fluence, as columns.
+
+        Returns
+        -------
+        tuple or None
+            The radius and the fluence, in the columns' units.
+        """
+        if self._flu.size == 0:
+            return None
+        at = min(self.shown, self._flu.shape[0] - 1)
+        return ["r (um)", "fluence (J/cm2)"], np.column_stack((self._r, self._flu[at]))
+
+    def figure(self) -> dict[str, object] | None:
+        """Say that solprop's plots do not draw this page.
+
+        Returns
+        -------
+        None
+            No figure: solprop has no plot of a beam's maps.
+        """
+        return None
+
+    def python(self) -> str | None:
+        """Return the page's snippet.
+
+        Returns
+        -------
+        str
+            Its key.
+        """
+        return "beam_overview"
+
+
+class BeamPlanePage(PageView):
+    """One plane across the beam: in time, in its spectrum, and its fluence.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the maps and the profile."""
+        super().__init__(session)
+        self.in_time = MapPlot(
+            xlabel="Time (fs)", ylabel="r (µm)", colours="inferno", unit="10¹² W/cm²"
+        )
+        self.in_spectrum = MapPlot(
+            xlabel=_AXIS_LABEL["wavelength"],
+            ylabel="r (µm)",
+            colours="viridis",
+            unit="dB",
+        )
+        self.profile = LinePlot(xlabel="r (µm)", ylabel="Fluence (J/cm²)", unit="J/cm²")
+        self._last: Mapping[str, Any] | None = None
+        self._reach = 0.0
+        self._half_time = 0.0
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        grid.setRowStretch(0, 3)
+        grid.setRowStretch(1, 2)
+        grid.addLayout(_plotted("Across the beam, in time", self.in_time), 0, 0)
+        grid.addLayout(
+            _plotted("Across the beam, in its spectrum", self.in_spectrum), 0, 1
+        )
+        grid.addLayout(_plotted("Fluence", self.profile), 1, 0, 1, 2)
+        self.axis_choice = Segments("Spectral axis", _AXES, session.options.axis)
+        self.axis_choice.chosen.connect(lambda axis: session.set_options(axis=axis))
+        self.floor = LabelledSlider(
+            "Floor", -80, -10, int(session.options.floor), " dB"
+        )
+        self.floor.moved.connect(
+            lambda value: self.in_spectrum.set_levels((float(value), 0.0))
+        )
+        self.reach = LabelledSlider("Radius shown", 10, 5000, 500, " µm")
+        self.reach.moved.connect(self._reach_moved)
+        self.time_range = LabelledSlider("Time range", 5, 500, 60, " fs")
+        self.time_range.moved.connect(self._window_moved)
+        self.controls = control_panel(
+            self.axis_choice, self.floor, self.reach, self.time_range
+        )
+
+    def refresh(self) -> None:
+        """Ask for the plane selected."""
+        session = self.session
+        if session.path is None or not session.planes:
+            return
+        session.ask(
+            "beam_plane",
+            {
+                "path": session.path,
+                "index": session.index,
+                "axis": session.options.axis,
+            },
+            self._show,
+            key="page-beam-plane",
+            failed=self.in_time.say,
+        )
+
+    def _show(self, value: Mapping[str, Any]) -> None:
+        """Draw a plane.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_plane`` reply.
+        """
+        self._last = value
+        axis = str(value["axis"])
+        r = np.asarray(value["r"], float) * 1e6
+        t = np.asarray(value["t"], float) * _FS
+        fluence = np.asarray(value["fluence"], float) * 1e-4
+        if self._reach <= 0:
+            self._reach = beam_reach(r, fluence[None, :])
+            self.reach.set_range(10, max(round(float(r[-1])), 11))
+            self.reach.set_value(round(self._reach))
+        intensity = np.maximum(np.asarray(value["intensity"], float), 0.0) * 1e-16
+        if self._half_time <= 0:
+            self._half_time = pulse_window(t, intensity.max(axis=0))
+            self.time_range.set_range(1, max(round(float(np.abs(t).max())), 2))
+            self.time_range.set_value(round(self._half_time))
+        reach = self._reach
+        y, image = mirrored_rows(r, intensity.T, reach)
+        self.in_time.show_map(
+            image.T,
+            (float(t[0]), float(y[0]), float(t[-1] - t[0]), float(y[-1] - y[0])),
+            ((-self._half_time, self._half_time), (float(y[0]), float(y[-1]))),
+            (0.0, float(image.max()) or 1.0),
+        )
+        x = np.asarray(value["x"], float) * _AXIS_SCALE[axis]
+        spectrum = np.maximum(np.asarray(value["spectrum"], float), 0.0)
+        y, rows = mirrored_rows(r, spectrum.T, reach)
+        self.in_spectrum.set_xlabel(_AXIS_LABEL[axis])
+        self.in_spectrum.show_map(
+            decibels(rows.T),
+            (float(x[0]), float(y[0]), float(x[-1] - x[0]), float(y[-1] - y[0])),
+            ((float(x[0]), float(x[-1])), (float(y[0]), float(y[-1]))),
+            (float(self.floor.slider.value()), 0.0),
+        )
+        self.profile.set_data(r, [fluence])
+        self.profile.set_view((0.0, reach), (0.0, float(fluence.max()) * 1.05 or 1.0))
+
+    def _reach_moved(self, value: int) -> None:
+        """Show another radius.
+
+        Parameters
+        ----------
+        value : int
+            The radius, µm.
+        """
+        self._reach = float(value)
+        if self._last is not None:
+            self._show(self._last)
+
+    def _window_moved(self, value: int) -> None:
+        """Show another time range, at no cost in the data.
+
+        Parameters
+        ----------
+        value : int
+            The half-width, fs.
+        """
+        self._half_time = float(value)
+        self.in_time.box.setXRange(-value, value, padding=0)
+
+    def data(self) -> tuple[list[str], np.ndarray] | None:
+        """Return the plane's fluence, as columns.
+
+        Returns
+        -------
+        tuple or None
+            The radius and the fluence, in the columns' units.
+        """
+        if self.profile.xs.size == 0:
+            return None
+        return ["r (um)", "fluence (J/cm2)"], np.column_stack(
+            (self.profile.xs, self.profile.ys[0])
+        )
+
+    def python(self) -> str | None:
+        """Return the page's snippet.
+
+        Returns
+        -------
+        str
+            Its key.
+        """
+        return "beam_plane"
+
+
+class OnAxisPage(PageView):
+    """One plane on the beam's axis: its pulse, its spectrum and its spectrogram.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the plots and the gate."""
+        super().__init__(session)
+        self.pulse = LinePlot(xlabel="Time (fs)", ylabel="Intensity", unit="")
+        self.spectrum = LinePlot(
+            xlabel=_AXIS_LABEL["wavelength"], ylabel="dB", unit="dB"
+        )
+        self.map = MapPlot(
+            xlabel="Time (fs)",
+            ylabel=_AXIS_LABEL["wavelength"],
+            colours="viridis",
+            unit="dB",
+        )
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setVerticalSpacing(10)
+        grid.setRowStretch(0, 1)
+        grid.setRowStretch(1, 1)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.addLayout(_plotted("Pulse on the axis", self.pulse), 0, 0)
+        grid.addLayout(_plotted("Spectrum on the axis", self.spectrum), 1, 0)
+        grid.addLayout(_plotted("Spectrogram on the axis", self.map), 0, 1, 2, 1)
+        self.axis_choice = Segments("Spectral axis", _AXES, session.options.axis)
+        self.axis_choice.chosen.connect(lambda axis: session.set_options(axis=axis))
+        self.floor = LabelledSlider(
+            "Floor", -80, -10, int(session.options.floor), " dB"
+        )
+        self.floor.moved.connect(lambda v: self.map.set_levels((float(v), 0.0)))
+        self.gate = LabelledSlider("Gate", 1, 200, 20, " fs")
+        self.gate.moved.connect(
+            lambda v: session.set_options(gate_fwhm=float(v) * 1e-15)
+        )
+        self.controls = control_panel(self.axis_choice, self.floor, self.gate)
+
+    def refresh(self) -> None:
+        """Ask for the plane selected."""
+        session = self.session
+        if session.path is None or not session.planes:
+            return
+        session.ask(
+            "beam_on_axis",
+            {
+                "path": session.path,
+                "index": session.index,
+                "axis": session.options.axis,
+                "gate_fwhm": session.options.gate_fwhm,
+                "positions": session.options.positions,
+            },
+            self._show,
+            key="page-beam-axis",
+            failed=self.map.say,
+        )
+
+    def _show(self, value: Mapping[str, Any]) -> None:
+        """Draw a plane on the axis.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_on_axis`` reply.
+        """
+        axis = str(value["axis"])
+        t = np.asarray(value["t"], float) * _FS
+        power = np.asarray(value["power"], float)
+        unit, scale = scaled_unit(power, "W/m²")
+        self.pulse.set_ylabel(f"Intensity ({unit})")
+        self.pulse.unit = unit
+        self.pulse.set_data(t, [power * scale])
+        half = pulse_window(t, np.maximum(power, 0.0))
+        self.pulse.set_view(
+            (-half, half), (0.0, float(power.max()) * scale * 1.05 or 1.0)
+        )
+        x = np.asarray(value["x"], float) * _AXIS_SCALE[axis]
+        floor = float(self.floor.slider.value())
+        self.spectrum.set_xlabel(_AXIS_LABEL[axis])
+        self.spectrum.set_data(x, [decibels(np.maximum(value["spectrum"], 0.0))])
+        drawn = value["spectrogram"]
+        map_x = np.asarray(drawn["x"], float) * _AXIS_SCALE[axis]
+        map_t = np.asarray(drawn["t"], float) * _FS
+        self.spectrum.set_view((float(map_x[0]), float(map_x[-1])), (floor, 3.0))
+        self.map.set_ylabel(_AXIS_LABEL[axis])
+        self.map.show_map(
+            decibels(np.asarray(drawn["values"], float)),
+            (
+                float(map_t[0]),
+                float(map_x[0]),
+                float(map_t[-1] - map_t[0]),
+                float(map_x[-1] - map_x[0]),
+            ),
+            ((-half * 2, half * 2), (float(map_x[0]), float(map_x[-1]))),
+            (floor, 0.0),
+        )
+        self.gate.set_value(round(float(drawn["gate_fwhm"]) * _FS))
+        self.note.setText(f"Gate {float(drawn['gate_fwhm']) * _FS:.3g} fs")
+
+    def python(self) -> str | None:
+        """Return the page's snippet.
+
+        Returns
+        -------
+        str
+            Its key.
+        """
+        return "on_axis"
+
+
+class FarFieldPage(PageView):
+    """One plane's far field: angle against wavelength, where conical emission shows.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the map and its controls."""
+        super().__init__(session)
+        self.map = MapPlot(
+            xlabel=_AXIS_LABEL["wavelength"],
+            ylabel="Angle (mrad)",
+            colours="viridis",
+            unit="dB",
+        )
+        self._angles = np.zeros(0)
+        self._x = np.zeros(0)
+        self._db = np.zeros((0, 0))
+        self.map.reader = self._read
+        column = QVBoxLayout(self)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(6)
+        column.addWidget(self.note)
+        column.addWidget(self.map, 1)
+        self.axis_choice = Segments("Spectral axis", _AXES, session.options.axis)
+        self.axis_choice.chosen.connect(lambda axis: session.set_options(axis=axis))
+        self.floor = LabelledSlider(
+            "Floor", -80, -10, int(session.options.floor), " dB"
+        )
+        self.floor.moved.connect(lambda v: self.map.set_levels((float(v), 0.0)))
+        self.range = LabelledSlider("Angle shown", 1, 500, 50, " mrad")
+        self.range.moved.connect(lambda v: self.map.box.setYRange(0, v, padding=0))
+        self.controls = control_panel(self.axis_choice, self.floor, self.range)
+        self.note.setText("Energy per solid angle, the angle being outside the medium.")
+
+    def refresh(self) -> None:
+        """Ask for the plane selected's far field."""
+        session = self.session
+        if session.path is None or not session.planes:
+            return
+        session.ask(
+            "beam_far_field",
+            {
+                "path": session.path,
+                "index": session.index,
+                "axis": session.options.axis,
+            },
+            self._show,
+            key="page-beam-far",
+            failed=self.map.say,
+        )
+
+    def _show(self, value: Mapping[str, Any]) -> None:
+        """Draw a far field.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_far_field`` reply.
+        """
+        axis = str(value["axis"])
+        self._angles = np.asarray(value["theta"], float) * 1e3
+        self._x = np.asarray(value["x"], float) * _AXIS_SCALE[axis]
+        self._db = decibels(np.asarray(value["values"], float))
+        x, theta = self._x, self._angles
+        floor = float(self.floor.slider.value())
+        lit = (self._db > floor).any(axis=1)
+        reach = float(theta[lit].max()) * 1.1 if lit.any() else float(theta[-1])
+        reach = min(max(reach, float(theta[1])), float(theta[-1]))
+        self.range.set_range(1, max(round(float(theta[-1])), 2))
+        self.range.set_value(round(reach))
+        self.map.set_xlabel(_AXIS_LABEL[axis])
+        self.map.show_map(
+            self._db,
+            (float(x[0]), 0.0, float(x[-1] - x[0]), float(theta[-1])),
+            ((float(x[0]), float(x[-1])), (0.0, reach)),
+            (floor, 0.0),
+        )
+
+    def _read(self, x: float, y: float) -> str:
+        """Say what is at a point of the map.
+
+        Parameters
+        ----------
+        x : float
+            The position on the spectral axis.
+        y : float
+            The angle, mrad.
+
+        Returns
+        -------
+        str
+            The readout.
+        """
+        if self._db.size == 0:
+            return ""
+        column = int(np.clip(np.searchsorted(self._x, x), 0, self._x.size - 1))
+        row = int(np.clip(np.searchsorted(self._angles, y), 0, self._angles.size - 1))
+        unit = _AXIS_UNIT[self.session.options.axis]
+        return f"{x:.4g} {unit}, {y:.3g} mrad: {self._db[row, column]:.1f} dB"
+
+    def python(self) -> str | None:
+        """Return the page's snippet.
+
+        Returns
+        -------
+        str
+            Its key.
+        """
+        return "far_field"
+
+
 PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "overview": OverviewPage,
     "plane": PlanePage,
@@ -1780,5 +2606,9 @@ PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "modes": ModesPage,
     "compress": CompressPage,
     "health": HealthPage,
+    "beam_overview": BeamOverviewPage,
+    "beam_plane": BeamPlanePage,
+    "on_axis": OnAxisPage,
+    "far_field": FarFieldPage,
 }
 """The page each key of a class's rail shows."""

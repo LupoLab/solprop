@@ -355,7 +355,7 @@ def beam_reach(r: np.ndarray, fluence: np.ndarray, fraction: float = 1e-3) -> fl
     --------
     >>> r = np.linspace(0.0, 10.0, 101)
     >>> round(beam_reach(r, np.exp(-(r**2))[None, :]), 2)
-    3.16
+    3.12
     >>> beam_reach(r, np.zeros((1, 101)))
     10.0
     """

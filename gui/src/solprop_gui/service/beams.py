@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""What a radial beam's analysis pages show, read from its file with solprop's readers."""
+"""What a radial beam's pages show, read from its file with solprop's readers."""
 
 from collections.abc import Mapping
 
@@ -101,8 +101,9 @@ def beam_plane(payload: Payload) -> dict[str, object]:
     Returns
     -------
     dict
-        ``r`` and ``t``, ``intensity`` (W/m^2, ``(n_r, n_t)``), ``axis``, ``x`` and
-        ``spectrum``, the spectral fluence density on even bins, ``(n_r, x.size)``.
+        ``r`` and ``t``, ``intensity`` (W/m^2, ``(n_r, n_t)``), ``fluence`` (J/m^2, that
+        integrated in time), ``axis``, ``x`` and ``spectrum``, the spectral fluence
+        density on even bins, ``(n_r, x.size)``.
     """
     path = str(payload["path"])
     axis = str(payload.get("axis") or "wavelength")
@@ -115,6 +116,7 @@ def beam_plane(payload: Payload) -> dict[str, object]:
         "r": r,
         "t": t,
         "intensity": intensity.astype(np.float32),
+        "fluence": intensity.sum(axis=1) * float(t[1] - t[0]),
         "axis": axis,
         "x": bins,
         "spectrum": image,
@@ -153,6 +155,8 @@ def beam_on_axis(payload: Payload) -> dict[str, object]:
         )
     bins, image = even_rows(map_x, values, _window(path, axis, map_x, values), _ROWS)
     span = float(map_t[-1] - map_t[0])
+    # In arbitrary units, and a field in V/m squares beyond single precision.
+    image = image / (float(image.max()) or 1.0)
     return {
         "t": t,
         "power": power,

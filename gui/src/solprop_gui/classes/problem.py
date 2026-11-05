@@ -693,9 +693,9 @@ def _switched(
         Each path and its value.
     """
     held = _held(build, row.path)
-    current = [dict(e) for e in (held if isinstance(held, Sequence) else ())]
+    current = deepcopy(list(held)) if isinstance(held, Sequence) else []
     wanted = _held(example, row.path)
-    source = [dict(e) for e in (wanted if isinstance(wanted, Sequence) else ())]
+    source = list(wanted) if isinstance(wanted, Sequence) else []
     kept = [e for e in current if e.get("type") != row.member]
     if on:
         kept += deepcopy([e for e in source if e.get("type") == row.member])
@@ -703,15 +703,16 @@ def _switched(
     kept.sort(
         key=lambda e: order.index(e.get("type")) if e.get("type") in order else 99
     )
-    changed = {**build, row.path: kept}
+    # The list's own entries are written in place, so the rows' values reach them.
+    tree = {row.path: kept}
     for section in problem.sections:
-        for field in section.fields:
-            value = _held(build, field.path)
-            for pattern in field.also if value is not MISSING else ():
-                if not pattern.startswith(f"{row.path}["):
-                    continue
-                for path in linked_paths(changed, pattern):
-                    set_path(changed, path, value)
+        for linked in section.fields:
+            value = _held(build, linked.path)
+            for pattern in linked.also if value is not MISSING else ():
+                if pattern.startswith(f"{row.path}["):
+                    for path in linked_paths(tree, pattern):
+                        tree = set_path(tree, path, value)
+    kept = tree[row.path]
     changes: list[tuple[str, object]] = [(row.path, kept)]
     for path in row.goes_with:
         changes.append((path, _held(example, path) if on else MISSING))

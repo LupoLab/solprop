@@ -7,15 +7,17 @@
 import warnings
 from collections.abc import Iterator
 from pathlib import Path
+from typing import Any
 
 import pytest
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
+from solprop.output import open_file
 
 from conftest import TINY
-from solprop_gui.classes.catalog import CLASSES, GENERIC_PAGES
+from solprop_gui.classes.catalog import CLASSES, FILAMENT, GENERIC_PAGES
 from solprop_gui.classes.problem import AnalysisPage, ProblemClass
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import MISSING, RecipeModel
@@ -25,9 +27,13 @@ from solprop_gui.ui import theme as ui_theme
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis_pages import (
     AlongPage,
+    BeamOverviewPage,
+    BeamPlanePage,
     CompressPage,
+    FarFieldPage,
     HealthPage,
     ModesPage,
+    OnAxisPage,
     PlanePage,
     SpectrogramPage,
 )
@@ -116,9 +122,10 @@ def test_each_class_opens_its_sheet_ready_to_run(
     assert model is not None
     # Every row shows what the example holds; none of it is the front end's.
     shown = [
-        path
+        row.path
         for section in problem.sections
-        for path in (row.path for row in section.fields)
+        for row in section.fields
+        if row.member is None
     ]
     for path in shown:
         assert (path, "build") in window.sheet.rows
@@ -241,9 +248,9 @@ def test_the_curve_is_drawn_and_marked(window: WorkflowWindow, qtbot: QtBot) -> 
     open_tiny(window, qtbot)
     sheet = window.sheet
     qtbot.waitUntil(lambda: sheet.curve.xs.size > 0, timeout=WAIT_MS)
-    assert sheet.marks["pump"].isVisible()
-    assert sheet.marks["pump"].value() == pytest.approx(800.0)
-    assert sheet.marks["zdw"].isVisible()
+    assert sheet.marks["Pump"].isVisible()
+    assert sheet.marks["Pump"].value() == pytest.approx(800.0)
+    assert sheet.marks["ZDW"].isVisible()
     qtbot.waitUntil(lambda: "of output" in sheet.ready.text(), timeout=WAIT_MS)
     qtbot.waitUntil(lambda: sheet.derived["loss"].text() != "…", timeout=WAIT_MS)
 
@@ -602,3 +609,181 @@ def test_closing_asks_before_losing_a_setup(
     assert asked == ["Unsaved setup"]
     assert window.isVisible()
     window.confirm = lambda _title, _text: "discard"
+
+
+@pytest.fixture(scope="module")
+def filament_run(tmp_path_factory: pytest.TempPathFactory) -> Path:
+    """Return a finished short radial run with a plasma, with the filament's recipe."""
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only the tests that need it
+
+    text = Recipe.example("filament").to_text()
+    # Far fewer planes and nodes, over a short distance: the pages, not a filament.
+    build: Any = Recipe.loads(text).to_dict()
+    build["build"]["grid"]["length"] = "1 cm"
+    build["build"]["space"]["n_r"] = 32
+    build["build"]["settings"]["save_planes"] = ["0.5 cm", "1 cm"]
+    build["build"]["settings"]["dz_init"] = "1 mm"
+    recipe = Recipe.from_dict(build)
+    path = tmp_path_factory.mktemp("filament") / "run.h5"
+    recipe.run(path)
+    return path
+
+
+def test_the_filament_s_sheet_links_its_rows(  # noqa: PLR0915 - one story
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("filament")
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is FILAMENT, timeout=WAIT_MS)
+    ratio = sheet.derived["power_ratio"]
+    qtbot.waitUntil(lambda: ratio.text() == "3", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: sheet.marks != {}, timeout=WAIT_MS)
+    model = window.document.model
+    assert model is not None
+    # A template arrives for the switches.
+    qtbot.waitUntil(lambda: bool(sheet._example), timeout=WAIT_MS)
+    gas = sheet.rows["medium.material", "build"]
+    assert gas.choice.currentText().startswith("Argon")
+    gas.choice.setCurrentIndex(gas.choice.findData("Kr"))
+    assert model.get("responses[1].rate.source") == "Kr"
+    qtbot.waitUntil(lambda: ratio.text() != "3", timeout=WAIT_MS)
+    window.document.undo.undo()
+    assert model.get("responses[1].rate.source") == "Ar"
+    box = sheet.rows["initial.propz", "build"].number.number
+    box.setText("10")
+    box.textEdited.emit("10")
+    assert str(model.get("initial.propz")).startswith("-10")
+    assert box.text() == "10"
+    window.document.undo.undo()
+    switches = {field.member: check for field, check in sheet._switches}
+    plasma = switches["EnvelopePlasmaResponse"]
+    assert plasma.isChecked()
+    plasma.click()
+    assert len(model.get("responses")) == 1  # pyright: ignore[reportArgumentType]
+    assert model.get("settings.ionisation_field_range") is MISSING
+    plasma.click()
+    assert len(model.get("responses")) == 2  # pyright: ignore[reportArgumentType]
+    planes = sheet.rows["settings.save_planes", "build"].number.number
+    planes.setText("10")
+    planes.textEdited.emit("10")
+    held = model.get("settings.save_planes")
+    assert isinstance(held, list)
+    assert len(held) == 10
+    sheet.apply_lens(50e-6, 0.1)
+    assert str(model.get("initial.waist")).endswith("um")
+    assert str(model.get("initial.propz")).startswith("-")
+    sheet.lens_editor.focal.number.setText("x")
+    sheet.lens_editor.accept()
+    assert sheet.lens_editor.problem.text()
+    sheet.lens_editor.focal.number.setText("50")
+    sheet.lens_editor.radius.number.setText("0")
+    sheet.lens_editor.accept()
+    assert "positive" in sheet.lens_editor.problem.text()
+    sheet.lens_editor.radius.number.setText("2")
+    with qtbot.waitSignal(sheet.lens_wanted) as lens:
+        sheet.lens_editor.accept()
+    assert lens.args == [pytest.approx(0.5), pytest.approx(2e-3)]
+    window._ask_lens(0.5, 2e-3)
+    window.document.undo.undo()
+
+
+def test_every_page_of_a_filament_shows_it(  # noqa: PLR0915 - one story
+    window: WorkflowWindow, qtbot: QtBot, filament_run: Path, tmp_path: Path
+) -> None:
+    window.open_results(str(filament_run))
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: bool(analyse.buttons), timeout=WAIT_MS)
+    assert window.problem is FILAMENT
+    assert isinstance(window.overview, BeamOverviewPage)
+    views = window.page_views
+    overview = views["beam_overview"]
+    assert isinstance(overview, BeamOverviewPage)
+    qtbot.waitUntil(lambda: overview._data is not None, timeout=WAIT_MS)
+    qtbot.waitUntil(
+        lambda: overview.across_map.image.image is not None, timeout=WAIT_MS
+    )
+    assert overview.spectrum_title.text() == "On-axis spectrum along z"
+    assert overview.data() is not None
+    assert overview.figure() is None
+    assert overview._read_fluence(0.0, 10.0)
+    overview._scale_chosen("linear")
+    overview._fluence_floor_moved(-20)
+    overview._scale_chosen("dB")
+    overview._fluence_floor_moved(-25)
+    overview._floor_moved(-50)
+    shot(window, tmp_path, "beam-overview")
+    analyse.scrubber.step(-1)
+    assert overview.shown == window.session.place
+    # On frequency, it asks again.
+    window.session.set_options(axis="f")
+    qtbot.waitUntil(lambda: (overview._data or {}).get("axis") == "f", timeout=WAIT_MS)
+    window.session.set_options(axis="wavelength")
+    qtbot.waitUntil(
+        lambda: (overview._data or {}).get("axis") == "wavelength", timeout=WAIT_MS
+    )
+
+    plane = views["beam_plane"]
+    assert isinstance(plane, BeamPlanePage)
+    analyse.show_page("plane")
+    qtbot.waitUntil(lambda: plane.profile.xs.size > 0, timeout=WAIT_MS)
+    assert plane.data() is not None
+    plane._reach_moved(300)
+    plane._window_moved(40)
+    shot(window, tmp_path, "beam-plane")
+
+    axis = views["on_axis"]
+    assert isinstance(axis, OnAxisPage)
+    analyse.show_page("axis")
+    qtbot.waitUntil(lambda: axis.pulse.xs.size > 0, timeout=WAIT_MS)
+    assert axis.map.image.image is not None
+    shot(window, tmp_path, "beam-axis")
+
+    far = views["far_field"]
+    assert isinstance(far, FarFieldPage)
+    analyse.show_page("farfield")
+    qtbot.waitUntil(lambda: far._db.size > 0, timeout=WAIT_MS)
+    assert far._read(800.0, 1.0)
+    shot(window, tmp_path, "beam-far")
+
+    along = views["along"]
+    assert isinstance(along, AlongPage)
+    analyse.show_page("along")
+    qtbot.waitUntil(lambda: bool(along._plots), timeout=WAIT_MS)
+    analyse.set_reference(0.005)
+    assert "Marburger" in along.note.text()
+    analyse.set_reference(None)
+
+    # Each page can say the Python that reproduces it.
+    for key in ("overview", "plane", "axis", "farfield", "health"):
+        analyse.show_page(key)
+        text = analyse.python_text()
+        assert text is not None, key
+        exec(compile(text, key, "exec"), {})
+
+
+def test_a_filament_runs_on_its_own_overview(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path, filament_run: Path
+) -> None:
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only the tests that need it
+
+    with open_file(str(filament_run)) as output:
+        assert output is not None
+    text = Recipe.from_output(str(filament_run)).to_text()
+    window.document.set_model(RecipeModel(text), base=None)
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is FILAMENT, timeout=WAIT_MS)
+    qtbot.waitUntil(window.primary.isEnabled, timeout=WAIT_MS)
+    assert window.run_panel.view is window.overview
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.stage is Stage.RUN, timeout=WAIT_MS)
+    overview = window.overview
+    assert isinstance(overview, BeamOverviewPage)
+    qtbot.waitUntil(lambda: window.stage is Stage.ANALYSE, timeout=WAIT_MS)
+    assert overview.rows
+    qtbot.waitUntil(lambda: overview._data is not None, timeout=WAIT_MS)
+    window.run_panel.reread()
+    # What a run draws on before the file is read: its rows.
+    overview.clear()
+    assert overview.fluence_map.image.image is None
+    assert not overview._gather()
+    overview.end_of_run()

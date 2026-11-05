@@ -7,21 +7,28 @@
 import math
 import warnings
 from pathlib import Path
+from typing import Any
 
 import pytest
 from solprop.recipe import Recipe
 from solprop.stats import CATALOGUE
 
 from conftest import TINY
-from solprop_gui.classes.catalog import CLASSES, class_named, class_of
+from solprop_gui.classes.catalog import CLASSES, FILAMENT, class_named, class_of
 from solprop_gui.classes.problem import (
     AnalysisPage,
     Derived,
+    Field,
     ProblemClass,
     Target,
     derived_text,
     derived_value,
+    even_planes,
+    field_changes,
     field_meta,
+    field_value,
+    linked_paths,
+    negated_value,
     other_keywords,
     page_refusal,
     pin_entry,
@@ -29,8 +36,9 @@ from solprop_gui.classes.problem import (
     target_text,
 )
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
+from solprop_gui.model.recipe import MISSING
 from solprop_gui.model.values import inline
-from solprop_gui.service.handlers import describe, describe_output, summarise
+from solprop_gui.service.handlers import HANDLERS, describe, describe_output
 
 
 @pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)
@@ -55,7 +63,13 @@ def test_the_example_is_recognised_as_its_class(problem: ProblemClass) -> None:
 def test_advanced_holds_what_the_sheet_does_not(problem: ProblemClass) -> None:
     description = describe({"route": problem.route})
     others = {entry["name"] for entry in other_keywords(problem, description)}
-    assert others.isdisjoint(sheet_paths(problem))
+    own = {
+        row.path
+        for section in problem.sections
+        for row in section.fields
+        if row.member is None
+    }
+    assert others.isdisjoint(own)
     everything = {entry["name"] for entry in description["parameters"]}  # pyright: ignore[reportGeneralTypeIssues]
     tops = {path.split(".")[0] for path in sheet_paths(problem)}
     assert everything - others <= tops
@@ -67,15 +81,19 @@ def test_statistics_are_solprop_s(problem: ProblemClass) -> None:
 
 
 @pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)
-def test_derived_numbers_are_in_the_summary(problem: ProblemClass) -> None:
+def test_derived_numbers_are_in_what_the_kernel_says(problem: ProblemClass) -> None:
     recipe = Recipe.example(problem.example)
     # solprop warns where a band leaves a gas's qualified range; it is not asked here.
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
-        summary = summarise({"text": recipe.to_text()})
-    known = {*summary, *summary["design"]}  # pyright: ignore[reportGeneralTypeIssues]
-    # The loss comes with the curve, and is checked with it.
-    assert {number.key for number in problem.derived} - {"loss"} <= known
+        reply: Any = HANDLERS[problem.numbers]({"text": recipe.to_text()})
+        known = {*reply, *reply.get("design", {})}
+        if problem.curve is not None:
+            curve: Any = HANDLERS[problem.curve](
+                {"text": reply["resolved"], "numbers": reply}
+            )
+            known |= set(curve["numbers"])
+    assert {number.key for number in problem.derived} <= known
 
 
 def test_derived_numbers_read_from_the_summary() -> None:
@@ -169,3 +187,70 @@ def test_the_primary_action_is_what_comes_next() -> None:
     assert primary_action(going).action == "stop"
     done = Progress(has_setup=True, can_run=True, has_run=True, has_results=True)
     assert primary_action(done).text == "Rerun"
+
+
+def test_every_link_of_a_class_is_in_its_example() -> None:
+    for problem in CLASSES:
+        build = Recipe.example(problem.example).to_dict()["build"]
+        for section in problem.sections:
+            for row in section.fields:
+                for pattern in row.also:
+                    assert linked_paths(build, pattern), (problem.key, pattern)
+                for path in (row.planes_over, row.moves_planes, *row.goes_with):
+                    if path is not None:
+                        assert linked_paths(build, path), (problem.key, path)
+
+
+def test_a_switch_takes_an_entry_out_and_brings_it_back_with_today_s_gas() -> None:
+    example: Any = Recipe.example("filament").to_dict()["build"]
+    row = next(
+        row
+        for section in FILAMENT.sections
+        for row in section.fields
+        if row.member == "EnvelopePlasmaResponse"
+    )
+    assert field_value(row, example) is True
+    off: dict[str, Any] = dict(field_changes(FILAMENT, row, False, example, example))
+    assert [e["type"] for e in off["responses"]] == ["KerrResponse"]
+    assert off["settings.ionisation_field_range"] is MISSING
+    build = {**example, "responses": off["responses"], "medium": {"material": "Kr"}}
+    assert field_value(row, build) is False
+    on: dict[str, Any] = dict(field_changes(FILAMENT, row, True, build, example))
+    assert [e["type"] for e in on["responses"]] == [
+        "KerrResponse",
+        "EnvelopePlasmaResponse",
+    ]
+    plasma = on["responses"][1]
+    assert plasma["gas"] == "Kr"
+    assert plasma["rate"]["source"] == "Kr"
+    assert (
+        on["settings.ionisation_field_range"]
+        == example["settings"]["ionisation_field_range"]
+    )
+    # With no example at hand, nothing comes back; a list absent leaves nothing to keep.
+    assert dict(field_changes(FILAMENT, row, True, {}, {}))["responses"] == []
+    assert field_value(row, {}) is False
+
+
+def test_the_filament_s_linked_rows_write_a_recipe_solprop_builds() -> None:
+    build = Recipe.example("filament").to_dict()["build"]
+    gas = FILAMENT.sections[0].fields[0]
+    changes = dict(field_changes(FILAMENT, gas, "Kr", build))
+    assert set(changes) == {
+        "medium.material",
+        "responses[0].chi3.gas",
+        "responses[1].gas",
+        "responses[1].rate.source",
+    }
+    length = FILAMENT.sections[0].fields[2]
+    moved: dict[str, Any] = dict(field_changes(FILAMENT, length, "20 cm", build))
+    assert moved["settings.save_planes"][-1] == "20 cm"
+    assert len(moved["settings.save_planes"]) == 80
+    assert field_changes(FILAMENT, length, MISSING, build) == [("grid.length", MISSING)]
+    assert field_changes(FILAMENT, length, "20 cm", {"grid": {"length": "25 cm"}}) == [
+        ("grid.length", "20 cm")
+    ]
+    planes = Field("settings.save_planes", planes_over="grid.length")
+    assert field_value(planes, {}) is MISSING
+    assert negated_value(True) is True
+    assert even_planes(2, 4.0) == [2.0, 4.0]

@@ -439,9 +439,9 @@ Filament                        Setup  Run  Analyse     [▶ Run]  ⋯
 └────────────────────────────────────────────────────────────────┘
 ```
 
-The beam is set by waist and focus (`SpatialPulse.propz` carries the distance to focus), with
-lens input as an option. The beam numbers and the lens conversion are physics, so they need
-solprop functions (21.2). `spatial.critical_power` already exists.
+The beam is set by waist and focus (`SpatialPulse.propz` carries the distance to focus, with its
+sign changed), with lens input as an option. The beam numbers and the lens conversion are physics,
+so they come from solprop (`tools.beam_params`, `tools.beam_through_lens`; 21.2).
 
 ### 6.6 Solid-core and antiresonant fibre
 
@@ -1285,7 +1285,7 @@ table, scan editor, compressor chain) and the pyqtgraph views.
 |---|---|
 | W1 Frame (built locally) | The `classes` layer. The controller moved out of `MainWindow`. Home, the three stages, the sheet frame, the rail and the z scrubber. Built as: `classes/` holds the four classes as data, a test holding every row to its class's example; `ui/document.py` (`SetupDocument`) owns the recipe, undo, checks and files for both windows; `solprop-gui --workflow` opens the new window beside the step window, which Other geometry still opens. Setup edits and checks a real recipe with solprop's numbers; Run and Analyse host the existing views under the new frame, with their sliders replaced by the scrubber. Left to W2: the live sheet (preview plot, typed targets, fast numbers), plain-language rows, and the pages not built, which say so on the rail. |
 | W2 Capillary (built locally) | End to end: the live sheet with typed targets, the Run stage and every page of 11.3. Checked by walking S1 and S4 by hand. Built as: `service/sheet.py` gives the numbers (about 120 ms, `tools.capillary_params` on the resolved recipe), the curve and dispersive wave (about 170 ms) and the output's size; a number with a target is a button that writes `[pins]`, and the row it moves shows what it solved. Run and Analyse are one widget (`ui/analyse.py`), the Overview under a progress strip or beside the rail, and the pages are `ui/analysis_pages.py` over a shared `ui/analysis.py`, drawing only while on screen. Not built: a rough time on the Ready line, the step-size sparkline on the strip, and a choice among several roots of a target. A ZDW target takes about 290 ms to solve, over the sheet's 150 ms (P8). |
-| W3 Radial filament | Its sheet and pages, with the spatial readers and beam numbers of 21.2. Checked by walking S6. |
+| W3 Radial filament (built locally) | Its sheet and pages, with the spatial readers and beam numbers of 21.2. Checked by walking S6. Built as: rows that move several paths, because the object routes write a gas or wavelength several times and a run's length as its last saved plane (`Field.also`, `moves_planes`, `planes_over`, #533); switches for Kerr and plasma, whose entries come back from the class's example; a lens as an option on the beam. The live numbers come from `tools.beam_params`. The Overview grows from each plane's fluence and the beam's spectrum, and reads the on-axis spectrum from the file when the run ends. Not built: a far field or spectrogram while a run goes. |
 | W4 Fibres | Solid-core and antiresonant, as classes. |
 | W5 Design a waveguide | The workflow of 7.4, reusing the explorer's quantities and sweeps. Checked by walking S2. |
 | W6 Other geometry | Every other route on the generic form. The step window is deleted. |
@@ -1539,11 +1539,11 @@ merged to `main` at `Final`.
 | P6 | A clear error for a missing keyword ([#454](https://github.com/LupoLab/solprop/issues/454)); today a bare `TypeError` from `build`, `modes` and `preview_input` | W1 |
 | P7 | A faster zero search in `capillary_params` ([#528](https://github.com/LupoLab/solprop/pull/528)), and no spurious zeros beside a gas resonance ([#527](https://github.com/LupoLab/solprop/issues/527)) | W2 |
 | P8 | A solve for a typed target light enough for a live sheet, without building a whole recipe (22.5) | W2 |
-| P9 | Spatial readers: a fluence map on the file's transverse grid ([#455](https://github.com/LupoLab/solprop/issues/455)), r-wavelength, on-axis spectrum vs z | W3 |
-| P10 | A far-field (angle-wavelength) reader | W3 |
-| P11 | An on-axis spectrogram, refused on spatial runs today | W3 |
-| P12 | Beam numbers: Rayleigh range, Marburger collapse distance, a lens to waist and focus (`spatial.critical_power` exists) | W3 |
-| P13 | A filament example with plasma, recording what the filament's pages need; `radial_kerr` has Kerr only | W3 |
+| P9 | Spatial readers: a fluence map on the file's transverse grid ([#455](https://github.com/LupoLab/solprop/issues/455)), and in `processing.beams` the fluence along z, `radial_spectrum` and `on_axis_spectra` | W3; beams built, open as a support PR |
+| P10 | A far-field (angle-wavelength) reader: `processing.far_field` | W3; built, as above |
+| P11 | An on-axis spectrogram: `processing.on_axis_spectrogram`. `get_spectrogram` also stopped aliasing on a narrow envelope grid | W3; built, as above |
+| P12 | Beam numbers: `tools.beam_params` (Rayleigh range, critical power, Marburger) and `tools.beam_through_lens` | W3; built, as above |
+| P13 | A filament example with plasma, `Recipe.example("filament")`, with its tutorial | W3; built, as above |
 | P14 | Pin targets for free space, such as P / P_cr moving energy; recipe pins cover the capillary only today | after W3 |
 | P15 | Numbers and a dispersion curve without a whole recipe on the fibre classes, as `tools` and `MarcatiliMode` allow on the capillary | W4 |
 

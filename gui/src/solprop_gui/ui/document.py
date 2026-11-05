@@ -58,23 +58,23 @@ class _SetValues(QUndoCommand):
         super().__init__(f"Set {changes[0][0]}")
         self.document = document
         self.changes = changes
-        self.merging = merging and len(changes) == 1
+        self.merging = merging
 
     def id(self) -> int:
-        """Return what it merges with: the same keyword's typing, or nothing.
+        """Return what it merges with: typing into the same keywords, or nothing.
 
         Returns
         -------
         int
-            A key of the keyword and its table; ``-1`` for no merging.
+            A key of the keywords and their tables; ``-1`` for no merging.
         """
         if not self.merging:
             return -1
-        name, table, _new, _old = self.changes[0]
-        return zlib.crc32(f"{table}/{name}".encode()) & 0x7FFFFFFF
+        names = ",".join(f"{table}/{name}" for name, table, _new, _old in self.changes)
+        return zlib.crc32(names.encode()) & 0x7FFFFFFF
 
     def mergeWith(self, other: QUndoCommand) -> bool:  # noqa: N802 - Qt's name
-        """Take a following edit of the same keyword into this one.
+        """Take a following edit of the same keywords into this one.
 
         Parameters
         ----------
@@ -88,8 +88,12 @@ class _SetValues(QUndoCommand):
         """
         if not isinstance(other, _SetValues) or not other.merging:
             return False
-        name, table, _new, old = self.changes[0]
-        self.changes = [(name, table, other.changes[0][2], old)]
+        self.changes = [
+            (name, table, later[2], old)
+            for (name, table, _new, old), later in zip(
+                self.changes, other.changes, strict=True
+            )
+        ]
         return True
 
     def redo(self) -> None:
@@ -418,13 +422,17 @@ class SetupDocument(QObject):
         if changes:
             self.undo.push(_SetValues(self, changes))
 
-    def edit_values(self, values: Iterable[tuple[str, object]]) -> bool:
+    def edit_values(
+        self, values: Iterable[tuple[str, object]], *, merging: bool = False
+    ) -> bool:
         """Change several ``[build]`` values in one undoable command.
 
         Parameters
         ----------
         values : Iterable of tuple
             Each keyword and its value.
+        merging : bool, optional
+            Whether it joins the edit before it of the same keywords, as typing does.
 
         Returns
         -------
@@ -437,7 +445,7 @@ class SetupDocument(QObject):
             for change in self._changes(name, "build", value)
         ]
         if changes:
-            self.undo.push(_SetValues(self, changes))
+            self.undo.push(_SetValues(self, changes, merging=merging))
         return bool(changes)
 
     def _changes(self, name: str, table: str, value: object) -> list[Change]:

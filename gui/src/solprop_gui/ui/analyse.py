@@ -307,8 +307,9 @@ class AnalyseStage(QWidget):
         self.scrubber.moved.connect(self._scrubbed)
         session.plane_moved.connect(lambda: self.scrubber.go_to(session.place))
         session.described.connect(lambda _value: self._take_planes())
-        if self.overview is not None:
-            self.overview.rows_grew.connect(self._rows_grew)
+        for view in self.views.values():
+            if isinstance(view, OverviewPage):
+                view.rows_grew.connect(self._rows_grew)
         self.scrubber.follow.toggled.connect(self._follow_toggled)
 
     # ------------------------------------------------------------------ the rail
@@ -358,7 +359,7 @@ class AnalyseStage(QWidget):
         self.current = key
         title = next((page.title for page in self.pages if page.key == key), "")
         self.title.setText(title)
-        view = self.views.get(key)
+        view = self._view_of(key)
         if view is not None:
             self.stack.setCurrentWidget(view)
         else:
@@ -369,6 +370,23 @@ class AnalyseStage(QWidget):
         for name, button in self.buttons.items():
             button.setProperty("current", name == key)
             repolish(button)
+
+    def _view_of(self, key: str | None) -> QWidget | None:
+        """Return what draws a page.
+
+        Parameters
+        ----------
+        key : str or None
+            The page's key.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QWidget or None
+            Its view, if it has one.
+        """
+        page = next((page for page in self.pages if page.key == key), None)
+        name = key if page is None or page.view is None else page.view
+        return self.views.get(name or "")
 
     def _show_controls(self, view: QWidget | None) -> None:
         """Put a page's controls beside it.
@@ -404,6 +422,18 @@ class AnalyseStage(QWidget):
         if self.current in offered:
             place = offered.index(self.current) + steps
             self.show_page(offered[max(min(place, len(offered) - 1), 0)])
+
+    def set_reference(self, z: float | None) -> None:
+        """Say where a reference distance lies, for the pages along z to mark.
+
+        Parameters
+        ----------
+        z : float or None
+            The distance, m; ``None`` for none.
+        """
+        for view in self.views.values():
+            if isinstance(view, AlongPage):
+                view.set_reference(z)
 
     def set_wanted(self, statistics: Sequence[str]) -> None:
         """Say which statistics a class shows first.
@@ -530,7 +560,7 @@ class AnalyseStage(QWidget):
         PageView or None
             The page, if a built one is.
         """
-        view = self.views.get(self.current or "")
+        view = self._view_of(self.current)
         return view if isinstance(view, PageView) else None
 
     def _fill_exports(self) -> None:

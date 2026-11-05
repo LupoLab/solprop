@@ -52,9 +52,6 @@ __all__ = ["WorkflowWindow"]
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
 
-_CURVE_KEYS = ("beta2", "peak_power", "gamma", "fwhm", "shape", "wavelength")
-"""What the curve's request reads back from the numbers'."""
-
 _STAGE_TEXT = ((Stage.SETUP, "Setup"), (Stage.RUN, "Run"), (Stage.ANALYSE, "Analyse"))
 
 
@@ -165,6 +162,10 @@ class WorkflowWindow(QMainWindow):
             )
         )
         self.sheet.pins_changed.connect(self.document.replace_pins)
+        self.sheet.values_edited.connect(
+            lambda values: self.document.edit_values(values, merging=True)
+        )
+        self.sheet.lens_wanted.connect(self._ask_lens)
         self.sheet.example_chosen.connect(self.document.open_example)
         self.document.opened.connect(self._opened)
         self.document.described.connect(lambda _route: self._build_sheet())
@@ -455,7 +456,13 @@ class WorkflowWindow(QMainWindow):
         elif purpose == "numbers":
             self._numbers_arrived(reply)
         elif purpose == "curve" and reply.ok:
-            self.sheet.show_curve(reply.value, self._numbers)  # pyright: ignore[reportArgumentType]
+            self.sheet.show_curve(reply.value)  # pyright: ignore[reportArgumentType]
+        elif purpose == "template" and reply.ok:
+            self.sheet.set_example(
+                RecipeModel(str(reply.value)).document.get("build", {})
+            )
+        elif purpose == "lens":
+            self._lens_arrived(reply)
         elif purpose == "size":
             value = reply.value if reply.ok else None
             self.sheet.show_size(
@@ -486,13 +493,48 @@ class WorkflowWindow(QMainWindow):
         self._numbers = value
         self.sheet.show_summary(value)
         problem = self.problem
+        self.analyse.set_reference(value.get("collapse_distance"))  # pyright: ignore[reportArgumentType]
         if problem is not None and problem.curve is not None:
             payload = {
                 "text": value["resolved"],
                 "base": self.document.base,
-                **{k: value[k] for k in _CURVE_KEYS},
+                "numbers": {k: v for k, v in value.items() if k != "resolved"},
             }
             self._ask_kernel(problem.curve, payload, "curve")
+
+    def _ask_lens(self, focal_length: float, radius: float) -> None:
+        """Ask what a lens makes of the beam.
+
+        Parameters
+        ----------
+        focal_length : float
+            The focal length, m.
+        radius : float
+            The beam's radius on it, m.
+        """
+        model = self.document.model
+        if model is not None:
+            payload = {
+                "text": model.to_text(),
+                "base": self.document.base,
+                "focal_length": focal_length,
+                "radius": radius,
+            }
+            self._ask_kernel("lens_beam", payload, "lens")
+
+    def _lens_arrived(self, reply: Reply) -> None:
+        """Set the beam a lens makes.
+
+        Parameters
+        ----------
+        reply : solprop_gui.service.messages.Reply
+            The kernel's reply.
+        """
+        value = reply.value
+        if reply.ok and isinstance(value, Mapping):
+            self.sheet.apply_lens(float(value["waist"]), float(value["distance"]))  # pyright: ignore[reportArgumentType]
+        else:
+            self._say(f"No lens: {reply.error}")
 
     def _summarised(self, summary: object, error: object) -> None:
         """Show the check's summary, on a class that has no quicker numbers.
@@ -589,10 +631,25 @@ class WorkflowWindow(QMainWindow):
         if model is None:
             return
         self.problem = class_of(model.route, model.document.get("build", {}))
+        self._use_class()
         self._remember_setup()
         if not self._quiet and not self.run_panel.active:
             self.has_run = False
             self.has_results = False
+
+    def _use_class(self) -> None:
+        """Fetch what the open class needs, and draw a run on its own Overview."""
+        problem = self.problem
+        if problem is None:
+            return
+        self._ask_kernel("example", {"name": problem.example}, "template")
+        if not self.run_panel.active:
+            first = problem.pages[0]
+            view = self.page_views[first.view or first.key]
+            if isinstance(view, OverviewPage):
+                self.overview = view
+                self.run_panel.view = view  # pyright: ignore[reportAttributeAccessIssue]
+                self.analyse.overview = view
 
     def _build_sheet(self) -> None:
         """Make the sheet of the open setup's class, once its route is described."""

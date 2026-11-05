@@ -9,7 +9,6 @@ help on the focused row and Advanced folded at the end; what the setup gives at 
 right, with its plot and the Ready line.
 """
 
-import math
 from collections.abc import Mapping, Sequence
 
 import numpy as np
@@ -18,6 +17,7 @@ from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
     QBoxLayout,
+    QCheckBox,
     QComboBox,
     QFrame,
     QGridLayout,
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.recipe.errors import RecipeError
 
 from solprop_gui.classes.catalog import class_of
 from solprop_gui.classes.problem import (
@@ -39,7 +40,10 @@ from solprop_gui.classes.problem import (
     Target,
     derived_text,
     derived_value,
+    field_changes,
     field_meta,
+    field_value,
+    negated_value,
     other_keywords,
     pin_entry,
     target_text,
@@ -51,19 +55,14 @@ from solprop_gui.registry.explore import PIN_SEARCH
 from solprop_gui.registry.pages import GAS_TITLES, label
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword
+from solprop_gui.ui.quantity import QuantityField
 from solprop_gui.ui.theme import GREY, clear_layout, named_label, repolish
 from solprop_gui.views.page_plots import ORANGE, LinePlot
 
-__all__ = ["SheetStage", "TargetEditor"]
+__all__ = ["LensEditor", "SheetStage", "TargetEditor"]
 
-_DISPERSIVE = "#0b6e99"
-"""The colour of the dispersive wave's marker."""
-
-_FS2 = 1e30
-"""What a dispersion in s^2/m is multiplied by to read in fs^2/m."""
-
-_DB_PER_NEPER = 10.0 / math.log(10.0)
-"""What a power loss coefficient in 1/m is multiplied by to read in dB/m."""
+_MARK_COLOURS = (ORANGE, GREY, "#0b6e99", "#8c5bb5")
+"""The colours of a preview's marks, in order."""
 
 _NARROW = 1000
 """Below this width, in pixels, the plot moves below the form."""
@@ -195,6 +194,69 @@ class TargetEditor(QFrame):
         self.hide()
 
 
+class LensEditor(QFrame):
+    """The strip that gives a beam's waist and focus from a lens.
+
+    Parameters
+    ----------
+    parent : PySide6.QtWidgets.QWidget or None, optional
+        The owner.
+
+    Attributes
+    ----------
+    accepted : Signal
+        Emitted with the focal length and the radius on the lens, m.
+    """
+
+    accepted = Signal(float, float)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Make the strip, hidden."""
+        super().__init__(parent)
+        self.setObjectName("targetEditor")
+        self.focal = QuantityField("m", "cm")
+        self.focal.setObjectName("lens-focal")
+        self.radius = QuantityField("m", "mm")
+        self.radius.setObjectName("lens-radius")
+        self.problem = named_label("", "note")
+        use = QPushButton("Use this lens")
+        use.setObjectName("plain")
+        use.clicked.connect(self.accept)
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("plain")
+        cancel.clicked.connect(self.hide)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 7, 12, 7)
+        row.setSpacing(8)
+        for widget in (
+            QLabel("Focal length"),
+            self.focal,
+            QLabel("Beam radius on it"),
+            self.radius,
+            self.problem,
+        ):
+            row.addWidget(widget)
+        row.addStretch(1)
+        row.addWidget(use)
+        row.addWidget(cancel)
+        self.hide()
+
+    def accept(self) -> None:
+        """Announce the lens, or say why it does not read."""
+        try:
+            focal, radius = self.focal.read(), self.radius.read()
+            values = [float(number_in(v, "m", "m")) for v in (focal, radius)]
+        except RecipeError, TypeError, ValueError:
+            self.problem.setText("Give both as lengths.")
+            return
+        if min(values) <= 0:
+            self.problem.setText("Both must be positive.")
+            return
+        self.problem.clear()
+        self.hide()
+        self.accepted.emit(values[0], values[1])
+
+
 class SheetStage(QWidget):
     """A sheet.
 
@@ -212,6 +274,10 @@ class SheetStage(QWidget):
     pins_changed : Signal
         Emitted with the keywords freed, each with its plain value, and any keyword
         and ``[pins]`` entry that now sets it.
+    values_edited : Signal
+        Emitted with the paths a row moved, each with its value, where it moves several.
+    lens_wanted : Signal
+        Emitted with a lens's focal length and the radius on it, m.
     rows : dict
         The rows, by path and table.
     derived : dict
@@ -221,6 +287,8 @@ class SheetStage(QWidget):
     edited = Signal(str, str, object)
     example_chosen = Signal(str)
     pins_changed = Signal(object, object)
+    values_edited = Signal(object)
+    lens_wanted = Signal(float, float)
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the empty frame."""
@@ -239,6 +307,9 @@ class SheetStage(QWidget):
         self._shown_numbers: dict[str, float | None] = {}
         self._size: str | None = None
         self._verdict = ""
+        self._fields: dict[str, Field] = {}
+        self._switches: list[tuple[Field, QCheckBox]] = []
+        self._example: Mapping[str, object] = {}
 
         self.examples = QComboBox()
         self.examples.setObjectName("examples")
@@ -282,30 +353,14 @@ class SheetStage(QWidget):
         self.target_editor = TargetEditor()
         self.target_editor.accepted.connect(self._target_set)
         self.target_editor.released.connect(self._release)
+        self.lens_editor = LensEditor()
+        self.lens_editor.accepted.connect(self.lens_wanted)
         self.preview_title = named_label("", "h3")
-        self.curve = LinePlot(
-            xlabel="Wavelength (nm)", ylabel="β₂ (fs²/m)", unit="fs²/m"
-        )
+        self.curve = LinePlot(xlabel="", ylabel="")
         self.curve.hide()
-        self.curve.addItem(
-            pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2")),
-            ignoreBounds=True,  # pyright: ignore[reportCallIssue]
-        )
+        self.zero = pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2"))
+        self.curve.addItem(self.zero, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
         self.marks: dict[str, pg.InfiniteLine] = {}
-        for key, text, colour, place in (
-            ("pump", "Pump", ORANGE, 0.96),
-            ("zdw", "ZDW", GREY, 0.91),
-            ("rdw", "Dispersive wave", _DISPERSIVE, 0.86),
-        ):
-            line = pg.InfiniteLine(
-                angle=90, pen=pg.mkPen(colour, style=Qt.PenStyle.DashLine)
-            )
-            pg.InfLineLabel(
-                line, text, position=place, anchors=[(0, 0), (0, 0)], color=colour
-            )
-            line.hide()
-            self.curve.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
-            self.marks[key] = line
         self.preview = QFrame()
         self.preview.setObjectName("preview")
         preview = QVBoxLayout(self.preview)
@@ -322,6 +377,7 @@ class SheetStage(QWidget):
         right.addWidget(named_label("What this gives", "h3"))
         right.addLayout(self.numbers)
         right.addWidget(self.target_editor)
+        right.addWidget(self.lens_editor)
         right.addWidget(self.preview_title)
         right.addWidget(self.curve, 1)
         right.addWidget(self.preview, 1)
@@ -399,6 +455,9 @@ class SheetStage(QWidget):
         self._title = title
         self.rows.clear()
         self._notes.clear()
+        self._fields.clear()
+        self._switches = []
+        self.lens_editor.hide()
         self._solved = {}
         self._shown_numbers = {}
         self._size = None
@@ -411,16 +470,24 @@ class SheetStage(QWidget):
             section.header.setChecked(not part.folded)
             shown = False
             for row in part.fields:
+                if row.member is not None:
+                    section.add(self._switch(row))
+                    shown = True
+                    continue
                 meta = field_meta(row.path, description, build)
                 if meta is None:
                     continue
-                entry = self._entry(row, meta)
-                widget = self._row(entry, catalog, on_sheet=True)
+                self._fields[row.path] = row
+                widget = self._row(self._entry(row, meta), catalog, on_sheet=True)
                 section.add(widget)
                 note = self._solved_note(row.path)
                 self._notes[row.path] = note
                 section.add(note)
                 shown = True
+            if problem.lens is not None and problem.lens[0] in self._section_paths(
+                part
+            ):
+                section.add(self._lens_link())
             section.setVisible(shown)
             self.sections.addWidget(section)
         self._add_advanced(problem, description, catalog)
@@ -435,6 +502,127 @@ class SheetStage(QWidget):
         self.ready.setProperty("warn", False)
         repolish(self.ready)
         self._fill_examples()
+
+    @staticmethod
+    def _section_paths(part: object) -> set[str]:
+        """Return the paths a section of a sheet shows.
+
+        Parameters
+        ----------
+        part : object
+            The section.
+
+        Returns
+        -------
+        set of str
+            Its rows' paths.
+        """
+        fields: Sequence[Field] = part.fields  # pyright: ignore[reportAttributeAccessIssue]
+        return {row.path for row in fields}
+
+    def _lens_link(self) -> QWidget:
+        """Make the link that gives the beam from a lens.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QWidget
+            The link.
+        """
+        holder = QWidget()
+        holder.setObjectName("page")
+        row = QHBoxLayout(holder)
+        row.setContentsMargins(116, 0, 0, 2)
+        link = QPushButton("From a lens…")
+        link.setObjectName("link")
+        link.setCursor(Qt.CursorShape.PointingHandCursor)
+        link.clicked.connect(self.lens_editor.show)
+        row.addWidget(link)
+        row.addStretch(1)
+        return holder
+
+    def _switch(self, row: Field) -> QWidget:
+        """Make a row that says whether a list holds an entry.
+
+        Parameters
+        ----------
+        row : Field
+            The sheet's row.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QWidget
+            The row.
+        """
+        box = QCheckBox(row.label or label(row.path))
+        box.setObjectName(f"switch-{row.member}")
+        box.clicked.connect(lambda on, r=row: self._move(r, on))
+        self._switches.append((row, box))
+        return box
+
+    def _move(self, row: Field, value: object) -> None:
+        """Announce what a row of the sheet moves.
+
+        Parameters
+        ----------
+        row : Field
+            The row.
+        value : object
+            What it now shows.
+        """
+        if self._model is None or self.problem is None:
+            return
+        build = self._model.document.get("build", {})
+        changes = field_changes(self.problem, row, value, build, self._example)
+        self.values_edited.emit(changes)
+
+    def set_example(self, build: Mapping[str, object]) -> None:
+        """Take the ``[build]`` table of the class's example, where switches read from.
+
+        Parameters
+        ----------
+        build : Mapping
+            The table.
+        """
+        self._example = build
+
+    def apply_lens(self, waist: float, distance: float) -> None:
+        """Set the beam a lens gives.
+
+        Parameters
+        ----------
+        waist : float
+            The waist, m.
+        distance : float
+            Its distance from the launch, m.
+        """
+        if self.problem is None or self.problem.lens is None:
+            return
+        waist_path, launch_path, _wavelength = self.problem.lens
+        launch = self._literal(launch_path, distance)
+        self.values_edited.emit(
+            [
+                (waist_path, self._literal(waist_path, waist)),
+                (launch_path, negated_value(launch)),
+            ]
+        )
+
+    def _row_edited(self, path: str, table: str, value: object) -> None:
+        """Take an edit of one of the sheet's own rows.
+
+        Parameters
+        ----------
+        path : str
+            Its path.
+        table : str
+            Its table.
+        value : object
+            The new value.
+        """
+        row = self._fields.get(path)
+        if row is None or table != "build":
+            self.edited.emit(path, table, value)
+            return
+        self._move(row, value)
 
     def _entry(self, row: Field, meta: Mapping[str, object]) -> dict[str, object]:
         """Return the metadata of a sheet's row: its path, its label, what it offers.
@@ -457,6 +645,10 @@ class SheetStage(QWidget):
             "name": row.path,
             "label": row.label or label(name),
         }
+        if row.planes_over is not None:
+            entry["forms"] = [{"kind": "integer", "minimum": 1}]
+            entry["default_value"] = None
+            entry["default"] = None
         listed = self._lists.get(row.choices or "")
         if listed:
             forms: Sequence[Mapping[str, object]] = meta.get("forms", ())  # pyright: ignore[reportAssignmentType]
@@ -518,7 +710,7 @@ class SheetStage(QWidget):
             one_line=on_sheet,
             on_sheet=on_sheet,
         )
-        row.edited.connect(self.edited)
+        row.edited.connect(self._row_edited if on_sheet else self.edited)
         self.rows[row.name, "build"] = row
         return row
 
@@ -810,6 +1002,7 @@ class SheetStage(QWidget):
             The recipe.
         """
         self._model = model
+        build = model.document.get("build", {})
         for (path, table), row in self.rows.items():
             pin = model.get(path, "pins")
             if isinstance(pin, Mapping) and row.on_sheet:
@@ -821,10 +1014,15 @@ class SheetStage(QWidget):
             row.stack.setEnabled(True)
             if path in self._notes:
                 self._notes[path].hide()
-            value = model.get(path, table)
+            field = self._fields.get(path)
+            value = (
+                model.get(path, table) if field is None else field_value(field, build)
+            )
             # What was typed is already there, as it was typed.
             if row.value != value:
                 row.set_value(value)
+        for field, box in self._switches:
+            box.setChecked(bool(field_value(field, build)))
         self._mark_targets()
 
     def _show_solved(
@@ -941,45 +1139,68 @@ class SheetStage(QWidget):
             The reason solprop gave, with the attainable range.
         """
         self.show_summary(None, message)
+        self._size = None
         self._verdict = f"Not ready: {message}"
         self.ready.setProperty("error", True)
         repolish(self.ready)
         self._show_ready()
 
-    def show_curve(
-        self, curve: Mapping[str, object], numbers: Mapping[str, object]
-    ) -> None:
-        """Show the dispersion curve, with the pump, ZDW and dispersive wave marked.
+    def show_curve(self, curve: Mapping[str, object]) -> None:
+        """Show the preview's curve and marks, and the numbers that come with them.
 
         Parameters
         ----------
         curve : Mapping
-            The kernel's ``capillary_curve`` reply.
-        numbers : Mapping
-            The numbers the curve belongs to.
+            The kernel's reply: its ``plot`` and ``numbers``.
         """
-        wavelength = np.asarray(curve["wavelength"], dtype=float) * 1e9
-        beta2 = np.asarray(curve["beta2"], dtype=float) * _FS2
-        self.curve.set_data(wavelength, [beta2])
-        # The curve runs off near a resonance: the axis follows what the eye reads.
-        reach = float(np.nanmax(np.abs(beta2[wavelength > 0.25 * wavelength[-1]])))
-        top = max(reach, 1.0) * 1.05
-        self.curve.set_view((float(wavelength[0]), float(wavelength[-1])), (-top, top))
-        at = {
-            "pump": numbers.get("wavelength"),
-            "zdw": numbers.get("zdw"),
-            "rdw": curve.get("rdw"),
-        }
-        for key, line in self.marks.items():
-            value = at[key]
-            found = isinstance(value, int | float) and math.isfinite(value)
-            line.setVisible(found)
-            if found:
-                line.setPos(float(value) * 1e9)  # pyright: ignore[reportArgumentType]
-        self._show_extra(
-            {"rdw": curve.get("rdw"), "loss": float(curve["loss"]) * _DB_PER_NEPER}  # pyright: ignore[reportArgumentType]
-        )
+        extra = curve.get("numbers")
+        if isinstance(extra, Mapping):
+            self._show_extra(extra)
+        plot = curve.get("plot")
+        if not isinstance(plot, Mapping):
+            self.curve.set_data(np.zeros(0), [np.zeros(0)])
+            return
+        x = np.asarray(plot["x"], dtype=float)
+        self.curve.set_xlabel(str(plot["xlabel"]))
+        self.curve.set_ylabel(str(plot["ylabel"]))
+        self.curve.unit = str(plot["unit"])
+        self.curve.set_data(x, [np.asarray(plot["y"], dtype=float)])
+        low, high = plot["limit"]
+        self.curve.set_view((float(x[0]), float(x[-1])), (float(low), float(high)))
+        self.zero.setVisible(bool(plot.get("zero")))
+        self._show_marks(plot.get("marks") or ())  # pyright: ignore[reportArgumentType]
         self._mark_targets()
+
+    def _show_marks(self, marks: Sequence[Sequence[object]]) -> None:
+        """Mark positions on the preview.
+
+        Parameters
+        ----------
+        marks : Sequence of Sequence
+            Each mark's label and position, ``None`` where it has none.
+        """
+        for line in self.marks.values():
+            line.hide()
+        for place, (name, at) in enumerate(marks):
+            if at is None:
+                continue
+            line = self.marks.get(str(name))
+            if line is None:
+                colour = _MARK_COLOURS[place % len(_MARK_COLOURS)]
+                line = pg.InfiniteLine(
+                    angle=90, pen=pg.mkPen(colour, style=Qt.PenStyle.DashLine)
+                )
+                pg.InfLineLabel(
+                    line,
+                    str(name),
+                    position=0.96 - 0.05 * place,
+                    anchors=[(0, 0), (0, 0)],
+                    color=colour,
+                )
+                self.curve.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+                self.marks[str(name)] = line
+            line.setPos(float(at))  # pyright: ignore[reportArgumentType]
+            line.show()
 
     def _show_extra(self, values: Mapping[str, object]) -> None:
         """Show the numbers that arrive with the curve.

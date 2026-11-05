@@ -7,8 +7,10 @@
 import numpy as np
 
 from solprop_gui.model.display import (
+    beam_reach,
     decibels,
     even_rows,
+    mirrored_rows,
     pulse_window,
     scaled_unit,
     steady_limits,
@@ -38,3 +40,17 @@ def test_uneven_planes_and_none() -> None:
     assert even_rows(np.zeros(0))[1:] == (0.0, 1.0)
     assert wants_log(np.array([np.nan])) is False
     assert steady_limits([np.nan]) == (0.0, 1.0)
+
+
+def test_a_beam_with_no_light_shows_all_its_radius_and_rows_mirror() -> None:
+    r = np.array([1.0, 2.0])
+    assert beam_reach(r, np.zeros((0, 2))) == 2.0
+    y, rows = mirrored_rows(r, np.array([[4.0, 2.0]]), 2.0, 5)
+    assert y.size == 5
+    assert rows.shape == (1, 5)
+
+
+def test_a_power_of_ten_reads_downwards_too() -> None:
+    label, factor = scaled_unit(np.array([3e-5]), "1/m")
+    assert label == "10⁻⁵ 1/m"
+    assert abs(3e-5 * factor - 3.0) < 1e-9
