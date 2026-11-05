@@ -138,10 +138,6 @@ NO_RECIPE: Final[dict[str, str]] = {
         "the capillary takes TabulatedHollowMode objects and the GNLSE fibre an "
         "IndexTable, neither registered"
     ),
-    "docs/tutorials/waveguides/plot_03_stepindex_rectangular.py": (
-        "the GNLSE call takes fibre=StepIndexMode, not registered, and the "
-        "rectangular guide's cladding is aluminium(), a material with no table form"
-    ),
     "docs/tutorials/waveguides/plot_05_general_modal.py": (
         f"{_PROVIDER}; the GNLSE calls take a mode channel as fibre, not registered"
     ),

@@ -45,10 +45,12 @@ from solprop.modes.capillary import CoherentWall, MarcatiliMode
 from solprop.modes.collection import ModeCollection
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
+from solprop.modes.stepindex import StepIndexMode
 from solprop.monitor import BoundaryCheck
 from solprop.nonlinear.envelope_plasma import EnvelopePlasmaResponse
 from solprop.nonlinear.optmat_rates import OptmatRate
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
+from solprop.physdata.glasses import glass
 from solprop.physdata.mixtures import Mixture
 from solprop.physdata.nonlinear_data import gamma3
 from solprop.physdata.selection import MaterialSelection
@@ -351,6 +353,12 @@ REGISTRY: Final[Mapping[str, Factory]] = {
             omitted=_MODE_FILL,
         ),
         Factory(
+            "StepIndexMode",
+            StepIndexMode,
+            {"radius": "m", "profile_wavelength": "m", "loss": "m^-1"},
+        ),
+        Factory("glass", glass),
+        Factory(
             "SlabMode",
             SlabMode,
             _SLAB_UNITS,
@@ -425,7 +433,8 @@ removing one is not. ``RungeKutta`` takes no ``tableau`` in a recipe, whose defa
 the only one the interfaces document. The supplied modes (``MarcatiliMode``,
 ``RectMode``, ``SlabMode`` and ``ModeCollection.slab``) take their geometry, cladding
 and loss and not their fill, which the route sets; on the planar route a slab mode's
-fill is the run's, so there it names one (:attr:`Factory.fill`). A guide built from a
+fill is the run's, so there it names one (:attr:`Factory.fill`). ``StepIndexMode``, with
+``glass`` for its materials, is the GNLSE route's ``fibre``. A guide built from a
 provider has no table form: its knots and node rule are derived from the run's grid
 and the provider's own method.
 

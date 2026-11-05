@@ -1027,6 +1027,7 @@ def _gnlse() -> tuple[Parameter, ...]:
             "Nonlinear coefficient; none derives it from n2 and the fibre's area.",
             page,
             display="W^-1/m",
+            none=True,
         ),
         Parameter(
             "betas",
@@ -1046,7 +1047,10 @@ def _gnlse() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "fibre",
-            (Form("object", types=("Mode", "IndexTable"), recipe=False),),
+            (
+                Form("object", types=("StepIndexMode",)),
+                Form("object", types=("Mode", "IndexTable"), recipe=False),
+            ),
             "medium",
             "advanced",
             "A mode or a tabulated index as the fibre.",
@@ -1883,6 +1887,7 @@ _TYPE_PULSES: Final = ("GaussianPulse", "SechPulse", "load_spectrum")
 _LOSS: Final = (_TYPE_BOOLEAN, _number(minimum=0.0), _CALLABLE)
 _CLADDING: Final = (_UNREGISTERED, Form("mapping"))
 _GAS: Final = (_STRING,)
+_FIBRE_MATERIAL: Final = (_number(minimum=0.0, exclusive=True), _object("glass"))
 
 
 def _keyword(
@@ -3091,6 +3096,60 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "Whether the response radiates the third harmonic.",
         ),
         _keyword("species", _STRING, "advanced", "Component label in a mixture."),
+    ),
+    "StepIndexMode": _type(
+        "geometry",
+        "guide/waveguides/step-index.md",
+        _keyword(
+            "radius",
+            (_LENGTH, _PROFILE),
+            "basic",
+            "Core radius.",
+            display="um",
+        ),
+        _keyword(
+            "core",
+            _FIBRE_MATERIAL,
+            "basic",
+            "Core index, or a glass; none is fused silica.",
+        ),
+        _keyword(
+            "cladding",
+            _FIBRE_MATERIAL,
+            "basic",
+            "Cladding index, or a glass; none is index 1.",
+        ),
+        _keyword("kind", _choice("HE", "EH", "TE", "TM"), "basic", "Mode family."),
+        _keyword("n", _integer(0), "basic", "Azimuthal order."),
+        _keyword("m", _integer(1), "basic", "Radial order."),
+        _keyword("parity", _choice("even", "odd"), "advanced", "Hybrid orientation."),
+        _keyword(
+            "profile_wavelength",
+            _LENGTH,
+            "basic",
+            "Wavelength the transverse profile is frozen at.",
+            display="nm",
+        ),
+        _keyword(
+            "loss",
+            (_number("m^-1", minimum=0.0), _CALLABLE),
+            "advanced",
+            "Power attenuation.",
+        ),
+    ),
+    "glass": _type(
+        "medium",
+        "guide/media/material-selection.md",
+        _keyword("name", _STRING, "basic", "A built-in glass, such as SiO2 or BK7."),
+        _keyword(
+            "model", (_STRING, _UNREGISTERED), "advanced", "An optmat model name."
+        ),
+        _keyword(
+            "axis",
+            _choice("o", "e"),
+            "advanced",
+            "The ray of a uniaxial crystal.",
+        ),
     ),
     "gamma3": _type(
         "nonlinear",
