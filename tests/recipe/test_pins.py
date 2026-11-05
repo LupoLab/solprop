@@ -8,6 +8,8 @@ import subprocess
 import sys
 import warnings
 
+from typing import cast
+
 import numpy as np
 import pytest
 
@@ -182,7 +184,7 @@ def test_a_pinned_required_keyword_is_not_reported_missing():
 def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
     pin = {**ZDW_PIN, "search": ["50 um", "300 um"]}
     recipe = pinned({"radius": pin}, drop=("radius",))
-    assert carried(recipe.build()).get("radius") > 0.0
+    assert cast("float", carried(recipe.build()).get("radius")) > 0.0
     without = pinned({"radius": pin}, drop=("radius", "length"))
     for call in (without.build, without.resolve, lambda: without.pin_roots("radius")):
         with pytest.raises(
