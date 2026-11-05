@@ -849,7 +849,7 @@ process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the ful
 
 ### The native read of the transverse edge
 
-[SEP 44](seps/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
+[SEP 44](seps/archive/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
 
 Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
 
@@ -990,7 +990,7 @@ and ×1.015.
 Two changes reduce it, neither moving a field by more than rounding:
 
 - **A read leaves out what cannot reach its resolution** (`READ_RESOLUTION`,
-  `transverse_monitor.py`; removed by [SEP 44](seps/sep-0044-native-edge-read.md), since a
+  `transverse_monitor.py`; removed by [SEP 44](seps/archive/sep-0044-native-edge-read.md), since a
   read on the state's own memory has no copy to save). Each read synthesised every frequency plane, and a run's light
   occupies from a fifth to a third of them at this level on the filaments and Kerr beams.
   A read now leaves out the planes whose energy together is at most 1e-3 of the warning. By
