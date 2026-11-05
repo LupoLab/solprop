@@ -15,7 +15,7 @@
 | **Requires** | [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1, 2 and 3 done; device qualification next |
+| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1 to 4 done; phase 5's documents are in, and `Final` is the maintainer's |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -499,7 +499,31 @@ SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 th
 
 **Not yet done.** Phase 4's device qualification; the rest of §8's documents and the final ledger entry, phase 5.
 
-**Open.** Whether to approve a rental for phase 4.
+### Phase 4 — 2026-11-05
+
+The read qualified on an NVIDIA H200 and an AMD Instinct MI325X, the first AMD card to run it, within a rental the maintainer approved. Each ran a CUDA or HIP build on the card, at `9a5d2346`. The tables are in the ledger, [the native read on the data-centre cards](../benchmarks.md#the-native-read-on-the-data-centre-cards).
+
+**§7's gates,** `python -m benchmarks.device_split 768`, 8 fixed steps and 4 planes, one read a step:
+
+| Gate | NVIDIA H200 | AMD Instinct MI325X |
+|---|---:|---:|
+| No state transfer | none | none |
+| A read under half a step | 25 ms of 220 ms | 31 ms of 208 ms |
+| The point under twice its check-off time | x1.22, 3.24 s against 2.66 s | x1.34, 2.68 s against 2.00 s |
+| Context: 51 steps, 17 planes at 384 | x1.21 | x1.20 |
+
+Before this work those points took 70 s and 29 s, so x11.9 and x6.9. A requested collar at 384 x 384 x 600 reads in 18.7 ms and 14.1 ms, against 12.9 s and 6.2 s for the host's reduction of a host copy, and its current takes 4.5 ms and 3.9 ms at each commit, against a step of 72 ms on both.
+
+**Tests.** On each card, `pytest -m gpu` over `tests` 130 passed, 1 skipped, and over `native/tests` 31 passed; the edge's, collar's, widths' and statistics' modules with `test_transverse_backends.py` 269 passed, 3 skipped; `test_transverse_reads.py`, `test_transverse_monitor.py` and `test_stop.py` 66 passed; `tests:cand`'s targeted set 210 passed, 7 skipped; native's radial and backend modules 92 passed.
+
+**Deviations from Part I.**
+
+- §7 asks that a trace of the workload confirm no state crosses on a device. I relied on native's own byte count, which `test_native_edge_reading.py` asserts on both cards, and on the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards.
+- §7 asks for an A/B against 0.1.0 on an AMD EPYC 7763. 0.1.0 can't run the harness as it stands, so the first figures are against the history's 0.1.0 rows, not interleaved. They're in the ledger.
+
+**Found on the way, not part of this SEP.** A state's plans are the largest row of a run: 21.09 GiB of 38.96 GiB on the H200 at 768 x 768 x 600, and 22.02 GiB of 39.64 GiB on the MI325X. That's unchanged by this work, and it has its own issue, [#529](https://github.com/LupoLab/solprop/issues/529).
+
+**Phase 5.** §8's documents went in with the phases that changed what they say, and this report and the ledger entry finish them. Nothing is left for `Final` but the maintainer's decision.
 
 ## Part III — History
 
@@ -508,6 +532,7 @@ SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 th
 - 2026-11-04: Revised in response, with the maintainer's decisions on R2, R4 and R7. Phase 4 goes, and SEP 40 §7.7's 2 % limit is retired.
 - 2026-11-04: John Travers (human) reviewed the revised proposal, and the maintainer accepted it.
 - 2026-11-04: Implementation started on `feature/sep-0044-native-edge`; phases 1 and 2 reported in Part II.
+- 2026-11-05: Phase 4 reported in Part II.
 
 ### AI review — 2026-11-04
 

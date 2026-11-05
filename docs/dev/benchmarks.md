@@ -885,15 +885,15 @@ An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ hos
 | The same, check off, s | 5.9 | 2.66 | 4.2 | 2.00 | |
 | On against off | x11.9 | x1.22 | x6.9 | x1.34 | under x2 |
 | 384 x 384 x 600, 51 steps, 17 planes: on against off | x12.6 | x1.21 | not run | x1.20 | under x1.25 |
-| State crossings of that field-free point | 13 to 35 | 0 | 13 | 0 | 0 |
+| State crossings of the 8-step point | 13 | 0 | 13 | 0 | 0 |
 | A step at 768, ms | 239 | 220 | 224 | 208 | |
-| An edge read, ms | about 4,300 | 25 | about 2,000 | 31 | under half a step |
+| An edge read, ms | about 4,300 | 25 | about 1,000 | 31 | under half a step |
 | The temporal monitor's sums, each step, ms | | 24 | | 32 | |
 | `field_to_host`, 5.27 GiB, ms | 2,929 | 162 | 506 | 106 | under 300 |
 | `energy`, ms | 55 | 2.3 | 80 | 6.7 | under 10 |
 | `on_axis_intensity`, ms | | 11.8 | | 14.1 | |
 | `beam_radius`, `fwhm_r`, ms | about 1,000 | 43 | about 1,000 | 44 | |
-| `peak_intensity`, ms | 134 to 164 | 75 | 134 to 164 | 74 | |
+| `peak_intensity`, ms | 134 | 75 | 164 | 74 | |
 
 The crossings are native's own byte count in `tests/backends/test_native_edge_reading.py`, which ran on both cards, and the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards. At 51 steps the temporal monitor's sums take most of what the check still costs: on the H200 0.38 s of 0.58 s, and the edge's 18 reads 0.11 s.
 
@@ -902,7 +902,7 @@ The crossings are native's own byte count in `tests/backends/test_native_edge_re
 | | H200 | Fields | MI325X | Fields |
 |---|---:|---:|---:|---:|
 | `kerr_beam_384` | 12.491 s to 0.640 s, x0.051 | 6.2e-16 | 5.101 s to 0.606 s, x0.117 | 6.1e-16 |
-| `kerr_beam_192` | 1.535 s to 0.219 s, x0.141 | 6.2e-16 | 0.807 s to 0.111 s, x0.138 | 6.1e-16 |
+| `kerr_beam_192` | 1.535 s to 0.219 s, x0.141 | 5.2e-16 | 0.807 s to 0.111 s, x0.138 | 5.8e-16 |
 
 A requested collar at 384 x 384 x 600, one state, field-free, native against the host's reduction of a host copy, with a step of 72 ms on both:
 
@@ -911,9 +911,9 @@ A requested collar at 384 x 384 x 600, one state, field-free, native against the
 | H200 | 4.5 ms against 2,719 ms | 18.7 ms against 12,936 ms |
 | MI325X | 3.9 ms against 1,218 ms | 14.1 ms against 6,205 ms |
 
-**On an AMD EPYC 7763,** one NUMA domain of an exclusive two-socket node, `--threading passive`, not interleaved, against the history's 0.1.0 rows, since 0.1.0 can't run this harness: `kerr_beam_192` at one thread 12.791 s against 12.071 s, x1.060, and `kerr_beam_384` at 16 threads 23.870 s against 25.261 s, x0.945. The aim was under x1.08, from x1.07 to x1.18.
+**On an AMD EPYC 7763,** 16 cores of an exclusive two-socket node, `SOLPROP_FFTW_PLAN=measure`, `--threading passive`, not interleaved, against the history's 0.1.0 rows, since 0.1.0 can't run this harness: `kerr_beam_192` at one thread 12.791 s against 12.071 s, x1.060, and `kerr_beam_384` at 16 threads 23.870 s against 25.261 s, x0.945. The aim was under x1.08, from x1.07 to x1.18.
 
-**What a run holds.** Three runs at 768 x 768 x 600: the ledger totals 38.96 GiB on the H200 and 39.65 GiB on the MI325X, for a state of 5.27 GiB. FFT plans are the largest row, 21.10 GiB and 22.03 GiB. The state, the register and the scratch are 5.27 GiB each, and the ring 1.25 GiB to 1.5 GiB.
+**What a run holds.** After three runs at 768 x 768 x 600 the ledger totals 38.96 GiB on the H200 and 39.64 GiB on the MI325X, for a state of 5.27 GiB. FFT plans are the largest row, 21.09 GiB and 22.02 GiB. The state, the register and the scratch are 5.27 GiB each, and the ring 1.5 GiB and 1.25 GiB. Each plan's own work area is why ([#529](https://github.com/LupoLab/solprop/issues/529)).
 
 **What a march costs in Python** ([#110](https://github.com/LupoLab/solprop/issues/110)), the wall time outside native calls, on the same harness, 600 fixed calls at most:
 
@@ -924,7 +924,7 @@ A requested collar at 384 x 384 x 600, one state, field-free, native against the
 | Radial 64, 256, Runge-Kutta | 17, 11 % | 10, 2.4 % |
 | Cartesian 64, radial 64, native Adams | 0.6, 1.1 % | 0.6, 0.6 % |
 
-**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a capillary on native, 8 steps a plane, before a batch learned to leave a field where it was: an observation took 5.3 to 6.2 ms of a plane interval of 17 to 19 ms on the H200, 22 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. The statistics at each plane took 0.9 to 2.1 ms and 0.6 to 1.6 ms.
+**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a fibre on native, 8 steps a plane, before a batch learned to leave a field where it was: an observation took 5.3 to 6.2 ms of a plane interval of 17 to 19 ms on the H200, 22 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. The statistics at each plane took 0.9 to 2.1 ms and 0.6 to 1.6 ms.
 
 **A scan worker's runner** ([#298](https://github.com/LupoLab/solprop/issues/298)), on the MI325X at 768 x 768 x 600: `from_free` 3.27 s, `translate` 1.62 s, the runner 0.29 s to 0.48 s, a first point's extra run 0.17 s, and 2.68 s for 8 steps. A worker that kept its runner would save at most 0.65 s of about 8.1 s, 8 %, less on a longer point, and under the issue's 10 %. A kept runner saves neither the build nor the translation, since a point's problem must be built to compare it.
 
