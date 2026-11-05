@@ -562,8 +562,8 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, a transverse window sized with the boundary monitor, and a radial beam
-under the Kerr effect built from plain objects.
+capillary, a transverse window sized with the boundary monitor, and a radial beam and a
+line beam under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -747,6 +747,23 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">A radially symmetric beam under the Kerr effect</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A LineGrid resolves one transverse direction: the beam is uniform in y, so its energy is per metre of y. Here a 100 um waist line of 0.1 J/m, at 800 nm and 30 fs, diffracts through 10 cm of argon at 1 bar. Without the Kerr response its width follows the Gaussian diffraction law; with it, the Kerr lens narrows it slightly.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_11_line_beam_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_11_line_beam`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A line beam under the Kerr effect</div>
     </div>
 
 

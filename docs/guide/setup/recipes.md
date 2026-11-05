@@ -406,8 +406,8 @@ cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 `Recipe.examples()` lists the recipes solprop ships, each the run of a gallery example,
 and tested to build that example's configuration hash. A front end starts a new setup
 from one of them. Every route has one: `hollow_rectangular` on `waveguide`,
-`radial_kerr` on `radial`, and `cartesian_beam`, `planar_hybrid` and `planar_compressor`
-on the other free-space routes. The solid-core fibres are `step_index_fibre` on `gnlse`
+`radial_kerr` on `radial`, and `cartesian_beam`, `line_beam`, `planar_hybrid` and
+`planar_compressor` on the other free-space routes. The solid-core fibres are `step_index_fibre` on `gnlse`
 and `graded_index_fibre` on `waveguide`.
 Each gallery script on a route a recipe describes that has no recipe is listed, with
 its reason, in the test that holds the examples to the gallery, so the list stays true:
