@@ -143,7 +143,9 @@ writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 A handler of your own takes field-free planes by declaring
 {py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
 {py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
-refuses a handler without it, by name.
+refuses a handler without it, by name. To reduce each plane and keep nothing, no class is
+needed: {py:class}`~solprop.output.callback.CallbackOutput` is built from a callable
+([a scan that reduces each plane](../setup/running.md#a-scan-that-reduces-each-plane)).
 
 ```{code-block} python
 class Energies:

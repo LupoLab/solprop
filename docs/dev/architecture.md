@@ -600,6 +600,11 @@ A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
 
+`CallbackOutput` (`output/callback.py`) stores nothing: it implements `Output` and
+`RetainingOutput` and hands each plane to a callable, unconverted. It is deliberately not a
+`PlaneStore`, whose save path converts the field into a new volume, and not a
+`CheckpointOutput`, which promises a state a resume can continue.
+
 `output/snapshots.py` coordinates optional immutable disk snapshots at the existing
 accepted-step commit boundary. It persists retained march state and execution facts,
 suspends the optical and optional archive handles while their advisory writer locks

@@ -26,8 +26,8 @@ import numpy as np
 
 from solprop.exceptions import OutputError, SolpropError
 from solprop.output._writer_lock import WriterLock
-from solprop.output.hdf5 import ResumeState, resume
-from solprop.output.schema import SCHEMA_VERSION, _decode
+from solprop.output.hdf5 import ResumeState, _file_path, resume
+from solprop.output.schema import SCHEMA_VERSION, Output, _decode
 
 __all__ = ["Resumability", "ResumeMode", "resumability"]
 
@@ -175,13 +175,13 @@ def _unusable_state(state: ResumeState) -> str | None:
     return None
 
 
-def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
+def resumability(path: str | Path | Output, *, gate: bool = False) -> Resumability:
     """Say whether a results file can continue, rebuild itself, and pass the gate.
 
     Parameters
     ----------
-    path : str or pathlib.Path
-        The HDF5 output.
+    path : str or pathlib.Path or solprop.output.schema.Output
+        The HDF5 output; an output handler is refused by name.
     gate : bool, optional
         Also rebuild the run from its recorded recipe and compare the records' hashes,
         as a resume would (ADR-066), so that, for example, a new optmat release shows
@@ -195,11 +195,11 @@ def resumability(path: str | Path, *, gate: bool = False) -> Resumability:
     Raises
     ------
     OutputError
-        If the file cannot be read as HDF5.
+        If the file cannot be read as HDF5, or `path` is an output handler.
     """
     from solprop.recipe.document import FORMAT  # noqa: PLC0415 - the layer above
 
-    path = Path(path)
+    path = _file_path(path, "resumability")
     try:
         schema = _schema(path)
         found = _recipe_format(path)

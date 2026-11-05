@@ -91,7 +91,7 @@ the same object as in its home module:
    * - runs
      - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_radial``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``, ``Batch``
    * - outputs
-     - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``open_scan``, ``ScanOutput``
+     - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``CallbackOutput``, ``open_scan``, ``ScanOutput``
    * - building blocks
      - the grids, the pulses, ``MarcatiliMode``, ``VincettiMode``, ``TubeLattice``, ``StepIndexMode``, ``RectMode``, ``SlabMode`` (with ``gaussian_coupling``, ``gaussian_projection``, ``per_unit_width_to_gaussian`` and ``gaussian_to_per_unit_width``), ``PlanarGrid``, ``IndexTable``, the tabulated modes, ``ModeCollection``, ``Gas``, ``Mixture``, ``species``, ``MaterialSelection``, the glasses and ``glass``, ``Constant``, ``Linear``, ``PiecewiseLinear``, ``PressureGradient``, ``DensityPath``, ``OptmatRate``, ``KerrResponse``, ``PlasmaResponse``, ``EnvelopePlasmaResponse``, ``RamanResponse``, ``DampedOscillator``, ``RotationalLines``, ``SpecifiedMode``
    * - mode and material numbers
