@@ -19,8 +19,10 @@ from pathlib import Path
 import numpy as np
 from solprop.constants import C
 from solprop.exceptions import SolpropError
+from solprop.grid import EnvelopeGrid
 from solprop.modes import base
 from solprop.physdata.gases import Gas
+from solprop.plotting.geometry import LIGHT, Disc, Ring, outline
 from solprop.recipe import Recipe
 from solprop.recipe.metadata import parameters
 from solprop.tools import (
@@ -28,7 +30,13 @@ from solprop.tools import (
     beam_params,
     beam_through_lens,
     capillary_params,
+    dispersion_length,
+    fission_length,
     lambda_rdw_all,
+    nonlinear_length,
+    pulse_width,
+    soliton_order,
+    soliton_params,
 )
 
 __all__ = [
@@ -39,6 +47,8 @@ __all__ = [
     "capillary_numbers",
     "capillary_sheet",
     "design_numbers",
+    "fibre_curve",
+    "fibre_sheet",
     "gases",
     "lens_beam",
     "output_size",
@@ -51,6 +61,15 @@ _SHARED = ("shape", "temperature", "model", "loss", "cladding", "materials")
 
 CURVE_POINTS = 240
 """The wavelengths of a sheet's dispersion curve."""
+
+_DB_PER_NEPER = 10.0 / math.log(10.0)
+"""What a power loss coefficient in 1/m is multiplied by to read in dB/m."""
+
+_NEAR_PUMP = 0.35
+"""How far from the pump, as a share of the frequency, a curve's axis is judged."""
+
+_NEAR_REACH = 3.0
+"""How far past the pump's neighbourhood a curve's axis may reach, as a multiple."""
 
 _CURVE_WINDOW = (0.15, 2.0)
 """The curve's wavelengths with no window in the recipe, as fractions of the pump's."""
@@ -110,10 +129,23 @@ def capillary_numbers(recipe: Recipe, energy: float) -> SolitonParams:
         # A gradient: the numbers at the entrance.
         first = pressure[0]
         pressure = first[1] if isinstance(first, tuple | list) else first
+    gas: object = keywords["gas"]
+    fill = None if pressure is None else float(pressure)  # pyright: ignore[reportArgumentType]
+    if keywords.get("lattice") is not None:
+        # An antiresonant fibre's dispersion is its own, so its mode gives the numbers.
+        return soliton_params(
+            recipe.build().modes[0],
+            gas,  # pyright: ignore[reportArgumentType]
+            fill,
+            energy=energy,
+            fwhm=float(keywords["fwhm"]),  # pyright: ignore[reportArgumentType]
+            wavelength=float(keywords["wavelength"]),  # pyright: ignore[reportArgumentType]
+            shape=shared.get("shape", "sech"),  # pyright: ignore[reportArgumentType]
+        )
     return capillary_params(
         float(keywords["radius"]),  # pyright: ignore[reportArgumentType]
-        keywords["gas"],  # pyright: ignore[reportArgumentType]
-        None if pressure is None else float(pressure),  # pyright: ignore[reportArgumentType]
+        gas,  # pyright: ignore[reportArgumentType]
+        fill,
         energy=energy,
         fwhm=float(keywords["fwhm"]),  # pyright: ignore[reportArgumentType]
         wavelength=float(keywords["wavelength"]),  # pyright: ignore[reportArgumentType]
@@ -159,6 +191,7 @@ def _shortest_wave(  # noqa: PLR0913 - what the tool reads
     gamma: float,
     fwhm: float,
     shape: str,
+    limits: tuple[float, float] | None = None,
 ) -> float | None:
     """Return the shortest wavelength phase-matched to the launch soliton.
 
@@ -178,6 +211,8 @@ def _shortest_wave(  # noqa: PLR0913 - what the tool reads
         The duration, s.
     shape : str
         The pulse's shape.
+    limits : tuple of float or None, optional
+        The range to search, m; ``None`` takes the tool's.
 
     Returns
     -------
@@ -187,15 +222,173 @@ def _shortest_wave(  # noqa: PLR0913 - what the tool reads
     """
     if beta2 >= 0:
         return None
-    roots = lambda_rdw_all(
-        mode,  # pyright: ignore[reportArgumentType]
-        wavelength,
-        peak_power=peak_power,
-        gamma=gamma,
-        fwhm=fwhm,
-        shape=shape,  # pyright: ignore[reportArgumentType]
+    roots = (
+        lambda_rdw_all(
+            mode,  # pyright: ignore[reportArgumentType]
+            wavelength,
+            peak_power=peak_power,
+            gamma=gamma,
+            fwhm=fwhm,
+            shape=shape,  # pyright: ignore[reportArgumentType]
+        )
+        if limits is None
+        else lambda_rdw_all(
+            mode,  # pyright: ignore[reportArgumentType]
+            wavelength,
+            peak_power=peak_power,
+            gamma=gamma,
+            fwhm=fwhm,
+            shape=shape,  # pyright: ignore[reportArgumentType]
+            wavelength_limits=limits,
+        )
     )
     return float(roots[0]) if len(roots) else None
+
+
+def _wave_window(recipe: Recipe, pump: float) -> tuple[float, float] | None:
+    """Return where to look for a dispersive wave in an antiresonant fibre.
+
+    The tool's own range reaches where this fibre's fits go non-finite (#538), so the
+    search keeps to the run's window; a capillary keeps the tool's.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe.
+    pump : float
+        The pump's wavelength, m.
+
+    Returns
+    -------
+    tuple of float or None
+        The range, m; ``None`` for the tool's own.
+    """
+    if recipe.keywords().get("lattice") is None:
+        return None
+    return _curve_range(recipe, pump)[0], 0.9 * pump
+
+
+def _zero_near(wavelength: np.ndarray, beta2: np.ndarray, pump: float) -> float | None:
+    """Return the zero of a dispersion curve nearest a pump, read from the curve.
+
+    Parameters
+    ----------
+    wavelength : numpy.ndarray
+        The curve's wavelengths, m, ascending.
+    beta2 : numpy.ndarray
+        Its group-velocity dispersion there.
+    pump : float
+        The pump's wavelength, m.
+
+    Returns
+    -------
+    float or None
+        The wavelength, m; ``None`` where the curve does not cross zero.
+    """
+    crossings = np.flatnonzero(np.sign(beta2[:-1]) * np.sign(beta2[1:]) < 0)
+    zeros = [
+        float(
+            wavelength[i]
+            + (wavelength[i + 1] - wavelength[i]) * beta2[i] / (beta2[i] - beta2[i + 1])
+        )
+        for i in crossings
+    ]
+    return min(zeros, key=lambda at: abs(at - pump), default=None)
+
+
+def _lattice_zero(recipe: Recipe, mode: object, pump: float) -> float:
+    """Return the zero an antiresonant fibre's run can reach.
+
+    The tool reports the zero nearest in frequency to the pump, which may lie far
+    outside the run's window, beyond the curve the sheet draws: 15 um with a 180 nm
+    wall has one at 1919 nm as well as 485 nm for an 800 nm pump, with the window
+    ending at 1600 nm. The sheet's number is the one on its curve.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe.
+    mode : solprop.modes.protocol.Mode
+        The fibre's mode.
+    pump : float
+        The pump's wavelength, m.
+
+    Returns
+    -------
+    float
+        The wavelength, m; NaN where the window holds no zero.
+    """
+    low, high = _curve_range(recipe, pump)
+    wavelength = np.geomspace(low, high, CURVE_POINTS)
+    beta2 = np.asarray(base.beta2(mode, 2.0 * math.pi * C / wavelength))  # pyright: ignore[reportArgumentType]
+    zero = _zero_near(wavelength, beta2, pump)
+    return math.nan if zero is None else zero
+
+
+def _curve_range(recipe: Recipe, pump: float) -> tuple[float, float]:
+    """Return the wavelengths a dispersion curve covers: the run's own window.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe.
+    pump : float
+        The pump's wavelength, m.
+
+    Returns
+    -------
+    tuple of float
+        The two ends, m.
+    """
+    keywords = recipe.keywords()
+    limits = keywords.get("wavelength_limits")
+    if isinstance(limits, tuple | list) and len(limits) == 2:
+        return float(limits[0]), float(limits[1])  # pyright: ignore[reportArgumentType]
+    grid = keywords.get("grid")
+    if isinstance(grid, EnvelopeGrid):
+        return 2.0 * math.pi * C / grid.omega_max, 2.0 * math.pi * C / grid.omega_min
+    return pump * _CURVE_WINDOW[0], pump * _CURVE_WINDOW[1]
+
+
+def _shapes_of(mode: object) -> list[dict[str, object]]:
+    """Return a guide's cross-section as plain shapes, to scale.
+
+    Parameters
+    ----------
+    mode : solprop.modes.protocol.Mode
+        The guide's mode.
+
+    Returns
+    -------
+    list of dict
+        In drawing order, each ``kind`` and its numbers in metres, with ``fill`` and
+        ``edge``, solprop's colours of its region.
+    """
+    plain: list[dict[str, object]] = []
+    for shape in outline(mode):
+        fill = str(getattr(LIGHT, shape.region))
+        edge = str(getattr(LIGHT, f"{shape.region}_edge", fill))
+        if isinstance(shape, Disc):
+            numbers: dict[str, object] = {
+                "kind": "disc",
+                "centre": list(shape.centre),
+                "radius": shape.radius,
+            }
+        elif isinstance(shape, Ring):
+            numbers = {
+                "kind": "ring",
+                "centre": list(shape.centre),
+                "inner": shape.inner,
+                "outer": shape.outer,
+            }
+        else:
+            numbers = {
+                "kind": "box",
+                "lower": list(shape.lower),
+                "upper": list(shape.upper),
+            }
+        plain.append({**numbers, "fill": fill, "edge": edge})
+    return plain
 
 
 def design_numbers(recipe: Recipe, energy: float) -> dict[str, float]:
@@ -223,6 +416,7 @@ def design_numbers(recipe: Recipe, energy: float) -> dict[str, float]:
         gamma=params.gamma,
         fwhm=params.fwhm,
         shape=params.shape,
+        limits=_wave_window(recipe, params.wavelength),
     )
     if wave is not None:
         numbers["rdw"] = wave
@@ -251,8 +445,11 @@ def capillary_sheet(payload: Payload) -> dict[str, object]:
     if energy is None:
         energy = recipe.preview_input().energy
     params = capillary_numbers(recipe, float(energy))  # pyright: ignore[reportArgumentType]
+    numbers = _as_numbers(params)
+    if recipe.keywords().get("lattice") is not None:
+        numbers["zdw"] = _lattice_zero(recipe, params.mode, params.wavelength)
     return {
-        **_as_numbers(params),
+        **numbers,
         "energy": float(energy),  # pyright: ignore[reportArgumentType]
         "fwhm": float(params.fwhm),
         "shape": str(params.shape),
@@ -279,19 +476,15 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
     dict
         ``plot`` (what the sheet draws: ``x``, ``y``, their labels, ``unit``, ``limit``
         and ``marks``), and ``numbers``, by key the dispersive wave ``rdw`` (m, or
-        ``None``) and the ``loss`` at the pump (dB/m).
+        ``None``) and the ``loss`` at the pump (dB/m). With a lattice, also ``loss``
+        (``x``, ``y`` in dB/m and ``pump``) and ``shapes``, its cross-section.
     """
     recipe = _recipe(payload)
     numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
     mode = recipe.build().modes[0]
     pump = float(numbers["wavelength"])  # pyright: ignore[reportArgumentType]
-    limits = recipe.keywords().get("wavelength_limits")
-    low, high = (
-        limits
-        if isinstance(limits, tuple | list)
-        else (pump * _CURVE_WINDOW[0], pump * _CURVE_WINDOW[1])
-    )
-    wavelength = np.geomspace(float(low), float(high), CURVE_POINTS)
+    low, high = _curve_range(recipe, pump)
+    wavelength = np.geomspace(low, high, CURVE_POINTS)
     omega = 2.0 * math.pi * C / wavelength
     beta2 = np.asarray(base.beta2(mode, omega)) * 1e30
     loss = float(base.alpha(mode, np.array([2 * math.pi * C / pump]))[0])
@@ -303,13 +496,18 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
         gamma=float(numbers["gamma"]),  # pyright: ignore[reportArgumentType]
         fwhm=float(numbers["fwhm"]),  # pyright: ignore[reportArgumentType]
         shape=str(numbers["shape"]),
+        limits=_wave_window(recipe, pump),
     )
     # The curve runs off near a resonance: the axis follows what the eye reads.
     nanometres = wavelength * 1e9
     reach = float(np.nanmax(np.abs(beta2[nanometres > 0.25 * nanometres[-1]])))
+    # A fibre's resonance dwarfs the pump's neighbourhood, which is what is read.
+    near = np.abs(omega - 2.0 * math.pi * C / pump) < _NEAR_PUMP * omega
+    around = float(np.nanmax(np.abs(beta2[near]))) if near.any() else reach
+    reach = min(reach, _NEAR_REACH * around)
     top = max(reach, 1.0) * 1.05
     zdw = float(numbers["zdw"])  # pyright: ignore[reportArgumentType]
-    return {
+    reply: dict[str, object] = {
         "plot": {
             "x": nanometres,
             "y": beta2,
@@ -324,7 +522,107 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
                 ["Dispersive wave", None if wave is None else wave * 1e9],
             ],
         },
-        "numbers": {"rdw": wave, "loss": loss * 10.0 / math.log(10.0)},
+        "numbers": {"rdw": wave, "loss": loss * _DB_PER_NEPER},
+    }
+    if recipe.keywords().get("lattice") is not None:
+        reply["loss"] = {
+            "x": nanometres,
+            "y": np.asarray(base.alpha(mode, omega)) * _DB_PER_NEPER,
+            "pump": pump * 1e9,
+        }
+        reply["shapes"] = _shapes_of(mode)
+    return reply
+
+
+def fibre_sheet(payload: Payload) -> dict[str, object]:
+    """Return a solid-core fibre's numbers, from its recipe's mode and pulse.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text`` and optionally ``base``.
+
+    Returns
+    -------
+    dict
+        ``peak_power`` (W), ``energy`` (J), ``beta2`` (s^2/m), ``wavelength`` (m),
+        ``dispersion_length`` and ``nonlinear_length`` (m), and where a soliton forms,
+        ``soliton_order`` and ``fission_length`` (m); ``pinned`` (empty: this route has
+        no pins) and ``resolved``, the recipe's text. What the recipe does not give
+        is left out.
+    """
+    recipe = _recipe(payload).resolve()
+    keywords = recipe.keywords()
+    mode = recipe.build().modes[0]
+    pump = float(keywords["wavelength"])  # pyright: ignore[reportArgumentType]
+    preview = recipe.preview_input()
+    power = float(preview.peak_power)
+    beta2 = float(base.beta2(mode, np.array([2.0 * math.pi * C / pump]))[0])
+    reply: dict[str, object] = {
+        "peak_power": power,
+        "energy": float(preview.energy),
+        "beta2": beta2,
+        "wavelength": pump,
+        "pinned": {},
+        "resolved": recipe.to_text(),
+    }
+    shape = str(keywords.get("shape") or "sech")
+    width = keywords.get("width")
+    fwhm = keywords.get("fwhm")
+    if fwhm is None and width is not None:
+        fwhm = float(width) / pulse_width(1.0, shape)  # pyright: ignore[reportArgumentType, arg-type]
+    gamma = keywords.get("gamma")
+    if fwhm is None or not isinstance(gamma, int | float) or beta2 == 0:
+        return reply
+    fwhm, gamma = float(fwhm), float(gamma)  # pyright: ignore[reportArgumentType]
+    reply["dispersion_length"] = dispersion_length(fwhm, beta2, shape)  # pyright: ignore[reportArgumentType]
+    reply["nonlinear_length"] = nonlinear_length(power, gamma)
+    if beta2 < 0:
+        reply["soliton_order"] = soliton_order(power, fwhm, gamma, beta2, shape)  # pyright: ignore[reportArgumentType]
+        reply["fission_length"] = fission_length(power, fwhm, gamma, beta2, shape)  # pyright: ignore[reportArgumentType]
+    return reply
+
+
+def fibre_curve(payload: Payload) -> dict[str, object]:
+    """Return a solid-core fibre's dispersion curve.
+
+    The zero is read from the curve, to what the sheet can show.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text`` and optionally ``base``, and ``numbers``, what :func:`fibre_sheet`
+        found.
+
+    Returns
+    -------
+    dict
+        ``plot`` (as :func:`capillary_curve` gives it) and ``numbers``, by key the
+        ``zdw`` nearest the pump (m, or ``None``).
+    """
+    recipe = _recipe(payload)
+    numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
+    pump = float(numbers["wavelength"])  # pyright: ignore[reportArgumentType]
+    mode = recipe.build().modes[0]
+    wavelength = np.geomspace(*_curve_range(recipe, pump), CURVE_POINTS)
+    beta2 = np.asarray(base.beta2(mode, 2.0 * math.pi * C / wavelength)) * 1e30
+    zdw = _zero_near(wavelength, beta2, pump)
+    reach = float(np.nanmax(np.abs(beta2))) or 1.0
+    return {
+        "plot": {
+            "x": wavelength * 1e9,
+            "y": beta2,
+            "xlabel": "Wavelength (nm)",
+            "ylabel": "β₂ (fs²/m)",
+            "unit": "fs²/m",
+            "limit": [-reach * 1.05, reach * 1.05],
+            "zero": True,
+            "marks": [
+                ["Pump", pump * 1e9],
+                ["ZDW", None if zdw is None else zdw * 1e9],
+            ],
+        },
+        "numbers": {"zdw": zdw},
     }
 
 
@@ -484,6 +782,8 @@ SHEET_HANDLERS = {
     "beam_sheet": beam_sheet,
     "capillary_curve": capillary_curve,
     "capillary_sheet": capillary_sheet,
+    "fibre_curve": fibre_curve,
+    "fibre_sheet": fibre_sheet,
     "gases": gases,
     "lens_beam": lens_beam,
     "output_size": output_size,

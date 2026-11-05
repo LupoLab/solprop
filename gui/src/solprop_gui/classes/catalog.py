@@ -136,8 +136,16 @@ ANTIRESONANT: Final = ProblemClass(
         _PHYSICS,
         _WINDOW,
     ),
-    derived=(Derived("peak_power", "Peak power", "W"),),
-    preview="Group-velocity dispersion and loss against wavelength",
+    # A fibre has many zeros and resonances, so only the order is offered as a target.
+    derived=(
+        _GUIDE_NUMBERS[0],
+        Derived("zdw", "Zero-dispersion wavelength", "m"),
+        Derived("rdw", "Dispersive wave", "m"),
+        *_GUIDE_NUMBERS[3:],
+    ),
+    numbers="capillary_sheet",
+    curve="capillary_curve",
+    preview="Group-velocity dispersion at the entrance",
     pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _MODES, _COMPRESS, _HEALTH),
     statistics=("energy", "peak_intensity"),
 )
@@ -254,13 +262,13 @@ SOLID_CORE: Final = ProblemClass(
             (
                 Field("gamma", "Nonlinear coefficient"),
                 Field("betas", "Dispersion"),
-                Field("length"),
+                Field("length", also=("grid.length",)),
             ),
         ),
         Section(
             "Pulse",
             (
-                Field("wavelength", "Wavelength"),
+                Field("wavelength", "Wavelength", also=("grid.reference_wavelength",)),
                 Field("width", "Width"),
                 Field("peak_power"),
                 Field("shape"),
@@ -280,7 +288,16 @@ SOLID_CORE: Final = ProblemClass(
             folded=True,
         ),
     ),
-    derived=(Derived("peak_power", "Peak power", "W"),),
+    derived=(
+        Derived("soliton_order", "Soliton order", prefixed=False),
+        Derived("zdw", "Zero-dispersion wavelength", "m"),
+        Derived("energy", "Energy", "J"),
+        Derived("dispersion_length", "Dispersion length", "m"),
+        Derived("nonlinear_length", "Nonlinear length", "m"),
+        Derived("fission_length", "Fission length", "m"),
+    ),
+    numbers="fibre_sheet",
+    curve="fibre_curve",
     preview="Group-velocity dispersion against wavelength",
     pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _COMPRESS, _NOISE, _HEALTH),
     statistics=("energy",),

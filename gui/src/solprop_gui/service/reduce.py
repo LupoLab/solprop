@@ -63,22 +63,29 @@ class Display:
         Parameters
         ----------
         keywords : Mapping
-            The run's build keywords, in SI; ``wavelength_limits`` is read.
+            The run's build keywords, in SI; ``wavelength_limits`` is read, or else
+            the band of a ``grid`` (its ``omega_min`` and ``omega_max``).
 
         Returns
         -------
         Display
             This display, its wavelength range taken from the keywords when it has
-            none and they give a pair.
+            none and they give one.
 
         Examples
         --------
         >>> Display().within({"wavelength_limits": (2e-7, 2e-6)}).wavelength_range
         (2e-07, 2e-06)
         """
-        limits = keywords.get("wavelength_limits")
-        if self.wavelength_range is not None or not isinstance(limits, tuple | list):
+        if self.wavelength_range is not None:
             return self
+        limits = keywords.get("wavelength_limits")
+        if not isinstance(limits, tuple | list):
+            grid = keywords.get("grid")
+            high, low = getattr(grid, "omega_max", 0.0), getattr(grid, "omega_min", 0.0)
+            if low <= 0.0 or high <= low:
+                return self
+            limits = (2.0 * np.pi * C / high, 2.0 * np.pi * C / low)
         low, high = (float(limit) for limit in limits)  # pyright: ignore[reportArgumentType]
         return replace(self, wavelength_range=(min(low, high), max(low, high)))
 

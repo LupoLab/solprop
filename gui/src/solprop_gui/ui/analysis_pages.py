@@ -36,6 +36,7 @@ from solprop_gui.model.display import (
     duration_text,
     even_rows,
     length_unit,
+    light_range,
     mirrored_rows,
     pulse_window,
     scaled_unit,
@@ -159,6 +160,18 @@ class PageView(QWidget):
     def refresh(self) -> None:
         """Ask for, or draw, what the page shows."""
 
+    def _failed(self, reason: str) -> None:
+        """Say why a read failed, and leave nothing of an earlier file on the page.
+
+        Parameters
+        ----------
+        reason : str
+            The reason.
+        """
+        self.note.setText(reason)
+        for plot in self.findChildren(LinePlot):
+            plot.set_data(np.zeros(0), [np.zeros(0) for _ in plot.curves])
+
     def data(self) -> tuple[list[str], np.ndarray] | None:
         """Return what the page shows as columns, for a CSV file.
 
@@ -189,6 +202,28 @@ class PageView(QWidget):
             The key; ``None`` for a page with no snippet.
         """
         return None
+
+
+_FLAT_PHASE = 1e-3
+"""A spectral phase moving less than this, in radians, is drawn as flat."""
+
+_STEADY = 1e-12
+"""A statistic moving less than this share of its size does not vary."""
+
+_STAT_TITLES = {
+    "density": "Gas density",
+    "fwhm_f": "Bandwidth",
+    "fwhm_t": "Duration",
+    "fwhm_t_outer": "Outer duration",
+    "omega0": "Centre frequency",
+    "peak_power_total": "Peak power, all modes",
+    "species_density": "Density by species",
+    "species_electron_density": "Electron density by species",
+    "species_ionisation": "Ionised fraction by species",
+    "species_ionisation_energy": "Ionisation energy by species",
+    "species_peak_ionisation_rate": "Peak ionisation rate by species",
+}
+"""What a page calls a statistic whose name does not read as it stands."""
 
 
 def _shown_range(
@@ -285,6 +320,7 @@ class OverviewPage(PageView):
         self.rows: list[Mapping[str, Any]] = []
         self.band: tuple[float, float] | None = None
         self.spectra: dict[str, np.ndarray] = {}
+        self._power_unit = "GW"
         self.time = np.zeros(0)
         self.extent: tuple[float, float] | None = None
         self.shown = 0
@@ -544,9 +580,13 @@ class OverviewPage(PageView):
         x = self.spectra[axis] * _AXIS_SCALE[axis]
         density = np.array([np.asarray(r["density"][axis], float) for r in self.rows])
         self._db = decibels(density)
-        self._power = (
-            np.array([np.asarray(r["power"], float) for r in self.rows]) * 1e-9
-        )
+        power = np.array([np.asarray(r["power"], float) for r in self.rows])
+        self._power_unit, scale = scaled_unit(power, "W")
+        self._power = power * scale
+        self.power_map.set_unit(self._power_unit)
+        self.power_line.set_ylabel(f"Power ({self._power_unit})")
+        self.power_line.unit = self._power_unit
+        view = light_range(x, density, margin=0.1)
         z = np.array([float(r["z"]) for r in self.rows])
         self._map_rows, z_first, step = even_rows(z)
         reach = self.extent[1] if self.extent else float(z[-1])
@@ -565,7 +605,7 @@ class OverviewPage(PageView):
         self.spectrum_map.show_map(
             self._db[self._map_rows],
             (float(x[0]), bottom, float(x[-1] - x[0]), height),
-            ((float(x[0]), float(x[-1])), z_view),
+            (view, z_view),
             (options.floor, 0.0),
         )
         self.power_map.show_map(
@@ -574,7 +614,7 @@ class OverviewPage(PageView):
             ((-window, window), z_view),
             (0.0, float(self._power.max()) or 1.0),
         )
-        self.spectrum_line.set_view((float(x[0]), float(x[-1])), (options.floor, 3.0))
+        self.spectrum_line.set_view(view, (options.floor, 3.0))
         self.power_line.set_view(
             (-window, window), (0.0, float(self._power.max()) * 1.05 or 1.0)
         )
@@ -663,7 +703,7 @@ class OverviewPage(PageView):
         row = self._nearest_row(y)
         at = int(np.clip(np.searchsorted(t, x), 0, t.size - 1))
         text = f"{x:.3g} fs, {y:.3g} {self._unit[0]}"
-        return f"{text}: {self._power[row, at]:.3g} GW"
+        return f"{text}: {self._power[row, at]:.3g} {self._power_unit}"
 
     def _nearest_row(self, y: float) -> int:
         """Return the row nearest a position on a map.
@@ -692,7 +732,7 @@ class OverviewPage(PageView):
         if self._power.size == 0:
             return None
         at = min(self.shown, self._power.shape[0] - 1)
-        return ["time (fs)", "power (GW)"], np.column_stack(
+        return ["time (fs)", f"power ({self._power_unit})"], np.column_stack(
             (self.time * _FS, self._power[at])
         )
 
@@ -804,7 +844,7 @@ class PlanePage(PageView):
             },
             self._show,
             key="page-plane",
-            failed=self.note.setText,
+            failed=self._failed,
         )
 
     def _show(self, value: Mapping[str, Any]) -> None:
@@ -867,14 +907,18 @@ class PlanePage(PageView):
             The kernel's ``plane`` reply.
         """
         t = np.asarray(value["power"]["t"], float) * _FS
-        power = np.asarray(value["power"]["y"], float) * 1e-9
+        power = np.asarray(value["power"]["y"], float)
         full = value.get("full_power")
+        unit, scale = scaled_unit(power if full is None else np.asarray(full), "W")
+        self.power.set_ylabel(f"Power ({unit})")
+        self.power.unit = unit
+        power = power * scale
         if full is None:
             self.power.set_names([""])
             self.power.set_data(t, [power])
             trace = power
         else:
-            whole = np.asarray(full, float) * 1e-9
+            whole = np.asarray(full, float) * scale
             self.power.set_names(["whole spectrum", "in the band"])
             self.power.set_data(t, [whole, power])
             trace = whole
@@ -911,10 +955,14 @@ class PlanePage(PageView):
         keep = np.interp(on_axis, x, db) > -_PHASE_WITHIN_DB
         y = np.where(keep, y, np.nan)
         self.phase.set_data(on_axis, [y])
-        self.phase.set_view(
-            _shown_range(value, axis, x),
-            (float(np.nanmin(y)), float(np.nanmax(y))) if keep.any() else (-1.0, 1.0),
-        )
+        limits = (-1.0, 1.0)
+        if keep.any():
+            low, high = float(np.nanmin(y)), float(np.nanmax(y))
+            # A flat phase is flat: its rounding is not to fill the axis.
+            middle = (low + high) / 2.0
+            flat = high - low < _FLAT_PHASE
+            limits = (middle - 1.0, middle + 1.0) if flat else (low, high)
+        self.phase.set_view(_shown_range(value, axis, x), limits)
 
     def _say(self, value: Mapping[str, Any]) -> None:
         """Say the numbers of the plane.
@@ -1097,7 +1145,8 @@ class SpectrogramPage(PageView):
         labels = self.session.labels
         mode = int(value["mode"])
         name = labels[mode] if mode < len(labels) else f"mode {mode}"
-        self.note.setText(f"{name}, gate {gate * _FS:.3g} fs")
+        shown = f"{name}, gate" if len(labels) > 1 else "Gate"
+        self.note.setText(f"{shown} {gate * _FS:.3g} fs")
 
     def _read(self, x: float, y: float) -> str:
         """Say what is at a point of the map.
@@ -1215,7 +1264,7 @@ class AlongPage(PageView):
             {"path": session.path},
             self._show,
             key="page-along",
-            failed=self.note.setText,
+            failed=self._failed,
         )
 
     def forget(self) -> None:
@@ -1243,14 +1292,13 @@ class AlongPage(PageView):
         value : Mapping
             The kernel's ``statistics`` reply.
         """
-        self._stats = {str(entry["name"]): entry for entry in value["stats"]}
+        self._stats = {
+            str(entry["name"]): entry for entry in value["stats"] if _varies(entry)
+        }
         self._z = np.asarray(value["z"], float)
         accepted = np.asarray(value["steps"]["z"]).size
         rejected = np.asarray(value["steps"]["rejected_z"]).size
-        self._said = (
-            f"{len(self._stats)} quantities at {self._z.size} planes; "
-            f"{accepted} steps, {rejected} rejected."
-        )
+        self._said = f"{self._z.size} planes; {accepted} steps, {rejected} rejected."
         first = [name for name in self.wanted if name in self._stats]
         for fallback in ("energy", "peak_power", "peak_intensity", "fwhm_t"):
             if fallback in self._stats and fallback not in first:
@@ -1326,6 +1374,7 @@ class AlongPage(PageView):
                 ylabel=label,
                 names=_column_names(stat, columns),
                 unit=shown_unit,
+                left=None,
             )
             plot.along = "x"
             plot.setCursor(Qt.CursorShape.SizeHorCursor)
@@ -1453,9 +1502,37 @@ def _title(name: str) -> str:
     >>> _title("peak_intensity"), _title("fwhm_t"), _title("energy")
     ('Peak intensity', 'Duration', 'Energy')
     """
-    return {"fwhm_t": "Duration", "fwhm_f": "Bandwidth"}.get(
-        name, name.replace("_", " ").capitalize()
-    )
+    return _STAT_TITLES.get(name, name.replace("_", " ").capitalize())
+
+
+def _varies(entry: Mapping[str, Any]) -> bool:
+    """Return whether a statistic changes along z, and so has anything to plot.
+
+    The gas's pressure in a straight fibre, or an ionised fraction with plasma off, is
+    recorded all the same, and would only lengthen the list.
+
+    Parameters
+    ----------
+    entry : Mapping
+        The statistic, from the kernel's ``statistics`` reply.
+
+    Returns
+    -------
+    bool
+        Whether any of its columns moves by more than rounding.
+
+    Examples
+    --------
+    >>> _varies({"columns": [{"y": [1.0, 1.0]}, {"y": [1.0, 2.0]}]})
+    True
+    >>> _varies({"columns": [{"y": [0.0, 0.0]}]})
+    False
+    """
+    for column in entry["columns"]:
+        y = np.asarray(column["y"], float)
+        if y.size and np.ptp(y) > _STEADY * float(np.abs(y).max()):
+            return True
+    return False
 
 
 class ModesPage(PageView):
@@ -1726,7 +1803,7 @@ class HealthPage(PageView):
             {"path": session.path},
             self._show,
             key="page-health",
-            failed=self.note.setText,
+            failed=self._failed,
         )
 
     def _show(self, value: Mapping[str, Any]) -> None:

@@ -57,6 +57,7 @@ from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword
 from solprop_gui.ui.quantity import QuantityField
 from solprop_gui.ui.theme import GREY, clear_layout, named_label, repolish
+from solprop_gui.views.cross_section import CrossSection
 from solprop_gui.views.page_plots import ORANGE, LinePlot
 
 __all__ = ["LensEditor", "SheetStage", "TargetEditor"]
@@ -379,8 +380,26 @@ class SheetStage(QWidget):
         right.addWidget(self.target_editor)
         right.addWidget(self.lens_editor)
         right.addWidget(self.preview_title)
-        right.addWidget(self.curve, 1)
+        right.addWidget(self.curve, 2)
         right.addWidget(self.preview, 1)
+        self.loss_plot = LinePlot(
+            xlabel="Wavelength (nm)", ylabel="Loss (dB/m)", unit="dB/m"
+        )
+        self.loss_plot.set_log(True)
+        self.loss_mark = pg.InfiniteLine(
+            angle=90, pen=pg.mkPen(ORANGE, style=Qt.PenStyle.DashLine)
+        )
+        self.loss_plot.addItem(self.loss_mark, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+        self.cross_section = CrossSection()
+        self.below = QWidget()
+        self.below.setObjectName("page")
+        below = QHBoxLayout(self.below)
+        below.setContentsMargins(0, 0, 0, 0)
+        below.setSpacing(12)
+        below.addWidget(self.loss_plot, 3)
+        below.addWidget(self.cross_section, 1)
+        self.below.hide()
+        right.addWidget(self.below, 1)
         right.addWidget(self.ready)
 
         self.split = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
@@ -494,6 +513,7 @@ class SheetStage(QWidget):
         self._show_numbers(problem)
         self.preview_title.setText(problem.preview)
         self.preview_note.setText("This plot comes with the class's live sheet.")
+        self.below.hide()
         self.curve.setVisible(problem.curve is not None)
         self.preview.setVisible(problem.curve is None)
         self.help.clear()
@@ -1169,7 +1189,27 @@ class SheetStage(QWidget):
         self.curve.set_view((float(x[0]), float(x[-1])), (float(low), float(high)))
         self.zero.setVisible(bool(plot.get("zero")))
         self._show_marks(plot.get("marks") or ())  # pyright: ignore[reportArgumentType]
+        self._show_below(curve.get("loss"), curve.get("shapes"))
         self._mark_targets()
+
+    def _show_below(self, loss: object, shapes: object) -> None:
+        """Show a guide's loss and cross-section, where its class has them.
+
+        Parameters
+        ----------
+        loss : object
+            The reply's ``loss``, or ``None``.
+        shapes : object
+            The reply's ``shapes``, or ``None``.
+        """
+        self.below.setVisible(isinstance(loss, Mapping))
+        if not isinstance(loss, Mapping):
+            return
+        x = np.asarray(loss["x"], dtype=float)
+        self.loss_plot.set_data(x, [np.asarray(loss["y"], dtype=float)])
+        self.loss_plot.fit()
+        self.loss_mark.setPos(float(loss["pump"]))
+        self.cross_section.set_shapes(shapes if isinstance(shapes, list) else [])
 
     def _show_marks(self, marks: Sequence[Sequence[object]]) -> None:
         """Mark positions on the preview.

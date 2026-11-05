@@ -9,15 +9,23 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pytest
 from PySide6.QtCore import QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
+from solprop.constants import C
 from solprop.output import open_file
 
 from conftest import TINY
-from solprop_gui.classes.catalog import CLASSES, FILAMENT, GENERIC_PAGES
+from solprop_gui.classes.catalog import (
+    ANTIRESONANT,
+    CLASSES,
+    FILAMENT,
+    GENERIC_PAGES,
+    SOLID_CORE,
+)
 from solprop_gui.classes.problem import AnalysisPage, ProblemClass
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import MISSING, RecipeModel
@@ -34,12 +42,15 @@ from solprop_gui.ui.analysis_pages import (
     HealthPage,
     ModesPage,
     OnAxisPage,
+    OverviewPage,
     PlanePage,
     SpectrogramPage,
 )
 from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
 from solprop_gui.ui.workflow_window import WorkflowWindow
+from solprop_gui.views.cross_section import CrossSection
 
 WAIT_MS = 120_000
 
@@ -416,7 +427,7 @@ def walk_pages(window: WorkflowWindow, qtbot: QtBot, folder: Path) -> None:
     spectrogram = views["spectrogram"]
     analyse.show_page("spectrogram")
     assert isinstance(spectrogram, SpectrogramPage)
-    qtbot.waitUntil(lambda: "gate" in spectrogram.note.text(), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: "gate" in spectrogram.note.text().lower(), timeout=WAIT_MS)
     assert spectrogram.map.image.image is not None
     assert spectrogram._read(0.0, 800.0)
     shot(window, folder, "spectrogram")
@@ -787,3 +798,145 @@ def test_a_filament_runs_on_its_own_overview(
     assert overview.fluence_map.image.image is None
     assert not overview._gather()
     overview.end_of_run()
+
+
+def test_an_antiresonant_fibre_draws_its_loss_and_cross_section(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("antiresonant")
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is ANTIRESONANT, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: sheet.below.isVisible(), timeout=WAIT_MS)
+    assert sheet.loss_plot.xs.size > 0
+    assert sheet.loss_mark.value() == pytest.approx(800.0)
+    assert any(shape["kind"] == "ring" for shape in sheet.cross_section.shapes)
+    sheet.cross_section.grab()
+    # Only the order is offered as a target: a fibre has many zeros.
+    numbers = {derived.key: derived for derived in ANTIRESONANT.derived}
+    assert numbers["soliton_order"].target is not None
+    assert numbers["zdw"].target is None
+    assert numbers["rdw"].target is None
+
+
+def test_a_cross_section_paints_each_kind_of_shape(qtbot: QtBot) -> None:
+    drawing = CrossSection()
+    qtbot.addWidget(drawing)
+    drawing.resize(200, 200)
+    drawing.grab()
+    colours = {"fill": "#eeeeee", "edge": "#333333"}
+    drawing.set_shapes(
+        [
+            {"kind": "box", "lower": [-2e-6, -1e-6], "upper": [2e-6, 1e-6], **colours},
+            {"kind": "disc", "centre": [0.0, 0.0], "radius": 1e-6, **colours},
+            {
+                "kind": "ring",
+                "centre": [1e-6, 0.0],
+                "inner": 2e-7,
+                "outer": 3e-7,
+                **colours,
+            },
+        ]
+    )
+    image = drawing.grab().toImage()
+    assert image.pixelColor(100, 100).name() == "#eeeeee"
+
+
+def test_a_solid_core_fibre_runs_and_every_page_reads_it(  # noqa: PLR0915 - one story
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("solid-core")
+    sheet = window.sheet
+    qtbot.waitUntil(lambda: sheet.problem is SOLID_CORE, timeout=WAIT_MS)
+    order = sheet.derived["soliton_order"]
+    qtbot.waitUntil(lambda: order.text() == "3", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: sheet.marks != {}, timeout=WAIT_MS)
+    assert not sheet.below.isVisible()
+    # The sheet's rows hold the two places the recipe writes a length.
+    model = window.document.model
+    assert model is not None
+    length = sheet.rows["length", "build"].number.number
+    assert length.text() == "1.327808"
+    assert model.get("length") == model.get("grid.length")
+    length.setText("0.1")
+    length.textEdited.emit("0.1")
+    assert str(model.get("grid.length")).startswith("0.1")
+    window.document.undo.undo()
+    qtbot.waitUntil(lambda: order.text() == "3", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.analyse.current = "health"
+    window._use_class()
+    assert window.analyse.current is None
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.stage is Stage.ANALYSE, timeout=WAIT_MS)
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: analyse.current == "overview", timeout=WAIT_MS)
+    overview = window.page_views["overview"]
+    assert isinstance(overview, OverviewPage)
+    qtbot.waitUntil(lambda: overview._power.size > 0, timeout=WAIT_MS)
+    assert overview._power_unit == "W"
+    assert "power (W)" in overview.data()[0]  # pyright: ignore[reportOptionalSubscript]
+    # The map keeps to where the light is, and that is well inside the grid.
+    low, high = overview.spectrum_map.box.viewRange()[0]
+    assert low > 500.0
+    assert high < 2000.0
+    assert not analyse.buttons["noise"].isEnabled()
+    analyse.show_page("plane")
+    plane = window.page_views["plane"]
+    assert isinstance(plane, PlanePage)
+    qtbot.waitUntil(lambda: plane.note.text().startswith("Energy"), timeout=WAIT_MS)
+    assert plane.power.unit == "W"
+    # A failed read leaves nothing of the last file behind it.
+    plane._failed("It could not be read")
+    assert plane.note.text() == "It could not be read"
+    assert plane.power.xs.size == 0
+    analyse.show_page("spectrogram")
+    spectrogram = window.page_views["spectrogram"]
+    qtbot.waitUntil(lambda: spectrogram.note.text().startswith("Gate"), timeout=WAIT_MS)
+    analyse.show_page("along")
+    along = window.page_views["along"]
+    assert isinstance(along, AlongPage)
+    qtbot.waitUntil(lambda: bool(along._stats), timeout=WAIT_MS)
+    assert "energy" in along._stats
+    assert "peak_power" in along._stats
+    assert along.note.text().endswith("rejected.")
+
+
+def test_a_flat_phase_is_drawn_flat(window: WorkflowWindow, qtbot: QtBot) -> None:
+    window.begin_class("capillary")
+    plane = window.page_views["plane"]
+    assert isinstance(plane, PlanePage)
+    omega = np.array([2.0, 3.0]) * 1e15
+    x = np.sort(C / (omega / (2.0 * np.pi)) * 1e9)
+    plane._show_phase(
+        {"phase": {"omega": omega, "y": np.array([5.0, 5.0 + 1e-9])}, "window": None},
+        "wavelength",
+        x,
+        np.zeros(2),
+    )
+    assert plane.phase.box.viewRange()[1] == pytest.approx([4.0, 6.0], abs=0.1)
+
+
+def test_a_box_shows_a_long_number_short_and_keeps_it_exact(qtbot: QtBot) -> None:
+    field = QuantityField("m", "m")
+    qtbot.addWidget(field)
+    edits: list[object] = []
+    field.changed.connect(edits.append)
+    exact = "1.3278075458959395 m"
+    field.set_value(exact)
+    assert field.number.text() == "1.327808"
+    # Reading and leaving it writes nothing, and rounds nothing.
+    assert field.read() == exact
+    field._finished()
+    field._typed("1.327808")
+    assert edits == []
+    # A unit keeps the exact value, not what the box shows.
+    units = field.units
+    assert units is not None
+    units.setCurrentIndex(units.findData("mm"))
+    assert field.number.text() == "1327.808"
+    assert str(edits[-1]).startswith("1327.8075458959")
+    # What is typed is taken as typed.
+    field.number.setText("2.5")
+    field._finished()
+    assert str(edits[-1]).startswith("2.5")
+    assert _readable("not a number at all") == "not a number at all"

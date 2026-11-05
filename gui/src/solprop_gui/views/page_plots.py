@@ -86,8 +86,8 @@ class Plot(pg.PlotWidget):
         The lower axis's label.
     ylabel : str
         The left axis's label.
-    left : int, optional
-        The left axis's width, in pixels.
+    left : int or None, optional
+        The left axis's width, in pixels; ``None`` follows its tick labels.
 
     Attributes
     ----------
@@ -101,7 +101,7 @@ class Plot(pg.PlotWidget):
 
     plane_at = Signal(float)
 
-    def __init__(self, *, xlabel: str, ylabel: str, left: int = 54) -> None:
+    def __init__(self, *, xlabel: str, ylabel: str, left: int | None = 54) -> None:
         """Make the plot, empty, with its view fixed until it is told otherwise."""
         super().__init__(background="w")
         self.setMinimumSize(120, 90)
@@ -127,7 +127,9 @@ class Plot(pg.PlotWidget):
             axis.setLabel(text, **_LABEL)
             # A label says its own unit; no "(x0.001)" beside it.
             axis.enableAutoSIPrefix(False)
-        item.getAxis("left").setWidth(left)
+        # None lets the axis take the width of its tick labels.
+        if left is not None:
+            item.getAxis("left").setWidth(left)
         item.getAxis("bottom").setHeight(38)
         for side in ("top", "right"):
             item.showAxis(side)
@@ -319,6 +321,16 @@ class MapPlot(Plot):
             else Qt.CursorShape.CrossCursor
         )
 
+    def set_unit(self, unit: str) -> None:
+        """Say what the colour bar's values are in.
+
+        Parameters
+        ----------
+        unit : str
+            The unit.
+        """
+        self.bar.axis.setLabel(unit, **_LABEL)
+
     def show_map(
         self,
         data: np.ndarray,
@@ -398,6 +410,8 @@ class LinePlot(Plot):
         The curves' names; several get a legend.
     unit : str, optional
         What the readout says the values are in.
+    left : int or None, optional
+        The left axis's width, in pixels; ``None`` follows its tick labels.
     """
 
     def __init__(
@@ -407,9 +421,10 @@ class LinePlot(Plot):
         ylabel: str,
         names: Sequence[str] | None = None,
         unit: str = "",
+        left: int | None = 54,
     ) -> None:
         """Make the plot, with no data."""
-        super().__init__(xlabel=xlabel, ylabel=ylabel)
+        super().__init__(xlabel=xlabel, ylabel=ylabel, left=left)
         self.unit = unit
         self.log = False
         self.setCursor(Qt.CursorShape.CrossCursor)

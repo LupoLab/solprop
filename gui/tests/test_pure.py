@@ -10,6 +10,7 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from solprop.grid import EnvelopeGrid
 
 from solprop_gui.help.guide import guide_url
 from solprop_gui.model.workspace import list_runs, new_run_folder, slug
@@ -141,6 +142,11 @@ def test_a_display_takes_the_runs_window_only_where_it_has_none():
     fixed = Display(wavelength_range=(1e-7, 1e-6))
     assert fixed.within(keywords) is fixed
     assert Display().within({}).wavelength_range is None
+    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
+    assert Display().within({"grid": grid}).wavelength_range == pytest.approx(
+        (400e-9, 2e-6)
+    )
+    assert Display().within({"grid": object()}).wavelength_range is None
 
 
 # ---------------------------------------------------------------------- states

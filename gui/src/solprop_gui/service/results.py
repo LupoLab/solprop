@@ -43,6 +43,7 @@ from solprop.recipe import Recipe
 from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
+from solprop_gui.model.display import light_range
 from solprop_gui.service.beam import beam_reading, beam_slice, profile_row
 from solprop_gui.service.reduce import even_rows
 
@@ -679,8 +680,8 @@ def _window(
             return low, high
         # On frequency, from the transform's lowest: a field grid reaches zero.
         return float(x[0]), C / low
-    light = np.flatnonzero(values.max(axis=1) > 1e-6 * values.max())
-    return float(x[light[0]]), float(x[light[-1]])
+    # A file with no mode axis gives one column; a map has its positions in rows.
+    return light_range(x, np.moveaxis(values.reshape(x.size, -1), 0, -1))
 
 
 def figure(payload: Payload) -> list[str]:

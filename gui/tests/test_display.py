@@ -10,6 +10,7 @@ from solprop_gui.model.display import (
     beam_reach,
     decibels,
     even_rows,
+    light_range,
     mirrored_rows,
     pulse_window,
     scaled_unit,
@@ -54,3 +55,14 @@ def test_a_power_of_ten_reads_downwards_too() -> None:
     label, factor = scaled_unit(np.array([3e-5]), "1/m")
     assert label == "10⁻⁵ 1/m"
     assert abs(3e-5 * factor - 3.0) < 1e-9
+
+
+def test_the_light_on_an_axis_is_where_any_row_holds_it() -> None:
+    x = np.arange(10.0)
+    rows = np.zeros((2, 10))
+    rows[0, 3] = 1.0
+    rows[1, 6] = 1.0
+    assert light_range(x, rows) == (3.0, 6.0)
+    assert light_range(x, rows, margin=0.5) == (1.5, 7.5)
+    assert light_range(x, rows, margin=10.0) == (0.0, 9.0)
+    assert light_range(x, np.zeros((2, 10))) == (0.0, 9.0)

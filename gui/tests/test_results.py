@@ -311,3 +311,12 @@ def test_a_column_is_named_by_what_varies(finished_run: Path) -> None:
     reply: dict[str, Any] = results.statistics({"path": str(finished_run)})
     energy = next(entry for entry in reply["stats"] if entry["name"] == "energy")
     assert all("[" not in column["label"] for column in energy["columns"])
+
+
+def test_a_file_with_no_mode_axis_has_a_plane(tmp_path: Path) -> None:
+    path = tmp_path / "soliton.h5"
+    text = Recipe.example("soliton").to_text()
+    Recipe.loads(text.replace("n_save = 201", "n_save = 3")).run(path)
+    reply = results.plane({"path": str(path), "index": 2})
+    low, high = reply["window"]  # pyright: ignore[reportGeneralTypeIssues]
+    assert 500e-9 < low < 835e-9 < high < 2000e-9

@@ -643,6 +643,8 @@ class WorkflowWindow(QMainWindow):
         if problem is None:
             return
         self._ask_kernel("example", {"name": problem.example}, "template")
+        # A new class starts at its Overview, not at the page the last one left.
+        self.analyse.current = None
         if not self.run_panel.active:
             first = problem.pages[0]
             view = self.page_views[first.view or first.key]

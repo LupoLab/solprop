@@ -20,6 +20,9 @@ from solprop.recipe.errors import RecipeError
 from solprop_gui.model.quantities import number_in, split, unit_of, write
 from solprop_gui.registry.units import pretty, unit_choices
 
+_READABLE_LENGTH = 10
+"""The longest number a box shows as it stands."""
+
 __all__ = ["NumberEdit", "QuantityField", "RangeField", "step"]
 
 
@@ -53,6 +56,32 @@ def step(text: str, steps: int, *, integer: bool = False) -> str | None:
         return str(int(value) + steps)
     size = 10.0 ** (math.floor(math.log10(abs(value))) - 1) if value else 0.1
     return f"{value + steps * size:.6g}"
+
+
+def _readable(text: str) -> str:
+    """Return a number's text to at most seven figures, as a box shows it.
+
+    Parameters
+    ----------
+    text : str
+        The number, as the recipe holds it.
+
+    Returns
+    -------
+    str
+        The shorter form; the text itself when it is short or is not a number.
+
+    Examples
+    --------
+    >>> _readable("1.3278075458959395"), _readable("125"), _readable("x")
+    ('1.327808', '125', 'x')
+    """
+    if len(text) <= _READABLE_LENGTH:
+        return text
+    try:
+        return f"{float(text):.7g}"
+    except ValueError:
+        return text
 
 
 class NumberEdit(QLineEdit):
@@ -209,6 +238,7 @@ class QuantityField(QWidget):
         self.units: _UnitBox | None = None
         self._value: object = None
         self._default: object = None
+        self._on_show = ""
         if self.keyword_unit is not None:
             choices = unit_choices(self.keyword_unit, display)
             self.units = _UnitBox(choices)
@@ -267,8 +297,19 @@ class QuantityField(QWidget):
         self._default = default
         if self.units is not None and value is not None and not keep_unit:
             self.units.set_unit(unit_of(value, self._choices(), self.units.unit()))
-        self.number.setText(self._shown(value))
+        self._show_number(value)
         self.number.setPlaceholderText(self._shown(default))
+
+    def _show_number(self, value: object) -> None:
+        """Show a value, to the digits a person reads; the value itself stands.
+
+        Parameters
+        ----------
+        value : object
+            The value.
+        """
+        self._on_show = _readable(self._shown(value))
+        self.number.setText(self._on_show)
 
     def _choices(self) -> tuple[str, ...]:
         """Return the units offered.
@@ -299,6 +340,8 @@ class QuantityField(QWidget):
         text = self.number.text().strip()
         if not text:
             return None
+        if text == self._on_show:
+            return self._value
         if self.keyword_unit is not None:
             return write(text, self.keyword_unit, self.unit() or self.keyword_unit)
         number, unit = split(text)
@@ -315,6 +358,8 @@ class QuantityField(QWidget):
 
     def _finished(self) -> None:
         """Read the box as the person leaves it."""
+        if self.number.text().strip() == self._on_show:
+            return
         try:
             value = self.read()
         except RecipeError as error:
@@ -348,12 +393,14 @@ class QuantityField(QWidget):
 
     def _unit_changed(self) -> None:
         """Show the same value in the unit just picked."""
-        self.number.setText(self._shown(self._value))
+        exact = self._shown(self._value)
         self.number.setPlaceholderText(self._shown(self._default))
         if self._value is not None and self.keyword_unit is not None:
-            value = write(self.number.text(), self.keyword_unit, self.unit() or "")
-            self._value = value
-            self.changed.emit(value)
+            self._value = write(exact, self.keyword_unit, self.unit() or "")
+            self._show_number(self._value)
+            self.changed.emit(self._value)
+        else:
+            self._show_number(self._value)
 
 
 class RangeField(QWidget):
