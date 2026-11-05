@@ -483,8 +483,9 @@ def decide_edges(seed, shape):
     )
     assert tables is not None
     field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
-    middle = grid.n_omega // 2
-    bins = middle + rng.choice(np.arange(-20, 21), size=5, replace=False)
+    # An inactive bin is masked at the load, so it would decide nothing.
+    active = np.flatnonzero(grid.active_mask & (grid.omega > 0))
+    bins = rng.choice(active, size=5, replace=False)
     rows = []
     for bin_ in bins:
         column = int(rng.integers(space.n_columns))
@@ -523,8 +524,10 @@ def decide_edges(seed, shape):
         )
         for index, (bin_, _, _) in enumerate(rows)
     ]
-    # Each target's rows straddle its edge, so neither answer can be vacuous.
-    assert {theirs for _, theirs in decided} == {True, False}
+    # Each of the five targets' rows straddle its edge, so each gives both answers.
+    for start in range(0, len(decided), len(decided) // 5):
+        target = decided[start : start + len(decided) // 5]
+        assert {theirs for _, theirs in target} == {True, False}
     assert [ours for ours, _ in decided] == [theirs for _, theirs in decided]
 
 
