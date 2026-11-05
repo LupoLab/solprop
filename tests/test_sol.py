@@ -76,8 +76,11 @@ EXCLUDED = {
         "species_ionisation_energy",
         # The coupling extraction belongs to the solprop.coupling workflow, which the
         # session does not flatten.
+        "PLANE_FILE_SCHEMA",
         "PLANE_TOLERANCE",
         "field_plane",
+        "load_field_plane",
+        "save_field_plane",
     },
     # Two type aliases.
     "tools": {"DesignBuild", "DesignTarget", "Fill", "PulseShape", "RootChoice"},

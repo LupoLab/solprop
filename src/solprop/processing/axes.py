@@ -237,6 +237,27 @@ def spatial_grid_of(output: Output) -> RadialGrid | FreeGrid | PlanarGrid:
     if not isinstance(record, Mapping):
         msg = "this run's record carries no transverse grid"
         raise ProcessingError(msg)
+    return _space_from_record(record)
+
+
+def _space_from_record(record: object) -> RadialGrid | FreeGrid:
+    """Rebuild a transverse grid from the record ``coupling.space_record`` writes.
+
+    Parameters
+    ----------
+    record : object
+        ``{"__class__": "module.Name", <init fields>...}``.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Raises
+    ------
+    ProcessingError
+        If the record names no grid solprop rebuilds.
+    """
     fields = dict(cast("Mapping[str, object]", record))
     name = cast("str", fields.pop("__class__", ""))
     kind = _SPACES.get(name)

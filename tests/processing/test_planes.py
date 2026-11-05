@@ -69,8 +69,10 @@ def capillary(length=2e-3, n_save=3, **changes):
     )
 
 
-def spatial(space, pressure: float | PressureGradient = 1.0):
-    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+def spatial(
+    space, pressure: float | PressureGradient = 1.0, *, trange: float = 400e-15
+):
+    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), trange)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[1e-3, 2e-3],
@@ -225,8 +227,8 @@ def test_a_gradient_plane_carries_its_rebuilt_path_certificate(tmp_path):
             certificate.variation = 0.0  # pyright: ignore[reportAttributeAccessIssue]
 
 
-@pytest.fixture(scope="module")
-def general_run():
+def general_simulation_and_output():
+    """Return a general modal simulation and its output, for the file tests too."""
     wavelength, length, contrast = 1.03e-6, 1e-5, 0.0095
     grid = FieldGrid.from_limits(length, wavelength, (1.0e-6, 1.06e-6), 100e-15)
     provider = GradedIndexProvider(
@@ -261,6 +263,11 @@ def general_run():
         noise=None,
     )
     return simulation, simulation.run(progress="none")
+
+
+@pytest.fixture(scope="module")
+def general_run():
+    return general_simulation_and_output()
 
 
 def test_a_general_plane_reads_its_fields_with_its_source(general_run):
@@ -469,7 +476,7 @@ def test_a_general_port_admits_the_vector_model_only_with_a_fixed_reference_and_
 
 SPACES = {
     "radial": RadialGrid(6e-4, 32),
-    "free": FreeGrid(6e-4, 48, 5e-4, 32),
+    "free": FreeGrid(6e-4, 32, 5e-4, 24),
     "line": LineGrid(4e-4, 32),
 }
 
@@ -477,13 +484,16 @@ SPACES = {
 @pytest.fixture(scope="module", params=sorted(SPACES))
 def saved_beam(request, tmp_path_factory):
     """Return a spatial simulation, its memory output and its file, opened."""
-    simulation = spatial(SPACES[request.param])
+    # A shorter window than the file tests': these read planes, and a Cartesian box of
+    # 768 nodes is otherwise the slowest thing in this module.
+    simulation = spatial(SPACES[request.param], trange=200e-15)
     memory = simulation.run(progress="none")
     path = tmp_path_factory.mktemp("beam") / "beam.h5"
     simulation.run(str(path), progress="none")
     return simulation, memory, open_file(path)
 
 
+@pytest.mark.medium
 def test_the_transverse_grid_comes_back_from_the_record(saved_beam):
     simulation, memory, reloaded = saved_beam
     space = simulation.spatial_grid
@@ -511,6 +521,7 @@ def test_a_run_without_a_transverse_grid_or_metadata_is_refused(capillary_run):
         spatial_grid_of(MemoryOutput())
 
 
+@pytest.mark.medium
 def test_the_map_is_the_live_measure_of_the_stored_plane(saved_beam):
     simulation, memory, reloaded = saved_beam
     for output in (memory, reloaded):
@@ -533,6 +544,7 @@ def test_the_map_is_the_live_measure_of_the_stored_plane(saved_beam):
         )
 
 
+@pytest.mark.medium
 def test_the_map_lays_its_nodes_out_on_its_axes(saved_beam):
     simulation, memory, _ = saved_beam
     space = simulation.spatial_grid
@@ -548,15 +560,17 @@ def test_the_map_lays_its_nodes_out_on_its_axes(saved_beam):
         assert beam.axis_names == ("y", "x")
         assert beam.fluence.shape == (space.n_y, space.n_x)
         # A round beam on a box of different spacings: the widths agree only if each
-        # axis labels its own direction. Spacings well below the 60 um waist make the
-        # sum's aliasing error negligible; the 2 mm of diffraction is common to both.
+        # axis labels its own direction, and swapped axes would differ by 19 %, the
+        # squared ratio of the spacings. The sum's aliasing error sets the tolerance:
+        # spacings of 37.5 and 41.7 um against a 30 um fluence sigma, about 1e-3.
         total = np.sum(beam.fluence)
         y, x = beam.axes
         width_x = np.sum(beam.fluence * x[None, :] ** 2) / total
         width_y = np.sum(beam.fluence * y[:, None] ** 2) / total
-        assert width_x == pytest.approx(width_y, rel=1e-3)
+        assert width_x == pytest.approx(width_y, rel=1e-2)
 
 
+@pytest.mark.medium
 def test_the_map_selects_a_stored_plane(saved_beam):
     _, memory, reloaded = saved_beam
     positions = np.asarray(memory["z"])
