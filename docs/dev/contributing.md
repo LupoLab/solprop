@@ -32,7 +32,7 @@ carries:
 |---|---|---|
 | `uv sync` | built from this tree | consistent: a workspace member, at the same version |
 | the lightweight setup | none | unmet, deliberately |
-| `uv run poe fetch-wheel` | CI's wheel from this commit or a compatible ancestor | mismatched, deliberately: `uv pip check` reports it |
+| `uv run --no-sync poe fetch-wheel` | CI's wheel from this commit or a compatible ancestor | mismatched, deliberately: `uv pip check` reports it |
 
 **The lightweight setup** serves Python and documentation contributors, with no native
 package and no compiler:
@@ -51,8 +51,16 @@ take `SOLPROP_TEST_BACKEND=numpy_ref`, and native-only tests skip. A native chan
 a native build and its qualification. Automation that needs no local build, such as Read the
 Docs and the lanes on CI's wheel, uses the same two settings.
 
-**`uv run poe fetch-wheel`** installs a wheel CI built, for Linux x86-64, macOS arm64, Windows
-x64 or Windows on Arm, using `gh` and no compiler. It takes the newest artifact from this checkout's
+**`uv run --no-sync poe fetch-wheel`** installs a wheel CI built, for Linux x86-64, macOS arm64,
+Windows x64 or Windows on Arm, using `gh` and no compiler. With no compiler, run the lightweight
+setup first, because a plain `uv run` would try to build native:
+
+```sh
+uv run --no-project tools/setup_light.py
+uv run --no-sync poe fetch-wheel
+```
+
+It takes the newest artifact from this checkout's
 history only if the difference between that artifact's commit and the working tree, including
 uncommitted changes, touches neither `native/` nor the solprop modules that `solprop_native`
 imports. Anything else is refused, and so is an expired artifact; each refusal names `uv sync`

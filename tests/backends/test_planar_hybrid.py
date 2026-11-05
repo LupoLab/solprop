@@ -438,10 +438,12 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
     is the slab mode's SPM locally in y. The phase is taken against the same run without
     the Kerr term, which removes the dispersion and the 1-D Gouy phase in y. The
     closed form leaves out the index factor ``n0**2 / n_eff`` of the prefactor
-    (+3.1e-4 in argon; the state is launched with ``|a|^2 = P'``, not the true-power
-    ``|b|^2``) and the coupling of the Kerr lens with diffraction in y, of relative
-    order ``L / z_R``: 6e-3 at a 2 mm radius, where the measured departure was
-    9.4e-4; at 5 mm, 3.4e-4. The bound is the slab mode's own 2e-3.
+    (+2.6e-4 in argon; the state is launched with ``|a|^2 = P'``, not the true-power
+    ``|b|^2``) and the coupling of the Kerr lens with diffraction in y,
+    ``B L / (3 z_R)`` (1.5e-4 here, 9.4e-4 at a 2 mm radius). Converged in z the
+    departure is 3.5e-4 here and 1.1e-3 at 2 mm. These ten steps add 5.6e-4 of
+    integration error, so this run measures 9.1e-4. The bound is the slab mode's own
+    2e-3.
     """
     grid = ENVELOPE
     mode = SlabMode(HALF_GAP, "Ar", 1.0)
