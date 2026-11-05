@@ -716,9 +716,10 @@ class OverviewPage(PageView):
         Returns
         -------
         int
-            The row.
+            The row, among those drawn: during a run, planes arrive between drawings.
         """
-        z = np.array([float(r["z"]) for r in self.rows]) * self._unit[1]
+        drawn = self.rows[: self._db.shape[0]]
+        z = np.array([float(r["z"]) for r in drawn]) * self._unit[1]
         return int(np.argmin(np.abs(z - y)))
 
     def data(self) -> tuple[list[str], np.ndarray] | None:
