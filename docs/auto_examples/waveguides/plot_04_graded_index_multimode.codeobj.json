@@ -457,6 +457,15 @@
    "name": "ndarray"
   }
  ],
+ "anti_stokes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "ax": [
   {
    "is_class": false,
@@ -953,6 +962,24 @@
    "name": "ndarray"
   }
  ],
+ "bands": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
+ "bands.items": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
+  }
+ ],
  "beam": [
   {
    "is_class": false,
@@ -987,6 +1014,22 @@
    "name": "float"
   }
  ],
+ "brentq": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "scipy.optimize",
+   "module_short": "scipy.optimize",
+   "name": "brentq"
+  }
+ ],
  "captured": [
   {
    "is_class": false,
@@ -1005,6 +1048,24 @@
    "name": "int"
   }
  ],
+ "centre_pair": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "centre_partner": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "channel": [
   {
    "is_class": false,
@@ -1012,6 +1073,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "int"
+  }
+ ],
+ "channels": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
   }
  ],
  "coupling": [
@@ -1087,6 +1157,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "builtin_function_or_method"
+  }
+ ],
+ "exit_wavelength": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
   }
  ],
  "field": [
@@ -1534,6 +1613,15 @@
    "name": "tuple"
   }
  ],
+ "high": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
  "ideal": [
   {
    "is_class": false,
@@ -1628,6 +1716,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "int"
+  }
+ ],
+ "inside": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
   }
  ],
  "labels": [
@@ -1874,6 +1971,33 @@
    "name": "float64"
   }
  ],
+ "low": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "measured_offset": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
+  }
+ ],
+ "modal_beta": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
  "name": [
   {
    "is_class": false,
@@ -1947,6 +2071,22 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "abs"
+  }
+ ],
+ "np.argmax": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "argmax"
   }
  ],
  "np.argmin": [
@@ -2027,6 +2167,22 @@
    "module": "numpy",
    "module_short": "numpy",
    "name": "asarray"
+  }
+ ],
+ "np.convolve": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "_ArrayFunctionDispatcher"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "convolve"
   }
  ],
  "np.diff": [
@@ -2141,6 +2297,22 @@
    "name": "min"
   }
  ],
+ "np.ones": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  },
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ones"
+  }
+ ],
  "np.pi": [
   {
    "is_class": false,
@@ -2232,6 +2404,24 @@
    "name": "ndarray"
   }
  ],
+ "pair": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "tuple"
+  }
+ ],
+ "peaks": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
  "per_channel": [
   {
    "is_class": false,
@@ -2248,6 +2438,33 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "int"
+  }
+ ],
+ "phase_matched_pair": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "function"
+  }
+ ],
+ "photons": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
+ "photons.sum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "builtin_function_or_method"
   }
  ],
  "physical_energy": [
@@ -2399,6 +2616,15 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "Displayed.node_rule"
+  }
+ ],
+ "pump_implied": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "float"
   }
  ],
  "radius": [
@@ -2703,6 +2929,15 @@
    "name": "IndexMaterial"
   }
  ],
+ "smooth": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "solprop.modes.graded_index.GradedIndexProvider": [
   {
    "is_class": false,
@@ -2757,6 +2992,15 @@
    "name": "ndarray"
   }
  ],
+ "spectrum": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "started": [
   {
    "is_class": false,
@@ -2773,6 +3017,15 @@
    "module": "builtins",
    "module_short": "builtins",
    "name": "float"
+  }
+ ],
+ "stokes": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
   }
  ],
  "text": [

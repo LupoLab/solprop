@@ -86,7 +86,7 @@ a small permittivity law of our own -- anything with ``permittivity``,
 (:class:`~solprop.modes.material.PermittivityLaw`). The core declares its Kerr
 response by :math:`n_2`, at the wavelength it was measured.
 
-.. GENERATED FROM PYTHON SOURCE LINES 73-154
+.. GENERATED FROM PYTHON SOURCE LINES 73-155
 
 .. code-block:: Python
 
@@ -96,6 +96,7 @@ response by :math:`n_2`, at the wavelength it was measured.
 
     import matplotlib.pyplot as plt
     import numpy as np
+    from scipy.optimize import brentq
 
     from solprop.constants import C
     from solprop.coupling import CouplingModel
@@ -191,7 +192,7 @@ response by :math:`n_2`, at the wavelength it was measured.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 155-162
+.. GENERATED FROM PYTHON SOURCE LINES 156-163
 
 The grid spans 450 nm to 1.8 um, which holds both GPI sidebands, and 1.6 ps. The
 guide is solved at 97 frequencies across the **active** band -- from half the
@@ -201,7 +202,7 @@ interpolated basis's departure from orthonormality where the launched pulse is,
 and would warn if it exceeded its budget anywhere else in the active band; this
 guide's sampling passes without a warning.
 
-.. GENERATED FROM PYTHON SOURCE LINES 162-174
+.. GENERATED FROM PYTHON SOURCE LINES 163-175
 
 .. code-block:: Python
 
@@ -235,14 +236,14 @@ guide's sampling passes without a warning.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 175-179
+.. GENERATED FROM PYTHON SOURCE LINES 176-180
 
 The channels and the self-imaging period. For an ideal infinite parabola the
 ``LP_0m`` propagation constants are equally spaced by ``2 sqrt(2 Delta)/a``, so
 the pattern repeats every ``z_p = pi a / sqrt(2 Delta)``. The solved spacings of
 the finite, dispersive fibre are close to that and not equal to it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 179-202
+.. GENERATED FROM PYTHON SOURCE LINES 180-203
 
 .. code-block:: Python
 
@@ -284,7 +285,7 @@ the finite, dispersive fibre are close to that and not equal to it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 203-226
+.. GENERATED FROM PYTHON SOURCE LINES 204-227
 
 The run
 -------
@@ -310,7 +311,7 @@ oscillates at that period, and the adaptive stepper would otherwise try steps th
 straddle it. The default cubic is the real one, so the third harmonic is carried
 too.
 
-.. GENERATED FROM PYTHON SOURCE LINES 226-259
+.. GENERATED FROM PYTHON SOURCE LINES 227-260
 
 .. code-block:: Python
 
@@ -362,12 +363,12 @@ too.
       statistics:      analytic_flux, fwhm_t, fwhm_t_outer, omega0, physical_energy
       between planes:  none
       run:             RunMetadata(multimode, field grid of 4096, 4 modes, native,
-                       2026-11-01T22:35:43.967755+00:00)
+                       2026-11-04T12:06:27.992047+00:00)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 260-270
+.. GENERATED FROM PYTHON SOURCE LINES 261-271
 
 The launch account
 ------------------
@@ -380,7 +381,7 @@ launched share is the measure of what the four channels take: here all but a
 few parts in :math:`10^5`, mostly in ``LP_01``. The launched energy is what the
 run's ``physical_energy`` reads at the entrance.
 
-.. GENERATED FROM PYTHON SOURCE LINES 270-294
+.. GENERATED FROM PYTHON SOURCE LINES 271-295
 
 .. code-block:: Python
 
@@ -449,7 +450,7 @@ run's ``physical_energy`` reads at the entrance.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 295-307
+.. GENERATED FROM PYTHON SOURCE LINES 296-308
 
 Self-imaging
 ------------
@@ -464,7 +465,7 @@ which is why the guide and its tables are passed beside the output. The dashed
 lines mark the period the channels' spacings predict. The launch is mostly
 ``LP_01`` with a few per cent of ``LP_02``, so what oscillates is their beat.
 
-.. GENERATED FROM PYTHON SOURCE LINES 307-336
+.. GENERATED FROM PYTHON SOURCE LINES 308-337
 
 .. code-block:: Python
 
@@ -509,7 +510,7 @@ lines mark the period the channels' spacings predict. The launch is mostly
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 337-344
+.. GENERATED FROM PYTHON SOURCE LINES 338-345
 
 The spectrum
 ------------
@@ -519,7 +520,7 @@ narrow one near 785 nm from about 4 cm, and a broader one near 1.45 um from abou
 5.5 cm. The pulse spreads in time as it goes, because self-phase modulation in
 normal dispersion broadens it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 344-357
+.. GENERATED FROM PYTHON SOURCE LINES 345-358
 
 .. code-block:: Python
 
@@ -548,20 +549,20 @@ normal dispersion broadens it.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 358-368
+.. GENERATED FROM PYTHON SOURCE LINES 359-369
 
 The spectral energy density summed over the channels, at the entrance and every
 2.5 cm, on a logarithmic scale, with the first GPI sideband pair predicted from
 ``z_p`` and the group-velocity dispersion of bulk silica at the pump (the fibre's
 waveguide contribution to it is small for a core this large).
 
-The anti-Stokes band sits within 2 % of the predicted 802 nm -- close agreement
-for a formula that keeps only ``beta_2`` across a 90 THz shift. The long-wavelength
-band is *not* at the predicted Stokes position (1.58 um), nor at the
-energy-conserving partner of the anti-Stokes band (1.64 um); the leading-order
-formula does not explain it, and this page leaves it as an open observation.
+The anti-Stokes band sits within 2 % of the predicted 802 nm, which is close for a
+formula that keeps only ``beta_2`` across a 90 THz shift. The long-wavelength band
+is *not* at the predicted Stokes position (1.58 um), nor at the partner the
+anti-Stokes band would have if the pump's centre drove it (1.64 um). The next
+section shows what it is.
 
-.. GENERATED FROM PYTHON SOURCE LINES 368-409
+.. GENERATED FROM PYTHON SOURCE LINES 369-410
 
 .. code-block:: Python
 
@@ -625,7 +626,125 @@ formula does not explain it, and this page leaves it as an open observation.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 410-418
+.. GENERATED FROM PYTHON SOURCE LINES 411-421
+
+The two bands are one pair
+--------------------------
+Parametric gain makes photons in pairs, so the two bands of one process hold equal
+photon numbers, and energy conservation gives the wavelength that drives them:
+:math:`2/\lambda_p = 1/\lambda_a + 1/\lambda_s`. The solved channels then give the
+exact phase matching, with no expansion of the dispersion: two ``LP_01`` pump photons
+at :math:`\omega_p` become an anti-Stokes photon in ``LP_01`` and a Stokes photon in
+``LP_02``, so :math:`\beta_{01}(\omega_p+\Omega)+\beta_{02}(\omega_p-\Omega)
+=2\beta_{01}(\omega_p)`. The Kerr phase is left out: it is a few per cent of the
+channel spacing.
+
+.. GENERATED FROM PYTHON SOURCE LINES 421-488
+
+.. code-block:: Python
+
+
+
+    def modal_beta(channel, omega):
+        """Return one channel's propagation constant at one frequency, 1/m."""
+        mode = guide.mode_collection.modes[channel]
+        return float(mode.neff(np.array([omega]))[0].real) * omega / C
+
+
+    def phase_matched_pair(pump, near):
+        """Return the exact pair in nm for a pump wavelength, nearest a measured shift."""
+        pump_omega = 2.0 * np.pi * C / pump
+
+        def mismatch(offset):
+            return (
+                modal_beta(0, pump_omega + offset)
+                + modal_beta(1, pump_omega - offset)
+                - 2.0 * modal_beta(0, pump_omega)
+            )
+
+        offset = brentq(mismatch, 0.8 * near, 1.2 * near)
+        return tuple(
+            2.0e9 * np.pi * C / (pump_omega + sign * offset) for sign in (1.0, -1.0)
+        )
+
+
+    exit_wavelength = 2.0 * np.pi * C / grid.omega[1:]
+    for position in (0.05, 0.075, 0.1):
+        plane = int(np.argmin(np.abs(z - position)))
+        channels = np.abs(np.asarray(run["field"])[plane, :, 0, 1:]) ** 2
+        spectrum = np.sum(channels, axis=0)
+        smooth = np.convolve(spectrum, np.ones(5) / 5.0, mode="same")
+        bands = {
+            "blue": (WAVELENGTH - 180e-9, WAVELENGTH - 5e-9),
+            "anti-Stokes": (740e-9, 840e-9),
+            "Stokes": (WAVELENGTH + 300e-9, 1.7e-6),
+        }
+        peaks = {}
+        for name, (low, high) in bands.items():
+            inside = (exit_wavelength > low) & (exit_wavelength < high)
+            peaks[name] = float(exit_wavelength[inside][np.argmax(smooth[inside])])
+        anti_stokes = np.abs(exit_wavelength - peaks["anti-Stokes"]) < 25e-9
+        stokes = np.abs(exit_wavelength - peaks["Stokes"]) < 100e-9
+        centre_partner = (exit_wavelength > 1.6e-6) & (exit_wavelength < 1.7e-6)
+        photons = spectrum / grid.omega[1:]
+        pump_implied = 2.0 / (1.0 / peaks["anti-Stokes"] + 1.0 / peaks["Stokes"])
+        measured_offset = (
+            C * np.pi * 2.0 * (1.0 / peaks["anti-Stokes"] - 1.0 / pump_implied)
+        )
+        pair = phase_matched_pair(pump_implied, measured_offset)
+        print(
+            f"z = {z[plane] * 100:4.1f} cm: photons, as fractions of the total, "
+            f"{photons[anti_stokes].sum() / photons.sum():.2e} anti-Stokes, "
+            f"{photons[stokes].sum() / photons.sum():.2e} Stokes, "
+            f"{photons[centre_partner].sum() / photons.sum():.2e} in 1.6-1.7 um"
+        )
+        print(
+            f"    bands {peaks['anti-Stokes'] * 1e9:.0f} and "
+            f"{peaks['Stokes'] * 1e9:.0f} nm "
+            f"imply a pump at {pump_implied * 1e9:.0f} nm (blue lobe of the pump's "
+            f"spectrum {peaks['blue'] * 1e9:.0f} nm); exact pair there "
+            f"{pair[0]:.0f} and {pair[1]:.0f} nm"
+        )
+    centre_pair = phase_matched_pair(WAVELENGTH, shift)
+    print(
+        f"exact pair at the pump's centre: {centre_pair[0]:.0f} and {centre_pair[1]:.0f} nm"
+    )
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    z =  5.0 cm: photons, as fractions of the total, 1.04e-07 anti-Stokes, 1.01e-07 Stokes, 1.42e-09 in 1.6-1.7 um
+        bands 785 and 1473 nm imply a pump at 1024 nm (blue lobe of the pump's spectrum 1033 nm); exact pair there 787 and 1464 nm
+    z =  7.5 cm: photons, as fractions of the total, 2.08e-06 anti-Stokes, 2.06e-06 Stokes, 1.78e-09 in 1.6-1.7 um
+        bands 783 and 1429 nm imply a pump at 1011 nm (blue lobe of the pump's spectrum 1021 nm); exact pair there 785 and 1421 nm
+    z = 10.0 cm: photons, as fractions of the total, 5.24e-06 anti-Stokes, 5.56e-06 Stokes, 1.66e-09 in 1.6-1.7 um
+        bands 782 and 1409 nm imply a pump at 1006 nm (blue lobe of the pump's spectrum 1014 nm); exact pair there 784 and 1403 nm
+    exact pair at the pump's centre: 787 and 1642 nm
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 489-501
+
+The photon numbers agree as both bands grow, while the partner of the pump's centre
+stays near the noise. So the long-wavelength band is the anti-Stokes band's partner.
+The pump the two bands imply is not the launched 1064 nm but the blue side of the
+spectrum self-phase modulation has built, about 10 nm beyond its blue lobe, and the
+exact pair there lands within a few nanometres of the anti-Stokes band and within
+10 nm of the Stokes band. The anti-Stokes wavelength is nearly stationary against the
+pump wavelength while the Stokes wavelength is not, which is why one band is narrow
+and fixed and the other broad, moving to shorter wavelengths as the lobe does.
+
+Why the blue lobe drives the pair is not settled here. The pump's centre has an exact
+pair of its own, printed last, at which nothing grows, and the red lobe makes no
+visible pair. This is one noise seed in four channels without Raman scattering.
+
+.. GENERATED FROM PYTHON SOURCE LINES 503-511
 
 The channels
 ------------
@@ -636,7 +755,7 @@ orthonormal in true power, so a channel's energy is the frequency sum of its own
 small, fast ripple is the Kerr exchange between the channels at the beat period;
 the slow drift is what the nonlinearity moves over centimetres.
 
-.. GENERATED FROM PYTHON SOURCE LINES 418-441
+.. GENERATED FROM PYTHON SOURCE LINES 511-534
 
 .. code-block:: Python
 
@@ -683,14 +802,14 @@ the slow drift is what the nonlinearity moves over centimetres.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 442-446
+.. GENERATED FROM PYTHON SOURCE LINES 535-539
 
 Which channel carries which band: the exit spectrum of each channel. The pump
-stays mostly in ``LP_01``; the bands the parametric process built are shared
-between the channels, because the process that made them is the beat between
-the channels.
+stays mostly in ``LP_01``. So does the anti-Stokes band, while ``LP_02`` carries most
+of the long-wavelength band, as the pair above requires; the other channels hold
+smaller shares of both.
 
-.. GENERATED FROM PYTHON SOURCE LINES 446-461
+.. GENERATED FROM PYTHON SOURCE LINES 539-554
 
 .. code-block:: Python
 
@@ -721,13 +840,13 @@ the channels.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 462-465
+.. GENERATED FROM PYTHON SOURCE LINES 555-558
 
 Runtime and reproducibility
 ---------------------------
 A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
-.. GENERATED FROM PYTHON SOURCE LINES 465-472
+.. GENERATED FROM PYTHON SOURCE LINES 558-565
 
 .. code-block:: Python
 
@@ -746,12 +865,12 @@ A ten-centimetre and a 4.5 mm run of four channels on the general modal route.
 
  .. code-block:: none
 
-    195 s; backend native, 18 threads
+    142 s; backend native, 18 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 473-479
+.. GENERATED FROM PYTHON SOURCE LINES 566-572
 
 Related reading
 ---------------
@@ -763,7 +882,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (3 minutes 15.348 seconds)
+   **Total running time of the script:** (2 minutes 21.853 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_04_graded_index_multimode.py:
