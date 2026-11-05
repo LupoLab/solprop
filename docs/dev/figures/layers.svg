@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="1669.0" viewBox="0 0 1200 1669.0">
+     width="1200" height="1684.5" viewBox="0 0 1200 1684.5">
 <defs>
 </defs>
 <style>
@@ -69,7 +69,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="1669.0" class="ground" />
+<rect x="0" y="0" width="1200" height="1684.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">The layers of solprop, and every module in each</text>
 <text x="32" y="64.0" font-size="12" class="dim">Bands and colours from architecture.md §3 and decisions.md ADR-001; modules from src/solprop. Arrows point from the layer that imports to the layer it imports.</text>
 <rect x="32" y="75.5" width="16" height="16" rx="7" ry="7" class="fill-p" />
@@ -233,30 +233,31 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="1297.5" font-size="12" class="dim">provenance · quantity · registry</text>
 <rect x="554.8" y="1229.0" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="564.8" y="1251.0" font-size="15" class="bold ink-d">cli.py</text>
-<rect x="32" y="1369.5" width="1010.0" height="168.0" rx="7" ry="7" class="plain" />
-<rect x="46" y="1436.5" width="34" height="34" rx="7" ry="7" class="fill-x" />
-<text x="63" y="1459.5" font-size="19" class="bold mid ink-x">X</text>
-<text x="90" y="1436.0" font-size="15" class="bold ink-x">processing / plotting</text>
-<text x="90" y="1453.5" font-size="12" class="dim">may import</text>
-<text x="168" y="1453.5" font-size="12" class="dim">numpy, scipy</text>
-<text x="168" y="1469.0" font-size="12" class="dim">matplotlib, D (outputs)</text>
-<text x="168" y="1484.5" font-size="12" class="dim">T (table identities)</text>
-<rect x="307.0" y="1382.5" width="237.8" height="81.5" rx="7" ry="7" class="fill-x" />
+<rect x="32" y="1369.5" width="1010.0" height="183.5" rx="7" ry="7" class="plain" />
+<rect x="46" y="1444.25" width="34" height="34" rx="7" ry="7" class="fill-x" />
+<text x="63" y="1467.25" font-size="19" class="bold mid ink-x">X</text>
+<text x="90" y="1443.75" font-size="15" class="bold ink-x">processing / plotting</text>
+<text x="90" y="1461.25" font-size="12" class="dim">may import</text>
+<text x="168" y="1461.25" font-size="12" class="dim">numpy, scipy</text>
+<text x="168" y="1476.75" font-size="12" class="dim">matplotlib, D (outputs)</text>
+<text x="168" y="1492.25" font-size="12" class="dim">T (table identities)</text>
+<rect x="307.0" y="1382.5" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
 <text x="317.0" y="1404.5" font-size="15" class="bold ink-x">processing/</text>
 <text x="317.0" y="1420.0" font-size="12" class="dim">beams · axes · fields · spectra</text>
 <text x="317.0" y="1435.5" font-size="12" class="dim">time · coherence · compression</text>
-<text x="317.0" y="1451.0" font-size="12" class="dim">mixtures · modal · planes · scans</text>
-<rect x="554.8" y="1382.5" width="224.60000000000002" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="564.8" y="1404.5" font-size="15" class="bold ink-x">plotting/</text>
-<text x="564.8" y="1420.0" font-size="12" class="dim">propagation · statistics</text>
-<text x="564.8" y="1435.5" font-size="12" class="dim">spectrograms · style · geometry</text>
-<rect x="789.4" y="1382.5" width="69.5" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="799.4" y="1404.5" font-size="15" class="bold ink-x">sol.py</text>
-<rect x="868.9" y="1382.5" width="143.75" height="81.5" rx="7" ry="7" class="fill-x" />
-<text x="878.9" y="1404.5" font-size="15" class="bold ink-x">capabilities.py</text>
-<rect x="307.0" y="1474.0" width="110.75000000000001" height="50.5" rx="7" ry="7" class="planned" />
-<text x="317.0" y="1496.0" font-size="15" class="bold dim">processing/</text>
-<text x="317.0" y="1511.5" font-size="12" class="dim">windows</text>
+<text x="317.0" y="1451.0" font-size="12" class="dim">mixtures · modal · planes</text>
+<text x="317.0" y="1466.5" font-size="12" class="dim">plane_file · scans</text>
+<rect x="541.6" y="1382.5" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="551.6" y="1404.5" font-size="15" class="bold ink-x">plotting/</text>
+<text x="551.6" y="1420.0" font-size="12" class="dim">propagation · statistics</text>
+<text x="551.6" y="1435.5" font-size="12" class="dim">spectrograms · style · geometry</text>
+<rect x="776.2" y="1382.5" width="69.5" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="786.2" y="1404.5" font-size="15" class="bold ink-x">sol.py</text>
+<rect x="855.7" y="1382.5" width="143.75" height="97.0" rx="7" ry="7" class="fill-x" />
+<text x="865.7" y="1404.5" font-size="15" class="bold ink-x">capabilities.py</text>
+<rect x="307.0" y="1489.5" width="110.75000000000001" height="50.5" rx="7" ry="7" class="planned" />
+<text x="317.0" y="1511.5" font-size="15" class="bold dim">processing/</text>
+<text x="317.0" y="1527.0" font-size="12" class="dim">windows</text>
 <path d="M326.0,566.0 L326.0,530.0" class="arrow" />
 <path d="M326.0,530.0 L329.6,539.0 L322.4,539.0 Z" class="head" />
 <text x="338.0" y="552.0" font-size="12" class="dim">T → P   physics objects</text>
@@ -281,13 +282,13 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M1048.0,319.25 L1057.0,315.65 L1057.0,322.85 Z" class="head" />
 <rect x="1123.0" y="594.0" width="18" height="18" rx="7" ry="7" class="card" />
 <text x="1132.0" y="607.0" font-size="12" class="bold mid dim">3</text>
-<path d="M1046.0,1453.5 L1164.0,1453.5 L1164.0,671.25 L1048.0,671.25" class="arrow" />
+<path d="M1046.0,1461.25 L1164.0,1461.25 L1164.0,671.25 L1048.0,671.25" class="arrow" />
 <path d="M1048.0,671.25 L1057.0,667.65 L1057.0,674.85 Z" class="head" />
-<rect x="1155.0" y="1053.375" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1164.0" y="1066.375" font-size="12" class="bold mid dim">4</text>
-<text x="32" y="1575.0" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
-<text x="32" y="1590.5" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
-<text x="32" y="1606.0" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
-<text x="32" y="1621.5" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
-<text x="32" y="1637.0" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
+<rect x="1155.0" y="1057.25" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1164.0" y="1070.25" font-size="12" class="bold mid dim">4</text>
+<text x="32" y="1590.5" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
+<text x="32" y="1606.0" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
+<text x="32" y="1621.5" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
+<text x="32" y="1637.0" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
+<text x="32" y="1652.5" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
 </svg>

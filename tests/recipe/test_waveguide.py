@@ -4,7 +4,7 @@
 
 """Recipes on the waveguide route: supplied modes, their fill and the export (SEP 41).
 
-No gallery script on the route has a recipe yet (``test_examples.NO_RECIPE`` says why),
+Most gallery scripts on the route have no recipe (``test_examples.NO_RECIPE`` says why),
 so the calls here are the user guide's: the planar guide's slab collection
 (``docs/guide/waveguides/planar.md``), a rectangular guide with both polarisation
 partners, and two capillary channels supplied as modes. Each recipe must build the

@@ -22,7 +22,12 @@ from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import RadialGrid
 from solprop.output.schema import Output
-from solprop.processing.axes import SpectralAxis, grid_of, spectral_axis
+from solprop.processing.axes import (
+    SpectralAxis,
+    grid_of,
+    spatial_grid_of,
+    spectral_axis,
+)
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
     _plane_field,
@@ -30,7 +35,6 @@ from solprop.processing.fields import (
     field_spectrogram,
     real_field_oversampling,
 )
-from solprop.processing.planes import _space
 from solprop.spatial import (
     SpatialFlux,
     column_spectrum,
@@ -44,6 +48,7 @@ from solprop.spatial import (
 from solprop.translate.flux import flux_from_record
 
 __all__ = [
+    "FAR_FIELD_ANGLES",
     "far_field",
     "fluence_along",
     "on_axis_power",
@@ -75,9 +80,10 @@ def _radial_space(output: Output) -> RadialGrid:
     solprop.exceptions.ProcessingError
         If the run is not on a radial grid.
     """
-    metadata = output.metadata
-    record = None if metadata is None else metadata.configuration.get("spatial_grid")
-    space = None if record is None else _space(record)
+    try:
+        space = spatial_grid_of(output)
+    except ProcessingError:
+        space = None
     if not isinstance(space, RadialGrid):
         msg = "these readers are of a radial beam, and this run is not on a radial grid"
         raise ProcessingError(msg)
@@ -282,17 +288,45 @@ def far_field(
     theta = np.linspace(0.0, reach, angles)
     values = np.zeros((angles, bins.size))
     for place, frequency in enumerate(omega[bins]):
-        sine = C * k_r / frequency
-        real = sine < 1.0
+        real = C * k_r / frequency < 1.0
         if not real.any():
             continue
-        at = np.arcsin(sine[real])
-        cosine = np.sqrt(1.0 - sine[real] ** 2)
-        # A column spans 2 pi k_r dk_r, which is k^2 sin(theta) cos(theta) dOmega.
-        solid = 2.0 * np.pi * sine[real] * cosine * (C / frequency) * edges[real]
-        density = per_bin[real, place] / solid
+        at, density = _per_solid_angle(
+            per_bin[real, place], k_r[real], edges[real], float(frequency)
+        )
         values[:, place] = np.interp(theta, at, density, right=0.0)
     return theta, x, values * jacobian
+
+
+def _per_solid_angle(
+    energy: np.ndarray, k_r: np.ndarray, widths: np.ndarray, omega: float
+) -> tuple[np.ndarray, np.ndarray]:
+    r"""Return the energy in transverse-wavevector columns per unit solid angle.
+
+    With :math:`k_r = k\sin\theta`, :math:`dk_r = k\cos\theta\,d\theta`, so a column
+    spans :math:`2\pi k_r\,dk_r = k^2\cos\theta\,d\Omega`: its solid angle is
+    :math:`2\pi k_r\,dk_r / (k^2\cos\theta)`, which grows towards grazing angles.
+
+    Parameters
+    ----------
+    energy : numpy.ndarray
+        Each column's energy, J per unit of the spectral axis.
+    k_r : numpy.ndarray
+        The columns' transverse wavevectors, 1/m, each below ``omega / C``.
+    widths : numpy.ndarray
+        Their widths in ``k_r``, 1/m.
+    omega : float
+        The angular frequency, rad/s.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The angles, rad, and the energy per steradian there.
+    """
+    sine = C * k_r / omega
+    cosine = np.sqrt(1.0 - sine**2)
+    solid = 2.0 * np.pi * sine * (C / omega) * widths / cosine
+    return np.arcsin(sine), energy / solid
 
 
 def fluence_along(

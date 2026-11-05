@@ -101,11 +101,9 @@ def test_each_default_is_the_signature_s(route):
 def test_the_none_spelling_is_exactly_where_the_default_is_not_none(route):
     builder = BUILDERS[route]
     for name, entry in metadata.parameters(route).items():
-        needs = (
-            entry.default is not None
-            and entry.default is not metadata.REQUIRED
-            and _accepts_none(builder, name)
-        )
+        # A required keyword that admits None is written out as none, as prop_gnlse's
+        # first argument is when n2 and a fibre give gamma.
+        needs = entry.default is not None and _accepts_none(builder, name)
         assert entry.none == needs, name
         # A keyword with the spelling has no "none" of its own to confuse it with.
         own = [form for form in entry.forms if form.choices != ("none",)]

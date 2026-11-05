@@ -820,6 +820,7 @@ MODULES = {
                 "mixtures",
                 "modal",
                 "planes",
+                "plane_file",
                 "scans",
             ),
         ),

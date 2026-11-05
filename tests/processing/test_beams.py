@@ -6,6 +6,7 @@
 
 import math
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -25,6 +26,7 @@ from solprop.processing import (
     radial_intensity,
     radial_spectrum,
 )
+from solprop.processing.beams import _per_solid_angle
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.recipe import Recipe
 from solprop.spatial import (
@@ -204,6 +206,7 @@ def test_below_the_critical_power_nothing_collapses() -> None:
     # Just above it, the collapse lies far ahead.
     power = beam.critical_power
     near = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 1.05 * power)
+    assert near.collapse_distance is not None
     assert near.collapse_distance > 3 * near.rayleigh_range
 
 
@@ -211,12 +214,27 @@ def test_a_focus_draws_the_collapse_nearer_by_the_lens_law() -> None:
     power = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 1e9).critical_power
     free = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 3 * power)
     focused = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 3 * power, focus=1.0)
-    assert 1 / focused.collapse_distance == pytest.approx(
-        1 / free.collapse_distance + 1
-    )
-    # A beam already diverging fast enough has no collapse ahead.
-    gone = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 3 * power, focus=-0.01)
+    assert free.collapse_distance is not None
+    assert focused.collapse_distance is not None
+    # At launch the beam is wider by 1 + (d/z_R)^2 in area, and converges with radius
+    # d + z_R^2/d.
+    z_r = free.rayleigh_range
+    wider = free.collapse_distance * (1.0 + (1.0 / z_r) ** 2)
+    curvature = 1.0 + z_r**2
+    assert 1 / focused.collapse_distance == pytest.approx(1 / wider + 1 / curvature)
+    assert focused.collapse_distance < free.collapse_distance
+    # Just above the critical power, a beam a Rayleigh range past its waist diverges
+    # faster than it self-focuses, and has no collapse ahead.
+    gone = beam_params(1e-3, WAVELENGTH, "Ar", 1.0, 1.05 * power, focus=-z_r)
     assert gone.collapse_distance is None
+
+
+def test_a_waist_just_ahead_is_nearly_collimated() -> None:
+    power = beam_params(3e-4, WAVELENGTH, "Ar", 1.0, 1e9).critical_power
+    free = beam_params(3e-4, WAVELENGTH, "Ar", 1.0, 3 * power)
+    for shift in (1e-6, -1e-6):
+        near = beam_params(3e-4, WAVELENGTH, "Ar", 1.0, 3 * power, focus=shift)
+        assert near.collapse_distance == pytest.approx(free.collapse_distance, rel=1e-4)
 
 
 def test_the_linear_radius_is_a_gaussian_beam_s() -> None:
@@ -254,7 +272,20 @@ def test_the_filament_example_runs_above_the_critical_power() -> None:
     recipe = Recipe.example("filament")
     assert recipe.route == "radial"
     preview = recipe.preview_input()
-    keywords = recipe.to_dict()["build"]
+    keywords: Any = recipe.to_dict()["build"]
     assert keywords["initial"]["waist"] == "300 um"
     beam = beam_params(300e-6, WAVELENGTH, "Ar", 1.0, float(preview.peak_power))
     assert 2.5 < beam.power_ratio < 3.5
+
+
+def test_a_wide_angle_s_solid_angle_takes_the_obliquity() -> None:
+    # Columns evenly filled out to 80 degrees: the energy per steradian integrates over
+    # the sphere back to the columns' total, which a paraxial measure would overstate.
+    omega = 2 * math.pi * C / WAVELENGTH
+    k = omega / C
+    k_r = np.linspace(0.0005, 0.98, 4000) * k
+    widths = np.gradient(k_r)
+    energy = np.ones_like(k_r)
+    theta, density = _per_solid_angle(energy, k_r, widths, omega)
+    total = 2 * np.pi * np.trapezoid(density * np.sin(theta), theta)
+    assert total == pytest.approx(energy.sum(), rel=1e-2)

@@ -31,7 +31,7 @@ of mode-averaged propagation, not a converged supercontinuum prediction.
 
 The strand propagates through the public ``prop_gnlse(fibre=...)`` entry: the
 mode supplies dispersion, loss and effective area, and ``n2`` supplies the
-nonlinear response.
+nonlinear response. ``Recipe.example("step_index_fibre")`` is that run as a recipe.
 
 The rectangular comparison uses 50 by 12.5 um half-widths and both polarisation
 partners. Its propagation is of an aluminium-clad guide of 50 by 10 um half-widths
@@ -258,7 +258,7 @@ Rectangular x/y partners have separate propagation constants and losses.
 
     GrazingIncidenceWarning: RectMode(x11, 100 um x 20 um, Ar 5 bar, loss=True): the first-order wall-pair model reaches lambda |q| / (2 pi a) = 0.179 at 2332 nm, above the 0.1 it is valid to; its neglected terms are second order in that ratio. Narrow the band towards shorter wavelengths, widen the guide, or keep lower orders
     Rectangular transmitted energy: 9.954503e-09 J
-    Complete step-index/rectangular example: 14.419 s
+    Complete step-index/rectangular example: 7.917 s
 
 
 
@@ -275,7 +275,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 14.501 seconds)
+   **Total running time of the script:** (0 minutes 7.997 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_03_stepindex_rectangular.py:

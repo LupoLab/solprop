@@ -47,7 +47,8 @@ grid = EnvelopeGrid.from_limits(length, 800e-9, (500e-9, 1.4e-6), 300e-15, thg=F
 space = RadialGrid(1.2e-3, 128)
 settings = SimulationSettings(
     controller=PIController(rtol=1e-5, atol=1e-11),
-    save_planes=np.linspace(0, length, 81)[1:],
+    # Every 3.125 mm, written as the recipe example reads them, to the last digit.
+    save_planes=np.arange(1, 81) * length / 80,
     dz_init=1e-5,
     dz_max=5e-4,
     stats=StatsSpec(

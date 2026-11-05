@@ -10,8 +10,8 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, a transverse window sized with the boundary monitor, and a radial beam
-under the Kerr effect built from plain objects.
+capillary, a transverse window sized with the boundary monitor, and a radial beam and a
+line beam under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -198,6 +198,40 @@ For the full filament and crossing-beam lessons, begin with the
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A LineGrid resolves one transverse direction: the beam is uniform in y, so its energy is per metre of y. Here a 100 um waist line of 0.1 J/m, at 800 nm and 30 fs, diffracts through 10 cm of argon at 1 bar. Without the Kerr response its width follows the Gaussian diffraction law; with it, the Kerr lens narrows it slightly.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_11_line_beam_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_11_line_beam`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A line beam under the Kerr effect</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about three times the critical power: it collapses, the plasma arrests the collapse, and a filament forms. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the filament&#x27;s example recipe mirrors (``Recipe.example(&quot;filament&quot;)``). The lesson /introduction/lessons/plot_03_filament explains the physics; this page shows what a radial file can be asked for afterwards: the beam&#x27;s characteristic numbers, its spectrum across the beam and on the axis, and its far field. Each reader takes only the file.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_11_radial_filament_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_11_radial_filament`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Reading a radial filament from its file</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -218,4 +252,6 @@ For the full filament and crossing-beam lessons, begin with the
    /auto_tutorials/free_space/plot_08_radial_capillary_coupling
    /auto_tutorials/free_space/plot_09_transverse_window
    /auto_tutorials/free_space/plot_10_radial_kerr
+   /auto_tutorials/free_space/plot_11_line_beam
+   /auto_tutorials/free_space/plot_11_radial_filament
 
