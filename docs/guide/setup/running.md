@@ -138,7 +138,9 @@ for two-colour and multi-colour inputs, on every keyword entry point of this pag
 Give exactly one of `betas`, `beta` and `fibre`, and one of `gamma` and `n2`.
 The first positional argument is still required, so pass `None` for it:
 `prop_gnlse(None, length, fibre=table, n2=..., ...)`, or the equivalent
-`Simulation.from_gnlse` call. `n2` requires a fibre with an effective area;
+`Simulation.from_gnlse` call. A recipe can hold a `StepIndexMode` as the fibre, with
+`gamma = "none"` (`Recipe.example("step_index_fibre")`); other modes and tables are
+Python only. `n2` requires a fibre with an effective area;
 a table's area is evaluated at `wavelength`. With `gamma`, a table without an
 area uses 1 m². The mapping is `gamma = n2 omega0 / (c A_eff)` and
 `chi3 = (4/3) (1 - f_R) n2 eps0 c`, with unit prefactor index, the usual shock

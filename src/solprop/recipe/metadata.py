@@ -1027,6 +1027,7 @@ def _gnlse() -> tuple[Parameter, ...]:
             "Nonlinear coefficient; none derives it from n2 and the fibre's area.",
             page,
             display="W^-1/m",
+            none=True,
         ),
         Parameter(
             "betas",
@@ -1046,7 +1047,10 @@ def _gnlse() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "fibre",
-            (Form("object", types=("Mode", "IndexTable"), recipe=False),),
+            (
+                Form("object", types=("StepIndexMode",)),
+                Form("object", types=("Mode", "IndexTable"), recipe=False),
+            ),
             "medium",
             "advanced",
             "A mode or a tabulated index as the fibre.",
@@ -1054,10 +1058,11 @@ def _gnlse() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "n2",
-            (Form("number", unit="m^2/W"), Form("string")),
+            (Form("number", unit="m^2/W"), Form("choice", choices=("recommended",))),
             "nonlinear",
             "advanced",
-            "Nonlinear index, or a material name, with the fibre's area for gamma.",
+            "Nonlinear index, or recommended for optmat's silica, with the fibre's "
+            "area for gamma.",
             page,
             display="m^2/W",
         ),
@@ -1471,7 +1476,10 @@ def _waveguide() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "provider",
-            (Form("object", types=("ModalGuide",), recipe=False),),
+            (
+                Form("object", types=("ModalGuide.on_grid",)),
+                Form("object", types=("ModalGuide",), recipe=False),
+            ),
             "geometry",
             "advanced",
             "A guide that solves its own fields, in place of modes and a fill.",
@@ -1883,6 +1891,7 @@ _TYPE_PULSES: Final = ("GaussianPulse", "SechPulse", "load_spectrum")
 _LOSS: Final = (_TYPE_BOOLEAN, _number(minimum=0.0), _CALLABLE)
 _CLADDING: Final = (_UNREGISTERED, Form("mapping"))
 _GAS: Final = (_STRING,)
+_FIBRE_MATERIAL: Final = (_number(minimum=0.0, exclusive=True), _object("glass"))
 
 
 def _keyword(
@@ -3091,6 +3100,145 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "Whether the response radiates the third harmonic.",
         ),
         _keyword("species", _STRING, "advanced", "Component label in a mixture."),
+    ),
+    "StepIndexMode": _type(
+        "geometry",
+        "guide/waveguides/step-index.md",
+        _keyword(
+            "radius",
+            (_LENGTH, _PROFILE),
+            "basic",
+            "Core radius.",
+            display="um",
+        ),
+        _keyword(
+            "core",
+            _FIBRE_MATERIAL,
+            "basic",
+            "Core index, or a glass; none is fused silica.",
+        ),
+        _keyword(
+            "cladding",
+            _FIBRE_MATERIAL,
+            "basic",
+            "Cladding index, or a glass; none is index 1.",
+        ),
+        _keyword("kind", _choice("HE", "EH", "TE", "TM"), "basic", "Mode family."),
+        _keyword("n", _integer(0), "basic", "Azimuthal order."),
+        _keyword("m", _integer(1), "basic", "Radial order."),
+        _keyword("parity", _choice("even", "odd"), "advanced", "Hybrid orientation."),
+        _keyword(
+            "profile_wavelength",
+            _LENGTH,
+            "basic",
+            "Wavelength the transverse profile is frozen at.",
+            display="nm",
+        ),
+        _keyword(
+            "loss",
+            (_number("m^-1", minimum=0.0), _CALLABLE),
+            "advanced",
+            "Power attenuation.",
+        ),
+    ),
+    "glass": _type(
+        "medium",
+        "guide/media/material-selection.md",
+        _keyword("name", _STRING, "basic", "A built-in glass, such as SiO2 or BK7."),
+        _keyword(
+            "model", (_STRING, _UNREGISTERED), "advanced", "An optmat model name."
+        ),
+        _keyword(
+            "axis",
+            _choice("o", "e"),
+            "advanced",
+            "The ray of a uniaxial crystal.",
+        ),
+    ),
+    "IndexMaterial": _type(
+        "medium",
+        "guide/waveguides/graded-index.md",
+        _keyword("index", _FIBRE_MATERIAL, "basic", "Index, or a glass."),
+    ),
+    "MaterialKerr": _type(
+        "nonlinear",
+        "guide/waveguides/general-modal.md",
+        _keyword("chi3", _number(), "advanced", "Third-order susceptibility, m^2/V^2."),
+        _keyword("n2", _number("m^2/W"), "basic", "Nonlinear index."),
+        _keyword(
+            "at",
+            _LENGTH,
+            "basic",
+            "Wavelength n2 was measured at.",
+            display="nm",
+        ),
+    ),
+    "PowerLawPermittivity": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword("centre", _object("IndexMaterial"), "basic", "Material on the axis."),
+        _keyword(
+            "contrast",
+            _number(minimum=0.0, maximum=0.5, exclusive=True),
+            "basic",
+            "Contrast Delta: eps = eps_axis (1 - 2 Delta (r/a)^p).",
+        ),
+        _keyword("exponent", _number(minimum=2.0), "basic", "Shape exponent p."),
+    ),
+    "GradedIndexProvider": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword(
+            "permittivity",
+            _object("PowerLawPermittivity"),
+            "basic",
+            "The core's radial law.",
+        ),
+        _keyword("exterior", _object("IndexMaterial"), "basic", "Exterior material."),
+        _keyword(
+            "radius",
+            (_LENGTH, _PROFILE),
+            "basic",
+            "Core radius.",
+            display="um",
+        ),
+        _keyword(
+            "family",
+            _choice("TE", "TM", "LP"),
+            "basic",
+            "Sector: TE0, TM0 or the weak-guidance LP approximation.",
+        ),
+        _keyword("count", _integer(1), "basic", "Consecutive radial channels."),
+        _keyword(
+            "elements", _integer(8), "advanced", "Radial elements per core radius."
+        ),
+        _keyword(
+            "extent",
+            _number(minimum=1.0, exclusive=True),
+            "advanced",
+            "Matching radius in core radii.",
+        ),
+        _keyword(
+            "azimuthal_order", _integer(0), "basic", "Angular order of an LP sector."
+        ),
+        _keyword(
+            "core_responses",
+            _object("MaterialKerr"),
+            "basic",
+            "The core's responses; empty is a linear guide.",
+        ),
+    ),
+    "ModalGuide.on_grid": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword(
+            "provider",
+            _object("GradedIndexProvider"),
+            "basic",
+            "The provider that solves the guide's fields.",
+        ),
+        _keyword("knots", _integer(4), "advanced", "Frequency knots across the band."),
+        _keyword("n_r", _integer(1), "advanced", "Radial nodes per element."),
     ),
     "gamma3": _type(
         "nonlinear",

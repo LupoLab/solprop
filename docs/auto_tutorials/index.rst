@@ -362,8 +362,9 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, hollow planar guides per unit width, and a gas-filled hollow
-rectangular guide built from a supplied mode.
+over a split pair, hollow planar guides per unit width, a gas-filled hollow
+rectangular guide built from a supplied mode, and a pulse in two channels of a
+graded-index fibre.
 
 
 .. raw:: html
@@ -530,6 +531,23 @@ rectangular guide built from a supplied mode.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A parabolic graded-index core has channels whose group delays nearly agree, which is what the profile is for. This example launches a femtosecond pulse equally into the two lowest radial LP channels of a 25 um core and follows it for 5 mm with the core&#x27;s Kerr response. The channels broaden, and the Kerr term moves energy between them as their relative phase turns.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_10_graded_index_fibre_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_10_graded_index_fibre`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A pulse in two channels of a graded-index fibre</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -544,8 +562,8 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, a transverse window sized with the boundary monitor, and a radial beam
-under the Kerr effect built from plain objects.
+capillary, a transverse window sized with the boundary monitor, and a radial beam and a
+line beam under the Kerr effect built from plain objects.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -729,6 +747,23 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">A radially symmetric beam under the Kerr effect</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A LineGrid resolves one transverse direction: the beam is uniform in y, so its energy is per metre of y. Here a 100 um waist line of 0.1 J/m, at 800 nm and 30 fs, diffracts through 10 cm of argon at 1 bar. Without the Kerr response its width follows the Gaussian diffraction law; with it, the Kerr lens narrows it slightly.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_11_line_beam_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_11_line_beam`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A line beam under the Kerr effect</div>
     </div>
 
 

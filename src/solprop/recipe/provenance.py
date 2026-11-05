@@ -127,6 +127,18 @@ def _used(
                 values[name] = resolved
         elif entry.default is not REQUIRED and isinstance(entry.default, _PLAIN):
             values[name] = entry.default
+    if build.get("provider") is not None:
+        # A general guide takes its physics from the guide: the route refuses these
+        # beside a provider, so the resolved text must not name them.
+        from solprop.driver.simulation import (  # noqa: PLC0415 - layer above
+            _GAS_KEYWORD_DEFAULTS,
+        )
+
+        values = {
+            name: value
+            for name, value in values.items()
+            if name not in _GAS_KEYWORD_DEFAULTS
+        }
     return values
 
 
