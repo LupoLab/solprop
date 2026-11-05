@@ -90,6 +90,8 @@ class RunPanel(QWidget):
 
     Attributes
     ----------
+    point_seen : Signal
+        Emitted with a scan's ``point`` and ``scan_started`` events' data.
     ended : Signal
         Emitted with the results file when a run ends, however it ends.
     state_changed : Signal
@@ -99,6 +101,7 @@ class RunPanel(QWidget):
     """
 
     ended = Signal(str)
+    point_seen = Signal(object)
     state_changed = Signal(str)
     workspace_changed = Signal(str)
 
@@ -570,8 +573,10 @@ class RunPanel(QWidget):
             self.state_label.setText(f"{self.run_id}: running")
         elif event.kind == "scan_started":
             self.state_label.setText(f"{self.run_id}: scanning {data['points']} points")
+            self.point_seen.emit(data)
         elif event.kind == "point":
             self._show_point(data)
+            self.point_seen.emit(data)
         # A scan's start moves the run on as a run's does.
         kind = "started" if event.kind == "scan_started" else event.kind
         self._set_state(advance(self.state, kind))

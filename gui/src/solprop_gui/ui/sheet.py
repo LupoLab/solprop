@@ -276,6 +276,8 @@ class SheetStage(QWidget):
         Emitted with the paths a row moved, each with its value, where it moves several.
     lens_wanted : Signal
         Emitted with a lens's focal length and the radius on it, m.
+    scan_wanted : Signal
+        Emitted with a keyword and its value when a row's menu asks to scan it.
     rows : dict
         The rows, by path and table.
     derived : dict
@@ -287,6 +289,7 @@ class SheetStage(QWidget):
     pins_changed = Signal(object, object)
     values_edited = Signal(object)
     lens_wanted = Signal(float, float)
+    scan_wanted = Signal(str, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the empty frame."""
@@ -745,6 +748,7 @@ class SheetStage(QWidget):
             on_sheet=on_sheet,
         )
         row.edited.connect(self._row_edited if on_sheet else self.edited)
+        row.scan_wanted.connect(self.scan_wanted)
         self.rows[row.name, "build"] = row
         return row
 

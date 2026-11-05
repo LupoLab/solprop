@@ -22,6 +22,7 @@ class Stage(StrEnum):
     SETUP = "setup"
     RUN = "run"
     ANALYSE = "analyse"
+    SCAN = "scan"
 
 
 @dataclass(frozen=True)
@@ -99,6 +100,7 @@ def stage_open(stage: Stage, progress: Progress) -> bool:
         Stage.SETUP: progress.has_setup,
         Stage.RUN: progress.running or progress.has_run,
         Stage.ANALYSE: progress.has_results,
+        Stage.SCAN: progress.has_setup,
     }[stage]
 
 

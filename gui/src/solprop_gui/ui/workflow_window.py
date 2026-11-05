@@ -39,10 +39,11 @@ from solprop_gui.classes.catalog import (
 )
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.model.recipe import RecipeModel
+from solprop_gui.model.recipe import RecipeModel, without_table
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.routes import card_of
 from solprop_gui.service.messages import Reply
+from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
@@ -51,6 +52,7 @@ from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.document import Confirm, SetupDocument
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.run_panel import RunPanel
+from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
 
@@ -59,7 +61,12 @@ __all__ = ["WorkflowWindow"]
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
 
-_STAGE_TEXT = ((Stage.SETUP, "Setup"), (Stage.RUN, "Run"), (Stage.ANALYSE, "Analyse"))
+_STAGE_TEXT = (
+    (Stage.SETUP, "Setup"),
+    (Stage.RUN, "Run"),
+    (Stage.ANALYSE, "Analyse"),
+    (Stage.SCAN, "Scan"),
+)
 
 
 class WorkflowWindow(QMainWindow):
@@ -135,12 +142,15 @@ class WorkflowWindow(QMainWindow):
         assert isinstance(overview, OverviewPage)  # what the registry holds
         self.overview = overview
         self.run_panel = RunPanel(
-            self.bridge, self.document.snapshot, self.workspace, view=self.overview
+            self.bridge, self._run_recipe, self.workspace, view=self.overview
         )
+        self._scanning = False
+        self._scan_path = ""
         self.home = HomePage()
         self.sheet = SheetStage()
         self.analyse = AnalyseStage(self.session, self.run_panel, self.page_views)
         self.design = DesignStage(self.bridge)
+        self.scans = ScanStage()
 
         self.stack = QStackedWidget()
         self.screens: dict[Stage, QWidget] = {
@@ -149,8 +159,9 @@ class WorkflowWindow(QMainWindow):
             Stage.SETUP: self.sheet,
             Stage.RUN: self.analyse,
             Stage.ANALYSE: self.analyse,
+            Stage.SCAN: self.scans,
         }
-        for screen in (self.home, self.design, self.sheet, self.analyse):
+        for screen in (self.home, self.design, self.sheet, self.analyse, self.scans):
             self.stack.addWidget(screen)
         self.drawer = self._make_drawer()
         self.top = self._make_top()
@@ -186,6 +197,11 @@ class WorkflowWindow(QMainWindow):
             lambda values: self.document.edit_values(values, merging=True)
         )
         self.sheet.lens_wanted.connect(self._ask_lens)
+        self.sheet.scan_wanted.connect(self.scan_keyword)
+        self.scans.table_changed.connect(
+            lambda table: self.document.edit_table("scan", table)
+        )
+        self.run_panel.point_seen.connect(self.scans.show_point)
         self.sheet.example_chosen.connect(self.document.open_example)
         self.document.opened.connect(self._opened)
         self.document.described.connect(lambda _route: self._build_sheet())
@@ -366,6 +382,9 @@ class WorkflowWindow(QMainWindow):
         primary = primary_action(progress)
         self.primary.setText("Simulate this" if designing else primary.text)
         self.primary.setEnabled(designing or primary.enabled)
+        if self.stage is Stage.SCAN and not progress.running:
+            self.primary.setText("Run scan")
+            self.primary.setEnabled(progress.can_run and self.scans.has_points())
         self.overflow.setVisible(not designing)
         if designing:
             self.context.setText("Design a waveguide")
@@ -401,6 +420,11 @@ class WorkflowWindow(QMainWindow):
         """Do what the primary button says."""
         if self.stage is Stage.DESIGN:
             self.simulate_design()
+            return
+        if self.stage is Stage.SCAN and not self.run_panel.active:
+            self._scanning = True
+            self.run_panel.set_can_run(self.document.can_run)
+            self.run_panel.start()
             return
         action = primary_action(self.progress()).action
         if action == "stop":
@@ -490,6 +514,11 @@ class WorkflowWindow(QMainWindow):
             self.design.set_gases(reply.value)  # pyright: ignore[reportArgumentType]
             self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
             self._build_sheet()
+        elif purpose == "scan":
+            if reply.ok:
+                self.scans.show_scan(reply.value, self._scan_path)  # pyright: ignore[reportArgumentType]
+            else:
+                self.scans.show_error(str(reply.error))
         elif purpose == "python":
             self.drawer_text.setPlainText(
                 str(reply.value) if reply.ok else f"# {reply.error}"
@@ -602,6 +631,43 @@ class WorkflowWindow(QMainWindow):
         """
         self.document.open_example(class_named(key).example)
 
+    def _run_recipe(self) -> tuple[str, str | None, str | None]:
+        """Return what a run runs: the setup once, or its scan from the Scan stage.
+
+        Returns
+        -------
+        tuple
+            The recipe's text, its base directory and its title.
+        """
+        text, base, title = self.document.snapshot()
+        return (text if self._scanning else without_table(text, "scan")), base, title
+
+    def scan_keyword(self, name: str, value: object) -> None:
+        """Make a keyword a variable of the setup's scan, and go to the scan.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        value : object
+            Its value now, or ``None``.
+        """
+        self.scans.editor.scan(name, value)
+        self.show_stage(Stage.SCAN)
+
+    def open_scan(self, path: str) -> None:
+        """Show a scan's results on the Scan stage.
+
+        Parameters
+        ----------
+        path : str
+            The scan's file.
+        """
+        self.scans.progress.setText("Reading the scan…")
+        self._scan_path = path
+        self._ask_kernel("scan_overview", {"path": path}, "scan")
+        self.show_stage(Stage.SCAN)
+
     def simulate_design(self) -> None:
         """Carry the design to a new sheet, asking first about unsaved changes."""
         if self.design.text is not None:
@@ -647,6 +713,9 @@ class WorkflowWindow(QMainWindow):
         path : str
             The file.
         """
+        if Path(path).name == SCAN_OUTPUT:
+            self.open_scan(path)
+            return
         self._own_run = False
         self._open_file(path)
         self.show_stage(Stage.ANALYSE)
@@ -710,6 +779,17 @@ class WorkflowWindow(QMainWindow):
         self.sheet.build(
             self.problem, description, model.document.get("build", {}), model.title
         )
+        keywords: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]
+        self.scans.set_paths(
+            [
+                str(entry["name"])
+                for entry in keywords
+                if any(
+                    form.get("kind") in ("number", "integer")
+                    for form in entry.get("forms", [])  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
+                )
+            ]
+        )
         self._show_values()
         self._ask_numbers()
 
@@ -723,6 +803,7 @@ class WorkflowWindow(QMainWindow):
         """Show the recipe's values on the sheet, and ask what they now give."""
         if self.document.model is not None:
             self.sheet.show_values(self.document.model)
+            self.scans.show_table(self.document.model.document.get("scan"))
             self._ask_numbers()
 
     def _checked(self, issues: list[Mapping[str, object]]) -> None:
@@ -769,7 +850,10 @@ class WorkflowWindow(QMainWindow):
         state : str
             Its new execution state.
         """
-        if state == "starting":
+        if state == "starting" and self._scanning:
+            # A scan's points are watched on its own stage, not on Run.
+            self.scans.progress.setText("Starting the scan…")
+        elif state == "starting":
             self.has_run = True
             self.has_results = False
             self._failed = False
@@ -802,6 +886,12 @@ class WorkflowWindow(QMainWindow):
         path : str
             Its results file.
         """
+        if Path(path).name == SCAN_OUTPUT:
+            self._scanning = False
+            self.open_scan(path)
+            self.refresh_home()
+            self._refresh()
+            return
         self._own_run = True
         self.overview.end_of_run()
         self._open_file(path)

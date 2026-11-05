@@ -31,7 +31,7 @@ from solprop.recipe.paths import (
     set_path,
 )
 
-__all__ = ["MISSING", "RecipeModel", "path_text"]
+__all__ = ["MISSING", "RecipeModel", "path_text", "without_table"]
 
 
 class _Missing:
@@ -406,6 +406,37 @@ class RecipeModel:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(self.to_text(), encoding="utf-8")
         return target
+
+
+def without_table(text: str, table: str) -> str:
+    r"""Return a recipe's text with one of its tables left out.
+
+    Parameters
+    ----------
+    text : str
+        The recipe.
+    table : str
+        The table, as ``"scan"``.
+
+    Returns
+    -------
+    str
+        The text; the same text where the recipe has no such table.
+
+    Examples
+    --------
+    >>> text = '[recipe]\nformat = 1\nroute = "capillary"\n\n[build]\nradius = 1e-4\n'
+    >>> left = without_table(text + '\n[scan]\nname = "s"\nradius = [1e-4]\n', "scan")
+    >>> "scan" in RecipeModel(left).document, RecipeModel(left).get("radius")
+    (False, 0.0001)
+    >>> without_table(text, "scan") == text
+    True
+    """
+    model = RecipeModel(text)
+    if table not in model.document:
+        return text
+    model.set_table(table, None)
+    return model.to_text()
 
 
 def path_text(*steps: str | int) -> str:
