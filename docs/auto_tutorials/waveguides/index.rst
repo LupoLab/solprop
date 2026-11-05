@@ -7,8 +7,9 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, hollow planar guides per unit width, and a gas-filled hollow
-rectangular guide built from a supplied mode.
+over a split pair, hollow planar guides per unit width, a gas-filled hollow
+rectangular guide built from a supplied mode, and a pulse in two channels of a
+graded-index fibre.
 
 
 .. raw:: html
@@ -175,6 +176,23 @@ rectangular guide built from a supplied mode.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A parabolic graded-index core has channels whose group delays nearly agree, which is what the profile is for. This example launches a femtosecond pulse equally into the two lowest radial LP channels of a 25 um core and follows it for 5 mm with the core&#x27;s Kerr response. The channels broaden, and the Kerr term moves energy between them as their relative phase turns.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_10_graded_index_fibre_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_10_graded_index_fibre`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A pulse in two channels of a graded-index fibre</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -194,4 +212,5 @@ rectangular guide built from a supplied mode.
    /auto_tutorials/waveguides/plot_07_split_block
    /auto_tutorials/waveguides/plot_08_planar
    /auto_tutorials/waveguides/plot_09_hollow_rectangular
+   /auto_tutorials/waveguides/plot_10_graded_index_fibre
 

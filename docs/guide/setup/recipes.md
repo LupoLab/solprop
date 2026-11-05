@@ -93,7 +93,9 @@ supplies them. An unknown key is refused with the nearest valid one.
   `LowStorageRungeKutta`), `absorber` (built on the route's grid), `TubeLattice`,
   `CoherentWall`, `MaterialSelection`, the supplied modes (`MarcatiliMode`,
   `RectMode`, `SlabMode`, `ModeCollection.slab`), `StepIndexMode` as the GNLSE `fibre`,
-  with `glass` for its materials, and the free-space types: the grids
+  with `glass` for its materials, the graded-index guide (`ModalGuide.on_grid`,
+  `GradedIndexProvider`, `PowerLawPermittivity`, `IndexMaterial`, `MaterialKerr`), and the
+  free-space types: the grids
   (`RadialGrid`, `FreeGrid`, `LineGrid`, `PlanarGrid`), `SpatialMedium`, the responses
   (`KerrResponse`, with `gamma3` for optmat's coefficient of a gas,
   `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`), the beams
@@ -129,8 +131,10 @@ raman = false
 and a list of tables gives the modes one by one, `modes = [{type = "RectMode",
 half_width_x = "50 um", half_width_y = "10 um", polarisation = "y"}]`. A guide that
 solves its own fields (`provider`, the [general modal route](../waveguides/general-modal.md))
-has no table form: its knots and node rule are taken from the run's grid and the
-provider, so it is written in Python.
+is written in Python, except a [graded-index fibre](../waveguides/graded-index.md):
+`provider = {type = "ModalGuide.on_grid", knots = 21, n_r = 2, provider = {type =
+"GradedIndexProvider", ...}}`, with `modes = []` and a `grid` table, since its knots are
+taken from that grid. `check()` on such a recipe costs one solve of the guide.
 
 **Parameter paths** name a value inside the recipe: the keyword, then `.name` for a
 keyword of an object, `[i]` for an element of a list and `["key"]` for a key of a mapping,
@@ -216,7 +220,7 @@ costs a translation, a fraction of a second on the capillary example.
 **What a recipe cannot hold**: a callable (a `beta` function, a loss curve, a custom
 absorber's rate), a type that is not registered (a tabulated index or a mode other than
 `StepIndexMode` as the GNLSE `fibre`, `CustomPulse`, a TDSE response, a material object as a mode's cladding or
-a medium, a guide built from a provider, an `ApertureSet`, a Raman or dispersive Kerr
+a medium, a guide built from another provider, an `ApertureSet`, a Raman or dispersive Kerr
 response on a free-space route), and an array: one given to `Simulation.with_input`, or
 a free-space launch built as a spectrum. `to_python()` is the way out: export the recipe
 and edit the script.
@@ -403,7 +407,8 @@ cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 and tested to build that example's configuration hash. A front end starts a new setup
 from one of them. Every route has one: `hollow_rectangular` on `waveguide`,
 `radial_kerr` on `radial`, and `cartesian_beam`, `planar_hybrid` and `planar_compressor`
-on the other free-space routes. `step_index_fibre` is a solid-core fibre on `gnlse`.
+on the other free-space routes. The solid-core fibres are `step_index_fibre` on `gnlse`
+and `graded_index_fibre` on `waveguide`.
 Each gallery script on a route a recipe describes that has no recipe is listed, with
 its reason, in the test that holds the examples to the gallery, so the list stays true:
 

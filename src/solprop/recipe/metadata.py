@@ -1475,7 +1475,10 @@ def _waveguide() -> tuple[Parameter, ...]:
         ),
         Parameter(
             "provider",
-            (Form("object", types=("ModalGuide",), recipe=False),),
+            (
+                Form("object", types=("ModalGuide.on_grid",)),
+                Form("object", types=("ModalGuide",), recipe=False),
+            ),
             "geometry",
             "advanced",
             "A guide that solves its own fields, in place of modes and a fill.",
@@ -3150,6 +3153,91 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
             "advanced",
             "The ray of a uniaxial crystal.",
         ),
+    ),
+    "IndexMaterial": _type(
+        "medium",
+        "guide/waveguides/graded-index.md",
+        _keyword("index", _FIBRE_MATERIAL, "basic", "Index, or a glass."),
+    ),
+    "MaterialKerr": _type(
+        "nonlinear",
+        "guide/waveguides/general-modal.md",
+        _keyword("chi3", _number(), "advanced", "Third-order susceptibility, m^2/V^2."),
+        _keyword("n2", _number("m^2/W"), "basic", "Nonlinear index."),
+        _keyword(
+            "at",
+            _LENGTH,
+            "basic",
+            "Wavelength n2 was measured at.",
+            display="nm",
+        ),
+    ),
+    "PowerLawPermittivity": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword("centre", _object("IndexMaterial"), "basic", "Material on the axis."),
+        _keyword(
+            "contrast",
+            _number(minimum=0.0, maximum=0.5, exclusive=True),
+            "basic",
+            "Contrast Delta: eps = eps_axis (1 - 2 Delta (r/a)^p).",
+        ),
+        _keyword("exponent", _number(minimum=2.0), "basic", "Shape exponent p."),
+    ),
+    "GradedIndexProvider": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword(
+            "permittivity",
+            _object("PowerLawPermittivity"),
+            "basic",
+            "The core's radial law.",
+        ),
+        _keyword("exterior", _object("IndexMaterial"), "basic", "Exterior material."),
+        _keyword(
+            "radius",
+            (_LENGTH, _PROFILE),
+            "basic",
+            "Core radius.",
+            display="um",
+        ),
+        _keyword(
+            "family",
+            _choice("TE", "TM", "LP"),
+            "basic",
+            "Sector: TE0, TM0 or the weak-guidance LP approximation.",
+        ),
+        _keyword("count", _integer(1), "basic", "Consecutive radial channels."),
+        _keyword(
+            "elements", _integer(8), "advanced", "Radial elements per core radius."
+        ),
+        _keyword(
+            "extent",
+            _number(minimum=1.0, exclusive=True),
+            "advanced",
+            "Matching radius in core radii.",
+        ),
+        _keyword(
+            "azimuthal_order", _integer(0), "basic", "Angular order of an LP sector."
+        ),
+        _keyword(
+            "core_responses",
+            _object("MaterialKerr"),
+            "basic",
+            "The core's responses; empty is a linear guide.",
+        ),
+    ),
+    "ModalGuide.on_grid": _type(
+        "geometry",
+        "guide/waveguides/graded-index.md",
+        _keyword(
+            "provider",
+            _object("GradedIndexProvider"),
+            "basic",
+            "The provider that solves the guide's fields.",
+        ),
+        _keyword("knots", _integer(4), "advanced", "Frequency knots across the band."),
+        _keyword("n_r", _integer(1), "advanced", "Radial nodes per element."),
     ),
     "gamma3": _type(
         "nonlinear",

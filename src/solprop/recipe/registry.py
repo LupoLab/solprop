@@ -43,6 +43,9 @@ from solprop.grid import (
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import CoherentWall, MarcatiliMode
 from solprop.modes.collection import ModeCollection
+from solprop.modes.graded_index import GradedIndexProvider, PowerLawPermittivity
+from solprop.modes.guide import ModalGuide
+from solprop.modes.material import IndexMaterial, MaterialKerr
 from solprop.modes.rectangular import RectMode
 from solprop.modes.slab import PlanarGrid, SlabMode
 from solprop.modes.stepindex import StepIndexMode
@@ -123,6 +126,10 @@ class BuildContext:
         Whether a supplied mode may name its own fill (:attr:`Factory.fill`): on the
         planar route, whose slab channels carry the run's fill. The guided routes
         rebind every supplied mode to their own fill, so there it may not.
+    stand_in : bool
+        Whether `grid` is a stand-in for checking values before the route has one: a
+        factory that solves on the grid (:attr:`Factory.solves`) has its keywords
+        decoded and is not called.
 
     Examples
     --------
@@ -136,6 +143,7 @@ class BuildContext:
     grid: TimeGrid | None = None
     embedded: Mapping[str, bytes] = field(default_factory=dict)
     mode_fill: bool = False
+    stand_in: bool = False
 
 
 @dataclass(frozen=True)
@@ -165,6 +173,9 @@ class Factory:
         A mode's own fill keywords, which a recipe gives only where the context
         allows a mode its fill (:attr:`BuildContext.mode_fill`): the slab channels of
         the planar route, whose fill is the run's.
+    solves : bool
+        Whether calling the target solves on the grid, so that it is not called on a
+        stand-in grid (:attr:`BuildContext.stand_in`).
 
     Examples
     --------
@@ -180,6 +191,7 @@ class Factory:
     data_file: str | None = None
     omitted: tuple[str, ...] = ()
     fill: tuple[str, ...] = ()
+    solves: bool = False
 
 
 def _pressure_pair(index: int) -> Unit:
@@ -358,6 +370,13 @@ REGISTRY: Final[Mapping[str, Factory]] = {
             {"radius": "m", "profile_wavelength": "m", "loss": "m^-1"},
         ),
         Factory("glass", glass),
+        Factory("IndexMaterial", IndexMaterial),
+        Factory("MaterialKerr", MaterialKerr, {"n2": "m^2/W", "at": "m"}),
+        Factory("PowerLawPermittivity", PowerLawPermittivity),
+        Factory("GradedIndexProvider", GradedIndexProvider, {"radius": "m"}),
+        Factory(
+            "ModalGuide.on_grid", ModalGuide.on_grid, context=("grid",), solves=True
+        ),
         Factory(
             "SlabMode",
             SlabMode,
@@ -434,9 +453,10 @@ the only one the interfaces document. The supplied modes (``MarcatiliMode``,
 ``RectMode``, ``SlabMode`` and ``ModeCollection.slab``) take their geometry, cladding
 and loss and not their fill, which the route sets; on the planar route a slab mode's
 fill is the run's, so there it names one (:attr:`Factory.fill`). ``StepIndexMode``, with
-``glass`` for its materials, is the GNLSE route's ``fibre``. A guide built from a
-provider has no table form: its knots and node rule are derived from the run's grid
-and the provider's own method.
+``glass`` for its materials, is the GNLSE route's ``fibre``. ``ModalGuide.on_grid``
+is a graded-index guide on the waveguide route, with its knots and node rule taken from
+the run's grid and the provider's own method; a guide built any other way has no table
+form.
 
 The free-space routes register their grids (``RadialGrid``, ``FreeGrid``,
 ``LineGrid``, ``PlanarGrid``), the medium (``SpatialMedium``, without a supplied
@@ -714,6 +734,9 @@ def build_object(
             raise RecipeError(msg, path=path)
         decoded = decode(item, factory.units.get(key), context, f"{path}.{key}")
         arguments[key] = coerce(factory.target, key, decoded)
+    if factory.solves and context.stand_in:
+        # A solve on a band that is not the run's would refuse what the run accepts.
+        return None
     try:
         return factory.target(*positional, **arguments)
     except TypeError as error:
@@ -903,7 +926,11 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
     if isinstance(value, str) and "integer" in kinds and "number" not in kinds:
         # An integer beyond 64 bits, such as a drawn seed, is written as a string.
         return decode_integer(value, path=entry.name)
-    if not any(form.recipe for form in entry.forms) or _python_array(entry, value):
+    if (
+        not any(form.recipe for form in entry.forms)
+        or _python_array(entry, value)
+        or _python_type(entry, value)
+    ):
         msg = (
             f"{entry.name} takes a Python object or function that a recipe cannot "
             "hold; use the Python export (Recipe.to_python)"
@@ -914,6 +941,26 @@ def decode_keyword(entry: Parameter, value: object, context: BuildContext) -> ob
         msg = f"{entry.name} takes one row of numbers, not a list of rows"
         raise RecipeError(msg, path=entry.name)
     return decode(value, unit, context, entry.name)
+
+
+def _python_type(entry: Parameter, value: object) -> bool:
+    """Return whether a value names a type of a keyword that only Python holds.
+
+    Parameters
+    ----------
+    entry : Parameter
+        The keyword.
+    value : object
+        The value as written.
+
+    Returns
+    -------
+    bool
+        True for a table whose ``type`` a form with ``recipe=False`` lists.
+    """
+    return isinstance(value, Mapping) and any(
+        not form.recipe and value.get("type") in form.types for form in entry.forms
+    )
 
 
 def _python_array(entry: Parameter, value: object) -> bool:

@@ -80,8 +80,8 @@ operating system's entropy replaced by this constant, both draw the same.
 """
 
 _PROVIDER: Final = (
-    "the guide is a ModalGuide built from a provider at knots taken from the grid, on "
-    "the provider's own node rule: a provider has no table form"
+    "the guide is built from a provider other than the graded-index one, which has no "
+    "table form"
 )
 _PHASE_MATCHING: Final = (
     "the pressure is a numerical phase-matching root (brentq on the HE11 mismatch): "
@@ -142,7 +142,7 @@ NO_RECIPE: Final[dict[str, str]] = {
         f"{_PROVIDER}; the GNLSE calls take a mode channel as fibre, not registered"
     ),
     "docs/tutorials/waveguides/plot_06_graded_index.py": (
-        f"{_PROVIDER}, and the run is launched with Simulation.with_input"
+        "the run is launched with Simulation.with_input"
     ),
     "docs/tutorials/waveguides/plot_07_split_block.py": (
         f"{_PROVIDER}, and declares a ChannelBasis"

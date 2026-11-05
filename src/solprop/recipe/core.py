@@ -639,22 +639,45 @@ class Recipe:
             Keyword arguments for the route's ``Simulation.from_*``.
         """
         build = self._document["build"]
-        if grid is None and self.route in OBJECT_ROUTES and "grid" in build:
+        one_pass = self._grid_first()
+        if _needs_grid(build.get("provider")) and "grid" not in build:
+            msg = (
+                "this guide is built on the route's grid, so the recipe must give "
+                "grid, a FieldGrid.from_limits table"
+            )
+            raise RecipeError(msg, path="provider")
+        if grid is None and one_pass and "grid" in build:
             # The time grid is a keyword of its own here: what is built on it, the
-            # settings' absorber, is built on that grid, in one pass.
+            # settings' absorber or a guide, is built on that grid, in one pass.
             grid = cast(
                 "TimeGrid", self._decode("grid", build["grid"], self._context())
             )
         context = self._context(grid)
         out: dict[str, object] = {}
         for name, value in build.items():
-            if name == "grid" and self.route in OBJECT_ROUTES:
+            if name == "grid" and one_pass:
                 out[name] = grid
                 continue
             if grid is None and _needs_grid(value):
                 continue
             out[name] = self._decode(name, value, context)
         return out
+
+    def _grid_first(self) -> bool:
+        """Return whether the time grid is decoded before the route is called.
+
+        An object route takes its grid as a keyword of its own. A guided route builds
+        its grid when it is called, and what needs that grid is decoded in a second
+        pass, except a guide, which the route cannot be called without.
+
+        Returns
+        -------
+        bool
+            True for an object route, or a ``provider`` built on the grid.
+        """
+        return self.route in OBJECT_ROUTES or _needs_grid(
+            self._document["build"].get("provider")
+        )
 
     def _missing(self) -> list[str]:
         """Return the route's required keywords this recipe neither sets nor pins.
@@ -714,7 +737,7 @@ class Recipe:
             return self.resolve().build()
         builder = surface(self.route)
         simulation = builder(**self.keywords())
-        if self.route not in OBJECT_ROUTES and any(
+        if not self._grid_first() and any(
             _needs_grid(value) for value in self._document["build"].values()
         ):
             simulation = builder(**self.keywords(grid=simulation._base_grid))
@@ -1271,7 +1294,7 @@ def _deferred(context: BuildContext) -> BuildContext:
     from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only for the stand-in
 
     grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
-    return dataclasses.replace(context, grid=grid)
+    return dataclasses.replace(context, grid=grid, stand_in=True)
 
 
 def _needs_grid(value: object) -> bool:
