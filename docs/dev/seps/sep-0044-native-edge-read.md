@@ -519,7 +519,7 @@ Before this work those points took 70 s and 29 s, so x11.9 and x6.9. A requested
 **Deviations from Part I.**
 
 - §7 asks that a trace of the workload confirm no state crosses on a device. I relied on native's own byte count, which `test_native_edge_reading.py` asserts on both cards, and on the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards.
-- §7 asks for an A/B against 0.1.0 on an AMD EPYC 7763. 0.1.0 can't run the harness as it stands, so the first figures are against the history's 0.1.0 rows, not interleaved. They're in the ledger.
+- §7 asks for an A/B against 0.1.0 on an AMD EPYC 7763 as history. Interleaved, at `ccd701d5` with a small local change giving 0.1.0 the same grids: `kerr_beam_192` x1.059 at one thread and x0.902 at 16, and `kerr_beam_384` x1.080 and x0.941, on the same steps. §7 sets no limit on it. The plan's aim was under x1.08, which `kerr_beam_384` at one thread narrowly misses, at x1.0803. `kerr_beam_192`'s final field differs from 0.1.0's by 1.8e-7, which predates this work, as the ledger says.
 
 **Found on the way, not part of this SEP.** A state's plans are the largest row of a run: 21.09 GiB of 38.96 GiB on the H200 at 768 x 768 x 600, and 22.02 GiB of 39.64 GiB on the MI325X. That's unchanged by this work, and it has its own issue, [#529](https://github.com/LupoLab/solprop/issues/529).
 
