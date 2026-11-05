@@ -316,6 +316,12 @@ quiet-level = 3
 ignore-words-list = "te,nd,ket,dout,ans,eto,towin,pto,ther,commun,rin,hart"
 
 # --------------------------------------------------------------------------- task runner
+# A task runs in the environment poe itself runs in. Poe's default, on a uv project, starts
+# each task through a second `uv run`, which syncs whatever the first was told: `uv run
+# --no-sync poe ...` would build native, and replace a fetched wheel or fail with no compiler.
+[tool.poe.executor]
+type = "simple"
+
 [tool.poe.tasks]
 lint-fix   = "ruff check --fix ."
 fmt        = "ruff format ."

@@ -6,6 +6,7 @@
 
 import importlib.util
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -15,6 +16,13 @@ spec = importlib.util.spec_from_file_location("fetch_wheel", SCRIPT)
 assert spec is not None and spec.loader is not None
 fetch_wheel = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(fetch_wheel)
+
+
+def test_poe_starts_no_second_uv_run():
+    # A second `uv run` would sync, and build native, under `uv run --no-sync poe ...`.
+    pyproject = SCRIPT.parents[2] / "pyproject.toml"
+    config = tomllib.loads(pyproject.read_text(encoding="utf-8"))
+    assert config["tool"]["poe"]["executor"]["type"] == "simple"
 
 
 def artifact(sha, created, *, expired=False):
