@@ -4,7 +4,9 @@
 
 """The problem classes, held to solprop: a sheet cannot drift from a recipe."""
 
+import math
 import warnings
+from pathlib import Path
 
 import pytest
 from solprop.recipe import Recipe
@@ -13,14 +15,17 @@ from solprop.stats import CATALOGUE
 from solprop_gui.classes.catalog import CLASSES, class_named, class_of
 from solprop_gui.classes.problem import (
     AnalysisPage,
+    Derived,
     ProblemClass,
+    derived_text,
+    derived_value,
     field_meta,
     other_keywords,
     page_refusal,
     sheet_paths,
 )
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.service.handlers import describe, summarise
+from solprop_gui.service.handlers import describe, describe_output, summarise
 
 
 @pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)
@@ -67,6 +72,16 @@ def test_derived_numbers_are_in_the_summary(problem: ProblemClass) -> None:
     assert {number.key for number in problem.derived} <= known
 
 
+def test_derived_numbers_read_from_the_summary() -> None:
+    assert derived_value({"design": {"zdw": 1.0}}, "zdw") == 1.0
+    assert derived_value({"design": {"zdw": "x"}}, "zdw") is None
+    assert derived_value(None, "zdw") is None
+    assert derived_text(Derived("zdw", "ZDW", "m"), 4.23e-7) == "423 nm"
+    assert derived_text(Derived("zdw", "ZDW", "m"), None) == "—"
+    assert derived_text(Derived("zdw", "ZDW", "m"), math.inf) == "none"
+    assert derived_text(Derived("n", "N", prefixed=False), 3.74) == "3.74"
+
+
 def test_class_lookup() -> None:
     assert class_named("capillary").route == "capillary"
     with pytest.raises(KeyError):
@@ -82,7 +97,7 @@ def test_page_refusals_say_why() -> None:
     compress = AnalysisPage("e", "E", (), "compression")
     assert page_refusal(fields, {"field_planes": [0]}) is None
     assert "fields" in str(page_refusal(fields, {"field_planes": []}))
-    assert page_refusal(statistics, {"statistics_planes": [0]}) is None
+    assert page_refusal(statistics, {"z": [0.0]}) is None
     assert "statistics" in str(page_refusal(statistics, {}))
     assert page_refusal(modes, {"labels": ["a", "b"]}) is None
     assert "one mode" in str(page_refusal(modes, {"labels": ["a"]}))
@@ -91,6 +106,13 @@ def test_page_refusals_say_why() -> None:
     assert page_refusal(compress, {"refused": {"compression": "No."}}) == "No."
     assert page_refusal(compress, {"refused": {}}) is None
     assert page_refusal(compress, {}) is None
+
+
+def test_a_finished_run_offers_its_pages(finished_run: Path) -> None:
+    capabilities = describe_output({"path": str(finished_run)})
+    refused = {page.key: page_refusal(page, capabilities) for page in CLASSES[0].pages}
+    assert refused.pop("modes") is not None  # one mode: the recipe is mode-averaged
+    assert not any(refused.values()), refused
 
 
 def test_field_meta_refuses_what_the_route_lacks() -> None:

@@ -45,6 +45,7 @@ them is corrected.
 |---|---|
 | Sync | `uv sync --extra gui --group gui-test`, which also builds the native backend (a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
+| Run the workflow window being built (design, section 16) | `uv run solprop-gui --workflow` |
 | Run it with the solprop service (runs outlive the window, a new window re-attaches) | `SOLPROP_GUI_SERVICE=1 uv run solprop-gui` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |
 | Lint, format, spelling, licences | the repository's: `uv run ruff check .`, `uv run ruff format .`, `uv run codespell`, `uv run poe reuse` |

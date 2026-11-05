@@ -166,6 +166,7 @@ class SetupDocument(QObject):
         self.base: str | None = None
         self.descriptions: dict[str, Mapping[str, object]] = {}
         self.issues: list[Mapping[str, object]] = []
+        self._answered = False
         self.undo = QUndoStack(self)
         self._pending: dict[int, str] = {}
         self._adapt: dict[int, Callable[[RecipeModel], None]] = {}
@@ -231,10 +232,12 @@ class SetupDocument(QObject):
             self.set_model(model, base=None)
         elif purpose == "check":
             self.issues = list(value) if reply.ok else [_failure(reply)]  # pyright: ignore[reportArgumentType]
+            self._answered = True
             self.checked.emit(self.issues)
         elif purpose == "summarise":
             self.summarised.emit(value if reply.ok else None, reply.error)
-        if not reply.ok and reply.detail:
+        # A failed check or summary has said so above, in its own place.
+        if not reply.ok and reply.detail and purpose not in ("check", "summarise"):
             self.message.emit(f"{purpose}: {reply.error}")
 
     # ------------------------------------------------------------------ opening
@@ -300,6 +303,7 @@ class SetupDocument(QObject):
         self.base = base
         self.undo.clear()
         self.issues = []
+        self._answered = False
         self.opened.emit()
         route = model.route
         if route in self.descriptions:
@@ -487,10 +491,13 @@ class SetupDocument(QObject):
         Returns
         -------
         bool
-            Whether a setup is open with no error against it.
+            Whether a setup is open, solprop has answered on it, and has no error
+            against it.
         """
-        return self.model is not None and not any(
-            issue.get("severity") == "error" for issue in self.issues
+        return (
+            self.model is not None
+            and self._answered
+            and not any(issue.get("severity") == "error" for issue in self.issues)
         )
 
     # ------------------------------------------------------------------ saving

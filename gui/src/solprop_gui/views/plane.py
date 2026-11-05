@@ -257,7 +257,8 @@ class PlaneView(QWidget):
         self._quantity = ""
 
         controls = QHBoxLayout()
-        controls.addWidget(QLabel("Plane"))
+        self.plane_label = QLabel("Plane")
+        controls.addWidget(self.plane_label)
         controls.addWidget(self.slider, 2)
         controls.addWidget(self.where)
         controls.addWidget(self.modes)

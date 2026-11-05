@@ -439,7 +439,7 @@ Filament                        Setup  Run  Analyse     [▶ Run]  ⋯
 └────────────────────────────────────────────────────────────────┘
 ```
 
-The beam is set by waist and focus (`SpatialPulse.distance` carries the distance to focus), with
+The beam is set by waist and focus (`SpatialPulse.propz` carries the distance to focus), with
 lens input as an option. The beam numbers and the lens conversion are physics, so they need
 solprop functions (21.2). `spatial.critical_power` already exists.
 
@@ -1283,7 +1283,7 @@ table, scan editor, compressor chain) and the pyqtgraph views.
 
 | Milestone | Content |
 |---|---|
-| W1 Frame | The `classes` layer. The controller moved out of `MainWindow`. Home, the three stages, the sheet frame, the rail and the z scrubber. |
+| W1 Frame (built locally) | The `classes` layer. The controller moved out of `MainWindow`. Home, the three stages, the sheet frame, the rail and the z scrubber. Built as: `classes/` holds the four classes as data, a test holding every row to its class's example; `ui/document.py` (`SetupDocument`) owns the recipe, undo, checks and files for both windows; `solprop-gui --workflow` opens the new window beside the step window, which Other geometry still opens. Setup edits and checks a real recipe with solprop's numbers; Run and Analyse host the existing views under the new frame, with their sliders replaced by the scrubber. Left to W2: the live sheet (preview plot, typed targets, fast numbers), plain-language rows, and the pages not built, which say so on the rail. |
 | W2 Capillary | End to end: the live sheet with typed targets, the Run stage and every page of 11.3. Checked by walking S1 and S4 by hand. |
 | W3 Radial filament | Its sheet and pages, with the spatial readers and beam numbers of 21.2. Checked by walking S6. |
 | W4 Fibres | Solid-core and antiresonant, as classes. |

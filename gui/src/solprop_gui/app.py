@@ -31,17 +31,25 @@ def main(argv: Sequence[str] | None = None) -> int:
         prog="solprop-gui", description="A desktop front end for solprop."
     )
     parser.add_argument("--version", action="version", version=__version__)
-    parser.parse_args(argv)
+    parser.add_argument(
+        "--workflow",
+        action="store_true",
+        help="Open the workflow window being built in place of the step window.",
+    )
+    options = parser.parse_args(argv)
 
     # Qt is imported here, after the arguments: `--version` and `--help` answer without
     # loading it.
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415 - see above
 
     from solprop_gui.ui.main_window import MainWindow  # noqa: PLC0415 - see above
+    from solprop_gui.ui.workflow_window import (  # noqa: PLC0415 - see above
+        WorkflowWindow,
+    )
 
     application = QApplication.instance() or QApplication(sys.argv[:1])
     application.setApplicationName("solprop")
     application.setApplicationVersion(__version__)
-    window = MainWindow()
+    window = WorkflowWindow() if options.workflow else MainWindow()
     window.show()
     return application.exec()

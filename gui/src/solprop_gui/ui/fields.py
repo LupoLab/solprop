@@ -135,6 +135,16 @@ def modes_of(
     return sorted(modes, key=order.index)
 
 
+_ONE_LINE_LABEL = 112
+"""The width of a label beside its editor, in pixels."""
+
+_ANY_WIDTH = 16_777_215
+"""Qt's largest widget width, which PySide6 does not export."""
+
+_TALL_MODES = frozenset({"object", "objects", "betas", "launch"})
+"""The editors of several lines."""
+
+
 class ParameterRow(QWidget):
     """The row of one keyword.
 
@@ -149,6 +159,9 @@ class ParameterRow(QWidget):
         The owner.
     catalog : Catalog or None, optional
         The registered types the kernel described, for an object form's editor.
+    one_line : bool, optional
+        Whether to lay the label and a one-line editor side by side, as on a sheet; an
+        editor of several lines keeps the full width below its label.
 
     Attributes
     ----------
@@ -170,6 +183,7 @@ class ParameterRow(QWidget):
         parent: QWidget | None = None,
         *,
         catalog: Catalog | None = None,
+        one_line: bool = False,
     ) -> None:
         """Make the row's widgets from the metadata."""
         super().__init__(parent)
@@ -319,14 +333,24 @@ class ParameterRow(QWidget):
         line = QHBoxLayout()
         line.setContentsMargins(0, 0, 0, 0)
         line.setSpacing(4)
-        line.addWidget(self.label, 1)
-        line.addWidget(self.mode)
-        line.addWidget(self.reset)
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 3, 0, 3)
         layout.setSpacing(1)
-        layout.addLayout(line)
-        layout.addWidget(self.stack)
+        self._one_line = one_line
+        self._line = line
+        self._column = layout
+        if one_line:
+            self.label.setMinimumWidth(_ONE_LINE_LABEL)
+            line.addWidget(self.label)
+            line.addWidget(self.mode)
+            line.addWidget(self.reset)
+            layout.addLayout(line)
+        else:
+            line.addWidget(self.label, 1)
+            line.addWidget(self.mode)
+            line.addWidget(self.reset)
+            layout.addLayout(line)
+            layout.addWidget(self.stack)
         layout.addWidget(self.issue)
         self._show_mode(self.modes[0])
         self.set_value(MISSING)
@@ -477,6 +501,17 @@ class ParameterRow(QWidget):
                 else QSizePolicy.Policy.Ignored
             )
             editor.setSizePolicy(policy, policy)
+        if self._one_line:
+            # An editor of several lines takes the full width below its label.
+            self.label.setMaximumWidth(
+                _ANY_WIDTH if mode in _TALL_MODES else _ONE_LINE_LABEL
+            )
+            if mode in _TALL_MODES:
+                self._line.removeWidget(self.stack)
+                self._column.insertWidget(1, self.stack)
+            else:
+                self._column.removeWidget(self.stack)
+                self._line.insertWidget(1, self.stack, 1)
         self.stack.setCurrentWidget(self.editors[mode])
         self.stack.updateGeometry()
 

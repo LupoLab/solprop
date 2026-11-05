@@ -64,10 +64,13 @@ class ResultsPage(QWidget):
         Emitted with (recipe text, results file) when the user opens a run's setup.
     view_wanted : Signal
         Emitted with the name of the view to bring forward.
+    described : Signal
+        Emitted with what the open file can give, the kernel's ``describe_output``.
     """
 
     setup_opened = Signal(str, str)
     view_wanted = Signal(str)
+    described = Signal(object)
 
     def __init__(  # noqa: PLR0915 - the page's layout
         self, bridge: ServiceBridge, parent: QWidget | None = None
@@ -431,6 +434,7 @@ class ResultsPage(QWidget):
             list(value.get("labels") or []),  # pyright: ignore[reportArgumentType]
         )
         self.overview.set_spatial(value.get("basis") == "spatial")
+        self.described.emit(value)
 
     def _show_view_reply(self, purpose: str, value: object) -> None:
         """Hand a view its reply.

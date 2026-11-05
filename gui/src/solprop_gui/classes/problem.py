@@ -4,11 +4,14 @@
 
 """What a problem class declares, and the readings of it that hold for every class."""
 
+import math
 from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.paths import Attribute, parse_path
+
+from solprop_gui.registry.units import si
 
 __all__ = [
     "AnalysisPage",
@@ -16,6 +19,8 @@ __all__ = [
     "Field",
     "ProblemClass",
     "Section",
+    "derived_text",
+    "derived_value",
     "field_meta",
     "other_keywords",
     "page_refusal",
@@ -152,6 +157,78 @@ class ProblemClass:
     statistics: tuple[str, ...] = ()
 
 
+def derived_value(summary: Mapping[str, object] | None, key: str) -> float | None:
+    """Find a derived number in the kernel's summary.
+
+    Parameters
+    ----------
+    summary : Mapping or None
+        The kernel's ``summarise`` reply; ``None`` when it failed.
+    key : str
+        The number's key, in the summary or in its ``design`` table.
+
+    Returns
+    -------
+    float or None
+        The number, or ``None`` where solprop gave none.
+
+    Examples
+    --------
+    >>> derived_value({"peak_power": 2.0, "design": {"zdw": 3.0}}, "zdw")
+    3.0
+    >>> derived_value({"peak_power": 2.0}, "peak_power")
+    2.0
+    >>> derived_value({"design": None}, "zdw"), derived_value(None, "zdw")
+    (None, None)
+    """
+    if summary is None:
+        return None
+    design = summary.get("design")
+    tables = (summary, design) if isinstance(design, Mapping) else (summary,)
+    for table in tables:
+        value = table.get(key)
+        if isinstance(value, int | float):
+            return float(value)
+    return None
+
+
+def derived_text(number: Derived, value: float | None) -> str:
+    """Write a derived number as its sheet shows it.
+
+    Parameters
+    ----------
+    number : Derived
+        What it is.
+    value : float or None
+        Its SI value; ``None`` when solprop gave none.
+
+    Returns
+    -------
+    str
+        The text: ``"—"`` for none, ``"none"`` for a number that does not exist, as
+        a zero-dispersion wavelength may not.
+
+    Examples
+    --------
+    >>> derived_text(Derived("zdw", "ZDW", "m"), 4.23e-7)
+    '423 nm'
+    >>> derived_text(Derived("i", "I", "W/cm²", 1e-4, prefixed=False), 3.7e18)
+    '3.7e+14 W/cm²'
+    >>> derived_text(Derived("n", "N", prefixed=False), 2.5)
+    '2.5'
+    >>> derived_text(Derived("n", "N"), None), derived_text(Derived("n", "N"), math.nan)
+    ('—', 'none')
+    """
+    if value is None:
+        return "—"
+    if not math.isfinite(value):
+        return "none"
+    scaled = value * number.factor
+    if number.prefixed:
+        return si(scaled, number.unit, digits=3)
+    return f"{scaled:.3g} {number.unit}".strip()
+
+
 _NEEDS = {
     "fields": "This run kept no fields, so this page has nothing to read.",
     "statistics": "This run recorded no statistics.",
@@ -169,8 +246,8 @@ def page_refusal(page: AnalysisPage, capabilities: Mapping[str, object]) -> str 
     page : AnalysisPage
         The page.
     capabilities : Mapping
-        The kernel's ``describe_output`` reply on the file: its ``field_planes``,
-        ``statistics_planes``, ``labels``, ``refused`` and ``ensemble``.
+        The kernel's ``describe_output`` reply on the file: its ``z``, ``field_planes``,
+        ``labels``, ``refused`` and ``ensemble``.
 
     Returns
     -------
@@ -189,7 +266,8 @@ def page_refusal(page: AnalysisPage, capabilities: Mapping[str, object]) -> str 
     """
     held = {
         "fields": bool(capabilities.get("field_planes")),
-        "statistics": bool(capabilities.get("statistics_planes")),
+        # Every saved plane has its statistics row, a field or not.
+        "statistics": bool(capabilities.get("z")),
         "modes": len(capabilities.get("labels") or ()) > 1,  # pyright: ignore[reportArgumentType]
         "ensemble": bool(capabilities.get("ensemble")),
     }
