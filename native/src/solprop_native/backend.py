@@ -145,8 +145,8 @@ from solprop.translate.stage import (
 from solprop.translate.tdse import TDSEPurpose
 from solprop.transverse_monitor import (
     TransverseEdge,
-    _EdgeReading,
-    _transverse_edge_bytes,
+    _EdgeReading,  # pyright: ignore[reportPrivateUsage] - released together
+    _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
 )
 
 from . import (
@@ -1178,7 +1178,7 @@ class NativeBackend(StepDriver[_core.State]):
             np.sqrt(np.asarray(space.r, dtype=np.float64))
             if lines and isinstance(space, RadialGrid)
             else np.empty(0, dtype=np.float64),
-            transverse_monitor._STRIP_BATCH_BYTES,
+            transverse_monitor._STRIP_BATCH_BYTES,  # pyright: ignore[reportPrivateUsage]
         )
 
     def edge_memory(self, space: object) -> int:

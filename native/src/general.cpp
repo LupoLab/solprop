@@ -575,7 +575,7 @@ struct TransverseLayout {
 // the statistics read the coarse field (solprop's `collect_spatial`).
 struct PhysicalSpectrum {
   TransverseLayout layout{};
-  RealView2 synthesis{};
+  RealView2 synthesis;
   std::size_t n_x{}, n_p{};
   double crop_scale = 1.0;
   bool slab = false;
@@ -14994,13 +14994,12 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
   const auto guards = monitor_weights_;
   const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
-    const auto time = complex_time;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
                       SplitSums& update) {
           const double power = (stored ? weights(first_column + row) : parseval) *
-                               (power_scale * squared_abs(time(row, index)));
+                               (power_scale * squared_abs(complex_time(row, index)));
           update.values[0] += power * share(index);
           const double found = half(index) * power;
           update.values[1] += found;
