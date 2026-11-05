@@ -1673,7 +1673,29 @@ function, which the GPU's rate kernel does not use); MLX's eager `x**2` rounds t
 `pow`, so the passes square by products. A stage's propagator and its inverse are one
 kernel (`DoubleFloatTerms.pair`), the inverse's phasor the conjugate of the forward's
 (bitwise the separate kernel's), formed once per distinct fraction of a trial.
-`SOLPROP_MLX_FUSED=0` evaluates op by op, for comparison. On an Apple M5 Max under load,
+`SOLPROP_MLX_FUSED=0` evaluates op by op, for comparison.
+
+**Adams** (`mlx_gpu/adams.py`, #342). `MlxBackend._adams_engine` returns `MlxAdams`, an
+`AdamsEngine` whose history -- the untransported source rows and, for a varying
+operator, each sample's state -- stays on the device; the march keeps the controller.
+A trial makes one source evaluation and one synchronisation, which reads the defects'
+scaled sums, the anchor's, the trial state's finiteness and the envelope plasma's
+failures. Its flow and moments come from one double-float kernel
+(`DoubleFloatTerms.trial`): the step's exponent combined from the operator's terms,
+`exp(x)` with its phase reduced by whole turns of a double-float `2 pi`, and
+`k! phi_{k+1}(x)` by the reference's far recurrence beyond its join and its scaled
+series and doubling within it, each rounded once -- within one binary32 ulp of the
+binary64 forms rounded, as SEP 33 rounds every propagator. The same pass forms the
+transported compensation's factors (SEP 16 section 4.2), `exp(s_j x)(D(z_j) - x/h)`
+with the rates differenced in their weights over the terms in binary64
+(`linop.rate_weights`, native's form), so a sample keeps its rate as weights and a
+snapshot holds `rate_weights`. The predictor and the corrector with its defects are one
+kernel each (`adams._APPLY`), every formula's increment per element in registers in the
+reference's order. A carrier frame, or an operator without device terms (the Cartesian
+route's separable one), takes the host moments; the interaction formulation, the
+untransported witness and MLX's CPU device are refused. The backend takes the native
+package's compiled helpers (`solprop_native._helpers.NATIVE`, SEP 29 section 6.6), which
+evaluate the stage tables' rows and the Adams basis bitwise as the Python forms do. On an Apple M5 Max under load,
 one DOPRI5 trial on power-of-two grids, op by op against compiled: `he_rdw_averaged` 5.30
 against 2.91 ms, `rdw` 7.76 against 4.76, `radial_filament_256` 14.1 against 6.88,
 `spatial_absorber` 3.69 against 2.38, `kerr_beam_192` 246 against 131 and
