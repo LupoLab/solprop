@@ -27,6 +27,7 @@ from solprop.recipe.metadata import REQUIRED, per_unit_width
 from solprop.recipe.quantity import Unit, format_quantity
 from solprop.recipe.registry import REGISTRY
 
+from solprop_gui.service.beams import BEAM_HANDLERS
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.postprocess import POSTPROCESS_HANDLERS
@@ -685,6 +686,7 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     "recipe_of": recipe_of,
     "summarise": summarise,
     "to_python": to_python,
+    **BEAM_HANDLERS,
     **DESIGN_HANDLERS,
     **SHEET_HANDLERS,
     **FIGURE_HANDLERS,

@@ -37,6 +37,25 @@ _SNIPPETS = {
         "from solprop.processing import compress_taylor",
         "    found = compress_taylor(output, plane={plane!r}, modes={first!r})",
     ),
+    "beam_overview": (
+        "from solprop.processing import fluence_along, on_axis_spectra",
+        "    z, r, fluence = fluence_along(output)\n"
+        '    x, on_axis = on_axis_spectra(output, "wavelength")',
+    ),
+    "beam_plane": (
+        "from solprop.processing import radial_intensity, radial_spectrum",
+        "    r, t, intensity = radial_intensity(output, plane={plane!r})\n"
+        '    r, x, spectrum = radial_spectrum(output, "wavelength", plane={plane!r})',
+    ),
+    "on_axis": (
+        "from solprop.processing import on_axis_power, on_axis_spectrogram",
+        "    t, power = on_axis_power(output, plane={plane!r})\n"
+        '    t, x, values = on_axis_spectrogram(output, "wavelength", plane={plane!r})',
+    ),
+    "far_field": (
+        "from solprop.processing import far_field",
+        '    theta, x, values = far_field(output, "wavelength", plane={plane!r})',
+    ),
     "health": (
         "import numpy as np",
         '    accepted = np.asarray(output["step_history/accepted"], dtype=bool)\n'

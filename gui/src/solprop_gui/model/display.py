@@ -12,10 +12,12 @@ import numpy as np
 from solprop_gui.registry.units import si
 
 __all__ = [
+    "beam_reach",
     "decibels",
     "duration_text",
     "even_rows",
     "length_unit",
+    "mirrored_rows",
     "pulse_window",
     "scaled_unit",
     "size_text",
@@ -330,3 +332,72 @@ def even_rows(z: np.ndarray, count: int = 256) -> tuple[np.ndarray, float, float
     even = np.linspace(float(z[0]), float(z[-1]), count)
     nearest = np.abs(even[:, None] - z[None, :]).argmin(axis=1)
     return nearest, float(even[0]), float(even[1] - even[0])
+
+
+def beam_reach(r: np.ndarray, fluence: np.ndarray, fraction: float = 1e-3) -> float:
+    """Return how far from the axis a beam's light reaches.
+
+    Parameters
+    ----------
+    r : numpy.ndarray
+        The radial nodes, ascending.
+    fluence : numpy.ndarray
+        The fluence, ``(n_planes, r.size)``.
+    fraction : float, optional
+        The share of the largest fluence that counts as light.
+
+    Returns
+    -------
+    float
+        The radius to show, a little past the light; all of it with no light.
+
+    Examples
+    --------
+    >>> r = np.linspace(0.0, 10.0, 101)
+    >>> round(beam_reach(r, np.exp(-(r**2))[None, :]), 2)
+    3.16
+    >>> beam_reach(r, np.zeros((1, 101)))
+    10.0
+    """
+    top = float(np.nanmax(fluence)) if fluence.size else 0.0
+    if top <= 0:
+        return float(r[-1])
+    lit = r[np.nanmax(fluence, axis=0) >= fraction * top]
+    return min(float(lit.max()) * 1.2, float(r[-1]))
+
+
+def mirrored_rows(
+    r: np.ndarray, values: np.ndarray, reach: float, count: int = 241
+) -> tuple[np.ndarray, np.ndarray]:
+    """Lay a radial quantity on even rows either side of the axis.
+
+    The signed axis is a view of one cylindrically symmetric solution, not two sides.
+
+    Parameters
+    ----------
+    r : numpy.ndarray
+        The radial nodes, ascending.
+    values : numpy.ndarray
+        The quantity, with ``r`` on its last axis.
+    reach : float
+        How far to show.
+    count : int, optional
+        The rows.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The signed radii, and the quantity with them on its last axis.
+
+    Examples
+    --------
+    >>> y, rows = mirrored_rows(np.array([1.0, 2.0]), np.array([4.0, 2.0]), 2.0, 5)
+    >>> y.tolist(), rows.tolist()
+    ([-2.0, -1.0, 0.0, 1.0, 2.0], [2.0, 4.0, 4.0, 4.0, 2.0])
+    """
+    y = np.linspace(-reach, reach, count)
+    place = np.interp(np.abs(y), r, np.arange(r.size))
+    low = place.astype(int)
+    high = np.minimum(low + 1, r.size - 1)
+    weight = place - low
+    return y, values[..., low] * (1.0 - weight) + values[..., high] * weight

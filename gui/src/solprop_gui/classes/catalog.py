@@ -147,29 +147,58 @@ FILAMENT: Final = ProblemClass(
     title="Radial filament",
     summary="A beam in free space on a radial grid: self-focusing and plasma.",
     route="radial",
-    example="radial_kerr",
+    example="filament",
     sections=(
         Section(
             "Medium",
             (
-                Field("medium.material", "Gas"),
+                Field(
+                    "medium.material",
+                    "Gas",
+                    choices="gases",
+                    also=(
+                        "responses[*].chi3.gas",
+                        "responses[*].gas",
+                        "responses[*].rate.source",
+                    ),
+                ),
                 Field("medium.pressure", "Pressure"),
-                Field("grid.length", "Propagate"),
+                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
             ),
         ),
         Section(
             "Beam",
             (
                 Field("initial.waist", "Waist"),
-                Field("initial.propz", "To focus"),
+                Field("initial.propz", "To focus", negated=True),
             ),
         ),
         Section(
             "Pulse",
             (
-                Field("initial.temporal.wavelength", "Wavelength"),
+                Field(
+                    "initial.temporal.wavelength",
+                    "Wavelength",
+                    also=(
+                        "grid.reference_wavelength",
+                        "responses[*].chi3.wavelength",
+                        "responses[*].rate.wavelength",
+                    ),
+                ),
                 Field("initial.temporal.fwhm", "Duration"),
                 Field("initial.temporal.energy", "Energy"),
+            ),
+        ),
+        Section(
+            "Physics",
+            (
+                Field("responses", "Kerr", member="KerrResponse"),
+                Field(
+                    "responses",
+                    "Plasma",
+                    member="EnvelopePlasmaResponse",
+                    goes_with=("settings.ionisation_field_range",),
+                ),
             ),
         ),
         Section(
@@ -179,21 +208,38 @@ FILAMENT: Final = ProblemClass(
                 Field("space.n_r", "Radial nodes"),
                 Field("grid.wavelength_limits", "Wavelengths"),
                 Field("grid.trange", "Time window"),
+                Field(
+                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                ),
             ),
             folded=True,
         ),
     ),
-    derived=(Derived("peak_power", "Peak power", "W"),),
+    derived=(
+        Derived("power_ratio", "P / P_cr", prefixed=False),
+        Derived("critical_power", "Critical power", "W"),
+        Derived("peak_power", "Peak power", "W"),
+        Derived("rayleigh_range", "Rayleigh range", "m"),
+        Derived("collapse_distance", "Collapse (Marburger)", "m"),
+    ),
+    numbers="beam_sheet",
+    curve="beam_curve",
+    lens=("initial.waist", "initial.propz", "initial.temporal.wavelength"),
     preview="Linear beam radius along z",
     pages=(
-        _OVERVIEW,
-        _PLANE,
+        AnalysisPage("overview", "Overview", ("fields",), view="beam_overview"),
+        AnalysisPage("plane", "At this plane", ("fields",), view="beam_plane"),
         _ALONG,
-        AnalysisPage("axis", "On axis", ("fields",)),
-        AnalysisPage("farfield", "Far field", ("fields",)),
+        AnalysisPage("axis", "On axis", ("fields",), view="on_axis"),
+        AnalysisPage("farfield", "Far field", ("fields",), view="far_field"),
         _HEALTH,
     ),
-    statistics=("energy", "beam_radius", "peak_intensity", "electron_density"),
+    statistics=(
+        "peak_intensity",
+        "electron_density",
+        "beam_radius",
+        "energy",
+    ),
 )
 
 SOLID_CORE: Final = ProblemClass(

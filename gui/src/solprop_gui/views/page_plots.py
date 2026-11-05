@@ -274,6 +274,7 @@ class MapPlot(Plot):
     def __init__(self, *, xlabel: str, ylabel: str, colours: str, unit: str) -> None:
         """Make the map, empty."""
         super().__init__(xlabel=xlabel, ylabel=ylabel)
+        self.extent: tuple[float, float] | None = None
         self.image = _SmoothImage(axisOrder="row-major")
         self.addItem(self.image)
         self.bar = pg.ColorBarItem(

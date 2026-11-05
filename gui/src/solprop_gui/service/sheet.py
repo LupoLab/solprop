@@ -18,19 +18,29 @@ from pathlib import Path
 
 import numpy as np
 from solprop.constants import C
+from solprop.exceptions import SolpropError
 from solprop.modes import base
 from solprop.physdata.gases import Gas
 from solprop.recipe import Recipe
 from solprop.recipe.metadata import parameters
-from solprop.tools import SolitonParams, capillary_params, lambda_rdw_all
+from solprop.tools import (
+    SolitonParams,
+    beam_params,
+    beam_through_lens,
+    capillary_params,
+    lambda_rdw_all,
+)
 
 __all__ = [
     "SHEET_HANDLERS",
+    "beam_curve",
+    "beam_sheet",
     "capillary_curve",
     "capillary_numbers",
     "capillary_sheet",
     "design_numbers",
     "gases",
+    "lens_beam",
     "output_size",
 ]
 
@@ -261,19 +271,20 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
     Parameters
     ----------
     payload : Mapping
-        ``text``, a recipe with no pin left to solve, optionally ``base``, and what
-        :func:`capillary_sheet` found: ``beta2``, ``peak_power``, ``gamma``, ``fwhm``,
-        ``shape`` and ``wavelength``.
+        ``text``, a recipe with no pin left to solve, optionally ``base``, and
+        ``numbers``, what :func:`capillary_sheet` found.
 
     Returns
     -------
     dict
-        ``wavelength`` (m), ``beta2`` (s^2/m) along it, ``loss`` (the power loss
-        coefficient at the pump, 1/m) and ``rdw`` (m, or ``None``).
+        ``plot`` (what the sheet draws: ``x``, ``y``, their labels, ``unit``, ``limit``
+        and ``marks``), and ``numbers``, by key the dispersive wave ``rdw`` (m, or
+        ``None``) and the ``loss`` at the pump (dB/m).
     """
     recipe = _recipe(payload)
+    numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
     mode = recipe.build().modes[0]
-    pump = float(payload["wavelength"])  # pyright: ignore[reportArgumentType]
+    pump = float(numbers["wavelength"])  # pyright: ignore[reportArgumentType]
     limits = recipe.keywords().get("wavelength_limits")
     low, high = (
         limits
@@ -282,22 +293,158 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
     )
     wavelength = np.geomspace(float(low), float(high), CURVE_POINTS)
     omega = 2.0 * math.pi * C / wavelength
+    beta2 = np.asarray(base.beta2(mode, omega)) * 1e30
+    loss = float(base.alpha(mode, np.array([2 * math.pi * C / pump]))[0])
+    wave = _shortest_wave(
+        mode,
+        pump,
+        beta2=float(numbers["beta2"]),  # pyright: ignore[reportArgumentType]
+        peak_power=float(numbers["peak_power"]),  # pyright: ignore[reportArgumentType]
+        gamma=float(numbers["gamma"]),  # pyright: ignore[reportArgumentType]
+        fwhm=float(numbers["fwhm"]),  # pyright: ignore[reportArgumentType]
+        shape=str(numbers["shape"]),
+    )
+    # The curve runs off near a resonance: the axis follows what the eye reads.
+    nanometres = wavelength * 1e9
+    reach = float(np.nanmax(np.abs(beta2[nanometres > 0.25 * nanometres[-1]])))
+    top = max(reach, 1.0) * 1.05
+    zdw = float(numbers["zdw"])  # pyright: ignore[reportArgumentType]
     return {
-        "wavelength": wavelength,
-        "beta2": np.asarray(base.beta2(mode, omega)),
-        "loss": float(
-            np.asarray(base.alpha(mode, np.array([2 * math.pi * C / pump])))[0]
-        ),
-        "rdw": _shortest_wave(
-            mode,
-            pump,
-            beta2=float(payload["beta2"]),  # pyright: ignore[reportArgumentType]
-            peak_power=float(payload["peak_power"]),  # pyright: ignore[reportArgumentType]
-            gamma=float(payload["gamma"]),  # pyright: ignore[reportArgumentType]
-            fwhm=float(payload["fwhm"]),  # pyright: ignore[reportArgumentType]
-            shape=str(payload["shape"]),
-        ),
+        "plot": {
+            "x": nanometres,
+            "y": beta2,
+            "xlabel": "Wavelength (nm)",
+            "ylabel": "β₂ (fs²/m)",
+            "unit": "fs²/m",
+            "limit": [-top, top],
+            "zero": True,
+            "marks": [
+                ["Pump", pump * 1e9],
+                ["ZDW", zdw * 1e9 if math.isfinite(zdw) else None],
+                ["Dispersive wave", None if wave is None else wave * 1e9],
+            ],
+        },
+        "numbers": {"rdw": wave, "loss": loss * 10.0 / math.log(10.0)},
     }
+
+
+def beam_sheet(payload: Payload) -> dict[str, object]:
+    """Return a filament sheet's numbers.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text`` and optionally ``base``.
+
+    Returns
+    -------
+    dict
+        ``power_ratio``, ``critical_power`` (W), ``peak_power`` (W), ``rayleigh_range``
+        (m), ``collapse_distance`` (m, or ``None``), ``waist``, ``focus`` and ``length``
+        (m), ``pinned`` (empty: this route has no pins) and ``resolved``, the recipe's
+        text. A medium that is no gas has only its ``peak_power``, with ``refusal``
+        saying why.
+    """
+    recipe = _recipe(payload)
+    keywords = recipe.keywords()
+    beam = keywords["initial"]
+    medium = keywords["medium"]
+    power = float(recipe.preview_input().peak_power)
+    reply: dict[str, object] = {
+        "peak_power": power,
+        "waist": float(beam.waist),  # pyright: ignore[reportAttributeAccessIssue]
+        "focus": -float(beam.propz),  # pyright: ignore[reportAttributeAccessIssue]
+        "length": float(keywords["grid"].length),  # pyright: ignore[reportAttributeAccessIssue]
+        "wavelength": float(beam.temporal.wavelength),  # pyright: ignore[reportAttributeAccessIssue]
+        "pinned": {},
+        "resolved": recipe.to_text(),
+    }
+    try:
+        found = beam_params(
+            float(reply["waist"]),  # pyright: ignore[reportArgumentType]
+            float(reply["wavelength"]),  # pyright: ignore[reportArgumentType]
+            medium.material,  # pyright: ignore[reportAttributeAccessIssue]
+            float(medium.pressure),  # pyright: ignore[reportAttributeAccessIssue]
+            power,
+            focus=float(reply["focus"]),  # pyright: ignore[reportArgumentType]
+        )
+    except (SolpropError, TypeError, ValueError) as error:
+        reply["refusal"] = str(error)
+        return reply
+    reply.update(
+        power_ratio=found.power_ratio,
+        critical_power=found.critical_power,
+        rayleigh_range=found.rayleigh_range,
+        collapse_distance=found.collapse_distance,
+    )
+    return reply
+
+
+def beam_curve(payload: Payload) -> dict[str, object]:
+    """Return a filament sheet's linear beam radius along the propagation.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``numbers``, what :func:`beam_sheet` found.
+
+    Returns
+    -------
+    dict
+        ``plot`` (as :func:`capillary_curve` gives it) and ``numbers``, empty.
+    """
+    numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
+    length = float(numbers["length"])  # pyright: ignore[reportArgumentType]
+    z = np.linspace(0.0, length, CURVE_POINTS)
+    marks: list[list[object]] = []
+    focus = float(numbers["focus"])  # pyright: ignore[reportArgumentType]
+    collapse = numbers.get("collapse_distance")
+    if 0.0 < focus <= length:
+        marks.append(["Focus", focus * 100.0])
+    if isinstance(collapse, float) and collapse <= length:
+        marks.append(["Collapse (Marburger)", collapse * 100.0])
+    rayleigh = numbers.get("rayleigh_range")
+    if not isinstance(rayleigh, float):
+        return {"plot": None, "numbers": {}}
+    offset = (z - focus) / rayleigh
+    # BeamParams.radius, from the numbers already at hand.
+    radius = float(numbers["waist"]) * np.sqrt(1.0 + offset**2) * 1e6  # pyright: ignore[reportArgumentType]
+    return {
+        "plot": {
+            "x": z * 100.0,
+            "y": radius,
+            "xlabel": "z (cm)",
+            "ylabel": "Beam radius (µm)",
+            "unit": "µm",
+            "limit": [0.0, float(radius.max()) * 1.1],
+            "zero": False,
+            "marks": marks,
+        },
+        "numbers": {},
+    }
+
+
+def lens_beam(payload: Payload) -> dict[str, float]:
+    """Return the waist a lens makes (``tools.beam_through_lens``).
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``focal_length``, ``radius`` (quantity strings or SI numbers) and ``text``, the
+        recipe whose ``wavelength`` path says the light's wavelength.
+
+    Returns
+    -------
+    dict
+        ``waist`` and ``distance``, m.
+    """
+    wavelength = _recipe(payload).keywords()["initial"].temporal.wavelength  # pyright: ignore[reportAttributeAccessIssue]
+    waist, distance = beam_through_lens(
+        float(payload["focal_length"]),  # pyright: ignore[reportArgumentType]
+        float(payload["radius"]),  # pyright: ignore[reportArgumentType]
+        float(wavelength),
+    )
+    return {"waist": waist, "distance": distance}
 
 
 def output_size(payload: Payload) -> dict[str, object]:
@@ -333,9 +480,12 @@ def gases(payload: Payload) -> list[str]:  # noqa: ARG001 - none
 
 
 SHEET_HANDLERS = {
+    "beam_curve": beam_curve,
+    "beam_sheet": beam_sheet,
     "capillary_curve": capillary_curve,
     "capillary_sheet": capillary_sheet,
     "gases": gases,
+    "lens_beam": lens_beam,
     "output_size": output_size,
 }
 """The sheet's handlers, by request kind."""
