@@ -45,8 +45,10 @@ from solprop.spatial import SpatialFlux, spatial_power
 from solprop.stats import CATALOGUE
 
 from solprop_gui.model.display import light_range
+from solprop_gui.model.quantities import split
 from solprop_gui.service.beam import beam_reading, beam_slice, profile_row
 from solprop_gui.service.reduce import even_rows
+from solprop_gui.service.scan_reductions import KINDS, reduction_axis
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
 
@@ -764,7 +766,8 @@ def scan_overview(payload: Payload) -> dict[str, object]:
     if record is None:
         msg = "the scan records no recipe, so its variables are not known"
         raise SolpropError(msg)
-    variables = Recipe.loads(record.authored).scan().scan.variables
+    recipe = Recipe.loads(record.authored)
+    variables = recipe.scan().scan.variables
     shape = tuple(int(n) for n in found.shape)
     status = np.asarray(found.status).reshape(shape)
     done = np.flatnonzero(np.asarray(found.status) == "done")
@@ -777,27 +780,103 @@ def scan_overview(payload: Payload) -> dict[str, object]:
             if name.startswith(("stats/", "reduced/"))
         )
     )
-    values: dict[str, object] = {}
-    for name in names:
-        grid = found.as_grid(name)
-        last = np.ma.take(grid, -1, axis=len(shape)) if grid.ndim > len(shape) else grid
-        while last.ndim > len(shape):
-            last = last.sum(axis=-1)
-        entry = CATALOGUE.get(name.split("/", 1)[1])
-        values[name] = {
-            "summary": "" if entry is None else entry.summary,
-            "units": "" if entry is None else entry.units,
-            "values": np.ma.filled(np.ma.asarray(last, dtype=float), np.nan),
-        }
+    values = {name: _scan_result(found, name, shape, recipe) for name in names}
     return {
-        "variables": [
-            {"name": str(k), "values": np.asarray(v, dtype=float)}
-            for k, v in variables.items()
-        ],
+        "variables": [_scan_axis(str(k), v) for k, v in variables.items()],
         "shape": list(shape),
         "status": status.tolist(),
         "results": values,
     }
+
+
+def _scan_axis(name: str, values: object) -> dict[str, object]:
+    """Return a scan variable's values as numbers, with the unit they were written in.
+
+    A keyword's values are read in SI; a nested path's (``pressure[0]``) are the
+    quantities as the recipe writes them.
+
+    Parameters
+    ----------
+    name : str
+        The variable's path.
+    values : object
+        Its values.
+
+    Returns
+    -------
+    dict
+        ``name``, ``values`` and ``unit`` (``""`` where they are SI numbers).
+
+    Examples
+    --------
+    >>> _scan_axis("pressure[0]", np.array(["0.8 bar", "1.2 bar"]))["values"].tolist()
+    [0.8, 1.2]
+    >>> _scan_axis("energy", np.array([1e-4]))["unit"]
+    ''
+    """
+    held = np.asarray(values).ravel()
+    if held.dtype.kind in "fiu":
+        return {"name": name, "values": held.astype(float), "unit": ""}
+    parts = [split(str(value)) for value in held]
+    return {
+        "name": name,
+        "values": np.array([float(number) for number, _unit in parts]),
+        "unit": parts[0][1] if parts else "",
+    }
+
+
+def _scan_result(
+    found: ScanOutput, name: str, shape: tuple[int, ...], recipe: Recipe
+) -> dict[str, object]:
+    """Return one recorded result over a scan's points.
+
+    Parameters
+    ----------
+    found : solprop.processing.scans.ScanOutput
+        The scan.
+    name : str
+        The result: a statistic (read at the last plane, summed over its other axes)
+        or a reduction (a value, or a spectrum or pulse on its fixed axis).
+    shape : tuple of int
+        The scan's shape.
+    recipe : solprop.recipe.Recipe
+        The scan's recipe, whose axes a spectrum or a pulse is held on.
+
+    Returns
+    -------
+    dict
+        ``summary``, ``units`` and ``values``; a spectrum or a pulse also its ``x``
+        (m or s).
+    """
+    grid = found.as_grid(name)
+    short = name.split("/", 1)[1]
+    if name.startswith("reduced/"):
+        entry: dict[str, object] = {
+            "summary": _REDUCED.get(short, short),
+            "units": KINDS.get(short, ""),
+            "values": np.ma.filled(np.ma.asarray(grid, dtype=float), np.nan),
+        }
+        if grid.ndim > len(shape):
+            entry["x"] = reduction_axis(recipe, short)
+        return entry
+    last = np.ma.take(grid, -1, axis=len(shape)) if grid.ndim > len(shape) else grid
+    while last.ndim > len(shape):
+        last = last.sum(axis=-1)
+    catalogued = CATALOGUE.get(short)
+    return {
+        "summary": "" if catalogued is None else catalogued.summary,
+        "units": "" if catalogued is None else catalogued.units,
+        "values": np.ma.filled(np.ma.asarray(last, dtype=float), np.nan),
+    }
+
+
+_REDUCED = {
+    "energy_in_band": "Energy within the band.",
+    "peak_power_in_band": "Peak power of the pulse filtered to the band.",
+    "spectrum": "Spectral energy density.",
+    "pulse": "Power against time.",
+}
+"""What each of the front end's reductions records."""
 
 
 RESULTS_HANDLERS = {

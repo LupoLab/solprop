@@ -14,6 +14,7 @@ imports nothing heavy; :func:`main` imports the run code in the child.
 """
 
 import os
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from multiprocessing.connection import Connection
 
@@ -57,6 +58,9 @@ class RunSpec:
     threads : int or None
         The run's thread budget (``SOLPROP_THREADS``); ``None`` for solprop's
         default.
+    reductions : tuple of Mapping
+        What a scan records at each point beyond its statistics
+        (:func:`solprop_gui.service.scan_reductions.reductions`).
 
     Examples
     --------
@@ -71,6 +75,7 @@ class RunSpec:
     resume: bool | str | None = None
     display: Display = field(default_factory=Display)
     threads: int | None = None
+    reductions: tuple[Mapping[str, object], ...] = ()
 
 
 def main(spec: RunSpec, events: Connection, control: Connection) -> None:

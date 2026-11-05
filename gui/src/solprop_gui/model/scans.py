@@ -12,7 +12,14 @@ import numpy as np
 
 from solprop_gui.model.display import scaled_unit
 
-__all__ = ["ScanLines", "result_title", "scan_lines", "shown_results"]
+__all__ = [
+    "ScanLines",
+    "profile_points",
+    "result_title",
+    "scan_lines",
+    "shown_results",
+    "variable_unit",
+]
 
 _FIRST: Final = ("energy", "peak_power", "peak_intensity", "fwhm_t")
 """The results a scan shows first, where it recorded them, in order."""
@@ -39,6 +46,30 @@ _UNITS: Final = {
 
 _MOST_LINES: Final = 8
 """The most values of a second variable drawn as lines of their own."""
+
+
+def variable_unit(variable: Mapping[str, object]) -> str:
+    """Return the unit a scan variable's values are in.
+
+    Parameters
+    ----------
+    variable : Mapping
+        Its ``name``, and the ``unit`` its values were written in, if any.
+
+    Returns
+    -------
+    str
+        The unit; a keyword's own where the values are numbers.
+
+    Examples
+    --------
+    >>> variable_unit({"name": "pressure[0]", "unit": "bar"})
+    'bar'
+    >>> variable_unit({"name": "energy"}), variable_unit({"name": "gamma"})
+    ('J', '')
+    """
+    written = str(variable.get("unit") or "")
+    return written or _UNITS.get(str(variable["name"]).split("[", 1)[0], "")
 
 
 def result_title(name: str) -> str:
@@ -201,7 +232,7 @@ def scan_lines(
         second = variables[1]
         key = str(second["name"])
         seconds = np.asarray(second["values"], dtype=float)
-        unit, scale = scaled_unit(seconds, _UNITS.get(key, ""))
+        unit, scale = scaled_unit(seconds, variable_unit(second))
         rest = values.reshape(x.size, seconds.size, -1)[:, :, 0]
         lines = [
             (
@@ -216,8 +247,42 @@ def scan_lines(
     return ScanLines(
         x,
         named.get(key, key),
-        _UNITS.get(key, ""),
+        variable_unit(first),
         lines,
         str(results[name].get("units") or ""),
         failed,
     )
+
+
+def profile_points(build: Mapping[str, object]) -> list[str]:
+    """Return the scannable points of the profiles a recipe gives as lists.
+
+    Parameters
+    ----------
+    build : Mapping
+        The recipe's ``[build]`` table.
+
+    Returns
+    -------
+    list of str
+        ``name[i]`` for each value of a list of numbers or quantities.
+
+    Examples
+    --------
+    >>> profile_points({"pressure": ["1.2 bar", "0 bar"], "gas": "He", "betas": [0, 1]})
+    ['pressure[0]', 'pressure[1]', 'betas[0]', 'betas[1]']
+    >>> profile_points({"pressure": [[0, "1 bar"], [1, "2 bar"]]})
+    []
+    """
+    found: list[str] = []
+    for name, value in build.items():
+        if (
+            isinstance(value, list)
+            and value
+            and all(
+                isinstance(item, int | float | str) and not isinstance(item, bool)
+                for item in value
+            )
+        ):
+            found.extend(f"{name}[{index}]" for index in range(len(value)))
+    return found

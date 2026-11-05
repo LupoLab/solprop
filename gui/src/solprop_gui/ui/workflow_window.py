@@ -41,6 +41,7 @@ from solprop_gui.classes.catalog import (
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
 from solprop_gui.model.recipe import MISSING, RecipeModel, without_table
+from solprop_gui.model.scans import profile_points
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.routes import card_of
 from solprop_gui.service.messages import Reply
@@ -149,6 +150,7 @@ class WorkflowWindow(QMainWindow):
         )
         self._scanning = False
         self._scan_path = ""
+        self._scan_paths: list[str] = []
         kept = self.settings.value("threads")
         self.run_panel.threads = int(str(kept)) if kept else None
         self.home = HomePage()
@@ -432,7 +434,9 @@ class WorkflowWindow(QMainWindow):
         if self.stage is Stage.SCAN and not self.run_panel.active:
             self._scanning = True
             self.run_panel.set_can_run(self.document.can_run)
+            self.run_panel.reductions = self.scans.record.specs()
             self.run_panel.start()
+            self.run_panel.reductions = []
             return
         action = primary_action(self.progress()).action
         if action == "stop":
@@ -873,6 +877,16 @@ class WorkflowWindow(QMainWindow):
         for name in _WARM_EXAMPLES:
             self._ask_kernel("example", {"name": name}, f"warm-{name}")
 
+    def _offer_scan_paths(self) -> None:
+        """Offer the route's numbers as scan variables, and each point of a profile.
+
+        A pressure given as a gradient, ``["1.2 bar", "0 bar"]``, offers
+        ``pressure[0]`` and ``pressure[1]``: one point of it can be scanned.
+        """
+        model = self.document.model
+        build = {} if model is None else model.document.get("build", {})
+        self.scans.set_paths([*self._scan_paths, *profile_points(build)])
+
     def _described(self, route: str) -> None:
         """Build the sheet when the open setup's route has been described.
 
@@ -905,16 +919,15 @@ class WorkflowWindow(QMainWindow):
             self.problem, description, model.document.get("build", {}), model.title
         )
         keywords: Sequence[Mapping[str, object]] = description["parameters"]  # pyright: ignore[reportAssignmentType]
-        self.scans.set_paths(
-            [
-                str(entry["name"])
-                for entry in keywords
-                if any(
-                    form.get("kind") in ("number", "integer")
-                    for form in entry.get("forms", [])  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
-                )
-            ]
-        )
+        self._scan_paths = [
+            str(entry["name"])
+            for entry in keywords
+            if any(
+                form.get("kind") in ("number", "integer")
+                for form in entry.get("forms", [])  # pyright: ignore[reportGeneralTypeIssues, reportAttributeAccessIssue]
+            )
+        ]
+        self._offer_scan_paths()
         self._show_values()
         self._ask_numbers()
 
@@ -930,6 +943,9 @@ class WorkflowWindow(QMainWindow):
         if model is not None:
             self.sheet.show_values(model)
             self.scans.show_table(model.document.get("scan"))
+            self._offer_scan_paths()
+            # Run scan is offered once the scan has a point to run.
+            self._refresh()
             described = self.document.descriptions.get(model.route, {})
             parameters: Sequence[Mapping[str, object]] = described.get("parameters", [])  # pyright: ignore[reportAssignmentType]
             self.sheet.run_options.show_backend(

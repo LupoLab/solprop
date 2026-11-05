@@ -21,6 +21,7 @@ import logging
 import threading
 import time
 import traceback
+from collections.abc import Mapping, Sequence
 from multiprocessing.connection import Connection
 from pathlib import Path
 
@@ -35,6 +36,7 @@ from solprop_gui.service.beam import beam_reading, profile_row
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
 from solprop_gui.service.reduce import SPECTRAL_AXES, Display, Reducer, stats_row
+from solprop_gui.service.scan_reductions import reductions
 from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, SCAN_OUTPUT, RunSpec
 
 __all__ = ["PROGRESS_PERIOD", "EventHandler", "LiveObserver", "ScanObserver", "execute"]
@@ -232,6 +234,9 @@ class ScanObserver(ScanReporter):
         self.outbox = outbox
         self.points = 0
         self.done = 0
+        self.shape: tuple[int, ...] = ()
+        self.names: list[str] = []
+        self.values: list[list[str]] = []
 
     def scan_started(self, n_points: int) -> None:
         """Announce the scan and its number of points.
@@ -242,7 +247,18 @@ class ScanObserver(ScanReporter):
             The points to run.
         """
         self.points = n_points
-        self.outbox.put(Event(self.run_id, "scan_started", {"points": n_points}))
+        self.outbox.put(
+            Event(
+                self.run_id,
+                "scan_started",
+                {
+                    "points": n_points,
+                    "shape": list(self.shape),
+                    "names": self.names,
+                    "values": self.values,
+                },
+            )
+        )
 
     def point_started(self, index: int, point: object) -> None:
         """Announce a point, with its values.
@@ -255,10 +271,14 @@ class ScanObserver(ScanReporter):
             The scan's point (``ScanPoint``), whose ``values`` are given in SI.
         """
         values = getattr(point, "values", {})
-        plain = {str(k): float(v) for k, v in dict(values).items()}  # pyright: ignore[reportArgumentType]
+        # A keyword's value is read in SI; a nested path's is the quantity as written.
+        plain = {str(k): _plain(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
+        place = [int(i) for i in getattr(point, "multi_index", ())]
         self.outbox.put(
             Event(
-                self.run_id, "point", {"index": index, "values": plain, "status": None}
+                self.run_id,
+                "point",
+                {"index": index, "values": plain, "status": None, "place": place},
             )
         )
 
@@ -414,12 +434,64 @@ def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
     return "failed", data
 
 
+def _plain(value: object) -> float | str:
+    """Return a point's value as an event carries it.
+
+    Parameters
+    ----------
+    value : object
+        A number, or a quantity as a recipe writes it (``"0.8 bar"``).
+
+    Returns
+    -------
+    float or str
+        The number, or the text.
+
+    Examples
+    --------
+    >>> _plain(np.float64(0.5)), _plain("0.8 bar")
+    (0.5, '0.8 bar')
+    """
+    try:
+        return float(value)  # pyright: ignore[reportArgumentType]
+    except TypeError, ValueError:
+        return str(value)
+
+
+def _written(recipe: Recipe, variables: Mapping[str, object]) -> list[list[str]]:
+    """Return each scan variable's values as the recipe's ``[scan]`` table writes them.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe.
+    variables : Mapping
+        The scan's variables and their values, in its axis order.
+
+    Returns
+    -------
+    list of list of str
+        A list given as quantities keeps its units; a range's values are numbers in
+        its keyword's unit.
+    """
+    table: Mapping[str, object] = recipe.to_dict().get("scan", {})
+    written: list[list[str]] = []
+    for name, values in variables.items():
+        given = table.get(name)
+        if isinstance(given, list):
+            written.append([str(value) for value in given])
+        else:
+            written.append([f"{float(v):.4g}" for v in np.asarray(values).ravel()])
+    return written
+
+
 def _scan(
     recipe: Recipe,
     folder: Path,
     run_id: str,
     outbox: Outbox,
     stop: threading.Event,
+    specs: Sequence[Mapping[str, object]] = (),
 ) -> tuple[str, dict[str, object]]:
     """Run a recipe's ``[scan]`` (``Recipe.scan`` and ``run_scan``) into its folder.
 
@@ -435,6 +507,8 @@ def _scan(
         Where its events go.
     stop : threading.Event
         Its stop flag: the points not yet started are not run.
+    specs : Sequence of Mapping, optional
+        What it records at each point beyond its statistics.
 
     Returns
     -------
@@ -444,12 +518,17 @@ def _scan(
     """
     scan = recipe.scan()
     output = folder / SCAN_OUTPUT
+    observer = ScanObserver(run_id, outbox)
+    observer.shape = tuple(int(n) for n in scan.scan.shape)
+    observer.names = list(scan.scan.variables)
+    observer.values = _written(recipe, scan.scan.variables)
     result = run_scan(
         scan.scan,
         scan.build,
         output=output,
-        progress=ScanObserver(run_id, outbox),
+        progress=observer,
         stop=stop,
+        reductions=reductions(specs, recipe),
         **scan.keywords,  # pyright: ignore[reportArgumentType]
     )
     failed = int(np.count_nonzero(np.asarray(result.status) == "failed"))
@@ -533,7 +612,9 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
             )
             (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
             if "scan" in recipe.to_dict():
-                kind, data = _scan(recipe, folder, spec.run_id, outbox, stop)
+                kind, data = _scan(
+                    recipe, folder, spec.run_id, outbox, stop, spec.reductions
+                )
                 return
             # Built here and kept: a free-space run's planes are measured with its
             # grids and medium; run as Recipe.run would.

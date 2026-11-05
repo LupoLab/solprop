@@ -179,3 +179,83 @@ def test_the_stage_follows_a_scan_s_points(qtbot: QtBot) -> None:
     stage.show_point({"index": 1, "values": {"pressure": 1.0}, "status": None})
     assert stage.progress.text() == "Point 2: pressure = 1"
     assert not stage.has_points()
+
+
+def test_a_scan_records_a_spectrum_and_draws_it_as_a_map(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    window = WorkflowWindow(workspace=tmp_path / "workspace")
+    qtbot.addWidget(window)
+    window.show()
+    window.document.confirm = lambda _title, _text: "discard"
+    window.document.set_model(RecipeModel(SCAN), base=None)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.show_stage(Stage.SCAN)
+    record = window.scans.record
+    record.band.setChecked(True)
+    record.low.set_value("600 nm")
+    record.high.set_value("900 nm")
+    record.spectrum.setChecked(True)
+    record.at.set_value("2 cm")
+    kinds = [spec["kind"] for spec in record.specs()]
+    assert kinds == ["energy_in_band", "peak_power_in_band", "spectrum"]
+    assert all(spec["z"] == 0.02 for spec in record.specs())
+    record.at.set_value(None)
+    qtbot.waitUntil(window.primary.isEnabled, timeout=WAIT_MS)
+    window.primary.click()
+    assert window.run_panel.reductions == []
+    bars = window.scans.bars
+    browser = window.scans.browser
+    qtbot.waitUntil(lambda: browser.result.count() > 0, timeout=WAIT_MS * 2)
+    assert len(bars.bars) == 2
+    assert bars.bars[-1].value() == 2
+    assert bars.bars[0].format().endswith("1 bar")
+    browser.result.setCurrentIndex(browser.result.findData("reduced/spectrum"))
+    assert browser.map.isVisible()
+    assert not browser.plot.isVisible()
+    browser.result.setCurrentIndex(browser.result.findData("reduced/energy_in_band"))
+    assert browser.plot.isVisible()
+    window.close()
+
+
+def test_a_pulse_map_and_the_curves_need_one_variable(qtbot: QtBot) -> None:
+    stage = ScanStage()
+    qtbot.addWidget(stage)
+    stage.show()
+    browser = stage.browser
+    t = np.linspace(-100e-15, 100e-15, 50)
+    pulse = np.exp(-((t / 20e-15) ** 2))
+    browser.set_scan(
+        {
+            "variables": [{"name": "pressure[0]", "values": [1.0, 2.0], "unit": "bar"}],
+            "shape": [2],
+            "status": ["done", "done"],
+            "results": {
+                "reduced/pulse": {
+                    "summary": "",
+                    "units": "W",
+                    "values": np.vstack([pulse, 2 * pulse]),
+                    "x": t,
+                }
+            },
+        }
+    )
+    assert browser.map.isVisible()
+    assert "bar" in browser.map.item.getAxis("left").labelText
+    two = {"name": "s", "pressure": [1, 2], "energy": [1, 2]}
+    stage.show_table(two)
+    assert not stage.record.spectrum.isEnabled()
+    stage.show_table({"name": "s", "pressure": [1, 2]})
+    assert stage.record.pulse.isEnabled()
+    # A scan with nothing at its points shows a placeholder for no variable.
+    stage.bars.point({"index": 0, "values": {}, "status": None, "place": [0]})
+    stage.bars.start(
+        {
+            "points": 2,
+            "shape": [2],
+            "names": ["pressure[0]"],
+            "values": [["1 bar", "2 bar"]],
+        }
+    )
+    stage.bars.point({"index": 0, "values": {}, "status": None, "place": [5]})
+    assert stage.bars.bars[0].format() == "%v of %m: "

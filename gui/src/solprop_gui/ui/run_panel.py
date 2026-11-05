@@ -13,7 +13,7 @@ status bar. Its execution state is the window's
 solprop after every ending, and Resume follows that answer alone.
 """
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -133,6 +133,8 @@ class RunPanel(QWidget):
         self.workspace = Path(workspace)
         # The thread budget a run gets; None leaves it to solprop.
         self.threads: int | None = None
+        # What a scan records at each point beyond its statistics.
+        self.reductions: Sequence[Mapping[str, object]] = []
         text = self.palette().windowText().color()
         self.run_action = self._action("Run", "run", self.start, QColor("#2e7d32"))
         self.run_action.setToolTip("Run the setup as it is now, in a new run folder.")
@@ -370,6 +372,7 @@ class RunPanel(QWidget):
                 base=base,
                 display=self.display(),
                 threads=self.threads,
+                reductions=tuple(self.reductions),
             ),
             fresh=True,
         )
@@ -631,7 +634,10 @@ class RunPanel(QWidget):
         """
         if data.get("status") is None:
             values: Mapping[str, float] = data.get("values") or {}  # pyright: ignore[reportAssignmentType]
-            shown = ", ".join(f"{k} = {v:.4g}" for k, v in values.items())
+            shown = ", ".join(
+                f"{k} = {v:.4g}" if isinstance(v, int | float) else f"{k} = {v}"
+                for k, v in values.items()
+            )
             self.steps.setText(f"point {data['index']}: {shown}")
             return
         points = int(data.get("points") or 0)  # pyright: ignore[reportArgumentType]
