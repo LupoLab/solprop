@@ -4,6 +4,8 @@
 
 """Temporal remapping of a field plane against the direct finite-time sum (SEP 31)."""
 
+import dataclasses
+
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose
@@ -21,7 +23,7 @@ from solprop.exceptions import CouplingError
 from solprop.fourier import spectrum_to_optics
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
 from solprop.pulses import GaussianPulse, PulseSum, SpatialPulse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium
 
 EPS = np.finfo(float).eps
 LIMITS = (600e-9, 1.2e-6)
@@ -294,6 +296,16 @@ def test_a_spatial_metric_follows_the_plane_to_its_new_lattice():
     )
     unknown, report = regrid(bare, target)
     assert unknown.metric.kind == "unknown" and report.energy_out is None
+    # A measure rebuilt from a file holds its coefficients and no medium to resolve
+    # again on the new lattice.
+    flux = plane.metric.flux
+    assert flux is not None
+    recorded = SpatialFlux(flux.grid, flux.space, None, 0.0, None, flux.coefficients)
+    from_file = dataclasses.replace(
+        bare, metric=dataclasses.replace(bare.metric, flux=recorded)
+    )
+    unknown, _ = regrid(from_file, target)
+    assert unknown.metric.kind == "unknown"
 
 
 def test_a_zero_plane_moves_to_zero_with_nothing_lost():

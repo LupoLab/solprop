@@ -1,0 +1,32 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A silica strand in air as the GNLSE fibre: the mode gives dispersion, loss and area.
+# mirrors: docs/tutorials/waveguides/plot_03_stepindex_rectangular.py
+
+[recipe]
+format = 1
+route = "gnlse"
+title = "A step-index fibre as the GNLSE fibre"
+
+[build]
+gamma = "none"
+length = "15 cm"
+fibre = { type = "StepIndexMode", radius = "1.25 um", profile_wavelength = "835 nm" }
+n2 = 2.6e-20
+wavelength = "835 nm"
+wavelength_limits = ["400 nm", "1400 nm"]
+trange = "1 ps"
+fwhm = "50 fs"
+energy = "568 pJ"
+shape = "sech"
+shock = true
+raman = true
+rtol = 1e-5
+atol = 1e-14
+dz_max = "1 mm"
+dz_init = "15 um"
+n_save = 2
+noise = "none"
+boundary_check = "none"

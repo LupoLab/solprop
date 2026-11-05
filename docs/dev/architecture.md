@@ -223,7 +223,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
-| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane (`processing/planes.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
+| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version and installed through the `native` extra. It depends

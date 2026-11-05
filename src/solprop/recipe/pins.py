@@ -637,7 +637,7 @@ def solve_pulse(
         power = soliton_peak_power(
             target.order,
             target.fwhm,
-            _gamma(mode, wavelength),
+            _route_gamma(mode, wavelength, built, path),
             dispersion,
             target.shape,
         )
@@ -796,6 +796,52 @@ def _gamma(mode: "Mode", wavelength: float) -> float:  # noqa: UP037 - run time
     # The capillary and waveguide routes bind every mode to their fill.
     mixture = cast("Mixture", getattr(mode, "mixture", None))
     return nonlinear_coefficient(mode, _fill_n2(mixture, wavelength)[0], wavelength)
+
+
+def _route_gamma(
+    mode: "Mode",  # noqa: UP037 - run time
+    wavelength: float,
+    keywords: Mapping[str, object],
+    path: str,
+) -> float:
+    """Return a pulse pin's nonlinear coefficient: the fill's, or the route's own.
+
+    A GNLSE mode has no fill, so the recipe's ``gamma`` or ``n2`` says what its
+    coefficient is, as the route reads them.
+
+    Parameters
+    ----------
+    mode : solprop.modes.base.Mode
+        The launch mode.
+    wavelength : float
+        The pump wavelength, m.
+    keywords : collections.abc.Mapping
+        The route's keywords.
+    path : str
+        The pinned path, for a refusal.
+
+    Returns
+    -------
+    float
+        ``gamma`` in rad/(W m).
+
+    Raises
+    ------
+    RecipeError
+        If the route names ``n2`` and does not give a number.
+    """
+    from solprop.tools import nonlinear_coefficient  # noqa: PLC0415
+
+    if getattr(mode, "mixture", None) is not None:
+        return _gamma(mode, wavelength)
+    gamma = keywords.get("gamma")
+    if gamma is not None:
+        return float(cast("float", gamma))
+    n2 = keywords.get("n2")
+    if isinstance(n2, str):
+        msg = f"a soliton_order pin reads n2 as a number, not {n2!r}"
+        raise RecipeError(msg, path=path)
+    return nonlinear_coefficient(mode, cast("float", n2), wavelength)
 
 
 def _needs_gamma(target: "DesignTarget") -> bool:  # noqa: UP037 - run time

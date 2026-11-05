@@ -16,7 +16,7 @@ of mode-averaged propagation, not a converged supercontinuum prediction.
 
 The strand propagates through the public ``prop_gnlse(fibre=...)`` entry: the
 mode supplies dispersion, loss and effective area, and ``n2`` supplies the
-nonlinear response.
+nonlinear response. ``Recipe.example("step_index_fibre")`` is that run as a recipe.
 
 The rectangular comparison uses 50 by 12.5 um half-widths and both polarisation
 partners. Its propagation is of an aluminium-clad guide of 50 by 10 um half-widths
