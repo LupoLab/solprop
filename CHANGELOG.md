@@ -269,6 +269,7 @@ All notable changes to solprop are recorded here. The format follows
   EPYC 7763, 384² with four steps, took 29.9 s and now takes 28.8 s; at one thread it fell from
   117.1 s to 106.5 s (#453).
 - Made `capillary_params` and the other design tools that report a zero-dispersion wavelength about 2.5 times faster by refining the zero with array samples, and stopped them raising `ValueError` when the search met a gas resonance (xenon in a 14 um capillary at 15 bar). Zeros clear of the gas resonances are unchanged within 1e-8; a sign change reported beside a resonance, which only a pump in the vacuum ultraviolet selects, can move within the search's 3.6e13 rad/s sample interval.
+- `tools.soliton_params` and `tools.capillary_params` find the zero-dispersion wavelength nearest the pump by refining the sign changes outwards from it, not all of them. The answer is the same, and on an antiresonant fibre, whose resonances give dozens of changes, it takes about 0.17 s where it took about 3 s.
 
 ### Changed (breaking)
 
