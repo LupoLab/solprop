@@ -388,7 +388,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `BUILD_TESTING` | `OFF` in pip and uv builds, `ON` in the presets | builds the GoogleTest native tests and registers them with CTest |
-| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | `ON` | `-Werror` on the package's own sources |
+| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | as `BUILD_TESTING`: `OFF` in pip and uv builds, `ON` in the presets | `-Werror` on the package's own sources. Continuous integration turns it on for its wheels too |
 | `SOLPROP_NATIVE_ENABLE_CLANG_TIDY` | `OFF` | runs clang-tidy while compiling the package's sources |
 | `SOLPROP_NATIVE_ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UBSan on the package's targets; CPU builds only |
 | `SOLPROP_NATIVE_BUILD_BENCHMARKS` | `OFF` | builds the `solprop_native_gemm_benchmark` microbenchmark (never installed) |
