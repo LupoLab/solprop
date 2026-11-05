@@ -99,7 +99,7 @@ def made(monkeypatch):
 
 @pytest.fixture
 def on_a_device(monkeypatch):
-    monkeypatch.setattr(_scan_run, "device_build", lambda name: True)
+    monkeypatch.setattr(_scan_run, "_device_build", lambda name: True)
 
 
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
@@ -109,10 +109,11 @@ def test_a_device_scan_of_inputs_keeps_one_backend_and_the_same_points(
     if backend == "native":
         pytest.importorskip("solprop_native")
     builder = partial(with_pulse, base(backend))
+    monkeypatch.setattr(_scan_run, "_device_build", lambda name: False)
     reference = run_scan(SCAN, builder, output=tmp_path / "alone.h5", **OPTIONS)
     assert len(made) == 3
     made.clear()
-    monkeypatch.setattr(_scan_run, "device_build", lambda name: True)
+    monkeypatch.setattr(_scan_run, "_device_build", lambda name: True)
     result = run_scan(SCAN, builder, output=tmp_path / "kept.h5", **OPTIONS)
     assert result.status.tolist() == ["done"] * 3
     assert len(made) == 1
@@ -216,7 +217,7 @@ def test_a_stop_closes_the_kept_backend_and_a_rerun_finishes(
 def test_a_scan_off_a_device_keeps_no_backend(tmp_path, made):
     # A CPU's backend costs little beside its march, and its memory goes back to the
     # next point's build (solprop #298), so a numpy_ref scan builds one a point.
-    assert not _scan_run.device_build("numpy_ref")
+    assert not _scan_run._device_build("numpy_ref")
     run_scan(
         SCAN,
         partial(with_pulse, base()),
@@ -229,7 +230,7 @@ def test_a_scan_off_a_device_keeps_no_backend(tmp_path, made):
 
 def test_a_pool_keeps_no_backend(tmp_path, monkeypatch):
     # Each point's process holds its own, and what a pool admits assumes it's freed.
-    monkeypatch.setattr(_scan_run, "device_build", lambda name: True)
+    monkeypatch.setattr(_scan_run, "_device_build", lambda name: True)
     kept = []
     original = _scan_run._Work.__init__
 

@@ -301,7 +301,7 @@ _NATIVE_MISSING = (
 """Why ``"auto"`` refuses with no native package (SEP 43 section 5)."""
 
 
-def device_build(name: str) -> bool:
+def _device_build(name: str) -> bool:
     """Return whether a backend steps on an accelerator in this installation.
 
     Parameters

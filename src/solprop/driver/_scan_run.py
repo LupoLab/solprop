@@ -21,7 +21,7 @@ from typing import cast
 import numpy as np
 
 from solprop.backends import select
-from solprop.backends.registry import device_build
+from solprop.backends.registry import _device_build
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
@@ -561,7 +561,7 @@ class _Work:
         if (
             not self.keeps_backend
             or simulation.translate().tdse is not None
-            or not device_build(simulation.settings.backend)
+            or not _device_build(simulation.settings.backend)
         ):
             simulation.run(capture, progress=progress, stop=stop)
             return
