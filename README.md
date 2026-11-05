@@ -31,7 +31,7 @@ plasma, and Raman frequency combs.
 *A 7.5 fs pulse at 800 nm self-compresses in a helium-filled capillary with a pressure
 gradient to vacuum and emits a resonant dispersive wave at 120–150 nm: spectral and
 temporal evolution along the 1.5 m fibre, and the exit spectrum. Four coupled modes,
-ionisation and plasma included; about half a minute on a laptop.*
+ionisation and plasma included; under ten seconds on a laptop.*
 
 ```python
 from solprop.driver import prop_capillary
