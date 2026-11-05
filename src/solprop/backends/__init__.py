@@ -11,6 +11,7 @@ and :mod:`solprop.backends.registry`, which selects a backend by name and says w
 is not usable, and the thread budget every backend's pools are held within.
 """
 
+from solprop._process import ThreadBudget, thread_budget
 from solprop.backends.protocol import (
     Backend,
     BackendHistory,
@@ -19,7 +20,6 @@ from solprop.backends.protocol import (
     StepStats,
     StepSummary,
 )
-from solprop._process import ThreadBudget, thread_budget
 from solprop.backends.registry import available, resolve_name, select, select_batch
 
 __all__ = [
