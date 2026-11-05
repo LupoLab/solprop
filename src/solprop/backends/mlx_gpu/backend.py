@@ -25,11 +25,12 @@ import math
 import os
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 from jaxtyping import Complex
+from solprop_native._helpers import NATIVE  # pyright: ignore[reportMissingImports]
 
 from solprop.backends.memory import mlx_bounded, mlx_graph_bytes, mlx_stage_bytes
 from solprop.backends.mlx_gpu import passes as device
@@ -231,6 +232,8 @@ def refuse_unsupported(problem: KernelProblem) -> None:
             "binary64 backend (native, numpy_ref)"
         )
     stepper = problem.stepper
+    method = stepper.integrator
+    adams = isinstance(method, Multistep)
     refusals = [
         (
             not problem.device_ready,
@@ -239,8 +242,9 @@ def refuse_unsupported(problem: KernelProblem) -> None:
             "backend='numpy_ref'",
         ),
         (
-            isinstance(stepper.integrator, Multistep),
-            "the Adams integrator, which single precision does not admit",
+            adams and cast(Multistep, method).formulation != "exponential",
+            "the Adams integrator's interaction formulation; use the exponential "
+            "one, Multistep() by default",
         ),
         (
             stepper.interpolate_planes,
@@ -281,6 +285,11 @@ class MlxBackend(NumpySingleBackend):
     reads_transverse_edge = True
 
     name = "mlx"
+
+    # SEP 29 section 6.6: the stage tables' Chebyshev rows and the Adams basis from the
+    # native package's compiled record, which performs the reference's operations in
+    # its order (bitwise its results); only numpy_ref must keep the Python forms.
+    helpers = NATIVE
 
     _monitor_weights: mx.array | None = None
     """The boundary monitor's four weight rows on the device, each narrowed with its
@@ -1968,6 +1977,98 @@ class MlxBackend(NumpySingleBackend):
             The double-float accurate propagator, complex64.
         """
         return self._propagators(self._stage_scalars(anchor, position))[0]
+
+    def _adams_engine(
+        self,
+        method: Multistep,
+        compensation: Literal["transported", "untransported"],
+    ) -> object:
+        """Return the device-resident exponential Adams history.
+
+        Parameters
+        ----------
+        method : solprop.stepper.multistep.Multistep
+            The method, in the exponential formulation (the other is refused).
+        compensation : {'transported', 'untransported'}
+            A varying operator's compensation; the untransported witness is refused.
+
+        Returns
+        -------
+        solprop.backends.mlx_gpu.adams.MlxAdams
+            The engine.
+
+        Raises
+        ------
+        BackendError
+            For the untransported compensation, a test witness of the reference.
+        """
+        from solprop.backends.mlx_gpu.adams import MlxAdams  # noqa: PLC0415 - cycle
+
+        engine = MlxAdams(self, method)
+        if engine.compensated and compensation != "transported":
+            msg = "mlx does not run the untransported compensation, a witness"
+            raise BackendError(msg)
+        return engine
+
+    def _adams_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Return a host copy of the scaled accepted state, as a snapshot keeps it.
+
+        Returns
+        -------
+        numpy.ndarray
+            The complex64 state ``a / s``.
+        """
+        return np.array(self._require_state())
+
+    def _adams_restore(
+        self, z: float, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> None:
+        """Make an accepted state current at `z`, on the device in complex64.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        state : numpy.ndarray or mlx.core.array
+            The scaled state, as :meth:`_adams_state` or the engine held it.
+        """
+        self._z = z
+        held = cast(Any, state)
+        self._state = cast(
+            Any,
+            held
+            if isinstance(held, mx.array)
+            else mx.array(np.asarray(held).astype(np.complex64)),
+        )
+
+    def _adams_adopt(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, advanced: mx.array, dz: float
+    ) -> mx.array:
+        """Adopt an accepted Adams step on the device: the finish, then the state.
+
+        Parameters
+        ----------
+        advanced : mlx.core.array
+            The step's end state, complex64.
+        dz : float
+            The step, m.
+
+        Returns
+        -------
+        mlx.core.array
+            The finished state.
+
+        Raises
+        ------
+        BackendError
+            If the state left binary32.
+        """
+        if advanced.dtype != mx.complex64:
+            msg = f"an Adams step left complex64 for {advanced.dtype}"
+            raise BackendError(msg)
+        finished = self._finish(advanced, dz)
+        self._state = cast(Any, finished)
+        return finished
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
         """Return the device engine of the low-storage march.

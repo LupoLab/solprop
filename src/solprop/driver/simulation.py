@@ -1395,10 +1395,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "native"):
+    if backend not in ("auto", "numpy_ref", "native", "mlx"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref and native "
-            f"only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref, native "
+            f"and mlx only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )
