@@ -334,6 +334,30 @@ def test_a_tall_editor_takes_the_width_below_its_label(qtbot: QtBot) -> None:
     assert row._column.indexOf(row.stack) >= 0
 
 
+def test_the_strip_draws_the_step_size_as_progress_comes(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    open_tiny(window, qtbot)
+    panel = window.run_panel
+    panel.run_id = "steps"
+    panel.on_event(
+        Event("steps", "started", {"z_start": 0.0, "z_end": 1.0, "n_planes": 3})
+    )
+    for z, dz in ((0.1, 1e-4), (0.4, 3e-4), (0.8, 2e-4)):
+        panel.on_event(
+            Event(
+                "steps",
+                "progress",
+                {"z": z, "dz": dz, "z_end": 1.0, "steps": 9, "rejected": 1},
+            )
+        )
+    panel.on_event(
+        Event("steps", "progress", {"z": 0.9, "z_end": 1.0, "steps": 9, "rejected": 1})
+    )
+    assert [z for z, _ in panel.sparkline.points] == [0.1, 0.4, 0.8]
+    assert panel.sparkline.parent() is window.analyse.strip
+
+
 def test_a_run_goes_from_setup_to_analyse_with_one_scrubber(
     window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
 ) -> None:

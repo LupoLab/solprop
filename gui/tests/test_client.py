@@ -58,6 +58,19 @@ def test_a_reply_that_arrives_while_closing_is_not_delivered():
     client.close()
 
 
+def test_a_reply_to_a_deleted_receiver_ends_the_reader_quietly():
+    lost = threading.Event()
+
+    def on_reply(_reply: Reply) -> None:
+        raise RuntimeError("Signal source has been deleted")  # as Qt says
+
+    client = KernelClient(on_reply, on_lost=lost.set, target=targets.echo_kernel)
+    client.request("echo", {"x": 1})
+    client._reader.join(60)
+    assert not client._reader.is_alive() and not lost.is_set()
+    client.close()
+
+
 def test_the_reader_may_close_its_own_client():
     closed = threading.Event()
     holder: list[KernelClient] = []

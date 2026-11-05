@@ -218,6 +218,7 @@ class AnalyseStage(QWidget):
             strip.addWidget(panel.bar, 1)
             strip.addWidget(self.eta)
             strip.addWidget(panel.steps)
+            strip.addWidget(panel.sparkline)
             strip.addWidget(panel.lamp)
             panel.bar.valueChanged.connect(self._progressed)
         self.strip.hide()

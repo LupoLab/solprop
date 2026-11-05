@@ -13,6 +13,7 @@ from PySide6.QtWidgets import QApplication
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.views.page_plots import LinePlot, MapPlot
+from solprop_gui.views.sparkline import StepSparkline
 
 
 def two_pulses(qtbot: QtBot) -> LinePlot:
@@ -125,3 +126,28 @@ def test_a_right_click_opens_the_menu_and_a_map_goes_to_its_peak(
     assert plot.peak() is None
     plot.go_to_peak()
     qtbot.mouseClick(plot.viewport(), Qt.MouseButton.RightButton, pos=QPoint(150, 150))
+
+
+def test_the_step_sparkline_draws_log_steps_and_starts_afresh(qtbot: QtBot) -> None:
+    line = StepSparkline()
+    qtbot.addWidget(line)
+    line.start(1.0)
+    line.add(0.1, 1e-4)
+    assert line.polygon().isEmpty()  # one point is no line
+    line.add(0.5, 1e-3)
+    line.add(0.6, 0.0)  # not a step: left out
+    line.add(0.7, float("nan"))
+    points = line.polygon()
+    assert points.size() == 2
+    assert points.at(1).x() < line.width() - 3.0  # the run's end is the right edge
+    assert points.at(1).y() < points.at(0).y()  # a longer step is higher
+    assert "now 0.001 m" in line.toolTip()
+    line.grab()
+    flat = StepSparkline()
+    qtbot.addWidget(flat)
+    flat.add(0.0, 1e-4)
+    flat.add(1.0, 1e-4)
+    assert flat.polygon().at(0).y() == pytest.approx(flat.height() / 2)
+    flat.grab()
+    line.start(2.0)
+    assert line.points == []

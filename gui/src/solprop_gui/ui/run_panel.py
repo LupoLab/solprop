@@ -41,6 +41,7 @@ from solprop_gui.service.worker import OUTPUT, RunSpec
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.icons import icon
 from solprop_gui.views.live import OverviewView
+from solprop_gui.views.sparkline import StepSparkline
 
 __all__ = ["STOP_GRACE_MS", "RecipeSnapshot", "RunPanel"]
 
@@ -180,6 +181,7 @@ class RunPanel(QWidget):
         self.progress.setMaximumWidth(200)
         self.progress.setMaximumHeight(16)
         self.steps = QLabel("")
+        self.sparkline = StepSparkline()
         self.bar = QProgressBar()
         self.bar.setObjectName("run-progress")
         self.bar.setRange(0, 1000)
@@ -564,18 +566,13 @@ class RunPanel(QWidget):
             if self._z_end > 0:
                 self._progress(int(1000 * z / self._z_end))
         elif event.kind == "progress":
-            z, z_end = float(data["z"]), float(data["z_end"])  # pyright: ignore[reportArgumentType]
-            if z_end > 0:
-                self._progress(int(1000 * z / z_end))
-            self.steps.setText(
-                f"z {z:.4g} / {z_end:.4g} m   steps {data['steps']} "
-                f"({data['rejected']} rejected)"
-            )
+            self._show_progress(data)
         elif event.kind == "log":
             self._show_log(data)
         elif event.kind == "started":
             self._z_end = float(data["z_end"])  # pyright: ignore[reportArgumentType]
             self.view.set_extent(float(data.get("z_start", 0.0)), self._z_end)  # pyright: ignore[reportArgumentType]
+            self.sparkline.start(self._z_end)
             self.state_label.setText(f"{self.run_id}: running")
         elif event.kind == "scan_started":
             self.state_label.setText(f"{self.run_id}: scanning {data['points']} points")
@@ -588,6 +585,25 @@ class RunPanel(QWidget):
         self._set_state(advance(self.state, kind))
         if event.terminal:
             self._ended(event)
+
+    def _show_progress(self, data: Mapping[str, object]) -> None:
+        """Show how far a run has gone, its steps and its step size.
+
+        Parameters
+        ----------
+        data : Mapping
+            A progress event's data: ``z``, ``z_end``, ``steps``, ``rejected`` and,
+            from a service that sends it, ``dz``.
+        """
+        z, z_end = float(data["z"]), float(data["z_end"])  # pyright: ignore[reportArgumentType]
+        if z_end > 0:
+            self._progress(int(1000 * z / z_end))
+        if "dz" in data:
+            self.sparkline.add(z, float(data["dz"]))  # pyright: ignore[reportArgumentType]
+        self.steps.setText(
+            f"z {z:.4g} / {z_end:.4g} m   steps {data['steps']} "
+            f"({data['rejected']} rejected)"
+        )
 
     def _report(self, title: str, message: str, detail: str) -> None:
         """Say why a run failed, in full, in a dialog of its own.

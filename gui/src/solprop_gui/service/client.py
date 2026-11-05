@@ -209,7 +209,12 @@ class KernelClient:
             if self._closing:
                 break  # the window is going: it takes no more replies
             if self.filter.accepts(reply):
-                self._on_reply(reply)
+                try:
+                    self._on_reply(reply)
+                except RuntimeError:
+                    # Qt deleted the receiver before its window closed this client.
+                    self._closing = True
+                    break
         if not self._closing and self._on_lost is not None:
             self._on_lost()
 
