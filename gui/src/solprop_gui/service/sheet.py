@@ -13,11 +13,12 @@ which is why they meet the sheet's targets where a whole summary does not.
 """
 
 import math
+import os
 from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
-from solprop.backends import available, thread_budget
+from solprop.backends import ThreadBudget, available, thread_budget
 from solprop.backends.registry import metal_available
 from solprop.constants import C
 from solprop.exceptions import SolpropError
@@ -40,6 +41,8 @@ from solprop.tools import (
     soliton_order,
     soliton_params,
 )
+
+from solprop_gui.service.kernel import RUN_THREADS
 
 __all__ = [
     "SHEET_HANDLERS",
@@ -803,6 +806,31 @@ def gases(payload: Payload) -> list[str]:  # noqa: ARG001 - none
     return [gas.value for gas in Gas]
 
 
+def _run_budget() -> ThreadBudget:
+    """Return the thread budget a run gets, not the kernel's own, which is smaller.
+
+    Returns
+    -------
+    solprop.backends.ThreadBudget
+        The budget under the ``SOLPROP_THREADS`` the window started with.
+    """
+    held = os.environ.get("SOLPROP_THREADS")
+    started = os.environ.get(RUN_THREADS)
+    if started is None:
+        return thread_budget()
+    try:
+        if started:
+            os.environ["SOLPROP_THREADS"] = started
+        else:
+            os.environ.pop("SOLPROP_THREADS", None)
+        return thread_budget()
+    finally:
+        if held is None:
+            os.environ.pop("SOLPROP_THREADS", None)
+        else:
+            os.environ["SOLPROP_THREADS"] = held
+
+
 def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
     """Say what a run here can use: its threads and its backends.
 
@@ -818,7 +846,7 @@ def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
         ``double`` and ``single`` (the backends installed for each precision) and
         ``metal`` (whether the MLX backend has a Metal GPU here).
     """
-    budget = thread_budget()
+    budget = _run_budget()
     return {
         "threads": budget.threads,
         "limit": budget.source,

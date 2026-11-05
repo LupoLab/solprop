@@ -2686,6 +2686,110 @@ class FarFieldPage(PageView):
         return "far_field"
 
 
+class FluencePage(PageView):
+    """A Cartesian beam's fluence across x and y at the plane, and through its middle.
+
+    Parameters
+    ----------
+    session : solprop_gui.ui.analysis.AnalysisSession
+        The open file.
+    """
+
+    def __init__(self, session: AnalysisSession) -> None:
+        """Make the map and the two profiles."""
+        super().__init__(session)
+        self.map = MapPlot(
+            xlabel="x (mm)", ylabel="y (mm)", colours="inferno", unit="J/cm²"
+        )
+        # A round beam is drawn round.
+        self.map.box.setAspectLocked(lock=True, ratio=1)
+        self.profiles = LinePlot(
+            xlabel="Position (mm)",
+            ylabel="Fluence (J/cm²)",
+            names=["along x, through y = 0", "along y, through x = 0"],
+            unit="J/cm²",
+        )
+        self._last: Mapping[str, Any] | None = None
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(14)
+        grid.setRowStretch(0, 1)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(1, 1)
+        grid.addLayout(_plotted("Fluence across the beam", self.map), 0, 0)
+        grid.addLayout(_plotted("Through its middle", self.profiles), 0, 1)
+
+    def refresh(self) -> None:
+        """Ask for the plane selected."""
+        session = self.session
+        if session.path is None or not session.planes:
+            return
+        session.ask(
+            "beam_fluence",
+            {"path": session.path, "index": session.index},
+            self._show,
+            key="page-beam-fluence",
+            failed=self.map.say,
+        )
+
+    def _show(self, value: Mapping[str, Any]) -> None:
+        """Draw a plane's fluence.
+
+        Parameters
+        ----------
+        value : Mapping
+            The kernel's ``beam_fluence`` reply.
+        """
+        self._last = value
+        x = np.asarray(value["x"], float) * 1e3
+        y = np.asarray(value["y"], float) * 1e3
+        fluence = np.asarray(value["fluence"], float)
+        unit, scale = scaled_unit(fluence, "J/m²")
+        shown = fluence * scale
+        self.map.set_unit(unit)
+        self.profiles.set_ylabel(f"Fluence ({unit})")
+        self.profiles.unit = unit
+        dx, dy = float(np.diff(x[:2])[0]), float(np.diff(y[:2])[0])
+        self.map.show_map(
+            shown,
+            (float(x[0]) - dx / 2, float(y[0]) - dy / 2, x.size * dx, y.size * dy),
+            ((float(x[0]), float(x[-1])), (float(y[0]), float(y[-1]))),
+            (0.0, float(shown.max()) or 1.0),
+        )
+        middle_x = shown[int(np.argmin(np.abs(y))), :]
+        middle_y = shown[:, int(np.argmin(np.abs(x)))]
+        # Two axes on one: x and y are each drawn over their own positions.
+        positions = np.union1d(x, y)
+        self.profiles.set_data(
+            positions,
+            [
+                np.interp(positions, x, middle_x, left=np.nan, right=np.nan),
+                np.interp(positions, y, middle_y, left=np.nan, right=np.nan),
+            ],
+        )
+        self.profiles.fit()
+        self.note.setText(
+            f"Energy {si(float(fluence.sum()) * dx * dy * 1e-6, 'J', digits=3)} "
+            f"across the grid at z = {float(value['z']) * 1e3:.4g} mm."
+        )
+
+    def data(self) -> tuple[list[str], np.ndarray] | None:
+        """Return the plane's fluence, a row per y.
+
+        Returns
+        -------
+        tuple or None
+            ``y (mm)`` and a column per x, in J/m²; ``None`` before a plane is read.
+        """
+        if self._last is None:
+            return None
+        x = np.asarray(self._last["x"], float) * 1e3
+        y = np.asarray(self._last["y"], float) * 1e3
+        fluence = np.asarray(self._last["fluence"], float)
+        names = ["y (mm)"] + [f"x = {value:.4g} mm (J/m²)" for value in x]
+        return names, np.column_stack((y, fluence))
+
+
 PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "overview": OverviewPage,
     "plane": PlanePage,
@@ -2698,5 +2802,6 @@ PAGE_VIEWS: dict[str, Callable[[AnalysisSession], PageView]] = {
     "beam_plane": BeamPlanePage,
     "on_axis": OnAxisPage,
     "far_field": FarFieldPage,
+    "fluence_xy": FluencePage,
 }
 """The page each key of a class's rail shows."""

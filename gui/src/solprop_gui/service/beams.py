@@ -11,6 +11,7 @@ from solprop.output import open_file
 from solprop.processing import (
     far_field,
     fluence_along,
+    fluence_map,
     on_axis_power,
     on_axis_spectra,
     on_axis_spectrogram,
@@ -24,6 +25,7 @@ from solprop_gui.service.results import _window
 __all__ = [
     "BEAM_HANDLERS",
     "beam_far_field",
+    "beam_fluence",
     "beam_on_axis",
     "beam_overview",
     "beam_plane",
@@ -195,8 +197,33 @@ def beam_far_field(payload: Payload) -> dict[str, object]:
     return {"theta": theta, "axis": axis, "x": bins, "values": image}
 
 
+def beam_fluence(payload: Payload) -> dict[str, object]:
+    """Return one plane's fluence across a Cartesian beam.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path`` and ``index``, the plane.
+
+    Returns
+    -------
+    dict
+        ``z`` (m), ``x`` and ``y`` (m) and ``fluence`` (J/m^2, rows along y).
+    """
+    with open_file(str(payload["path"])) as output:
+        found = fluence_map(output, int(payload["index"]))  # pyright: ignore[reportArgumentType]
+    axes = dict(zip(found.axis_names, found.axes, strict=True))
+    return {
+        "z": float(found.z),
+        "x": np.asarray(axes["x"]),
+        "y": np.asarray(axes["y"]),
+        "fluence": np.asarray(found.fluence),
+    }
+
+
 BEAM_HANDLERS = {
     "beam_far_field": beam_far_field,
+    "beam_fluence": beam_fluence,
     "beam_on_axis": beam_on_axis,
     "beam_overview": beam_overview,
     "beam_plane": beam_plane,

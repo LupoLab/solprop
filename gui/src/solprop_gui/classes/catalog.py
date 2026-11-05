@@ -24,6 +24,7 @@ from solprop_gui.classes.problem import (
 __all__ = [
     "ANTIRESONANT",
     "CAPILLARY",
+    "CARTESIAN",
     "CLASSES",
     "FILAMENT",
     "GENERIC_PAGES",
@@ -305,7 +306,88 @@ SOLID_CORE: Final = ProblemClass(
     statistics=("energy",),
 )
 
-CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT)
+CARTESIAN: Final = ProblemClass(
+    key="cartesian",
+    title="Cartesian beam",
+    summary="A beam in free space on an x-y grid: a shape of any symmetry.",
+    route="free",
+    example="cartesian_beam",
+    marker=("space.type=FreeGrid",),
+    sections=(
+        Section(
+            "Medium",
+            (
+                Field(
+                    "medium.material",
+                    "Gas",
+                    choices="gases",
+                    also=("responses[*].chi3.gas",),
+                ),
+                Field("medium.pressure", "Pressure"),
+                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
+            ),
+        ),
+        Section(
+            "Beam",
+            (
+                Field("initial.waist", "Waist"),
+                Field("initial.propz", "To focus", negated=True),
+            ),
+        ),
+        Section(
+            "Pulse",
+            (
+                Field(
+                    "initial.temporal.wavelength",
+                    "Wavelength",
+                    also=("grid.reference_wavelength", "responses[*].chi3.wavelength"),
+                ),
+                Field("initial.temporal.fwhm", "Duration"),
+                Field("initial.temporal.energy", "Energy"),
+            ),
+        ),
+        Section(
+            "Physics",
+            (Field("responses", "Kerr", member="KerrResponse"),),
+        ),
+        Section(
+            "Grid",
+            (
+                Field("space.radius_x", "Half-width in x"),
+                Field("space.n_x", "Nodes in x"),
+                Field("space.radius_y", "Half-width in y"),
+                Field("space.n_y", "Nodes in y"),
+                Field("grid.wavelength_limits", "Wavelengths"),
+                Field("grid.trange", "Time window"),
+                Field(
+                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                ),
+            ),
+            folded=True,
+        ),
+    ),
+    derived=(
+        Derived("power_ratio", "P / P_cr", prefixed=False),
+        Derived("critical_power", "Critical power", "W"),
+        Derived("peak_power", "Peak power", "W"),
+        Derived("rayleigh_range", "Rayleigh range", "m"),
+        Derived("collapse_distance", "Collapse (Marburger)", "m"),
+    ),
+    numbers="beam_sheet",
+    curve="beam_curve",
+    lens=("initial.waist", "initial.propz", "initial.temporal.wavelength"),
+    preview="Linear beam radius along z",
+    pages=(
+        _OVERVIEW,
+        AnalysisPage("across", "Across the beam", ("fields",), view="fluence_xy"),
+        _PLANE,
+        _ALONG,
+        _HEALTH,
+    ),
+    statistics=("energy",),
+)
+
+CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT, CARTESIAN)
 """The classes Home offers, in its order."""
 
 GENERIC_PAGES: Final = (_OVERVIEW, _PLANE, _ALONG, _HEALTH)
@@ -420,6 +502,39 @@ def class_named(key: str) -> ProblemClass:
     raise KeyError(key)
 
 
+def _has(build: Mapping[str, object], mark: str) -> bool:
+    """Return whether a recipe's ``[build]`` table carries a class's mark.
+
+    Parameters
+    ----------
+    build : Mapping
+        The table.
+    mark : str
+        A keyword it sets, or ``"keyword.type=Name"``: an object of that type.
+
+    Returns
+    -------
+    bool
+        Whether it does.
+
+    Examples
+    --------
+    >>> _has({"lattice": {}}, "lattice"), _has({}, "lattice")
+    (True, False)
+    >>> space = {"space": {"type": "FreeGrid"}}
+    >>> _has(space, "space.type=FreeGrid"), _has(space, "space.type=LineGrid")
+    (True, False)
+    >>> _has({"space": "x"}, "space.type=FreeGrid")
+    False
+    """
+    path, _, wanted = mark.partition("=")
+    if not wanted:
+        return path in build
+    keyword, _, field = path.partition(".")
+    held = build.get(keyword)
+    return isinstance(held, Mapping) and held.get(field) == wanted
+
+
 def class_of(route: str, build: Mapping[str, object]) -> ProblemClass | None:
     """Return the class a recipe belongs to.
 
@@ -448,7 +563,7 @@ def class_of(route: str, build: Mapping[str, object]) -> ProblemClass | None:
     True
     """
     fits = [problem for problem in CLASSES if problem.route == route]
-    marked = [p for p in fits if p.marker and all(k in build for k in p.marker)]
+    marked = [p for p in fits if p.marker and all(_has(build, k) for k in p.marker)]
     if marked:
         return marked[0]
     return next((problem for problem in fits if not problem.marker), None)

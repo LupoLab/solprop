@@ -195,6 +195,8 @@ class ProblemClass:
     marker : tuple of str
         Keywords whose presence in ``[build]`` makes a recipe of the route this class's
         rather than another's: an antiresonant fibre is a capillary with a ``lattice``.
+        ``"keyword.type=Name"`` asks for an object of a type: a Cartesian beam is free
+        space on a ``FreeGrid``.
     sections : tuple of Section
         Its sheet.
     derived : tuple of Derived

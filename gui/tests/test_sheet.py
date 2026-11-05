@@ -4,6 +4,7 @@
 
 """The live sheet's kernel requests: solprop's numbers, without building a run."""
 
+import os
 from typing import Any
 
 import numpy as np
@@ -317,3 +318,23 @@ def test_the_run_options_are_solprop_s() -> None:
     assert options["double"] == list(available("double"))
     assert "native" in options["double"] or "numpy_ref" in options["double"]
     assert isinstance(options["metal"], bool)
+
+
+def test_the_threads_offered_are_a_run_s_not_the_kernel_s(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from solprop_gui.service.kernel import RUN_THREADS  # noqa: PLC0415 - only here
+
+    monkeypatch.setenv("SOLPROP_THREADS", "1")
+    monkeypatch.setenv(RUN_THREADS, "")
+    unset: Any = HANDLERS["run_options"]({})
+    assert unset["limit"] != "SOLPROP_THREADS"
+    monkeypatch.setenv(RUN_THREADS, "1")
+    one: Any = HANDLERS["run_options"]({})
+    assert one["threads"] == 1
+    # The kernel's own budget is left as it was.
+    assert os.environ["SOLPROP_THREADS"] == "1"
+    monkeypatch.delenv("SOLPROP_THREADS")
+    monkeypatch.setenv(RUN_THREADS, "")
+    HANDLERS["run_options"]({})
+    assert "SOLPROP_THREADS" not in os.environ

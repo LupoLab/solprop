@@ -21,10 +21,13 @@ from multiprocessing.connection import Connection
 
 from solprop_gui.service.messages import PROTOCOL, Reply, Request
 
-__all__ = ["KERNEL_THREADS", "answer", "latest", "serve"]
+__all__ = ["KERNEL_THREADS", "RUN_THREADS", "answer", "latest", "serve"]
 
 KERNEL_THREADS = "2"
 """The thread budget of the kernel process (``SOLPROP_THREADS``)."""
+
+RUN_THREADS = "SOLPROP_GUI_RUN_THREADS"
+"""Where the kernel keeps the ``SOLPROP_THREADS`` it started with, empty for unset."""
 
 Handler = Callable[[Mapping[str, object]], object]
 
@@ -149,6 +152,8 @@ def serve(
         The handlers, by kind; ``None`` imports solprop's
         (:data:`solprop_gui.service.handlers.HANDLERS`).
     """
+    # What a run would get: a run's worker starts from the window's environment.
+    os.environ[RUN_THREADS] = os.environ.get("SOLPROP_THREADS", "")
     os.environ.setdefault("SOLPROP_THREADS", KERNEL_THREADS)
     if handlers is None:
         from solprop_gui.service.handlers import HANDLERS  # noqa: PLC0415 - child only

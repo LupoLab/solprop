@@ -153,7 +153,8 @@ class HomePage(QWidget):
         self.others = QMenu(other)
         self.others.setObjectName("others")
         self.tiles["other"] = other
-        tiles.addWidget(other, 2, 0)
+        after = len(CLASSES)
+        tiles.addWidget(other, after // 2, after % 2)
         design = _Clickable(
             "tile",
             "Design a waveguide",
@@ -162,7 +163,7 @@ class HomePage(QWidget):
         )
         design.clicked.connect(self.design_chosen)
         self.tiles["design"] = design
-        tiles.addWidget(design, 2, 1)
+        tiles.addWidget(design, (after + 1) // 2, (after + 1) % 2)
         main.addLayout(tiles)
         buttons = QHBoxLayout()
         buttons.setSpacing(8)

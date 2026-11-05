@@ -71,6 +71,14 @@ ART: Final = {
         '<path d="M33 18 L 45 13 M33 30 L 45 35" stroke="{accent}" '
         'stroke-width="1.2" stroke-dasharray="2 2" opacity="0.6"/>'
     ),
+    "cartesian": (
+        '<rect x="6" y="6" width="36" height="36" fill="{tint}" stroke="{accent}" '
+        'stroke-width="2"/>'
+        '<path d="M18 6 V 42 M30 6 V 42 M6 18 H 42 M6 30 H 42" stroke="{accent}" '
+        'stroke-width="0.8" opacity="0.45"/>'
+        '<ellipse cx="24" cy="24" rx="10" ry="7" fill="{accent}" opacity="0.35"/>'
+        '<ellipse cx="24" cy="24" rx="5" ry="3.5" fill="{accent}"/>'
+    ),
     "other": (
         '<rect x="6" y="11" width="36" height="26" rx="2" fill="{tint}" '
         'stroke="{accent}" stroke-width="2"/>'

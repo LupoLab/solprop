@@ -1265,3 +1265,29 @@ def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:
     home = HomePage()
     qtbot.addWidget(home)
     assert {*(p.key for p in CLASSES), "other", "design"} <= set(ART)
+
+
+def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("cartesian")
+    sheet = window.sheet
+    qtbot.waitUntil(
+        lambda: window.problem is not None and window.problem.key == "cartesian",
+        timeout=WAIT_MS,
+    )
+    qtbot.waitUntil(lambda: sheet.problem is window.problem, timeout=WAIT_MS)
+    ratio = sheet.derived["power_ratio"]
+    qtbot.waitUntil(lambda: ratio.text() not in ("…", ""), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.stage is Stage.ANALYSE, timeout=WAIT_MS)
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: "across" in analyse.buttons, timeout=WAIT_MS)
+    analyse.show_page("across")
+    across = window.page_views["fluence_xy"]
+    qtbot.waitUntil(lambda: across.note.text().startswith("Energy"), timeout=WAIT_MS)
+    assert "1.5 nJ" in across.note.text()
+    found = across.data()
+    assert found is not None
+    assert found[0][0] == "y (mm)"
