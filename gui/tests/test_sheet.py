@@ -84,7 +84,7 @@ def test_a_window_absent_from_the_recipe_is_around_the_pump() -> None:
     text = TINY.replace('wavelength_limits = ["200 nm", "2000 nm"]\n', "").replace(
         'trange = "300 fs"\n',
         'grid = { type = "FieldGrid.from_limits", length = "5 cm", '
-        'wavelength_limits = ["200 nm", "2000 nm"], trange = "300 fs" }\n',
+        'reference_wavelength = "800 nm", wavelength_limits = ["200 nm", "2000 nm"], trange = "300 fs" }\n',
     )
     numbers = capillary_sheet({"text": text})
     wavelength = np.asarray(curve_of(numbers)["wavelength"])

@@ -162,6 +162,10 @@ class ParameterRow(QWidget):
     one_line : bool, optional
         Whether to lay the label and a one-line editor side by side, as on a sheet; an
         editor of several lines keeps the full width below its label.
+    on_sheet : bool, optional
+        Whether it is a sheet's row: a number is announced as it is typed, a target
+        is typed into its derived number rather than here, and free text is offered
+        only for a value nothing else can show.
 
     Attributes
     ----------
@@ -184,6 +188,7 @@ class ParameterRow(QWidget):
         *,
         catalog: Catalog | None = None,
         one_line: bool = False,
+        on_sheet: bool = False,
     ) -> None:
         """Make the row's widgets from the metadata."""
         super().__init__(parent)
@@ -211,6 +216,7 @@ class ParameterRow(QWidget):
         self.issue.setWordWrap(True)
         self.issue.hide()
 
+        self.choice_titles: Mapping[str, str] = meta.get("choice_titles") or {}  # pyright: ignore[reportAttributeAccessIssue]
         self.modes = modes_of(self.forms, self.catalog, self.name)
         self.stack = QStackedWidget()
         self.editors: dict[str, QWidget] = {}
@@ -228,6 +234,7 @@ class ParameterRow(QWidget):
                 None if unit is None else str(unit),
                 None if meta.get("display") is None else str(meta.get("display")),
                 integer=form.get("kind") == "integer",
+                live=on_sheet,
             )
             self.number.changed.connect(self._emit)
             self.number.refused.connect(lambda reason: self.set_issue(reason, "error"))
@@ -277,7 +284,8 @@ class ParameterRow(QWidget):
             self.launch.changed.connect(self._emit)
             self.launch.refused.connect(lambda reason: self.set_issue(reason, "error"))
             self.editors["table"] = self.launch
-        self.pin_targets = list(meta.get("pins") or [])  # pyright: ignore[reportArgumentType]
+        self.on_sheet = on_sheet
+        self.pin_targets = [] if on_sheet else list(meta.get("pins") or [])  # pyright: ignore[reportArgumentType]
         if self.pin_targets:
             self.modes.append("pin")
             self.unit = next(
@@ -303,7 +311,7 @@ class ParameterRow(QWidget):
         self.mode.setObjectName(f"mode-{self.name}")
         for mode in self.modes:
             self.mode.addItem(_MODE_TITLES[mode], mode)
-        self.mode.setVisible(len(self.modes) > 1)
+        self._update_picker()
         self.mode.setToolTip("The form of the value.")
         self.mode.currentIndexChanged.connect(self._mode_changed)
         self.reset = QToolButton()
@@ -400,6 +408,7 @@ class ParameterRow(QWidget):
                 self.choice.addItem(f"automatic{rule}", MISSING)
             for index, value in enumerate(self.choices):
                 text = {True: "on", False: "off"}.get(value, str(value))  # pyright: ignore[reportArgumentType, reportCallIssue]
+                text = self.choice_titles.get(str(value), text)
                 if index == default:
                     text += " (default)"
                 self.choice.addItem(text, value)
@@ -527,6 +536,16 @@ class ParameterRow(QWidget):
         self.mode.blockSignals(True)
         self.mode.setCurrentIndex(self.modes.index(mode))
         self.mode.blockSignals(False)
+        self._update_picker()
+
+    def _update_picker(self) -> None:
+        """Show the form picker where there is a real choice of form.
+
+        On a sheet, free text does not count as one, unless it is what holds the value.
+        """
+        offered = [m for m in self.modes if m != "text" or not self.on_sheet]
+        shown = self.modes[self.mode.currentIndex()] if self.mode.count() else ""
+        self.mode.setVisible(len(offered) > 1 or shown == "text")
 
     def _mode_changed(self, index: int) -> None:
         """Show the editor of the form picked; the value stays until it is edited.
@@ -698,6 +717,17 @@ class ParameterRow(QWidget):
                 self.text.setPlaceholderText(self._placeholder())
         finally:
             self._updating = False
+
+    @property
+    def value(self) -> object:
+        """Return the value the row holds.
+
+        Returns
+        -------
+        object
+            As the recipe holds it, or :data:`~solprop_gui.model.recipe.MISSING`.
+        """
+        return self._value
 
     def set_value(self, value: object) -> None:
         """Show the recipe's value in the editor that fits it, without announcing it.

@@ -52,6 +52,9 @@ __all__ = ["WorkflowWindow"]
 _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
 
+_CURVE_KEYS = ("beta2", "peak_power", "gamma", "fwhm", "shape", "wavelength")
+"""What the curve's request reads back from the numbers'."""
+
 _STAGE_TEXT = ((Stage.SETUP, "Setup"), (Stage.RUN, "Run"), (Stage.ANALYSE, "Analyse"))
 
 
@@ -167,7 +170,12 @@ class WorkflowWindow(QMainWindow):
         self.home.open_setup_wanted.connect(self.choose_setup)
         self.home.results_chosen.connect(self.open_results)
         self.home.setup_chosen.connect(self.open_setup)
-        self.sheet.edited.connect(self.document.edit)
+        self.sheet.edited.connect(
+            lambda name, table, value: self.document.edit(
+                name, table, value, merging=True
+            )
+        )
+        self.sheet.pins_changed.connect(self.document.replace_pins)
         self.sheet.example_chosen.connect(self.document.open_example)
         self.document.opened.connect(self._opened)
         self.document.described.connect(lambda _route: self._build_sheet())
@@ -175,7 +183,7 @@ class WorkflowWindow(QMainWindow):
         self.document.values_changed.connect(self._show_values)
         self.document.state_changed.connect(self._refresh)
         self.document.checked.connect(self._checked)
-        self.document.summarised.connect(self.sheet.show_summary)
+        self.document.summarised.connect(self._summarised)
         self.document.message.connect(self._say)
         self.run_panel.report = self._report_failure
         self.run_panel.state_changed.connect(self._run_state)
@@ -186,7 +194,9 @@ class WorkflowWindow(QMainWindow):
 
         self.setWindowTitle("solprop")
         self.resize(1280, 800)
+        self._numbers: Mapping[str, object] = {}
         self._ask_kernel("examples", {}, "examples")
+        self._ask_kernel("gases", {}, "gases")
         self.refresh_home()
         self.show_stage(Stage.HOME)
 
@@ -433,10 +443,67 @@ class WorkflowWindow(QMainWindow):
         if purpose == "examples" and reply.ok:
             examples: Sequence[Mapping[str, object]] = reply.value  # pyright: ignore[reportAssignmentType]
             self.sheet.set_examples(examples)
+        elif purpose == "gases" and reply.ok:
+            self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
+            self._build_sheet()
         elif purpose == "python":
             self.drawer_text.setPlainText(
                 str(reply.value) if reply.ok else f"# {reply.error}"
             )
+        elif purpose == "numbers":
+            self._numbers_arrived(reply)
+        elif purpose == "curve" and reply.ok:
+            self.sheet.show_curve(reply.value, self._numbers)  # pyright: ignore[reportArgumentType]
+        elif purpose == "size":
+            value = reply.value if reply.ok else None
+            self.sheet.show_size(
+                value["output_bytes"] if isinstance(value, Mapping) else None  # pyright: ignore[reportArgumentType]
+            )
+
+    def _ask_numbers(self) -> None:
+        """Ask for the sheet's numbers, where its class can have them at each edit."""
+        model = self.document.model
+        problem = self.problem
+        if model is None or problem is None or problem.numbers == "summarise":
+            return
+        payload = {"text": model.to_text(), "base": self.document.base}
+        self._ask_kernel(problem.numbers, payload, "numbers")
+
+    def _numbers_arrived(self, reply: Reply) -> None:
+        """Show the numbers, and ask for the curve of what they resolved.
+
+        Parameters
+        ----------
+        reply : solprop_gui.service.messages.Reply
+            The kernel's reply.
+        """
+        value = reply.value
+        if not reply.ok or not isinstance(value, Mapping):
+            self.sheet.show_error(str(reply.error))
+            return
+        self._numbers = value
+        self.sheet.show_summary(value)
+        problem = self.problem
+        if problem is not None and problem.curve is not None:
+            payload = {
+                "text": value["resolved"],
+                "base": self.document.base,
+                **{k: value[k] for k in _CURVE_KEYS},
+            }
+            self._ask_kernel(problem.curve, payload, "curve")
+
+    def _summarised(self, summary: object, error: object) -> None:
+        """Show the check's summary, on a class that has no quicker numbers.
+
+        Parameters
+        ----------
+        summary : object
+            The kernel's summary, or ``None``.
+        error : object
+            Why there is none.
+        """
+        if self.problem is not None and self.problem.numbers == "summarise":
+            self.sheet.show_summary(summary, error)  # pyright: ignore[reportArgumentType]
 
     # ------------------------------------------------------------------ opening
 
@@ -538,6 +605,7 @@ class WorkflowWindow(QMainWindow):
             self.problem, description, model.document.get("build", {}), model.title
         )
         self._show_values()
+        self._ask_numbers()
 
     def _loaded(self) -> None:
         """Bring a setup forward, unless it came with a results file."""
@@ -546,9 +614,10 @@ class WorkflowWindow(QMainWindow):
         self._quiet = False
 
     def _show_values(self) -> None:
-        """Show the recipe's values on the sheet."""
+        """Show the recipe's values on the sheet, and ask what they now give."""
         if self.document.model is not None:
             self.sheet.show_values(self.document.model)
+            self._ask_numbers()
 
     def _checked(self, issues: list[Mapping[str, object]]) -> None:
         """Show solprop's check.
@@ -560,6 +629,12 @@ class WorkflowWindow(QMainWindow):
         """
         self.sheet.show_issues(issues)
         self.run_panel.set_can_run(self.document.can_run)
+        if self.document.can_run and self.document.model is not None:
+            payload = {
+                "text": self.document.model.to_text(),
+                "base": self.document.base,
+            }
+            self._ask_kernel("output_size", payload, "size")
         self._refresh()
 
     def _remember_setup(self) -> None:

@@ -9,8 +9,11 @@ help on the focused row and Advanced folded at the end; what the setup gives at 
 right, with its plot and the Ready line.
 """
 
+import math
 from collections.abc import Mapping, Sequence
 
+import numpy as np
+import pyqtgraph as pg
 from PySide6.QtCore import QEvent, QObject, Qt, Signal
 from PySide6.QtWidgets import (
     QApplication,
@@ -18,31 +21,178 @@ from PySide6.QtWidgets import (
     QComboBox,
     QFrame,
     QGridLayout,
+    QHBoxLayout,
     QLabel,
     QLineEdit,
+    QPushButton,
     QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
 
 from solprop_gui.classes.catalog import class_of
 from solprop_gui.classes.problem import (
+    Derived,
+    Field,
     ProblemClass,
+    Target,
     derived_text,
     derived_value,
     field_meta,
     other_keywords,
+    pin_entry,
+    target_text,
 )
+from solprop_gui.model.display import size_text
+from solprop_gui.model.quantities import number_in, write
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.registry.pages import label
+from solprop_gui.registry.explore import PIN_SEARCH
+from solprop_gui.registry.pages import GAS_TITLES, label
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword
-from solprop_gui.ui.theme import clear_layout, named_label, repolish
+from solprop_gui.ui.theme import GREY, clear_layout, named_label, repolish
+from solprop_gui.views.page_plots import ORANGE, LinePlot
 
-__all__ = ["SheetStage"]
+__all__ = ["SheetStage", "TargetEditor"]
+
+_DISPERSIVE = "#0b6e99"
+"""The colour of the dispersive wave's marker."""
+
+_FS2 = 1e30
+"""What a dispersion in s^2/m is multiplied by to read in fs^2/m."""
+
+_DB_PER_NEPER = 10.0 / math.log(10.0)
+"""What a power loss coefficient in 1/m is multiplied by to read in dB/m."""
 
 _NARROW = 1000
 """Below this width, in pixels, the plot moves below the form."""
+
+
+class TargetEditor(QFrame):
+    """The strip that asks what a derived number should be, and what moves to give it.
+
+    Parameters
+    ----------
+    parent : PySide6.QtWidgets.QWidget or None, optional
+        The owner.
+
+    Attributes
+    ----------
+    accepted : Signal
+        Emitted with the keyword that moves and the ``[pins]`` entry.
+    released : Signal
+        Emitted with the keyword whose target is to go.
+    root_chosen : Signal
+        Emitted with the keyword and which root it should take.
+    """
+
+    accepted = Signal(str, object)
+    released = Signal(str)
+    root_chosen = Signal(str, object)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        """Make the strip, hidden."""
+        super().__init__(parent)
+        self.setObjectName("targetEditor")
+        self.target: Target | None = None
+        self.pinned: str | None = None
+        self.title = QLabel("")
+        self.value = QLineEdit()
+        self.value.setObjectName("target-value")
+        self.value.setFixedWidth(90)
+        self.value.returnPressed.connect(self.accept)
+        self.unit = named_label("", "note")
+        self.moves_label = named_label("moves", "note")
+        self.moves = QComboBox()
+        self.moves.setObjectName("target-moves")
+        self.problem = named_label("", "note")
+        self.set_button = QPushButton("Set target")
+        self.set_button.setObjectName("plain")
+        self.set_button.clicked.connect(self.accept)
+        self.release_button = QPushButton("Release")
+        self.release_button.setObjectName("plain")
+        self.release_button.clicked.connect(self._release)
+        cancel = QPushButton("Cancel")
+        cancel.setObjectName("plain")
+        cancel.clicked.connect(self.hide)
+        row = QHBoxLayout(self)
+        row.setContentsMargins(12, 7, 12, 7)
+        row.setSpacing(8)
+        for widget in (
+            self.title,
+            self.value,
+            self.unit,
+            self.moves_label,
+            self.moves,
+            self.problem,
+        ):
+            row.addWidget(widget)
+        row.addStretch(1)
+        for widget in (self.set_button, self.release_button, cancel):
+            row.addWidget(widget)
+        self.hide()
+
+    def ask(
+        self,
+        number: Derived,
+        shown: str,
+        moves: Sequence[tuple[str, str]],
+        pinned: str | None,
+    ) -> None:
+        """Open on a number.
+
+        Parameters
+        ----------
+        number : Derived
+            The number, which has a target.
+        shown : str
+            What it reads now, without its unit.
+        moves : Sequence of tuple
+            What can move: each keyword and its label.
+        pinned : str or None
+            The keyword this number's target holds now.
+        """
+        assert number.target is not None  # only such a number opens the strip
+        self.target = number.target
+        self.pinned = pinned
+        self.title.setText(f"Set {number.label.lower()} to")
+        self.value.setText(shown)
+        self.unit.setText(number.target.unit or "")
+        self.problem.clear()
+        self.moves.clear()
+        for name, title in moves:
+            self.moves.addItem(title, name)
+        if pinned is not None:
+            self.moves.setCurrentIndex(max(self.moves.findData(pinned), 0))
+        self.moves.setVisible(self.moves.count() > 1)
+        self.moves_label.setText(
+            "moves" if self.moves.count() > 1 else f"moves {moves[0][1].lower()}"
+        )
+        self.release_button.setVisible(pinned is not None)
+        self.show()
+        self.value.setFocus()
+        self.value.selectAll()
+
+    def accept(self) -> None:
+        """Announce the target typed, or say why it does not read."""
+        if self.target is None:
+            return
+        name = str(self.moves.currentData())
+        search = PIN_SEARCH.get(name)
+        try:
+            entry = pin_entry(self.target, self.value.text(), search)
+        except ValueError:
+            self.problem.setText("Type a number.")
+            return
+        self.hide()
+        self.accepted.emit(name, entry)
+
+    def _release(self) -> None:
+        """Announce that the target goes."""
+        if self.pinned is not None:
+            self.released.emit(self.pinned)
+        self.hide()
 
 
 class SheetStage(QWidget):
@@ -59,6 +209,9 @@ class SheetStage(QWidget):
         Emitted with (path, table, value) when a row changes.
     example_chosen : Signal
         Emitted with the name of a solprop example to start from.
+    pins_changed : Signal
+        Emitted with the keywords freed, each with its plain value, and any keyword
+        and ``[pins]`` entry that now sets it.
     rows : dict
         The rows, by path and table.
     derived : dict
@@ -67,6 +220,7 @@ class SheetStage(QWidget):
 
     edited = Signal(str, str, object)
     example_chosen = Signal(str)
+    pins_changed = Signal(object, object)
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the empty frame."""
@@ -78,6 +232,13 @@ class SheetStage(QWidget):
         self._advanced_rows: list[ParameterRow] = []
         self._examples: list[Mapping[str, object]] = []
         self._title: str | None = None
+        self._lists: dict[str, Sequence[str]] = {}
+        self._model: RecipeModel | None = None
+        self._solved: dict[str, float] = {}
+        self._notes: dict[str, QWidget] = {}
+        self._shown_numbers: dict[str, float | None] = {}
+        self._size: str | None = None
+        self._verdict = ""
 
         self.examples = QComboBox()
         self.examples.setObjectName("examples")
@@ -118,7 +279,32 @@ class SheetStage(QWidget):
         self.numbers = QGridLayout()
         self.numbers.setHorizontalSpacing(24)
         self.numbers.setVerticalSpacing(8)
+        self.target_editor = TargetEditor()
+        self.target_editor.accepted.connect(self._target_set)
+        self.target_editor.released.connect(self._release)
         self.preview_title = named_label("", "h3")
+        self.curve = LinePlot(
+            xlabel="Wavelength (nm)", ylabel="β₂ (fs²/m)", unit="fs²/m"
+        )
+        self.curve.hide()
+        self.curve.addItem(
+            pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2")), ignoreBounds=True
+        )
+        self.marks: dict[str, pg.InfiniteLine] = {}
+        for key, text, colour, place in (
+            ("pump", "Pump", ORANGE, 0.96),
+            ("zdw", "ZDW", GREY, 0.91),
+            ("rdw", "Dispersive wave", _DISPERSIVE, 0.86),
+        ):
+            line = pg.InfiniteLine(
+                angle=90, pen=pg.mkPen(colour, style=Qt.PenStyle.DashLine)
+            )
+            pg.InfLineLabel(
+                line, text, position=place, anchors=[(0, 0), (0, 0)], color=colour
+            )
+            line.hide()
+            self.curve.addItem(line, ignoreBounds=True)
+            self.marks[key] = line
         self.preview = QFrame()
         self.preview.setObjectName("preview")
         preview = QVBoxLayout(self.preview)
@@ -134,7 +320,9 @@ class SheetStage(QWidget):
         right.setSpacing(12)
         right.addWidget(named_label("What this gives", "h3"))
         right.addLayout(self.numbers)
+        right.addWidget(self.target_editor)
         right.addWidget(self.preview_title)
+        right.addWidget(self.curve, 1)
         right.addWidget(self.preview, 1)
         right.addWidget(self.ready)
 
@@ -209,6 +397,11 @@ class SheetStage(QWidget):
         self.problem = problem
         self._title = title
         self.rows.clear()
+        self._notes.clear()
+        self._solved = {}
+        self._shown_numbers = {}
+        self._size = None
+        self.target_editor.hide()
         self._advanced_rows = []
         clear_layout(self.sections)
         catalog = description.get("types")
@@ -220,9 +413,12 @@ class SheetStage(QWidget):
                 meta = field_meta(row.path, description, build)
                 if meta is None:
                     continue
-                name = row.path.rsplit(".", 1)[-1]
-                entry = {**meta, "name": row.path, "label": row.label or label(name)}
-                section.add(self._row(entry, catalog, one_line=True))
+                entry = self._entry(row, meta)
+                widget = self._row(entry, catalog, on_sheet=True)
+                section.add(widget)
+                note = self._solved_note(row.path)
+                self._notes[row.path] = note
+                section.add(note)
                 shown = True
             section.setVisible(shown)
             self.sections.addWidget(section)
@@ -230,6 +426,8 @@ class SheetStage(QWidget):
         self._show_numbers(problem)
         self.preview_title.setText(problem.preview)
         self.preview_note.setText("This plot comes with the class's live sheet.")
+        self.curve.setVisible(problem.curve is not None)
+        self.preview.setVisible(problem.curve is None)
         self.help.clear()
         self.ready.setText("Checking…")
         self.ready.setProperty("error", False)
@@ -237,8 +435,64 @@ class SheetStage(QWidget):
         repolish(self.ready)
         self._fill_examples()
 
+    def _entry(self, row: Field, meta: Mapping[str, object]) -> dict[str, object]:
+        """Return the metadata of a sheet's row: its path, its label, what it offers.
+
+        Parameters
+        ----------
+        row : Field
+            The sheet's row.
+        meta : Mapping
+            Its keyword's metadata.
+
+        Returns
+        -------
+        dict
+            What :class:`~solprop_gui.ui.fields.ParameterRow` reads.
+        """
+        name = row.path.rsplit(".", 1)[-1]
+        entry: dict[str, object] = {
+            **meta,
+            "name": row.path,
+            "label": row.label or label(name),
+        }
+        listed = self._lists.get(row.choices or "")
+        if listed:
+            forms: Sequence[Mapping[str, object]] = meta.get("forms", ())  # pyright: ignore[reportAssignmentType]
+            entry["forms"] = [{"kind": "choice", "choices": list(listed)}, *forms]
+            entry["choice_titles"] = GAS_TITLES
+        return entry
+
+    def _solved_note(self, path: str) -> QWidget:
+        """Make the line under a row that says a target sets it.
+
+        Parameters
+        ----------
+        path : str
+            The row's path.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QWidget
+            The line, hidden.
+        """
+        note = QWidget()
+        note.setObjectName("page")
+        row = QHBoxLayout(note)
+        row.setContentsMargins(116, 0, 0, 2)
+        row.setSpacing(6)
+        row.addWidget(named_label("", "solved"))
+        link = QPushButton("release")
+        link.setObjectName("link")
+        link.setCursor(Qt.CursorShape.PointingHandCursor)
+        link.clicked.connect(lambda _on=False, p=path: self._release(p))
+        row.addWidget(link)
+        row.addStretch(1)
+        note.hide()
+        return note
+
     def _row(
-        self, meta: Mapping[str, object], catalog: object, *, one_line: bool = False
+        self, meta: Mapping[str, object], catalog: object, *, on_sheet: bool = False
     ) -> ParameterRow:
         """Make one row.
 
@@ -248,15 +502,21 @@ class SheetStage(QWidget):
             Its keyword's metadata.
         catalog : object
             The registered types the route can name.
-        one_line : bool, optional
-            Whether its label sits beside its editor.
+        on_sheet : bool, optional
+            Whether it is one of the sheet's own, rather than one under Advanced.
 
         Returns
         -------
         solprop_gui.ui.fields.ParameterRow
             The row, connected and held.
         """
-        row = ParameterRow(meta, "build", catalog=catalog, one_line=one_line)  # pyright: ignore[reportArgumentType]
+        row = ParameterRow(
+            meta,
+            "build",
+            catalog=catalog,  # pyright: ignore[reportArgumentType]
+            one_line=on_sheet,
+            on_sheet=on_sheet,
+        )
         row.edited.connect(self.edited)
         self.rows[row.name, "build"] = row
         return row
@@ -318,10 +578,192 @@ class SheetStage(QWidget):
             tile = QVBoxLayout()
             tile.setSpacing(0)
             tile.addWidget(named_label(number.label, "derivedLabel"))
-            value = named_label("…", "derivedValue")
+            value = self._number_widget(number)
             tile.addWidget(value)
             self.derived[number.key] = value
-            self.numbers.addLayout(tile, index // 3, index % 3)
+            self.numbers.addLayout(tile, index // 4, index % 4)
+
+    def _number_widget(self, number: Derived) -> QLabel | QPushButton:
+        """Make what shows a derived number: a button where a target can be typed.
+
+        Parameters
+        ----------
+        number : Derived
+            The number.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QLabel or PySide6.QtWidgets.QPushButton
+            The widget.
+        """
+        if number.target is None:
+            return named_label("…", "derivedValue")
+        button = QPushButton("…")
+        button.setObjectName("derivedTarget")
+        button.setCursor(Qt.CursorShape.PointingHandCursor)
+        button.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        button.setSizePolicy(QSizePolicy.Policy.Maximum, QSizePolicy.Policy.Fixed)
+        button.setToolTip(
+            "Click to type the value you want; an input moves to give it."
+        )
+        button.clicked.connect(lambda _on=False, n=number: self.open_target(n))
+        return button
+
+    def _pin_of(self, target: Target) -> tuple[str, Mapping[str, object]] | None:
+        """Return the keyword a target sets now, and its ``[pins]`` entry.
+
+        Parameters
+        ----------
+        target : Target
+            The target.
+
+        Returns
+        -------
+        tuple or None
+            The keyword and the entry; ``None`` when it sets nothing.
+        """
+        if self._model is None:
+            return None
+        for name in target.moves:
+            entry = self._model.get(name, "pins")
+            if isinstance(entry, Mapping) and entry.get("target") == target.kind:
+                return name, entry
+        return None
+
+    def open_target(self, number: Derived) -> None:
+        """Ask what a derived number should be.
+
+        Parameters
+        ----------
+        number : Derived
+            The number.
+        """
+        if self._model is None or number.target is None:
+            return
+        target = number.target
+        held = self._pin_of(target)
+        # An energy and a peak power cannot both be set: the one in use moves.
+        moves = [
+            (name, self._move_title(name))
+            for name in target.moves
+            if name in ("pressure", "radius")
+            or self._model.get(name) is not MISSING
+            or self._model.get(name, "pins") is not MISSING
+        ]
+        if held is not None:
+            shown = target_text(target, held[1]).split(" ")[0]
+        else:
+            value = self._shown_numbers.get(number.key)
+            shown = "" if value is None else _plain_number(number, value)
+        self.target_editor.ask(number, shown, moves, None if held is None else held[0])
+
+    def _move_title(self, name: str) -> str:
+        """Return what a moving keyword is called.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+
+        Returns
+        -------
+        str
+            Its row's label.
+        """
+        row = self.rows.get((name, "build"))
+        return row.title if row is not None else label(name)
+
+    def _literal(self, name: str, value: float) -> object:
+        """Return a solved value as the plain value a row holds, in the row's unit.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        value : float
+            The value, in the keyword's unit.
+
+        Returns
+        -------
+        object
+            A quantity string, or the number where the keyword has no unit.
+        """
+        row = self.rows.get((name, "build"))
+        field = None if row is None else getattr(row, "number", None)
+        keyword_unit = None if field is None else field.keyword_unit
+        if field is None or keyword_unit is None:
+            return value
+        unit = field.unit() or keyword_unit
+        text = f"{float(number_in(float(f'{value:.6g}'), keyword_unit, unit)):.6g}"
+        return write(text, keyword_unit, unit)
+
+    def _guide_pins(self, moving: str) -> list[tuple[str, object]]:
+        """Return the guide's other pins, which a new one replaces, with their values.
+
+        solprop allows one pin on the guide or fill, so typing a second target frees
+        the first at the value it solved.
+
+        Parameters
+        ----------
+        moving : str
+            The keyword that is about to be set by a target.
+
+        Returns
+        -------
+        list of tuple
+            Each keyword to free, and the plain value it keeps.
+        """
+        if self._model is None or moving not in ("pressure", "radius"):
+            return []
+        freed: list[tuple[str, object]] = []
+        for name in ("pressure", "radius"):
+            if name != moving and self._model.get(name, "pins") is not MISSING:
+                freed.append((name, self._kept_value(name)))
+        return freed
+
+    def _kept_value(self, name: str) -> object:
+        """Return the value a keyword keeps as its target goes.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+
+        Returns
+        -------
+        object
+            The value last solved; with none yet, the default's unset value.
+        """
+        solved = self._solved.get(name)
+        return MISSING if solved is None else self._literal(name, solved)
+
+    def _target_set(self, name: str, entry: Mapping[str, object]) -> None:
+        """Announce a typed target.
+
+        Parameters
+        ----------
+        name : str
+            The keyword that moves.
+        entry : Mapping
+            The ``[pins]`` entry.
+        """
+        target = self.target_editor.target
+        freed = list(self._guide_pins(name))
+        if target is not None:
+            held = self._pin_of(target)
+            if held is not None and held[0] != name:
+                freed.append((held[0], self._kept_value(held[0])))
+        self.pins_changed.emit(freed, (name, entry))
+
+    def _release(self, name: str) -> None:
+        """Turn a target back into the plain value it solved.
+
+        Parameters
+        ----------
+        name : str
+            The keyword.
+        """
+        self.pins_changed.emit([(name, self._kept_value(name))], None)
 
     def _fill_examples(self) -> None:
         """Offer the examples of the sheet's class."""
@@ -366,12 +808,62 @@ class SheetStage(QWidget):
         model : solprop_gui.model.recipe.RecipeModel
             The recipe.
         """
+        self._model = model
         for (path, table), row in self.rows.items():
-            pin = model.get(path, "pins") if row.pin_targets else MISSING
-            if isinstance(pin, dict):
-                row.set_pin(pin)
-            else:
-                row.set_value(model.get(path, table))
+            pin = model.get(path, "pins")
+            if isinstance(pin, Mapping) and row.on_sheet:
+                self._show_solved(path, row, pin)
+                continue
+            if isinstance(pin, Mapping) and row.pin_targets:
+                row.set_pin(pin)  # pyright: ignore[reportArgumentType]
+                continue
+            row.stack.setEnabled(True)
+            if path in self._notes:
+                self._notes[path].hide()
+            value = model.get(path, table)
+            # What was typed is already there, as it was typed.
+            if row.value != value:
+                row.set_value(value)
+        self._mark_targets()
+
+    def _show_solved(
+        self, path: str, row: ParameterRow, pin: Mapping[str, object]
+    ) -> None:
+        """Show a row a target sets: its solved value, and what it was solved for.
+
+        Parameters
+        ----------
+        path : str
+            The row's path.
+        row : solprop_gui.ui.fields.ParameterRow
+            The row.
+        pin : Mapping
+            Its ``[pins]`` entry.
+        """
+        solved = self._solved.get(path)
+        row.set_value(MISSING if solved is None else self._literal(path, solved))
+        row.stack.setEnabled(False)
+        note = self._notes.get(path)
+        if note is None or self.problem is None:
+            return
+        text = note.findChild(QLabel, "solved")
+        for number in self.problem.derived:
+            target = number.target
+            if target is not None and target.kind == pin.get("target"):
+                if isinstance(text, QLabel):
+                    what = number.label.lower()
+                    text.setText(f"solved for {what} {target_text(target, pin)}")
+                note.show()
+
+    def _mark_targets(self) -> None:
+        """Mark the numbers a target holds."""
+        if self.problem is None:
+            return
+        for number in self.problem.derived:
+            widget = self.derived.get(number.key)
+            if number.target is not None and widget is not None:
+                widget.setProperty("pinned", self._pin_of(number.target) is not None)
+                repolish(widget)
 
     def show_issues(self, issues: Sequence[Mapping[str, object]]) -> None:
         """Show solprop's issues beside their rows, and its verdict on the Ready line.
@@ -401,10 +893,108 @@ class SheetStage(QWidget):
             text = f"Ready, with a warning: {warnings[0].get('message')}"
         else:
             text = "Ready to run"
-        self.ready.setText(text)
+        self._verdict = text
+        if errors:
+            self._size = None
+        self._show_ready()
         self.ready.setProperty("error", bool(errors))
         self.ready.setProperty("warn", bool(warnings) and not errors)
         repolish(self.ready)
+
+    def _show_ready(self) -> None:
+        """Write the Ready line: solprop's verdict, and the run's size where known."""
+        parts = [self._verdict]
+        if self._size is not None:
+            parts.append(self._size)
+        self.ready.setText("  ·  ".join(parts))
+
+    def show_size(self, size: float | None) -> None:
+        """Show the size of the output the run will write.
+
+        Parameters
+        ----------
+        size : float or None
+            Bytes; ``None`` when it is not known.
+        """
+        self._size = None if size is None else f"{size_text(size)} of output"
+        self._show_ready()
+
+    def set_list(self, name: str, values: Sequence[str]) -> None:
+        """Take what a kernel request lists, for the rows that offer it.
+
+        Parameters
+        ----------
+        name : str
+            The request.
+        values : Sequence of str
+            What it lists.
+        """
+        self._lists[name] = list(values)
+
+    def show_error(self, message: str) -> None:
+        """Say that the numbers could not be worked out, as when a target has no root.
+
+        Parameters
+        ----------
+        message : str
+            solprop's reason, which gives the attainable range.
+        """
+        self.show_summary(None, message)
+        self._verdict = f"Not ready: {message}"
+        self.ready.setProperty("error", True)
+        repolish(self.ready)
+        self._show_ready()
+
+    def show_curve(
+        self, curve: Mapping[str, object], numbers: Mapping[str, object]
+    ) -> None:
+        """Show the dispersion curve, with the pump, ZDW and dispersive wave marked.
+
+        Parameters
+        ----------
+        curve : Mapping
+            The kernel's ``capillary_curve`` reply.
+        numbers : Mapping
+            The numbers the curve belongs to.
+        """
+        wavelength = np.asarray(curve["wavelength"], dtype=float) * 1e9
+        beta2 = np.asarray(curve["beta2"], dtype=float) * _FS2
+        self.curve.set_data(wavelength, [beta2])
+        # The curve runs off near a resonance: the axis follows what the eye reads.
+        reach = float(np.nanmax(np.abs(beta2[wavelength > 0.25 * wavelength[-1]])))
+        top = max(reach, 1.0) * 1.05
+        self.curve.set_view((float(wavelength[0]), float(wavelength[-1])), (-top, top))
+        at = {
+            "pump": numbers.get("wavelength"),
+            "zdw": numbers.get("zdw"),
+            "rdw": curve.get("rdw"),
+        }
+        for key, line in self.marks.items():
+            value = at[key]
+            found = isinstance(value, int | float) and math.isfinite(value)
+            line.setVisible(found)
+            if found:
+                line.setPos(float(value) * 1e9)  # pyright: ignore[reportArgumentType]
+        self._show_extra(
+            {"rdw": curve.get("rdw"), "loss": float(curve["loss"]) * _DB_PER_NEPER}  # pyright: ignore[reportArgumentType]
+        )
+        self._mark_targets()
+
+    def _show_extra(self, values: Mapping[str, object]) -> None:
+        """Show the numbers that arrive with the curve.
+
+        Parameters
+        ----------
+        values : Mapping
+            By key, each value or ``None``.
+        """
+        if self.problem is None:
+            return
+        for number in self.problem.derived:
+            if number.key in values:
+                value = derived_value(values, number.key)
+                self._shown_numbers[number.key] = value
+                self.derived[number.key].setText(derived_text(number, value))
 
     def show_summary(
         self, summary: Mapping[str, object] | None, error: object = None
@@ -420,8 +1010,47 @@ class SheetStage(QWidget):
         """
         if self.problem is None:
             return
+        known = () if self.problem.curve is None else ("rdw", "loss")
         for number in self.problem.derived:
             value = derived_value(summary, number.key)
             widget = self.derived[number.key]
+            if summary is not None and number.key in known:
+                continue  # these come with the curve
+            self._shown_numbers[number.key] = value
             widget.setText(derived_text(number, value))
-            widget.setToolTip("" if summary is not None else str(error or ""))
+            if number.target is None:
+                widget.setToolTip("" if summary is not None else str(error or ""))
+        pinned = None if summary is None else summary.get("pinned")
+        if isinstance(pinned, Mapping):
+            self._solved = {str(k): float(v) for k, v in pinned.items()}
+            if self._model is not None:
+                self.show_values(self._model)
+
+
+def _plain_number(number: Derived, value: float) -> str:
+    """Return a derived number as a target's box first shows it.
+
+    Parameters
+    ----------
+    number : Derived
+        The number, which has a target.
+    value : float
+        Its SI value.
+
+    Returns
+    -------
+    str
+        The number, in the target's unit.
+
+    Examples
+    --------
+    >>> order = Target("soliton_order", "order", None, ())
+    >>> _plain_number(Derived("n", "N", target=order), 3.741)
+    '3.74'
+    >>> zdw = Target("zdw", "wavelength", "nm", ())
+    >>> _plain_number(Derived("z", "ZDW", target=zdw), 4.923e-7)
+    '492'
+    """
+    target = number.target
+    scaled = value * 1e9 if target is not None and target.unit == "nm" else value
+    return f"{scaled:.3g}"

@@ -168,6 +168,8 @@ class QuantityField(QWidget):
         The unit solprop displays it in, picked at first.
     integer : bool, optional
         Whether it holds an integer.
+    live : bool, optional
+        Whether to announce a number as it is typed, not only on leaving the box.
     parent : PySide6.QtWidgets.QWidget or None, optional
         The owner.
 
@@ -189,6 +191,7 @@ class QuantityField(QWidget):
         display: str | None = None,
         *,
         integer: bool = False,
+        live: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         """Make the number box and, for a quantity, its units."""
@@ -198,6 +201,8 @@ class QuantityField(QWidget):
         self.integer = integer
         self.number = NumberEdit(integer=integer)
         self.number.editingFinished.connect(self._finished)
+        if live:
+            self.number.textEdited.connect(self._typed)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.number, 1)
@@ -322,6 +327,22 @@ class QuantityField(QWidget):
                 self.units.set_unit(unit)
                 self.number.setText(number)
         if value != self._value:
+            self._value = value
+            self.changed.emit(value)
+
+    def _typed(self, _text: str) -> None:
+        """Announce a number as it is typed; a partial one waits for more typing.
+
+        Parameters
+        ----------
+        _text : str
+            What the box holds.
+        """
+        try:
+            value = self.read()
+        except RecipeError:
+            return
+        if value is not None and value != self._value:
             self._value = value
             self.changed.emit(value)
 

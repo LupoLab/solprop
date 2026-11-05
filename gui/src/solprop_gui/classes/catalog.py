@@ -18,6 +18,7 @@ from solprop_gui.classes.problem import (
     Field,
     ProblemClass,
     Section,
+    Target,
 )
 
 __all__ = [
@@ -48,7 +49,7 @@ _PULSE = Section(
         Field("energy"),
     ),
 )
-_GAS = Section("Gas", (Field("gas"), Field("pressure")))
+_GAS = Section("Gas", (Field("gas", choices="gases"), Field("pressure")))
 _PHYSICS = Section(
     "Physics",
     (Field("kerr", "Kerr"), Field("plasma", "Plasma"), Field("raman", "Raman")),
@@ -63,12 +64,28 @@ _WINDOW = Section(
     folded=True,
 )
 _GUIDE_NUMBERS = (
-    Derived("soliton_order", "Soliton order", prefixed=False),
-    Derived("zdw", "Zero-dispersion wavelength", "m"),
-    Derived("rdw", "Dispersive wave", "m"),
+    Derived(
+        "soliton_order",
+        "Soliton order",
+        prefixed=False,
+        target=Target("soliton_order", "order", None, ("energy", "peak_power")),
+    ),
+    Derived(
+        "zdw",
+        "Zero-dispersion wavelength",
+        "m",
+        target=Target("zdw", "wavelength", "nm", ("pressure", "radius")),
+    ),
+    Derived(
+        "rdw",
+        "Dispersive wave",
+        "m",
+        target=Target("rdw", "rdw", "nm", ("pressure", "radius")),
+    ),
     Derived("peak_power", "Peak power", "W"),
     Derived("peak_intensity", "Peak intensity", "W/cm²", 1e-4, prefixed=False),
     Derived("fission_length", "Fission length", "m"),
+    Derived("loss", "Loss at the pump", "dB/m", prefixed=False),
 )
 
 CAPILLARY: Final = ProblemClass(
@@ -88,7 +105,9 @@ CAPILLARY: Final = ProblemClass(
         _WINDOW,
     ),
     derived=_GUIDE_NUMBERS,
-    preview="Group-velocity dispersion against wavelength",
+    numbers="capillary_sheet",
+    curve="capillary_curve",
+    preview="Group-velocity dispersion at the entrance",
     pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _MODES, _COMPRESS, _HEALTH),
     statistics=("energy", "peak_intensity", "electron_density"),
 )

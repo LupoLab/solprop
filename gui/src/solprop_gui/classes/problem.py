@@ -19,12 +19,15 @@ __all__ = [
     "Field",
     "ProblemClass",
     "Section",
+    "Target",
     "derived_text",
     "derived_value",
     "field_meta",
     "other_keywords",
     "page_refusal",
+    "pin_entry",
     "sheet_paths",
+    "target_text",
 ]
 
 
@@ -38,10 +41,14 @@ class Field:
         Its recipe path in the ``[build]`` table.
     label : str or None
         What the row is called; ``None`` takes the front end's label of the keyword.
+    choices : str or None
+        The kernel's request that lists what the row offers, as ``"gases"`` does, in
+        place of free text.
     """
 
     path: str
     label: str | None = None
+    choices: str | None = None
 
 
 @dataclass(frozen=True)
@@ -64,6 +71,28 @@ class Section:
 
 
 @dataclass(frozen=True)
+class Target:
+    """What typing into a derived number means: solprop's pin for it (design 7.5).
+
+    Attributes
+    ----------
+    kind : str
+        The pin's ``target``.
+    key : str
+        The pin's key that holds what was typed.
+    unit : str or None
+        The unit a typed number is in; ``None`` for a pure number.
+    moves : tuple of str
+        The keywords that can move to meet it, the first by default.
+    """
+
+    kind: str
+    key: str
+    unit: str | None
+    moves: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class Derived:
     """A number a sheet shows, which solprop works out from the setup.
 
@@ -79,6 +108,8 @@ class Derived:
         What the reply's SI value is multiplied by to read in the unit.
     prefixed : bool
         Whether the number takes an SI prefix.
+    target : Target or None
+        What typing into it does; ``None`` when it can only be read.
     """
 
     key: str
@@ -86,6 +117,7 @@ class Derived:
     unit: str = ""
     factor: float = 1.0
     prefixed: bool = True
+    target: Target | None = None
 
 
 @dataclass(frozen=True)
@@ -142,6 +174,11 @@ class ProblemClass:
         Its Analyse rail, in order; the first opens on a new file.
     statistics : tuple of str
         The statistics its pages need recorded.
+    numbers : str
+        The kernel's request for its derived numbers, asked at each edit where it is
+        quick enough; ``"summarise"`` follows solprop's check instead.
+    curve : str or None
+        The kernel's request for its preview's curve, if it has one yet.
     """
 
     key: str
@@ -155,6 +192,8 @@ class ProblemClass:
     derived: tuple[Derived, ...] = ()
     marker: tuple[str, ...] = field(default=())
     statistics: tuple[str, ...] = ()
+    numbers: str = "summarise"
+    curve: str | None = None
 
 
 def derived_value(summary: Mapping[str, object] | None, key: str) -> float | None:
@@ -227,6 +266,75 @@ def derived_text(number: Derived, value: float | None) -> str:
     if number.prefixed:
         return si(scaled, number.unit, digits=3)
     return f"{scaled:.3g} {number.unit}".strip()
+
+
+def pin_entry(
+    target: Target, value: str, search: Sequence[str] | None = None
+) -> dict[str, object]:
+    """Write what was typed into a derived number as a ``[pins]`` entry.
+
+    Parameters
+    ----------
+    target : Target
+        What it means.
+    value : str
+        The text typed, a number in the target's unit.
+    search : Sequence of str or None, optional
+        Where a pin on the guide or fill searches.
+
+    Returns
+    -------
+    dict
+        The entry.
+
+    Raises
+    ------
+    ValueError
+        If the text is not a number.
+
+    Examples
+    --------
+    >>> order = Target("soliton_order", "order", None, ("energy",))
+    >>> pin_entry(order, "3")
+    {'target': 'soliton_order', 'order': 3.0}
+    >>> zdw = Target("zdw", "wavelength", "nm", ("pressure",))
+    >>> pin_entry(zdw, "450", ["0.01 bar", "20 bar"])["wavelength"]
+    '450 nm'
+    """
+    number = float(value)
+    entry: dict[str, object] = {
+        "target": target.kind,
+        target.key: number if target.unit is None else f"{value.strip()} {target.unit}",
+    }
+    if search is not None:
+        entry["search"] = list(search)
+    return entry
+
+
+def target_text(target: Target, entry: Mapping[str, object]) -> str:
+    """Write a pin's target as a sheet says it.
+
+    Parameters
+    ----------
+    target : Target
+        What it means.
+    entry : Mapping
+        The ``[pins]`` entry.
+
+    Returns
+    -------
+    str
+        What it holds.
+
+    Examples
+    --------
+    >>> target_text(Target("soliton_order", "order", None, ()), {"order": 3.0})
+    '3'
+    >>> target_text(Target("zdw", "wavelength", "nm", ()), {"wavelength": "450 nm"})
+    '450 nm'
+    """
+    held = entry.get(target.key)
+    return f"{held:g}" if isinstance(held, int | float) else str(held)
 
 
 _NEEDS = {

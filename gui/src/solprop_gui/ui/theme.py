@@ -12,6 +12,7 @@ from PySide6.QtWidgets import QApplication, QLabel, QLayout, QWidget
 
 __all__ = [
     "ACCENT",
+    "AXIS",
     "FONT",
     "GREY",
     "INK",
@@ -27,6 +28,9 @@ INK: Final = "#1b2430"
 
 GREY: Final = "#5a6675"
 """The colour of secondary text."""
+
+AXIS: Final = "#b4bcc6"
+"""The colour of a plot's axes."""
 
 ACCENT: Final = "#0b6e99"
 """The colour of the primary action and of what is selected."""
@@ -109,6 +113,24 @@ QSlider::groove:horizontal {{ height: 6px; background: #e8ebee; border-radius: 3
 QSlider::sub-page:horizontal {{ background: {ACCENT}; border-radius: 3px; }}
 QSlider::handle:horizontal {{ background: {ACCENT}; width: 16px; height: 16px;
     margin: -5px 0; border-radius: 8px; }}
+QPushButton#derivedTarget {{ font-size: 19px; font-weight: 500; color: #0a5a7d; border: 0;
+    border-bottom: 1px dashed #7fb0c5; background: none; padding: 0; text-align: left; }}
+QPushButton#derivedTarget[pinned="true"] {{ background: #e8f1f5; border: 0;
+    border-radius: 4px; padding: 0 5px; }}
+QFrame#targetEditor {{ background: #f4f8fa; border: 1px solid #d5e4ec;
+    border-radius: 8px; }}
+QLabel#solved {{ color: #0a5a7d; font-size: 12px; }}
+QPushButton#link {{ border: 0; color: #0a5a7d; text-decoration: underline;
+    font-size: 12px; background: none; padding: 0; }}
+QFrame#panel {{ border-left: 1px solid #e3e6ea; background: #fff; }}
+QLabel#control {{ font-size: 12px; color: #3d4957; font-weight: 500; }}
+QLabel#plotTitle {{ font-size: 12px; font-weight: 500; color: #3d4957; }}
+QLabel#pageNote {{ color: {GREY}; font-size: 12px; }}
+QFrame#segments {{ border: 1px solid #cdd3da; border-radius: 6px; background: #fff; }}
+QPushButton#segment {{ border: 0; background: none; padding: 4px 8px; font-size: 12px;
+    border-radius: 5px; color: {INK}; }}
+QPushButton#segment[current="true"] {{ background: #e8f1f5; color: #0a5a7d;
+    font-weight: 500; }}
 QFrame#strip {{ border-bottom: 1px solid #e3e6ea; background: #fff; }}
 QProgressBar#run-progress {{ border: 0; background: #e8ebee; border-radius: 3px;
     max-height: 6px; min-height: 6px; color: transparent; }}

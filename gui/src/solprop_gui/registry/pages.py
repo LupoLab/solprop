@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Final
 
 __all__ = [
+    "GAS_TITLES",
     "GROUP_TITLES",
     "LABELS",
     "PAGES",
@@ -147,6 +148,22 @@ LABELS: Final = {
     "half_gap": "Half gap",
 }
 """Labels for keywords whose names do not read well on their own."""
+
+GAS_TITLES: Final = {
+    "Air": "Air",
+    "He": "Helium",
+    "Ne": "Neon",
+    "Ar": "Argon",
+    "Kr": "Krypton",
+    "Xe": "Xenon",
+    "N2": "Nitrogen",
+    "H2": "Hydrogen",
+    "D2": "Deuterium",
+    "O2": "Oxygen",
+    "CH4": "Methane",
+    "SF6": "Sulphur hexafluoride",
+}
+"""How the sheets name a gas; one with no entry goes by what a recipe writes."""
 
 TYPE_LABELS: Final = {
     ("FreeGrid", "radius_x"): "Half-width in x",

@@ -9,6 +9,7 @@ check and summary of each revision, the route's description, saving and the reco
 copy, and says what happened through signals, so a window only shows the result.
 """
 
+import zlib
 from collections.abc import Callable, Iterable, Mapping
 from pathlib import Path
 
@@ -45,13 +46,51 @@ class _SetValues(QUndoCommand):
         The setup it changes.
     changes : list of Change
         The changes.
+    merging : bool, optional
+        Whether it joins the edit before it of the same keyword, as the digits of one
+        number typed do, so that one undo takes back the number.
     """
 
-    def __init__(self, document: SetupDocument, changes: list[Change]) -> None:
+    def __init__(
+        self, document: SetupDocument, changes: list[Change], *, merging: bool = False
+    ) -> None:
         """Hold the changes."""
         super().__init__(f"Set {changes[0][0]}")
         self.document = document
         self.changes = changes
+        self.merging = merging and len(changes) == 1
+
+    def id(self) -> int:
+        """Return what it merges with: the same keyword's typing, or nothing.
+
+        Returns
+        -------
+        int
+            A key of the keyword and its table; ``-1`` for no merging.
+        """
+        if not self.merging:
+            return -1
+        name, table, _new, _old = self.changes[0]
+        return zlib.crc32(f"{table}/{name}".encode()) & 0x7FFFFFFF
+
+    def mergeWith(self, other: QUndoCommand) -> bool:  # noqa: N802 - Qt's name
+        """Take a following edit of the same keyword into this one.
+
+        Parameters
+        ----------
+        other : PySide6.QtGui.QUndoCommand
+            The next command.
+
+        Returns
+        -------
+        bool
+            Whether it was taken.
+        """
+        if not isinstance(other, _SetValues) or not other.merging:
+            return False
+        name, table, _new, old = self.changes[0]
+        self.changes = [(name, table, other.changes[0][2], old)]
+        return True
 
     def redo(self) -> None:
         """Set the new values."""
@@ -334,7 +373,9 @@ class SetupDocument(QObject):
 
     # ------------------------------------------------------------------ editing
 
-    def edit(self, name: str, table: str, value: object) -> None:
+    def edit(
+        self, name: str, table: str, value: object, *, merging: bool = False
+    ) -> None:
         """Change one value, or one pin, as an undoable command.
 
         A value set on a pinned keyword removes its pin, and a pin removes the
@@ -348,8 +389,32 @@ class SetupDocument(QObject):
             Its table: ``"build"``, ``"execution"`` or ``"pins"``.
         value : object
             The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
+        merging : bool, optional
+            Whether it joins the edit before it of the same keyword, as typing does.
         """
         changes = self._changes(name, table, value)
+        if changes:
+            self.undo.push(_SetValues(self, changes, merging=merging))
+
+    def replace_pins(
+        self,
+        released: Iterable[tuple[str, object]],
+        pinned: tuple[str, Mapping[str, object]] | None = None,
+    ) -> None:
+        """Change a setup's targets in one undoable command.
+
+        Parameters
+        ----------
+        released : Iterable of tuple
+            Each pinned keyword to free, and the plain value it keeps.
+        pinned : tuple or None, optional
+            A keyword and the ``[pins]`` entry that now sets it, which replaces its value.
+        """
+        changes: list[Change] = []
+        for name, value in released:
+            changes += self._changes(name, "build", value)
+        if pinned is not None:
+            changes += self._changes(pinned[0], "pins", dict(pinned[1]))
         if changes:
             self.undo.push(_SetValues(self, changes))
 
