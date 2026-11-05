@@ -162,10 +162,16 @@ def _stopped(received: list[int], output: Path) -> int:
     """
     if not received:
         return 0
+    from solprop.exceptions import OutputError  # noqa: PLC0415 - imports the physics
     from solprop.output.hdf5 import open_file  # noqa: PLC0415 - imports the physics
 
-    with open_file(output) as stored:
-        complete = stored.outcome is not None and stored.outcome.status == "complete"
+    # A signal during the build can stop a run before it has written anything.
+    try:
+        with open_file(output) as stored:
+            outcome = stored.outcome
+    except (OSError, OutputError):
+        outcome = None
+    complete = outcome is not None and outcome.status == "complete"
     name = signal.Signals(received[0]).name
     if complete:
         sys.stderr.write(
