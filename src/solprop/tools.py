@@ -148,6 +148,14 @@ _ZDW_RANGE = (100e-9, 3e-6)
 _ZDW_SAMPLES = 512
 """Samples, evenly spaced in frequency, on which the dispersion's sign is read."""
 
+_ZDW_REFINE_ROUNDS = 4
+"""Rounds of array samples that refine a sign change of the dispersion. Four take a
+bracket of 3.6e13 rad/s to 3.4e7 rad/s, where interpolating linearly reaches the noise
+of the differenced ``beta2``."""
+
+_ZDW_REFINE_SAMPLES = 33
+"""Samples of each refinement round: 32 intervals, so each round narrows 32-fold."""
+
 _POLE_FACTOR = 2.0
 """How far the group delay at a refined sign change of ``beta2`` may sit from its value
 at the bracket's ends, in units of the change a bounded ``beta2`` could produce across
@@ -1277,6 +1285,44 @@ def _on_axis_intensity(mode: Mode, peak_power: float, z: float) -> float:
     return per_watt * peak_power
 
 
+def _refine_zero(mode: Mode, low: float, high: float, z: float) -> float:
+    """Return a sign change of the dispersion inside a bracket, by array samples.
+
+    A mode's index models evaluate an array at about the cost of one point, so each
+    round narrows the bracket 32-fold for the cost of one Brent step, where a scalar
+    search costs a glass model evaluation per iterate. The rounds stop short of a pole
+    of the differenced ``beta2``, which a scalar search converges onto until the model
+    returns NaN.
+
+    Parameters
+    ----------
+    mode : Mode
+        The mode.
+    low, high : float
+        The bracket, rad/s, whose ends have ``beta2`` of opposite signs.
+    z : float
+        Position along the waveguide, m.
+
+    Returns
+    -------
+    float
+        The first sign change upwards in frequency, rad/s, linearly interpolated in the
+        last bracket; or NaN when samples that are not finite separate the signs.
+    """
+    first = last = math.nan
+    for _ in range(_ZDW_REFINE_ROUNDS):
+        grid = np.linspace(low, high, _ZDW_REFINE_SAMPLES)
+        sampled = base.beta2(mode, grid, z)
+        crossing = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) <= 0.0)
+        if crossing.size == 0:
+            return math.nan
+        i = int(crossing[0])
+        low, high = float(grid[i]), float(grid[i + 1])
+        # The first change has a nonzero sample below it, so the two cannot be equal.
+        first, last = float(sampled[i]), float(sampled[i + 1])
+    return low - first * (high - low) / (last - first)
+
+
 def _zdw_near(mode: Mode, omega: float, z: float) -> float:
     """Return the zero-dispersion wavelength nearest a pump frequency.
 
@@ -1309,19 +1355,15 @@ def _zdw_near(mode: Mode, omega: float, z: float) -> float:
         _ZDW_SAMPLES,
     )
     zeros = []
-    # Brent's method converges onto a pole as readily as onto a zero, and a model may
+    # The refinement converges onto a pole as readily as onto a zero, and a model may
     # divide by zero exactly there; the group-delay test below tells the two apart.
     with _probing(), np.errstate(divide="ignore", invalid="ignore"):
         sampled = base.beta2(mode, grid, z)
         for i in np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0):
             low, high = float(grid[i]), float(grid[i + 1])
-            root = float(
-                brentq(
-                    lambda value: float(base.beta2(mode, np.array([value]), z)[0]),
-                    low,
-                    high,
-                )
-            )
+            root = _refine_zero(mode, low, high, z)
+            if math.isnan(root):
+                continue
             delay = base.beta1(mode, np.array([low, root, high]), z)
             bounded = max(abs(sampled[i]), abs(sampled[i + 1])) * (high - low)
             if abs(delay[1] - delay[0]) <= _POLE_FACTOR * bounded:
