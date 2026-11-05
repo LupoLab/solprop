@@ -22,7 +22,12 @@ from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import RadialGrid
 from solprop.output.schema import Output
-from solprop.processing.axes import SpectralAxis, grid_of, spectral_axis
+from solprop.processing.axes import (
+    SpectralAxis,
+    grid_of,
+    spatial_grid_of,
+    spectral_axis,
+)
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
     _plane_field,
@@ -30,7 +35,6 @@ from solprop.processing.fields import (
     field_spectrogram,
     real_field_oversampling,
 )
-from solprop.processing.planes import _space
 from solprop.spatial import (
     SpatialFlux,
     column_spectrum,
@@ -75,9 +79,10 @@ def _radial_space(output: Output) -> RadialGrid:
     solprop.exceptions.ProcessingError
         If the run is not on a radial grid.
     """
-    metadata = output.metadata
-    record = None if metadata is None else metadata.configuration.get("spatial_grid")
-    space = None if record is None else _space(record)
+    try:
+        space = spatial_grid_of(output)
+    except ProcessingError:
+        space = None
     if not isinstance(space, RadialGrid):
         msg = "these readers are of a radial beam, and this run is not on a radial grid"
         raise ProcessingError(msg)

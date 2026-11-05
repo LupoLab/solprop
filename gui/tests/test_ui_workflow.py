@@ -46,6 +46,7 @@ from solprop_gui.ui.analysis_pages import (
     PlanePage,
     SpectrogramPage,
 )
+from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
@@ -110,7 +111,7 @@ def test_home_offers_each_class_and_asks_for_nothing_open(
     assert window.stage is Stage.HOME
     assert not window.top.isVisible()
     assert {problem.key for problem in CLASSES} < set(window.home.tiles)
-    assert not window.home.tiles["design"].isEnabled()
+    assert window.home.tiles["design"].isEnabled()
     with qtbot.waitSignal(window.home.class_chosen) as chosen:
         window.home.tiles["capillary"].clicked.emit()
     assert chosen.args == ["capillary"]
@@ -806,7 +807,7 @@ def test_an_antiresonant_fibre_draws_its_loss_and_cross_section(
     window.begin_class("antiresonant")
     sheet = window.sheet
     qtbot.waitUntil(lambda: sheet.problem is ANTIRESONANT, timeout=WAIT_MS)
-    qtbot.waitUntil(lambda: sheet.below.isVisible(), timeout=WAIT_MS)
+    qtbot.waitUntil(sheet.below.isVisible, timeout=WAIT_MS)
     assert sheet.loss_plot.xs.size > 0
     assert sheet.loss_mark.value() == pytest.approx(800.0)
     assert any(shape["kind"] == "ring" for shape in sheet.cross_section.shapes)
@@ -940,3 +941,150 @@ def test_a_box_shows_a_long_number_short_and_keeps_it_exact(qtbot: QtBot) -> Non
     field._finished()
     assert str(edits[-1]).startswith("2.5")
     assert _readable("not a number at all") == "not a number at all"
+
+
+def design_stage(window: WorkflowWindow, qtbot: QtBot) -> DesignStage:
+    window.home.tiles["design"].clicked.emit()
+    stage = window.design
+    qtbot.waitUntil(lambda: stage.text is not None, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: bool(stage._curves), timeout=WAIT_MS)
+    return stage
+
+
+def test_a_design_answers_with_no_pulse_and_touches_no_setup(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("capillary")
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    model = window.document.model
+    stage = design_stage(window, qtbot)
+    assert window.stage is Stage.DESIGN
+    assert window.document.model is model
+    assert window.primary.text() == "Simulate this"
+    assert window.context.text() == "Design a waveguide"
+    assert not window.stage_buttons[Stage.SETUP].isVisible()
+    assert not window.overflow.isVisible()
+    qtbot.waitUntil(lambda: stage.numbers["zdw"].text() == "471 nm", timeout=WAIT_MS)
+    # Rows of what the design does not hold stay out of the way.
+    assert not stage.fields["energy"].isVisible()
+    assert not stage.fields["lattice.n_tubes"].isVisible()
+    assert not stage.numbers["soliton_order"].isVisible()
+    window.show_stage(Stage.HOME)
+    assert window.stage_buttons[Stage.SETUP].isVisible()
+
+
+def test_the_zero_is_solved_with_the_order_and_the_energy(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    stage = design_stage(window, qtbot)
+    stage.solve()
+    assert "Give the zero" in stage.note.text()
+    stage.zdw_target.number.setText("450")
+    stage.solve()
+    pressure = stage.fields["pressure"].number
+    qtbot.waitUntil(lambda: pressure.text().startswith("0.83"), timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: stage.numbers["zdw"].text() == "450 nm", timeout=WAIT_MS)
+    assert "Solved" in stage.note.text()
+    stage.order_target.number.setText("3")
+    stage.solve()
+    qtbot.waitUntil(stage.pulse.isChecked, timeout=WAIT_MS)
+    order = stage.numbers["soliton_order"]
+    qtbot.waitUntil(lambda: order.text().startswith("3"), timeout=WAIT_MS)
+    assert stage.fields["energy"].isVisible()
+
+
+def test_a_sweep_draws_a_curve_each_and_a_click_takes_one(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    stage = design_stage(window, qtbot)
+    # A click with nothing swept changes nothing.
+    stage._picked(600.0, 0.0)
+    assert stage.fields["pressure"].number.text() == "1"
+    stage.sweep_name.setCurrentIndex(stage.sweep_name.findData("pressure"))
+    qtbot.waitUntil(lambda: len(stage._curves) == 4, timeout=WAIT_MS)
+    assert stage.note.text().startswith("Click")
+    at = int(np.argmin(np.abs(stage._x - 600.0)))
+    stage._picked(600.0, float(stage._curves[3][1][at]))
+    assert stage.fields["pressure"].read() == "5 bar"
+    path = tmp_path / "curves.csv"
+    stage.write_csv(path)
+    assert path.read_text().splitlines()[0].endswith("5 bar")
+    stage.sweep_name.setCurrentIndex(stage.sweep_name.findData("gas"))
+    qtbot.waitUntil(lambda: len(stage._curves) == 3, timeout=WAIT_MS)
+    at = int(np.argmin(np.abs(stage._x - 300.0)))
+    stage._picked(300.0, float(stage._curves[2][1][at]))
+    assert stage.gas.currentData() == "Ar"
+    assert stage.gas.currentText() == "Argon"
+
+
+def test_the_other_pages_draw_and_a_map_point_sets_the_design(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    stage = design_stage(window, qtbot)
+    stage.show_page("loss")
+    qtbot.waitUntil(lambda: stage.plot.unit == "dB/m", timeout=WAIT_MS)
+    assert stage.plot.log
+    assert not stage.quantity.isVisible()
+    stage.show_page("phase")
+    qtbot.waitUntil(lambda: stage.plot.unit == "1/cm", timeout=WAIT_MS)
+    assert stage.note.text().startswith("Linear")
+    stage.pulse.setChecked(True)
+    qtbot.waitUntil(lambda: stage.note.text().startswith("Phase"), timeout=WAIT_MS)
+    wave = stage.numbers["rdw"]
+    qtbot.waitUntil(lambda: wave.text() not in ("…", "—"), timeout=WAIT_MS)
+    assert stage.marks.lines["Dispersive wave"].isVisible()
+    stage.show_page("map")
+    qtbot.waitUntil(lambda: stage.plot.unit == "bar", timeout=WAIT_MS)
+    assert stage.note.text().startswith("Click")
+    assert stage._curves[0][0].startswith("ZDW")
+    assert np.size(stage.design_dot.getData()[0]) == 1
+    stage._picked(100.0, 0.0)
+    assert stage.fields["radius"].read() == "100 um"
+    assert stage.fields["pressure"].read() == "1 bar"
+    # New numbers ask for the map again, at the new design.
+    qtbot.waitUntil(lambda: abs(stage._x[0] - 50.0) < 1e-6, timeout=WAIT_MS)
+    stage.quantity.setCurrentIndex(stage.quantity.findData("beta3"))
+    stage.show_page("curves")
+    qtbot.waitUntil(lambda: stage.plot.unit == "fs³/m", timeout=WAIT_MS)
+    assert np.size(stage.design_dot.getData()[0]) == 0
+
+
+def test_a_fibre_has_its_own_rows_and_no_map(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    stage = design_stage(window, qtbot)
+    stage.show_page("map")
+    qtbot.waitUntil(lambda: stage.plot.unit == "bar", timeout=WAIT_MS)
+    stage.guide_choice._pick("antiresonant")
+    assert stage.page == "curves"
+    assert stage.fields["lattice.n_tubes"].isVisible()
+    assert not stage.solve_button.isEnabled()
+    zero = stage.numbers["zdw"]
+    qtbot.waitUntil(lambda: zero.text() == "483 nm", timeout=WAIT_MS)
+    stage.show_page("map")
+    assert stage.page == "curves"
+    assert "capillary" in stage.note.text()
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    assert window.problem is ANTIRESONANT
+    model = window.document.model
+    assert model is not None
+    assert model.get("radius") == "15 um"
+
+
+def test_a_failed_request_says_why(window: WorkflowWindow, qtbot: QtBot) -> None:
+    stage = design_stage(window, qtbot)
+    box = stage.fields["pressure"].number
+    box.setText("-1")
+    box.textEdited.emit("-1")
+    stage.show_page("curves")
+    qtbot.waitUntil(lambda: bool(stage.note.text()), timeout=WAIT_MS)
+
+
+def test_a_design_with_no_recipe_yet_simulates_nothing(
+    window: WorkflowWindow,
+) -> None:
+    window.design.text = None
+    window.show_stage(Stage.DESIGN)
+    window.simulate_design()
+    assert window.document.model is None

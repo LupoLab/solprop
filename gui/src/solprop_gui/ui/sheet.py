@@ -56,14 +56,11 @@ from solprop_gui.registry.pages import GAS_TITLES, label
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword
 from solprop_gui.ui.quantity import QuantityField
-from solprop_gui.ui.theme import GREY, clear_layout, named_label, repolish
+from solprop_gui.ui.theme import clear_layout, named_label, repolish
 from solprop_gui.views.cross_section import CrossSection
-from solprop_gui.views.page_plots import ORANGE, LinePlot
+from solprop_gui.views.page_plots import ORANGE, LinePlot, PlotMarks
 
 __all__ = ["LensEditor", "SheetStage", "TargetEditor"]
-
-_MARK_COLOURS = (ORANGE, GREY, "#0b6e99", "#8c5bb5")
-"""The colours of a preview's marks, in order."""
 
 _NARROW = 1000
 """Below this width, in pixels, the plot moves below the form."""
@@ -358,10 +355,11 @@ class SheetStage(QWidget):
         self.lens_editor.accepted.connect(self.lens_wanted)
         self.preview_title = named_label("", "h3")
         self.curve = LinePlot(xlabel="", ylabel="")
+        self._marks = PlotMarks(self.curve)
+        self.marks = self._marks.lines
         self.curve.hide()
         self.zero = pg.InfiniteLine(angle=0, pos=0, pen=pg.mkPen("#d7dce2"))
         self.curve.addItem(self.zero, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
-        self.marks: dict[str, pg.InfiniteLine] = {}
         self.preview = QFrame()
         self.preview.setObjectName("preview")
         preview = QVBoxLayout(self.preview)
@@ -1219,28 +1217,7 @@ class SheetStage(QWidget):
         marks : Sequence of Sequence
             Each mark's label and position, ``None`` where it has none.
         """
-        for line in self.marks.values():
-            line.hide()
-        for place, (name, at) in enumerate(marks):
-            if at is None:
-                continue
-            line = self.marks.get(str(name))
-            if line is None:
-                colour = _MARK_COLOURS[place % len(_MARK_COLOURS)]
-                line = pg.InfiniteLine(
-                    angle=90, pen=pg.mkPen(colour, style=Qt.PenStyle.DashLine)
-                )
-                pg.InfLineLabel(
-                    line,
-                    str(name),
-                    position=0.96 - 0.05 * place,
-                    anchors=[(0, 0), (0, 0)],
-                    color=colour,
-                )
-                self.curve.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
-                self.marks[str(name)] = line
-            line.setPos(float(at))  # pyright: ignore[reportArgumentType]
-            line.show()
+        self._marks.show(marks)
 
     def _show_extra(self, values: Mapping[str, object]) -> None:
         """Show the numbers that arrive with the curve.

@@ -34,6 +34,7 @@ from solprop_gui.service.postprocess import POSTPROCESS_HANDLERS
 from solprop_gui.service.reduce import SPECTRAL_AXES, C, Display, Reducer, stats_row
 from solprop_gui.service.results import RESULTS_HANDLERS, band_of, spatial_plane
 from solprop_gui.service.sheet import SHEET_HANDLERS, design_numbers
+from solprop_gui.service.waveguide import WAVEGUIDE_HANDLERS
 
 __all__ = ["HANDLERS"]
 
@@ -689,6 +690,7 @@ HANDLERS: dict[str, Callable[[Payload], object]] = {
     **BEAM_HANDLERS,
     **DESIGN_HANDLERS,
     **SHEET_HANDLERS,
+    **WAVEGUIDE_HANDLERS,
     **FIGURE_HANDLERS,
     **POSTPROCESS_HANDLERS,
     **RESULTS_HANDLERS,

@@ -18,6 +18,7 @@ class Stage(StrEnum):
     """Where the window is."""
 
     HOME = "home"
+    DESIGN = "design"
     SETUP = "setup"
     RUN = "run"
     ANALYSE = "analyse"
@@ -94,6 +95,7 @@ def stage_open(stage: Stage, progress: Progress) -> bool:
     """
     return {
         Stage.HOME: True,
+        Stage.DESIGN: True,
         Stage.SETUP: progress.has_setup,
         Stage.RUN: progress.running or progress.has_run,
         Stage.ANALYSE: progress.has_results,

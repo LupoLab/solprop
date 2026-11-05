@@ -32,6 +32,7 @@ __all__ = [
     "axis_values",
     "design_keywords",
     "design_lines",
+    "design_sweep",
     "offered",
     "quantity_values",
     "sweep_values",
@@ -315,6 +316,41 @@ def sweep_values(text: str) -> list[str]:
     if unit is None:
         return values
     return [f"{value} {unit}" if _number(value) else value for value in values]
+
+
+_SWEEP_UNITS: Final = {"pressure": "bar", "radius": "um"}
+"""What a design's bare swept numbers are in, by path."""
+
+
+def design_sweep(name: str, values: Sequence[str]) -> list[str]:
+    """Give a design's swept numbers the unit their box shows, where they have none.
+
+    Parameters
+    ----------
+    name : str
+        What is swept.
+    values : Sequence of str
+        The values, as :func:`sweep_values` reads them.
+
+    Returns
+    -------
+    list of str
+        Each value as a recipe writes it.
+
+    Examples
+    --------
+    >>> design_sweep("pressure", ["0.5", "2 bar"])
+    ['0.5 bar', '2 bar']
+    >>> design_sweep("radius", ["100"])
+    ['100 um']
+    >>> design_sweep("gas", ["He"])
+    ['He']
+    """
+    unit = _SWEEP_UNITS.get(name)
+    return [
+        f"{value} {unit}" if unit is not None and _number(value) else value
+        for value in values
+    ]
 
 
 def _number(word: str) -> bool:

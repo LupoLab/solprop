@@ -93,6 +93,8 @@ class HomePage(QWidget):
         Emitted with a problem class's key.
     other_chosen : Signal
         Emitted when Other geometry is chosen.
+    design_chosen : Signal
+        Emitted when the person asks to design a waveguide.
     open_results_wanted : Signal
         Emitted when a results file is to be picked.
     open_setup_wanted : Signal
@@ -105,6 +107,7 @@ class HomePage(QWidget):
 
     class_chosen = Signal(str)
     other_chosen = Signal()
+    design_chosen = Signal()
     open_results_wanted = Signal()
     open_setup_wanted = Signal()
     results_chosen = Signal(str)
@@ -138,11 +141,8 @@ class HomePage(QWidget):
             "tile",
             "Design a waveguide",
             "Dispersion, loss and zero-dispersion maps, with no pulse and no run.",
-            "Not built yet.",
         )
-        design.setEnabled(False)
-        design.setProperty("enabled", "false")
-        design.setCursor(Qt.CursorShape.ArrowCursor)
+        design.clicked.connect(self.design_chosen)
         self.tiles["design"] = design
         tiles.addWidget(design, 2, 1)
         main.addLayout(tiles)

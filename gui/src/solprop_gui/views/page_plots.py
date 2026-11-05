@@ -19,13 +19,16 @@ from PySide6.QtGui import QFont, QMouseEvent, QPainter
 from solprop_gui.model.display import steady_limits
 from solprop_gui.ui.theme import ACCENT, AXIS, FONT, GREY, INK
 
-__all__ = ["BLUE", "COLOURS", "ORANGE", "LinePlot", "MapPlot", "Plot"]
+__all__ = ["BLUE", "COLOURS", "MARK_COLOURS", "ORANGE", "LinePlot", "MapPlot", "Plot"]
 
 BLUE = "#1f6fb4"
 """The first curve's colour."""
 
 ORANGE = "#d2670b"
 """The second curve's colour."""
+
+MARK_COLOURS = (ORANGE, GREY, "#0b6e99", "#8c5bb5")
+"""The colours of a plot's marks, in order."""
 
 COLOURS = (
     BLUE,
@@ -93,6 +96,8 @@ class Plot(pg.PlotWidget):
     ----------
     plane_at : Signal
         Emitted with the position, in the unit of the axis that is z, when it is picked.
+    picked : Signal
+        Emitted with the position, as drawn, when the plot is clicked.
     reader : callable or None
         Says what is at a point of the plot, as text.
     along : {'x', 'y'} or None
@@ -100,6 +105,7 @@ class Plot(pg.PlotWidget):
     """
 
     plane_at = Signal(float)
+    picked = Signal(float, float)
 
     def __init__(self, *, xlabel: str, ylabel: str, left: int | None = 54) -> None:
         """Make the plot, empty, with its view fixed until it is told otherwise."""
@@ -237,13 +243,14 @@ class Plot(pg.PlotWidget):
         event : PySide6.QtGui.QMouseEvent
             The press.
         """
-        if self.along:
-            point = self._to_view(self.mapToScene(event.position().toPoint()))
-            if point is not None:
-                self._dragging = True
-                self.plane_at.emit(point.y() if self.along == "y" else point.x())
-                event.accept()
-                return
+        point = self._to_view(self.mapToScene(event.position().toPoint()))
+        if point is not None:
+            self.picked.emit(point.x(), point.y())
+        if self.along and point is not None:
+            self._dragging = True
+            self.plane_at.emit(point.y() if self.along == "y" else point.x())
+            event.accept()
+            return
         super().mousePressEvent(event)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -395,6 +402,57 @@ class MapPlot(Plot):
         self.message.setText(text)
         self.message.setPos(0.5, 0.5)
         self.message.show()
+
+
+class PlotMarks:
+    """Named vertical lines on a plot.
+
+    Parameters
+    ----------
+    plot : Plot
+        The plot.
+
+    Attributes
+    ----------
+    lines : dict
+        The lines made so far, by name.
+    """
+
+    def __init__(self, plot: Plot) -> None:
+        """Hold the plot; a line is made as it is first asked for."""
+        self.plot = plot
+        self.lines: dict[str, pg.InfiniteLine] = {}
+
+    def show(self, marks: Sequence[Sequence[object]]) -> None:
+        """Mark positions, and hide every other line.
+
+        Parameters
+        ----------
+        marks : Sequence of Sequence
+            Each mark's name and position, ``None`` where it has none.
+        """
+        for line in self.lines.values():
+            line.hide()
+        for place, (name, at) in enumerate(marks):
+            if at is None:
+                continue
+            line = self.lines.get(str(name))
+            if line is None:
+                colour = MARK_COLOURS[place % len(MARK_COLOURS)]
+                line = pg.InfiniteLine(
+                    angle=90, pen=pg.mkPen(colour, style=Qt.PenStyle.DashLine)
+                )
+                pg.InfLineLabel(
+                    line,
+                    str(name),
+                    position=0.96 - 0.05 * place,
+                    anchors=[(0, 0), (0, 0)],
+                    color=colour,
+                )
+                self.plot.addItem(line, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+                self.lines[str(name)] = line
+            line.setPos(float(at))  # pyright: ignore[reportArgumentType]
+            line.show()
 
 
 class LinePlot(Plot):

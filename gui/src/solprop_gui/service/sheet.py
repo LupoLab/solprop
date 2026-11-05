@@ -177,6 +177,8 @@ def _as_numbers(params: SolitonParams) -> dict[str, float]:
         "peak_power": float(params.peak_power),
         "pressure": float(params.pressure),
         "zdw": float(params.zdw),
+        "dispersion_length": params.dispersion_length,
+        "nonlinear_length": params.nonlinear_length,
         "fission_length": float(params.fission_length),
         "critical_power": float(params.critical_power),
     }
@@ -350,6 +352,33 @@ def _curve_range(recipe: Recipe, pump: float) -> tuple[float, float]:
     return pump * _CURVE_WINDOW[0], pump * _CURVE_WINDOW[1]
 
 
+def _reach_of(values: np.ndarray, wavelength: np.ndarray, pump: float) -> float:
+    """Return how far a dispersion curve's axis should reach from zero.
+
+    The curve runs off near a resonance, and a fibre's resonance dwarfs the pump's
+    neighbourhood, so the axis follows what the eye reads there.
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        The curve.
+    wavelength : numpy.ndarray
+        Its wavelengths, m, ascending.
+    pump : float
+        The pump's wavelength, m.
+
+    Returns
+    -------
+    float
+        The reach, in the curve's unit.
+    """
+    reach = float(np.nanmax(np.abs(values[wavelength > 0.25 * wavelength[-1]])))
+    omega, centre = 1.0 / wavelength, 1.0 / pump
+    near = np.abs(omega - centre) < _NEAR_PUMP * omega
+    around = float(np.nanmax(np.abs(values[near]))) if near.any() else reach
+    return max(min(reach, _NEAR_REACH * around), 1.0) * 1.05
+
+
 def _shapes_of(mode: object) -> list[dict[str, object]]:
     """Return a guide's cross-section as plain shapes, to scale.
 
@@ -498,14 +527,8 @@ def capillary_curve(payload: Payload) -> dict[str, object]:
         shape=str(numbers["shape"]),
         limits=_wave_window(recipe, pump),
     )
-    # The curve runs off near a resonance: the axis follows what the eye reads.
     nanometres = wavelength * 1e9
-    reach = float(np.nanmax(np.abs(beta2[nanometres > 0.25 * nanometres[-1]])))
-    # A fibre's resonance dwarfs the pump's neighbourhood, which is what is read.
-    near = np.abs(omega - 2.0 * math.pi * C / pump) < _NEAR_PUMP * omega
-    around = float(np.nanmax(np.abs(beta2[near]))) if near.any() else reach
-    reach = min(reach, _NEAR_REACH * around)
-    top = max(reach, 1.0) * 1.05
+    top = _reach_of(beta2, wavelength, pump)
     zdw = float(numbers["zdw"])  # pyright: ignore[reportArgumentType]
     reply: dict[str, object] = {
         "plot": {

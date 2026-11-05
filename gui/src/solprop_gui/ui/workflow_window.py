@@ -40,6 +40,7 @@ from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
 from solprop_gui.ui.bridge import ServiceBridge
+from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.document import Confirm, SetupDocument
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.main_window import MainWindow, app_settings
@@ -123,15 +124,17 @@ class WorkflowWindow(QMainWindow):
         self.home = HomePage()
         self.sheet = SheetStage()
         self.analyse = AnalyseStage(self.session, self.run_panel, self.page_views)
+        self.design = DesignStage(self.bridge)
 
         self.stack = QStackedWidget()
         self.screens: dict[Stage, QWidget] = {
             Stage.HOME: self.home,
+            Stage.DESIGN: self.design,
             Stage.SETUP: self.sheet,
             Stage.RUN: self.analyse,
             Stage.ANALYSE: self.analyse,
         }
-        for screen in (self.home, self.sheet, self.analyse):
+        for screen in (self.home, self.design, self.sheet, self.analyse):
             self.stack.addWidget(screen)
         self.drawer = self._make_drawer()
         self.top = self._make_top()
@@ -152,6 +155,7 @@ class WorkflowWindow(QMainWindow):
 
         self.home.class_chosen.connect(self.begin_class)
         self.home.other_chosen.connect(self.open_step_window)
+        self.home.design_chosen.connect(lambda: self.show_stage(Stage.DESIGN))
         self.home.open_results_wanted.connect(self.choose_results)
         self.home.open_setup_wanted.connect(self.choose_setup)
         self.home.results_chosen.connect(self.open_results)
@@ -334,13 +338,20 @@ class WorkflowWindow(QMainWindow):
         self.top.setVisible(
             self.stage is not Stage.HOME or progress.has_setup or progress.has_results
         )
+        designing = self.stage is Stage.DESIGN
         for stage, button in self.stage_buttons.items():
+            button.setVisible(not designing)
             button.setEnabled(stage_open(stage, progress))
             button.setProperty("current", stage is self.stage)
             repolish(button)
         primary = primary_action(progress)
-        self.primary.setText(primary.text)
-        self.primary.setEnabled(primary.enabled)
+        self.primary.setText("Simulate this" if designing else primary.text)
+        self.primary.setEnabled(designing or primary.enabled)
+        self.overflow.setVisible(not designing)
+        if designing:
+            self.context.setText("Design a waveguide")
+            self.setWindowTitle("Design a waveguide — solprop")
+            return
         model = self.document.model
         name = None if model is None else model.title
         title = None if self.problem is None else self.problem.title
@@ -369,6 +380,9 @@ class WorkflowWindow(QMainWindow):
 
     def primary_clicked(self) -> None:
         """Do what the primary button says."""
+        if self.stage is Stage.DESIGN:
+            self.simulate_design()
+            return
         action = primary_action(self.progress()).action
         if action == "stop":
             self.run_panel.stop()
@@ -447,6 +461,7 @@ class WorkflowWindow(QMainWindow):
             examples: Sequence[Mapping[str, object]] = reply.value  # pyright: ignore[reportAssignmentType]
             self.sheet.set_examples(examples)
         elif purpose == "gases" and reply.ok:
+            self.design.set_gases(reply.value)  # pyright: ignore[reportArgumentType]
             self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
             self._build_sheet()
         elif purpose == "python":
@@ -560,6 +575,11 @@ class WorkflowWindow(QMainWindow):
             The class.
         """
         self.document.open_example(class_named(key).example)
+
+    def simulate_design(self) -> None:
+        """Carry the design to a new sheet, asking first about unsaved changes."""
+        if self.design.text is not None:
+            self.document.open_text(self.design.text, None)
 
     def open_step_window(self) -> None:
         """Open the step window, which holds every route not yet a class."""

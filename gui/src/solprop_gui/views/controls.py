@@ -53,7 +53,8 @@ class Segments(QWidget):
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(5)
-        column.addWidget(named_label(title, "control"))
+        if title:
+            column.addWidget(named_label(title, "control"))
         frame = QFrame()
         frame.setObjectName("segments")
         row = QHBoxLayout(frame)
