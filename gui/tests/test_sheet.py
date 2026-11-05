@@ -307,3 +307,13 @@ def test_a_curve_with_no_window_reaches_around_the_pump() -> None:
 class _NoWindow:
     def keywords(self) -> dict[str, object]:
         return {}
+
+
+def test_the_run_options_are_solprop_s() -> None:
+    from solprop.backends import available, thread_budget  # noqa: PLC0415 - only here
+
+    options = HANDLERS["run_options"]({})
+    assert options["threads"] == thread_budget().threads
+    assert options["double"] == list(available("double"))
+    assert "native" in options["double"] or "numpy_ref" in options["double"]
+    assert isinstance(options["metal"], bool)

@@ -56,6 +56,7 @@ from solprop_gui.registry.pages import GAS_TITLES, label
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword
 from solprop_gui.ui.quantity import QuantityField
+from solprop_gui.ui.run_options import RunOptions
 from solprop_gui.ui.theme import clear_layout, named_label, repolish
 from solprop_gui.views.cross_section import CrossSection
 from solprop_gui.views.page_plots import ORANGE, LinePlot, PlotMarks
@@ -409,6 +410,8 @@ class SheetStage(QWidget):
         self.below.hide()
         right.addWidget(self.below, 1)
         right.addWidget(self.ready)
+        self.run_options = RunOptions()
+        right.addWidget(self.run_options)
 
         self.split = QBoxLayout(QBoxLayout.Direction.LeftToRight, self)
         self.split.setContentsMargins(0, 0, 0, 0)

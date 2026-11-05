@@ -17,6 +17,8 @@ from collections.abc import Mapping
 from pathlib import Path
 
 import numpy as np
+from solprop.backends import available, thread_budget
+from solprop.backends.registry import metal_available
 from solprop.constants import C
 from solprop.exceptions import SolpropError
 from solprop.grid import EnvelopeGrid
@@ -52,6 +54,7 @@ __all__ = [
     "gases",
     "lens_beam",
     "output_size",
+    "run_options",
 ]
 
 Payload = Mapping[str, object]
@@ -800,6 +803,31 @@ def gases(payload: Payload) -> list[str]:  # noqa: ARG001 - none
     return [gas.value for gas in Gas]
 
 
+def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
+    """Say what a run here can use: its threads and its backends.
+
+    Parameters
+    ----------
+    payload : Mapping
+        Unused.
+
+    Returns
+    -------
+    dict
+        ``threads`` (the budget a run gets by default), ``limit`` (what sets it),
+        ``double`` and ``single`` (the backends installed for each precision) and
+        ``metal`` (whether the MLX backend has a Metal GPU here).
+    """
+    budget = thread_budget()
+    return {
+        "threads": budget.threads,
+        "limit": budget.source,
+        "double": list(available("double")),
+        "single": list(available("single")),
+        "metal": metal_available(),
+    }
+
+
 SHEET_HANDLERS = {
     "beam_curve": beam_curve,
     "beam_sheet": beam_sheet,
@@ -810,5 +838,6 @@ SHEET_HANDLERS = {
     "gases": gases,
     "lens_beam": lens_beam,
     "output_size": output_size,
+    "run_options": run_options,
 }
 """The sheet's handlers, by request kind."""

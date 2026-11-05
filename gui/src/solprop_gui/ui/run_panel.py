@@ -131,6 +131,8 @@ class RunPanel(QWidget):
         self.report: Callable[[str, str, str], None] = self._report
 
         self.workspace = Path(workspace)
+        # The thread budget a run gets; None leaves it to solprop.
+        self.threads: int | None = None
         text = self.palette().windowText().color()
         self.run_action = self._action("Run", "run", self.start, QColor("#2e7d32"))
         self.run_action.setToolTip("Run the setup as it is now, in a new run folder.")
@@ -367,6 +369,7 @@ class RunPanel(QWidget):
                 recipe=text,
                 base=base,
                 display=self.display(),
+                threads=self.threads,
             ),
             fresh=True,
         )

@@ -1215,3 +1215,39 @@ def test_opening_something_else_mid_run_asks_and_stops_it(
     )
     qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
     assert not window._leaving_run
+
+
+def test_a_run_s_backend_and_threads_are_chosen_on_the_sheet(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    options = window.sheet.run_options
+    qtbot.waitUntil(lambda: options.threads.count() > 0, timeout=WAIT_MS)
+    assert options.threads.itemText(0).startswith("All ")
+    window.begin_class("capillary")
+    qtbot.waitUntil(lambda: window.sheet.problem is not None, timeout=WAIT_MS)
+    qtbot.waitUntil(options.backend.isEnabled, timeout=WAIT_MS)
+    assert options.backend.currentData() == "auto"
+    model = window.document.model
+    assert model is not None
+    native = options.backend.findData("native")
+    options.backend.setCurrentIndex(native)
+    options.backend.activated.emit(native)
+    assert model.get("backend") == "native"
+    # MLX writes single precision, and leaving it writes double again.
+    window._backend_chosen("mlx")
+    assert (model.get("backend"), model.get("precision")) == ("mlx", "single")
+    window._backend_chosen("auto")
+    assert (model.get("backend"), model.get("precision")) == ("auto", "double")
+    # Threads are the window's, kept for the next session and given to each run.
+    fewest = options.threads.count() - 1
+    count = options.threads.itemData(fewest)
+    options.threads.activated.emit(fewest)
+    assert window.run_panel.threads == count
+    kept = window.settings.value("threads")
+    assert (None if kept is None else int(str(kept))) == count
+    options.threads.activated.emit(0)
+    assert window.run_panel.threads is None
+    assert window.settings.value("threads") is None
+    # A route with no backend keyword shows it, and cannot change it.
+    window.begin_class("filament")
+    qtbot.waitUntil(lambda: not options.backend.isEnabled(), timeout=WAIT_MS)

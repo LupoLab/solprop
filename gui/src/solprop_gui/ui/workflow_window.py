@@ -149,6 +149,8 @@ class WorkflowWindow(QMainWindow):
         )
         self._scanning = False
         self._scan_path = ""
+        kept = self.settings.value("threads")
+        self.run_panel.threads = int(str(kept)) if kept else None
         self.home = HomePage()
         self.sheet = SheetStage()
         self.analyse = AnalyseStage(self.session, self.run_panel, self.page_views)
@@ -201,6 +203,8 @@ class WorkflowWindow(QMainWindow):
         )
         self.sheet.lens_wanted.connect(self._ask_lens)
         self.sheet.scan_wanted.connect(self.scan_keyword)
+        self.sheet.run_options.backend_chosen.connect(self._backend_chosen)
+        self.sheet.run_options.threads_chosen.connect(self._threads_chosen)
         self.scans.table_changed.connect(
             lambda table: self.document.edit_table("scan", table)
         )
@@ -231,6 +235,7 @@ class WorkflowWindow(QMainWindow):
         self._run_revision: int | None = None
         self._ask_kernel("examples", {}, "examples")
         self._ask_kernel("gases", {}, "gases")
+        self._ask_kernel("run_options", {}, "run options")
         self.refresh_home()
         self.show_stage(Stage.HOME)
         # With the service, a run the last window left going is taken over.
@@ -504,29 +509,17 @@ class WorkflowWindow(QMainWindow):
         """
         purpose = self._pending.pop(reply.request_id, None)
         if purpose == "examples" and reply.ok:
-            examples: Sequence[Mapping[str, object]] = reply.value  # pyright: ignore[reportAssignmentType]
-            self.sheet.set_examples(examples)
-            # Ahead of the first click: the classes' routes, and a first check, which
-            # costs most the first time the kernel makes one.
-            self.home.set_other_examples(
-                [
-                    (str(entry["name"]), str(entry["title"]))
-                    for entry in examples
-                    if class_of(str(entry["route"]), entry["build"]) is None  # pyright: ignore[reportArgumentType]
-                ]
-            )
-            self._warm_up()
+            self._examples_arrived(reply.value)  # pyright: ignore[reportArgumentType]
         elif purpose is not None and purpose.startswith("warm-") and reply.ok:
             self._ask_kernel("check", {"text": str(reply.value)}, f"warmed-{purpose}")
         elif purpose == "gases" and reply.ok:
             self.design.set_gases(reply.value)  # pyright: ignore[reportArgumentType]
             self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
             self._build_sheet()
+        elif purpose == "run options" and reply.ok:
+            self.sheet.run_options.set_options(reply.value, self.run_panel.threads)  # pyright: ignore[reportArgumentType]
         elif purpose == "scan":
-            if reply.ok:
-                self.scans.show_scan(reply.value, self._scan_path)  # pyright: ignore[reportArgumentType]
-            else:
-                self.scans.show_error(str(reply.error))
+            self._scan_arrived(reply)
         elif purpose == "python":
             self.drawer_text.setPlainText(
                 str(reply.value) if reply.ok else f"# {reply.error}"
@@ -661,6 +654,38 @@ class WorkflowWindow(QMainWindow):
         self.run_panel.stop()
         return True
 
+    def _backend_chosen(self, name: str) -> None:
+        """Write the backend picked into the recipe, with the precision it needs.
+
+        Parameters
+        ----------
+        name : str
+            The backend; MLX runs in single precision only.
+        """
+        model = self.document.model
+        if model is None:
+            return
+        values: list[tuple[str, object]] = [("backend", name)]
+        if name == "mlx":
+            values.append(("precision", "single"))
+        elif model.get("precision") == "single" and model.get("backend") == "mlx":
+            values.append(("precision", "double"))
+        self.document.edit_values(values)
+
+    def _threads_chosen(self, threads: object) -> None:
+        """Keep the thread count picked, for this run and the next session's.
+
+        Parameters
+        ----------
+        threads : object
+            The count, or ``None`` for solprop's default.
+        """
+        self.run_panel.threads = None if threads is None else int(threads)  # pyright: ignore[reportArgumentType]
+        if threads is None:
+            self.settings.remove("threads")
+        else:
+            self.settings.setValue("threads", int(threads))  # pyright: ignore[reportArgumentType]
+
     def _run_recipe(self) -> tuple[str, str | None, str | None]:
         """Return what a run runs: the setup once, or its scan from the Scan stage.
 
@@ -792,6 +817,37 @@ class WorkflowWindow(QMainWindow):
                 self.run_panel.view = view  # pyright: ignore[reportAttributeAccessIssue]
                 self.analyse.overview = view
 
+    def _scan_arrived(self, reply: Reply) -> None:
+        """Show a scan's results, or why they cannot be read.
+
+        Parameters
+        ----------
+        reply : solprop_gui.service.messages.Reply
+            The ``scan_overview`` reply.
+        """
+        if reply.ok:
+            self.scans.show_scan(reply.value, self._scan_path)  # pyright: ignore[reportArgumentType]
+        else:
+            self.scans.show_error(str(reply.error))
+
+    def _examples_arrived(self, examples: Sequence[Mapping[str, object]]) -> None:
+        """Offer solprop's examples, and ask ahead for what a first class needs.
+
+        Parameters
+        ----------
+        examples : Sequence of Mapping
+            The kernel's ``examples`` reply.
+        """
+        self.sheet.set_examples(examples)
+        self.home.set_other_examples(
+            [
+                (str(entry["name"]), str(entry["title"]))
+                for entry in examples
+                if class_of(str(entry["route"]), entry["build"]) is None  # pyright: ignore[reportArgumentType]
+            ]
+        )
+        self._warm_up()
+
     def _warm_up(self) -> None:
         """Ask ahead of the first click for what opening a class needs.
 
@@ -855,9 +911,16 @@ class WorkflowWindow(QMainWindow):
 
     def _show_values(self) -> None:
         """Show the recipe's values on the sheet, and ask what they now give."""
-        if self.document.model is not None:
-            self.sheet.show_values(self.document.model)
-            self.scans.show_table(self.document.model.document.get("scan"))
+        model = self.document.model
+        if model is not None:
+            self.sheet.show_values(model)
+            self.scans.show_table(model.document.get("scan"))
+            described = self.document.descriptions.get(model.route, {})
+            parameters: Sequence[Mapping[str, object]] = described.get("parameters", [])  # pyright: ignore[reportAssignmentType]
+            self.sheet.run_options.show_backend(
+                model.get("backend"),
+                offered=any(entry.get("name") == "backend" for entry in parameters),
+            )
             self._ask_numbers()
 
     def _checked(self, issues: list[Mapping[str, object]]) -> None:
