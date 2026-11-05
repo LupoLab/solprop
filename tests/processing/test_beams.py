@@ -289,3 +289,56 @@ def test_a_wide_angle_s_solid_angle_takes_the_obliquity() -> None:
     theta, density = _per_solid_angle(energy, k_r, widths, omega)
     total = 2 * np.pi * np.trapezoid(density * np.sin(theta), theta)
     assert total == pytest.approx(energy.sum(), rel=1e-2)
+
+
+def test_a_run_off_a_radial_grid_is_refused(tmp_path: Path) -> None:
+    text = Recipe.example("soliton").to_text().replace("n_save = 201", "n_save = 2")
+    path = tmp_path / "fibre.h5"
+    Recipe.loads(text).run(path)
+    with (
+        open_file(str(path)) as output,
+        pytest.raises(ProcessingError, match="not on a radial grid"),
+    ):
+        on_axis_spectra(output)
+
+
+def test_a_file_with_no_plane_measure_is_refused(
+    radial_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    with open_file(str(radial_file)) as output:
+        metadata = output.metadata
+        assert metadata is not None
+        monkeypatch.setattr(type(metadata), "spatial", property(lambda _self: {}))
+        with pytest.raises(ProcessingError, match="no plane measure"):
+            far_field(output)
+
+
+def test_a_beam_of_two_polarisations_has_no_on_axis_spectrogram(
+    radial_file: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from solprop.processing import beams  # noqa: PLC0415 - only here
+
+    real = beams.on_axis_field
+    monkeypatch.setattr(
+        beams, "on_axis_field", lambda *args: np.repeat(real(*args), 2, axis=0)
+    )
+    with (
+        open_file(str(radial_file)) as output,
+        pytest.raises(ProcessingError, match="two polarisations"),
+    ):
+        on_axis_spectrogram(output)
+
+
+def test_a_real_field_s_on_axis_spectrogram_keeps_its_carrier(tmp_path: Path) -> None:
+    text = (
+        Recipe.example("radial_kerr")
+        .to_text()
+        .replace("EnvelopeGrid.from_limits", "FieldGrid.from_limits")
+        .replace(", thg = false", "")
+    )
+    path = tmp_path / "field.h5"
+    Recipe.loads(text).run(path)
+    with open_file(str(path)) as output:
+        _t, x, values = on_axis_spectrogram(output, plane=0, positions=64)
+    row = np.unravel_index(np.argmax(values), values.shape)[0]
+    assert x[row] == pytest.approx(WAVELENGTH, rel=0.05)
