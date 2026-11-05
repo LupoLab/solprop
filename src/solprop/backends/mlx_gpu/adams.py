@@ -27,6 +27,7 @@ weights are device passes. The backend refuses the untransported witness by name
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass
+from functools import cache
 from typing import TYPE_CHECKING, Any, cast
 
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
@@ -53,36 +54,73 @@ if TYPE_CHECKING:
 __all__ = ["MlxAdams"]
 
 
-def _combine(coefficients: mx.array, values: list[mx.array]) -> mx.array:
-    """Return ``sum_j c_fj X_j`` for every row ``f`` of `coefficients`, at once.
+_APPLY = """
+    // One thread per element: every formula f of the trial,
+    // dz (sum_k M_k (sum_j c_fjk X_j) + sum_r q_fr Y_r), in the reference's order
+    // (ExponentialKernels._applied: each moment's combination first).
+    uint i = thread_position_in_grid.x;
+    if (i >= N) { return; }
+    float2 m[K];
+    for (int k = 0; k < K; ++k) {
+        complex64_t v = moments[k * N + i];
+        m[k] = float2(v.real, v.imag);
+    }
+    float2 x[J];
+    for (int j = 0; j < J; ++j) {
+        complex64_t v = values[j * N + i];
+        x[j] = float2(v.real, v.imag);
+    }
+    float2 y[R > 0 ? R : 1];
+    for (int r = 0; r < R; ++r) {
+        complex64_t v = extra[r * N + i];
+        y[r] = float2(v.real, v.imag);
+    }
+    float h = dz[0];
+    for (int f = 0; f < F; ++f) {
+        float2 total = float2(0.0f, 0.0f);
+        for (int k = 0; k < K; ++k) {
+            float2 combined = float2(0.0f, 0.0f);
+            for (int j = 0; j < J; ++j) {
+                combined += tables[(f * J + j) * K + k] * x[j];
+            }
+            total += float2(m[k].x * combined.x - m[k].y * combined.y,
+                            m[k].x * combined.y + m[k].y * combined.x);
+        }
+        for (int r = 0; r < R; ++r) { total += weights[f * R + r] * y[r]; }
+        out[f * N + i] = complex64_t(h * total.x, h * total.y);
+    }
+"""
 
-    One real matrix product over the stacked samples' real and imaginary parts, so a
-    compiled graph takes the coefficients as one input rather than one per entry
-    (Metal bounds a fused kernel's buffers).
 
-    Parameters
-    ----------
-    coefficients : mlx.core.array
-        ``(n_f, len(values))``, float32.
-    values : list of mlx.core.array
-        The samples, of one shape.
+@cache
+def _apply_kernel() -> object:
+    """Return the compiled kernel of an Adams trial's formulas (:func:`_applied`).
 
     Returns
     -------
-    mlx.core.array
-        ``(n_f, *shape)``.
+    object
+        The ``mlx.core.fast.metal_kernel`` callable.
     """
-    shape = values[0].shape
-    flat = mx.stack(values).reshape(len(values), -1)
-    re = coefficients @ mx.real(flat)
-    im = coefficients @ mx.imag(flat)
-    return (re + 1j * im).reshape(coefficients.shape[0], *shape)
+    return mx.fast.metal_kernel(
+        name="solprop_adams_apply",
+        input_names=["moments", "values", "tables", "extra", "weights", "dz"],
+        output_names=["out"],
+        source=_APPLY,
+        compile_options={"math_mode": "safe"},
+    )
 
 
-def _increments(
-    moments: mx.array, tables: mx.array, values: list[mx.array], dz: mx.array
+def _applied(
+    moments: mx.array,
+    tables: mx.array,
+    values: list[mx.array],
+    dz: mx.array,
+    extra: list[mx.array] | None = None,
+    weights: mx.array | None = None,
 ) -> mx.array:
-    """Return ``dz sum_k M_k (sum_j c_fjk X_j)`` for every formula ``f``.
+    """Return every formula's increment, one kernel thread per element.
+
+    ``dz (sum_k M_k (sum_j c_fjk X_j) + sum_r q_fr Y_r)`` for each formula ``f``.
 
     Parameters
     ----------
@@ -91,9 +129,13 @@ def _increments(
     tables : mlx.core.array
         ``c_fjk``, float32, ``(n_f, len(values), n_k)`` with ``n_k <= n_moments``.
     values : list of mlx.core.array
-        The samples.
+        The samples ``X_j``.
     dz : mlx.core.array
         The step, a float32 scalar.
+    extra : list of mlx.core.array or None, optional
+        A varying operator's compensation rows ``Y_r``.
+    weights : mlx.core.array or None, optional
+        ``q_fr``, float32, ``(n_f, len(extra))``.
 
     Returns
     -------
@@ -101,9 +143,20 @@ def _increments(
         ``(n_f, *shape)``.
     """
     n_f, n_j, n_k = tables.shape
-    rows = mx.transpose(tables, (0, 2, 1)).reshape(n_f * n_k, n_j)
-    combined = _combine(rows, values).reshape(n_f, n_k, *values[0].shape)
-    return dz * mx.sum(moments[None, :n_k] * combined, axis=1)
+    shape = values[0].shape
+    n = values[0].size
+    rows = [] if extra is None else extra
+    stacked = mx.stack(rows) if rows else mx.zeros((1, *shape), dtype=mx.complex64)
+    q = weights if weights is not None else mx.zeros((n_f, 1), dtype=mx.float32)
+    (out,) = _apply_kernel()(  # pyright: ignore[reportCallIssue]
+        inputs=[moments, mx.stack(values), tables, stacked, q, dz.reshape(1)],
+        template=[("N", n), ("F", n_f), ("J", n_j), ("K", n_k), ("R", len(rows))],
+        grid=(n, 1, 1),
+        threadgroup=(min(256, n), 1, 1),
+        output_shapes=[(n_f, *shape)],
+        output_dtypes=[mx.complex64],
+    )
+    return out
 
 
 def _scaled_square_sum(values: mx.array, index: mx.array) -> list[mx.array]:
@@ -163,10 +216,13 @@ def _predict(  # noqa: PLR0913, PLR0917 - a kernel's buffers
     mlx.core.array
         The lab-frame field at the end of the step.
     """
-    lab = flow * state + _increments(moments, coefficients[None], values, dz)[0]
     if carried is not None and weights is not None:
-        lab = lab + dz * _combine(weights[None], carried)[0]
-    return lab
+        increment = _applied(
+            moments, coefficients[None], values, dz, carried, weights[None]
+        )
+    else:
+        increment = _applied(moments, coefficients[None], values, dz)
+    return flow * state + increment[0]
 
 
 def _correct(  # noqa: PLR0913, PLR0917 - a kernel's buffers
@@ -179,8 +235,8 @@ def _correct(  # noqa: PLR0913, PLR0917 - a kernel's buffers
     dz: mx.array,
     index: mx.array,
     compensation: dict[str, Any] | None = None,
-) -> tuple[mx.array, list[mx.array]]:
-    """Return the corrected field and the reductions its norms are read from.
+) -> tuple[mx.array, list[mx.array], mx.array]:
+    """Return the corrected field, the reductions its norms are read from, the defects.
 
     Parameters
     ----------
@@ -205,27 +261,35 @@ def _correct(  # noqa: PLR0913, PLR0917 - a kernel's buffers
     Returns
     -------
     tuple
-        The field, and per defect, then for the anchor, a power of two and a scaled
-        sum of squares, then whether the field is finite, as float32 scalars.
+        The field; per defect, then for the anchor, a power of two and a scaled
+        sum of squares, then whether the field is finite, as float32 scalars; and
+        the defects, ``(n_rows, *shape)``, for a controller that weights each bin.
     """
     tables = mx.concatenate([corrector[None], rows], axis=0)
-    increments = _increments(moments, tables, values, dz)
+    if compensation is None:
+        increments = _applied(moments, tables, values, dz)
+    else:
+        # The corrector's weights over (endpoint, history) for the step's own order,
+        # then each defect's: its corrector's less its predictor's.
+        after = compensation["corrector"]
+        before = mx.pad(compensation["predictor"], [(0, 0), (1, 0)])
+        weights = mx.concatenate([after[:1], after - before], axis=0)
+        increments = _applied(
+            moments,
+            tables,
+            values,
+            dz,
+            [compensation["endpoint"], *compensation["carried"]],
+            weights,
+        )
     advanced = flow * state + increments[0]
     defects = increments[1:]
-    if compensation is not None:
-        carried = compensation["carried"]
-        after = dz * _combine(
-            compensation["corrector"], [compensation["endpoint"], *carried]
-        )
-        before = dz * _combine(compensation["predictor"], carried)
-        advanced = advanced + after[0]
-        defects = defects + (after - before)
     reductions: list[mx.array] = []
     for row in range(rows.shape[0]):
         reductions += _scaled_square_sum(defects[row], index)
     reductions += _scaled_square_sum(state, index)
     reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
-    return advanced, reductions
+    return advanced, reductions, defects
 
 
 _predict_fused = mx.compile(_predict)
@@ -536,7 +600,7 @@ class MlxAdams:
                 "corrector": after,
                 "predictor": before,
             }
-        advanced, reductions = (_correct_fused if fused else _correct)(
+        advanced, reductions, defects = (_correct_fused if fused else _correct)(
             state,
             flow,
             moments,
@@ -561,9 +625,7 @@ class MlxAdams:
         magnitude = math.sqrt(squares[-1])
         scale = backend._norm_controller.scale(magnitude, magnitude)
         if isinstance(scale, np.ndarray):
-            return self._weighted(
-                [source, *values], moments, rows, length, scale, len(orders)
-            )
+            return self._weighted(defects, scale)
         return np.array([math.sqrt(square) / scale for square in squares[:-1]])
 
     def _carried(
@@ -641,31 +703,15 @@ class MlxAdams:
             mx.array(before.astype(np.float32)),
         )
 
-    def _weighted(
-        self,
-        values: list[mx.array],
-        moments: mx.array,
-        rows: np.ndarray,
-        length: mx.array,
-        scale: np.ndarray,
-        count: int,
-    ) -> np.ndarray:
+    def _weighted(self, defects: mx.array, scale: np.ndarray) -> np.ndarray:
         """Return the norms under a controller that scales each bin.
 
         Parameters
         ----------
-        values : list of mlx.core.array
-            The new source and the rows read.
-        moments : mlx.core.array
-            The trial's moments.
-        rows : numpy.ndarray
-            The defects' coefficients.
-        length : mlx.core.array
-            The step.
+        defects : mlx.core.array
+            The trial's defects, one per scored order, compensation included.
         scale : numpy.ndarray
             The scale of every bin.
-        count : int
-            The orders scored.
 
         Returns
         -------
@@ -676,19 +722,10 @@ class MlxAdams:
         weights = mx.array(
             (1.0 / scale[backend._problem.grids.norm_mask]).astype(np.float32)
         )
-        sums = []
-        for row in range(count):
-            defect = _increments(
-                moments,
-                mx.array(rows[row : row + 1].astype(np.float32)),
-                values,
-                length,
-            )[0]
-            weighted = mx.take(defect, backend._norm_index, axis=-1) * weights
-            re, im = mx.real(weighted), mx.imag(weighted)
-            sums.append(mx.sum(re * re + im * im))
-        read = np.array(mx.stack(sums), dtype=np.float64)
-        return np.sqrt(read)
+        weighted = mx.take(defects, backend._norm_index, axis=-1) * weights
+        re, im = mx.real(weighted), mx.imag(weighted)
+        sums = mx.sum((re * re + im * im).reshape(defects.shape[0], -1), axis=1)
+        return np.sqrt(np.array(sums, dtype=np.float64))
 
     def exponential_accept(
         self, keep: np.ndarray, free: int, *, interpolate: bool
