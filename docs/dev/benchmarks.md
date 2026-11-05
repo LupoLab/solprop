@@ -920,7 +920,7 @@ A requested collar at 384 x 384 x 600, one state, field-free, native against the
 | `kerr_beam_384` | 1 | 100.53 | 108.60 | 1.080 | 1.080–1.081 | 1.2e-15 |
 | `kerr_beam_384` | 16 | 25.35 | 23.79 | 0.941 | 0.938–0.943 | 1.2e-15 |
 
-The aim was under x1.08, from x1.07 to x1.18. Three rows meet it, and `kerr_beam_384` at one thread doesn't quite, at x1.0803. That's the row the removal of `READ_RESOLUTION` was expected to cost, and it was x1.067 with it, though these runs don't separate that from the branch's other changes. `kerr_beam_192`'s 1.8e-7 is more than rounding. An earlier commit of this branch was within 4.2e-15 of `main` at `e49925d1` on every row, so the difference arose between 0.1.0 and `main`. Its cause hasn't been traced.
+The aim was under x1.08, from x1.07 to x1.18. Three rows meet it, and `kerr_beam_384` at one thread doesn't quite, at x1.0803. That's the row the removal of `READ_RESOLUTION` was expected to cost, and it was x1.067 with it, though these runs don't separate that from the branch's other changes. `kerr_beam_192`'s 1.8e-7 is SEP 40's safety ramp, which 0.1.0 doesn't have: at 16 threads, with `spatial_absorber=False`, this branch's final field is within 5.4e-16 of 0.1.0's, and with the ramp on it reproduces the 1.8e-7.
 
 **What a run holds.** After three runs at 768 x 768 x 600 the ledger totals 38.96 GiB on the H200 and 39.64 GiB on the MI325X, for a state of 5.27 GiB. FFT plans are the largest row, 21.09 GiB and 22.02 GiB. The state, the register and the scratch are 5.27 GiB each, and the ring 1.5 GiB and 1.25 GiB. Each plan's own work area is why ([#529](https://github.com/LupoLab/solprop/issues/529)).
 
