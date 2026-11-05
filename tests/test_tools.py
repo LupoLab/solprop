@@ -15,6 +15,7 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from scipy.integrate import quad
+from scipy.optimize import brentq
 from scipy.special import jn_zeros, jv
 
 from solprop import tools
@@ -824,6 +825,62 @@ def test_a_sign_change_through_a_pole_is_not_a_zero_dispersion_point():
     # Placed off the sample grid, so that no sample lands on the singularity itself.
     pole = 2.0 * math.pi * C / 431.7e-9
     assert math.isnan(tools._zdw_near(pole_mode(pole), OMEGA0, 0.0))
+
+
+def test_a_sign_change_across_samples_that_are_not_finite_is_not_a_zero():
+    # beta1 is undefined in a narrow band about its minimum, which falls between two
+    # samples of the first search: they bracket the only sign change, and every round
+    # of the refinement finds samples that are not finite between the two signs.
+    grid = np.linspace(
+        2.0 * math.pi * C / tools._ZDW_RANGE[1],
+        2.0 * math.pi * C / tools._ZDW_RANGE[0],
+        tools._ZDW_SAMPLES,
+    )
+    centre = 0.5 * (grid[20] + grid[21])
+
+    def delay(w):
+        offset = w - centre
+        # Wider than the step of beta2 (4e12 rad/s here), so beta2 has no finite gap.
+        return np.where(np.abs(offset) < 6e12, np.nan, 1e-30 * offset**2)
+
+    mode = SpecifiedMode(
+        dispersion=lambda w: 1e-30 * (w - centre) ** 3 / 3.0,
+        dispersion_derivative=delay,
+        loss=0.0,
+        effective_area=1.0,
+    )
+    assert np.all(np.isfinite(base.beta2(mode, grid)))
+    assert math.isnan(tools._zdw_near(mode, OMEGA0, 0.0))
+
+
+@pytest.mark.parametrize(
+    ("gas", "radius", "pressure"),
+    [
+        ("He", 14e-6, 15.0),
+        ("Ne", 14e-6, 15.0),
+        ("Ar", 14e-6, 15.0),
+        ("Kr", 14e-6, 15.0),
+        ("He", 50e-6, 1.0),
+        ("Ar", 125e-6, 5.0),
+        # A scalar search of the whole window meets a resonance here and stops at NaN.
+        ("Xe", 14e-6, 15.0),
+    ],
+)
+def test_the_array_refinement_of_a_zero_agrees_with_a_brent_search(
+    gas, radius, pressure
+):
+    # 200 nm to 3 um holds one sign change, clear of the resonances of each gas.
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        mode = MarcatiliMode(radius, gas, pressure)
+        reference = brentq(
+            lambda w: float(base.beta2(mode, np.array([w]))[0]),
+            2.0 * math.pi * C / 3e-6,
+            2.0 * math.pi * C / 200e-9,
+        )
+        wavelength = tools._zdw_near(mode, OMEGA0, 0.0)
+    # beta2 is a difference, good to about 5e-9 (modes.base); both stop on that noise.
+    assert wavelength == pytest.approx(2.0 * math.pi * C / reference, rel=1e-8)
 
 
 def test_a_fill_without_kerr_data_is_refused_by_name():

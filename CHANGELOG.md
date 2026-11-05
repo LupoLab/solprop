@@ -263,6 +263,7 @@ All notable changes to solprop are recorded here. The format follows
   requested collar still read every frequency. A Kerr beam's complete run on 16 cores of an AMD
   EPYC 7763, 384² with four steps, took 29.9 s and now takes 28.8 s; at one thread it fell from
   117.1 s to 106.5 s (#453).
+- Made `capillary_params` and the other design tools that report a zero-dispersion wavelength about 2.5 times faster by refining the zero with array samples, and stopped them raising `ValueError` when the search met a gas resonance (xenon in a 14 um capillary at 15 bar). Zeros clear of the gas resonances are unchanged within 1e-8; a sign change reported beside a resonance, which only a pump in the vacuum ultraviolet selects, can move within the search's 3.6e13 rad/s sample interval.
 
 ### Changed (breaking)
 
