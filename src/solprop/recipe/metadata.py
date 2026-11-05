@@ -1061,8 +1061,8 @@ def _gnlse() -> tuple[Parameter, ...]:
             (Form("number", unit="m^2/W"), Form("choice", choices=("recommended",))),
             "nonlinear",
             "advanced",
-            "Nonlinear index, or recommended for optmat's silica, with the fibre's area "
-            "for gamma.",
+            "Nonlinear index, or recommended for optmat's silica, with the fibre's "
+            "area for gamma.",
             page,
             display="m^2/W",
         ),
