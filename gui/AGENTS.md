@@ -21,8 +21,8 @@ them is corrected.
 - **Public solprop only.** Nothing here imports a private solprop name (a module or name
   starting with `_`); `tests/test_layers.py` enforces it.
 - **The layers.** `model` (the editable recipe), `registry` (presentation over solprop's
-  metadata), `service` (the messages, the kernel process, one worker process per run,
-  transports) and `help` import no Qt. `ui` and `views` build the window with PySide6
+  metadata), `classes` (the problem classes, as data), `service` (the messages, the
+  kernel process, one worker process per run, transports) and `help` import no Qt. `ui` and `views` build the window with PySide6
   and pyqtgraph.
 - **The window's process never imports simulation code.** It may import from solprop
   only `solprop.recipe.quantity`, `paths`, `document` and `errors`; metadata,
@@ -56,7 +56,7 @@ and the `gui-test` task); set it to your platform's own value to watch a test.
 
 The repository's rules apply, with one difference in the coverage bar:
 
-- `model`, `registry`, `service` and `help` meet solprop's standard in full: annotated,
+- `model`, `registry`, `classes`, `service` and `help` meet solprop's standard in full: annotated,
   NumPy-style docstrings validated by numpydoc, tested to **100 %** of statements and
   branches (`[tool.coverage]` in `pyproject.toml`).
 - `ui`, `views` and the entry points are typed, documented and linted the same way, but

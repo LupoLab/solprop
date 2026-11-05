@@ -21,13 +21,12 @@ from dataclasses import asdict
 from pathlib import Path
 from typing import Final
 
-from PySide6.QtCore import QSettings, QSize, QStandardPaths, Qt, QTimer
+from PySide6.QtCore import QSettings, QSize, Qt
 from PySide6.QtGui import (
     QAction,
     QActionGroup,
     QCloseEvent,
     QKeySequence,
-    QUndoCommand,
     QUndoStack,
 )
 from PySide6.QtWidgets import (
@@ -67,6 +66,7 @@ from solprop_gui.service.messages import Reply
 from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_tool import DesignDialog
+from solprop_gui.ui.document import CHECK_DELAY_MS, Confirm, SetupDocument
 from solprop_gui.ui.icons import icon
 from solprop_gui.ui.pages import ParameterPage, issue_keyword
 from solprop_gui.ui.plot_options import PlotOptionsPanel
@@ -80,9 +80,6 @@ from solprop_gui.views.splitter import GripSplitter
 from solprop_gui.views.zdw_chart import ZdwChartView
 
 __all__ = ["CHECK_DELAY_MS", "ROUTES", "STEPS", "MainWindow"]
-
-CHECK_DELAY_MS = 400
-"""The pause in typing after which the recipe is checked, ms."""
 
 ROUTES = frozenset(entry.route for entry in CARDS if entry.enabled)
 """The routes the window offers in this version."""
@@ -100,84 +97,9 @@ _SAID = {
 STEPS: Final = ("start", *(page.key for page in PAGES))
 """The steps' keys, in order: the start, then the pages."""
 
-Confirm = Callable[[str, str], str]
-
 Choose = Callable[[RouteCard, Sequence[Mapping[str, object]]], str | None]
 """Asks how to begin a geometry class: ``""`` for its template, an example's name,
 or ``None`` when cancelled."""
-"""Asks the user a question; returns ``"save"``, ``"discard"``, ``"stop"`` or
-``"cancel"``."""
-
-
-Change = tuple[str, str, object, object]
-"""One change to the recipe: the keyword, its table, the new value and the old."""
-
-
-class _SetValues(QUndoCommand):
-    """Set, or unset, values of the recipe together; undone by setting them back.
-
-    A pin and a value of the same keyword replace each other, so pinning a keyword
-    unsets its value in one step, and undoing it sets the value back.
-
-    Parameters
-    ----------
-    window : MainWindow
-        The window whose recipe it changes.
-    changes : list of Change
-        The changes.
-    """
-
-    def __init__(self, window: MainWindow, changes: list[Change]) -> None:
-        """Hold the changes."""
-        super().__init__(f"Set {changes[0][0]}")
-        self.window = window
-        self.changes = changes
-
-    def redo(self) -> None:
-        """Set the new values."""
-        self.window.apply_values([(n, t, new) for n, t, new, _ in self.changes])
-
-    def undo(self) -> None:
-        """Set the old values back."""
-        self.window.apply_values(
-            [(n, t, old) for n, t, _, old in reversed(self.changes)]
-        )
-
-
-class _SetTable(QUndoCommand):
-    """Replace a whole table of the recipe (its ``[scan]``), as one undo step.
-
-    Parameters
-    ----------
-    window : MainWindow
-        The window whose recipe it changes.
-    table : str
-        The table.
-    new, old : Mapping or None
-        Its contents after and before; ``None`` for no table.
-    """
-
-    def __init__(
-        self,
-        window: MainWindow,
-        table: str,
-        new: Mapping[str, object] | None,
-        old: object,
-    ) -> None:
-        """Hold the change."""
-        super().__init__(f"Set the {table}")
-        self.window = window
-        self.table = table
-        self.new = new
-        self.old = old if isinstance(old, Mapping) else None
-
-    def redo(self) -> None:
-        """Set the new contents."""
-        self.window.apply_table(self.table, self.new)
-
-    def undo(self) -> None:
-        """Set the old contents back."""
-        self.window.apply_table(self.table, self.old)
 
 
 class MainWindow(QMainWindow):
@@ -209,18 +131,19 @@ class MainWindow(QMainWindow):
         super().__init__(parent)
         self.settings = app_settings()
         self.bridge = bridge or ServiceBridge(self)
-        self.model: RecipeModel | None = None
-        self.base: str | None = None
-        self.descriptions: dict[str, Mapping[str, object]] = {}
-        self.issues: list[Mapping[str, object]] = []
         self.code = ""
         self.confirm: Confirm = self._ask
+        # Through a lambda: a test replaces `confirm`.
+        self.document = SetupDocument(
+            self.bridge,
+            lambda title, text: self.confirm(title, text),  # noqa: PLW0108 - see above
+            self,
+        )
         self.choose_setup: Choose = self._choose_setup
         self._pending: dict[int, str] = {}
         self._built_route: str | None = None
         self._modes_revision: int | None = None
         self.verdicts: dict[str, str | None] = {}
-        self.undo = QUndoStack(self)
         saved = self.settings.value("workspace")
         self.workspace = workspace or (Path(str(saved)) if saved else DEFAULT_WORKSPACE)
 
@@ -233,7 +156,7 @@ class MainWindow(QMainWindow):
         self.results.setup_opened.connect(self.open_setup_text)
         self.results.view_wanted.connect(self.show_view)
         self.start.results_button.clicked.connect(self.results.choose)
-        self.run_panel = RunPanel(self.bridge, self.snapshot, self.workspace)
+        self.run_panel = RunPanel(self.bridge, self.document.snapshot, self.workspace)
         self.run_panel.ended.connect(self._run_ended)
         self.run_panel.state_changed.connect(self._run_state)
         self.run_panel.workspace_changed.connect(lambda _path: self.refresh_runs())
@@ -353,12 +276,16 @@ class MainWindow(QMainWindow):
         self.split.hide_asked.connect(lambda: self.settings_action.setChecked(False))
         self.right.hide_asked.connect(lambda: self.messages_action.setChecked(False))
         self.reset_layout()
-        self.check_timer = QTimer(self)
-        self.check_timer.setSingleShot(True)
-        self.check_timer.timeout.connect(self.check)
-        self.autosave = QTimer(self)
-        self.autosave.timeout.connect(self.write_recovery)
-        self.autosave.start(30_000)
+        self.document.opened.connect(self._opened)
+        self.document.described.connect(lambda _route: self._build_pages())
+        self.document.loaded.connect(lambda: self.show_step(PAGES[0].key))
+        self.document.values_changed.connect(self.show_values)
+        self.document.state_changed.connect(self._update_title)
+        self.document.checked.connect(self._show_issues)
+        self.document.summarised.connect(self._show_summary)
+        self.document.message.connect(
+            lambda text: self.statusBar().showMessage(text, 10_000)
+        )
         self.set_plot_options(self._saved_options(), save=False)
         self.bridge.replied.connect(self.on_reply)
         self.bridge.runs_listed.connect(self._runs_listed)
@@ -379,6 +306,63 @@ class MainWindow(QMainWindow):
         self._ask_kernel("examples", {}, "examples")
         # With the service, a run the last window left going is taken over.
         self.bridge.list_runs()
+
+    # ------------------------------------------------------------------ the setup
+
+    @property
+    def model(self) -> RecipeModel | None:
+        """Return the open recipe.
+
+        Returns
+        -------
+        solprop_gui.model.recipe.RecipeModel or None
+            The recipe.
+        """
+        return self.document.model
+
+    @property
+    def base(self) -> str | None:
+        """Return the directory the recipe's data files resolve against.
+
+        Returns
+        -------
+        str or None
+            The directory.
+        """
+        return self.document.base
+
+    @property
+    def descriptions(self) -> dict[str, Mapping[str, object]]:
+        """Return the kernel's description of each route met.
+
+        Returns
+        -------
+        dict
+            By route.
+        """
+        return self.document.descriptions
+
+    @property
+    def issues(self) -> list[Mapping[str, object]]:
+        """Return solprop's issues with the latest revision.
+
+        Returns
+        -------
+        list of Mapping
+            The issues.
+        """
+        return self.document.issues
+
+    @property
+    def undo(self) -> QUndoStack:
+        """Return the edits made since the recipe opened.
+
+        Returns
+        -------
+        PySide6.QtGui.QUndoStack
+            The stack.
+        """
+        return self.document.undo
 
     # ------------------------------------------------------------------ set-up
 
@@ -751,39 +735,6 @@ class MainWindow(QMainWindow):
         request = self.bridge.request(kind, payload, revision=revision, key=purpose)
         self._pending[request] = purpose
 
-    def snapshot(self) -> tuple[str, str | None, str | None]:
-        """Return the recipe to run: its text, data directory and title.
-
-        Returns
-        -------
-        tuple
-            The text, the directory its data files resolve against, and its title.
-
-        Raises
-        ------
-        RuntimeError
-            If no recipe is open.
-        """
-        if self.model is None:
-            msg = "no setup is open"
-            raise RuntimeError(msg)
-        return self.model.to_text(), self.base, self.model.title
-
-    def _show_example(self, purpose: str, text: str) -> None:
-        """Open an example the kernel sent, made a card's where it was asked for one.
-
-        Parameters
-        ----------
-        purpose : str
-            ``"example"``, or ``"example-<card key>"``.
-        text : str
-            The example's recipe.
-        """
-        model = RecipeModel(text)
-        key = purpose.removeprefix("example").removeprefix("-")
-        adapted(model, card(key) if key else None)
-        self.set_model(model, base=None)
-
     def on_reply(self, reply: Reply) -> None:
         """Take a kernel reply to one of the window's requests.
 
@@ -798,15 +749,6 @@ class MainWindow(QMainWindow):
         value = reply.value
         if purpose == "examples" and reply.ok:
             self.start.show_examples(value, ROUTES)  # pyright: ignore[reportArgumentType]
-        elif purpose.startswith("describe-") and reply.ok and isinstance(value, dict):
-            self.descriptions[str(value["route"])] = value
-            self._build_pages()
-        elif purpose.startswith("example") and reply.ok and isinstance(value, str):
-            self._show_example(purpose, value)
-        elif purpose == "check":
-            self._show_issues(value if reply.ok else _failure(reply))  # pyright: ignore[reportArgumentType]
-        elif purpose == "summarise":
-            self._show_summary(value if reply.ok else None, reply.error)  # pyright: ignore[reportArgumentType]
         elif purpose == "modes":
             self._show_modes(reply)
         elif purpose.startswith("roots-"):
@@ -895,12 +837,12 @@ class MainWindow(QMainWindow):
         """
         entry = card(key)
         if entry.rewrite and entry.example is not None:
-            if self._may_discard():
-                payload = {"name": entry.example}
-                self._ask_kernel("example", payload, f"example-{key}")
+            self.document.open_example(
+                entry.example, adapt=lambda model: adapted(model, entry)
+            )
         elif entry.example is not None:
             self.open_example(entry.example)
-        elif self._may_discard():
+        elif self.document.may_discard():
             self.set_model(RecipeModel(entry.blank("New setup")), base=None)
 
     def open_example(self, name: str) -> None:
@@ -911,8 +853,7 @@ class MainWindow(QMainWindow):
         name : str
             The example's name.
         """
-        if self._may_discard():
-            self._ask_kernel("example", {"name": name}, "example")
+        self.document.open_example(name)
 
     def choose_recipe(self) -> None:
         """Pick a recipe file and open it."""
@@ -930,14 +871,7 @@ class MainWindow(QMainWindow):
         path : str or pathlib.Path
             The file.
         """
-        if not self._may_discard():
-            return
-        try:
-            model = RecipeModel.load(path)
-        except (OSError, ValueError) as error:
-            self.statusBar().showMessage(f"Cannot open {path}: {error}", 10_000)
-            return
-        self.set_model(model, base=str(Path(path).parent))
+        self.document.open_recipe(path)
 
     def open_setup_text(self, text: str, results: str) -> None:
         """Open the setup a results file records, as a new, unsaved setup.
@@ -949,7 +883,7 @@ class MainWindow(QMainWindow):
         results : str
             The results file it came from.
         """
-        if self._may_discard():
+        if self.document.may_discard():
             self.set_model(RecipeModel(text), base=str(Path(results).parent))
             self.statusBar().showMessage(f"Setup of {results}", 10_000)
 
@@ -974,8 +908,13 @@ class MainWindow(QMainWindow):
         base : str or None
             The directory its data files resolve against.
         """
-        self.model = model
-        self.base = base
+        self.document.set_model(model, base=base)
+
+    def _opened(self) -> None:
+        """Show what follows from a recipe becoming the open one."""
+        model = self.document.model
+        if model is None:
+            return
         self._modes_revision = None
         self.explorer.set_route(model.route)
         if model.route not in GUIDED:
@@ -983,8 +922,6 @@ class MainWindow(QMainWindow):
             self.explorer.show_error(
                 f"The {model.route} route has no modes to explore."
             )
-        self.undo.clear()
-        self.issues = []
         route = model.route
         if route not in ROUTES:
             self.statusBar().showMessage(
@@ -992,13 +929,6 @@ class MainWindow(QMainWindow):
                 "end: its pages show solprop's keywords, unchecked by the window.",
                 15_000,
             )
-        if route in self.descriptions:
-            self._build_pages()
-        else:
-            self._ask_kernel("describe", {"route": route}, f"describe-{route}")
-        self._update_title()
-        self.schedule_check(now=True)
-        self.show_step(PAGES[0].key)
 
     def _build_pages(self) -> None:
         """Make the pages' rows for the open recipe's route, and show its values."""
@@ -1055,36 +985,11 @@ class MainWindow(QMainWindow):
         table : Mapping or None
             The table; ``None`` removes it.
         """
-        if self.model is None:
-            return
-        old = self.model.document.get("scan")
-        new = None if table is None else dict(table)
-        if old != new:
-            self.undo.push(_SetTable(self, "scan", new, old))
-
-    def apply_table(self, table: str, value: Mapping[str, object] | None) -> None:
-        """Set a whole table and show the change (the command's action).
-
-        Parameters
-        ----------
-        table : str
-            The table.
-        value : Mapping or None
-            Its contents; ``None`` removes it.
-        """
-        if self.model is None:
-            return
-        self.model.set_table(table, value)
-        self.show_values()
-        self._update_title()
-        self.schedule_check()
+        self.document.edit_table("scan", table)
 
     def edit(self, name: str, table: str, value: object) -> None:
         """Change one value, or one pin, as an undoable command.
 
-        A value set on a pinned keyword removes its pin, and a pin removes the
-        keyword's value, in the same command.
-
         Parameters
         ----------
         name : str
@@ -1094,84 +999,9 @@ class MainWindow(QMainWindow):
         value : object
             The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
         """
-        changes = self._changes(name, table, value)
-        if changes:
-            self.undo.push(_SetValues(self, changes))
-
-    def _changes(self, name: str, table: str, value: object) -> list[Change]:
-        """Return the changes that set one value or pin.
-
-        Parameters
-        ----------
-        name : str
-            The keyword.
-        table : str
-            Its table: ``"build"``, ``"execution"`` or ``"pins"``.
-        value : object
-            The new value or pin, or :data:`~solprop_gui.model.recipe.MISSING`.
-
-        Returns
-        -------
-        list of Change
-            The value's change, and the removal of the pin or value it replaces.
-        """
-        if self.model is None:
-            return []
-        old = self.model.get(name, table)
-        changes: list[Change] = []
-        if old != value:
-            changes.append((name, table, value, old))
-        other = {"pins": "build", "build": "pins"}.get(table)
-        if other is not None and (table == "build" or value is not MISSING):
-            replaced = self.model.get(name, other)
-            if replaced is not MISSING:
-                changes.append((name, other, MISSING, replaced))
-        return changes
-
-    def apply_values(self, values: list[tuple[str, str, object]]) -> None:
-        """Set values in the recipe and show the change (the commands' action).
-
-        Parameters
-        ----------
-        values : list of tuple
-            Each keyword, its table and its value, or
-            :data:`~solprop_gui.model.recipe.MISSING`.
-        """
-        if self.model is None:
-            return
-        for name, table, value in values:
-            try:
-                if value is MISSING:
-                    self.model.unset(name, table)
-                else:
-                    self.model.set(name, value, table)
-            except ValueError as error:
-                self.statusBar().showMessage(f"{name}: {error}", 10_000)
-        self.show_values()
-        self._update_title()
-        self.schedule_check()
+        self.document.edit(name, table, value)
 
     # ------------------------------------------------------------------ checking
-
-    def schedule_check(self, *, now: bool = False) -> None:
-        """Check the recipe after a pause in typing.
-
-        Parameters
-        ----------
-        now : bool, optional
-            Check at once.
-        """
-        self.check_timer.start(0 if now else CHECK_DELAY_MS)
-
-    def check(self) -> None:
-        """Ask the kernel to check and summarise the current revision."""
-        if self.model is None:
-            return
-        revision = self.model.revision
-        self.bridge.set_revision(revision)
-        payload = {"text": self.model.to_text(), "base": self.base}
-        self._ask_kernel("check", payload, "check", revision=revision)
-        self._ask_kernel("summarise", payload, "summarise", revision=revision)
 
     def _show_issues(self, issues: Sequence[Mapping[str, object]]) -> None:
         """Show solprop's issues at their fields, in the summary and on the steps.
@@ -1181,21 +1011,19 @@ class MainWindow(QMainWindow):
         issues : Sequence of Mapping
             The issues.
         """
-        self.issues = list(issues)
         self.issue_list.clear()
-        for issue in self.issues:
+        for issue in issues:
             names = issue_keyword(issue.get("parameter"))
             where = f"{', '.join(names)}: " if names else ""
             badge = _BADGES.get(str(issue.get("severity")), "")
             item = QListWidgetItem(f"{badge}{where}{issue.get('message')}")
             item.setData(Qt.ItemDataRole.UserRole, names[0] if names else None)
             self.issue_list.addItem(item)
-        if not self.issues:
+        if not issues:
             self.issue_list.addItem("✓ solprop accepts this setup.")
         self._update_steps()
-        errors = any(issue.get("severity") == "error" for issue in self.issues)
-        self.run_panel.set_can_run(self.model is not None and not errors)
-        if not errors and self.console.currentWidget() is self.code_view:
+        self.run_panel.set_can_run(self.document.can_run)
+        if self.document.can_run and self.console.currentWidget() is self.code_view:
             self._request_code()
         self.request_modes()
 
@@ -1385,7 +1213,7 @@ class MainWindow(QMainWindow):
 
     def open_explorer(self) -> None:
         """Open the standalone explorer: a capillary to change and sweep."""
-        if self._may_discard():
+        if self.document.may_discard():
             self.set_model(RecipeModel(EXPLORER_SETUP), base=None)
             self.show_view("dispersion")
 
@@ -1467,13 +1295,7 @@ class MainWindow(QMainWindow):
         literals : Sequence of tuple
             Each keyword and its value.
         """
-        changes = [
-            change
-            for name, value in literals
-            for change in self._changes(name, "build", value)
-        ]
-        if changes:
-            self.undo.push(_SetValues(self, changes))
+        if self.document.edit_values(literals):
             self.statusBar().showMessage(
                 "Wrote " + ", ".join(f"{n} = {v}" for n, v in literals), 10_000
             )
@@ -1530,13 +1352,7 @@ class MainWindow(QMainWindow):
         bool
             Whether it was saved.
         """
-        if self.model is None:
-            return False
-        if self.model.path is None:
-            return self.save_as()
-        self.model.save()
-        self._update_title()
-        return True
+        return self.document.save()
 
     def save_as(self, path: str | Path | None = None) -> bool:
         """Save the setup to a file the user picks.
@@ -1551,18 +1367,7 @@ class MainWindow(QMainWindow):
         bool
             Whether it was saved.
         """
-        if self.model is None:
-            return False
-        if path is None:
-            path, _ = QFileDialog.getSaveFileName(
-                self, "Save setup", "recipe.toml", "solprop recipes (*.toml)"
-            )
-        if not path:
-            return False
-        self.model.save(path)
-        self.base = str(Path(path).parent)
-        self._update_title()
-        return True
+        return self.document.save_as(path)
 
     def recovery_path(self) -> Path:
         """Return where the recovery copy of an unsaved setup is written.
@@ -1572,15 +1377,11 @@ class MainWindow(QMainWindow):
         pathlib.Path
             The file.
         """
-        folder = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.AppDataLocation
-        )
-        return Path(folder or Path.home()) / "recovery.toml"
+        return self.document.recovery_path()
 
     def write_recovery(self) -> None:
         """Write a recovery copy of the setup if it has unsaved changes."""
-        if self.model is not None and self.model.dirty:
-            self.model.write_recovery(self.recovery_path())
+        self.document.write_recovery()
 
     def _update_title(self) -> None:
         """Show the setup's name, and whether it has unsaved changes."""
@@ -1592,23 +1393,6 @@ class MainWindow(QMainWindow):
         )
         self.setWindowTitle(f"{name}[*] — solprop")
         self.setWindowModified(self.model.dirty)
-
-    def _may_discard(self) -> bool:
-        """Ask before replacing a setup with unsaved changes.
-
-        Returns
-        -------
-        bool
-            Whether to go on.
-        """
-        if self.model is None or not self.model.dirty:
-            return True
-        answer = self.confirm(
-            "Unsaved setup", "The setup has changes that are not saved. Save them?"
-        )
-        if answer == "save":
-            return self.save()
-        return answer == "discard"
 
     # ------------------------------------------------------------------ runs
 
@@ -1678,12 +1462,11 @@ class MainWindow(QMainWindow):
             self.run_panel.stop()
             if self.run_panel.client is not None:
                 self.run_panel.client.join(30.0)
-        if not self._may_discard():
+        if not self.document.may_discard():
             event.ignore()
             return
         self.settings.setValue("workspace", str(self.run_panel.workspace))
-        self.check_timer.stop()
-        self.autosave.stop()
+        self.document.close()
         self.bridge.close()
         event.accept()
 
@@ -1721,19 +1504,3 @@ def app_settings() -> QSettings:
     return QSettings(
         QSettings.defaultFormat(), QSettings.Scope.UserScope, "solprop", "solprop-gui"
     )
-
-
-def _failure(reply: Reply) -> list[dict[str, object]]:
-    """Return a failed check as one issue.
-
-    Parameters
-    ----------
-    reply : solprop_gui.service.messages.Reply
-        The failed reply.
-
-    Returns
-    -------
-    list of dict
-        One error at no parameter.
-    """
-    return [{"message": reply.error, "parameter": None, "severity": "error"}]
