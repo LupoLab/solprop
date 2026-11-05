@@ -123,6 +123,77 @@ _COMBINE = """
     out_im[i] = magnitude * metal::fma(s, delta, s);
 """
 
+_PAIR = """
+    uint i = thread_position_in_grid.x;
+    if (i >= N) { return; }
+    float2 re = float2(0.0f, 0.0f);
+    float2 im = float2(0.0f, 0.0f);
+    for (int t = 0; t < TERMS; ++t) {
+        float2 w = float2(w_hi[t], w_lo[t]);
+        uint k = t * N + i;
+        re = df_add(re, df_mul(w, float2(re_hi[k], re_lo[k])));
+        im = df_add(im, df_mul(w, float2(im_hi[k], im_lo[k])));
+    }
+    // The combination kernel's exponential at both signs from one combination: the
+    // inverse's magnitude is the same expression at sign -1, and its phasor is the
+    // forward's conjugate, cosine and sine being even and odd exactly.
+    float turns = metal::rint(im.x * INV_TWO_PI);
+    float2 period = float2(TWO_PI_HI, TWO_PI_LO);
+    float2 phase = df_add(im, df_mul(float2(-turns, 0.0f), period));
+    float angle = phase.x + phase.y;
+    float c = metal::precise::cos(angle);
+    float s = metal::precise::sin(angle);
+    float2 norm = df_add(two_prod(c, c), two_prod(s, s));
+    float delta = -0.5f * ((norm.x - 1.0f) + norm.y);
+    float cc = metal::fma(c, delta, c);
+    float ss = metal::fma(s, delta, s);
+    float forward = metal::precise::exp(re.x) * (1.0f + re.y);
+    float back = metal::precise::exp(-re.x) * (1.0f + -re.y);
+    forward_re[i] = forward * cc;
+    forward_im[i] = forward * ss;
+    back_re[i] = back * cc;
+    back_im[i] = -(back * ss);
+"""
+
+
+def _source(body: str) -> str:
+    """Return a double-float kernel's source with its constants in place.
+
+    Parameters
+    ----------
+    body : str
+        The kernel's body.
+
+    Returns
+    -------
+    str
+        The source.
+    """
+    return (
+        body.replace("INV_TWO_PI", f"{1 / (2 * math.pi)!r}f")
+        .replace("TWO_PI_HI", f"{_TWO_PI_HI!r}f")
+        .replace("TWO_PI_LO", f"{_TWO_PI_LO!r}f")
+    )
+
+
+@cache
+def _pair_kernel() -> object:
+    """Return the compiled kernel of a propagator and its inverse.
+
+    Returns
+    -------
+    object
+        The ``mlx.core.fast.metal_kernel`` callable.
+    """
+    return mx.fast.metal_kernel(
+        name="solprop_double_float_pair",
+        input_names=["re_hi", "re_lo", "im_hi", "im_lo", "w_hi", "w_lo"],
+        output_names=["forward_re", "forward_im", "back_re", "back_im"],
+        source=_source(_PAIR),
+        header=_HEADER,
+        compile_options={"math_mode": "safe"},
+    )
+
 
 @cache
 def _kernel() -> object:
@@ -133,16 +204,11 @@ def _kernel() -> object:
     object
         The ``mlx.core.fast.metal_kernel`` callable.
     """
-    source = (
-        _COMBINE.replace("INV_TWO_PI", f"{1 / (2 * math.pi)!r}f")
-        .replace("TWO_PI_HI", f"{_TWO_PI_HI!r}f")
-        .replace("TWO_PI_LO", f"{_TWO_PI_LO!r}f")
-    )
     return mx.fast.metal_kernel(
         name="solprop_double_float_combine",
         input_names=["re_hi", "re_lo", "im_hi", "im_lo", "w_hi", "w_lo"],
         output_names=["out_re", "out_im"],
-        source=source,
+        source=_source(_COMBINE),
         header=_HEADER,
         compile_options={"math_mode": "safe"},
     )
@@ -248,6 +314,60 @@ class DoubleFloatTerms:
         """
         host = 0 if self.host is None else int(self.host.nbytes)
         return int(sum(part.nbytes for part in self.parts)) + host
+
+    def device_weights(self, weights: np.ndarray) -> tuple[mx.array, mx.array]:
+        """Split binary64 weights into the kernel's float32 heads and tails.
+
+        Parameters
+        ----------
+        weights : numpy.ndarray
+            One binary64 weight per term.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The heads and the tails, ``(n_terms,)`` each.
+
+        Raises
+        ------
+        BackendError
+            If the weights do not match the terms.
+        """
+        w = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if w.size != self.n_terms:
+            msg = f"{w.size} weights for {self.n_terms} stage terms"
+            raise BackendError(msg)
+        w_hi, w_lo = _split(w)
+        return mx.array(w_hi), mx.array(w_lo)
+
+    def pair(self, w_hi: mx.array, w_lo: mx.array) -> tuple[mx.array, mx.array]:
+        """Return ``exp(sum_t w_t T_t)`` and its inverse from one combination.
+
+        On the Metal device only; each equals :meth:`exponential` at its sign. Its
+        inputs are device arrays, so a compiled graph may call it.
+
+        Parameters
+        ----------
+        w_hi, w_lo : mlx.core.array
+            The weights' heads and tails (:meth:`device_weights`).
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The propagator and its inverse, complex64.
+        """
+        n = math.prod(self.shape)
+        forward_re, forward_im, back_re, back_im = _pair_kernel()(  # pyright: ignore[reportCallIssue]
+            inputs=[*self.parts, w_hi, w_lo],
+            template=[("N", n), ("TERMS", self.n_terms)],
+            grid=(n, 1, 1),
+            threadgroup=(min(256, n), 1, 1),
+            output_shapes=[(n,)] * 4,
+            output_dtypes=[mx.float32] * 4,
+        )
+        forward = (forward_re + 1j * forward_im).astype(mx.complex64)
+        back = (back_re + 1j * back_im).astype(mx.complex64)
+        return forward.reshape(self.shape), back.reshape(self.shape)
 
     def _evaluate(
         self, weights: np.ndarray, *, exponential: int, sign: int
@@ -372,7 +492,25 @@ def _population_kernel() -> object:
     )
 
 
-def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.array]:
+def population_parameters(preionisation: float) -> np.ndarray:
+    """Return the population kernel's parameters, ``(1 - p, p)`` rounded to binary32.
+
+    Parameters
+    ----------
+    preionisation : float
+        ``p`` in ``[0, 1]``.
+
+    Returns
+    -------
+    numpy.ndarray
+        Float32, ``(2,)``.
+    """
+    return np.array([1.0 - preionisation, preionisation], dtype=np.float32)
+
+
+def population(
+    exposure: mx.array, preionisation: float | mx.array
+) -> tuple[mx.array, mx.array]:
     """Return the ionised fraction and the neutral survival in their stable forms.
 
     The oracle's ``stable_population`` (SEP 33 section 4.4): ``f = p + (1 - p)
@@ -385,17 +523,21 @@ def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.a
     ----------
     exposure : mlx.core.array
         ``X``, float32, non-negative.
-    preionisation : float
-        ``p`` in ``[0, 1]``.
+    preionisation : float or mlx.core.array
+        ``p`` in ``[0, 1]``, or on the Metal device the kernel's parameters
+        (:func:`population_parameters`) already on it, as a compiled stage passes them.
 
     Returns
     -------
     tuple of mlx.core.array
         The fraction and the survival, float32.
     """
-    keep = float(np.float32(1.0 - preionisation))
-    initial = float(np.float32(preionisation))
+    if isinstance(preionisation, mx.array):
+        parameters = preionisation
+    else:
+        parameters = mx.array(population_parameters(preionisation))
     if not on_gpu():
+        keep, initial = (float(value) for value in np.array(parameters))
         # MLX's CPU exp errs by up to 3e-6 relative near exp(-80); on the CPU device
         # the host's binary64 forms, rounded once, are the oracle's own.
         wide = np.array(exposure, dtype=np.float64)
@@ -407,7 +549,7 @@ def population(exposure: mx.array, preionisation: float) -> tuple[mx.array, mx.a
     flat = exposure.reshape(-1)
     n = flat.size
     fraction, survival = _population_kernel()(  # pyright: ignore[reportCallIssue]
-        inputs=[flat, mx.array(np.array([keep, initial], dtype=np.float32))],
+        inputs=[flat, parameters],
         template=[("N", n)],
         grid=(n, 1, 1),
         threadgroup=(min(256, n), 1, 1),

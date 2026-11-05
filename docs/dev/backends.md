@@ -1655,6 +1655,27 @@ gated and edge currents, the envelope plasma's drive and loss -- are projected i
 matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
+**Compiled stages.** On the Metal device each stage is one `mx.compile` graph
+(`MlxBackend._stage_core`), and so are a stage's input combination, the step's end and
+the norm's reductions: MLX fuses their element-wise passes into few kernels and replays
+the traced graph rather than rebuilding it in Python. A compiled function sees only its
+inputs, so everything that varies with position -- the taper and its inverse, Kerr's,
+Raman's and the plasma channels' factors, the populations' `1 - p` and `p` -- is formed on
+the host in binary64, rounded once as the eager stage rounded it, and passed as one float32
+vector (`_StageValues`); the prefactor, the Raman spectrum and the propagators are inputs
+too, and what the alarm reads comes back as outputs. MLX compiles each operation with the
+eager kernel's rounding (no contraction, no reassociation), so the compiled stage is
+bitwise the eager one on every route (`log1p` aside, an equally accurate but different
+function, which the GPU's rate kernel does not use); MLX's eager `x**2` rounds through
+`pow`, so the passes square by products. A stage's propagator and its inverse are one
+kernel (`DoubleFloatTerms.pair`), the inverse's phasor the conjugate of the forward's
+(bitwise the separate kernel's), formed once per distinct fraction of a trial.
+`SOLPROP_MLX_FUSED=0` evaluates op by op, for comparison. On an Apple M5 Max under load,
+one DOPRI5 trial on power-of-two grids, op by op against compiled: `he_rdw_averaged` 5.30
+against 2.91 ms, `rdw` 7.76 against 4.76, `radial_filament_256` 14.1 against 6.88,
+`spatial_absorber` 3.69 against 2.38, `kerr_beam_192` 246 against 131 and
+`cartesian_filament_128` 806 against 316 ms.
+
 **Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
 `tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
 that the device is available. That lane runs without coverage or the runtime type
