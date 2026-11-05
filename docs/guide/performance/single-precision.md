@@ -13,9 +13,8 @@ Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
 and radial and Cartesian free space. Its Metal kernels run in the macOS lane of
 continuous integration. `mlx` is **experimental** in this release: its coverage is not
 measured, the survival record below was measured on the reference implementation
-(on `mlx` for two cases only), and on the default grids it can be slower than binary64
-`native`; build single-precision grids
-with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
+(on `mlx` for two cases only), and the keyword interfaces size its grids for MLX's
+transforms ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
 every route below as the reference implementation, which defines the arithmetic and
 measures it but is not fast; away from Apple silicon it is the supported way to run single
 precision, by name, because `native` computes in binary64 only
@@ -99,28 +98,32 @@ interfaces. Under single precision:
 ## Grid sizes on `mlx`
 
 A grid's default sample count, `fft_size="auto"`, is the cheapest size with prime
-factors 2, 3 and 5 by a cost model fitted to FFTW's transforms on CPUs
-([grids](../setup/grids.md#coarse-and-fine-sampling)). MLX's GPU transform runs those
-sizes four to eight times slower than the next power of two. On an Apple M5 Max one real
-transform took:
+factors 2, 3 and 5 by a transform-cost model ([grids](../setup/grids.md#coarse-and-fine-sampling)).
+For FFTW on a CPU that is often a smooth size such as 10240. MLX's GPU transform runs
+any such size up to 4096 directly, but above 4096 only powers of two: every other
+length takes Bluestein's algorithm, six to twelve times slower than the next power of
+two. On an Apple M5 Max an rfft and irfft pair took:
 
 | samples | µs | next power of two | µs |
 |---|---|---|---|
-| 12288 | 902 | 16384 | 218 |
-| 98304 | 7629 | 131072 | 992 |
+| 5120 | 502 | 8192 | 78 |
+| 10240 | 715 | 16384 | 63 |
 
-So on a default grid a single-precision run on `mlx` can be slower than a binary64 run
-on `native`. For a single-precision run, build the grid with `fft_size="pow2"` and pass
-it as `grid=`; the keyword interfaces build `"auto"` grids:
+So `"auto"` minimises the cost of the transform library the run will use
+({py:func}`solprop.grid.fft_cost`). The keyword interfaces (`prop_capillary`,
+`prop_gnlse`, `prop_waveguide`) take MLX's costs when the run is single precision on
+`mlx` (or `backend="auto"`, which resolves to it), and so build a power of two past
+4096 samples; with `backend="numpy_ref"`, or in binary64, they keep FFTW's. A grid of
+your own, as the free-space interfaces take, chooses with `transforms=`:
 
 ```python
 from solprop.grid import FieldGrid
 
-grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, fft_size="pow2")
+grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, transforms="mlx")
 ```
 
-On the CPU backends `"auto"` stays the cheaper choice. Making powers of two the
-single-precision default is planned, with a re-timing of `mlx` on such grids.
+`fft_size="pow2"` gives the same sizes past 4096. A run on `mlx` with a smooth grid
+past 4096 samples, given explicitly, runs correctly but slowly.
 
 ## How the arithmetic is kept accurate
 

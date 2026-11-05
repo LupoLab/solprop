@@ -1660,14 +1660,15 @@ plasma capillary, where launches bound the stage, and neutral on larger ones.
 that the device is available. That lane runs without coverage or the runtime type
 checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve
 `mlx.core`, and the coverage lane omits `mlx_gpu`
-([testing](testing.md#the-mlx-omission)). The default `fft_size="auto"` takes the smooth
-size that a cost model fitted to FFTW's CPU transforms ranks cheapest
-(`grid._RADIX_PENALTY`); MLX's GPU FFT runs such sizes four to eight times slower than
-the next power of two (real transforms on an Apple M5 Max: 902 µs at 12288 against
-218 µs at 16384, 7629 µs at 98304 against 992 µs at 131072), so on default grids `mlx`
-can be slower than binary64 `native`, and the guide sends single-precision grids to
-`fft_size="pow2"`. Full support waits on power-of-two grids by default under single
-precision (or a per-backend transform cost), a macOS `mlx` CI job (coverage with a
+([testing](testing.md#the-mlx-omission)). `fft_size="auto"` minimises a per-library
+transform cost (`grid.fft_cost`): FFTW's (`grid._RADIX_PENALTY`) by default, MLX's when a
+keyword interface builds the grid of a single-precision run on `mlx` or `auto`
+(`driver.simulation._transform_library`), or when a grid is built with
+`transforms="mlx"`. MLX's GPU FFT is direct at every 2-3-5-smooth length up to 4096 and
+at powers of two, and takes Bluestein's algorithm elsewhere, six to twelve times the
+next power of two (an rfft and irfft pair on an Apple M5 Max: 715 µs at 10240 against
+63 µs at 16384), so past 4096 its cost picks the power of two. Full support waits on a
+macOS `mlx` CI job (coverage with a
 recorded floor, the runtime type checks, basedpyright on `mlx_gpu`), the default
 in-stage collar's tests restored on the default geometry, bounds against the oracle
 that can detect an `mlx` error, and a re-timing on an idle machine

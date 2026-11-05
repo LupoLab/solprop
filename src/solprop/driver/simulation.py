@@ -142,6 +142,7 @@ from solprop.grid import (
     LineGrid,
     RadialGrid,
     TimeGrid,
+    TransformLibrary,
 )
 from solprop.linear import Frame, frame_origin, frame_quantities
 from solprop.log import (
@@ -4814,6 +4815,7 @@ class Simulation(Displayed):
             wavelength,
             wavelength_limits,
             trange,
+            transforms=_transform_library(precision, backend),
         )
         _check_selection_carrier(materials, working.reference_wavelength, wavelength)
         mapping = _gnlse_fibre(
@@ -6726,6 +6728,7 @@ class Simulation(Displayed):
             trange,
             envelope=envelope,
             thg=thg,
+            transforms=_transform_library(precision, backend),
         )
         materials = MaterialSelection() if materials is None else materials
         _check_selection_carrier(materials, working.reference_wavelength, wavelength)
@@ -9058,12 +9061,43 @@ def _continues(
     return True
 
 
+def _transform_library(precision: PrecisionName, backend: str) -> TransformLibrary:
+    """Return the transform library whose cost a run's ``"auto"`` grid minimises.
+
+    A single-precision run executes on ``mlx`` unless it names ``numpy_ref``
+    (``backend="auto"`` resolves to ``mlx`` under single precision, or is refused), and
+    MLX's GPU transforms past 4096 samples are fast at powers of two only
+    (:func:`solprop.grid.fft_cost`). Every other run transforms with FFTW.
+
+    Parameters
+    ----------
+    precision : {'double', 'single'}
+        The run's precision.
+    backend : str
+        The backend the run names.
+
+    Returns
+    -------
+    {'fftw', 'mlx'}
+        The library.
+
+    Examples
+    --------
+    >>> from solprop.driver.simulation import _transform_library
+    >>> _transform_library("single", "auto"), _transform_library("double", "auto")
+    ('mlx', 'fftw')
+    """
+    return "mlx" if precision == "single" and backend in ("auto", "mlx") else "fftw"
+
+
 def _gnlse_grid(
     grid: TimeGrid | None,
     length: float,
     wavelength: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
+    *,
+    transforms: TransformLibrary = "fftw",
 ) -> TimeGrid:
     """Return the envelope grid a GNLSE run propagates on.
 
@@ -9079,6 +9113,9 @@ def _gnlse_grid(
         Window limits, m.
     trange : float or None
         Time window, s.
+    transforms : {'fftw', 'mlx'}, optional
+        The library whose cost the built grid's 'auto' size minimises
+        (:func:`_transform_library`).
 
     Returns
     -------
@@ -9112,7 +9149,9 @@ def _gnlse_grid(
             rule="grid-or-limits",
         )
     with _about(renamed=_GRID_KEYWORDS):
-        return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
+        return EnvelopeGrid.from_limits(
+            length, wavelength, wavelength_limits, trange, transforms=transforms
+        )
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -10106,6 +10145,7 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     *,
     envelope: bool,
     thg: bool,
+    transforms: TransformLibrary = "fftw",
 ) -> TimeGrid:
     """Return the grid a capillary run propagates on.
 
@@ -10126,6 +10166,9 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     thg : bool
         Whether the responses reach the third harmonic, which sets an envelope grid's
         oversampling.
+    transforms : {'fftw', 'mlx'}, optional
+        The library whose cost the built grid's ``'auto'`` size minimises
+        (:func:`_transform_library`).
 
     Returns
     -------
@@ -10166,9 +10209,16 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     with _about(renamed=_GRID_KEYWORDS):
         if envelope:
             return EnvelopeGrid.from_limits(
-                length, wavelength, wavelength_limits, trange, thg=thg
+                length,
+                wavelength,
+                wavelength_limits,
+                trange,
+                thg=thg,
+                transforms=transforms,
             )
-        return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
+        return FieldGrid.from_limits(
+            length, wavelength, wavelength_limits, trange, transforms=transforms
+        )
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
