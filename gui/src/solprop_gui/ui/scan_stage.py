@@ -9,12 +9,12 @@ A run from the sheet leaves the table out and runs the setup once; the scan runs
 from here, each point a run of the setup with its variables set and pins solved again.
 """
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QPointF, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -299,13 +299,18 @@ class ScanResults(QWidget):
         What the scan holds, or why it is not shown.
     plot : solprop_gui.views.page_plots.LinePlot
         The result over the first variable, a line for each value of the second.
+    point_chosen : Signal
+        Emitted with a point's flat index when it is to be opened as a setup.
     """
+
+    point_chosen = Signal(int)
 
     def __init__(self, parent: QWidget | None = None) -> None:
         """Make the choice and the plot, hidden until a scan is shown."""
         super().__init__(parent)
         self.setObjectName("page")
         self.scan: Mapping[str, object] = {}
+        self._xscale = 1.0
         self.result = QComboBox()
         self.result.setObjectName("scan-result")
         self.result.currentIndexChanged.connect(lambda _index: self.redraw())
@@ -317,6 +322,8 @@ class ScanResults(QWidget):
         )
         self.plot.addItem(self.failed)  # pyright: ignore[reportCallIssue]
         self.map = MapPlot(xlabel="", ylabel="", colours="viridis", unit="")
+        self.plot.more_actions = self._point_actions
+        self.map.more_actions = self._point_actions
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(8)
@@ -374,6 +381,7 @@ class ScanResults(QWidget):
         ys = [y for _title, y in drawn.lines]
         unit, scale = scaled_unit(np.concatenate(ys), pretty(drawn.unit))
         xunit, xscale = scaled_unit(drawn.x, drawn.xunit) if drawn.xunit else ("", 1.0)
+        self._xscale = xscale
         title = result_title(str(name))
         self.plot.set_xlabel(f"{drawn.xlabel} ({xunit})" if xunit else drawn.xlabel)
         self.plot.set_ylabel(f"{title} ({unit})" if unit else title)
@@ -395,6 +403,60 @@ class ScanResults(QWidget):
         bottom, top = self.plot.box.viewRange()[1]
         foot = bottom + 0.04 * (top - bottom)
         self.failed.setData(drawn.failed * xscale, np.full(drawn.failed.size, foot))
+
+    def point_at(self, x: float, y: float) -> int | None:
+        """Return the scan point drawn nearest a position.
+
+        Parameters
+        ----------
+        x : float
+            The position across the plot shown.
+        y : float
+            The position up it.
+
+        Returns
+        -------
+        int or None
+            The point's flat index, the third variable on at its first value;
+            ``None`` with no scan.
+        """
+        variables: Sequence[Mapping[str, object]] = self.scan.get("variables") or []  # pyright: ignore[reportAssignmentType]
+        if not variables:
+            return None
+        shape = [len(v["values"]) for v in variables]  # pyright: ignore[reportArgumentType]
+        first = np.asarray(variables[0]["values"], dtype=float)
+        place = [0] * len(shape)
+        if self.map.isVisibleTo(self):
+            place[0] = int(np.argmin(np.abs(first - y)))
+        else:
+            place[0] = int(np.argmin(np.abs(first * self._xscale - x)))
+            near = self.plot.nearest_curve(x, y)
+            if len(shape) > 1 and near is not None:
+                place[1] = near[0]
+        return int(np.ravel_multi_index(place, shape))
+
+    def _point_actions(self, point: QPointF) -> list[tuple[str, Callable[[], None]]]:
+        """Offer to open the point nearest the pointer as a setup.
+
+        Parameters
+        ----------
+        point : PySide6.QtCore.QPointF
+            Where the menu was asked for, in the plot's coordinates.
+
+        Returns
+        -------
+        list of tuple
+            The action, where a scan is shown.
+        """
+        index = self.point_at(point.x(), point.y())
+        if index is None:
+            return []
+
+        def choose() -> None:
+            """Ask for the point's setup."""
+            self.point_chosen.emit(index)
+
+        return [("Open this point as a setup", choose)]
 
     def _draw_map(
         self, name: str, held: Mapping[str, object], variable: Mapping[str, object]

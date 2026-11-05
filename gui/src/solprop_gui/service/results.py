@@ -46,6 +46,7 @@ from solprop.stats import CATALOGUE
 
 from solprop_gui.model.display import light_range
 from solprop_gui.model.quantities import split
+from solprop_gui.model.recipe import without_table
 from solprop_gui.service.beam import beam_reading, beam_slice, profile_row
 from solprop_gui.service.reduce import even_rows
 from solprop_gui.service.scan_reductions import KINDS, reduction_axis
@@ -761,12 +762,8 @@ def scan_overview(payload: Payload) -> dict[str, object]:
         ``shape``, ``status`` (each point's, laid out over the shape) and
         ``results`` (by name: ``summary``, ``units`` and ``values`` over the shape).
     """
+    recipe = _scan_recipe(str(payload["path"]))
     found = ScanOutput(str(payload["path"]))
-    record = found.recipe
-    if record is None:
-        msg = "the scan records no recipe, so its variables are not known"
-        raise SolpropError(msg)
-    recipe = Recipe.loads(record.authored)
     variables = recipe.scan().scan.variables
     shape = tuple(int(n) for n in found.shape)
     status = np.asarray(found.status).reshape(shape)
@@ -787,6 +784,54 @@ def scan_overview(payload: Payload) -> dict[str, object]:
         "status": status.tolist(),
         "results": values,
     }
+
+
+def _scan_recipe(path: str) -> Recipe:
+    """Return the recipe a scan's file records, as it was written.
+
+    Parameters
+    ----------
+    path : str
+        The scan's results file.
+
+    Returns
+    -------
+    solprop.recipe.Recipe
+        The recipe, with its ``[scan]`` table.
+
+    Raises
+    ------
+    solprop.exceptions.SolpropError
+        If the file records no recipe.
+    """
+    record = ScanOutput(path).recipe
+    if record is None:
+        msg = "the scan records no recipe, so its variables are not known"
+        raise SolpropError(msg)
+    return Recipe.loads(record.authored)
+
+
+def scan_point(payload: Payload) -> dict[str, object]:
+    """Return one scan point's setup: the scan's recipe with that point's values.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``path``, the scan's results file, and ``index``, the point's flat index.
+
+    Returns
+    -------
+    dict
+        ``text``, the recipe without its ``[scan]`` table and with the point's values
+        set, and ``values``, those values by path.
+    """
+    recipe = _scan_recipe(str(payload["path"]))
+    point = recipe.scan().scan.point(int(payload["index"]))  # pyright: ignore[reportArgumentType]
+    values = {path: value for path, value in point.values.items() if path != "seed"}
+    single = Recipe.loads(without_table(recipe.to_text(), "scan"))
+    for path, value in values.items():
+        single.set(path, value)
+    return {"text": single.to_text(), "values": values}
 
 
 def _scan_axis(name: str, values: object) -> dict[str, object]:
@@ -887,5 +932,6 @@ RESULTS_HANDLERS = {
     "beam": beam,
     "result_figure": figure,
     "scan_overview": scan_overview,
+    "scan_point": scan_point,
 }
 """The results requests, by kind."""

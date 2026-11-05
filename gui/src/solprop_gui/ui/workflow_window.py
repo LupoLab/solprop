@@ -43,6 +43,7 @@ from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_
 from solprop_gui.model.recipe import MISSING, RecipeModel, without_table
 from solprop_gui.model.scans import profile_points
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
+from solprop_gui.registry.pages import label
 from solprop_gui.registry.routes import card_of
 from solprop_gui.service.messages import Reply
 from solprop_gui.service.worker import SCAN_OUTPUT
@@ -212,6 +213,7 @@ class WorkflowWindow(QMainWindow):
             lambda table: self.document.edit_table("scan", table)
         )
         self.run_panel.point_seen.connect(self.scans.show_point)
+        self.scans.browser.point_chosen.connect(self.open_scan_point)
         self.sheet.example_chosen.connect(self.document.open_example)
         self.document.opened.connect(self._opened)
         self.document.described.connect(self._described)
@@ -525,6 +527,8 @@ class WorkflowWindow(QMainWindow):
             self.sheet.run_options.set_options(reply.value, self.run_panel.threads)  # pyright: ignore[reportArgumentType]
         elif purpose == "scan":
             self._scan_arrived(reply)
+        elif purpose == "scan point":
+            self._scan_point_arrived(reply)
         elif purpose == "python":
             self.drawer_text.setPlainText(
                 str(reply.value) if reply.ok else f"# {reply.error}"
@@ -849,6 +853,41 @@ class WorkflowWindow(QMainWindow):
             self.scans.show_scan(reply.value, self._scan_path)  # pyright: ignore[reportArgumentType]
         else:
             self.scans.show_error(str(reply.error))
+
+    def open_scan_point(self, index: int) -> None:
+        """Ask for one point of the scan shown, to open it as a setup.
+
+        Parameters
+        ----------
+        index : int
+            The point's flat index.
+        """
+        self._ask_kernel(
+            "scan_point", {"path": self._scan_path, "index": index}, "scan point"
+        )
+
+    def _scan_point_arrived(self, reply: Reply) -> None:
+        """Open a scan point's setup as a new sheet, or say why it cannot be.
+
+        Parameters
+        ----------
+        reply : solprop_gui.service.messages.Reply
+            The ``scan_point`` reply.
+        """
+        if not reply.ok:
+            self.notify(f"The point cannot be opened: {reply.error}")
+            return
+        value: Mapping[str, object] = reply.value  # pyright: ignore[reportAssignmentType]
+        before = self.document.model
+        self.document.open_text(str(value["text"]), self.document.base)
+        model = self.document.model
+        if model is not None and model is not before:
+            values: Mapping[str, object] = value["values"]  # pyright: ignore[reportAssignmentType]
+            said = ", ".join(
+                f"{label(path).lower()} {model.get(path)}" for path in values
+            )
+            self.notify(f"The scan's point at {said}, as a new setup.")
+            self.show_stage(Stage.SETUP)
 
     def _examples_arrived(self, examples: Sequence[Mapping[str, object]]) -> None:
         """Offer solprop's examples, and ask ahead for what a first class needs.

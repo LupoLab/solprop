@@ -224,6 +224,14 @@ def test_a_scan_s_results_over_its_variables(scanned: str, monkeypatch):
         ask("scan_overview", {"path": scanned})
 
 
+def test_a_scan_point_opens_as_its_own_setup(scanned: str) -> None:
+    found = ask("scan_point", {"path": scanned, "index": 2})
+    assert "[scan]" not in found["text"]
+    single = Recipe.loads(found["text"])
+    assert single.get("pressure") == "1.5 bar"
+    assert float(found["values"]["pressure"]) == pytest.approx(1.5)
+
+
 def test_a_scan_with_no_point_done_has_no_results(scanned: str, monkeypatch):
     real = results.ScanOutput(scanned)
 

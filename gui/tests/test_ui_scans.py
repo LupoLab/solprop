@@ -7,6 +7,7 @@
 from pathlib import Path
 
 import numpy as np
+from PySide6.QtCore import QPoint, QPointF
 from pytestqt.qtbot import QtBot
 
 from solprop_gui.classes.workflow import Stage
@@ -150,6 +151,21 @@ def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(
     window._pending[-9] = "scan"
     window._on_reply(Reply("scan_overview", -9, 0, error="unreadable"))
     assert "unreadable" in browser.status.text()
+    # A point of the scan opens as a setup of its own, from the plot's menu.
+    window.open_results(str(found))
+    qtbot.waitUntil(lambda: browser.point_at(0.6, 0.0) is not None, timeout=WAIT_MS)
+    assert browser.point_at(0.6, 0.0) == 0
+    menu = browser.plot.show_menu(QPointF(0.6, 0.0), QPoint(0, 0))
+    opening = [a for a in menu.actions() if a.text() == "Open this point as a setup"]
+    menu.close()
+    opening[0].trigger()
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    opened = window.document.model
+    assert opened is not None and opened.get("pressure") == "0.5 bar"
+    assert "[scan]" not in opened.to_text()
+    window._pending[-8] = "scan point"
+    window._on_reply(Reply("scan_point", -8, 0, error="gone"))
+    assert window.document.model is opened
     window.close()
 
 

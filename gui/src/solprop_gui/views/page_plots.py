@@ -125,6 +125,8 @@ class Plot(pg.PlotWidget):
         Emitted with the position, as drawn, when the plot is clicked.
     reader : callable or None
         Says what is at a point of the plot, as text.
+    more_actions : callable or None
+        What the plot's owner offers at a point, added to the plot's own menu.
     along : {'x', 'y'} or None
         Which axis is z.
     """
@@ -138,6 +140,9 @@ class Plot(pg.PlotWidget):
         self.setMinimumSize(120, 90)
         self.along: str | None = None
         self.reader: Callable[[float, float], str] | None = None
+        self.more_actions: (
+            Callable[[QPointF], list[tuple[str, Callable[[], None]]]] | None
+        ) = None
         self._dragging = False
         item = self.getPlotItem()
         assert item is not None  # a PlotWidget always has one
@@ -313,7 +318,10 @@ class Plot(pg.PlotWidget):
             The menu, shown.
         """
         menu = QMenu(self)
-        for text, action in self.menu_actions(point):
+        actions = self.menu_actions(point)
+        if self.more_actions is not None:
+            actions += self.more_actions(point)
+        for text, action in actions:
             menu.addAction(text, action)
         if menu.actions():
             menu.addSeparator()
