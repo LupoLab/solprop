@@ -127,7 +127,7 @@ version, so the two have to come from one commit. There are two ways to get that
   [a CPU build](../guide/performance/building-native.md#a-cpu-build).
 
 To work on solprop itself, use the [contributor setup](../dev/contributing.md), where
-`uv run poe fetch-wheel` installs CI's wheel into a clone.
+`uv run --no-sync poe fetch-wheel` installs CI's wheel into a clone.
 
 ## Checking the installation
 
