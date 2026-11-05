@@ -6615,9 +6615,12 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     transform = _balanced_chunk(
         _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
     )
-    # Only if it differs: an updated problem shares its original's transform by identity.
-    if transform.chunk_budgeted != budgeted:
-        transform = replace(transform, chunk_budgeted=budgeted)
+    # Only if it differs: an update shares its original's transform by identity.
+    transform = (
+        transform
+        if transform.chunk_budgeted == budgeted
+        else replace(transform, chunk_budgeted=budgeted)
+    )
     initial = _power_initial(
         Initial(
             field0=state,
