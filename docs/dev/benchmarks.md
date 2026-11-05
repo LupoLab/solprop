@@ -955,6 +955,17 @@ So a `Local` scan on a device now keeps the backend while each point is the last
 | 864 | 6.67 | 26.70 | 48.80 | 2.515 | 0.377 |
 | 900 | 7.24 | 14.48 | 38.30 | 2.373 | 0.328 |
 
+**One work area.** A device's plans of the scratch now share one, as cuFFT's guide allows for plans launched one after another, so the table's Plans column is what each size held before. On an NVIDIA A40, CUDA 12.8.1, 8 steps, check off, two interleaved rounds of three runs each, against the commit before:
+
+| N x N x 600 | Plans, GiB | Total, GiB | Point, s |
+|---:|---:|---:|---:|
+| 384 | 2.64 to 1.32 | 8.04 to 6.73 | 4.84, 4.94 to 4.86, 4.79 |
+| 750 | 10.06 to 5.03 | 26.68 to 21.66 | 20.24, 20.19 to 20.28, 20.10 |
+| 768 | 21.09 to 5.28 | 38.46 to 22.64 | 21.37, 21.41 to 21.37, 21.46 |
+| 900 | 14.48 to 7.24 | 37.80 to 30.56 | 28.74, 28.61 to 28.64, 28.50 |
+
+`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB. rocFFT's sharing hasn't run on an AMD card.
+
 ### The transverse edge against 0.1.0
 
 [#453](https://github.com/LupoLab/solprop/issues/453) found the tracking set's `kerr_beam`

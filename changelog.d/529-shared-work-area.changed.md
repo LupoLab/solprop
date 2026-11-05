@@ -1,0 +1,1 @@
+On a CUDA or HIP build, a free-space run's transforms of the transverse scratch share one work area instead of holding one each. At 768 x 768 x 600 a run holds about 16 GiB less, 22.6 GiB against 38.5 GiB, measured on an NVIDIA A40. Results are unchanged.
