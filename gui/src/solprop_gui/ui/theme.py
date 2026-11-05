@@ -73,6 +73,7 @@ QFrame#tile {{ border: 1px solid #dfe3e8; border-radius: 10px; background: #fff;
 QFrame#tile:hover {{ border-color: {ACCENT}; background: #fafcfd; }}
 QFrame#tile[enabled="false"] {{ background: #f7f8f9; }}
 QLabel#tileTitle {{ font-weight: 600; background: none; }}
+QLabel#tileArt {{ background: none; }}
 QLabel#tileText {{ color: {GREY}; font-size: 13px; background: none; }}
 QFrame#item {{ border-radius: 6px; background: none; }}
 QFrame#item:hover {{ background: #f1f3f5; }}

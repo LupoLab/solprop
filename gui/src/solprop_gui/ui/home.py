@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QHBoxLayout,
+    QLabel,
     QMenu,
     QPushButton,
     QScrollArea,
@@ -24,6 +25,7 @@ from PySide6.QtWidgets import (
 from solprop_gui.classes.catalog import CLASSES
 from solprop_gui.model.workspace import RunEntry
 from solprop_gui.ui.theme import clear_layout, named_label
+from solprop_gui.ui.tile_art import tile_pixmap
 
 __all__ = ["HomePage"]
 
@@ -48,24 +50,35 @@ class _Clickable(QFrame):
 
     clicked = Signal()
 
-    def __init__(self, name: str, title: str, text: str, tip: str = "") -> None:
-        """Make the frame with its two lines."""
+    def __init__(
+        self, name: str, title: str, text: str, tip: str = "", art: str | None = None
+    ) -> None:
+        """Make the frame with its two lines, and its drawing beside them."""
         super().__init__()
         self.setObjectName(name)
         self.setAttribute(Qt.WidgetAttribute.WA_Hover)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(tip)
         kind = "tile" if name == "tile" else "item"
-        box = QVBoxLayout(self)
-        box.setContentsMargins(
+        row = QHBoxLayout(self)
+        row.setContentsMargins(
             *((16, 14, 16, 14) if kind == "tile" else (10, 7, 10, 7))
         )
+        row.setSpacing(14)
+        if art is not None:
+            drawing = QLabel()
+            drawing.setObjectName("tileArt")
+            drawing.setPixmap(tile_pixmap(art))
+            drawing.setAlignment(Qt.AlignmentFlag.AlignTop)
+            row.addWidget(drawing)
+        box = QVBoxLayout()
         box.setSpacing(2)
         box.addWidget(named_label(title, f"{kind}Title"))
         detail = named_label(text, f"{kind}Text")
         detail.setWordWrap(True)
         box.addWidget(detail)
         box.addStretch(1)
+        row.addLayout(box, 1)
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:  # noqa: N802 - Qt's name
         """Announce a click.
@@ -125,7 +138,7 @@ class HomePage(QWidget):
         tiles = QGridLayout()
         tiles.setSpacing(12)
         for index, problem in enumerate(CLASSES):
-            tile = _Clickable("tile", problem.title, problem.summary)
+            tile = _Clickable("tile", problem.title, problem.summary, art=problem.key)
             tile.clicked.connect(lambda key=problem.key: self.class_chosen.emit(key))
             self.tiles[problem.key] = tile
             tiles.addWidget(tile, index // 2, index % 2)
@@ -134,6 +147,7 @@ class HomePage(QWidget):
             "Other geometry",
             "Every other route, on the form solprop's metadata gives: free space, "
             "rectangular and slab guides, general modes.",
+            art="other",
         )
         other.clicked.connect(self._offer_others)
         self.others = QMenu(other)
@@ -144,6 +158,7 @@ class HomePage(QWidget):
             "tile",
             "Design a waveguide",
             "Dispersion, loss and zero-dispersion maps, with no pulse and no run.",
+            art="design",
         )
         design.clicked.connect(self.design_chosen)
         self.tiles["design"] = design

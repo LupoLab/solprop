@@ -48,6 +48,7 @@ from solprop_gui.ui.analysis_pages import (
 )
 from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.quantity import QuantityField, _readable
 from solprop_gui.ui.theme import FONT
 from solprop_gui.ui.workflow_window import WorkflowWindow
@@ -1251,3 +1252,16 @@ def test_a_run_s_backend_and_threads_are_chosen_on_the_sheet(
     # A route with no backend keyword shows it, and cannot change it.
     window.begin_class("filament")
     qtbot.waitUntil(lambda: not options.backend.isEnabled(), timeout=WAIT_MS)
+
+
+def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:
+    from solprop_gui.ui.tile_art import ART, tile_pixmap  # noqa: PLC0415 - only here
+
+    for name in ART:
+        drawn = tile_pixmap(name).toImage()
+        assert drawn.devicePixelRatio() == 2
+        # Something is drawn at the middle of the drawing, in colour.
+        assert drawn.pixelColor(44, 44).alpha() > 0 or name in ("filament", "design")
+    home = HomePage()
+    qtbot.addWidget(home)
+    assert {*(p.key for p in CLASSES), "other", "design"} <= set(ART)
