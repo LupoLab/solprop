@@ -1,0 +1,34 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A 100 um waist line of 0.1 J/m through 10 cm of argon at 1 bar, on a LineGrid, under
+# the envelope Kerr response.
+# mirrors: docs/tutorials/free_space/plot_11_line_beam.py
+
+[recipe]
+format = 1
+route = "free"
+title = "A line beam in argon"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "10 cm", reference_wavelength = "800 nm", wavelength_limits = ["600 nm", "1100 nm"], trange = "200 fs", thg = false }
+space = { type = "LineGrid", radius_x = "1.6 mm", n_x = 256 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "1 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = 0.1 }
+waist = "100 um"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-5, atol = 1e-12 }
+save_planes = ["5 cm", "10 cm"]
+dz_init = "1 mm"
+dz_max = "5 mm"
+stats = { type = "StatsSpec", names = ["energy", "beam_radius"] }

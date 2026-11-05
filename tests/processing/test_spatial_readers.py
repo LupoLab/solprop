@@ -22,6 +22,7 @@ from solprop.exceptions import OutputError, ProcessingError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.output.capability import COLUMN_READINGS, reading_refusal
+from solprop.output.hdf5 import open_file
 from solprop.plotting import plot_energy, prop_2d, spec_1d, time_1d
 from solprop.processing import (
     arrival_time,
@@ -29,6 +30,7 @@ from solprop.processing import (
     energy,
     field_autocorrelation,
     field_plane,
+    fluence_map,
     fwhm_f,
     fwhm_t,
     get_field,
@@ -37,7 +39,9 @@ from solprop.processing import (
     get_spectral_density,
     get_spectrum,
     intensity_autocorrelation,
+    node_fluence,
     peak_power,
+    spatial_grid_of,
     time_bandwidth,
 )
 from solprop.processing._examples import example_general_output, example_output
@@ -46,6 +50,7 @@ from solprop.spatial import (
     SpatialFlux,
     SpatialMedium,
     on_axis_spectrum,
+    planar_fluence,
     planar_mode_energy,
     spatial_energy,
     spatial_energy_spectrum,
@@ -244,6 +249,7 @@ def test_the_advice_names_only_what_works_on_the_route(spatial_run):
         assert float(np.sum(per_bin)) == pytest.approx(float(np.sum(modal)), rel=1e-12)
         with pytest.raises(ProcessingError, match="planar planes are not exchanged"):
             field_plane(output)
+        _assert_the_planar_map_is_the_live_one(simulation, output, stored, flux)
         return
     assert "planar_mode_energy" not in advice["energy"]
     for name in SPECTRAL:
@@ -309,3 +315,29 @@ def test_a_modal_file_keeps_its_column_readers(build):
     t, power = get_power(output, plane=0)
     assert power.shape[-1] == t.size
     assert np.all(fwhm_t(output, plane=0) > 0.0)
+
+
+def _assert_the_planar_map_is_the_live_one(simulation, output, stored, flux):
+    """A memory output keeps its live PlanarGrid, so its map reads as a live plane's."""
+    beam = fluence_map(output)
+    space = simulation.spatial_grid
+    assert beam.axis_names == ("y", "x")
+    assert np.array_equal(beam.axes[1], space.x)
+    expected = planar_fluence(stored, flux).reshape(space.n_y, np.size(space.x))
+    # The recorded plan and the resolved medium share the expressions: a few hundred
+    # rounding errors of the plane's largest value bound the difference.
+    peak = np.max(np.abs(expected))
+    assert peak > 0
+    np.testing.assert_allclose(
+        beam.fluence, expected, rtol=0, atol=512 * np.finfo(float).eps * peak
+    )
+
+
+def test_a_planar_file_s_map_is_refused_by_name(tmp_path):
+    simulation = _simulation("planar")
+    path = tmp_path / "planar.h5"
+    simulation.run(str(path), progress="none")
+    with open_file(path) as output:
+        for reader in (spatial_grid_of, fluence_map, node_fluence):
+            with pytest.raises(ProcessingError, match="hybrid planar file"):
+                reader(output)
