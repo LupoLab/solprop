@@ -50,8 +50,8 @@ what runs it: a CPU build of the native backend, in a second environment, or
 `Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
 the default of some interfaces
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
-the binary64 backends for their supported configurations; single precision
-refuses `Multistep()` on every backend. Beside a coupled flow, Adams requires its
+the binary64 backends for their supported configurations; single precision admits
+`Multistep()` in its exponential formulation on `numpy_ref` and `mlx`. Beside a coupled flow, Adams requires its
 exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.

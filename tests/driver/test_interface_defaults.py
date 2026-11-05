@@ -438,18 +438,19 @@ def test_the_single_precision_tolerance_rule():
 # ------------------------------------------------- refusals name their option
 
 
-def test_single_precision_refuses_the_adams_method_by_its_own_name():
+def test_single_precision_admits_the_adams_method():
+    # #342: binary32 Adams agrees with binary64 Adams to the method's own truncation.
     for backend in ("numpy_ref", "mlx"):
-        with pytest.raises(DriverError, match=r"Adams integrator \(Multistep\) is not"):
-            SimulationSettings(
-                PIController(rtol=1e-6, atol=0.0),
-                save_planes=[1.0],
-                dz_max=1.0,
-                dz_init=1e-3,
-                precision="single",
-                backend=backend,
-                integrator=Multistep(),
-            )
+        settings = SimulationSettings(
+            PIController(rtol=1e-6, atol=0.0),
+            save_planes=[1.0],
+            dz_max=1.0,
+            dz_init=1e-3,
+            precision="single",
+            backend=backend,
+            integrator=Multistep(),
+        )
+        assert isinstance(settings.integrator, Multistep)
 
 
 def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():

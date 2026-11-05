@@ -1010,13 +1010,12 @@ class SimulationSettings(Displayed):
             backend = _AutoBackend(backend, name)
         object.__setattr__(self, "backend", backend)
         # The precision's refusals come before the integrator's backend check, so a
-        # single-precision run is told what single precision refuses -- the Adams
-        # integrator -- rather than that a binary32 backend does not step it.
+        # single-precision run is told what single precision refuses rather than
+        # what its backend does not step.
         try:
             admit_precision(
                 precision,
                 backend=self.backend,
-                adams=isinstance(self.integrator, Multistep),
                 rtol=getattr(self.controller, "rtol", None),
                 schedule=self.schedule is not None,
             )

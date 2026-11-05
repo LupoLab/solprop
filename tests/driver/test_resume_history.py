@@ -43,6 +43,7 @@ from solprop.output.hdf5 import open_file, resume
 from solprop.output.schema import MarchSnapshot, SavedPlane, _example_metadata
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.multistep import ComparisonMultistep
+from solprop.translate.precision import SINGLE_RTOL_FLOOR
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -80,13 +81,22 @@ def soliton(build_simulation, backend, resume_history=None, rtol=RTOL, **keyword
     return build
 
 
-def varying(backend, rtol=RTOL):
+def varying(backend, rtol=RTOL, **keywords):
     """Return a helium capillary along a pressure gradient: a compensated march."""
 
     def build():
-        return gradient(integrator=EXPONENTIAL, rtol=rtol, backend=backend)
+        return gradient(integrator=EXPONENTIAL, rtol=rtol, backend=backend, **keywords)
 
     return build
+
+
+def single(rtol):
+    """Return the precision of a single-precision case at `rtol`.
+
+    The tight reference runs below single precision's tolerance floor, so it is the
+    binary64 run, which the binary32 one is held against (#342).
+    """
+    return {"precision": "single" if rtol >= SINGLE_RTOL_FLOOR else "double"}
 
 
 def coupled(backend, rtol=RTOL):
@@ -148,6 +158,20 @@ CASES = {
     "varying-native": lambda _, rtol=RTOL: varying("native", rtol),
     "coupled-numpy_ref": lambda _, rtol=RTOL: coupled("numpy_ref", rtol),
     "coupled-native": lambda _, rtol=RTOL: coupled("native", rtol),
+    # #342: binary32 Adams resumes in binary32, its history and state narrowed.
+    "single-soliton-numpy_ref": lambda build, rtol=RTOL: soliton(
+        build, "numpy_ref", rtol=rtol, atol=0.0, **single(rtol)
+    ),
+    "single-soliton-mlx": lambda build, rtol=RTOL: soliton(
+        build,
+        "mlx" if rtol >= SINGLE_RTOL_FLOOR else "native",
+        rtol=rtol,
+        atol=0.0,
+        **single(rtol),
+    ),
+    "single-varying-mlx": lambda _, rtol=RTOL: varying(
+        "mlx" if rtol >= SINGLE_RTOL_FLOOR else "native", rtol, **single(rtol)
+    ),
 }
 
 
@@ -162,6 +186,8 @@ def test_a_resumed_run_is_the_uninterrupted_one(
 ):
     if case.endswith("-native"):
         pytest.importorskip("solprop_native")
+    if case.endswith("-mlx") and "mlx" not in available("single"):
+        pytest.skip("mlx needs an Apple GPU")
     build = CASES[case](build_simulation)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")

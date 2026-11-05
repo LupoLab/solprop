@@ -83,7 +83,6 @@ from solprop.translate.precision import (
     PrecisionName,
     combine,
     precision_named,
-    study_admission,
 )
 from vector_raman_cases import vector_problem
 
@@ -225,8 +224,10 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
             automatic()
     with pytest.raises(DriverError, match="binary64 only"):
         dataclasses.replace(settings, backend="native")
-    with pytest.raises(DriverError, match="Adams integrator"):
-        dataclasses.replace(settings, integrator=Multistep())
+    # The Adams integrator is admitted (#342); the default stays Runge-Kutta.
+    assert isinstance(
+        dataclasses.replace(settings, integrator=Multistep()).integrator, Multistep
+    )
     with pytest.raises(DriverError, match="floor"):
         dataclasses.replace(
             settings,
@@ -249,9 +250,9 @@ def test_the_compiled_backends_refuse_a_single_precision_problem(name):
 def test_the_oracle_applies_the_settings_admission_to_a_problem_past_them():
     """``registry.select`` on a translated problem meets the settings' refusals too.
 
-    The settings refuse the Adams integrator and a tolerance below the floor under
-    single precision; a problem replaced after translation reached the backend without
-    them. Adams is admitted again only inside the survival study's private switch.
+    The settings refuse a tolerance below the floor under single precision; a problem
+    replaced after translation reached the backend without them. The Adams integrator
+    is admitted (#342).
     """
     problem = gnlse("single", steps=None).translate()
     stepper = problem.stepper
@@ -264,12 +265,9 @@ def test_the_oracle_applies_the_settings_admission_to_a_problem_past_them():
             stepper, controller=dataclasses.replace(stepper.controller, rtol=1e-8)
         ),
     )
-    with pytest.raises(BackendError, match=r"Adams integrator \(Multistep\)"):
-        select("numpy_ref", adams)
     with pytest.raises(BackendError, match="below the single-precision floor"):
         select("numpy_ref", tight)
-    with study_admission():
-        select("numpy_ref", adams).close()
+    select("numpy_ref", adams).close()
 
 
 def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
@@ -1141,15 +1139,13 @@ def gradient(precision: str) -> Simulation:
         pytest.param(gradient, id="gradient"),
     ],
 )
-def test_adams_runs_in_binary32_under_the_study_admission(build):
-    """The study's private route (Q2): the flow, its moments and the prediction rounded.
+def test_adams_runs_in_binary32(build):
+    """The flow, its moments and the prediction rounded once (#342).
 
-    Adams is refused publicly; the study measures it. Its binary32 result agrees with
-    its binary64 one to the tolerance's truncation; on a gradient the operator is an
-    expansion and the predictor carries its compensation.
+    Its binary32 result agrees with its binary64 one to the tolerance's truncation; on
+    a gradient the operator is an expansion and the predictor carries its compensation.
     """
-    with study_admission():
-        single, double = finish(build("single")), finish(build("double"))
+    single, double = finish(build("single")), finish(build("double"))
     assert_within(single, double, 1e-4)
 
 

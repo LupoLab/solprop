@@ -28,7 +28,6 @@ from solprop.translate.precision import (
     prefix_sum,
     scaled_square_sum,
     state_scale,
-    study_admission,
 )
 
 TINY32 = float(np.finfo(np.float32).tiny)
@@ -50,13 +49,10 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
         precision: Precision,
         backend: str = "numpy_ref",
         *,
-        adams: bool = False,
         rtol: float = 1e-6,
         schedule: bool = False,
     ) -> None:
-        admit_precision(
-            precision, backend=backend, adams=adams, rtol=rtol, schedule=schedule
-        )
+        admit_precision(precision, backend=backend, rtol=rtol, schedule=schedule)
 
     admit(SINGLE)
     admit(DOUBLE, "native", rtol=1e-12)
@@ -66,10 +62,6 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
         admit(SINGLE, rtol=1e-7)
     # A replayed schedule reads no tolerance.
     admit(SINGLE, rtol=1e-12, schedule=True)
-    with pytest.raises(TranslationError, match="Adams integrator"):
-        admit(SINGLE, adams=True)
-    with study_admission():
-        admit(SINGLE, adams=True)
     assert SINGLE_RTOL_FLOOR == 1e-6
 
 

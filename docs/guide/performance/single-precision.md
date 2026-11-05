@@ -63,13 +63,14 @@ interfaces. Under single precision:
   strong collar or loss reaches that exponent is refused at translation, with the
   shortest step that fits, and one within a tenth of it is warned of. A 1 mm capillary's
   default collar on 0.25 mm steps is one such case.
-- **The integrator.** The default is `RungeKutta()` (DOPRI5) and the low-storage march is
-  admitted; the Adams integrator, `Multistep()`, is refused until its single-precision
-  accuracy is established. The binary64 default of `prop_capillary` and `prop_radial` is
-  `Multistep()` ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), so on
-  those interfaces a default run changes method as well as arithmetic when it changes
-  precision: to compare the two precisions, pass `integrator=RungeKutta()` to both, as
-  the survival record below does.
+- **The integrator.** The default is `RungeKutta()` (DOPRI5), and the low-storage
+  march and the Adams integrator, `Multistep()` in its exponential formulation, are
+  admitted ([the Adams record](#the-adams-integrator-in-binary32)). The binary64 default
+  of `prop_capillary` and `prop_radial` is `Multistep()`
+  ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), so on those
+  interfaces a default run changes method as well as arithmetic when it changes
+  precision: pass `integrator=Multistep()` to keep the method, or
+  `integrator=RungeKutta()` to both, as the survival record below does.
 - **Noise.** A default `noise` resolves to none, and the run records why; an explicit
   noise model is refused (below).
 - **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are
@@ -91,7 +92,7 @@ interfaces. Under single precision:
 | gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
 | Runge–Kutta, the low-storage march | yes | yes |
 | fixed-schedule batches through `Batch` | yes | refused |
-| the Adams integrator | refused, pending its accuracy record | refused |
+| the Adams integrator | the exponential formulation | the exponential formulation, its history on the GPU; on the Metal device only |
 | noise models | refused (a known limitation, below) | refused |
 | the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
 
@@ -196,6 +197,33 @@ bands): both survive.
   measured on a capillary operator over $10^2$–$10^4$ steps (0.1–0.3 on a GNLSE one).
   The field envelope of $10^{-3}$ is reached after about $3\times10^4$ steps; a run
   that needs more takes binary64.
+
+### The Adams integrator in binary32
+
+`Multistep()` was admitted on 5 November 2026 by the rule
+[#342](https://github.com/LupoLab/solprop/issues/342) proposed: binary32 Adams judged
+against binary64 Adams at the same tolerance, rather than against Runge–Kutta, whose
+difference from Adams is the methods' truncation. Each case ran its whole length,
+noise-free, on a power-of-two grid, at each interface's default tolerance, on `mlx`
+(binary32) and `native` (binary64). The table gives the relative difference of the
+final fields, and binary64 Runge–Kutta's from binary64 Adams as the scale of the
+methods' own truncation:
+
+| case | binary32 Adams against binary64 Adams | binary64 RK against binary64 Adams | binary32 RK against binary64 Adams |
+|---|---|---|---|
+| He capillary gradient, mode-averaged, 1.5 m (RDW) | 2.3e-6 | 3.6e-6 | 4.3e-5 |
+| the same, four modes | 4.3e-6 | 1.7e-6 | 1.3e-4 |
+| Ar capillary, field-grid plasma, 0.2 m | 1.3e-5 | 2.3e-5 | 4.9e-5 |
+| Ar capillary, envelope-grid plasma, 0.2 m | 8.2e-5 | 1.1e-4 | 1.2e-4 |
+| H₂ capillary, Raman, mode-averaged, 0.4 m | 8.0e-5 | 2.9e-5 | 1.0e-4 |
+| GNLSE, Raman and shock, 0.15 m | 2.2e-4 | 3.1e-5 | 9.4e-5 |
+| radial filament in argon with plasma, 3 cm | 6.8e-6 | 1.4e-5 | 1.1e-5 |
+| radial Kerr beam with its transverse collar, 8 cm | 5.0e-6 | 6.7e-6 | 7.7e-6 |
+
+Every case is far inside the field envelope of $10^{-3}$, and all but the GNLSE within a
+small multiple of the methods' own difference; the GNLSE runs at `1e-6` in binary32
+against binary64's `1e-7` (the floor), which accounts for its row. On the capillaries
+binary32 Adams is closer to the binary64 reference than binary32 Runge–Kutta is.
 
 ## Known limitations
 

@@ -252,18 +252,24 @@ def test_a_single_precision_variant_is_noiseless_and_a_pow2_grid_a_power_of_two(
     assert spatial.grid.n_t & (spatial.grid.n_t - 1) == 0
 
 
-def test_mlx_configurations_run_in_single_precision_and_refuse_adams():
+def test_mlx_configurations_run_in_single_precision_and_refuse_interaction_adams():
     from benchmarks.runner import plan_rows  # noqa: PLC0415
 
     cases = (CASES["he_rdw_averaged"], CASES["planar"], CASES["kerr_beam_192"])
     rows, skipped = plan_rows(
-        cases, ("default", "multistep"), "1", 1, backend="mlx", fft_size="pow2"
+        cases,
+        ("default", "multistep", "multistep-interaction"),
+        "1",
+        1,
+        backend="mlx",
+        fft_size="pow2",
     )
     assert [row["id"] for row in rows] == [
         "he_rdw_averaged.default.t1",
+        "he_rdw_averaged.multistep.t1",
         "kerr_beam_192.default.t1",
     ]
     assert all(row["configuration"]["precision"] == "single" for row in rows)
     assert all(row["configuration"]["fft_size"] == "pow2" for row in rows)
-    assert any("Adams" in reason for reason in skipped)
+    assert any("exponential formulation" in reason for reason in skipped)
     assert any(reason.startswith("planar") for reason in skipped)

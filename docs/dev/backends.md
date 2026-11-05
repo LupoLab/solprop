@@ -467,8 +467,10 @@ lookup, the envelope-grid plasma's cycle moments and the statistics are evaluate
 binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
 so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):
 a problem that reaches `registry.select` without passing `SimulationSettings` is still
-refused the Adams integrator, outside the survival study's private switch, and an
-adaptive `rtol` below the floor. `native` refuses a single-precision
+refused an adaptive `rtol` below the floor. The Adams integrator is admitted (#342):
+binary32 Adams agrees with binary64 Adams to the method's own truncation on the survival
+cases, and a single-precision history resumes in binary32 (`HostHistory.load_rows`,
+`NumpySingleBackend._adams_restore`). `native` refuses a single-precision
 problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
@@ -1642,8 +1644,9 @@ statistics from the widened state -- while the state and every per-step pass liv
 device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
 and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
 and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
-evaluation, reached through `select_batch`; the `Batch` executor refuses `mlx`), with every response the oracle runs; a z table, Adams and interpolated
-planes are refused by name. The radial route is the fibre route's quadrature with the Hankel
+evaluation, reached through `select_batch`; the `Batch` executor refuses `mlx`), with every response the oracle runs, and the exponential Adams integrator
+(`MlxAdams`, below); a z table, the interaction formulation and interpolated planes are
+refused by name. The radial route is the fibre route's quadrature with the Hankel
 matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
 projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
 The Cartesian route (`_device_free`) uploads its separable operator once, at unit

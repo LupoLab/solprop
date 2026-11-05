@@ -121,13 +121,14 @@ MLX_BUILDERS = ("capillary", "gnlse", "kerr", "spatial")
 def mlx_refusal(case: Case, stepper: str) -> str | None:
     """Say why ``mlx`` cannot run a configuration, or ``None`` when it can.
 
-    ``mlx`` admits what single precision admits (``translate.precision``): no Adams
-    integrator, no planar or general modal route, no TDSE or coupled flow.
+    ``mlx`` admits what single precision admits (``translate.precision``) -- no planar
+    or general modal route, no TDSE or coupled flow -- and runs the Adams integrator in
+    its exponential formulation only.
     """
     if case.builder not in MLX_BUILDERS or case.name == "planar":
         return "mlx runs the fibre, radial and Cartesian routes only"
-    if stepper.startswith("multistep"):
-        return "mlx does not admit the Adams integrator under single precision"
+    if stepper == "multistep-interaction":
+        return "mlx runs the Adams integrator's exponential formulation only"
     return None
 
 
