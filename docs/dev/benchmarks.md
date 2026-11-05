@@ -933,7 +933,7 @@ A requested collar at 384 x 384 x 600, one state, field-free, native against the
 | 768 x 768 x 600, 8 steps, 4 planes | 4.80 s | 3.68 s | 4.69 s | 2.59 s |
 | 384 x 384 x 600, 51 steps, 17 planes | 1.39 s | 0.93 s | 4.24 s | 3.26 s |
 
-So a `Local` scan on a device now keeps the backend while each point is the last but for its input, which is what `Simulation.with_input` gives. On those two windows that saves 45 % and 23 % of a point's own time, and a builder that shares its base skips the first two columns too.
+So a `Local` scan on a device now keeps the backend while each point is the last but for its input, which is what `Simulation.with_input` gives. On those two windows that saves 45 % and 23 % of a point's own time, and a builder that shares its base skips the first two columns too. A whole scan has only been timed on an NVIDIA A40, whose binary64 step is slow beside what it saves: 5 points through `with_input`, default check, 8 steps, two rounds of each, 37.3 s to 32.7 s at 384 x 384 x 600, x0.88, and 153.9 s to 141.7 s at 768 x 768 x 600, x0.92.
 
 **The transverse size** ([#529](https://github.com/LupoLab/solprop/issues/529)). Each plan takes a work area, one state's each for the rank-3 pair and, at some sizes only, for the rank-2 pair. So the plans hold two or four states, and the point's memory and its seconds per GiB depend on the size. On the H200, 8 steps, check off:
 
