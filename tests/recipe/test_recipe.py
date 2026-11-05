@@ -443,6 +443,35 @@ def test_check_reports_each_value_at_its_path(recipe):
     assert recipe.check() == []
 
 
+@pytest.mark.parametrize(
+    "call",
+    [
+        Recipe.build,
+        Recipe.resolve,
+        Recipe.modes,
+        Recipe.preview_input,
+        lambda recipe: recipe.run(None),
+    ],
+    ids=["build", "resolve", "modes", "preview_input", "run"],
+)
+def test_a_missing_required_keyword_is_refused_before_the_route(call):
+    missing = Recipe.loads(GNLSE.replace('wavelength = "835 nm"\n', ""))
+    with pytest.raises(
+        RecipeError, match=r"^wavelength: a required keyword is missing$"
+    ) as caught:
+        call(missing)
+    assert caught.value.parameter == "wavelength"
+
+
+def test_several_missing_keywords_are_all_named_with_the_first_as_parameter():
+    text = GNLSE.replace("gamma = 0.11\n", "").replace('wavelength = "835 nm"\n', "")
+    with pytest.raises(
+        RecipeError, match="the required keywords gamma, wavelength are missing"
+    ) as caught:
+        Recipe.loads(text).build()
+    assert caught.value.parameter == "gamma"
+
+
 def test_check_reports_a_refusal_of_the_build_with_its_parameter():
     text = GNLSE.replace("n_save = 3\n", 'n_save = 3\nsave_planes = ["5 mm"]\n')
     issues = Recipe.loads(text).check()

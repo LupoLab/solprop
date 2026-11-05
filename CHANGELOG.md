@@ -178,6 +178,11 @@ All notable changes to solprop are recorded here. The format follows
   per run, after `open` and before any `save`, with the rule resolved against the run's
   planes. A run that keeps fewer than every field used to look the method up without
   declaring it anywhere (#450).
+- `processing.spatial_grid_of` returns a saved spatial run's transverse grid from its record, and `processing.fluence_map` lays one saved plane's fluence out on its axes, in any bulk medium and for a file written by a script. `node_fluence` now also reads radial and Cartesian runs without a gas mixture. A hybrid planar file is refused by name (#455).
+- `processing.save_field_plane` and `processing.load_field_plane` keep a `FieldPlane` in an HDF5 file with its own schema version, so a saved plane can launch another run later. A recipe can't yet name one as its launch (#456).
+- A recipe can hold a step-index fibre: `StepIndexMode`, with `glass` or an index for its core and cladding, is the GNLSE route's `fibre`, and `gamma = "none"` spells the `None` that derives the coefficient from `n2` and the fibre's area. `Recipe.example("step_index_fibre")` is the strand of the step-index tutorial (#472).
+- A recipe can hold a graded-index fibre on the waveguide route: `ModalGuide.on_grid` builds a guide from a provider with its knots and node rule taken from the time grid, and `GradedIndexProvider`, `PowerLawPermittivity`, `IndexMaterial` and `MaterialKerr` are registered. `Recipe.example("graded_index_fibre")` is a new tutorial (#473).
+- `Recipe.example("line_beam")` is a line beam on a `LineGrid` under the Kerr effect, with a new tutorial (#476).
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
 - An `ApertureSet` row may be an ellipse, a rectangle or a half-plane (`shapes`, `extents`), with its own edge profile (`profiles`), so a far-field statistic can express an instrument's mask: a knife edge at a fixed position in a far-field plane, whose wavevector moves with frequency, no longer needs the field on the host. A half-plane is half-open and tiles the columns with its complement. Line grids take half-planes bounded in x and rectangles, and the offline `Aperture` takes the same shapes. Unset, the new fields leave every existing result, record and configuration hash as they were (#446, part of #186).
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
@@ -444,6 +449,7 @@ All notable changes to solprop are recorded here. The format follows
   that only reduces a plane paid two field-sized copies and a peak of two volumes per plane.
   `plane.field` is read-only and nothing changes it afterwards, so a handler can still keep
   it; a `SavedPlane` constructed by hand copies, as before (#448).
+- A recipe without a required keyword now raises `RecipeError`, naming the keyword in its `parameter`, from `build`, `resolve`, `modes`, `preview_input`, `pin_roots` and `run`, where the route's constructor raised a bare `TypeError` (#454).
 - The native backend now refuses an unknown `SOLPROP_FFTW_PLAN` value, which it had read as `measure`, and a problem whose `response_order` omits a response it holds, which it had run anyway. An empty `SOLPROP_FFTW_PLAN` now counts as unset (#460).
 - A native run under Runge-Kutta or Adams now records the `propagator_mode` it used, `recompute`, when `tabulate` was asked for; it had recorded `tabulate`, which that march can't do. The run's configuration still keeps what was asked (#464).
 - `Simulation.estimate()` no longer crashes the process on the native backend under `LowStorageRungeKutta()`, and on every backend it now times that march's own step, so its time per step is the low-storage march's (#492). A trial step on a native low-storage state now raises a named error instead of faulting.
@@ -462,6 +468,7 @@ All notable changes to solprop are recorded here. The format follows
   of a bare `ValueError` on `native` and an accident in `matmul` on `numpy_ref`. A direct call
   to `native`'s `stats` now checks every route for names the route doesn't define, and refuses
   a general flux statistic under a weight other than one rather than ignoring the weight.
+- A `soliton_order` pin on a GNLSE recipe reads the recipe's `gamma` or `n2`, where it failed with a bare `AttributeError` looking for the mode's gas fill.
 - A recipe with a `[scan]` no longer drops the `[execution]` keys `run_scan` does not take:
   `resume_history` now reaches each point's settings, as the scan file's
   recorded recipe says it does.

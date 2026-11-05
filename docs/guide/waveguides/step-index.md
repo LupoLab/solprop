@@ -31,6 +31,20 @@ dispersion = beta2(fibre, np.array([2 * np.pi * C / 835e-9]))
 zero = zdw(fibre, wavelength_limits=(400e-9, 1400e-9))
 ```
 
+A recipe writes the mode as the GNLSE route's `fibre`, with `gamma = "none"` when `n2`
+and the mode's area give the coefficient. `core` and `cladding` take an index or a
+`glass` table, and the defaults are the same as above:
+
+```{code-block} toml
+gamma = "none"
+n2 = 2.6e-20
+fibre = { type = "StepIndexMode", radius = "1.25 um", profile_wavelength = "835 nm", core = { type = "glass", name = "SiO2" } }
+```
+
+`Recipe.example("step_index_fibre")` is the
+[step-index tutorial](../../auto_tutorials/waveguides/plot_03_stepindex_rectangular.rst)'s
+strand ([recipes](../setup/recipes.md)).
+
 The default core is fused silica -- optmat's `fit/SiO2`, taken
 through its transparent approximation, so two channels built separately share one
 material (adapters of one model compare equal) -- and the default cladding is the

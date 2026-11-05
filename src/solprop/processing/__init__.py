@@ -25,6 +25,7 @@ from solprop.processing.axes import (
     grid_from_record,
     grid_of,
     layout,
+    spatial_grid_of,
     spectral_axis,
     spectral_order,
     transverse_units,
@@ -72,7 +73,17 @@ from solprop.processing.modal import (
     physical_energy,
     reconstructed_flux,
 )
-from solprop.processing.planes import PLANE_TOLERANCE, field_plane
+from solprop.processing.plane_file import (
+    PLANE_FILE_SCHEMA,
+    load_field_plane,
+    save_field_plane,
+)
+from solprop.processing.planes import (
+    PLANE_TOLERANCE,
+    FluenceMap,
+    field_plane,
+    fluence_map,
+)
 from solprop.processing.spectra import (
     DEFAULT_BANDPASS_BINS,
     DEFAULT_BANDPASS_FRACTION,
@@ -104,6 +115,7 @@ __all__ = [
     "DEFAULT_BANDPASS_FRACTION",
     "FIELD_KINDS",
     "NOISE_FLOORS",
+    "PLANE_FILE_SCHEMA",
     "PLANE_TOLERANCE",
     "SPECTRAL_AXES",
     "ArrivalMethod",
@@ -111,6 +123,7 @@ __all__ = [
     "CepOptimum",
     "Compression",
     "FieldKind",
+    "FluenceMap",
     "ModeSelection",
     "NoiseFloor",
     "Passband",
@@ -136,6 +149,7 @@ __all__ = [
     "example_output",
     "field_autocorrelation",
     "field_plane",
+    "fluence_map",
     "fwhm",
     "fwhm_f",
     "fwhm_t",
@@ -154,6 +168,7 @@ __all__ = [
     "instantaneous_flux",
     "intensity_autocorrelation",
     "layout",
+    "load_field_plane",
     "magnetic_field",
     "moment",
     "nearest_plane",
@@ -162,6 +177,8 @@ __all__ = [
     "peak_power",
     "physical_energy",
     "reconstructed_flux",
+    "save_field_plane",
+    "spatial_grid_of",
     "species_ionisation",
     "species_ionisation_energy",
     "specres",
