@@ -96,7 +96,7 @@ def runtime(backend: str, device: bool = False) -> Record:
     import solprop  # noqa: PLC0415
 
     packages = {}
-    for name in ("solprop", "numpy", "scipy", "optmat"):
+    for name in ("solprop", "numpy", "scipy", "optmat", "mlx"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -323,6 +323,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             "finite": bool(np.all(np.isfinite(final))),
             "repeat_difference": difference,
             "integrator": integrator_label(problem.stepper.integrator),
+            "precision": configuration.get("precision", "double"),
             "rtol": controller.rtol,
             "atol": controller.atol,
             "noise": simulation.noise_resolution.resolved

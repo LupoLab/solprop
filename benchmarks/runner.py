@@ -20,10 +20,12 @@ from benchmarks.registry import Case
 from benchmarks.system import POOL_VARIABLES, widths
 
 __all__ = [
+    "MLX_BUILDERS",
     "ROOT",
     "estimate",
     "freeze_harness",
     "launch_worker",
+    "mlx_refusal",
     "plan_rows",
     "prepared_python",
     "receipt",
@@ -68,6 +70,8 @@ def plan_rows(  # noqa: PLR0913
     backend: str = "native",
     fraction: float = 1.0,
     device: bool = False,
+    noise: str = "case",
+    fft_size: str = "case",
 ) -> tuple[list[Record], list[str]]:
     """Resolve configurations in run order; explain every one left out.
 
@@ -87,18 +91,44 @@ def plan_rows(  # noqa: PLR0913
                         "schedule only"
                     )
                     continue
+                if backend == "mlx" and (refusal := mlx_refusal(case, stepper)):
+                    skipped.append(f"{case.name} {stepper}: {refusal}")
+                    continue
                 rows.append(
                     {
                         "id": f"{case.name}.{stepper}."
                         + ("device" if device else f"t{width}"),
                         "configuration": case.configuration(
-                            stepper, width, backend, fraction, device=device
+                            stepper,
+                            width,
+                            backend,
+                            fraction,
+                            device=device,
+                            noise=noise,
+                            fft_size=fft_size,
                         ),
                         "cost": None if device else case.cost[0 if width == 1 else 1],
                     }
                 )
     rows.sort(key=lambda row: row["configuration"]["threads"])
     return rows, skipped
+
+
+MLX_BUILDERS = ("capillary", "gnlse", "kerr", "spatial")
+"""The builders whose cases ``mlx`` can run: its fibre, radial and Cartesian routes."""
+
+
+def mlx_refusal(case: Case, stepper: str) -> str | None:
+    """Say why ``mlx`` cannot run a configuration, or ``None`` when it can.
+
+    ``mlx`` admits what single precision admits (``translate.precision``): no Adams
+    integrator, no planar or general modal route, no TDSE or coupled flow.
+    """
+    if case.builder not in MLX_BUILDERS or case.name == "planar":
+        return "mlx runs the fibre, radial and Cartesian routes only"
+    if stepper.startswith("multistep"):
+        return "mlx does not admit the Adams integrator under single precision"
+    return None
 
 
 def estimate(rows: list[Record], runs: int) -> float | None:

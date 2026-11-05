@@ -67,6 +67,8 @@ def main(argv: list[str] | None = None) -> int:
             args.threads,
             args.production or physical_cores(),
             backend=args.backend,
+            noise=args.noise,
+            fft_size=args.fft_size,
         )
         show_plan(rows, skipped, args.repeats)
         return 0

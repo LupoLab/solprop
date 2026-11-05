@@ -46,7 +46,53 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
     }[stepper]
 
 
-def capillary(name: str) -> Simulation:
+def variant(configuration: Record) -> Record:
+    """Return the keywords that turn a case into its precision, noise and grid variant.
+
+    ``precision`` is ``"single"`` on ``mlx`` and ``"double"`` elsewhere unless the
+    configuration names it. A single-precision run, or one asked for ``noise="none"``,
+    is noiseless: no seed and no noise model, so that a cross-backend A/B compares
+    one workload. ``fft_size="pow2"`` rebuilds the case's time grid at the next power
+    of two; the transverse grids are kept, as their sizes set the physics.
+    """
+    precision = configuration.get("precision") or (
+        "single" if configuration["backend"] == "mlx" else "double"
+    )
+    noiseless = precision == "single" or configuration.get("noise") == "none"
+    fft_size = configuration.get("fft_size") or "case"
+    if fft_size not in ("case", "pow2"):
+        raise SuiteError(f"unknown fft_size {fft_size}")
+    return {"precision": precision, "noiseless": noiseless, "fft_size": fft_size}
+
+
+def _launch(options: Record) -> dict[str, Any]:
+    """Return the noise and seed keywords of a noisy case under `options`."""
+    if options["noiseless"]:
+        return {"noise": None, "seed": None}
+    return {"seed": SEED}
+
+
+def _limits(
+    options: Record,
+    length: float,
+    wavelength: float,
+    limits: tuple[float, float],
+    trange: float,
+    *,
+    envelope: bool = False,
+) -> dict[str, Any]:
+    """Return the grid keywords: the interface's own, or a power-of-two grid."""
+    if options["fft_size"] == "case":
+        return {"wavelength_limits": limits, "trange": trange}
+    from solprop.grid import EnvelopeGrid, FieldGrid  # noqa: PLC0415
+
+    kind = EnvelopeGrid if envelope else FieldGrid
+    return {
+        "grid": kind.from_limits(length, wavelength, limits, trange, fft_size="pow2")
+    }
+
+
+def capillary(name: str, options: Record | None = None) -> Simulation:
     """Build a capillary case on its resolved or mode-averaged route.
 
     A ``_averaged`` case asks the interface for ``mode_average=True``, as a user
@@ -54,6 +100,8 @@ def capillary(name: str) -> Simulation:
     interface's own statistics.
     """
     from solprop.driver import Simulation  # noqa: PLC0415 - worker-only imports
+
+    options = options or variant({"backend": "native"})
 
     averaged = name.endswith("_averaged")
     if name.startswith("rdw") or name == "he_rdw_averaged":
@@ -63,13 +111,13 @@ def capillary(name: str) -> Simulation:
             "He",
             (0.8, 0.0),
             wavelength=800e-9,
-            wavelength_limits=(90e-9, 4e-6),
-            trange=400e-15,
             fwhm=7.5e-15,
             energy=275e-6,
             modes=4 if name == "rdw" else 1,
             mode_average=averaged,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 1.5, 800e-9, (90e-9, 4e-6), 400e-15),
+            **_launch(options),
         )
     if name == "ctc":
         return Simulation.from_capillary(
@@ -78,13 +126,13 @@ def capillary(name: str) -> Simulation:
             "H2",
             40.0,
             wavelength=515e-9,
-            wavelength_limits=(220e-9, 4e-6),
-            trange=2e-12,
             fwhm=400e-15,
             energy=10e-6,
             modes=3,
             loss=0.0,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 0.13, 515e-9, (220e-9, 4e-6), 2e-12),
+            **_launch(options),
         )
     if name in ("ctc_reduced", "ctc_reduced_two_mode"):
         # The reduced case of the comb-to-continuum tests: the fundamental alone on a
@@ -96,14 +144,14 @@ def capillary(name: str) -> Simulation:
             "H2",
             40.0,
             wavelength=515e-9,
-            wavelength_limits=(250e-9, 2e-6),
-            trange=2e-12,
             fwhm=400e-15,
             energy=10e-6,
             modes=1 if name == "ctc_reduced" else 2,
             raman=True,
             temperature=294.0,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 0.1, 515e-9, (250e-9, 2e-6), 2e-12),
+            **_launch(options),
         )
     if name.startswith("argon_blueshift"):
         return Simulation.from_capillary(
@@ -115,12 +163,19 @@ def capillary(name: str) -> Simulation:
             fwhm=30e-15,
             energy=3e-6,
             loss=False,
-            trange=400e-15,
-            wavelength_limits=(160e-9, 4e-6),
             modes=1,
             envelope=name == "argon_blueshift_envelope",
             mode_average=averaged,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(
+                options,
+                0.2,
+                800e-9,
+                (160e-9, 4e-6),
+                400e-15,
+                envelope=name == "argon_blueshift_envelope",
+            ),
+            **_launch(options),
         )
     if name == "h2_raman_averaged":
         return Simulation.from_capillary(
@@ -133,11 +188,11 @@ def capillary(name: str) -> Simulation:
             energy=3e-6,
             loss=False,
             plasma=False,
-            trange=800e-15,
-            wavelength_limits=(200e-9, 4e-6),
             modes=1,
             mode_average=True,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 0.4, 1030e-9, (200e-9, 4e-6), 800e-15),
+            **_launch(options),
         )
     if name in ("h2_raman_6ps", "h2_raman_6ps_averaged"):
         return Simulation.from_capillary(
@@ -151,16 +206,16 @@ def capillary(name: str) -> Simulation:
             loss=False,
             plasma=False,
             raman=True,
-            trange=6e-12,
-            wavelength_limits=(400e-9, 4e-6),
             modes=1,
             mode_average=averaged,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 2.0, 1030e-9, (400e-9, 4e-6), 6e-12),
+            **_launch(options),
         )
     raise SuiteError(f"capillary builder not implemented for {name}")
 
 
-def gnlse(name: str) -> Simulation:
+def gnlse(name: str, options: Record | None = None) -> Simulation:
     """Extract the ideal soliton and the SEP 13 Raman/shock envelope inputs.
 
     Higher dispersion coefficients and the Raman/shock launch follow Dudley,
@@ -172,6 +227,7 @@ def gnlse(name: str) -> Simulation:
 
     from solprop.driver import Simulation  # noqa: PLC0415
 
+    options = options or variant({"backend": "native"})
     if name == "gnlse_soliton":
         beta2, gamma, width = -11.83e-27, 0.11, 100e-15
         return Simulation.from_gnlse(
@@ -179,8 +235,6 @@ def gnlse(name: str) -> Simulation:
             math.pi / 2 * width**2 / abs(beta2),
             [0.0, 0.0, beta2],
             wavelength=835e-9,
-            wavelength_limits=(500e-9, 2e-6),
-            trange=4e-12,
             width=width,
             peak_power=3**2 * abs(beta2) / (gamma * width**2),
             shape="sech",
@@ -190,6 +244,15 @@ def gnlse(name: str) -> Simulation:
             # and a seed would make it a different workload (SEP 37 measured 65 times
             # the steps with one).
             noise=None,
+            precision=options["precision"],
+            **_limits(
+                options,
+                math.pi / 2 * width**2 / abs(beta2),
+                835e-9,
+                (500e-9, 2e-6),
+                4e-12,
+                envelope=True,
+            ),
         )
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
@@ -209,21 +272,21 @@ def gnlse(name: str) -> Simulation:
                 -1.7140e-144,
             ],
             wavelength=835e-9,
-            wavelength_limits=(400e-9, 2e-6),
-            trange=12.5e-12,
             # 50 fs FWHM, T0 = 28.4 fs (Dudley, Genty and Coen, section III).
             fwhm=50e-15,
             shape="sech",
             peak_power=10e3,
             raman=True,
             shock=True,
-            seed=SEED,
+            precision=options["precision"],
+            **_limits(options, 0.15, 835e-9, (400e-9, 2e-6), 12.5e-12, envelope=True),
+            **_launch(options),
         )
     raise SuiteError(f"GNLSE builder not implemented for {name}")
 
 
 def spatial_grids(
-    name: str,
+    name: str, fft_size: str = "case"
 ) -> tuple[EnvelopeGrid | FieldGrid, FreeGrid | LineGrid | RadialGrid]:
     """Return a free-space case's time and transverse grids, without its launch.
 
@@ -253,7 +316,7 @@ def spatial_grids(
             (143e-9, 600e-9),
             window,
             thg=False,
-            fft_size="smooth",
+            fft_size="pow2" if fft_size == "pow2" else "smooth",
         )
         return grid, FreeGrid(
             half_width * 1.1, size, half_width * 1.1, size, collar_fraction=0.0
@@ -264,6 +327,7 @@ def spatial_grids(
         800e-9,
         (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
         250e-15,
+        fft_size="pow2" if fft_size == "pow2" else "auto",
     )
     if name == "spatial_absorber":
         # SEP 40: the aperture of three waists with 2.6 radii of room outside it, for
@@ -280,7 +344,7 @@ def spatial_grids(
     raise SuiteError(f"spatial builder not implemented for {name}")
 
 
-def kerr(name: str, settings: SimulationSettings) -> Simulation:
+def kerr(name: str, settings: SimulationSettings, fft_size: str = "case") -> Simulation:
     """Build SEP 28's full Cartesian envelope beam and material.
 
     The Sellmeier coefficients are inherited from the SEP 28 builder, citing
@@ -295,7 +359,7 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium  # noqa: PLC0415
 
-    grid, space = spatial_grids(name)
+    grid, space = spatial_grids(name, fft_size)
     assert isinstance(space, FreeGrid)
     glass = SellmeierGlass(
         name="malitson",
@@ -317,7 +381,9 @@ def kerr(name: str, settings: SimulationSettings) -> Simulation:
     )
 
 
-def spatial(name: str, settings: SimulationSettings) -> Simulation:
+def spatial(
+    name: str, settings: SimulationSettings, options: Record | None = None
+) -> Simulation:
     """Extract the SEP 16 filament with its original physical resolution."""
     import math  # noqa: PLC0415
 
@@ -335,9 +401,10 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
     from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
     from solprop.spatial import SpatialMedium, critical_power  # noqa: PLC0415
 
+    options = options or variant({"backend": "native"})
     if name == "planar":
         return _planar(settings)
-    grid, space = spatial_grids(name)
+    grid, space = spatial_grids(name, options["fft_size"])
     plasma = "filament" in name
     medium = SpatialMedium("Ar", 1.0)
     chi3 = gamma3("Ar", wavelength=800e-9)
@@ -364,7 +431,7 @@ def spatial(name: str, settings: SimulationSettings) -> Simulation:
         settings = dataclasses.replace(settings, spatial_absorber=SpatialAbsorber())
     if isinstance(space, RadialGrid):
         return Simulation.from_radial(
-            grid, space, medium, responses, pulse, settings=settings, seed=SEED
+            grid, space, medium, responses, pulse, settings=settings, **_launch(options)
         )
     return Simulation.from_free(
         grid, space, medium, responses, pulse, settings=settings
@@ -445,8 +512,10 @@ def build(configuration: Record) -> Simulation:
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
     chosen = integrator(configuration["stepper"])
+    options = variant(configuration)
     if case.builder in ("kerr", "spatial"):
         settings = SimulationSettings(
+            precision=options["precision"],
             save_planes=itinerary,
             dz_max=case.length,
             dz_init=case.length * 1e-4,
@@ -465,7 +534,9 @@ def build(configuration: Record) -> Simulation:
                 ),
                 propagator_mode="tabulate",
             )
-        return (kerr if case.builder == "kerr" else spatial)(case.name, settings)
+        if case.builder == "kerr":
+            return kerr(case.name, settings, options["fft_size"])
+        return spatial(case.name, settings, options)
     if case.builder == "exercise":
         from benchmarks.exercises import exercise  # noqa: PLC0415
 
@@ -488,9 +559,9 @@ def build(configuration: Record) -> Simulation:
             )
             return simulation
     elif case.builder == "capillary":
-        simulation = capillary(case.name)
+        simulation = capillary(case.name, options)
     elif case.builder == "gnlse":
-        simulation = gnlse(case.name)
+        simulation = gnlse(case.name, options)
     elif case.builder == "smoke":
         simulation = smoke()
     else:

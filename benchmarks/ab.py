@@ -33,12 +33,13 @@ from benchmarks.runner import (
     receipt,
 )
 from benchmarks.system import eligible_cpus, guard, physical_cores, thread_environment
-from benchmarks.track import selection_options, steppers
+from benchmarks.track import BACKENDS, selection_options, steppers
 
 __all__ = [
     "ARMS",
     "ab",
     "ab_options",
+    "arm_configuration",
     "arm_order",
     "field_difference",
     "show_summary",
@@ -66,6 +67,25 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         "--timeout", type=float, default=3600.0, help="per-worker limit, seconds"
     )
     parser.add_argument("--json", action="store_true")
+    parser.add_argument(
+        "--baseline-backend",
+        choices=BACKENDS,
+        help="the baseline arm's backend; default: --backend",
+    )
+    parser.add_argument(
+        "--candidate-backend",
+        choices=BACKENDS,
+        help="the candidate arm's backend; default: --backend",
+    )
+
+
+def arm_configuration(configuration: Record, backend: str) -> Record:
+    """Return one arm's configuration: its backend and that backend's precision."""
+    return {
+        **configuration,
+        "backend": backend,
+        "precision": "single" if backend == "mlx" else "double",
+    }
 
 
 def arm_order(round_index: int) -> tuple[str, ...]:
@@ -184,14 +204,21 @@ def ab(args: argparse.Namespace) -> int:
     if args.rounds < 1 or args.repeats < 1 or args.timeout <= 0:
         raise SuiteError("rounds, repeats and timeout must be positive")
     started = time.perf_counter()
+    backends = {
+        "baseline": args.baseline_backend or args.backend,
+        "candidate": args.candidate_backend or args.backend,
+    }
     rows, skipped = plan_rows(
         select(tuple(args.case), tuple(args.set), all_cases=args.all),
         steppers(args.stepper),
         args.threads,
         args.production or physical_cores(),
-        backend=args.backend,
+        # A configuration either arm cannot run is left out for both.
+        backend="mlx" if "mlx" in backends.values() else args.backend,
         fraction=args.length,
         device=args.device,
+        noise=args.noise,
+        fft_size=args.fft_size,
     )
     for reason in skipped:
         print(f"skipped {reason}")
@@ -211,6 +238,7 @@ def ab(args: argparse.Namespace) -> int:
             "created": now(),
             "purpose": "exploratory A/B",
             "pythons": pythons,
+            "backends": backends,
             "rounds": args.rounds,
             "repeats": args.repeats,
             "length": args.length,
@@ -236,7 +264,9 @@ def ab(args: argparse.Namespace) -> int:
                 events, elapsed = launch_worker(
                     pythons[arm],
                     {
-                        "configuration": row["configuration"],
+                        "configuration": arm_configuration(
+                            row["configuration"], backends[arm]
+                        ),
                         "repeats": args.repeats,
                         "fields": str(
                             (output / "fields" / arm / f"{row['id']}.npy").resolve()
@@ -282,7 +312,10 @@ def ab(args: argparse.Namespace) -> int:
         print(canonical(summary))
     else:
         show_summary(summary)
-        same = pythons["baseline"] == pythons["candidate"]
+        same = (
+            pythons["baseline"] == pythons["candidate"]
+            and backends["baseline"] == backends["candidate"]
+        )
         print(
             ("A/A control: the same interpreter for both arms. " if same else "")
             + (f"Results: {output.resolve()} ({time.perf_counter() - started:.0f} s)")
