@@ -41,6 +41,7 @@ one photon per active bin and channel. ``noise_floor="subtract"`` on
 by channel, and returns the signed remainder (SEP 37, section 5.5).
 """
 
+import math
 from typing import TYPE_CHECKING, Literal
 
 import numpy as np
@@ -79,6 +80,7 @@ __all__ = [
     "FieldKind",
     "ModeSelection",
     "NoiseFloor",
+    "field_spectrogram",
     "get_field",
     "get_phase",
     "get_power",
@@ -86,6 +88,7 @@ __all__ = [
     "get_spectrogram",
     "get_spectrum",
     "nearest_plane",
+    "real_field_oversampling",
 ]
 
 FieldKind = Literal["analytic", "real", "envelope"]
@@ -1021,9 +1024,6 @@ def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
     (True, True)
     """
     _check_choice(axis, SPECTRAL_AXES, "axis")
-    if positions < 1:
-        msg = f"a spectrogram needs at least one gate position, got {positions!r}"
-        raise ProcessingError(msg)
     if plane is None and z is None:
         plane = -1
     t, field = get_field(
@@ -1032,6 +1032,7 @@ def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
         plane=plane,
         z=z,
         modes=modes,
+        oversampling=real_field_oversampling(grid_of(output)),
         bandpass=bandpass,
         transfer=transfer,
     )
@@ -1041,6 +1042,100 @@ def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
             f"do not add away from a point in space (this run has {field.shape[0]})"
         )
         raise ModeError(msg)
+    return field_spectrogram(
+        t,
+        field,
+        axis,
+        time_range=time_range,
+        gate_fwhm=gate_fwhm,
+        positions=positions,
+    )
+
+
+def real_field_oversampling(grid: TimeGrid) -> int:
+    """Return the oversampling a real field needs to resolve its carrier.
+
+    An envelope grid samples only the band about its carrier, so a narrow band's time
+    step can be too coarse for the carrier it took out, and its real field would alias.
+    A field grid resolves its own band by construction.
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        The grid.
+
+    Returns
+    -------
+    int
+        The factor, at least 1.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid
+    >>> wide = EnvelopeGrid.from_limits(0.1, 800e-9, (300e-9, 1600e-9), 200e-15)
+    >>> narrow = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1100e-9), 200e-15)
+    >>> real_field_oversampling(narrow) > real_field_oversampling(wide)
+    True
+    """
+    if grid.kind != "envelope":
+        return 1
+    return max(1, math.ceil(float(np.max(grid.omega)) * float(grid.dt) / math.pi))
+
+
+def field_spectrogram(
+    t: Float[np.ndarray, " n_t"],
+    field: Float[np.ndarray, " n_t"],
+    axis: SpectralAxis = "f",
+    *,
+    time_range: tuple[float, float] | None = None,
+    gate_fwhm: float | None = None,
+    positions: int = DEFAULT_GATE_POSITIONS,
+) -> tuple[
+    Float[np.ndarray, " n_slices"],
+    Float[np.ndarray, " n_x"],
+    Float[np.ndarray, "n_x n_slices"],
+]:
+    """Return the spectrogram of one real field already in hand.
+
+    What :func:`get_spectrogram` does once it has read a mode's field, for a field read
+    otherwise, such as the one on a beam's axis.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        The field's times, s, evenly spaced.
+    field : numpy.ndarray
+        The real field.
+    axis : {'f', 'omega', 'wavelength'}
+        The spectral abscissa, in Hz, rad/s or m.
+    time_range : tuple of float or None
+        The time range the gate positions cover, s, in either order and clipped to
+        the time window; the whole window by default.
+    gate_fwhm : float or None
+        Width of the gate, s; a twentieth of the time range by default.
+    positions : int
+        How many gate positions to place across the time range.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        The gate positions within the time range, s, shape ``(n_slices,)``.
+    x : numpy.ndarray
+        The positive frequencies of the transform on ``axis``, ascending, shape
+        ``(n_x,)``.
+    values : numpy.ndarray
+        The map, shape ``(n_x, n_slices)``, arbitrary units per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the time range misses the time window or selects no gate position, the
+        gate is not positive or is wider than the window, or the number of positions
+        is not positive.
+    """
+    if positions < 1:
+        msg = f"a spectrogram needs at least one gate position, got {positions!r}"
+        raise ProcessingError(msg)
     window = (float(t[0]), float(t[-1]))
     low, high = window if time_range is None else time_range
     low, high = min(low, high), max(low, high)
