@@ -48,6 +48,7 @@ from solprop.spatial import (
 from solprop.translate.flux import flux_from_record
 
 __all__ = [
+    "FAR_FIELD_ANGLES",
     "far_field",
     "fluence_along",
     "on_axis_power",
