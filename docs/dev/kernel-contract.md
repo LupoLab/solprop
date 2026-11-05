@@ -608,7 +608,6 @@ sections and refuse a `"cf4"` section by name
 | `projection_coarse` | same | the embedded coarse-rule projection for the error estimate |
 | `taper_scale` | `ZProfile` table or `None` | the scalar rescaling of synthesis/projection along z for scale-invariant modes |
 | `node_chunk` | int | nodes per chunk for the response pass |
-| `chunk_budgeted` | bool | whether the caller's own `node_budget` set `node_chunk`: without one, a device takes a free-space envelope's split collar a whole state at a time, the one block it holds no buffer for |
 | `aeff` | `ZProfile` table | effective area for mode-averaged normalisation (`kind == "mode_averaged"`), a diagnostic otherwise |
 | `geometry` | `SpatialGeometry` or `None` | the spatial leaf below; absent for modal transforms |
 | `node_weights` | `float64 (n_nodes,)` or `None` | physical transverse weights in m² at z=0 for resolved modal populations; divide by taper scale squared at later planes; mode-averaged runs use `aeff` and spatial runs use geometry weights |

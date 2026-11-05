@@ -2323,7 +2323,7 @@ route, was 239 ms on an NVIDIA H200 and 224 ms on an AMD Instinct MI325X, 112 to
 AMD EPYC 7543 host, 16 threads), whose binary64 rate is a sixty-fourth of its binary32 rate, so its share of each kernel says little about an H200. They were taken at
 `cb2cb068` against the merge base `43ddefab`, by a Kokkos Tools trace of that one case with a fence around each kernel.
 
-| Per step, 768 x 768 x 600 | Before | Collar in place | A whole state on a device |
+| Per step, 768 x 768 x 600 | Before | Collar in place | A whole state, tried and dropped |
 |---|---:|---:|---:|
 | Kernels | 330 | 119 | 14 |
 | Transforms | 220 | 220 | 10 |
@@ -2344,11 +2344,14 @@ The whole step takes 0.961 of its time at 768 x 768 x 600 and 0.956 at 384 x 384
 (0.954–1.036, a window of two steps, inside its spread), fields to 3.3e-16; `rdw` 1.000, `he_rdw_averaged` 1.002, `radial_filament_256` 1.000, fields bitwise.
 
 **The collar** depends on time alone, so its transform pair runs in place on the state's own rows, with the normalisation on the factor. Most of the A40's gain is the two
-copies gone at the node chunk: 2,578.6 ms a step, against 2,574.6 for a whole state on the same build. What a whole state saves is launches, and each rocFFT transform is four
-kernels, so what they are worth takes a data-centre card to say. cuFFT's work area is small here: at 589,824 rows of 600 points each plan holds 9 MiB, in place or
-not, 0.1 MiB at the node chunk. The plans' device growth rises by 20 MiB and the two coarse buffers' 102 MiB go, so a device run's default memory falls by 82 MiB of its 38.5 GiB. What rocFFT holds was not measured. A stated `node_budget`
-keeps the block to the chunk. A CPU keeps the chunk too: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took
-2.5 s a step in transforms against 1.5 s.
+copies gone at the node chunk: 2,578.6 ms a step, against 2,574.6 for a whole state on the same build. The "After" column and the `python -m benchmarks ab` figures above were
+taken with a whole state, which a device took by default until the cards were measured.
+
+**A whole state was dropped.** It saves launches, and #361 asks 10 % of a default-memory change. At 768 x 768 x 600, 8 steps, three fresh processes each at `9a5d2346`, median
+whole against node chunk: NVIDIA H200 2.661 s against 2.671 s, x0.996; AMD Instinct MI325X 2.023 s against 2.068 s, x0.978. So a device keeps the node chunk, and
+`Transform` needs no field to tell a stated budget from the default. The plans' device growth was the same to 6 MiB on the MI325X, 23.65 GiB of 42.6 GiB either way, and cuFFT's
+work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk), so it would not have cost memory either. A CPU keeps the
+chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
 
 **The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
 overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the

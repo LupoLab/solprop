@@ -30,7 +30,6 @@ from solprop.physdata import gamma3
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
-from solprop.translate.modal import DEFAULT_SPATIAL_NODE_BUDGET
 from solprop.translate.problem import KernelProblem
 
 native_backend = pytest.importorskip("solprop_native.backend")
@@ -87,9 +86,7 @@ ENVELOPE = EnvelopeGrid.from_limits(
 )
 
 
-def _blocked(
-    simulation: Simulation, chunk: int | None, *, stated: bool = True
-) -> KernelProblem:
+def _blocked(simulation: Simulation, chunk: int | None) -> KernelProblem:
     """Return the simulation's problem at a node chunk, or at its own.
 
     Parameters
@@ -98,9 +95,6 @@ def _blocked(
         The run.
     chunk : int or None
         The node chunk, or ``None`` for the problem's own.
-    stated : bool, optional
-        Whether a caller stated that chunk, which a device build then keeps. Otherwise a
-        device build takes every row at once, as it does under the default budget.
 
     Returns
     -------
@@ -112,9 +106,7 @@ def _blocked(
         return problem
     return dataclasses.replace(
         problem,
-        transform=dataclasses.replace(
-            problem.transform, node_chunk=chunk, chunk_budgeted=stated
-        ),
+        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
     )
 
 
@@ -145,15 +137,11 @@ def reference(request: pytest.FixtureRequest) -> tuple[str, np.ndarray, dict[str
 def _check_block(
     reference: tuple[str, np.ndarray, dict[str, Any]],
     chunk: int | None,
-    *,
-    stated: bool = True,
 ) -> None:
     """Compare the native march at a node chunk with the reference's."""
     march, expected, theirs = reference
     simulation = _beam(ENVELOPE, MARCHES[march])
-    got, ours, ledger = _marched(
-        simulation, "native", _blocked(simulation, chunk, stated=stated)
-    )
+    got, ours, ledger = _marched(simulation, "native", _blocked(simulation, chunk))
     # The low-storage bound of four evaluations a step, scaled to the seven of the
     # longest tableau; the split's pair and product are less than one evaluation's, and
     # its factor's size is inside the bound's margin. A device build adds its
@@ -192,91 +180,14 @@ def test_a_device_block_of_any_size_takes_the_reference_s_steps(
     _check_block(reference, chunk)
 
 
-def test_a_device_takes_every_row_at_once(
+def test_a_devices_choices_on_any_build(
     reference: tuple[str, np.ndarray, dict[str, Any]],
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    # A device's choices, run on any build: one block where the node chunk would have
-    # made 39, flows recomputed under "auto", and its input through tiles of team
-    # scratch, at the reference's numbers.
+    # Flows recomputed under "auto" and input through tiles of team scratch, with a
+    # short last block's plan, at the reference's numbers.
     monkeypatch.setattr(native_backend, "_on_device", lambda: True)
-    simulation = _beam(ENVELOPE, MARCHES[reference[0]])
-    problem = _blocked(simulation, 5, stated=False)
-    backend: Any = watched(simulation, "native", problem)
-    try:
-        assert backend._native_state.split_rows == problem.shape[1] * problem.shape[2]
-    finally:
-        backend.close()
-    _check_block(reference, 5, stated=False)
-
-
-def test_a_device_keeps_a_block_the_caller_stated(
-    reference: tuple[str, np.ndarray, dict[str, Any]],
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    # A stated node_budget wins on a device too, with its short last block's plan.
-    monkeypatch.setattr(native_backend, "_on_device", lambda: True)
-    simulation = _beam(ENVELOPE, MARCHES[reference[0]])
-    problem = _blocked(simulation, 5)
-    backend: Any = watched(simulation, "native", problem)
-    try:
-        assert backend._native_state.split_rows == 5 * problem.shape[2]
-    finally:
-        backend.close()
     _check_block(reference, 5)
-
-
-def test_a_stated_budget_keeps_its_chunk_on_a_device() -> None:
-    # An explicit node_budget wins (#361): the block stays the node chunk it set, and
-    # the unset budget is told apart from one equal to the default.
-    default = _beam(ENVELOPE).translate()
-    columns = default.shape[1] * default.shape[2]
-    assert not default.transform.chunk_budgeted
-    assert native_backend._split_rows(default, device=True) == columns
-    assert native_backend._split_rows(default, device=False) == columns
-
-    simulation = _beam(ENVELOPE)
-    column_bytes = 20 * 16 * default.shape[2] * ENVELOPE.n_to
-    simulation.settings = dataclasses.replace(
-        simulation.settings, node_budget=5 * column_bytes
-    )
-    stated = simulation.translate()
-    assert stated.transform.chunk_budgeted
-    assert stated.transform.node_chunk == 5
-    assert native_backend._split_rows(stated, device=True) == 5 * default.shape[2]
-    assert native_backend._split_rows(stated, device=False) == 5 * default.shape[2]
-
-    simulation = _beam(ENVELOPE)
-    simulation.settings = dataclasses.replace(
-        simulation.settings, node_budget=DEFAULT_SPATIAL_NODE_BUDGET
-    )
-    assert simulation.translate().transform.chunk_budgeted
-
-
-def test_the_cpu_keeps_the_node_chunk_it_was_given(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    monkeypatch.setattr(native_backend, "_on_device", lambda: False)
-    simulation = _beam(ENVELOPE)
-    problem = _blocked(simulation, 5)
-    assert native_backend._split_rows(problem, device=False) == 5 * problem.shape[2]
-    backend: Any = watched(simulation, "native", problem)
-    try:
-        assert backend._native_state.split_rows == 5 * problem.shape[2]
-    finally:
-        backend.close()
-
-
-def test_a_block_past_the_field_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
-    simulation = _beam(ENVELOPE)
-    problem = simulation.translate()
-    monkeypatch.setattr(
-        native_backend,
-        "_split_rows",
-        lambda problem, *, device: problem.shape[1] * problem.shape[2] + 1,
-    )
-    with pytest.raises(ValueError, match="split_rows"):
-        watched(simulation, "native", problem)
 
 
 def test_real_rows_keep_their_buffers() -> None:

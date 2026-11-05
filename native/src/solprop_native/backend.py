@@ -2592,21 +2592,6 @@ def _on_device() -> bool:
     return _build_facts().info["device_backend"] != "none"
 
 
-def _split_rows(problem: KernelProblem, *, device: bool) -> int:
-    """Return the temporal rows a free-space envelope's split collar takes at a time.
-
-    The collar transforms the state's own rows in place, so a block holds no buffer of
-    its own: it sets the launches, three per block, and the plans' work area, which is
-    small (``docs/dev/benchmarks.md``, the split collar in place). A device therefore
-    takes every row at once. A caller's own `node_budget` wins (solprop #361). A CPU
-    keeps the node chunk: FFTW's threaded plan of a whole state was much the slower.
-    """
-    transform = problem.transform
-    if device and not transform.chunk_budgeted:
-        return problem.shape[1] * problem.shape[2]
-    return min(transform.node_chunk, transform.n_nodes) * problem.shape[2]
-
-
 def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, object]:
     """Return the native problem's low-storage rows (solprop kernel schema 32).
 
@@ -3930,9 +3915,6 @@ def _native_problem(
         "n_pol_transform": problem.transform.n_pol,
         "n_nodes": problem.transform.n_nodes,
         "node_chunk": node_chunk,
-        "split_rows": 0
-        if geometry is None or geometry.kind != "free"
-        else _split_rows(problem, device=_on_device()),
         "family": family,
         "nonlinear": kerr is not None,
         "modified_noise": problem.initial.noise_model == "modified",

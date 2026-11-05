@@ -757,6 +757,7 @@ MODULES = {
                 "schema",
                 "capability",
                 "memory",
+                "callback",
                 "hdf5",
                 "tdse_archive",
                 "snapshots",

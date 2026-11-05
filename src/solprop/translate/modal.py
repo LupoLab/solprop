@@ -124,10 +124,6 @@ class Transform:
         cross-section does not change.
     node_chunk : int
         Nodes the response pass handles at a time, at least 1 and at most ``n_nodes``.
-    chunk_budgeted : bool
-        Whether the caller's own ``node_budget`` set `node_chunk`. Without one a backend
-        may take a larger block where it holds no buffer of its own for it, as a device
-        does for a free-space envelope's split collar (solprop #361).
     aeff : solprop.translate.chebyshev.PiecewiseChebyshev
         Effective area in m^2 as a table along z. It is the normalisation itself when
         ``kind == 'mode_averaged'`` and a diagnostic otherwise.
@@ -189,7 +185,6 @@ class Transform:
     node_weights: Float[np.ndarray, " n_weights"] | None = None
     modal_tables: ModalTransformTables | None = None
     kind: TransformKind = field(kw_only=True)
-    chunk_budgeted: bool = field(default=False, kw_only=True)
 
     def __post_init__(self) -> None:
         """Adopt read-only copies and check the shapes the annotations cannot.

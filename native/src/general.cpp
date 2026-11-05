@@ -992,9 +992,6 @@ void require_general_problem(const Problem& problem) {
     throw std::invalid_argument("at most two effective node components are supported");
   if (problem.node_chunk == 0 || problem.node_chunk > problem.n_nodes)
     throw std::invalid_argument("node_chunk must lie in [1, n_nodes]");
-  if (problem.split_rows >
-      checked_product(problem.n_modes, problem.n_pol_state, "split collar columns"))
-    throw std::invalid_argument("split_rows must not exceed the field's columns");
   if (problem.n_stages == 0)
     throw std::invalid_argument("the tableau must contain a stage");
   const auto columns =
@@ -2103,7 +2100,6 @@ public:
   }
 
   void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
-  [[nodiscard]] std::size_t split_rows() const noexcept { return split_rows_; }
   std::vector<double> trial_step(double dz, const TrialScalars& scalars);
   void prepare_trial(double dz, const TrialScalars& scalars);
   std::vector<Complex> adams_source(const std::vector<Complex>& input,
@@ -4203,7 +4199,7 @@ void GeneralWorkspace::allocate() {
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
 #endif
     if (problem_.free_geometry() && problem_.family == FieldFamily::envelope) {
-      split_rows_ = problem_.split_rows != 0 ? problem_.split_rows : temporal_columns;
+      split_rows_ = temporal_columns;
     } else {
       coarse_spectrum_ =
           ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
@@ -16536,9 +16532,6 @@ std::vector<Complex> GeneralState::adams_source(const std::vector<Complex>& inpu
 void GeneralState::adopt(const std::vector<Complex>& field, const double dz) {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->adopt(field, dz);
-}
-std::size_t GeneralState::split_rows() const noexcept {
-  return workspace_->split_rows();
 }
 double GeneralState::low_storage_step(const double dz, const TrialScalars& scalars,
                                       const bool rebuild_table) {

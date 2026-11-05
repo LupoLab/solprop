@@ -104,8 +104,7 @@ plane's columns in node chunks, each paying a fixed cost for its launches, its t
 transforms and its gather and scatter. Their default budget is therefore 1 GiB, against
 64 MiB on modal routes; `SimulationSettings.node_budget` sets it explicitly. On a laptop
 short of memory a smaller budget saves memory at some speed; on a large device a larger
-one can still help. An envelope's split collar transforms the state's own rows in place
-and holds no buffer for them, so a device takes them all at once unless a budget is set.
+one can still help.
 
 **Where a free-space step goes.** On the native backend the stages of a free-space
 evaluation are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer
