@@ -563,6 +563,7 @@ class _Work:
             or simulation.translate().tdse is not None
             or not _device_build(simulation.settings.backend)
         ):
+            self.close()
             simulation.run(capture, progress=progress, stop=stop)
             return
         if self._kept is not None and not self._kept._takes(simulation):
