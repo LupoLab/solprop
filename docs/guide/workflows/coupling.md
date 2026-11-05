@@ -130,6 +130,31 @@ declares it zero outside. Nothing is ever renormalised: a conversion does not re
 clipped, aliased or absorbed light. `delay=` and `phase=` change the reference: a later
 delay moves the record earlier in its window, with the absolute field unchanged.
 
+## Saving a plane to a file
+
+{py:func}`~solprop.processing.plane_file.save_field_plane` writes a plane to a new HDF5
+file, and {py:func}`~solprop.processing.plane_file.load_field_plane` reads it back, so one
+run's exit plane can launch another later, without its results file:
+
+```{code-block} python
+from solprop.processing import load_field_plane, save_field_plane
+
+save_field_plane(field_plane(output), "exit_plane.h5")
+plane = load_field_plane("exit_plane.h5")  # couple(plane, port, model=...) as before
+```
+
+The samples, the grid and the metric's arrays come back to the last bit, with the basis
+and its identity, the reference, the geometry, the path certificate and the provenance, so
+`couple` accepts or refuses the loaded plane as it would the original. An existing file
+is not replaced.
+
+The file has its own schema version (`solprop.processing.PLANE_FILE_SCHEMA`), and a file
+of any other version is refused by name. A plane's live medium has no file form, so a plane
+holding one is refused: read the run without `source=`. That means a loaded plane cannot
+resolve its metric again on another temporal grid, and `regrid` gives it an `unknown`
+metric there. Planar planes and runs with the modified noise model are refused as
+`field_plane` refuses them. A recipe can't yet name a saved plane as its launch.
+
 ## Relaunching into the same basis
 
 A receiving simulation describes its entrance with

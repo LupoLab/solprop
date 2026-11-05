@@ -808,7 +808,8 @@ class SpatialFlux:
     for signed local flux :math:`S_z=\tfrac12\operatorname{Re}(E_aG_a^*)`. Only
     active propagating columns at positive frequency are forward power ports; every
     other bin has zero admittance. Build one with :meth:`resolve`; a different plane
-    needs a new record (``docs/guide/free-space/flux.md``).
+    needs a new record (``docs/guide/free-space/flux.md``). A measure read back from a
+    results file holds its recorded coefficients and no medium.
 
     Attributes
     ----------
@@ -816,8 +817,10 @@ class SpatialFlux:
         Temporal grid of the field.
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
         Transverse geometry of the field.
-    medium : SpatialMedium
-        The bulk medium; for a planar grid, its slab modes' own fill.
+    medium : SpatialMedium or None
+        The bulk medium; for a planar grid, its slab modes' own fill. None for a
+        measure rebuilt from a file's record, which cannot be resolved again on
+        another grid.
     z : float
         Position of the plane in m.
     side : {'before', 'after'} or None
@@ -829,7 +832,7 @@ class SpatialFlux:
 
     grid: TimeGrid
     space: RadialGrid | FreeGrid | PlanarGrid
-    medium: SpatialMedium
+    medium: SpatialMedium | None
     z: float
     side: FluxSide | None
     coefficients: object

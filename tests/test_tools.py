@@ -1164,3 +1164,35 @@ def test_air_and_a_tube_lattice_design_under_a_selection():
     )
     assert isinstance(tubes, VincettiMode)
     assert isinstance(tubes.cladding, OptmatGlass) and tubes.mixture is not None
+
+
+def test_the_nearest_zero_is_found_without_refining_every_resonance(monkeypatch):
+    # An antiresonant fibre's resonances flip the sign of its dispersion dozens of
+    # times, and only the changes nearest the pump can hold the nearest zero.
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    mode = Recipe.example("antiresonant_fibre").build().modes[0]
+    pump = 2.0 * math.pi * C / 800e-9
+    refine = tools._refine_zero
+    calls = []
+
+    def counted(*args):
+        root = refine(*args)
+        calls.append(root)
+        return root
+
+    monkeypatch.setattr(tools, "_refine_zero", counted)
+    found = tools._zdw_near(mode, pump, 0.0)
+    assert len(calls) <= 4
+    # What refining every change would have reported.
+    grid = np.linspace(
+        2.0 * math.pi * C / tools._ZDW_RANGE[1],
+        2.0 * math.pi * C / tools._ZDW_RANGE[0],
+        tools._ZDW_SAMPLES,
+    )
+    with tools._probing(), np.errstate(divide="ignore", invalid="ignore"):
+        sampled = base.beta2(mode, grid, 0.0)
+    changes = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0)
+    assert changes.size > 10
+    nearest = abs(2.0 * math.pi * C / found - pump)
+    assert np.maximum(grid[changes] - pump, pump - grid[changes + 1]).min() <= nearest

@@ -6,10 +6,9 @@
 
 Their keywords are objects, each a table of a registered type: the time grid, the
 transverse grid, the medium, the responses, the beam and the settings, with the
-absorber under the settings. The Cartesian and planar gallery scripts have example
-recipes (``test_examples``); no radial one can be written (``test_examples.NO_RECIPE``
-says why), so the radial calls here are the user guide's (``docs/guide/free-space/
-beams.md``) with the beam's power written as a literal. Each recipe must build the
+absorber under the settings. The gallery's example recipes are ``test_examples``'s; the
+radial calls here are the user guide's (``docs/guide/free-space/beams.md``) with the
+beam's power written as a literal. Each recipe must build the
 call's configuration hash, so those comparisons are of digests and exact.
 """
 
@@ -201,6 +200,17 @@ LINE = textwrap.dedent(
     backend = "numpy_ref"
     """  # noqa: E501 - a recipe's inline tables are one line each
 )
+
+
+def test_a_missing_positional_keyword_is_refused_before_the_route():
+    text = LINE.replace(
+        'space = { type = "LineGrid", radius_x = "400 um", n_x = 32 }\n', ""
+    )
+    with pytest.raises(
+        RecipeError, match=r"^space: a required keyword is missing$"
+    ) as caught:
+        Recipe.loads(text).build()
+    assert caught.value.parameter == "space"
 
 
 def _line_call() -> Simulation:

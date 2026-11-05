@@ -149,3 +149,14 @@ def test_an_adams_run_takes_one_call_and_a_schedule_counts_its_total():
         )
     estimate = simulation.estimate()
     assert estimate.total_calls == schedule.steps.size * estimate.calls_per_step
+
+
+def test_the_output_size_needs_no_backend(monkeypatch):
+    simulation = Recipe.example("soliton").build()
+    expected = simulation.estimate().output_bytes
+
+    def refuse(*_args, **_kwargs):
+        raise AssertionError("a backend was constructed")
+
+    monkeypatch.setattr(estimate_module, "select", refuse)
+    assert simulation.output_bytes() == expected > 0

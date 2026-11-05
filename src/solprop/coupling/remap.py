@@ -217,8 +217,8 @@ def _target_metric(plane: FieldPlane, grid: TimeGrid, same: bool) -> PlaneMetric
     metric = plane.metric
     if metric.kind in ("identity", "unknown") or same:
         return metric
-    if metric.flux is not None:
-        flux = metric.flux
+    flux = metric.flux
+    if flux is not None and flux.medium is not None:
         return PlaneMetric.from_flux(
             SpatialFlux.resolve(grid, flux.space, flux.medium, z=flux.z, side=flux.side)
         )

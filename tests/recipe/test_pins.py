@@ -7,6 +7,7 @@
 import subprocess
 import sys
 import warnings
+from typing import cast
 
 import numpy as np
 import pytest
@@ -177,6 +178,31 @@ def test_a_pinned_required_keyword_is_not_reported_missing():
     pin = {**ZDW_PIN, "search": ["50 um", "300 um"]}
     recipe = pinned({"radius": pin}, drop=("radius",))
     assert recipe.check() == []
+
+
+def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
+    pin = {**ZDW_PIN, "search": ["50 um", "300 um"]}
+    recipe = pinned({"radius": pin}, drop=("radius",))
+    assert cast("float", carried(recipe.build()).get("radius")) > 0.0
+    without = pinned({"radius": pin}, drop=("radius", "length"))
+    for call in (without.build, without.resolve, lambda: without.pin_roots("radius")):
+        with pytest.raises(
+            RecipeError, match=r"^length: a required keyword is missing$"
+        ) as caught:
+            call()
+        assert caught.value.parameter == "length"
+
+
+def test_a_soliton_pin_on_a_taylor_fibre_reads_the_recipe_s_gamma():
+    # The soliton example is N = 3 by its own arithmetic, its peak power to the last
+    # digit of the file, so the pin solves back to it to rounding.
+    example = Recipe.example("soliton")
+    document = example.to_dict()
+    del document["build"]["peak_power"]
+    document["pins"] = {"peak_power": {"target": "soliton_order", "order": 3}}
+    resolved = Recipe.from_dict(document).resolve()
+    expected = example.keywords()["peak_power"]
+    assert resolved.keywords()["peak_power"] == pytest.approx(expected, rel=1e-10)
 
 
 def test_a_scan_re_solves_its_pins_at_each_point():

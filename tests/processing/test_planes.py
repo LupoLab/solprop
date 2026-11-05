@@ -13,9 +13,9 @@ from numpy.testing import assert_allclose
 from solprop.adiabatic import AdiabaticAdmission
 from solprop.coupling import basis_identity, reference_at
 from solprop.driver import Simulation, SimulationSettings
-from solprop.exceptions import CouplingError, ProcessingError
+from solprop.exceptions import CouplingError, OutputError, ProcessingError
 from solprop.fourier import spectrum_to_internal, spectrum_to_optics
-from solprop.grid import FieldGrid, FreeGrid, RadialGrid
+from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import (
     GradedIndexProvider,
     IndexMaterial,
@@ -27,10 +27,17 @@ from solprop.modes import (
 from solprop.output.hdf5 import open_file
 from solprop.output.memory import MemoryOutput
 from solprop.output.schema import SavedPlane, StepHistory
-from solprop.processing import electric_field, field_plane, magnetic_field
+from solprop.processing import (
+    electric_field,
+    field_plane,
+    fluence_map,
+    magnetic_field,
+    node_fluence,
+    spatial_grid_of,
+)
 from solprop.profiles import PressureGradient
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import SpatialMedium
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_fluence
 from solprop.stats import analytic_field
 from solprop.stepper import PIController
 from solprop.translate.coupling import input_port
@@ -62,8 +69,10 @@ def capillary(length=2e-3, n_save=3, **changes):
     )
 
 
-def spatial(space, pressure: float | PressureGradient = 1.0):
-    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+def spatial(
+    space, pressure: float | PressureGradient = 1.0, *, trange: float = 400e-15
+):
+    grid = FieldGrid.from_limits(2e-3, 800e-9, (600e-9, 1.2e-6), trange)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-8, atol=1e-14),
         save_planes=[1e-3, 2e-3],
@@ -218,8 +227,8 @@ def test_a_gradient_plane_carries_its_rebuilt_path_certificate(tmp_path):
             certificate.variation = 0.0  # pyright: ignore[reportAttributeAccessIssue]
 
 
-@pytest.fixture(scope="module")
-def general_run():
+def general_simulation_and_output():
+    """Return a general modal simulation and its output, for the file tests too."""
     wavelength, length, contrast = 1.03e-6, 1e-5, 0.0095
     grid = FieldGrid.from_limits(length, wavelength, (1.0e-6, 1.06e-6), 100e-15)
     provider = GradedIndexProvider(
@@ -254,6 +263,11 @@ def general_run():
         noise=None,
     )
     return simulation, simulation.run(progress="none")
+
+
+@pytest.fixture(scope="module")
+def general_run():
+    return general_simulation_and_output()
 
 
 def test_a_general_plane_reads_its_fields_with_its_source(general_run):
@@ -397,8 +411,14 @@ def test_a_spatial_record_without_a_known_grid_or_measure_is_refused(radial_run)
     del configuration["spatial_grid"]
     with pytest.raises(ProcessingError, match="no transverse grid"):
         field_plane(rewritten(radial_run, configuration=configuration))
-    configuration["spatial_grid"] = {"__class__": "solprop.modes.PlanarGrid"}
-    with pytest.raises(ProcessingError, match="not exchanged"):
+    configuration["spatial_grid"] = {"__class__": "solprop.modes.slab.PlanarGrid"}
+    with pytest.raises(ProcessingError, match="hybrid planar file"):
+        field_plane(rewritten(radial_run, configuration=configuration))
+    configuration["spatial_grid"] = {"__class__": "elsewhere.Grid"}
+    with pytest.raises(ProcessingError, match=r"elsewhere\.Grid"):
+        field_plane(rewritten(radial_run, configuration=configuration))
+    configuration["spatial_grid"] = {}
+    with pytest.raises(ProcessingError, match="is not one solprop reads"):
         field_plane(rewritten(radial_run, configuration=configuration))
     spatial_record = dict(metadata.spatial)
     del spatial_record["flux_plan"]
@@ -452,3 +472,152 @@ def test_a_general_port_admits_the_vector_model_only_with_a_fixed_reference_and_
     tapered = input_port(problem, grid, tables=moving, guide=simulation.guide, **common)
     assert tapered.models == ("same_basis",)
     assert tapered.electric is None and tapered.nodes is None
+
+
+SPACES = {
+    "radial": RadialGrid(6e-4, 32),
+    "free": FreeGrid(6e-4, 32, 5e-4, 24),
+    "line": LineGrid(4e-4, 32),
+}
+
+
+@pytest.fixture(scope="module", params=sorted(SPACES))
+def saved_beam(request, tmp_path_factory):
+    """Return a spatial simulation, its memory output and its file, opened."""
+    # A shorter window than the file tests': these read planes, and a Cartesian box of
+    # 768 nodes is otherwise the slowest thing in this module.
+    simulation = spatial(SPACES[request.param], trange=200e-15)
+    memory = simulation.run(progress="none")
+    path = tmp_path_factory.mktemp("beam") / "beam.h5"
+    simulation.run(str(path), progress="none")
+    return simulation, memory, open_file(path)
+
+
+@pytest.mark.medium
+def test_the_transverse_grid_comes_back_from_the_record(saved_beam):
+    simulation, memory, reloaded = saved_beam
+    space = simulation.spatial_grid
+    assert spatial_grid_of(memory) is space
+    rebuilt = spatial_grid_of(reloaded)
+    assert type(rebuilt) is type(space)
+    # The grid's nodes are functions of its recorded fields: a structural contract.
+    assert np.array_equal(rebuilt.spectral_weights, space.spectral_weights)
+    if isinstance(space, RadialGrid):
+        assert isinstance(rebuilt, RadialGrid)
+        assert np.array_equal(rebuilt.r, space.r)
+    else:
+        assert isinstance(space, FreeGrid) and isinstance(rebuilt, FreeGrid)
+        assert np.array_equal(rebuilt.x, space.x)
+        assert np.array_equal(rebuilt.y, space.y)
+
+
+def test_a_run_without_a_transverse_grid_or_metadata_is_refused(capillary_run):
+    _, output = capillary_run
+    with pytest.raises(ProcessingError, match="no transverse grid"):
+        spatial_grid_of(output)
+    with pytest.raises(ProcessingError, match="no transverse grid"):
+        fluence_map(output)
+    with pytest.raises(OutputError, match="no metadata"):
+        spatial_grid_of(MemoryOutput())
+
+
+@pytest.mark.medium
+def test_the_map_is_the_live_measure_of_the_stored_plane(saved_beam):
+    simulation, memory, reloaded = saved_beam
+    for output in (memory, reloaded):
+        beam = fluence_map(output)
+        field = memory.fields("fft")[-1]
+        flux = SpatialFlux.resolve(
+            simulation.grid, simulation.spatial_grid, simulation.medium, z=beam.z
+        )
+        # One measure from two constructions of the same coefficients: the recorded
+        # plan and the resolved medium share the expressions, so a few hundred
+        # rounding errors of the plane's largest value bound the difference.
+        expected = spatial_fluence(field, flux)
+        peak = np.max(np.abs(expected))
+        assert peak > 0
+        np.testing.assert_allclose(
+            beam.fluence.ravel(),
+            expected,
+            rtol=0,
+            atol=512 * np.finfo(float).eps * peak,
+        )
+
+
+@pytest.mark.medium
+def test_the_map_lays_its_nodes_out_on_its_axes(saved_beam):
+    simulation, memory, _ = saved_beam
+    space = simulation.spatial_grid
+    beam = fluence_map(memory)
+    assert beam.fluence.shape == tuple(axis.size for axis in beam.axes)
+    if isinstance(space, RadialGrid):
+        assert beam.axis_names == ("r",)
+        assert np.array_equal(beam.axes[0], space.r)
+    elif isinstance(space, LineGrid):
+        assert beam.axis_names == ("x",)
+        assert np.array_equal(beam.axes[0], space.x)
+    else:
+        assert beam.axis_names == ("y", "x")
+        assert beam.fluence.shape == (space.n_y, space.n_x)
+        # A round beam on a box of different spacings: the widths agree only if each
+        # axis labels its own direction, and swapped axes would differ by 19 %, the
+        # squared ratio of the spacings. The sum's aliasing error sets the tolerance:
+        # spacings of 37.5 and 41.7 um against a 30 um fluence sigma, about 1e-3.
+        total = np.sum(beam.fluence)
+        y, x = beam.axes
+        width_x = np.sum(beam.fluence * x[None, :] ** 2) / total
+        width_y = np.sum(beam.fluence * y[:, None] ** 2) / total
+        assert width_x == pytest.approx(width_y, rel=1e-2)
+
+
+@pytest.mark.medium
+def test_the_map_selects_a_stored_plane(saved_beam):
+    _, memory, reloaded = saved_beam
+    positions = np.asarray(memory["z"])
+    first = fluence_map(reloaded, 0)
+    assert first.z == positions[0]
+    middle = fluence_map(reloaded, z=float(positions[1]))
+    assert middle.z == positions[1]
+    assert np.array_equal(middle.fluence, fluence_map(reloaded, 1).fluence)
+    with pytest.raises(ProcessingError, match="no plane is stored"):
+        fluence_map(reloaded, z=0.5 * float(positions[1]))
+    with pytest.raises(ProcessingError, match="out of range"):
+        fluence_map(reloaded, positions.size)
+    # node_fluence is the same measure at every plane, in the nodes' own order.
+    every = node_fluence(reloaded)
+    assert np.array_equal(every[1], middle.fluence.ravel())
+
+
+@pytest.mark.parametrize(
+    "medium", [SpatialMedium(), SpatialMedium(1.45)], ids=["vacuum", "constant_index"]
+)
+def test_a_medium_without_a_mixture_record_is_measured(medium):
+    settings = SimulationSettings(
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[1e-3],
+        dz_max=1e-3,
+        dz_init=1e-3,
+        backend="numpy_ref",
+        spatial_absorber=False,
+    )
+    space = FreeGrid(6e-4, 24, 5e-4, 16)
+    simulation = Simulation.from_free(
+        FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 400e-15),
+        space,
+        medium,
+        [],
+        SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5),
+        settings=settings,
+        noise=None,
+    )
+    output = simulation.run(progress="none")
+    assert output.metadata is not None
+    assert "mixture_processing" not in output.metadata.configuration
+    flux = SpatialFlux.resolve(simulation.grid, space, medium, z=float(output["z"][-1]))
+    expected = spatial_energy(output.fields("fft")[-1], flux)
+    assert expected > 0
+    # The sum over the nodes is the plane's energy by the discrete Parseval relation,
+    # to a few hundred rounding errors of its terms.
+    area = float(space.x[1] - space.x[0]) * float(space.y[1] - space.y[0])
+    measured = float(np.sum(node_fluence(output)[-1])) * area
+    assert measured == pytest.approx(expected, rel=512 * np.finfo(float).eps)

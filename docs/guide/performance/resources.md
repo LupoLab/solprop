@@ -35,7 +35,9 @@ To see the size first, {py:meth}`~solprop.driver.simulation.Simulation.estimate`
 the backend and reports what it holds; a backend's
 {py:meth}`~solprop.backends.protocol.Backend.memory_ledger` names every buffer, so you
 can see which one to shrink: fewer channels or nodes for the maps and the reference, a
-narrower frequency window for all of them. Nothing is ever approximated to fit. If a
+narrower frequency window for all of them. Nothing is ever approximated to fit.
+{py:meth}`~solprop.driver.simulation.Simulation.output_bytes` gives the output's size alone,
+and constructs no backend. If a
 large run with the default integrator doesn't fit, try `RungeKutta()` or
 `LowStorageRungeKutta()`, which keep no Adams history
 ([choosing a stepper](../numerics/choosing-a-stepper.md#large-problems-memory)).
