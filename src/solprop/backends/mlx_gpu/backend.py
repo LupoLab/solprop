@@ -43,6 +43,8 @@ from solprop.backends.mlx_gpu.arithmetic import (
     prefix_scan,
 )
 from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
+from solprop.backends.numpy_ref.backend import QUADRATURE_ALARM
+from solprop.backends.numpy_ref.backend import logger as oracle_logger
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
@@ -304,6 +306,10 @@ class MlxBackend(NumpySingleBackend):
     ``uint8`` as the problem holds it, while a monitor of a split run is bound; ``None``
     otherwise. A reading widens it to an index on the fly."""
 
+    _pending_alarm: tuple[mx.array, float] | None = None
+    """The last accepted step's quadrature alarm on the device and its position, not
+    yet read (:meth:`_update_alarm`)."""
+
     _pending_found: tuple[mx.array, ...] = ()
     """The energy and the guards' energies of what the last accepted step's split found,
     not yet read: device scalars with their rule-6 exponent (:meth:`_device_removal`),
@@ -387,6 +393,7 @@ class MlxBackend(NumpySingleBackend):
         self._stage_input = compiled(self._stage_input_core)
         self._trial_end = compiled(self._trial_end_core)
         self._norm_sums = compiled(self._norm_sums_core)
+        self._alarm_ratio = compiled(self._alarm_ratio_core)
         # Whether each stage is evaluated as it is formed, bounding the live graph to
         # one stage; a batch evaluates its members' steps together instead.
         self.evaluate_stages = mlx_bounded(
@@ -687,8 +694,12 @@ class MlxBackend(NumpySingleBackend):
         """
         pending, self._pending_removal = self._pending_removal, ()
         found, self._pending_found = self._pending_found, ()
-        flat = [value.reshape(-1) for value in (*values, *found, *pending)]
+        alarm = () if self._pending_alarm is None else (self._pending_alarm[0],)
+        flat = [value.reshape(-1) for value in (*values, *found, *pending, *alarm)]
         read = np.array(mx.concatenate(flat), dtype=np.float64)
+        if alarm:
+            self._resolve_alarm(float(read[-1]))
+            read = read[:-1]
         count = sum(int(value.size) for value in values)
         removals = count
         if found:
@@ -1799,29 +1810,116 @@ class MlxBackend(NumpySingleBackend):
         return residual, reductions
 
     def _update_alarm(self) -> None:
-        """Evaluate the quadrature alarm on the host from the last stage's rows."""
-        held = (
-            self._last_projected,
-            self._last_coarse,
-            self._last_plasma,
-            self._last_envelope,
-        )
-        to_host = lambda value: None if value is None else np.array(value)  # noqa: E731
-        self._last_projected = to_host(held[0])  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_coarse = to_host(held[1])  # pyright: ignore[reportAttributeAccessIssue]
-        if held[2] is not None:
-            self._last_plasma = tuple(to_host(part) for part in held[2])  # pyright: ignore[reportAttributeAccessIssue]
-        if held[3] is not None:
-            self._last_envelope = tuple(to_host(part) for part in held[3])  # pyright: ignore[reportAttributeAccessIssue]
-        try:
+        """Score the quadrature alarm on the device, read with the next synchronisation.
+
+        The oracle's measure (:meth:`NumpyRefBackend._update_alarm`), the relative
+        difference between the Kronrod and the embedded Gauss projections of the last
+        stage's sources, formed on the device in binary32 and scaled by a power of two
+        so that its sums cannot overflow; its one scalar is read with the next trial's
+        norm (:meth:`_synchronised`) or when a statistic asks for it, rather than
+        copying the stage's rows to the host at every accepted step.
+        """
+        # The stage left device arrays where the oracle's leaves host ones.
+        coarse = cast(Any, self._last_coarse)
+        projected = cast(Any, self._last_projected)
+        envelope = cast(Any, self._last_envelope)
+        plasma = cast(Any, self._last_plasma)
+        if coarse is None or projected is None or self._last_bundle is None:
+            self._pending_alarm = None
             super()._update_alarm()
-        finally:
-            (
-                self._last_projected,
-                self._last_coarse,
-                self._last_plasma,
-                self._last_envelope,
-            ) = held  # pyright: ignore[reportAttributeAccessIssue]
+            return
+        weight = self._device_prefactor(self._last_bundle) * self._omega_window
+        kind = self._kind
+        # The transforms are linear, so the difference is taken before them: two
+        # binary32 spectra transformed apart would differ by their rounding, near the
+        # alarm's own level.
+        fine = device.to_frequency(projected, self._crop, kind=kind)
+        gap = device.to_frequency(coarse - projected, self._crop, kind=kind)
+        if envelope is not None:
+            drive, loss, coarse_drive, coarse_loss = envelope
+            fine = fine + self._envelope_spectrum([drive, loss])
+            gap = gap + self._envelope_spectrum(
+                [coarse_drive - drive, coarse_loss - loss]
+            )
+        if plasma is not None:
+            gated, edge, coarse_gated, coarse_edge = plasma
+            fine = fine + self._device_held(gated, edge)
+            gap = gap + self._device_held(coarse_gated - gated, coarse_edge - edge)
+        self._pending_alarm = (
+            self._alarm_ratio(weight * fine, weight * gap),
+            self._last_bundle.z1,
+        )
+
+    def _alarm_ratio_core(self, fine: mx.array, gap: mx.array) -> mx.array:
+        """Return ``|gap| / |fine|``, NaN where ``fine`` vanishes.
+
+        Parameters
+        ----------
+        fine, gap : mlx.core.array
+            The Kronrod projection's weighted spectrum, and the embedded one's
+            difference from it.
+
+        Returns
+        -------
+        mlx.core.array
+            A float32 scalar.
+        """
+        peak = mx.max(mx.abs(fine))
+        power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+        factor = mx.power(2.0, -power)
+        scaled, difference = fine * factor, gap * factor
+        total = mx.sum(mx.square(mx.real(scaled)) + mx.square(mx.imag(scaled)))
+        gap = mx.sum(mx.square(mx.real(difference)) + mx.square(mx.imag(difference)))
+        return mx.where(total > 0, mx.sqrt(gap / total), math.nan)
+
+    def _resolve_alarm(self, value: float | None = None) -> None:
+        """Turn a pending device alarm into the oracle's value and its warning.
+
+        Parameters
+        ----------
+        value : float or None, optional
+            The pending scalar, already read; read here when not given.
+        """
+        pending, self._pending_alarm = self._pending_alarm, None
+        if pending is None:
+            return
+        ratio, position = pending
+        self._alarm = float(cast(float, ratio.item())) if value is None else value
+        if self._alarm > QUADRATURE_ALARM and not self._alarm_reported:
+            self._alarm_reported = True
+            oracle_logger.warning(
+                "the transverse quadrature reproduces the nonlinear polarisation to "
+                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
+                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
+                "the mode set) and no step size can fix it",
+                self._alarm,
+                position,
+                QUADRATURE_ALARM,
+            )
+
+    def _begin_plane(self) -> None:
+        """Forget the last plane's quadrature alarm, pending or read."""
+        self._pending_alarm = None
+        super()._begin_plane()
+
+    def _backend_stat(self, name: str, state: Any) -> np.ndarray:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return a backend statistic, reading a pending alarm first.
+
+        Parameters
+        ----------
+        name : str
+            The statistic.
+        state : numpy.ndarray
+            The state at this plane.
+
+        Returns
+        -------
+        numpy.ndarray
+            The value with a leading batch axis.
+        """
+        if name == "quadrature_error":
+            self._resolve_alarm()
+        return super()._backend_stat(name, state)
 
     # The low-storage march's hooks and engine.
 
