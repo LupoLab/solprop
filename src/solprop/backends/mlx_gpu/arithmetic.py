@@ -582,6 +582,14 @@ _SCAN = """
     }
 """
 
+_SCAN_THREADS = (512, 1024)
+"""A row's threads in the scan: 512 when there are many rows, 1024 for a few.
+
+On an Apple M5 Max (MLX 0.32) against the 256 before, chained scans: one row of 16383
+took 62 us against 105, sixteen of 8191 43 against 65, and 1024 rows of 2047 114
+against 116. Holding the row in threadgroup memory was slower at every shape.
+"""
+
 
 @cache
 def _scan_kernel() -> object:
@@ -616,11 +624,13 @@ def prefix_scan(values: mx.array) -> mx.array:
     """
     n = values.shape[-1]
     rows = values.size // n
+    # Enough threads for the row in whole SIMD groups, up to the shape's width.
+    width = min(_SCAN_THREADS[rows < 64], 32 * math.ceil(n / 32))
     out, _ = _scan_kernel()(  # pyright: ignore[reportCallIssue]
         inputs=[values.reshape(rows, n)],
         template=[("N", n)],
-        grid=(rows * 256, 1, 1),
-        threadgroup=(256, 1, 1),
+        grid=(rows * width, 1, 1),
+        threadgroup=(width, 1, 1),
         output_shapes=[(rows, n), (rows, n)],
         output_dtypes=[mx.float32, mx.float32],
     )
