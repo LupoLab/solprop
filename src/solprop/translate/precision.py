@@ -71,13 +71,15 @@ and an interface whose binary64 default is tighter takes the floor under single
 precision.
 """
 
-SINGLE_RTOL_CAP = 1e-5
+SINGLE_RTOL_CAP = 1e-4
 """The loosest default relative tolerance a single-precision run takes.
 
-The single-precision survival record measured 1e-6 and 1e-5 only, so an interface whose
-binary64 default is looser -- free space's 1e-4 -- takes this one under single
-precision until the looser value is qualified in binary32. An explicit tolerance above
-it is the caller's, and is admitted.
+The loosest the single-precision survival record has measured. It measured 1e-6 and
+1e-5 first; free space's binary64 default of 1e-4 was qualified in binary32 on 5
+November 2026 (#85): on a radial filament, a radial beam with its transverse collar and
+a Cartesian filament, binary32 at 1e-4 lies as close to a binary64 run at 1e-6 as
+binary64 at 1e-4 does, or closer. An explicit tolerance above it is the caller's, and
+is admitted.
 """
 
 SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")

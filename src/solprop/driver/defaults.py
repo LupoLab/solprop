@@ -323,7 +323,8 @@ def default_rtol(route: str, precision: str) -> float:
     larger of it and :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, so it is
     never tighter than its binary64 twin nor than binary32 rounding can serve, and at
     most :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`, the loosest value the
-    single-precision survival record measured (the maintainers' ruling of 2026-10-28).
+    single-precision survival record measured (the maintainers' ruling of 2026-10-28;
+    the record reached free space's 1e-4 on 2026-11-05).
 
     Parameters
     ----------
@@ -341,7 +342,7 @@ def default_rtol(route: str, precision: str) -> float:
     --------
     >>> from solprop.driver.defaults import default_rtol
     >>> [default_rtol(route, "single") for route in ("gnlse", "capillary", "free")]
-    [1e-06, 1e-06, 1e-05]
+    [1e-06, 1e-06, 0.0001]
     >>> default_rtol("gnlse", "double")
     1e-07
     """
@@ -369,7 +370,7 @@ def rtol_in_precision(rtol: float, precision: str) -> float:
     --------
     >>> from solprop.driver.defaults import rtol_in_precision
     >>> [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-5, 1e-3)]
-    [1e-06, 1e-05, 1e-05]
+    [1e-06, 1e-05, 0.0001]
     """
     if precision != "single":
         return rtol

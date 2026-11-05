@@ -50,12 +50,12 @@ interfaces. Under single precision:
   target below binary32's rounding per step buys steps without accuracy. A fixed
   schedule reads no tolerance.
 - **The default tolerance.** Each interface takes the larger of its binary64 default
-  and the floor, and no more than `1e-5`
+  and the floor, and no more than `1e-4`
   ({data}`~solprop.translate.precision.SINGLE_RTOL_CAP`), the loosest value the
   survival record below measured: `1e-6` on `prop_gnlse` (whose binary64 default is
   `1e-7`) and `prop_capillary`, `1e-5` on `prop_waveguide`, `prop_radial` and
-  `prop_planar`, and `1e-5` in free space, whose binary64 `1e-4` is not yet qualified in
-  binary32. A spatial interface applies it where its `SimulationSettings` give no
+  `prop_planar`, and `1e-4` in free space
+  ([its record](#free-space-at-its-binary64-tolerance)). A spatial interface applies it where its `SimulationSettings` give no
   controller; an explicit `rtol` or controller is the caller's.
 - **The step's exponent.** Binary32 represents ``exp(x)`` only up to $x \approx 88.7$
   (binary64 to 709.8). The interaction picture multiplies by the linear propagator and
@@ -197,6 +197,24 @@ bands): both survive.
   measured on a capillary operator over $10^2$–$10^4$ steps (0.1–0.3 on a GNLSE one).
   The field envelope of $10^{-3}$ is reached after about $3\times10^4$ steps; a run
   that needs more takes binary64.
+
+### Free space at its binary64 tolerance
+
+Free space's binary64 default, `rtol = 1e-4`, was qualified in binary32 on 5 November
+2026 ([#85](https://github.com/LupoLab/solprop/issues/85)); until then a single-precision
+free-space run took `1e-5`. Each case ran with `RungeKutta()`, noise-free, on a
+power-of-two grid, in binary32 on `mlx` and binary64 on `native`, against a binary64 run
+at `rtol = 1e-6` (the field's relative difference):
+
+| case | binary64 at `1e-4` | binary32 at `1e-4` | binary64 at `1e-5` | binary32 at `1e-5` |
+|---|---|---|---|---|
+| radial filament in argon with plasma, 3 cm | 9.8e-5 | 2.0e-5 | 1.2e-5 | 1.0e-5 |
+| radial Kerr beam with its transverse collar, 8 cm | 2.5e-5 | 2.1e-5 | 1.7e-6 | 2.0e-6 |
+| Cartesian argon filament, 128 × 128, 1.5 cm | 6.9e-5 | 2.4e-5 | 6.2e-6 | 5.2e-6 |
+
+Binary32 at `1e-4` is as close to the reference as binary64 at `1e-4`, or closer: the
+tolerance, not the precision, sets the error. The Cartesian filament takes 48 steps at
+`1e-4` against 61 at `1e-5`.
 
 ### The Adams integrator in binary32
 

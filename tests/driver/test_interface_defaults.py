@@ -368,8 +368,8 @@ DEFAULTS = {
     "waveguide mode_average": (RungeKutta, 1e-5, 1e-5),
     "waveguide general": (RungeKutta, 1e-5, 1e-5),
     "radial": (Multistep, 1e-5, 1e-5),
-    "free cartesian": (RungeKutta, 1e-4, 1e-5),
-    "free line": (RungeKutta, 1e-4, 1e-5),
+    "free cartesian": (RungeKutta, 1e-4, 1e-4),
+    "free line": (RungeKutta, 1e-4, 1e-4),
     "planar": (Multistep, 1e-5, 1e-5),
 }
 
@@ -424,9 +424,10 @@ def test_the_single_precision_tolerance_rule():
     assert [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-7, 1e-6)] == [
         SINGLE_RTOL_FLOOR
     ] * 3
-    assert [rtol_in_precision(rtol, "single") for rtol in (1e-5, 1e-4, 1e-3)] == [
+    assert rtol_in_precision(1e-5, "single") == 1e-5
+    assert [rtol_in_precision(rtol, "single") for rtol in (1e-4, 1e-3)] == [
         SINGLE_RTOL_CAP
-    ] * 3
+    ] * 2
     assert rtol_in_precision(1e-4, "double") == 1e-4
     # An explicit tolerance is the caller's, above the cap included.
     simulation = Simulation.from_waveguide(
