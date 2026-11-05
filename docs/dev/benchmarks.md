@@ -2506,13 +2506,14 @@ of each case, two rounds, the ratio `mlx`/`native` (below one, `mlx` faster):
 
 | case | before, each default | after, each default | after, Adams on both |
 |---|---:|---:|---:|
-| `rdw` | 3.72 | 1.53 | 1.11 |
-| `he_rdw_averaged` | 4.72 | 2.31 | 1.85 |
-| `radial_filament_256` | 1.10 | 0.72 | 0.76 |
-| `spatial_absorber` | 0.71 | 0.92 | 0.39 |
-| `cartesian_filament_128` | 2.50 | 2.04 | |
+| `rdw` | 3.72 | 1.24 | 0.84 |
+| `he_rdw_averaged` | 4.72 | 2.40 | 1.68 |
+| `radial_filament_256` | 1.10 | 0.45 | 0.42 |
+| `spatial_absorber` | 0.71 | 0.80 | 0.27 |
+| `cartesian_filament_128` | 2.50 | 0.79 | |
 
-The "after" columns predate the device statistics. Whole runs, RK at `rtol = 1e-4`:
+The single-precision default is still Runge-Kutta, so on the capillaries the middle
+column sets `mlx`'s DOPRI5 against `native`'s Adams. Whole runs, RK at `rtol = 1e-4`:
 `radial_filament_256` 0.67 s on `mlx` against 2.07 s on `native`, `spatial_absorber`
 1.98 against 5.54. The short runs' ratios carry the planes' shared host statistics
 (12 planes) as a fixed cost. `kerr_beam_*` is refused on `mlx` past a tenth of its
