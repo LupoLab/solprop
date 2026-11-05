@@ -182,7 +182,7 @@ door open); replacing scripts for production campaigns.
 | D15 | Setup is one sheet per class, with live derived numbers and a preview plot, and a target can be typed into a derived number (7.5). Analysis is a rail of pages with one large page shown and one shared z scrubber. | 2026-11-04 |
 | D16 | The main user is a physicist who does not script: physics language by default, solprop's terms under Advanced. The usual work is one run at a time; comparison is rare, and scans are a mode of their own. | 2026-11-04 |
 | D17 | Design a waveguide is a workflow of its own, needing no pulse, and it never replaces a setup. Tuning a setup is the sheet's job. | 2026-11-04 |
-| D18 | The look is calm and light, with white plots. A filament's first screen is its fluence r-z map with its spectrum and spatio-spectral views. The beam is set by waist and focus, with a lens as an option. | 2026-11-04 |
+| D18 | The look is calm and light, with white plots, in IBM Plex Sans, carried in the package under the Open Font License. A filament's first screen is its fluence r-z map with its spectrum and spatio-spectral views. The beam is set by waist and focus, with a lens as an option. | 2026-11-04 |
 
 ## 3. Users and the work they do
 

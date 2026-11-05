@@ -45,7 +45,7 @@ from solprop_gui.ui.results import ResultsPage
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.run_stage import RunStage
 from solprop_gui.ui.sheet import SheetStage
-from solprop_gui.ui.theme import STYLE, named_label, repolish
+from solprop_gui.ui.theme import STYLE, load_font, named_label, repolish
 
 __all__ = ["WorkflowWindow"]
 
@@ -90,6 +90,7 @@ class WorkflowWindow(QMainWindow):
     ) -> None:
         """Make the window, on Home."""
         super().__init__(parent)
+        load_font()
         self.setStyleSheet(STYLE)
         self.settings = app_settings()
         self.bridge = bridge or ServiceBridge(self)

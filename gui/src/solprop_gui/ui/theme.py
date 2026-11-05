@@ -7,9 +7,20 @@
 from pathlib import Path
 from typing import Final
 
-from PySide6.QtWidgets import QLabel, QLayout, QWidget
+from PySide6.QtGui import QFont, QFontDatabase
+from PySide6.QtWidgets import QApplication, QLabel, QLayout, QWidget
 
-__all__ = ["ACCENT", "GREY", "INK", "STYLE", "clear_layout", "named_label", "repolish"]
+__all__ = [
+    "ACCENT",
+    "FONT",
+    "GREY",
+    "INK",
+    "STYLE",
+    "clear_layout",
+    "load_font",
+    "named_label",
+    "repolish",
+]
 
 INK: Final = "#1b2430"
 """The colour of text."""
@@ -20,9 +31,15 @@ GREY: Final = "#5a6675"
 ACCENT: Final = "#0b6e99"
 """The colour of the primary action and of what is selected."""
 
-_CHEVRON = (Path(__file__).parent / "assets" / "chevron.svg").as_posix()
+FONT: Final = "IBM Plex Sans"
+"""The window's font, carried in the package under the Open Font License."""
+
+_ASSETS = Path(__file__).parent / "assets"
+
+_CHEVRON = (_ASSETS / "chevron.svg").as_posix()
 
 STYLE: Final = f"""
+* {{ font-size: 13px; }}
 QMainWindow, QWidget#page, QScrollArea, QStackedWidget {{ background: #fff; }}
 QWidget#page QLabel {{ color: {INK}; }}
 QFrame#top {{ border-bottom: 1px solid #e3e6ea; background: #fff; }}
@@ -102,6 +119,29 @@ QPlainTextEdit#drawerText {{ border: 0; background: #fff; color: {INK};
     font-family: "Menlo", "Consolas", monospace; font-size: 12px; }}
 """
 """The window's style sheet."""
+
+
+def load_font() -> bool:
+    """Make the carried font the application's, plots' axes included.
+
+    Without it, the window keeps the system's font and works as well.
+
+    Returns
+    -------
+    bool
+        Whether every weight loaded.
+    """
+    results = [
+        QFontDatabase.addApplicationFont(str(path))
+        for path in sorted((_ASSETS / "fonts").glob("*.ttf"))
+    ]
+    loaded = bool(results) and -1 not in results
+    if loaded:
+        font = QFont(FONT)
+        # What a plot's axes take; the style sheet sets the widgets' own size.
+        font.setPixelSize(12)
+        QApplication.setFont(font)
+    return loaded
 
 
 def repolish(widget: QWidget) -> None:

@@ -11,10 +11,11 @@ build-backend = "hatchling.build"
 name = "solprop-gui"
 description = "A desktop front end for solprop: set up, run and read ultrafast propagation simulations"
 readme = "README.md"
-license = "GPL-3.0-or-later"
-# The wheel carries the licence; a copy of the root LICENSE, since license-files cannot
+# The code is GPL; the window's font, IBM Plex Sans, is under the Open Font License.
+license = "GPL-3.0-or-later AND OFL-1.1"
+# The wheel carries the licences; a copy of the root LICENSE, since license-files cannot
 # reach outside the project directory.
-license-files = ["LICENSE"]
+license-files = ["LICENSE", "src/solprop_gui/ui/assets/fonts/LICENSE.txt"]
 # The same authors as solprop's.
 authors = [
   { name = "John C. Travers", email = "jtravs@gmail.com" },

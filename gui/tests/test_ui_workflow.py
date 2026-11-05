@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pytest
 from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QBoxLayout, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 
@@ -17,8 +18,10 @@ from solprop_gui.classes.catalog import CLASSES, GENERIC_PAGES
 from solprop_gui.classes.problem import AnalysisPage, ProblemClass
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import MISSING, RecipeModel
+from solprop_gui.ui import theme as ui_theme
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.theme import FONT
 from solprop_gui.ui.workflow_window import WorkflowWindow
 
 WAIT_MS = 120_000
@@ -61,6 +64,16 @@ def open_tiny(window: WorkflowWindow, qtbot: QtBot) -> None:
     window.document.set_model(RecipeModel(TINY), base=None)
     qtbot.waitUntil(lambda: bool(window.sheet.rows), timeout=WAIT_MS)
     qtbot.waitUntil(window.primary.isEnabled, timeout=WAIT_MS)
+
+
+def test_the_window_uses_the_carried_font_and_its_licence_travels_with_it(
+    window: WorkflowWindow,
+) -> None:
+    assert FONT in QFontDatabase.families()
+    assert window.font().family() == FONT
+    folder = Path(ui_theme.__file__).parent / "assets" / "fonts"
+    assert len(list(folder.glob("*.ttf"))) == 3
+    assert "SIL OPEN FONT LICENSE" in (folder / "LICENSE.txt").read_text("utf-8")
 
 
 def test_home_offers_each_class_and_asks_for_nothing_open(

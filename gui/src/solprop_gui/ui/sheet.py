@@ -105,7 +105,7 @@ class SheetStage(QWidget):
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.form = QFrame()
         self.form.setObjectName("form")
-        self.form.setMinimumWidth(440)
+        self.form.setMinimumWidth(470)
         form = QVBoxLayout(self.form)
         form.setContentsMargins(0, 0, 0, 0)
         form.setSpacing(0)
