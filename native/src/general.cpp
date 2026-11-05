@@ -258,10 +258,17 @@ using ForwardRealPlan = KokkosFFT::Plan<ExecutionSpace, RealView2, ComplexView2>
 using RamanForwardPlan = RamanFftPlan<ExecutionSpace, RealView2, ComplexView2>;
 using RamanInversePlan = RamanFftPlan<ExecutionSpace, ComplexView2, RealView2>;
 using ComplexPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2>;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+// A device's plans of the transverse scratch run one after another, so they share one
+// work area (`transform_work_`) in place of holding one each (solprop #529). A
+// Kerr-only free-space envelope takes the stage's time axis with the plane's in one
+// rank-3 transform (`volume_kerr_`).
+using TransversePlan = KokkosFFT::DynPlan<ExecutionSpace, ComplexView3, ComplexView3>;
+using VolumePlan = TransversePlan;
+#else
 using TransversePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 2>;
-// A device's Kerr-only free-space envelope takes the stage's time axis with the plane's
-// in one rank-3 transform (`volume_kerr_`).
 using VolumePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 3>;
+#endif
 // The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
 using SlabPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 1>;
 // A requested collar's padded transform, along the last axis of a batch (solprop SEP
@@ -2688,6 +2695,9 @@ public:
   // transposes and temporal transforms (`separable_volume_core`).
   bool volume_kerr_ = false;
   std::unique_ptr<VolumePlan> volume_forward_, volume_inverse_;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  ComplexView transform_work_;
+#endif
   std::unique_ptr<SlabPlan> slab_forward_, slab_inverse_;
   ComplexView2 current_, advanced_, solution_, error_, residual_, recycled_, noise_;
   // solprop SEP 24 phase 3: the low-storage march's registers B and C (the state is
@@ -4516,7 +4526,11 @@ void GeneralWorkspace::plan() {
     slab_inverse_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
                                                KokkosFFT::Direction::backward, y_axis);
   } else if (problem_.free_geometry()) {
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+    constexpr std::size_t axes = 2;
+#else
     const KokkosFFT::axis_type<2> axes{-2, -1};
+#endif
     transverse_forward_ = std::make_unique<TransversePlan>(
         fft_space_for(transverse_.size()), transverse_, transverse_,
         KokkosFFT::Direction::forward, axes);
@@ -4535,13 +4549,30 @@ void GeneralWorkspace::plan() {
                    !problem_.dispersive && separable_dispersive_ == nullptr &&
                    problem_.harmonic_factor == 0.0 && separable_gaps_.empty();
     if (volume_kerr_) {
-      const KokkosFFT::axis_type<3> volume_axes{-3, -2, -1};
+      constexpr std::size_t volume_axes = 3;
       volume_forward_ =
           std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
                                        KokkosFFT::Direction::forward, volume_axes);
       volume_inverse_ =
           std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
                                        KokkosFFT::Direction::backward, volume_axes);
+    }
+    std::size_t work = KokkosFFT::compute_required_workspace_size<Complex>(
+        *transverse_forward_, *transverse_inverse_);
+    if (volume_kerr_)
+      work = std::max(work, KokkosFFT::compute_required_workspace_size<Complex>(
+                                *volume_forward_, *volume_inverse_));
+    if (work != 0) {
+      transform_work_ =
+          ComplexView(Kokkos::view_alloc("solprop_native.free.transform_work",
+                                         Kokkos::WithoutInitializing),
+                      work);
+      transverse_forward_->set_work_area(transform_work_);
+      transverse_inverse_->set_work_area(transform_work_);
+      if (volume_kerr_) {
+        volume_forward_->set_work_area(transform_work_);
+        volume_inverse_->set_work_area(transform_work_);
+      }
     }
 #endif
   }
@@ -16237,9 +16268,12 @@ void GeneralWorkspace::close() noexcept {
   radial_blas_input_ = {};
   radial_blas_output_ = {};
   transverse_forward_.reset();
+  transverse_inverse_.reset();
   volume_forward_.reset();
   volume_inverse_.reset();
-  transverse_inverse_.reset();
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  transform_work_ = {};
+#endif
   slab_forward_.reset();
   slab_inverse_.reset();
   transverse_ = {};
