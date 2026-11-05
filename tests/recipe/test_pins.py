@@ -179,6 +179,19 @@ def test_a_pinned_required_keyword_is_not_reported_missing():
     assert recipe.check() == []
 
 
+def test_a_pinned_required_keyword_builds_where_a_missing_one_is_refused():
+    pin = {**ZDW_PIN, "search": ["50 um", "300 um"]}
+    recipe = pinned({"radius": pin}, drop=("radius",))
+    assert carried(recipe.build()).get("radius") > 0.0
+    without = pinned({"radius": pin}, drop=("radius", "length"))
+    for call in (without.build, without.resolve, lambda: without.pin_roots("radius")):
+        with pytest.raises(
+            RecipeError, match=r"^length: a required keyword is missing$"
+        ) as caught:
+            call()
+        assert caught.value.parameter == "length"
+
+
 def test_a_scan_re_solves_its_pins_at_each_point():
     recipe = pinned({"pressure": ZDW_PIN}, drop=("pressure",))
     document = recipe.to_dict()

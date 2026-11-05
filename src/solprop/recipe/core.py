@@ -591,16 +591,9 @@ class Recipe:
             except SolpropError as error:
                 # An object built from a table refuses by its own argument's name.
                 issues.append(_issue(error, name))
-        pinned = set(self._document.get("pins", {}))
-        missing = [
-            name
-            for name, entry in self._table().items()
-            if entry.default is REQUIRED
-            and name not in self._document["build"]
-            and name not in pinned
-        ]
         issues.extend(
-            RecipeIssue(f"{name} is required", name, "error") for name in missing
+            RecipeIssue(f"{name} is required", name, "error")
+            for name in self._missing()
         )
         if issues:
             return issues
@@ -663,6 +656,43 @@ class Recipe:
             out[name] = self._decode(name, value, context)
         return out
 
+    def _missing(self) -> list[str]:
+        """Return the route's required keywords this recipe neither sets nor pins.
+
+        Returns
+        -------
+        list of str
+            Their names, in the route's order.
+        """
+        pinned = self._document.get("pins", {})
+        return [
+            name
+            for name, entry in self._table().items()
+            if entry.default is REQUIRED
+            and name not in self._document["build"]
+            and name not in pinned
+        ]
+
+    def _require_keywords(self) -> None:
+        """Refuse a recipe without a required keyword, before the route is called.
+
+        The route would raise a bare ``TypeError``, which a caller of the recipe API
+        cannot hold against a parameter. Called on the recipe as written: the copies
+        that solve its pins have dropped ``[pins]``, so a pinned keyword looks missing
+        on them.
+
+        Raises
+        ------
+        RecipeError
+            Naming every missing keyword, its ``parameter`` the first of them.
+        """
+        missing = self._missing()
+        if len(missing) == 1:
+            raise RecipeError("a required keyword is missing", path=missing[0])
+        if missing:
+            msg = f"the required keywords {', '.join(missing)} are missing"
+            raise RecipeError(msg, path=missing[0])
+
     def build(self) -> "Simulation":  # noqa: UP037 - checked at run time
         """Build the simulation the recipe describes, without running it.
 
@@ -673,7 +703,13 @@ class Recipe:
         solprop.driver.simulation.Simulation
             The simulation, with ``[execution]``'s settings applied, carrying this
             recipe, which its first run records in its output.
+
+        Raises
+        ------
+        RecipeError
+            If a required keyword is missing, or the recipe does not decode.
         """
+        self._require_keywords()
         if self._document.get("pins"):
             return self.resolve().build()
         builder = surface(self.route)
@@ -709,7 +745,8 @@ class Recipe:
         ------
         RecipeError
             On the pinned path, if a pin does not read, or its target is not met in
-            its search range (naming the attainable range).
+            its search range (naming the attainable range); on the keyword, if a
+            required one is missing.
 
         Examples
         --------
@@ -724,6 +761,7 @@ class Recipe:
         """
         from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
 
+        self._require_keywords()
         pins = read_pins(self)
         working = self._copy(("pins",))
         for pin in pins:
@@ -760,10 +798,12 @@ class Recipe:
         Raises
         ------
         RecipeError
-            If the path is not pinned, or a pin does not read.
+            If the path is not pinned, a pin does not read, or a required keyword is
+            missing.
         """
         from solprop.recipe.pins import read_pins  # noqa: PLC0415 - cycle
 
+        self._require_keywords()
         pins = read_pins(self)
         steps = format_path(parse_path(path))
         chosen = next((pin for pin in pins if pin.path == steps), None)

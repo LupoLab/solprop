@@ -203,6 +203,17 @@ LINE = textwrap.dedent(
 )
 
 
+def test_a_missing_positional_keyword_is_refused_before_the_route():
+    text = LINE.replace(
+        'space = { type = "LineGrid", radius_x = "400 um", n_x = 32 }\n', ""
+    )
+    with pytest.raises(
+        RecipeError, match=r"^space: a required keyword is missing$"
+    ) as caught:
+        Recipe.loads(text).build()
+    assert caught.value.parameter == "space"
+
+
 def _line_call() -> Simulation:
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 200e-15, thg=False)
     from solprop.stats import default_spec  # noqa: PLC0415 - one call only
