@@ -66,13 +66,17 @@ __all__ = [
     "cartesian_fluence_widths",
     "check_aperture_profile",
     "check_aperture_shape",
+    "column_spectrum",
     "critical_power",
     "edge_profile",
     "fwhm_r",
     "mask_plane_offsets",
     "mask_plane_radius",
+    "node_spectrum",
+    "on_axis_field",
     "on_axis_intensity",
     "on_axis_spectrum",
+    "on_axis_trace",
     "peak_field",
     "physical_evanescent_rate",
     "planar_fluence",
@@ -829,7 +833,7 @@ class SpatialFlux:
 
     grid: TimeGrid
     space: RadialGrid | FreeGrid | PlanarGrid
-    medium: SpatialMedium
+    medium: SpatialMedium | None
     z: float
     side: FluxSide | None
     coefficients: object
@@ -1621,10 +1625,7 @@ def on_axis_intensity(
     GridError
         If the spectrum is invalid.
     """
-    field, closure = _on_axis_pair(spectrum, flux)
-    grid = flux.grid
-    product = np.real(_analytic(grid, field) * np.conj(_analytic(grid, closure)))
-    return float(0.5 * EPS0 * C * np.max(np.sum(product, axis=0)))
+    return float(np.max(on_axis_trace(spectrum, flux)))
 
 
 def on_axis_spectrum(
@@ -1661,6 +1662,140 @@ def on_axis_spectrum(
         np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
     )
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=0)
+
+
+def node_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_nodes n_omega"]:
+    """Return the spectral fluence density at every spatial node.
+
+    The local form of :func:`on_axis_spectrum`: the same-frequency real pairing of ``E``
+    and ``G`` at each node, summed over polarisation. Broadband or absorbing fields can
+    give a negative local value; it is not clipped.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Real spectral fluence in J s/m^2 per angular frequency bin, shape
+        ``(n_nodes, n_omega)``. Its sum over frequency times ``grid.d_omega`` is the
+        node's :func:`spatial_fluence`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    _check_flux(spectrum, flux, planar=False)
+    field, closure = _local_pair(spectrum, flux)
+    grid = flux.grid
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    )
+    return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=1)
+
+
+def column_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_modes n_omega"]:
+    """Split the physical energy crossing the plane over columns and frequency bins.
+
+    The same weighted sum as :func:`spatial_energy_spectrum`, kept per transverse
+    wavevector column: what a far field is made of. Each value is an energy.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Energy in J (J/m on a line), shape ``(n_modes, n_omega)``. It sums to
+        :func:`spatial_energy`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    _check_flux(spectrum, flux, planar=False)
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    table = np.empty((spectrum.shape[0], grid.n_omega))
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        table[columns] = (
+            flux.space.spectral_weights[columns, None] * weights * real * density
+        )
+    return flux.energy_scale * table
+
+
+def on_axis_trace(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_t"]:
+    """Return the signed axial flux on the beam axis at every time sample.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        The flux in W/m^2, summed over polarisation, on ``grid.t``. Its largest value
+        is :func:`on_axis_intensity`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    field, closure = _on_axis_pair(spectrum, flux)
+    grid = flux.grid
+    product = np.real(_analytic(grid, field) * np.conj(_analytic(grid, closure)))
+    return 0.5 * EPS0 * C * np.sum(product, axis=0)
+
+
+def on_axis_field(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Complex[np.ndarray, "n_pol n_omega"]:
+    """Return the temporal spectrum of the electric field on the beam axis.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum in V/m, per polarisation, in the grid's stored order.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    return _on_axis_pair(spectrum, flux)[0]
 
 
 # ----------------------------------------------- far-field apertures (SEP 23)

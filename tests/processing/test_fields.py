@@ -312,10 +312,37 @@ def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
     # Inside the window but between two gate positions: none to show.
     t, _ = fields.get_field(output, kind="real", plane=-1)
     step = float(t[1] - t[0])
-    between = (float(t[10]) + 0.25 * step, float(t[10]) + 0.75 * step)
+    # Far inside one step: an envelope grid's gate positions are oversampled.
+    between = (float(t[10]) + 1e-3 * step, float(t[10]) + 2e-3 * step)
     with pytest.raises(ProcessingError, match="holds no gate position"):
         fields.get_spectrogram(output, time_range=between)
     # The last plane by default, or the one nearest a position.
     last = fields.get_spectrogram(output, positions=8)[2]
     nearest = fields.get_spectrogram(output, z=synthetic.length, positions=8)[2]
     assert np.array_equal(last, nearest)
+
+
+def test_a_spectrogram_on_a_narrow_envelope_grid_has_its_carrier(tmp_path):
+    # The band's time step is coarser than the carrier's: the real field is oversampled,
+    # or an 800 nm pulse aliases to about 2.9 um.
+    from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only here
+    from solprop.output import open_file  # noqa: PLC0415 - only here
+    from solprop.processing import real_field_oversampling  # noqa: PLC0415 - only here
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    narrow = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1100e-9), 200e-15)
+    assert real_field_oversampling(narrow) > 1
+    text = (
+        Recipe.example("antiresonant_fibre")
+        .to_text()
+        .replace('length = "0.05 m"', 'length = "1 mm"')
+        .replace('["300 nm", "1600 nm"]', '["600 nm", "1100 nm"]')
+    )
+    path = tmp_path / "run.h5"
+    Recipe.loads(text).run(path)
+    with open_file(str(path)) as output:
+        _t, x, values = fields.get_spectrogram(
+            output, "wavelength", plane=0, positions=32
+        )
+    row = np.unravel_index(np.argmax(values), values.shape)[0]
+    assert x[row] == pytest.approx(800e-9, rel=0.05)
