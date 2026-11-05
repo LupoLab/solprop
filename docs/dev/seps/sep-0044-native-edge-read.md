@@ -501,20 +501,20 @@ SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 th
 
 ### Phase 4 — 2026-11-05
 
-The read qualified on an NVIDIA H200 and an AMD Instinct MI325X, the first AMD card to run it, within a rental the maintainer approved. Each ran a CUDA or HIP build on the card, at `9a5d2346`. The tables are in the ledger, [the native read on the data-centre cards](../benchmarks.md#the-native-read-on-the-data-centre-cards).
+The read qualified on an NVIDIA H200 and an AMD Instinct MI325X, the first AMD card to run it, within a rental the maintainer approved. Each ran a CUDA or HIP build on the card: the H200 at `9a5d2346` and again at `8cd170e2`, and the MI325X at `9a5d2346`. The tables are in the ledger, [the native read on the data-centre cards](../benchmarks.md#the-native-read-on-the-data-centre-cards).
 
 **§7's gates,** `python -m benchmarks.device_split 768`, 8 fixed steps and 4 planes, one read a step:
 
 | Gate | NVIDIA H200 | AMD Instinct MI325X |
 |---|---:|---:|
 | No state transfer | none | none |
-| A read under half a step | 25 ms of 220 ms | 31 ms of 208 ms |
-| The point under twice its check-off time | x1.22, 3.24 s against 2.66 s | x1.34, 2.68 s against 2.00 s |
-| Context: 51 steps, 17 planes at 384 | x1.21 | x1.20 |
+| A read under half a step | 25 ms of 223 ms | 31 ms of 208 ms |
+| The point under twice its check-off time | x1.30, 2.58 s against 1.98 s | x1.34, 2.68 s against 2.00 s |
+| Context: 51 steps, 17 planes at 384 | x1.23 | x1.20 |
 
 Before this work those points took 70 s and 29 s, so x11.9 and x6.9. A requested collar at 384 x 384 x 600 reads in 18.7 ms and 14.1 ms, against 12.9 s and 6.2 s for the host's reduction of a host copy, and its current takes 4.5 ms and 3.9 ms at each commit, against a step of 72 ms on both.
 
-**Tests.** On each card, `pytest -m gpu` over `tests` 130 passed, 1 skipped, and over `native/tests` 31 passed; the edge's, collar's, widths' and statistics' modules with `test_transverse_backends.py` 269 passed, 3 skipped; `test_transverse_reads.py`, `test_transverse_monitor.py` and `test_stop.py` 66 passed; `tests:cand`'s targeted set 210 passed, 7 skipped; native's radial and backend modules 92 passed.
+**Tests,** at `9a5d2346`. On each card, `pytest -m gpu` over `tests` 130 passed, 1 skipped, and over `native/tests` 31 passed; the edge's, collar's, widths' and statistics' modules with `test_transverse_backends.py` 269 passed, 3 skipped; `test_transverse_reads.py`, `test_transverse_monitor.py` and `test_stop.py` 66 passed; `tests:cand`'s targeted set 210 passed, 7 skipped; native's radial and backend modules 92 passed. At `8cd170e2` on the H200, with the collar back at the node chunk: the edge's, collar's, widths', statistics', split rows', batch's and transverse backends' modules 326 passed, 3 skipped; the scan batch, runner, stop and transverse modules 135 passed; and `pytest -m gpu` on the far field, widths and statistics, 177 passed and 3 failed, all one seed of a new test that drew only masked bins, since fixed. An NVIDIA A40 at `ccd701d5`: `pytest -m gpu tests` 130 passed, 2 skipped.
 
 **Deviations from Part I.**
 

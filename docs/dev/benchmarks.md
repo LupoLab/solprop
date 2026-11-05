@@ -875,23 +875,23 @@ The geometric mean is 0.85. A requested collar's read, at 384 x 384 x 600 on tho
 
 ### The native read on the data-centre cards
 
-An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ host, 24 cores) and an AMD Instinct MI325X (ROCm 10.0.0, `gfx942`, an AMD EPYC 9575F host, 20 cores), one rented machine each, on 2026-11-04 and 2026-11-05, at `9a5d2346`. That commit took a device's split collar a whole state at a time, which was [then dropped](#a-device-step-beyond-its-transforms): by that section's control the node chunk adds 0.4 % to a step on the H200 and 2.2 % on the MI325X, which changes no verdict here. "Start" is the same probe on [the default check's section](#the-default-check-on-a-device-reads-occupancy-and-sums)'s base, with no work from these changes.
+An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ host, 24 cores) and an AMD Instinct MI325X (ROCm 10.0.0, `gfx942`, an AMD EPYC 9575F host, 20 cores), one rented machine each. The H200's figures are at `8cd170e2`, on 2026-11-05. The MI325X's are at `9a5d2346`, which still took a device's split collar [a whole state at a time](#a-device-step-beyond-its-transforms): by that section's control the node chunk adds 2.2 % to its step, and it hasn't the threaded finiteness pass, which took 0.17 s of each point. "Start" is the same probe on [the default check's section](#the-default-check-on-a-device-reads-occupancy-and-sums)'s base, with no work from these changes.
 
 `python -m benchmarks.device_split`, field-free, a stated input identity, `held_plane=False`, the first of a runner's points set apart:
 
 | | H200, start | H200, now | MI325X, start | MI325X, now | Aim |
 |---|---:|---:|---:|---:|---|
-| 768 x 768 x 600, 8 steps, 4 planes: check on, s | 70 | 3.24 | 29 | 2.68 | under 8, under 6 |
-| The same, check off, s | 5.9 | 2.66 | 4.2 | 2.00 | |
-| On against off | x11.9 | x1.22 | x6.9 | x1.34 | under x2 |
-| 384 x 384 x 600, 51 steps, 17 planes: on against off | x12.6 | x1.21 | not run | x1.20 | under x1.25 |
+| 768 x 768 x 600, 8 steps, 4 planes: check on, s | 70 | 2.58 | 29 | 2.68 | under 8, under 6 |
+| The same, check off, s | 5.9 | 1.98 | 4.2 | 2.00 | |
+| On against off | x11.9 | x1.30 | x6.9 | x1.34 | under x2 |
+| 384 x 384 x 600, 51 steps, 17 planes: on against off | x12.6 | x1.23 | not run | x1.20 | under x1.25 |
 | State crossings of the 8-step point | 13 | 0 | 13 | 0 | 0 |
-| A step at 768, ms | 239 | 220 | 224 | 208 | |
+| A step at 768, ms | 239 | 223 | 224 | 208 | |
 | An edge read, ms | about 4,300 | 25 | about 1,000 | 31 | under half a step |
 | The temporal monitor's sums, each step, ms | | 24 | | 32 | |
-| `field_to_host`, 5.27 GiB, ms | 2,929 | 162 | 506 | 106 | under 300 |
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 159 | 506 | 106 | under 300 |
 | `energy`, ms | 55 | 2.3 | 80 | 6.7 | under 10 |
-| `on_axis_intensity`, ms | | 11.8 | | 14.1 | |
+| `on_axis_intensity`, ms | | 11.7 | | 14.1 | |
 | `beam_radius`, `fwhm_r`, ms | about 1,000 | 43 | about 1,000 | 44 | |
 | `peak_intensity`, ms | 134 | 75 | 164 | 74 | |
 
@@ -924,9 +924,27 @@ A requested collar at 384 x 384 x 600, one state, field-free, native against the
 | Radial 64, 256, Runge-Kutta | 17, 11 % | 10, 2.4 % |
 | Cartesian 64, radial 64, native Adams | 0.6, 1.1 % | 0.6, 0.6 % |
 
-**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a fibre on native, 8 steps a plane, before a batch learned to leave a field where it was: an observation took 5.3 to 6.2 ms of a plane interval of 17 to 19 ms on the H200, 22 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. The statistics at each plane took 0.9 to 2.1 ms and 0.6 to 1.6 ms.
+**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a fibre on native, 8 steps a plane: with a member's field an observation took 5.2 to 6.6 ms of a plane interval of 23 to 28 ms on the H200, 22 to 23 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. A plane no one reads now takes 0.23 ms on the H200, about 1 %, and its interval falls to 18 to 21 ms. The statistics at each plane, 0.8 to 2.1 ms, are unchanged.
 
-**A scan worker's runner** ([#298](https://github.com/LupoLab/solprop/issues/298)), on the MI325X at 768 x 768 x 600: `from_free` 3.27 s, `translate` 1.62 s, the runner 0.29 s to 0.48 s, a first point's extra run 0.17 s, and 2.68 s for 8 steps. A worker that kept its runner would save at most 0.65 s of about 8.1 s, 8 %, less on a longer point, and under the issue's 10 %. A kept runner saves neither the build nor the translation, since a point's problem must be built to compare it.
+**A scan worker's backend** ([#298](https://github.com/LupoLab/solprop/issues/298)), in a warm process on the H200, default check, the median of 3:
+
+| | Build the simulation | Translate | Point, new backend | Point, kept |
+|---|---:|---:|---:|---:|
+| 768 x 768 x 600, 8 steps, 4 planes | 4.80 s | 3.68 s | 4.69 s | 2.59 s |
+| 384 x 384 x 600, 51 steps, 17 planes | 1.39 s | 0.93 s | 4.24 s | 3.26 s |
+
+So a `Local` scan on a device now keeps the backend while each point is the last but for its input, which is what `Simulation.with_input` gives. On those two windows that saves 45 % and 23 % of a point's own time, and a builder that shares its base skips the first two columns too.
+
+**The transverse size** ([#529](https://github.com/LupoLab/solprop/issues/529)). Each plan takes a work area, one state's each for the rank-3 pair and, at some sizes only, for the rank-2 pair. So the plans hold two or four states, and the point's memory and its seconds per GiB depend on the size. On the H200, 8 steps, check off:
+
+| N x N x 600 | State, GiB | Plans, GiB | Total, GiB | Point, s | Seconds per GiB of state |
+|---:|---:|---:|---:|---:|---:|
+| 720 | 4.64 | 18.56 | 34.49 | 1.905 | 0.411 |
+| 750 | 5.03 | 10.06 | 27.18 | 1.774 | 0.353 |
+| 768 | 5.27 | 21.09 | 38.96 | 1.987 | 0.377 |
+| 800 | 5.72 | 11.45 | 30.67 | 2.078 | 0.363 |
+| 864 | 6.67 | 26.70 | 48.80 | 2.515 | 0.377 |
+| 900 | 7.24 | 14.48 | 38.30 | 2.373 | 0.328 |
 
 ### The transverse edge against 0.1.0
 
