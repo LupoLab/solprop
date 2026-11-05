@@ -169,7 +169,7 @@ def _stopped(received: list[int], output: Path) -> int:
     try:
         with open_file(output) as stored:
             outcome = stored.outcome
-    except (OSError, OutputError):
+    except OSError, OutputError:
         outcome = None
     complete = outcome is not None and outcome.status == "complete"
     name = signal.Signals(received[0]).name

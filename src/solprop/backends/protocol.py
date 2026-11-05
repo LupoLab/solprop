@@ -931,7 +931,7 @@ class BatchBackend(Backend, Protocol):
         ----------
         field : bool, optional
             Whether each member's field and noise phase cross to the host, as for
-            :meth:`Backend.observe`. Default ``True``.
+            :meth:`solprop.backends.protocol.Backend.observe`. Default ``True``.
 
         Returns
         -------
