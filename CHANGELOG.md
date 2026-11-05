@@ -157,6 +157,9 @@ All notable changes to solprop are recorded here. The format follows
   `"PressureGradient.two_point"`, `"RadialGrid"` and the rest) and gives its keywords the
   same metadata a route keyword has: forms with units and ranges, a level, a one-line
   summary, a display unit, a manual anchor and the signature's default.
+- `Simulation.output_bytes()`, the size of a run's output without constructing a backend, for a
+  front end to show as the setup changes. It is the part of `Simulation.estimate()` that times
+  nothing.
 - `Recipe.modes()` gives each mode's effective index, group delay (`beta1`), third-order
   dispersion (`beta3`) and nonlinear coefficient (`gamma`) over the band, beside `beta`,
   `beta2`, the loss, the effective area and the zero-dispersion wavelength. The new

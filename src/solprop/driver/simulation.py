@@ -3695,6 +3695,28 @@ class Simulation(Displayed):
 
         return estimate(self)
 
+    def output_bytes(self) -> int:
+        """Return the size of the run's output, without constructing a backend.
+
+        The cheap part of :meth:`estimate`, for asking as the setup changes: it times
+        nothing and allocates no run state.
+
+        Returns
+        -------
+        int
+            Bytes, as an in-memory store holds them (an HDF5 file adds little).
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> simulation = Recipe.example("soliton").build()
+        >>> simulation.output_bytes() == simulation.estimate().output_bytes
+        True
+        """
+        from solprop.driver.estimate import output_bytes  # noqa: PLC0415 - imports this
+
+        return output_bytes(self)
+
     def _prepare_atomic(
         self,
         problem: KernelProblem,
