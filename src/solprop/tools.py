@@ -1329,11 +1329,13 @@ def _zdw_near(mode: Mode, omega: float, z: float) -> float:
     :func:`solprop.modes.base.zdw` brackets one sign change across its whole window,
     which a gas resonance in the vacuum ultraviolet defeats: krypton flips the sign of
     the dispersion twice near 120 nm, the ends then agree, and the zero at 769 nm of a
-    14 um capillary at 15 bar is refused. Here the sign is sampled, every change is
-    refined, the changes through a pole are dropped, and the zero nearest the pump is
-    the one reported. Two limits of a sampled search remain: a zero and a pole inside
-    one sample interval (3.6e13 rad/s) restore the sign and are both missed, and a
-    sample that is not finite cannot bracket anything.
+    14 um capillary at 15 bar is refused. Here the sign is sampled, the changes are
+    refined outwards from the pump, the changes through a pole are dropped, and the zero
+    nearest the pump is the one reported; a change further than the best so far cannot
+    beat it, which spares the dozens of changes an antiresonant fibre's resonances
+    give. Two limits of a sampled search remain: a zero and a pole inside one sample
+    interval (3.6e13 rad/s) restore the sign and are both missed, and a sample that is
+    not finite cannot bracket anything.
 
     Parameters
     ----------
@@ -1354,23 +1356,32 @@ def _zdw_near(mode: Mode, omega: float, z: float) -> float:
         2.0 * math.pi * C / _ZDW_RANGE[0],
         _ZDW_SAMPLES,
     )
-    zeros = []
+    nearest = math.nan
     # The refinement converges onto a pole as readily as onto a zero, and a model may
     # divide by zero exactly there; the group-delay test below tells the two apart.
     with _probing(), np.errstate(divide="ignore", invalid="ignore"):
         sampled = base.beta2(mode, grid, z)
-        for i in np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0):
+        changes = np.flatnonzero(np.sign(sampled[:-1]) * np.sign(sampled[1:]) < 0.0)
+        # How near each bracket can bring a zero: 0 for one holding the pump.
+        reach = np.maximum.reduce(
+            [grid[changes] - omega, omega - grid[changes + 1], np.zeros(changes.size)]
+        )
+        for i in changes[np.argsort(reach, kind="stable")]:
             low, high = float(grid[i]), float(grid[i + 1])
+            if not math.isnan(nearest) and max(low - omega, omega - high) >= abs(
+                nearest - omega
+            ):
+                break
             root = _refine_zero(mode, low, high, z)
             if math.isnan(root):
                 continue
             delay = base.beta1(mode, np.array([low, root, high]), z)
             bounded = max(abs(sampled[i]), abs(sampled[i + 1])) * (high - low)
-            if abs(delay[1] - delay[0]) <= _POLE_FACTOR * bounded:
-                zeros.append(root)
-    if not zeros:
+            closer = math.isnan(nearest) or abs(root - omega) < abs(nearest - omega)
+            if closer and abs(delay[1] - delay[0]) <= _POLE_FACTOR * bounded:
+                nearest = root
+    if math.isnan(nearest):
         return math.nan
-    nearest = min(zeros, key=lambda value: abs(value - omega))
     # Outside the probing context, so a zero beyond the index model's range warns.
     base.beta(mode, np.array([nearest]), z)
     return 2.0 * math.pi * C / nearest
