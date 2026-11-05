@@ -491,7 +491,7 @@ non-positive bins out of a logarithmic slice, and
 {py:func}`~solprop.plotting.propagation.prop_2d` draws them at the bottom of its colour
 scale. Both take the same keyword. A run without noise, and a `modified` run, whose
 saved field holds no seed, are refused by name.
-{py:func}`~solprop.processing.fields.get_spectrum` takes only `noise_floor="keep"`: the
+{py:func}`~solprop.processing.fields.get_spectrum` has no `noise_floor` keyword: the
 floor is a power, the seed sits in the saved amplitude coherently with the pulse, and no
 amplitude has the signed density as its modulus squared.
 

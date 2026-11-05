@@ -247,6 +247,10 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
+- `get_spectrum` has no `noise_floor` keyword. Its annotation admitted "subtract",
+  which it always refused: an amplitude has no part that is the floor's power, so
+  only `get_spectral_density` subtracts it. Drop `noise_floor="keep"`, the default,
+  from a call that passes it; the result is unchanged.
 
 ### Fixed
 

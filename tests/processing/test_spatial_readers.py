@@ -284,17 +284,6 @@ def test_the_file_statement_keeps_the_statistic_and_states_the_readers(spatial_r
         )
 
 
-def test_a_spatial_spectrum_refuses_the_floor_without_pointing_to_a_refused_reader(
-    spatial_run,
-):
-    _, _, output = spatial_run
-    with pytest.raises(ProcessingError) as caught:
-        get_spectrum(output, noise_floor="subtract")
-    message = str(caught.value)
-    assert "a spatial file has no reader of the floor-subtracted density" in message
-    assert "ask get_spectral_density" not in message
-
-
 @pytest.mark.parametrize("build", [example_output, example_general_output])
 def test_a_modal_file_keeps_its_column_readers(build):
     output = build()
