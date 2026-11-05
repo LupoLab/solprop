@@ -153,7 +153,7 @@ def _width_budget(grid, problem):
     return gamma(8 * 16 * (n_columns + n_pol * grid.n_t + 64 * int(np.log2(grid.n_t))))
 
 
-def _agree(got, want, bound, pixel, what):
+def _agree(got, want, bound, pixel, what, extent):
     for name in WIDTHS:
         actual, expected = np.ravel(got[name]), np.ravel(want[name])
         # A width the rule leaves undefined (a hollow profile, a beam at an edge) is
@@ -166,8 +166,17 @@ def _agree(got, want, bound, pixel, what):
             # A pixel at least: a point beam's moment is its centroid's rounding, whose
             # size is the axes', not the width's.
             scale = max(float(np.linalg.norm(expected[live])), pixel)
+            allowed = bound
+            if name == "beam_radius" and float(np.max(expected[live])) < pixel:
+                # A moment errs by the budget relative to the axes' squares, and a
+                # width is its root: a point beam's has no size of its own to hide that.
+                allowed = 2 * math.sqrt(bound) * extent / scale
             assert_within(
-                actual[live], expected[live], bound, scale=scale, what=f"{what} {name}"
+                actual[live],
+                expected[live],
+                allowed,
+                scale=scale,
+                what=f"{what} {name}",
             )
 
 
@@ -196,7 +205,8 @@ def _check_plane(kind, n_pol, state):
     x = geometry.axes[0]
     pixel = float(x[1] - x[0])
     what = f"{kind} {n_pol} {state}"
-    _agree(got, want, _width_budget(grid, problem), pixel, what)
+    extent = max(float(np.max(np.abs(axis))) for axis in geometry.axes)
+    _agree(got, want, _width_budget(grid, problem), pixel, what, extent)
     # The axis's coherent sum errs normwise, as a node's synthesis does, so on the
     # states that cancel on the axis the scale is the beam's peak, not the axis's value.
     # The time transform and the pairing as for the fluence (`_width_budget`), and no
