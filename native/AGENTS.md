@@ -89,7 +89,8 @@ the `native-quality` jobs run `native/scripts/check.sh` on Linux, one group of i
 each (`SOLPROP_NATIVE_CHECK_STAGES`). The `native-wheel` jobs build the CPU distribution
 wheel on Linux, macOS and Windows, cached under a hash of `native/`, and solprop's
 default lane runs on it on macOS and Windows with the native backend selected, and in
-the coverage lane on Linux. GPU builds are validated by hand
+the coverage lane on Linux. The `device-compile` lanes compile the CUDA and HIP targets, tests included, on a change to
+`native/`, with no device. Running on one stays by hand
 (`.github/workflows/cuda.yml` on a self-hosted runner, or `pytest -m gpu` on a machine
 with a device).
 
