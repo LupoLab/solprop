@@ -32,6 +32,7 @@ from solprop import capabilities, sol
 from solprop.backends.protocol import Observation
 from solprop.backends.registry import available
 from solprop.driver import Simulation
+from solprop.driver import run as run_module
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import (
@@ -188,23 +189,31 @@ def test_a_different_record_is_refused_unless_forced():
 @pytest.mark.parametrize("backend", available())
 @pytest.mark.parametrize("case", CASES)
 @pytest.mark.usefixtures("no_collector")
-def test_every_march_delivers_its_planes_and_keeps_none_alive(backend, case):
+def test_every_march_delivers_its_planes_and_keeps_none_alive(
+    backend, case, monkeypatch
+):
     """Fields on the first two planes and none after: one run of each kind of plane.
 
-    At each plane the plane before it must be gone, so that one observation lives at a
-    time. This is the volume the native backend's observation costs, which it allocates
-    outside the tracer's sight, and it would go unseen if the run or the handler held
-    on.
+    When a plane is about to be observed the plane before it must be gone, so that one
+    observation lives at a time. This is the volume the native backend's observation
+    costs, which it allocates outside the tracer's sight, and it would go unseen if the
+    run or the handler held on across a step.
     """
     simulation = keeping(CASES[case](backend), "planes", (0, 1))
     earlier: list[weakref.ref] = []
     kept: list[bool] = []
     positions: list[float] = []
     alive: list[bool] = []
+    observed = run_module._observed
 
-    def receive(plane: SavedPlane) -> None:
+    def watched(problem, backend, *, keep) -> Observation:
         alive.extend(reference() is not None for reference in earlier)
         earlier.clear()
+        return observed(problem, backend, keep=keep)
+
+    monkeypatch.setattr(run_module, "_observed", watched)
+
+    def receive(plane: SavedPlane) -> None:
         earlier.append(weakref.ref(plane))
         if plane.field is not None:
             earlier.append(weakref.ref(plane.field))
