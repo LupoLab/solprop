@@ -252,6 +252,41 @@ def test_the_trial_kernel_rounds_the_binary64_moments_once():
         assert np.max(np.abs(found - reference) / scale) <= 2 * U32
 
 
+@gpu_only
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: capillary("single"), id="capillary"),
+        pytest.param(lambda: plasma_beam("single", route="radial"), id="radial"),
+        pytest.param(lambda: plasma_beam("single", route="cartesian"), id="cartesian"),
+    ],
+)
+def test_the_field_plasma_statistics_agree_with_the_oracle(build):
+    """The populations at every node, on the device by the stage's own passes.
+
+    The oracle scans in binary64 from the widened field; the device in binary32 with
+    the stage's rate kernel, running integral and stable population, as the envelope
+    grid's statistics already do.
+    """
+    from solprop.backends.numpy_ref.backend import NumpyRefBackend  # noqa: PLC0415
+
+    with ExitStack() as cleanup:
+        backend = loaded(on("mlx", build()), cleanup)
+        backend.propagate_to(float(build().settings.save_planes[-1]))
+        observed = backend.observe().field
+        assert observed is not None
+        field = observed[0]
+        device = cast(MlxBackend, backend)._species_statistics(field)
+        oracle = NumpyRefBackend._species_statistics(cast(MlxBackend, backend), field)
+    assert set(device) == set(oracle)
+    assert float(np.max(oracle["species_ionisation"])) > 1e-8
+    for name, expected in oracle.items():
+        # The final fractions' binary32 scans: a few thousand units of rounding,
+        # against the statistic's largest value (an outer node's 1e-17 is zero there).
+        scale = float(np.max(np.abs(expected)))
+        np.testing.assert_allclose(device[name], expected, rtol=0.0, atol=1e-4 * scale)
+
+
 def test_mlx_refuses_the_interaction_formulation_by_name():
     simulation = gnlse("single", integrator=Multistep(formulation="interaction"))
     with pytest.raises(BackendError, match="interaction formulation"):

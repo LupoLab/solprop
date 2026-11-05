@@ -23,7 +23,7 @@ their transverse collars, stepped by Runge-Kutta. Everything else is refused by 
 
 import math
 import os
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any, Literal, cast
 
@@ -49,6 +49,7 @@ from solprop.backends.numpy_ref.backend import logger as oracle_logger
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
+from solprop.backends.populations import population_statistics
 from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError
@@ -1690,6 +1691,122 @@ class MlxBackend(NumpySingleBackend):
             np.array(mx.stack(fractions), dtype=np.float64),
             np.array(mx.stack(peaks), dtype=np.float64),
         )
+
+    def _species_statistics(
+        self,
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        scans: dict[int, tuple[np.ndarray, np.ndarray]] | None = None,
+        member: int = 0,
+    ) -> dict[str, np.ndarray]:
+        """Evaluate the field-grid plasma's populations at every node on the device.
+
+        The oracle's statistics (:meth:`NumpyRefBackend._species_statistics`) with the
+        stage's own formulation, as :meth:`_envelope_populations` evaluates the
+        envelope grid's: the nodes formed from the plane's state on the device, each
+        channel's rate kernel, running integral and stable population, chunk by
+        chunk, and only the final fractions and peak rates read. On a Cartesian grid
+        the host's evaluation transformed every column in binary64, seconds a plane.
+        Elsewhere -- the envelope grid, no plasma, MLX's CPU device -- the oracle's.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        scans : dict or None, optional
+            Where to leave this observation's channel fractions and peak rates at
+            every node, keyed by `member`, for the on-axis statistics to reuse.
+        member : int, optional
+            The batch member, the key into `scans`.
+
+        Returns
+        -------
+        dict
+            The five species statistics and the two total plasma statistics.
+        """
+        responses = self._problem.responses
+        transform = self._problem.transform
+        slab = transform.geometry is not None and transform.geometry.kind == "slab"
+        if (
+            not on_gpu()
+            or responses.envelope_plasma is not None
+            or not responses.plasma_channels
+            or slab
+        ):
+            return super()._species_statistics(field, scans, member)
+        initials = tuple(
+            float(channel.preionisation(self._z))
+            for channel in responses.population_channels
+        )
+        parameters = [mx.array(population_parameters(p)) for p in initials]
+        k = self._scale_exponent
+        # The state's own scale: the narrowed field is the propagation's.
+        state = mx.array((field * math.ldexp(1.0, -k)).astype(np.complex64))
+        grids = self._problem.grids
+        fractions: list[list[mx.array]] = [[] for _ in initials]
+        peaks: list[list[mx.array]] = [[] for _ in initials]
+        for nodes in self._device_nodes(state):
+            physical = nodes * float(2.0**k)
+            if physical.shape[-2] == 1:
+                magnitude = mx.abs(physical[..., 0, :])
+            else:
+                x, y = physical[..., 0, :], physical[..., 1, :]
+                magnitude = mx.sqrt(x * x + y * y)
+            for index, table in enumerate(self._rate_tables):
+                rate = table(magnitude)
+                exposure = device.running_integral(
+                    rate, grids.dt_fine, responses.plasma_integral
+                )[..., -1]
+                if responses.plasma_integral.policy != "trapezoid":
+                    exposure = mx.maximum(exposure, 0.0)
+                fraction, _ = population(exposure, parameters[index])
+                fractions[index].append(fraction)
+                peaks[index].append(mx.max(rate, axis=-1))
+        read = [mx.concatenate(rows) for rows in (*fractions, *peaks)]
+        values = np.array(mx.stack(read), dtype=np.float64)
+        found, highest = values[: len(initials)], values[len(initials) :]
+        if scans is not None:
+            scans[member] = (found, highest)
+        return population_statistics(self._problem, self._z, found, highest)
+
+    def _device_nodes(self, state: mx.array) -> Iterator[mx.array]:
+        """Yield a scaled state's field at the nodes on the fine time grid, by chunk.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            One member's scaled spectral columns, ``(n_modes, n_pol, n_omega)``.
+
+        Yields
+        ------
+        mlx.core.array
+            The scaled field at a chunk of nodes, ``(n_chunk, n_components, n_to)``.
+        """
+        problem = self._problem
+        grids, transform = problem.grids, problem.transform
+        kind = self._kind
+        if self._free_prefactor is not None:
+            geometry = transform.geometry
+            assert geometry is not None
+            nx, ny = geometry.shape
+            physical = mx.fft.ifftn(
+                state.reshape(ny, nx, *state.shape[1:]), axes=[0, 1]
+            ).reshape(state.shape)
+            for first in range(0, transform.n_nodes, transform.node_chunk):
+                rows = physical[first : first + transform.node_chunk]
+                yield grids.pad_scale * device.to_time(
+                    rows, self._pad_crop, grids.n_to, kind=kind
+                )
+            return
+        taper = (
+            1.0
+            if transform.taper_scale is None
+            else float(transform.taper_scale(self._z))
+        )
+        modal_t = device.to_time(state, self._pad_crop, grids.n_to, kind=kind)
+        n_pol = transform.n_pol
+        for first in range(0, transform.n_nodes, transform.node_chunk):
+            rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
+            yield device.synthesise(modal_t, self._synthesis[rows], taper, n_pol)
 
     def _envelope_spectrum(self, drives: list[mx.array]) -> mx.array:
         """Return the drive's and the loss's spectrum times their factors.
