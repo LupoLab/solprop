@@ -299,6 +299,9 @@ class SheetStage(QWidget):
         self.rows: dict[tuple[str, str], ParameterRow] = {}
         self.derived: dict[str, QLabel | QPushButton] = {}
         self._advanced_rows: list[ParameterRow] = []
+        self._advanced_waiting: list[Mapping[str, object]] = []
+        self._advanced_catalog: object = None
+        self._issues: list[Mapping[str, object]] = []
         self._examples: list[Mapping[str, object]] = []
         self._title: str | None = None
         self._lists: dict[str, Sequence[str]] = {}
@@ -773,14 +776,30 @@ class SheetStage(QWidget):
         find.setPlaceholderText("Find any setting")
         find.textChanged.connect(self._filter_advanced)
         section.add(find)
-        for meta in other_keywords(problem, description):
-            forms: Sequence[Mapping[str, object]] = meta.get("forms", ())  # pyright: ignore[reportAssignmentType]
-            if any(form.get("recipe", True) for form in forms):
-                row = self._row(meta, catalog)
-                self._advanced_rows.append(row)
-                section.add(row)
+        # Made as the section is first opened or searched: dozens of rows, some with
+        # a form per type, made the sheet slow to open.
+        self._advanced_waiting = [
+            meta
+            for meta in other_keywords(problem, description)
+            if any(form.get("recipe", True) for form in _forms(meta))
+        ]
+        self._advanced_catalog = catalog
+        section.header.toggled.connect(lambda shown: shown and self.fill_advanced())
         self.advanced = section
         self.sections.addWidget(section)
+
+    def fill_advanced(self) -> None:
+        """Make the Advanced rows, once, and show the recipe's values in them."""
+        if not self._advanced_waiting:
+            return
+        waiting, self._advanced_waiting = self._advanced_waiting, []
+        for meta in waiting:
+            row = self._row(meta, self._advanced_catalog)
+            self._advanced_rows.append(row)
+            self.advanced.add(row)
+        if self._model is not None:
+            self.show_values(self._model)
+            self.show_issues(self._issues)
 
     def _filter_advanced(self, text: str) -> None:
         """Show the advanced rows that match what was typed.
@@ -790,6 +809,7 @@ class SheetStage(QWidget):
         text : str
             What to find, in a row's name, label or summary.
         """
+        self.fill_advanced()
         wanted = text.strip().lower()
         for row in self._advanced_rows:
             found = f"{row.name} {row.title} {row.meta.get('summary', '')}".lower()
@@ -1114,6 +1134,16 @@ class SheetStage(QWidget):
         issues : Sequence of Mapping
             The issues: ``message``, ``parameter`` and ``severity``.
         """
+        self._issues = list(issues)
+        for issue in issues:
+            where = issue.get("parameter")
+            named = where if isinstance(where, list | tuple) else [where]
+            # An issue on an Advanced keyword needs its row made to stand beside it.
+            if (
+                any(path and (path, "build") not in self.rows for path in named)
+                and issue.get("severity") == "error"
+            ):
+                self.fill_advanced()
         for row in self.rows.values():
             row.set_issue(None)
         for issue in issues:
@@ -1317,3 +1347,20 @@ def _plain_number(number: Derived, value: float) -> str:
     target = number.target
     scaled = value * 1e9 if target is not None and target.unit == "nm" else value
     return f"{scaled:.3g}"
+
+
+def _forms(meta: Mapping[str, object]) -> Sequence[Mapping[str, object]]:
+    """Return a keyword's forms, as its metadata lists them.
+
+    Parameters
+    ----------
+    meta : Mapping
+        The keyword's metadata.
+
+    Returns
+    -------
+    Sequence of Mapping
+        Its forms; none where it lists none.
+    """
+    forms = meta.get("forms", ())
+    return forms if isinstance(forms, list | tuple) else ()

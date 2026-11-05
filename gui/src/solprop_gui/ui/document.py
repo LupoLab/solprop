@@ -10,7 +10,7 @@ copy, and says what happened through signals, so a window only shows the result.
 """
 
 import zlib
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 
 from PySide6.QtCore import QObject, QStandardPaths, QTimer, Signal
@@ -204,6 +204,8 @@ class SetupDocument(QObject):
         super().__init__(parent)
         self.bridge = bridge
         self.confirm = confirm
+        # Asked before anything replaces the setup: the window's run may be its.
+        self.guard: Callable[[], bool] = lambda: True
         self.window = parent
         self.model: RecipeModel | None = None
         self.base: str | None = None
@@ -356,6 +358,21 @@ class SetupDocument(QObject):
         self.state_changed.emit()
         self.schedule_check(now=True)
         self.loaded.emit()
+
+    def prefetch(self, routes: Sequence[str]) -> None:
+        """Ask for the descriptions of routes before any of their setups opens.
+
+        A sheet is built from its route's description, so one fetched ahead lets a
+        class's sheet show at once, its numbers asked before the first check.
+
+        Parameters
+        ----------
+        routes : Sequence of str
+            The routes.
+        """
+        for route in dict.fromkeys(routes):
+            if route not in self.descriptions:
+                self._ask("describe", {"route": route}, f"describe-{route}")
 
     def snapshot(self) -> tuple[str, str | None, str | None]:
         """Return the recipe to run: its text, data directory and title.
@@ -643,6 +660,8 @@ class SetupDocument(QObject):
         bool
             Whether to go on.
         """
+        if not self.guard():
+            return False
         if self.model is None or not self.model.dirty:
             return True
         answer = self.confirm(

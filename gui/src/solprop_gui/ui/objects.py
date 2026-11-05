@@ -217,20 +217,20 @@ class ObjectField(QWidget):
         make_row: RowFactory,
         parent: QWidget | None = None,
     ) -> None:
-        """Make the picker and one form per type."""
+        """Make the picker, and the first type's form: the others as they are picked."""
         super().__init__(parent)
         self.types = [name for name in types if name in catalog]
         self._updating = False
+        self._catalog = catalog
+        self._make_row = make_row
         self.picker = QComboBox()
         self.picker.setObjectName("object-type")
         self.forms = QStackedWidget()
         self.by_name: dict[str, _TypeForm] = {}
         for name in self.types:
             self.picker.addItem(type_title(name), name)
-            form = _TypeForm(name, catalog[name], make_row)
-            form.changed.connect(self._changed)
-            self.by_name[name] = form
-            self.forms.addWidget(form)
+        if self.types:
+            self.form(self.types[0])
         self.picker.setVisible(len(self.types) > 1)
         self.picker.currentIndexChanged.connect(self._picked)
         self.header = QHBoxLayout()
@@ -264,7 +264,31 @@ class ObjectField(QWidget):
         bool
             Whether it is a mapping whose ``type`` is one of :attr:`types`.
         """
-        return isinstance(value, Mapping) and value.get("type") in self.by_name
+        return isinstance(value, Mapping) and value.get("type") in self.types
+
+    def form(self, name: str) -> _TypeForm:
+        """Return a type's form, made the first time it is wanted.
+
+        A keyword may allow a dozen types, each with its rows: making them all at
+        once made a sheet slow to open.
+
+        Parameters
+        ----------
+        name : str
+            The type.
+
+        Returns
+        -------
+        _TypeForm
+            Its form.
+        """
+        found = self.by_name.get(name)
+        if found is None:
+            found = _TypeForm(name, self._catalog[name], self._make_row)
+            found.changed.connect(self._changed)
+            self.by_name[name] = found
+            self.forms.addWidget(found)
+        return found
 
     def current(self) -> _TypeForm:
         """Return the form of the type picked.
@@ -274,7 +298,7 @@ class ObjectField(QWidget):
         _TypeForm
             The form.
         """
-        return self.by_name[str(self.picker.currentData())]
+        return self.form(str(self.picker.currentData()))
 
     def set_value(self, value: object) -> None:
         """Show a table, or the first type's empty form, without announcing it.
@@ -292,8 +316,9 @@ class ObjectField(QWidget):
             else:
                 name, values = str(self.picker.currentData()), {}
             self.picker.setCurrentIndex(self.picker.findData(name))
-            self.forms.setCurrentWidget(self.by_name[name])
-            self.by_name[name].set_values(values)
+            form = self.form(name)
+            self.forms.setCurrentWidget(form)
+            form.set_values(values)
         finally:
             self._updating = False
 
@@ -315,7 +340,9 @@ class ObjectField(QWidget):
         index : int
             The type's item.
         """
-        self.forms.setCurrentIndex(max(index, 0))
+        name = self.picker.itemData(max(index, 0))
+        if name is not None:
+            self.forms.setCurrentWidget(self.form(str(name)))
         self._changed()
 
     def _changed(self) -> None:

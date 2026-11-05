@@ -1177,3 +1177,41 @@ def test_a_beam_s_plane_and_a_planar_rail(
     )
     assert plane.note.text() == "not exchanged"
     assert plane.spectrum.xs.size == 0
+
+
+def test_opening_something_else_mid_run_asks_and_stops_it(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    from test_server import SLOW  # noqa: PLC0415 - only here
+
+    answers: list[str] = []
+    answers_given = ["cancel", "cancel"]
+
+    def confirm(_title: str, text: str) -> str:
+        answers.append(text)
+        return answers_given.pop(0)
+
+    window.confirm = confirm
+    window.document.confirm = lambda _title, _text: "discard"
+    window.document.set_model(RecipeModel(SLOW), base=None)
+    qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
+    window.primary.click()
+    qtbot.waitUntil(lambda: window.run_panel.active, timeout=WAIT_MS)
+    model = window.document.model
+    # Kept: the run goes on, and so does its setup.
+    window.begin_class("capillary")
+    assert window.document.model is model
+    assert window.run_panel.active
+    assert "run is going" in answers[-1]
+    window.open_results("nothing.h5")
+    assert window.stage is Stage.RUN
+    # Stopped: the new setup opens, and the run's end does not take the stage.
+    answers_given.append("stop")
+    window.begin_class("capillary")
+    qtbot.waitUntil(lambda: not window.run_panel.active, timeout=WAIT_MS)
+    qtbot.waitUntil(
+        lambda: window.problem is not None and window.problem.key == "capillary",
+        timeout=WAIT_MS,
+    )
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    assert not window._leaving_run

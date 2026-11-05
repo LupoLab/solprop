@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from solprop_gui.classes.catalog import (
+    CLASSES,
     GENERIC_PAGES,
     OTHER_KEY,
     class_named,
@@ -136,6 +137,8 @@ class WorkflowWindow(QMainWindow):
             lambda title, text: self.confirm(title, text),  # noqa: PLW0108 - replaceable
             self,
         )
+        self.document.guard = self._may_leave_run
+        self._leaving_run = False
         self.session = AnalysisSession(self.bridge, self)
         self.page_views = {key: make(self.session) for key, make in PAGE_VIEWS.items()}
         overview = self.page_views["overview"]
@@ -204,7 +207,7 @@ class WorkflowWindow(QMainWindow):
         self.run_panel.point_seen.connect(self.scans.show_point)
         self.sheet.example_chosen.connect(self.document.open_example)
         self.document.opened.connect(self._opened)
-        self.document.described.connect(lambda _route: self._build_sheet())
+        self.document.described.connect(self._described)
         self.document.loaded.connect(self._loaded)
         self.document.values_changed.connect(self._show_values)
         self.run_panel.resume_action.changed.connect(self._refresh)
@@ -503,6 +506,8 @@ class WorkflowWindow(QMainWindow):
         if purpose == "examples" and reply.ok:
             examples: Sequence[Mapping[str, object]] = reply.value  # pyright: ignore[reportAssignmentType]
             self.sheet.set_examples(examples)
+            # Ahead of the first click: the classes' routes, and a first check, which
+            # costs most the first time the kernel makes one.
             self.home.set_other_examples(
                 [
                     (str(entry["name"]), str(entry["title"]))
@@ -510,6 +515,9 @@ class WorkflowWindow(QMainWindow):
                     if class_of(str(entry["route"]), entry["build"]) is None  # pyright: ignore[reportArgumentType]
                 ]
             )
+            self._warm_up()
+        elif purpose is not None and purpose.startswith("warm-") and reply.ok:
+            self._ask_kernel("check", {"text": str(reply.value)}, f"warmed-{purpose}")
         elif purpose == "gases" and reply.ok:
             self.design.set_gases(reply.value)  # pyright: ignore[reportArgumentType]
             self.sheet.set_list("gases", reply.value)  # pyright: ignore[reportArgumentType]
@@ -631,6 +639,28 @@ class WorkflowWindow(QMainWindow):
         """
         self.document.open_example(class_named(key).example)
 
+    def _may_leave_run(self) -> bool:
+        """Ask before opening anything else while a run is going, and stop it if told.
+
+        The window follows one run: another setup or file open beside it would leave
+        the run's stages showing the wrong thing.
+
+        Returns
+        -------
+        bool
+            Whether to go on.
+        """
+        if not self.run_panel.active or self._leaving_run:
+            return True
+        answer = self.confirm(
+            "Run going", "A run is going. Stop it and open something else?"
+        )
+        if answer != "stop":
+            return False
+        self._leaving_run = True
+        self.run_panel.stop()
+        return True
+
     def _run_recipe(self) -> tuple[str, str | None, str | None]:
         """Return what a run runs: the setup once, or its scan from the Scan stage.
 
@@ -713,6 +743,8 @@ class WorkflowWindow(QMainWindow):
         path : str
             The file.
         """
+        if not self._may_leave_run():
+            return
         if Path(path).name == SCAN_OUTPUT:
             self.open_scan(path)
             return
@@ -759,6 +791,28 @@ class WorkflowWindow(QMainWindow):
                 self.overview = view
                 self.run_panel.view = view  # pyright: ignore[reportAttributeAccessIssue]
                 self.analyse.overview = view
+
+    def _warm_up(self) -> None:
+        """Ask ahead of the first click for what opening a class needs.
+
+        The classes' route descriptions, so a sheet is built as its recipe arrives,
+        and a first check of the slow routes, the first costing most.
+        """
+        self.document.prefetch([problem.route for problem in CLASSES])
+        for name in _WARM_EXAMPLES:
+            self._ask_kernel("example", {"name": name}, f"warm-{name}")
+
+    def _described(self, route: str) -> None:
+        """Build the sheet when the open setup's route has been described.
+
+        Parameters
+        ----------
+        route : str
+            The route described; one fetched ahead for a later setup changes nothing.
+        """
+        model = self.document.model
+        if model is not None and model.route == route:
+            self._build_sheet()
 
     def _build_sheet(self) -> None:
         """Make the sheet of the open setup's class, once its route is described."""
@@ -886,6 +940,13 @@ class WorkflowWindow(QMainWindow):
         path : str
             Its results file.
         """
+        if self._leaving_run:
+            # A run stopped to open something else: it is listed, and not shown.
+            self._leaving_run = False
+            self._scanning = False
+            self.refresh_home()
+            self._refresh()
+            return
         if Path(path).name == SCAN_OUTPUT:
             self._scanning = False
             self.open_scan(path)
@@ -1010,6 +1071,7 @@ class WorkflowWindow(QMainWindow):
             if answer != "stop":
                 event.ignore()
                 return
+            self._leaving_run = True
             self.run_panel.stop()
             if self.run_panel.client is not None:
                 self.run_panel.client.join(30.0)
@@ -1021,6 +1083,11 @@ class WorkflowWindow(QMainWindow):
         self.bridge.close()
         event.accept()
 
+
+_WARM_EXAMPLES = ("rdw", "filament")
+"""Examples checked once as the window opens: a route's first check costs the most
+(about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
+kernel's, not the first click's."""
 
 _NOTICE_MS = 20_000
 """How long a passing notice stays, in milliseconds."""
