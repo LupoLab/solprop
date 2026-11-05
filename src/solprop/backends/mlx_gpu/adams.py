@@ -398,7 +398,7 @@ class MlxAdams:
         msg = "the mlx Adams engine runs the exponential formulation only"
         raise BackendError(msg)
 
-    def exponential_trial(  # noqa: PLR0915 - one trial, pass by pass
+    def exponential_trial(  # noqa: PLR0912, PLR0915 - one trial, pass by pass
         self,
         z: float,
         dz: float,
@@ -444,12 +444,37 @@ class MlxAdams:
         if bundle.phi_delta is not None and backend._terms.phi is not None:
             weights_x = np.asarray(bundle.phi_delta, dtype=np.float64).reshape(-1)
         exponent = shift = None
+        rows_read = slots[: width - 1]
+        carried = endpoint = rate = None
+        if self.compensated:
+            rate = rate_weights(
+                backend._problem.linear, z + dz, before=True, helpers=helpers
+            )
         if weights_x is not None and not active:
             # SEP 33: the flow and its moments to binary64 accuracy, each rounded
-            # once, from the step's exponent in double-float on the device.
-            flow, moments = backend._phi.moments(
-                *backend._phi.device_weights(weights_x), width
-            )
+            # once, from the step's exponent in double-float on the device; with a
+            # varying operator, in the same pass, the compensation's factors.
+            if self.compensated:
+                assert rate is not None
+                differences = [
+                    cast(np.ndarray, self._rates[int(slot)]) - weights_x / dz
+                    for slot in rows_read
+                ]
+                flow, moments, factors = backend._phi.trial(
+                    np.stack([weights_x, *differences, rate - weights_x / dz]),
+                    width,
+                    np.array([1.0 - node for node in nodes[: len(rows_read)]]),
+                    endpoint=True,
+                )
+                carried = [
+                    factor * cast(mx.array, self._states[int(slot)])
+                    for factor, slot in zip(factors, rows_read, strict=False)
+                ]
+                endpoint = factors[-1]
+            else:
+                flow, moments = backend._phi.moments(
+                    *backend._phi.device_weights(weights_x), width
+                )
         else:
             exponent = np.array(backend._delta_phi(bundle))
             if active:
@@ -462,7 +487,7 @@ class MlxAdams:
             )
             flow = mx.array(np.exp(exponent).astype(np.complex64))
         values: list[mx.array] = []
-        for slot in slots[: width - 1]:
+        for slot in rows_read:
             row = self._rows[int(slot)]
             assert row is not None  # every slot the march reads holds a sample
             values.append(row)
@@ -474,10 +499,13 @@ class MlxAdams:
             ]
         length = mx.array(dz, dtype=mx.float32)
         predictor = lagrange_coefficients(nodes[:order], check=False, helpers=helpers)
-        carried = weights = None
+        weights = None
         if self.compensated:
-            assert weights_x is not None  # an expansion's terms are device-ready
-            carried = self._carried(weights_x, dz, nodes, slots[: width - 1])
+            assert weights_x is not None and rate is not None  # an expansion's terms
+            if carried is None:
+                carried = self._carried(weights_x, dz, nodes, rows_read)
+                phi = backend._phi
+                endpoint = phi.combination(*phi.device_weights(rate - weights_x / dz))
             weights = self._weights(nodes, [order], len(carried))[1][0]
         # Chosen here: the march builds the engine before the backend's own tables.
         fused = backend._fused
@@ -496,20 +524,15 @@ class MlxAdams:
         )
         corrector = _exponential_corrector(nodes, order, width, helpers=helpers)
         rows = self._kernels.defect_rows(nodes, orders, width)
-        compensation = rate = None
+        compensation = None
         if carried is not None:
-            assert weights_x is not None
-            rate = rate_weights(
-                backend._problem.linear, z + dz, before=True, helpers=helpers
-            )
+            assert endpoint is not None
             after, before = self._weights(nodes, orders, len(carried))
-            phi = backend._phi
             compensation = {
                 "carried": carried,
                 # The new sample's compensation at the predicted state, untransported:
                 # (D(z + h) - x / h), its weights differenced in binary64.
-                "endpoint": phi.combination(*phi.device_weights(rate - weights_x / dz))
-                * lab,
+                "endpoint": endpoint * lab,
                 "corrector": after,
                 "predictor": before,
             }

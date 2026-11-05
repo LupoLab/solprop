@@ -202,33 +202,42 @@ inline dfc c_exp_small(dfc y) {
     }
     return e;
 }
+// exp(x): the phase reduced by whole turns of a double-float 2 pi, then scaled to at
+// most 1/2, summed and squared back.
+inline dfc c_exp(dfc x) {
+    float turns = metal::rint(x.im.x * INV_TWO_PI);
+    dfc r = {x.re, df_add(x.im, df_mul(float2(-turns, 0.0f),
+                                       float2(TWO_PI_HI, TWO_PI_LO)))};
+    float size = metal::sqrt(r.re.x * r.re.x + r.im.x * r.im.x);
+    int s = size > 0.5f ? int(metal::ceil(metal::log2(size / 0.5f))) : 0;
+    dfc e = c_exp_small(c_ldexp(r, -s));
+    for (int level = 0; level < s; ++level) { e = c_mul(e, e); }
+    return e;
+}
+// One combination sum_t w_ct T_t of the terms, in double-float.
+#define COMBINE(c, out) \
+    out = {float2(0.0f, 0.0f), float2(0.0f, 0.0f)}; \
+    for (int t = 0; t < TERMS; ++t) { \
+        float2 w = float2(w_hi[(c) * TERMS + t], w_lo[(c) * TERMS + t]); \
+        uint k = t * N + i; \
+        out.re = df_add(out.re, df_mul(w, float2(re_hi[k], re_lo[k]))); \
+        out.im = df_add(out.im, df_mul(w, float2(im_hi[k], im_lo[k]))); \
+    }
 """
 
 _MOMENTS = """
     uint i = thread_position_in_grid.x;
     if (i >= N) { return; }
     // x = sum_t w_t T_t in double-float, as the propagator kernels combine it.
-    dfc x = {float2(0.0f, 0.0f), float2(0.0f, 0.0f)};
-    for (int t = 0; t < TERMS; ++t) {
-        float2 w = float2(w_hi[t], w_lo[t]);
-        uint k = t * N + i;
-        x.re = df_add(x.re, df_mul(w, float2(re_hi[k], re_lo[k])));
-        x.im = df_add(x.im, df_mul(w, float2(im_hi[k], im_lo[k])));
-    }
+    dfc x;
+    COMBINE(0, x)
     dfc phi[P + 1];
     float magnitude = metal::sqrt(x.re.x * x.re.x + x.im.x * x.im.x);
     if (magnitude > JOIN) {
         // exp(x) with the phase reduced by whole turns of a double-float 2 pi, then
         // scaled to at most 1/2, summed and squared back; recurred up beyond the join,
         // where the recurrence is stable (solprop.backends.exponential._phi_far).
-        float turns = metal::rint(x.im.x * INV_TWO_PI);
-        dfc r = {x.re, df_add(x.im, df_mul(float2(-turns, 0.0f),
-                                           float2(TWO_PI_HI, TWO_PI_LO)))};
-        float size = metal::sqrt(r.re.x * r.re.x + r.im.x * r.im.x);
-        int s = size > 0.5f ? int(metal::ceil(metal::log2(size / 0.5f))) : 0;
-        dfc e = c_exp_small(c_ldexp(r, -s));
-        for (int level = 0; level < s; ++level) { e = c_mul(e, e); }
-        phi[0] = e;
+        phi[0] = c_exp(x);
         for (int k = 1; k <= P; ++k) {
             dfc shifted = phi[k - 1];
             shifted.re = df_sub(shifted.re, float2(inv_fact[2 * (k - 1)],
@@ -276,6 +285,22 @@ _MOMENTS = """
         moments_re[k * N + i] = m.re.x + m.re.y;
         moments_im[k * N + i] = m.im.x + m.im.y;
     }
+    // A varying operator's compensation factors (SEP 16 section 4.2): per history
+    // sample exp(s_j x) (D(z_j) - x / h), the rates' difference being combination
+    // 1 + j, each product rounded once; then the endpoint's D(z + h) - x / h.
+    for (int j = 0; j < SLOTS; ++j) {
+        dfc d;
+        COMBINE(1 + j, d)
+        dfc f = c_mul(c_exp(c_real(x, float2(spans[2 * j], spans[2 * j + 1]))), d);
+        factors_re[j * N + i] = f.re.x + f.re.y;
+        factors_im[j * N + i] = f.im.x + f.im.y;
+    }
+    if (ENDPOINT) {
+        dfc d;
+        COMBINE(1 + SLOTS, d)
+        factors_re[SLOTS * N + i] = d.re.x + d.re.y;
+        factors_im[SLOTS * N + i] = d.im.x + d.im.y;
+    }
 """
 
 
@@ -290,12 +315,28 @@ def _moments_kernel() -> object:
     """
     return mx.fast.metal_kernel(
         name="solprop_double_float_moments",
-        input_names=["re_hi", "re_lo", "im_hi", "im_lo", "w_hi", "w_lo", "inv_fact"],
-        output_names=["flow_re", "flow_im", "moments_re", "moments_im"],
+        input_names=[
+            "re_hi",
+            "re_lo",
+            "im_hi",
+            "im_lo",
+            "w_hi",
+            "w_lo",
+            "inv_fact",
+            "spans",
+        ],
+        output_names=[
+            "flow_re",
+            "flow_im",
+            "moments_re",
+            "moments_im",
+            "factors_re",
+            "factors_im",
+        ],
         source=_source(_MOMENTS)
         .replace("JOIN", f"{PHI_JOIN!r}f")
         .replace("SERIES", str(_SERIES_TERMS)),
-        header=_HEADER + _MOMENTS_HEADER,
+        header=_HEADER + _source(_MOMENTS_HEADER),
         compile_options={"math_mode": "safe"},
     )
 
@@ -550,10 +591,8 @@ class DoubleFloatTerms:
         """Return ``exp(x)`` and ``k! phi_{k+1}(x)`` for ``k < count``, ``x = sum w T``.
 
         An exponential Adams trial's flow and moments (SEP 16) in double-float, each
-        rounded once to complex64: :func:`solprop.backends.exponential.phi_functions`
-        recurred up beyond its join and scaled, summed and doubled within it, with
-        ``exp`` reduced by whole turns of a double-float ``2 pi``. On the Metal device
-        only.
+        rounded once to complex64 (:meth:`trial` without a compensation). On the
+        Metal device only.
 
         Parameters
         ----------
@@ -567,26 +606,132 @@ class DoubleFloatTerms:
         tuple of mlx.core.array
             The flow, of :attr:`shape`, and the moments, ``(count, *shape)``.
         """
+        flow, moments, _ = self._trial(w_hi, w_lo, count, np.zeros(0), endpoint=False)
+        return flow, moments
+
+    def trial(
+        self,
+        weights: np.ndarray,
+        count: int,
+        spans: np.ndarray,
+        *,
+        endpoint: bool,
+    ) -> tuple[mx.array, mx.array, list[mx.array]]:
+        """Return an exponential Adams trial's flow, moments and compensation factors.
+
+        One pass over the terms, in double-float, every output rounded once:
+        ``exp(x)`` and ``k! phi_{k+1}(x)`` -- the reference's far recurrence beyond
+        its join and its scaled series and doubling within it
+        (:func:`solprop.backends.exponential.phi_functions`), ``exp`` reduced by whole
+        turns of a double-float ``2 pi`` -- with ``x`` the first row's combination;
+        then for each span ``s_j`` the factor ``exp(s_j x) R_j``, ``R_j`` the
+        combination of row ``1 + j``; then, with `endpoint`, the last row's
+        combination alone. On the Metal device only.
+
+        Parameters
+        ----------
+        weights : numpy.ndarray
+            Binary64 weights over the terms, ``(n_rows, n_terms)``: ``x``'s, each
+            history sample's difference of rates, and the endpoint's.
+        count : int
+            The moments, at most :data:`~solprop.backends.exponential.MAX_PHI_ORDER`.
+        spans : numpy.ndarray
+            ``s_j``, binary64, one per history sample.
+        endpoint : bool
+            Whether the last row is the endpoint's.
+
+        Returns
+        -------
+        tuple
+            The flow, of :attr:`shape`; the moments, ``(count, *shape)``; and the
+            samples' factors then the endpoint's, each of :attr:`shape`.
+
+        Raises
+        ------
+        BackendError
+            If the weights do not match the terms or the rows.
+        """
+        rows = np.asarray(weights, dtype=np.float64)
+        if rows.shape != (1 + len(spans) + int(endpoint), self.n_terms):
+            msg = f"trial weights of shape {rows.shape} for {self.n_terms} terms"
+            raise BackendError(msg)
+        hi, lo = _split(rows.reshape(-1))
+        return self._trial(
+            mx.array(hi), mx.array(lo), count, np.asarray(spans), endpoint=endpoint
+        )
+
+    def _trial(
+        self,
+        w_hi: mx.array,
+        w_lo: mx.array,
+        count: int,
+        spans: np.ndarray,
+        *,
+        endpoint: bool,
+    ) -> tuple[mx.array, mx.array, list[mx.array]]:
+        """Launch the trial kernel (:meth:`trial`) on weights already on the device.
+
+        Parameters
+        ----------
+        w_hi, w_lo : mlx.core.array
+            The rows' heads and tails, flattened.
+        count : int
+            The moments.
+        spans : numpy.ndarray
+            ``s_j``, binary64.
+        endpoint : bool
+            Whether the last row is the endpoint's.
+
+        Returns
+        -------
+        tuple
+            As :meth:`trial`.
+        """
         n = math.prod(self.shape)
         factorials = np.array(
             [1.0 / math.factorial(k) for k in range(count + 1)], dtype=np.float64
         )
         hi, lo = _split(factorials)
-        flow_re, flow_im, moments_re, moments_im = _moments_kernel()(  # pyright: ignore[reportCallIssue]
-            inputs=[*self.parts, w_hi, w_lo, mx.array(np.stack([hi, lo], axis=1))],
+        span_hi, span_lo = _split(np.asarray(spans, dtype=np.float64))
+        n_factors = len(spans) + int(endpoint)
+        span_pairs = (
+            np.stack([span_hi, span_lo], axis=1)
+            if len(spans)
+            else np.zeros((1, 2), np.float32)
+        )
+        outputs = _moments_kernel()(  # pyright: ignore[reportCallIssue]
+            inputs=[
+                *self.parts,
+                w_hi,
+                w_lo,
+                mx.array(np.stack([hi, lo], axis=1)),
+                mx.array(span_pairs),
+            ],
             template=[
                 ("N", n),
                 ("TERMS", self.n_terms),
                 ("P", count),
+                ("SLOTS", len(spans)),
+                ("ENDPOINT", int(endpoint)),
             ],
             grid=(n, 1, 1),
             threadgroup=(min(256, n), 1, 1),
-            output_shapes=[(n,), (n,), (count * n,), (count * n,)],
-            output_dtypes=[mx.float32] * 4,
+            output_shapes=[(n,), (n,), (count * n,), (count * n,)]
+            + [(max(n_factors, 1) * n,)] * 2,
+            output_dtypes=[mx.float32] * 6,
         )
+        flow_re, flow_im, moments_re, moments_im, factors_re, factors_im = outputs
         flow = (flow_re + 1j * flow_im).astype(mx.complex64).reshape(self.shape)
         moments = (moments_re + 1j * moments_im).astype(mx.complex64)
-        return flow, moments.reshape(count, *self.shape)
+        factors = (factors_re + 1j * factors_im).astype(mx.complex64)
+        return (
+            flow,
+            moments.reshape(count, *self.shape),
+            [
+                factors[j * n : (j + 1) * n].reshape(self.shape)
+                for j in range(n_factors)
+            ],
+        )
 
     def _evaluate(
         self, weights: np.ndarray, *, exponential: int, sign: int
