@@ -45,7 +45,7 @@ from solprop.stepper.multistep import (
     integrated_weights,
     lagrange_coefficients,
 )
-from solprop.translate.linop import phi_rate
+from solprop.translate.linop import rate_weights
 
 if TYPE_CHECKING:
     from solprop.backends.mlx_gpu.backend import MlxBackend
@@ -276,7 +276,8 @@ class MlxAdams:
             "expansion",
             "table",
         ) and not source_absent(problem)
-        # A compensated history's sample states on the device, rates on the host.
+        # A compensated history's sample states on the device, and their rates
+        # D(z_j) as weights over the operator's terms on the host.
         self._states: list[mx.array | None] = [None] * self.n_slots
         self._rates: list[np.ndarray | None] = [None] * self.n_slots
         self._trial: _Trial | None = None
@@ -345,7 +346,7 @@ class MlxAdams:
             # The startup sample's state and rate, read on the far side of a kink
             # that restarted the history.
             self._states[0] = state
-            self._rates[0] = phi_rate(
+            self._rates[0] = rate_weights(
                 backend._problem.linear, z, helpers=backend.helpers
             )
 
@@ -397,7 +398,7 @@ class MlxAdams:
         msg = "the mlx Adams engine runs the exponential formulation only"
         raise BackendError(msg)
 
-    def exponential_trial(
+    def exponential_trial(  # noqa: PLR0915 - one trial, pass by pass
         self,
         z: float,
         dz: float,
@@ -436,18 +437,30 @@ class MlxAdams:
         backend._envelope_failures = []
         width = 1 + max(orders)
         helpers = backend.helpers
-        exponent = np.array(backend._delta_phi(backend._stage_scalars(z, z + dz)))
+        bundle = backend._stage_scalars(z, z + dz)
         carrier = self.carrier
-        shift = (
-            None if carrier is None or not carrier.active else carrier.shift(exponent)
-        )
-        # SEP 33: the flow and its moments in binary64, each rounded once.
-        moments = mx.array(
-            np.asarray(self._kernels.moments(exponent, width, shift=shift)).astype(
-                np.complex64
+        active = carrier is not None and carrier.active
+        weights_x = None
+        if bundle.phi_delta is not None and backend._terms.phi is not None:
+            weights_x = np.asarray(bundle.phi_delta, dtype=np.float64).reshape(-1)
+        exponent = shift = None
+        if weights_x is not None and not active:
+            # SEP 33: the flow and its moments to binary64 accuracy, each rounded
+            # once, from the step's exponent in double-float on the device.
+            flow, moments = backend._phi.moments(
+                *backend._phi.device_weights(weights_x), width
             )
-        )
-        flow = mx.array(np.exp(exponent).astype(np.complex64))
+        else:
+            exponent = np.array(backend._delta_phi(bundle))
+            if active:
+                assert carrier is not None
+                shift = carrier.shift(exponent)
+            moments = mx.array(
+                np.asarray(self._kernels.moments(exponent, width, shift=shift)).astype(
+                    np.complex64
+                )
+            )
+            flow = mx.array(np.exp(exponent).astype(np.complex64))
         values: list[mx.array] = []
         for slot in slots[: width - 1]:
             row = self._rows[int(slot)]
@@ -463,7 +476,8 @@ class MlxAdams:
         predictor = lagrange_coefficients(nodes[:order], check=False, helpers=helpers)
         carried = weights = None
         if self.compensated:
-            carried = self._carried(exponent, dz, nodes, slots[: width - 1])
+            assert weights_x is not None  # an expansion's terms are device-ready
+            carried = self._carried(weights_x, dz, nodes, slots[: width - 1])
             weights = self._weights(nodes, [order], len(carried))[1][0]
         # Chosen here: the march builds the engine before the backend's own tables.
         fused = backend._fused
@@ -484,14 +498,18 @@ class MlxAdams:
         rows = self._kernels.defect_rows(nodes, orders, width)
         compensation = rate = None
         if carried is not None:
-            rate = phi_rate(
+            assert weights_x is not None
+            rate = rate_weights(
                 backend._problem.linear, z + dz, before=True, helpers=helpers
             )
             after, before = self._weights(nodes, orders, len(carried))
+            phi = backend._phi
             compensation = {
                 "carried": carried,
-                # The new sample's compensation at the predicted state, untransported.
-                "endpoint": mx.array((rate - exponent / dz).astype(np.complex64)) * lab,
+                # The new sample's compensation at the predicted state, untransported:
+                # (D(z + h) - x / h), its weights differenced in binary64.
+                "endpoint": phi.combination(*phi.device_weights(rate - weights_x / dz))
+                * lab,
                 "corrector": after,
                 "predictor": before,
             }
@@ -526,18 +544,20 @@ class MlxAdams:
         return np.array([math.sqrt(square) / scale for square in squares[:-1]])
 
     def _carried(
-        self, exponent: np.ndarray, dz: float, nodes: list[float], slots: np.ndarray
+        self, weights: np.ndarray, dz: float, nodes: list[float], slots: np.ndarray
     ) -> list[mx.array]:
         """Return the history samples' compensations carried to the step's end.
 
-        ``exp(s_j x) (D(z_j) - x / h) u_j``, ``s_j = 1 - theta_j``: the factor before
-        the state is formed in binary64, the difference of rates before anything
-        multiplies it (SEP 16 section 4.2), and rounded once.
+        ``exp(s_j x) (D(z_j) - x / h) u_j``, ``s_j = 1 - theta_j``. Both factors are
+        double-float combinations of the operator's terms, each rounded once: the
+        flow at weights ``s_j w`` and the difference of rates at ``r_j - w / h``, the
+        rates differenced in their weights in binary64 before anything multiplies
+        them (SEP 16 section 4.2), as the native engine forms them.
 
         Parameters
         ----------
-        exponent : numpy.ndarray
-            ``x``, binary64.
+        weights : numpy.ndarray
+            ``x``'s weights over the operator's terms, binary64.
         dz : float
             The step, m.
         nodes : list of float
@@ -550,13 +570,14 @@ class MlxAdams:
         list of mlx.core.array
             One carried row per sample.
         """
-        reference = exponent / dz
+        phi = self._backend._phi
         carried = []
         for node, slot in zip(nodes, slots, strict=False):
             rate, state = self._rates[int(slot)], self._states[int(slot)]
             assert rate is not None and state is not None
-            factor = np.exp((1.0 - node) * exponent) * (rate - reference)
-            carried.append(mx.array(factor.astype(np.complex64)) * state)
+            flow, _ = phi.pair(*phi.device_weights((1.0 - node) * weights))
+            difference = phi.combination(*phi.device_weights(rate - weights / dz))
+            carried.append(flow * (difference * state))
         return carried
 
     def _weights(
@@ -680,8 +701,8 @@ class MlxAdams:
         """
         shape = self._backend._require_state().shape
         rows = 2 if self.compensated else 1
-        rates = 16 * self.n_slots * math.prod(shape) if self.compensated else 0
-        return rows * self.n_slots * math.prod(shape) * 8 + rates
+        terms = self._backend._phi.n_terms if self.compensated else 0
+        return rows * self.n_slots * math.prod(shape) * 8 + 8 * self.n_slots * terms
 
     def snapshot_rows(self) -> dict[str, np.ndarray]:
         """Return host copies of the history's rows, in complex64.
@@ -695,11 +716,11 @@ class MlxAdams:
         rows = {"store": self._host(self._rows, shape)}
         if self.compensated:
             rows["states"] = self._host(self._states, shape)
-            rates = np.zeros((self.n_slots, *shape), dtype=np.complex128)
+            rates = np.zeros((self.n_slots, self._backend._phi.n_terms))
             for slot, rate in enumerate(self._rates):
                 if rate is not None:
                     rates[slot] = rate
-            rows["rates"] = rates
+            rows["rate_weights"] = rates
         return rows
 
     def _host(self, rows: list[mx.array | None], shape: tuple[int, ...]) -> np.ndarray:
@@ -739,12 +760,19 @@ class MlxAdams:
             If the rows are not a store of this history's shape, or hold any other
             name (a compensated or coupled history's).
         """
-        expected = (self.n_slots, *shape)
-        names = {"store", "states", "rates"} if self.compensated else {"store"}
-        if set(rows) != names or any(rows[name].shape != expected for name in names):
+        expected = {"store": (self.n_slots, *shape)}
+        if self.compensated:
+            expected |= {
+                "states": (self.n_slots, *shape),
+                "rate_weights": (self.n_slots, self._backend._phi.n_terms),
+            }
+        names = set(expected)
+        if set(rows) != names or any(
+            rows[name].shape != expected[name] for name in names
+        ):
             msg = (
                 "the mlx backend cannot continue this Adams history: it keeps "
-                f"{sorted(names)} rows of shape {expected} and nothing else"
+                f"rows {expected} and nothing else"
             )
             raise BackendError(msg)
         self.reset()
@@ -753,7 +781,9 @@ class MlxAdams:
             self._states = [
                 mx.array(row) for row in rows["states"].astype(np.complex64)
             ]
-            self._rates = [np.array(row, dtype=np.complex128) for row in rows["rates"]]
+            self._rates = [
+                np.array(row, dtype=np.float64) for row in rows["rate_weights"]
+            ]
 
     def observe(self, position: float) -> object:
         """Refuse dense observation, which ``mlx`` does not run.

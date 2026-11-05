@@ -2004,6 +2004,9 @@ class MlxBackend(NumpySingleBackend):
         """
         from solprop.backends.mlx_gpu.adams import MlxAdams  # noqa: PLC0415 - cycle
 
+        if not on_gpu():
+            msg = "mlx runs the Adams integrator on the Metal device only"
+            raise BackendError(msg)
         engine = MlxAdams(self, method)
         if engine.compensated and compensation != "transported":
             msg = "mlx does not run the untransported compensation, a witness"

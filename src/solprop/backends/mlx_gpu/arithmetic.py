@@ -30,6 +30,7 @@ from functools import cache
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 
+from solprop.backends.exponential import _SERIES_TERMS, PHI_JOIN
 from solprop.exceptions import BackendError
 
 __all__ = [
@@ -154,6 +155,149 @@ _PAIR = """
     back_re[i] = back * cc;
     back_im[i] = -(back * ss);
 """
+
+_MOMENTS_HEADER = """
+struct dfc { float2 re; float2 im; };
+inline float2 df_neg(float2 a) { return float2(-a.x, -a.y); }
+inline float2 df_sub(float2 a, float2 b) { return df_add(a, df_neg(b)); }
+inline float2 df_div_f(float2 a, float b) {
+    float q1 = a.x / b;
+    float2 p = two_prod(q1, b);
+    float r = ((a.x - p.x) - p.y) + a.y;
+    return quick_two_sum(q1, r / b);
+}
+inline float2 df_div(float2 a, float2 b) {
+    float q1 = a.x / b.x;
+    float2 r = df_sub(a, df_mul(float2(q1, 0.0f), b));
+    float q2 = r.x / b.x;
+    r = df_sub(r, df_mul(float2(q2, 0.0f), b));
+    float q3 = r.x / b.x;
+    return df_add(quick_two_sum(q1, q2), float2(q3, 0.0f));
+}
+inline dfc c_add(dfc a, dfc b) { return {df_add(a.re, b.re), df_add(a.im, b.im)}; }
+inline dfc c_sub(dfc a, dfc b) { return {df_sub(a.re, b.re), df_sub(a.im, b.im)}; }
+inline dfc c_mul(dfc a, dfc b) {
+    return {df_sub(df_mul(a.re, b.re), df_mul(a.im, b.im)),
+            df_add(df_mul(a.re, b.im), df_mul(a.im, b.re))};
+}
+inline dfc c_real(dfc a, float2 s) { return {df_mul(a.re, s), df_mul(a.im, s)}; }
+inline dfc c_div_f(dfc a, float b) { return {df_div_f(a.re, b), df_div_f(a.im, b)}; }
+inline dfc c_ldexp(dfc a, int e) {
+    return {float2(metal::ldexp(a.re.x, e), metal::ldexp(a.re.y, e)),
+            float2(metal::ldexp(a.im.x, e), metal::ldexp(a.im.y, e))};
+}
+inline dfc c_div(dfc a, dfc b) {
+    float2 d = df_add(df_mul(b.re, b.re), df_mul(b.im, b.im));
+    dfc n = {df_add(df_mul(a.re, b.re), df_mul(a.im, b.im)),
+             df_sub(df_mul(a.im, b.re), df_mul(a.re, b.im))};
+    return {df_div(n.re, d), df_div(n.im, d)};
+}
+// exp(y) for |y| <= 1/2 by its Taylor series, Horner's form, 18 terms (the tail is
+// below 2^-60 relative).
+inline dfc c_exp_small(dfc y) {
+    dfc e = {float2(1.0f, 0.0f), float2(0.0f, 0.0f)};
+    for (int m = 18; m >= 1; --m) {
+        e = c_div_f(c_mul(e, y), float(m));
+        e.re = df_add(e.re, float2(1.0f, 0.0f));
+    }
+    return e;
+}
+"""
+
+_MOMENTS = """
+    uint i = thread_position_in_grid.x;
+    if (i >= N) { return; }
+    // x = sum_t w_t T_t in double-float, as the propagator kernels combine it.
+    dfc x = {float2(0.0f, 0.0f), float2(0.0f, 0.0f)};
+    for (int t = 0; t < TERMS; ++t) {
+        float2 w = float2(w_hi[t], w_lo[t]);
+        uint k = t * N + i;
+        x.re = df_add(x.re, df_mul(w, float2(re_hi[k], re_lo[k])));
+        x.im = df_add(x.im, df_mul(w, float2(im_hi[k], im_lo[k])));
+    }
+    dfc phi[P + 1];
+    float magnitude = metal::sqrt(x.re.x * x.re.x + x.im.x * x.im.x);
+    if (magnitude > JOIN) {
+        // exp(x) with the phase reduced by whole turns of a double-float 2 pi, then
+        // scaled to at most 1/2, summed and squared back; recurred up beyond the join,
+        // where the recurrence is stable (solprop.backends.exponential._phi_far).
+        float turns = metal::rint(x.im.x * INV_TWO_PI);
+        dfc r = {x.re, df_add(x.im, df_mul(float2(-turns, 0.0f),
+                                           float2(TWO_PI_HI, TWO_PI_LO)))};
+        float size = metal::sqrt(r.re.x * r.re.x + r.im.x * r.im.x);
+        int s = size > 0.5f ? int(metal::ceil(metal::log2(size / 0.5f))) : 0;
+        dfc e = c_exp_small(c_ldexp(r, -s));
+        for (int level = 0; level < s; ++level) { e = c_mul(e, e); }
+        phi[0] = e;
+        for (int k = 1; k <= P; ++k) {
+            dfc shifted = phi[k - 1];
+            shifted.re = df_sub(shifted.re, float2(inv_fact[2 * (k - 1)],
+                                                   inv_fact[2 * (k - 1) + 1]));
+            phi[k] = c_div(shifted, x);
+        }
+    } else {
+        // Near zero: the reference's scaling, highest series, downward recurrence and
+        // doubling (solprop.backends.exponential._phi_near), in double-float.
+        int s = magnitude > 0.5f ? int(metal::ceil(metal::log2(magnitude / 0.5f))) : 0;
+        dfc y = c_ldexp(x, -s);
+        dfc term = {float2(inv_fact[2 * P], inv_fact[2 * P + 1]), float2(0.0f, 0.0f)};
+        dfc total = term;
+        for (int m = 1; m < SERIES; ++m) {
+            term = c_div_f(c_mul(term, y), float(m + P));
+            total = c_add(total, term);
+        }
+        phi[P] = total;
+        for (int k = P - 1; k >= 1; --k) {
+            phi[k] = c_mul(y, phi[k + 1]);
+            phi[k].re = df_add(phi[k].re, float2(inv_fact[2 * k], inv_fact[2 * k + 1]));
+        }
+        phi[0] = c_exp_small(y);
+        for (int level = 0; level < s; ++level) {
+            dfc old[P + 1];
+            for (int k = 0; k <= P; ++k) { old[k] = phi[k]; }
+            phi[0] = c_mul(old[0], old[0]);
+            for (int k = 1; k <= P; ++k) {
+                dfc sum = c_mul(old[0], old[k]);
+                for (int j = 1; j <= k; ++j) {
+                    sum = c_add(sum, c_real(old[j], float2(inv_fact[2 * (k - j)],
+                                                           inv_fact[2 * (k - j) + 1])));
+                }
+                phi[k] = c_ldexp(sum, -k);
+            }
+        }
+    }
+    flow_re[i] = phi[0].re.x + phi[0].re.y;
+    flow_im[i] = phi[0].im.x + phi[0].im.y;
+    for (int k = 0; k < P; ++k) {
+        // k! phi_{k+1}, the factorial exact in binary32 (at most 7!).
+        float f = 1.0f;
+        for (int j = 2; j <= k; ++j) { f *= float(j); }
+        dfc m = c_real(phi[k + 1], float2(f, 0.0f));
+        moments_re[k * N + i] = m.re.x + m.re.y;
+        moments_im[k * N + i] = m.im.x + m.im.y;
+    }
+"""
+
+
+@cache
+def _moments_kernel() -> object:
+    """Return the compiled kernel of an exponential Adams trial's flow and moments.
+
+    Returns
+    -------
+    object
+        The ``mlx.core.fast.metal_kernel`` callable.
+    """
+    return mx.fast.metal_kernel(
+        name="solprop_double_float_moments",
+        input_names=["re_hi", "re_lo", "im_hi", "im_lo", "w_hi", "w_lo", "inv_fact"],
+        output_names=["flow_re", "flow_im", "moments_re", "moments_im"],
+        source=_source(_MOMENTS)
+        .replace("JOIN", f"{PHI_JOIN!r}f")
+        .replace("SERIES", str(_SERIES_TERMS)),
+        header=_HEADER + _MOMENTS_HEADER,
+        compile_options={"math_mode": "safe"},
+    )
 
 
 def _source(body: str) -> str:
@@ -368,6 +512,81 @@ class DoubleFloatTerms:
         forward = (forward_re + 1j * forward_im).astype(mx.complex64)
         back = (back_re + 1j * back_im).astype(mx.complex64)
         return forward.reshape(self.shape), back.reshape(self.shape)
+
+    def combination(self, w_hi: mx.array, w_lo: mx.array) -> mx.array:
+        """Return ``sum_t w_t T_t`` rounded once to complex64, from device weights.
+
+        :meth:`combine` with weights already on the device (:meth:`device_weights`).
+
+        Parameters
+        ----------
+        w_hi, w_lo : mlx.core.array
+            The weights' heads and tails.
+
+        Returns
+        -------
+        mlx.core.array
+            The combination.
+        """
+        n = math.prod(self.shape)
+        out_re, out_im = _kernel()(  # pyright: ignore[reportCallIssue]
+            inputs=[*self.parts, w_hi, w_lo],
+            template=[
+                ("N", n),
+                ("TERMS", self.n_terms),
+                ("EXPONENTIAL", 0),
+                ("SIGN", 1),
+            ],
+            grid=(n, 1, 1),
+            threadgroup=(min(256, n), 1, 1),
+            output_shapes=[(n,), (n,)],
+            output_dtypes=[mx.float32, mx.float32],
+        )
+        return (out_re + 1j * out_im).astype(mx.complex64).reshape(self.shape)
+
+    def moments(
+        self, w_hi: mx.array, w_lo: mx.array, count: int
+    ) -> tuple[mx.array, mx.array]:
+        """Return ``exp(x)`` and ``k! phi_{k+1}(x)`` for ``k < count``, ``x = sum w T``.
+
+        An exponential Adams trial's flow and moments (SEP 16) in double-float, each
+        rounded once to complex64: :func:`solprop.backends.exponential.phi_functions`
+        recurred up beyond its join and scaled, summed and doubled within it, with
+        ``exp`` reduced by whole turns of a double-float ``2 pi``. On the Metal device
+        only.
+
+        Parameters
+        ----------
+        w_hi, w_lo : mlx.core.array
+            The weights' heads and tails (:meth:`device_weights`).
+        count : int
+            The moments, at most :data:`~solprop.backends.exponential.MAX_PHI_ORDER`.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The flow, of :attr:`shape`, and the moments, ``(count, *shape)``.
+        """
+        n = math.prod(self.shape)
+        factorials = np.array(
+            [1.0 / math.factorial(k) for k in range(count + 1)], dtype=np.float64
+        )
+        hi, lo = _split(factorials)
+        flow_re, flow_im, moments_re, moments_im = _moments_kernel()(  # pyright: ignore[reportCallIssue]
+            inputs=[*self.parts, w_hi, w_lo, mx.array(np.stack([hi, lo], axis=1))],
+            template=[
+                ("N", n),
+                ("TERMS", self.n_terms),
+                ("P", count),
+            ],
+            grid=(n, 1, 1),
+            threadgroup=(min(256, n), 1, 1),
+            output_shapes=[(n,), (n,), (count * n,), (count * n,)],
+            output_dtypes=[mx.float32] * 4,
+        )
+        flow = (flow_re + 1j * flow_im).astype(mx.complex64).reshape(self.shape)
+        moments = (moments_re + 1j * moments_im).astype(mx.complex64)
+        return flow, moments.reshape(count, *self.shape)
 
     def _evaluate(
         self, weights: np.ndarray, *, exponential: int, sign: int
