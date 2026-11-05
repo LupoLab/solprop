@@ -146,7 +146,14 @@ def test_cartesian_launch_uses_the_corrected_exact_linear_operator():
 
 @pytest.mark.parametrize(
     ("half_x", "n_x", "half_y", "n_y"),
-    [(3e-7, 9, 4e-7, 12), (2.3e-4, 64, 7.1e-5, 48), (1.0, 2, 1e-3, 33)],
+    [
+        (3e-7, 9, 4e-7, 12),
+        (2.3e-4, 64, 7.1e-5, 48),
+        (1.0, 2, 1e-3, 33),
+        # Axes beyond what `math.fsum` of squares can hold keep the rational sum itself.
+        (1e-150, 4, 1e-150, 4),
+        (1e140, 4, 1e140, 4),
+    ],
 )
 def test_the_transverse_residual_is_the_rational_ones_bit_for_bit(
     half_x, n_x, half_y, n_y

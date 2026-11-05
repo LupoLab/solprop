@@ -1164,6 +1164,16 @@ def _hard_masked(
         norm = weights[rows, None] * np.sum(np.abs(field[rows]) ** 2, axis=1)
         return float(np.sum(norm[outside[rows]])), float(np.sum(norm[:, band]))
 
+    def mask(rows: slice) -> None:
+        """Zero one block's dead bins.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of the first axis.
+        """
+        field[rows] *= live[rows, None, :]
+
     # Judged against a budget of rounding, so that the blocks' order of summing is free.
     parts = parallel_rows(field.shape[0], field.nbytes, shares)
     removed = math.fsum(part[0] for part in parts)
@@ -1178,16 +1188,6 @@ def _hard_masked(
             "widen the waist or refine the transverse grid"
         )
         raise PulseError(msg)
-
-    def mask(rows: slice) -> None:
-        """Zero one block's dead bins.
-
-        Parameters
-        ----------
-        rows : slice
-            The block of the first axis.
-        """
-        field[rows] *= live[rows, None, :]
 
     parallel_rows(field.shape[0], field.nbytes, mask)
     return field
