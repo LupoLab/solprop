@@ -24,7 +24,7 @@ from solprop_gui.classes.catalog import (
     CLASSES,
     FILAMENT,
     GENERIC_PAGES,
-    SOLID_CORE,
+    GNLSE,
 )
 from solprop_gui.classes.problem import AnalysisPage, ProblemClass
 from solprop_gui.classes.workflow import Stage
@@ -847,9 +847,9 @@ def test_a_cross_section_paints_each_kind_of_shape(qtbot: QtBot) -> None:
 def test_a_solid_core_fibre_runs_and_every_page_reads_it(  # noqa: PLR0915 - one story
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
-    window.begin_class("solid-core")
+    window.begin_class("gnlse")
     sheet = window.sheet
-    qtbot.waitUntil(lambda: sheet.problem is SOLID_CORE, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: sheet.problem is GNLSE, timeout=WAIT_MS)
     order = sheet.derived["soliton_order"]
     qtbot.waitUntil(lambda: order.text() == "3", timeout=WAIT_MS)
     qtbot.waitUntil(lambda: sheet.marks != {}, timeout=WAIT_MS)
@@ -1324,7 +1324,7 @@ def test_a_line_beam_draws_its_fluence_along_z(
 def test_mlx_raises_a_tolerance_single_precision_cannot_meet(
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
-    window.begin_class("solid-core")
+    window.begin_class("gnlse")
     qtbot.waitUntil(lambda: window.document.model is not None, timeout=WAIT_MS)
     model = window.document.model
     assert model is not None
@@ -1334,3 +1334,87 @@ def test_mlx_raises_a_tolerance_single_precision_cannot_meet(
     assert "rtol was raised" in window.statusBar().currentMessage()
     window.document.undo.undo()
     assert model.get("rtol") == 1e-9
+
+
+def test_a_step_index_fibre_solves_its_mode_for_its_numbers(
+    window: WorkflowWindow, qtbot: QtBot
+) -> None:
+    window.begin_class("step-index")
+    sheet = window.sheet
+    qtbot.waitUntil(
+        lambda: window.problem is not None and window.problem.key == "step-index",
+        timeout=WAIT_MS,
+    )
+    qtbot.waitUntil(lambda: sheet.problem is window.problem, timeout=WAIT_MS)
+    gamma = sheet.derived["gamma"]
+    qtbot.waitUntil(lambda: gamma.text().startswith("0.0721"), timeout=WAIT_MS)
+    qtbot.waitUntil(sheet.cross_section.isVisible, timeout=WAIT_MS)
+    assert not sheet.loss_plot.isVisible()
+    assert len(sheet.cross_section.shapes) == 2
+    core = sheet.rows["fibre.core", "build"]
+    assert any(
+        box.placeholderText() == "fused silica" for box in core.findChildren(QLineEdit)
+    )
+
+
+def test_a_graded_index_fibre_shows_its_profile_and_its_modes(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    window.begin_class("grin")
+    sheet = window.sheet
+    qtbot.waitUntil(
+        lambda: window.problem is not None and window.problem.key == "grin",
+        timeout=WAIT_MS,
+    )
+    qtbot.waitUntil(lambda: sheet.problem is window.problem, timeout=WAIT_MS)
+    count = sheet.derived["mode_count"]
+    qtbot.waitUntil(lambda: count.text() == "122", timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: "Core edge" in sheet.marks, timeout=WAIT_MS)
+    assert sheet.marks["Core edge"].value() == pytest.approx(25.0)
+    # Its modes are not orthogonal: the Modes page says so, with each one's spectrum.
+    path = tmp_path / "grin.h5"
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    text = (
+        Recipe.example("graded_index_fibre")
+        .to_text()
+        .replace("n_save = 81", "n_save = 3")
+    )
+    Recipe.loads(text).run(path)
+    window.document.confirm = lambda _title, _text: "discard"
+    window.open_results(str(path))
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: "modes" in analyse.buttons, timeout=WAIT_MS)
+    analyse.show_page("modes")
+    modes = window.page_views["modes"]
+    qtbot.waitUntil(lambda: "not orthogonal" in modes.note.text(), timeout=WAIT_MS)
+
+
+def test_home_is_a_stage_button_and_a_page_saves_as_drawn(
+    window: WorkflowWindow, qtbot: QtBot, tmp_path: Path
+) -> None:
+    window.begin_class("capillary")
+    qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
+    home = window.stage_buttons[Stage.HOME]
+    assert home.text() == "Home"
+    home.click()
+    assert window.stage is Stage.HOME
+    window.show_stage(Stage.DESIGN)
+    assert home.isVisible()
+    assert not window.stage_buttons[Stage.SETUP].isVisible()
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    path = tmp_path / "line.h5"
+    Recipe.example("line_beam").run(path)
+    window.open_results(str(path))
+    analyse = window.analyse
+    qtbot.waitUntil(lambda: "plane" in analyse.buttons, timeout=WAIT_MS)
+    analyse.show_page("plane")
+    analyse._fill_exports()
+    offered = [action.text() for action in analyse.export_menu.actions()]
+    # A beam's run has no modes for solprop's own figures: its page is saved as drawn.
+    assert "Publication figure…" not in offered
+    assert "This page as an image…" in offered
+    analyse.save_page_image(str(tmp_path / "page.png"))
+    assert (tmp_path / "page.png").stat().st_size > 0
+    assert analyse.said.text() == "Wrote page.png"

@@ -19,7 +19,7 @@ __all__ = ["CHOICES", "pretty", "si", "unit_choices"]
 CHOICES: Final = (
     ("nm", "um", "mm", "cm", "m"),
     ("as", "fs", "ps", "ns", "s"),
-    ("nJ", "uJ", "mJ", "J"),
+    ("pJ", "nJ", "uJ", "mJ", "J"),
     ("W", "kW", "MW", "GW", "TW"),
     ("mbar", "bar", "kPa", "Pa"),
     ("Hz", "GHz", "THz", "PHz"),

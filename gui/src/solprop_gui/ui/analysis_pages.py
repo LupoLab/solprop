@@ -677,7 +677,9 @@ class OverviewPage(PageView):
             return ""
         axis = self.session.options.axis
         bins = self.spectra[axis] * _AXIS_SCALE[axis]
-        row = self._nearest_row(y)
+        row = self._nearest_row(y, self._db.shape[0])
+        if row is None:
+            return ""
         at = int(np.clip(np.searchsorted(bins, x), 0, bins.size - 1))
         text = f"{x:.4g} {_AXIS_UNIT[axis]}, {y:.3g} {self._unit[0]}"
         return f"{text}: {self._db[row, at]:.1f} dB"
@@ -700,26 +702,33 @@ class OverviewPage(PageView):
         if self._power.size == 0:
             return ""
         t = self.time * _FS
-        row = self._nearest_row(y)
+        row = self._nearest_row(y, self._power.shape[0])
+        if row is None:
+            return ""
         at = int(np.clip(np.searchsorted(t, x), 0, t.size - 1))
         text = f"{x:.3g} fs, {y:.3g} {self._unit[0]}"
         return f"{text}: {self._power[row, at]:.3g} {self._power_unit}"
 
-    def _nearest_row(self, y: float) -> int:
+    def _nearest_row(self, y: float, drawn: int) -> int | None:
         """Return the row nearest a position on a map.
 
         Parameters
         ----------
         y : float
             The position, in the map's unit.
+        drawn : int
+            The rows the map being read holds: during a run, planes arrive between
+            drawings, and one map may be drawn before the other.
 
         Returns
         -------
-        int
-            The row, among those drawn: during a run, planes arrive between drawings.
+        int or None
+            The row; ``None`` where the map holds none yet.
         """
-        drawn = self.rows[: self._db.shape[0]]
-        z = np.array([float(r["z"]) for r in drawn]) * self._unit[1]
+        rows = self.rows[:drawn]
+        if not rows:
+            return None
+        z = np.array([float(r["z"]) for r in rows]) * self._unit[1]
         return int(np.argmin(np.abs(z - y)))
 
     def data(self) -> tuple[list[str], np.ndarray] | None:
@@ -1571,7 +1580,9 @@ class ModesPage(PageView):
         column = QVBoxLayout(self)
         column.setContentsMargins(0, 0, 0, 0)
         column.setSpacing(10)
-        column.addLayout(_plotted("Energy in each mode along z", self.energy), 1)
+        self.energy_title = named_label("Energy in each mode along z", "plotTitle")
+        column.addWidget(self.energy_title)
+        column.addWidget(self.energy, 1)
         column.addLayout(
             _plotted("Each mode's spectrum at this plane", self.spectra), 1
         )
@@ -1645,8 +1656,16 @@ class ModesPage(PageView):
         z = np.asarray(value["z"], float)
         name, self._factor = length_unit(float(z[-1]) if z.size else 1.0)
         entry = next((e for e in value["stats"] if e["name"] == "energy"), None)
+        self.energy.setVisible(entry is not None)
+        self.energy_title.setVisible(entry is not None)
         if entry is None:
+            # A guide whose modes are not orthogonal records only their total.
+            self.note.setText(
+                "This run's modes are not orthogonal, so their energies do not add: "
+                "it records their total (Along z), and each mode's spectrum below."
+            )
             return
+        self.note.setText("")
         ys = [np.asarray(column["y"], float) for column in entry["columns"]]
         unit, scale = scaled_unit(np.concatenate(ys), "J")
         self.energy.set_names([str(column["label"]) for column in entry["columns"]])

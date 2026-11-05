@@ -509,6 +509,10 @@ class SheetStage(QWidget):
                     continue
                 self._fields[row.path] = row
                 widget = self._row(self._entry(row, meta), catalog, on_sheet=True)
+                if row.blank is not None:
+                    for box in widget.findChildren(QLineEdit):
+                        if not box.placeholderText():
+                            box.setPlaceholderText(row.blank)
                 section.add(widget)
                 note = self._solved_note(row.path)
                 self._notes[row.path] = note
@@ -1257,14 +1261,17 @@ class SheetStage(QWidget):
         shapes : object
             The reply's ``shapes``, or ``None``.
         """
-        self.below.setVisible(isinstance(loss, Mapping))
+        drawn = isinstance(shapes, list) and bool(shapes)
+        self.below.setVisible(isinstance(loss, Mapping) or drawn)
+        self.loss_plot.setVisible(isinstance(loss, Mapping))
+        self.cross_section.set_shapes(shapes if isinstance(shapes, list) else [])
+        self.cross_section.setVisible(drawn)
         if not isinstance(loss, Mapping):
             return
         x = np.asarray(loss["x"], dtype=float)
         self.loss_plot.set_data(x, [np.asarray(loss["y"], dtype=float)])
         self.loss_plot.fit()
         self.loss_mark.setPos(float(loss["pump"]))
-        self.cross_section.set_shapes(shapes if isinstance(shapes, list) else [])
 
     def _show_marks(self, marks: Sequence[Sequence[object]]) -> None:
         """Mark positions on the preview.

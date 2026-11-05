@@ -28,9 +28,11 @@ __all__ = [
     "CLASSES",
     "FILAMENT",
     "GENERIC_PAGES",
+    "GNLSE",
+    "GRIN",
     "LINE",
     "OTHER_KEY",
-    "SOLID_CORE",
+    "STEP_INDEX",
     "class_named",
     "class_of",
     "other_class",
@@ -254,10 +256,10 @@ FILAMENT: Final = ProblemClass(
     ),
 )
 
-SOLID_CORE: Final = ProblemClass(
-    key="solid-core",
-    title="Solid-core fibre",
-    summary="A fibre set by its γ and Taylor coefficients, in the GNLSE.",  # noqa: RUF001 - gamma
+GNLSE: Final = ProblemClass(
+    key="gnlse",
+    title="GNLSE fibre",
+    summary="A fibre given by its γ and Taylor coefficients alone, in the GNLSE.",  # noqa: RUF001 - gamma
     route="gnlse",
     example="soliton",
     sections=(
@@ -280,7 +282,7 @@ SOLID_CORE: Final = ProblemClass(
         ),
         Section(
             "Physics",
-            (Field("raman", "Raman"), Field("shock", "Self-steepening")),
+            (Field("raman", "Raman (silica)"), Field("shock", "Self-steepening")),
         ),
         Section(
             "Simulation window",
@@ -304,6 +306,115 @@ SOLID_CORE: Final = ProblemClass(
     curve="fibre_curve",
     preview="Group-velocity dispersion against wavelength",
     pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _COMPRESS, _NOISE, _HEALTH),
+    statistics=("energy",),
+)
+
+STEP_INDEX: Final = ProblemClass(
+    key="step-index",
+    title="Step-index fibre",
+    summary="A solid core in a cladding of lower index, its mode solved for the GNLSE.",
+    route="gnlse",
+    example="step_index_fibre",
+    marker=("fibre.type=StepIndexMode",),
+    sections=(
+        Section(
+            "Fibre",
+            (
+                Field("fibre.radius", "Core radius"),
+                Field("fibre.core", "Core", blank="fused silica"),
+                Field("fibre.cladding", "Cladding", blank="air, index 1"),
+                Field("length"),
+            ),
+        ),
+        Section(
+            "Pulse",
+            (
+                Field("wavelength", "Wavelength", also=("fibre.profile_wavelength",)),
+                Field("fwhm", "Duration"),
+                Field("energy"),
+                Field("shape"),
+            ),
+        ),
+        Section(
+            "Physics",
+            (
+                Field("raman", "Raman (silica)"),
+                Field("shock", "Self-steepening"),
+                Field("n2", "Nonlinear index n₂"),
+            ),
+        ),
+        Section(
+            "Simulation window",
+            (
+                Field("wavelength_limits", "Wavelengths"),
+                Field("trange", "Time window"),
+                Field("n_save", "Saved planes"),
+            ),
+            folded=True,
+        ),
+    ),
+    derived=(
+        Derived("soliton_order", "Soliton order", prefixed=False),
+        Derived("zdw", "Zero-dispersion wavelength", "m"),
+        Derived("peak_power", "Peak power", "W"),
+        Derived("gamma", "γ", "1/(W m)", prefixed=False),  # noqa: RUF001 - gamma
+        Derived("dispersion_length", "Dispersion length", "m"),
+        Derived("fission_length", "Fission length", "m"),
+    ),
+    numbers="fibre_sheet",
+    curve="fibre_curve",
+    preview="Group-velocity dispersion of its mode",
+    pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _COMPRESS, _HEALTH),
+    statistics=("energy",),
+)
+
+GRIN: Final = ProblemClass(
+    key="grin",
+    title="Graded-index fibre",
+    summary="A core whose index falls from its axis, several of its modes coupled.",
+    route="waveguide",
+    example="graded_index_fibre",
+    marker=("provider.provider.type=GradedIndexProvider",),
+    sections=(
+        Section(
+            "Fibre",
+            (
+                Field("provider.provider.radius", "Core radius"),
+                Field("provider.provider.permittivity.centre.index", "Index on axis"),
+                Field("provider.provider.permittivity.contrast", "Contrast Δ"),
+                Field("provider.provider.permittivity.exponent", "Profile exponent"),
+                Field("length", also=("grid.length",)),
+            ),
+        ),
+        Section(
+            "Pulse",
+            (
+                Field("wavelength", "Wavelength", also=("grid.reference_wavelength",)),
+                Field("fwhm", "Duration"),
+                Field("energy"),
+                Field("shape"),
+            ),
+        ),
+        Section(
+            "Simulation window",
+            (
+                Field("grid.wavelength_limits", "Wavelengths"),
+                Field("grid.trange", "Time window"),
+                Field("n_save", "Saved planes"),
+            ),
+            folded=True,
+        ),
+    ),
+    derived=(
+        Derived("na", "Numerical aperture", prefixed=False),
+        Derived("v_number", "V number", prefixed=False),
+        Derived("mode_count", "Guided modes (about)", prefixed=False),
+        Derived("peak_power", "Peak power", "W"),
+    ),
+    numbers="grin_sheet",
+    curve="grin_curve",
+    preview="Refractive index across the core",
+    pages=(_OVERVIEW, _PLANE, _SPECTROGRAM, _ALONG, _MODES, _HEALTH),
     statistics=("energy",),
 )
 
@@ -435,7 +546,16 @@ LINE: Final = ProblemClass(
     statistics=("energy", "beam_radius"),
 )
 
-CLASSES: Final = (CAPILLARY, FILAMENT, SOLID_CORE, ANTIRESONANT, CARTESIAN, LINE)
+CLASSES: Final = (
+    CAPILLARY,
+    ANTIRESONANT,
+    FILAMENT,
+    CARTESIAN,
+    GNLSE,
+    STEP_INDEX,
+    GRIN,
+    LINE,
+)
 """The classes Home offers, in its order."""
 
 GENERIC_PAGES: Final = (_OVERVIEW, _PLANE, _ALONG, _HEALTH)
@@ -574,12 +694,17 @@ def _has(build: Mapping[str, object], mark: str) -> bool:
     (True, False)
     >>> _has({"space": "x"}, "space.type=FreeGrid")
     False
+    >>> deep = {"provider": {"provider": {"type": "GradedIndexProvider"}}}
+    >>> _has(deep, "provider.provider.type=GradedIndexProvider")
+    True
     """
     path, _, wanted = mark.partition("=")
     if not wanted:
         return path in build
-    keyword, _, field = path.partition(".")
-    held = build.get(keyword)
+    *steps, field = path.split(".")
+    held: object = build
+    for step in steps:
+        held = held.get(step) if isinstance(held, Mapping) else None
     return isinstance(held, Mapping) and held.get(field) == wanted
 
 

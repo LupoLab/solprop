@@ -569,8 +569,12 @@ class AnalyseStage(QWidget):
         page = self._page()
         if page is None:
             return
-        if page.figure() is not None:
-            self.export_menu.addAction("Figure…", self.export_figure)
+        # solprop's own figures read a run's modes; a beam's or a planar run's have
+        # none, so its page is saved as drawn.
+        spatial = self.session.capabilities.get("basis") == "spatial"
+        if page.figure() is not None and not spatial:
+            self.export_menu.addAction("Publication figure…", self.export_figure)
+        self.export_menu.addAction("This page as an image…", self.choose_page_image)
         if page.data() is not None:
             self.export_menu.addAction("Data as CSV…", self.export_data)
         if page.python() is not None:
@@ -600,8 +604,30 @@ class AnalyseStage(QWidget):
                     "Wrote " + ", ".join(Path(str(w)).name for w in written)
                 ),
                 key="page-figure",
-                failed=self.said.setText,
+                failed=lambda reason: self.said.setText(
+                    f"The figure was not written: {reason}"
+                ),
             )
+
+    def choose_page_image(self) -> None:  # pragma: no cover - a modal dialog
+        """Ask where to save the page as drawn, and save it."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save this page", "page.png", "PNG (*.png)"
+        )
+        if path:
+            self.save_page_image(path)
+
+    def save_page_image(self, path: str) -> None:
+        """Save the page on screen as it is drawn.
+
+        Parameters
+        ----------
+        path : str
+            The file, a PNG.
+        """
+        page = self._page()
+        if page is not None and page.grab().save(path):
+            self.said.setText(f"Wrote {Path(path).name}")
 
     def export_data(self, path: str | None = None) -> None:
         """Write what the page shows as a CSV file.

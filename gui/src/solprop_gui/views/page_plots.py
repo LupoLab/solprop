@@ -13,10 +13,12 @@ from collections.abc import Callable, Sequence
 
 import numpy as np
 import pyqtgraph as pg
-from PySide6.QtCore import QPointF, QRectF, Qt, Signal
+from PySide6.QtCore import QPoint, QPointF, QRectF, Qt, Signal
 from PySide6.QtGui import QFont, QMouseEvent, QPainter
+from PySide6.QtSvg import QSvgGenerator
+from PySide6.QtWidgets import QApplication, QFileDialog, QMenu
 
-from solprop_gui.model.display import steady_limits
+from solprop_gui.model.display import half_width, steady_limits
 from solprop_gui.ui.theme import ACCENT, AXIS, FONT, GREY, INK
 
 __all__ = ["BLUE", "COLOURS", "MARK_COLOURS", "ORANGE", "LinePlot", "MapPlot", "Plot"]
@@ -43,6 +45,29 @@ COLOURS = (
 """The curves' colours, in order."""
 
 _LABEL = {"color": GREY, "font-size": "11px", "font-family": FONT}
+
+
+def _unit_of(label: str) -> str:
+    """Return the unit an axis label gives in brackets.
+
+    Parameters
+    ----------
+    label : str
+        The label, as ``"Time (fs)"``.
+
+    Returns
+    -------
+    str
+        The unit, or nothing.
+
+    Examples
+    --------
+    >>> _unit_of("Time (fs)"), _unit_of("z")
+    ('fs', '')
+    """
+    if "(" not in label or not label.endswith(")"):
+        return ""
+    return label.rsplit("(", 1)[1][:-1]
 
 
 def _small_font(size: int = 11) -> QFont:
@@ -121,8 +146,12 @@ class Plot(pg.PlotWidget):
         item.setMenuEnabled(False)
         item.layout.setContentsMargins(0, 8, 8, 0)  # pyright: ignore[reportAttributeAccessIssue]
         self.box = item.getViewBox()
-        self.box.setMouseEnabled(False, False)
+        # The wheel zooms, over the plot or over one axis; a double click goes back.
+        self.box.setMouseEnabled(True, True)
         self.box.disableAutoRange()
+        self.box.sigRangeChangedManually.connect(self._zoomed_by_hand)
+        self.home_view: tuple[tuple[float, float], tuple[float, float]] | None = None
+        self.zoomed = False
         font = _small_font()
         for side, text in (("bottom", xlabel), ("left", ylabel)):
             axis = item.getAxis(side)
@@ -219,6 +248,127 @@ class Plot(pg.PlotWidget):
         self.note.setPos(point.x(), point.y())
         self.note.show()
 
+    def show_view(
+        self, x_range: tuple[float, float], y_range: tuple[float, float]
+    ) -> None:
+        """Set the view a page asks for, unless the person has zoomed it.
+
+        Parameters
+        ----------
+        x_range : tuple of float
+            The x range.
+        y_range : tuple of float
+            The y range, as the view box holds it.
+        """
+        self.home_view = (x_range, y_range)
+        if not self.zoomed:
+            self.box.setRange(xRange=x_range, yRange=y_range, padding=0)
+
+    def reset_view(self) -> None:
+        """Go back to the page's view."""
+        self.zoomed = False
+        if self.home_view is not None:
+            self.box.setRange(
+                xRange=self.home_view[0], yRange=self.home_view[1], padding=0
+            )
+
+    def _zoomed_by_hand(self, *_args: object) -> None:
+        """Keep a view the person chose while the page redraws.
+
+        Parameters
+        ----------
+        *_args : object
+            What the signal carries, unused.
+        """
+        self.zoomed = True
+
+    def menu_actions(self, _point: QPointF) -> list[tuple[str, Callable[[], None]]]:
+        """Return what a plot of this kind offers at a point, beyond saving it.
+
+        Parameters
+        ----------
+        _point : PySide6.QtCore.QPointF
+            Where the menu was asked for, in the plot's coordinates.
+
+        Returns
+        -------
+        list of tuple
+            Each action's text and what it does.
+        """
+        return []
+
+    def show_menu(self, point: QPointF, where: QPoint) -> QMenu:
+        """Offer what can be done with the plot at a point.
+
+        Parameters
+        ----------
+        point : PySide6.QtCore.QPointF
+            The point, in the plot's coordinates.
+        where : PySide6.QtCore.QPoint
+            Where on the screen the menu opens.
+
+        Returns
+        -------
+        PySide6.QtWidgets.QMenu
+            The menu, shown.
+        """
+        menu = QMenu(self)
+        for text, action in self.menu_actions(point):
+            menu.addAction(text, action)
+        if menu.actions():
+            menu.addSeparator()
+        reset = menu.addAction("Reset the zoom", self.reset_view)
+        reset.setEnabled(self.zoomed)
+        menu.addAction("Save this plot…", self.choose_save)
+        menu.addAction("Copy this plot as an image", self.copy_image)
+        menu.popup(where)
+        return menu
+
+    def choose_save(self) -> None:  # pragma: no cover - a modal dialog
+        """Ask where to save the plot, and save it."""
+        path, _ = QFileDialog.getSaveFileName(
+            self, "Save this plot", "plot.png", "PNG (*.png);;SVG (*.svg)"
+        )
+        if path:
+            self.save(path)
+
+    def save(self, path: str) -> None:
+        """Save the plot as it is drawn: a PNG, or an SVG by its extension.
+
+        Parameters
+        ----------
+        path : str
+            The file.
+        """
+        self.clear_hover()
+        if not path.lower().endswith(".svg"):
+            self.grab().save(path)
+            return
+        # Qt's own SVG writer: pyqtgraph's exporter fails on this plot's legend.
+        generator = QSvgGenerator()
+        generator.setFileName(path)
+        generator.setSize(self.size())
+        generator.setViewBox(self.rect())
+        painter = QPainter(generator)
+        self.render(painter)
+        painter.end()
+
+    def copy_image(self) -> None:
+        """Put the plot, as it is drawn, on the clipboard."""
+        self.clear_hover()
+        QApplication.clipboard().setPixmap(self.grab())
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Go back to the page's view.
+
+        Parameters
+        ----------
+        event : PySide6.QtGui.QMouseEvent
+            The double click.
+        """
+        self.reset_view()
+        event.accept()
+
     def clear_hover(self) -> None:
         """Take the crosshair away."""
         for extra in (self.cross_x, self.cross_y, self.note):
@@ -244,6 +394,11 @@ class Plot(pg.PlotWidget):
             The press.
         """
         point = self._to_view(self.mapToScene(event.position().toPoint()))
+        if event.button() == Qt.MouseButton.RightButton:
+            if point is not None:
+                self.show_menu(point, event.globalPosition().toPoint())
+            event.accept()
+            return
         if point is not None:
             self.picked.emit(point.x(), point.y())
         if self.along and point is not None:
@@ -299,6 +454,8 @@ class MapPlot(Plot):
         axis.setTickFont(_small_font())
         axis.setStyle(tickLength=-3, tickTextOffset=3)
         axis.setLabel(unit, **_LABEL)
+        self.data = np.zeros((0, 0))
+        self.map_rect: tuple[float, float, float, float] = (0.0, 0.0, 1.0, 1.0)
         self.marker = pg.InfiniteLine(
             angle=0,
             pen=pg.mkPen((255, 255, 255, 245), width=1.4, style=Qt.PenStyle.DashLine),
@@ -362,7 +519,50 @@ class MapPlot(Plot):
         self.image.setImage(data, autoLevels=False)
         self.image.setRect(QRectF(*rect))
         self.bar.setLevels(values=levels)
-        self.box.setRange(xRange=view[0], yRange=view[1], padding=0)
+        self.data = np.asarray(data)
+        self.map_rect = rect
+        self.show_view(view[0], view[1])
+
+    def menu_actions(self, _point: QPointF) -> list[tuple[str, Callable[[], None]]]:
+        """Offer to go to the map's peak, where one axis picks a plane.
+
+        Parameters
+        ----------
+        _point : PySide6.QtCore.QPointF
+            Where the menu was asked for.
+
+        Returns
+        -------
+        list of tuple
+            The action, where the map has data and an axis is z.
+        """
+        if self.along is None or not self.data.size:
+            return []
+        return [("Go to the peak", self.go_to_peak)]
+
+    def peak(self) -> tuple[float, float] | None:
+        """Return where the map is highest, in its coordinates.
+
+        Returns
+        -------
+        tuple of float or None
+            The x and y of the brightest pixel's middle; ``None`` with no data.
+        """
+        if not self.data.size or not np.isfinite(self.data).any():
+            return None
+        row, column = np.unravel_index(int(np.nanargmax(self.data)), self.data.shape)
+        x0, y0, width, height = self.map_rect
+        rows, columns = self.data.shape
+        return (
+            x0 + (column + 0.5) * width / columns,
+            y0 + (row + 0.5) * height / rows,
+        )
+
+    def go_to_peak(self) -> None:
+        """Move the plane to where the map is highest."""
+        found = self.peak()
+        if found is not None:
+            self.plane_at.emit(found[1] if self.along == "y" else found[0])
 
     def set_levels(self, levels: tuple[float, float]) -> None:
         """Change what the colour bar spans, at no cost in the data.
@@ -486,6 +686,7 @@ class LinePlot(Plot):
         """Make the plot, with no data."""
         super().__init__(xlabel=xlabel, ylabel=ylabel, left=left)
         self.unit = unit
+        self.measures: list[pg.GraphicsObject] = []
         self.log = False
         self.setCursor(Qt.CursorShape.CrossCursor)
         self.showGrid(x=True, y=True, alpha=0.12)
@@ -546,26 +747,148 @@ class LinePlot(Plot):
             self.set_data(self.xs, self.ys)
             self.fit()
 
-    def read(self, x: float, _y: float) -> str:
-        """Return the curves' values at a position.
+    def read(self, x: float, y: float) -> str:
+        """Return the value of the curve nearest a position.
 
         Parameters
         ----------
         x : float
-            The position.
-        _y : float
-            Not read.
+            The position along the plot.
+        y : float
+            The position up it, as drawn: it picks the curve.
 
         Returns
         -------
         str
-            What the readout says.
+            What the readout says: the curve's name, where it has one, and value.
+        """
+        nearest = self.nearest_curve(x, y)
+        if nearest is None:
+            return ""
+        index, at = nearest
+        value = self.ys[index][at]
+        name = self.names[index] if index < len(self.names) else ""
+        named = f"{name}: " if name and len(self.ys) > 1 else ""
+        return f"{named}{self.xs[at]:.4g}, {value:.3g} {self.unit}".rstrip()
+
+    def nearest_curve(self, x: float, y: float) -> tuple[int, int] | None:
+        """Return the curve nearest a position, and its sample there.
+
+        Parameters
+        ----------
+        x : float
+            The position along the plot.
+        y : float
+            The position up it, as drawn (a log axis's exponent).
+
+        Returns
+        -------
+        tuple of int or None
+            The curve's index and the sample's; ``None`` with no curve.
         """
         if not self.xs.size or not self.ys:
-            return ""
+            return None
         at = int(np.clip(np.searchsorted(self.xs, x), 0, self.xs.size - 1))
-        values = ", ".join(f"{y[at]:.3g}" for y in self.ys if at < y.size)
-        return f"{x:.4g}: {values} {self.unit}".rstrip()
+        best, gap = None, np.inf
+        for index, curve in enumerate(self.ys):
+            if at >= curve.size or not np.isfinite(curve[at]):
+                continue
+            drawn = curve[at]
+            if self.log:
+                drawn = np.log10(drawn) if drawn > 0 else -np.inf
+            if abs(drawn - y) < gap:
+                best, gap = index, abs(drawn - y)
+        return None if best is None else (best, at)
+
+    def menu_actions(self, point: QPointF) -> list[tuple[str, Callable[[], None]]]:
+        """Offer to measure the width of the nearest curve's peak, and its data.
+
+        Parameters
+        ----------
+        point : PySide6.QtCore.QPointF
+            Where the menu was asked for, in the plot's coordinates.
+
+        Returns
+        -------
+        list of tuple
+            Each action's text and what it does.
+        """
+        actions: list[tuple[str, Callable[[], None]]] = []
+
+        def measure() -> None:
+            """Measure at the point the menu was opened at."""
+            self.measure_width(point.x(), point.y())
+
+        if self.xs.size and self.ys:
+            actions.append(("Width at half maximum here", measure))
+            actions.append(("Copy the data as CSV", self.copy_data))
+        if self.measures:
+            actions.append(("Clear the widths", self.clear_measures))
+        return actions
+
+    def measure_width(self, x: float, y: float) -> str:
+        """Mark and label the width at half maximum of the peak nearest a point.
+
+        Parameters
+        ----------
+        x : float
+            The position along the plot.
+        y : float
+            The position up it, as drawn: it picks the curve.
+
+        Returns
+        -------
+        str
+            The label, or why there is none.
+        """
+        nearest = self.nearest_curve(x, y)
+        if nearest is None:
+            return ""
+        curve = self.ys[nearest[0]]
+        found = half_width(self.xs, curve, x, decibels=self.unit == "dB")
+        if found is None:
+            text = "No half maximum on both sides here"
+            self.note.setText(f" {text} ")
+            self.note.setPos(x, y)
+            self.note.show()
+            return text
+        left, right, level = found
+        unit = _unit_of(self.item.getAxis("bottom").labelText)
+        text = f"FWHM {right - left:.4g} {unit}".rstrip()
+        height = np.log10(level) if self.log and level > 0 else level
+        line = pg.PlotDataItem(
+            [left, right],
+            [level, level],
+            pen=pg.mkPen(ORANGE, width=2),
+            symbol="|",
+            symbolPen=pg.mkPen(ORANGE, width=2),
+            symbolSize=10,
+        )
+        label = pg.TextItem(text, color=ORANGE, anchor=(0.5, 1.2))
+        label.setFont(_small_font(12))
+        label.setPos((left + right) / 2.0, height)
+        for item in (line, label):
+            self.addItem(item, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+            self.measures.append(item)
+        return text
+
+    def clear_measures(self) -> None:
+        """Take the width marks away."""
+        for item in self.measures:
+            self.removeItem(item)
+        self.measures = []
+
+    def copy_data(self) -> None:
+        """Put the curves on the clipboard as CSV: one column of x, one per curve."""
+        names = [name or f"curve {i + 1}" for i, name in enumerate(self.names)]
+        names += [f"curve {i + 1}" for i in range(len(names), len(self.ys))]
+        lines = [",".join(["x", *names[: len(self.ys)]])]
+        for at, x in enumerate(self.xs):
+            row = [f"{x:.10g}"] + [
+                f"{curve[at]:.10g}" if at < curve.size else "" for curve in self.ys
+            ]
+            lines.append(",".join(row))
+        QApplication.clipboard().setText("\n".join(lines) + "\n")
 
     def set_data(self, x: np.ndarray, ys: Sequence[np.ndarray]) -> None:
         """Replace the curves.
@@ -579,6 +902,7 @@ class LinePlot(Plot):
         """
         self.xs = np.asarray(x, dtype=float)
         self.ys = [np.asarray(y, dtype=float) for y in ys]
+        self.clear_measures()
         for curve, y in zip(self.curves, self.ys, strict=False):
             if self.log:
                 keep = y > 0
@@ -601,7 +925,7 @@ class LinePlot(Plot):
         low, high = y_range
         if self.log:
             low, high = np.log10(max(low, 1e-300)), np.log10(max(high, 1e-300))
-        self.box.setRange(xRange=x_range, yRange=(low, high), padding=0)
+        self.show_view(x_range, (low, high))
 
     def fit(self) -> None:
         """Fit the view to the curves, magnifying no noise."""

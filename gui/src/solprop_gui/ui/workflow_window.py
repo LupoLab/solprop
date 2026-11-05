@@ -64,6 +64,7 @@ _RECENT_SETUPS = "recent-setups"
 """The setting that lists recent setups."""
 
 _STAGE_TEXT = (
+    (Stage.HOME, "Home"),
     (Stage.SETUP, "Setup"),
     (Stage.RUN, "Run"),
     (Stage.ANALYSE, "Analyse"),
@@ -385,7 +386,7 @@ class WorkflowWindow(QMainWindow):
         )
         designing = self.stage is Stage.DESIGN
         for stage, button in self.stage_buttons.items():
-            button.setVisible(not designing)
+            button.setVisible(not designing or stage is Stage.HOME)
             button.setEnabled(stage_open(stage, progress))
             button.setProperty("current", stage is self.stage)
             repolish(button)
@@ -1167,8 +1168,14 @@ class WorkflowWindow(QMainWindow):
                 return
             self._leaving_run = True
             self.run_panel.stop()
-            if self.run_panel.client is not None:
-                self.run_panel.client.join(30.0)
+            client = self.run_panel.client
+            if client is not None:
+                # A run stops at its next plane, which may be far: a window being
+                # closed waits a moment, then ends the worker.
+                client.join(_STOP_WAIT_S)
+                if not client.ended.is_set():
+                    client.kill()
+                    client.join(_STOP_WAIT_S)
         # Closing has dealt with the run: kept by the service, or stopped above.
         guard, self.document.guard = self.document.guard, lambda: True
         try:
@@ -1188,6 +1195,9 @@ _WARM_EXAMPLES = ("rdw", "filament")
 """Examples checked once as the window opens: a route's first check costs the most
 (about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
 kernel's, not the first click's."""
+
+_STOP_WAIT_S = 3.0
+"""How long a closing window waits for a stopped run to end before ending it."""
 
 _SINGLE_RTOL = 1e-6
 """The smallest ``rtol`` solprop accepts in single precision."""

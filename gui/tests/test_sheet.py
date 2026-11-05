@@ -351,3 +351,57 @@ def test_outside_a_kernel_the_threads_are_this_process_s(
     monkeypatch.delenv(RUN_THREADS, raising=False)
     options: Any = HANDLERS["run_options"]({})
     assert options["threads"] == thread_budget().threads
+
+
+def test_a_graded_fibre_of_a_glass_has_no_aperture_to_give() -> None:
+    from solprop_gui.service.sheet import grin_curve, grin_sheet  # noqa: PLC0415
+
+    text = (
+        Recipe.example("graded_index_fibre")
+        .to_text()
+        .replace(
+            'centre = { type = "IndexMaterial", index = 1.45 }',
+            'centre = { type = "IndexMaterial", index = '
+            '{ type = "Glass", name = "SiO2" } }',
+        )
+    )
+    numbers: Any = grin_sheet({"text": text})
+    assert "na" not in numbers
+    assert numbers["peak_power"] > 0
+    assert grin_curve({"text": text}) == {"numbers": {}}
+
+
+def test_a_graded_fibre_s_aperture_and_modes() -> None:
+    from solprop_gui.service.sheet import grin_curve, grin_sheet  # noqa: PLC0415
+
+    text = Recipe.example("graded_index_fibre").to_text()
+    numbers: Any = grin_sheet({"text": text})
+    aperture = (1.45**2 - 1.442731783804599**2) ** 0.5
+    assert numbers["na"] == pytest.approx(aperture)
+    v_number = 2 * np.pi * 25e-6 * aperture / 1.03e-6
+    assert numbers["v_number"] == pytest.approx(v_number)
+    assert numbers["mode_count"] == pytest.approx(v_number**2 / 4)
+    curve: Any = grin_curve({"text": text})
+    assert curve["plot"]["y"][0] == pytest.approx(1.45)
+    assert curve["plot"]["y"][-1] == pytest.approx(1.442731783804599)
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_fibre_with_no_coefficient_gives_what_it_can(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from solprop_gui.service import sheet  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(sheet, "nonlinear_coefficient", lambda *_args: None)
+    numbers: Any = fibre_sheet({"text": Recipe.example("step_index_fibre").to_text()})
+    assert "gamma" not in numbers
+    assert numbers["peak_power"] > 0
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_solved_fibre_s_coefficient_and_cross_section() -> None:
+    text = Recipe.example("step_index_fibre").to_text()
+    numbers: Any = fibre_sheet({"text": text})
+    assert numbers["gamma"] == pytest.approx(0.0721, rel=1e-2)
+    curve: Any = fibre_curve({"text": text, "numbers": numbers})
+    assert [shape["kind"] for shape in curve["shapes"]] == ["disc", "disc"]

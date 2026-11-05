@@ -12,6 +12,7 @@ runs anything: the numbers call ``tools.capillary_params`` on the recipe's keywo
 which is why they meet the sheet's targets where a whole summary does not.
 """
 
+import contextlib
 import math
 import os
 from collections.abc import Mapping
@@ -27,7 +28,9 @@ from solprop.modes import base
 from solprop.physdata.gases import Gas
 from solprop.plotting.geometry import LIGHT, Disc, Ring, outline
 from solprop.recipe import Recipe
+from solprop.recipe.errors import RecipeError
 from solprop.recipe.metadata import parameters
+from solprop.recipe.quantity import Unit, parse_quantity
 from solprop.tools import (
     SolitonParams,
     beam_params,
@@ -36,7 +39,9 @@ from solprop.tools import (
     dispersion_length,
     fission_length,
     lambda_rdw_all,
+    nonlinear_coefficient,
     nonlinear_length,
+    pulse_peak_power,
     pulse_width,
     soliton_order,
     soliton_params,
@@ -55,6 +60,8 @@ __all__ = [
     "fibre_curve",
     "fibre_sheet",
     "gases",
+    "grin_curve",
+    "grin_sheet",
     "lens_beam",
     "output_size",
     "run_options",
@@ -575,7 +582,9 @@ def fibre_sheet(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``peak_power`` (W), ``energy`` (J), ``beta2`` (s^2/m), ``wavelength`` (m),
-        ``dispersion_length`` and ``nonlinear_length`` (m), and where a soliton forms,
+        ``gamma`` (1/(W m), the recipe's, or a solved fibre's from its mode and
+        ``n2``), ``dispersion_length`` and ``nonlinear_length`` (m), and where a
+        soliton forms,
         ``soliton_order`` and ``fission_length`` (m); ``pinned`` (empty: this route has
         no pins) and ``resolved``, the recipe's text. What the recipe does not give
         is left out.
@@ -601,7 +610,14 @@ def fibre_sheet(payload: Payload) -> dict[str, object]:
     if fwhm is None and width is not None:
         fwhm = float(width) / pulse_width(1.0, shape)  # pyright: ignore[reportArgumentType, arg-type]
     gamma = keywords.get("gamma")
-    if fwhm is None or not isinstance(gamma, int | float) or beta2 == 0:
+    fibre, n2 = keywords.get("fibre"), keywords.get("n2")
+    if not isinstance(gamma, int | float) and fibre is not None and n2 is not None:
+        # A solved fibre's coefficient is its mode's, with the glass's n2.
+        gamma = nonlinear_coefficient(fibre, float(n2), pump)  # pyright: ignore[reportArgumentType]
+    if not isinstance(gamma, int | float):
+        return reply
+    reply["gamma"] = float(gamma)
+    if fwhm is None or beta2 == 0:
         return reply
     fwhm, gamma = float(fwhm), float(gamma)  # pyright: ignore[reportArgumentType]
     reply["dispersion_length"] = dispersion_length(fwhm, beta2, shape)  # pyright: ignore[reportArgumentType]
@@ -627,7 +643,8 @@ def fibre_curve(payload: Payload) -> dict[str, object]:
     -------
     dict
         ``plot`` (as :func:`capillary_curve` gives it) and ``numbers``, by key the
-        ``zdw`` nearest the pump (m, or ``None``).
+        ``zdw`` nearest the pump (m, or ``None``); a solved fibre's ``shapes``, its
+        cross-section.
     """
     recipe = _recipe(payload)
     numbers: Mapping[str, object] = payload["numbers"]  # pyright: ignore[reportAssignmentType]
@@ -637,7 +654,7 @@ def fibre_curve(payload: Payload) -> dict[str, object]:
     beta2 = np.asarray(base.beta2(mode, 2.0 * math.pi * C / wavelength)) * 1e30
     zdw = _zero_near(wavelength, beta2, pump)
     reach = float(np.nanmax(np.abs(beta2))) or 1.0
-    return {
+    reply: dict[str, object] = {
         "plot": {
             "x": wavelength * 1e9,
             "y": beta2,
@@ -653,6 +670,10 @@ def fibre_curve(payload: Payload) -> dict[str, object]:
         },
         "numbers": {"zdw": zdw},
     }
+    fibre = recipe.keywords().get("fibre")
+    if fibre is not None:
+        reply["shapes"] = _shapes_of(fibre)
+    return reply
 
 
 def beam_sheet(payload: Payload) -> dict[str, object]:
@@ -831,6 +852,127 @@ def _run_budget() -> ThreadBudget:
             os.environ["SOLPROP_THREADS"] = held
 
 
+def _graded(recipe: Recipe) -> dict[str, float]:
+    """Return a graded-index fibre's profile, as its recipe writes it.
+
+    Read from the recipe's text alone: building the fibre solves its modes, which is
+    seconds, not the moment an edit takes.
+
+    Parameters
+    ----------
+    recipe : solprop.recipe.Recipe
+        The recipe, its provider a ``GradedIndexProvider`` inside ``provider``.
+
+    Returns
+    -------
+    dict
+        ``radius`` (m), ``contrast``, ``exponent``, and where they are plain indices,
+        ``axis`` and ``exterior``.
+    """
+    inner = "provider.provider"
+    profile: dict[str, float] = {
+        "radius": float(
+            parse_quantity(recipe.get(f"{inner}.radius"), Unit("m"), path="radius")
+        ),
+        "contrast": float(recipe.get(f"{inner}.permittivity.contrast")),  # pyright: ignore[reportArgumentType]
+        "exponent": 2.0,
+    }
+    with contextlib.suppress(RecipeError):
+        profile["exponent"] = float(recipe.get(f"{inner}.permittivity.exponent"))  # pyright: ignore[reportArgumentType]
+    for key, path in (
+        ("axis", f"{inner}.permittivity.centre.index"),
+        ("exterior", f"{inner}.exterior.index"),
+    ):
+        with contextlib.suppress(RecipeError):
+            held = recipe.get(path)
+            if isinstance(held, int | float):
+                profile[key] = float(held)
+    return profile
+
+
+def grin_sheet(payload: Payload) -> dict[str, object]:
+    """Return a graded-index fibre's numbers, from its profile and its pulse.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text`` and optionally ``base``.
+
+    Returns
+    -------
+    dict
+        ``peak_power`` (W), ``energy`` (J), ``wavelength`` (m), and where the indices
+        are plain numbers its numerical aperture ``na``, ``v_number`` and
+        ``mode_count``, the guided modes a power-law core holds, about
+        V² p / (2 (p + 2)); ``pinned`` (empty) and ``resolved``, the recipe's text.
+    """
+    recipe = _recipe(payload)
+    metre, joule, second = Unit("m"), Unit("J"), Unit("s")
+    pump = float(parse_quantity(recipe.get("wavelength"), metre, path="wavelength"))
+    energy = float(parse_quantity(recipe.get("energy"), joule, path="energy"))
+    fwhm = float(parse_quantity(recipe.get("fwhm"), second, path="fwhm"))
+    shape = str(recipe.get("shape"))
+    reply: dict[str, object] = {
+        "energy": energy,
+        "peak_power": pulse_peak_power(energy, fwhm, shape),  # pyright: ignore[reportArgumentType]
+        "wavelength": pump,
+        "pinned": {},
+        "resolved": recipe.to_text(),
+    }
+    profile = _graded(recipe)
+    if "axis" in profile and "exterior" in profile:
+        aperture = math.sqrt(max(profile["axis"] ** 2 - profile["exterior"] ** 2, 0.0))
+        v_number = 2.0 * math.pi * profile["radius"] * aperture / pump
+        power = profile["exponent"]
+        reply["na"] = aperture
+        reply["v_number"] = v_number
+        reply["mode_count"] = v_number**2 * power / (2.0 * (power + 2.0))
+    return reply
+
+
+def grin_curve(payload: Payload) -> dict[str, object]:
+    """Return a graded-index fibre's index across its core and into its cladding.
+
+    Parameters
+    ----------
+    payload : Mapping
+        ``text`` and optionally ``base``.
+
+    Returns
+    -------
+    dict
+        ``plot``, the index against radius in µm with the core's edge marked, as
+        :func:`capillary_curve` gives one; none where the indices are not plain
+        numbers. ``numbers`` is empty.
+    """
+    profile = _graded(_recipe(payload))
+    if "axis" not in profile or "exterior" not in profile:
+        return {"numbers": {}}
+    radius = profile["radius"]
+    r = np.linspace(0.0, 1.6 * radius, CURVE_POINTS)
+    inside = profile["axis"] * np.sqrt(
+        np.maximum(
+            1.0 - 2.0 * profile["contrast"] * (r / radius) ** profile["exponent"], 0.0
+        )
+    )
+    index = np.where(r <= radius, inside, profile["exterior"])
+    low, high = float(index.min()), float(index.max())
+    pad = 0.08 * (high - low or 1e-3)
+    return {
+        "plot": {
+            "x": r * 1e6,
+            "y": index,
+            "xlabel": "Radius (µm)",
+            "ylabel": "Refractive index",
+            "unit": "",
+            "limit": [low - pad, high + pad],
+            "zero": False,
+            "marks": [["Core edge", radius * 1e6]],
+        },
+        "numbers": {},
+    }
+
+
 def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
     """Say what a run here can use: its threads and its backends.
 
@@ -863,6 +1005,8 @@ SHEET_HANDLERS = {
     "capillary_sheet": capillary_sheet,
     "fibre_curve": fibre_curve,
     "fibre_sheet": fibre_sheet,
+    "grin_curve": grin_curve,
+    "grin_sheet": grin_sheet,
     "gases": gases,
     "lens_beam": lens_beam,
     "output_size": output_size,

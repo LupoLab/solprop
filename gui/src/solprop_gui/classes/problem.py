@@ -66,6 +66,9 @@ class Field:
         Makes this a switch: whether a list at the path holds an entry of this type.
     goes_with : tuple of str
         Paths the switch's entry needs set, taken from the class's example.
+    blank : str or None
+        What an empty row means, shown in it, as ``"fused silica"`` for a core glass
+        left to solprop.
     """
 
     path: str
@@ -77,6 +80,7 @@ class Field:
     moves_planes: str | None = None
     member: str | None = None
     goes_with: tuple[str, ...] = ()
+    blank: str | None = None
 
 
 @dataclass(frozen=True)

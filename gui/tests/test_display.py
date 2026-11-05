@@ -5,11 +5,13 @@
 """How numbers are shown: the ends a doctest does not reach."""
 
 import numpy as np
+import pytest
 
 from solprop_gui.model.display import (
     beam_reach,
     decibels,
     even_rows,
+    half_width,
     light_range,
     mirrored_rows,
     pulse_window,
@@ -66,3 +68,18 @@ def test_the_light_on_an_axis_is_where_any_row_holds_it() -> None:
     assert light_range(x, rows, margin=0.5) == (1.5, 7.5)
     assert light_range(x, rows, margin=10.0) == (0.0, 9.0)
     assert light_range(x, np.zeros((2, 10))) == (0.0, 9.0)
+
+
+def test_a_half_width_climbs_to_its_peak_and_needs_two_sides() -> None:
+    x = np.linspace(0.0, 10.0, 1001)
+    y = np.exp(-4 * np.log(2) * (x - 6.0) ** 2) + 0.5 * np.exp(
+        -4 * np.log(2) * ((x - 2.0) / 0.5) ** 2
+    )
+    left, right, level = half_width(x, y, 5.0)  # pyright: ignore[reportGeneralTypeIssues]
+    assert right - left == pytest.approx(1.0, rel=1e-3)
+    assert level == pytest.approx(0.5, rel=1e-3)
+    left, right, _level = half_width(x, y, 2.3)  # pyright: ignore[reportGeneralTypeIssues]
+    assert right - left == pytest.approx(0.5, rel=1e-2)
+    assert half_width(x[:2], y[:2], 0.0) is None
+    edge = np.exp(-(x**2))
+    assert half_width(x, edge, 0.0) is None

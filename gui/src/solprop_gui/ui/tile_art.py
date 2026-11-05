@@ -58,10 +58,25 @@ ART: Final = {
         '<circle cx="24" cy="24" r="17.5" fill="#fff" stroke="{accent}" '
         'stroke-width="1"/>' + _tubes()
     ),
-    "solid-core": (
+    "step-index": (
         '<circle cx="24" cy="24" r="19" fill="{tint}" stroke="{accent}" '
         'stroke-width="2"/>'
         '<circle cx="24" cy="24" r="6" fill="{accent}"/>'
+    ),
+    "gnlse": (
+        '<path d="M4 34 H 44" stroke="{accent}" stroke-width="1.4" opacity="0.5"/>'
+        '<path d="M4 34 C 14 34, 17 10, 24 10 C 31 10, 34 34, 44 34" fill="{tint}" '
+        'stroke="{accent}" stroke-width="2"/>'
+        '<path d="M10 40 H 38" stroke="{accent}" stroke-width="3" '
+        'stroke-linecap="round" opacity="0.35"/>'
+    ),
+    "grin": (
+        '<circle cx="24" cy="24" r="19" fill="{tint}" stroke="{accent}" '
+        'stroke-width="2"/>'
+        '<circle cx="24" cy="24" r="13" fill="{accent}" opacity="0.18"/>'
+        '<circle cx="24" cy="24" r="9" fill="{accent}" opacity="0.3"/>'
+        '<circle cx="24" cy="24" r="5" fill="{accent}" opacity="0.55"/>'
+        '<circle cx="24" cy="24" r="2.2" fill="{accent}"/>'
     ),
     "filament": (
         '<path d="M3 9 C 14 12, 22 20, 28 22.5 L 28 25.5 C 22 28, 14 36, 3 39 Z" '

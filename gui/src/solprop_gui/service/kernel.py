@@ -16,8 +16,11 @@ imports nothing heavy; :func:`serve` imports the handlers in the child.
 
 import os
 import traceback
+import warnings
 from collections.abc import Callable, Iterable, Mapping
 from multiprocessing.connection import Connection
+
+from solprop.exceptions import MaterialRangeWarning
 
 from solprop_gui.service.messages import PROTOCOL, Reply, Request
 
@@ -155,6 +158,9 @@ def serve(
     # What a run would get: a run's worker starts from the window's environment.
     os.environ[RUN_THREADS] = os.environ.get("SOLPROP_THREADS", "")
     os.environ.setdefault("SOLPROP_THREADS", KERNEL_THREADS)
+    # solprop's check reports a material out of its range on the Ready line; the
+    # same warning from every edit's numbers would only fill the terminal.
+    warnings.filterwarnings("ignore", category=MaterialRangeWarning)
     if handlers is None:
         from solprop_gui.service.handlers import HANDLERS  # noqa: PLC0415 - child only
 

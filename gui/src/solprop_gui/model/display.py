@@ -16,6 +16,7 @@ __all__ = [
     "decibels",
     "duration_text",
     "even_rows",
+    "half_width",
     "length_unit",
     "light_range",
     "mirrored_rows",
@@ -117,6 +118,64 @@ def wants_log(values: np.ndarray, decades: float = 3.0) -> bool:
     if positive.size == 0 or (finite < 0).any():
         return False
     return math.log10(float(positive.max()) / float(positive.min())) > decades
+
+
+def half_width(
+    x: np.ndarray, y: np.ndarray, near: float, *, decibels: bool = False
+) -> tuple[float, float, float] | None:
+    """Measure the full width at half maximum of the peak nearest a position.
+
+    From the sample nearest ``near``, the curve is climbed to its local peak, and the
+    half level is found on either side of it by linear interpolation.
+
+    Parameters
+    ----------
+    x : numpy.ndarray
+        The positions, ascending.
+    y : numpy.ndarray
+        The values.
+    near : float
+        Where the peak is looked for.
+    decibels : bool, optional
+        Whether the values are in dB, whose half is 3 dB below the peak.
+
+    Returns
+    -------
+    tuple of float or None
+        The left and right crossings and the half level; ``None`` where the curve
+        does not fall to half on both sides within it.
+
+    Examples
+    --------
+    >>> x = np.linspace(-10, 10, 2001)
+    >>> left, right, level = half_width(x, np.exp(-4 * np.log(2) * x**2), 0.5)
+    >>> round(right - left, 4), round(level, 4)
+    (1.0, 0.5)
+    >>> half_width(x, x, 0.0) is None
+    True
+    """
+    finite = np.isfinite(y)
+    x, y = np.asarray(x, dtype=float)[finite], np.asarray(y, dtype=float)[finite]
+    if x.size < 3:
+        return None
+    at = int(np.clip(np.searchsorted(x, near), 0, x.size - 1))
+    while True:
+        step = 1 if at + 1 < x.size and y[at + 1] > y[at] else 0
+        step = -1 if not step and at > 0 and y[at - 1] > y[at] else step
+        if not step:
+            break
+        at += step
+    level = y[at] - 10.0 * np.log10(2.0) if decibels else y[at] / 2.0
+    left, right = at, at
+    while left > 0 and y[left] > level:
+        left -= 1
+    while right < x.size - 1 and y[right] > level:
+        right += 1
+    if y[left] > level or y[right] > level:
+        return None
+    low = np.interp(level, [y[left], y[left + 1]], [x[left], x[left + 1]])
+    high = np.interp(level, [y[right], y[right - 1]], [x[right], x[right - 1]])
+    return float(low), float(high), float(level)
 
 
 def light_range(
