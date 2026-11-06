@@ -1,0 +1,1 @@
+`get_spectrum` has no `noise_floor` keyword. Its annotation admitted `"subtract"`, which it always refused: an amplitude has no part that is the floor's power, so only `get_spectral_density` subtracts it. Drop `noise_floor="keep"`, the default, from a call that passes it; the result is unchanged. A call that still passes it raises `TypeError` (#96).

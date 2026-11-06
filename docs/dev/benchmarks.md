@@ -2512,6 +2512,54 @@ Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine th
 
 The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth, and an MI325X the step and the device tests with HIP in the scratch's new order, above.
 
+### `mlx` against `native` on an Apple M5 Max
+
+Single precision on `mlx` was slower than binary64 `native` on the helium RDW capillary,
+by 3.7 times as each backend runs it by default and 4.7 mode-averaged. Four causes,
+each measured on an Apple M5 Max (MLX 0.32.4) shared with other work, so ratios only,
+interleaved:
+
+- **Grid sizes.** `fft_size="auto"` took FFTW's 2-3-5-smooth sizes; MLX's GPU FFT is
+  direct at every smooth size up to 4096 and at powers of two, and takes Bluestein's
+  algorithm elsewhere: an rfft and irfft pair at 10240 took 715 µs, at 16384 63 µs. The
+  keyword interfaces now size a single-precision `mlx` run's grid with MLX's costs
+  (`grid.fft_cost(n, "mlx")`); one mode-averaged RDW trial went from 18.6 to 4.66 ms.
+- **Launches.** A DOPRI5 trial was about 2000 graph nodes, half of them launches of
+  about 10 µs. Each stage is now one `mx.compile` graph, bitwise the eager one; one
+  trial, op by op against compiled: `he_rdw_averaged` 5.30 against 2.91 ms, `rdw` 7.76
+  against 4.76, `radial_filament_256` 14.1 against 6.88, `spatial_absorber` 3.69 against
+  2.38, `kerr_beam_192` 246 against 131, `cartesian_filament_128` 806 against 316.
+  Starting each stage as it is built took another 7 to 12 %.
+- **The integrator.** Single precision refused Adams, so `mlx` stepped DOPRI5 where
+  `native` stepped Adams. Adams is admitted now (#342) and runs on the device
+  (`MlxAdams`): warm, a four-mode `rdw` step is 1.48 ms.
+- **Host statistics.** A plane's field-grid plasma statistics scanned every node on the
+  host in binary64: 37.7 s of a 50.6 s tenth of `cartesian_filament_128`. On the device
+  with the stage's kernels the run took 21.5 s, and an RK trial there is 223 ms on
+  `mlx` against 511 ms on `native` at all cores.
+
+`python -m benchmarks ab --baseline-backend native --candidate-backend mlx`, a third
+of each case, two rounds, the ratio `mlx`/`native` (below one, `mlx` faster):
+
+| case | before, each default | after, each default | after, Adams on both |
+|---|---:|---:|---:|
+| `rdw` | 3.72 | 1.24 | 0.84 |
+| `he_rdw_averaged` | 4.72 | 2.40 | 1.68 |
+| `radial_filament_256` | 1.10 | 0.45 | 0.42 |
+| `spatial_absorber` | 0.71 | 0.80 | 0.27 |
+| `cartesian_filament_128` | 2.50 | 0.79 | |
+
+The single-precision default is still Runge-Kutta, so on the capillaries the middle
+column sets `mlx`'s DOPRI5 against `native`'s Adams. Whole runs, RK at `rtol = 1e-4`:
+`radial_filament_256` 0.67 s on `mlx` against 2.07 s on `native`, `spatial_absorber`
+1.98 against 5.54. The short runs' ratios carry the planes' shared host statistics
+(12 planes) as a fixed cost. `kerr_beam_*` was refused on `mlx` past a tenth of its
+length: over its 0.5–0.6 µm steps the spectral collar reaches `|Re ΔΦ|` of 150–180,
+past binary32's 88.7. Its low-storage march applies forward flows only, which a damped
+bin underflows harmlessly, so binary32 now holds it to growth alone; with the edge read
+on the device and the operator built once, whole runs take 1.05 s on `mlx` against
+2.64 s on `native` (192²) and 7.72 against 9.43 s (384²), the fields 2e-7 apart.
+
 ## Reference tables
 
 These tables back the indicative results above.

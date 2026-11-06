@@ -115,7 +115,7 @@ class Case:
             record.pop(key)
         return identity(record)
 
-    def configuration(
+    def configuration(  # noqa: PLR0913 - the shared command-line selection
         self,
         stepper: str,
         width: int,
@@ -124,11 +124,16 @@ class Case:
         warmup: float = 0.02,
         *,
         device: bool = False,
+        noise: str = "case",
+        fft_size: str = "case",
     ) -> Record:
         """Resolve one measurement without constructing a scientific object.
 
         On a device build, `width` is the host's thread count and `device` says the
-        native backend must run on the accelerator.
+        native backend must run on the accelerator. ``mlx`` runs in single precision,
+        every other backend in double; ``noise="none"`` drops the case's noise and
+        ``fft_size="pow2"`` rebuilds its time grid at a power of two
+        (``benchmarks.builders.variant``).
         """
         if stepper not in self.steppers:
             raise SuiteError(f"{self.name} admits only {', '.join(self.steppers)}")
@@ -141,6 +146,9 @@ class Case:
             "stepper": stepper,
             "threads": width,
             "backend": backend,
+            "precision": "single" if backend == "mlx" else "double",
+            "noise": noise,
+            "fft_size": fft_size,
             "device": device,
             "stop": self.length * fraction,
             "fraction": fraction,

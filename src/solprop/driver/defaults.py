@@ -323,7 +323,8 @@ def default_rtol(route: str, precision: str) -> float:
     larger of it and :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, so it is
     never tighter than its binary64 twin nor than binary32 rounding can serve, and at
     most :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`, the loosest value the
-    single-precision survival record measured (the maintainers' ruling of 2026-10-28).
+    single-precision survival record measured (the maintainers' ruling of 2026-10-28;
+    the record reached free space's 1e-4 on 2026-11-05).
 
     Parameters
     ----------
@@ -341,7 +342,7 @@ def default_rtol(route: str, precision: str) -> float:
     --------
     >>> from solprop.driver.defaults import default_rtol
     >>> [default_rtol(route, "single") for route in ("gnlse", "capillary", "free")]
-    [1e-06, 1e-06, 1e-05]
+    [1e-06, 1e-06, 0.0001]
     >>> default_rtol("gnlse", "double")
     1e-07
     """
@@ -369,7 +370,7 @@ def rtol_in_precision(rtol: float, precision: str) -> float:
     --------
     >>> from solprop.driver.defaults import rtol_in_precision
     >>> [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-5, 1e-3)]
-    [1e-06, 1e-05, 1e-05]
+    [1e-06, 1e-05, 0.0001]
     """
     if precision != "single":
         return rtol
@@ -412,8 +413,9 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
         A :data:`RouteName`, or ``None`` for settings built by hand, which step with
         ``Multistep()``.
     precision : {'double', 'single'}
-        The run's precision. Single precision refuses the Adams method until its
-        survival is established (SEP 33, Q2), so it always takes ``RungeKutta()``.
+        The run's precision. Both take the route's own integrator: binary32 Adams
+        agrees with binary64 Adams to the method's truncation (#342), and on ``mlx``
+        it is the faster on the four-mode capillary and the radial routes.
 
     Returns
     -------
@@ -426,12 +428,11 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
     >>> type(default_integrator("gnlse", "double")).__name__
     'RungeKutta'
     >>> type(default_integrator("capillary", "single")).__name__
-    'RungeKutta'
+    'Multistep'
     >>> type(default_integrator(None, "double")).__name__
     'Multistep'
     """
-    if precision == "single":
-        return RungeKutta()
+    del precision  # one rule in both precisions since #342
     name = "Multistep" if route is None else route_defaults(route).integrator
     return RungeKutta() if name == "RungeKutta" else Multistep()
 

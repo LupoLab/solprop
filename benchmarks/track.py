@@ -36,10 +36,14 @@ from benchmarks.system import (
     thread_environment,
 )
 
+BACKENDS = ("numpy_ref", "native", "mlx")
+"""The backends a benchmark can name; ``mlx`` only on an Apple GPU."""
+
 REPEAT_TOLERANCE = 1e-9
 """The relative L2 difference two repeats' final fields may have: rounding only."""
 
 __all__ = [
+    "BACKENDS",
     "REPEAT_TOLERANCE",
     "admissible",
     "history_rows",
@@ -71,7 +75,24 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--production", type=int, help="production width; default: physical cores"
     )
-    parser.add_argument("--backend", choices=("numpy_ref", "native"), default="native")
+    parser.add_argument(
+        "--backend",
+        choices=BACKENDS,
+        default="native",
+        help="mlx runs in single precision, noiselessly; the others in double",
+    )
+    parser.add_argument(
+        "--noise",
+        choices=("case", "none"),
+        default="case",
+        help="none drops each case's noise, to match an mlx run's workload",
+    )
+    parser.add_argument(
+        "--fft-size",
+        choices=("case", "pow2"),
+        default="case",
+        help="pow2 rebuilds each case's time grid at a power of two",
+    )
     parser.add_argument(
         "--device",
         action="store_true",
@@ -328,6 +349,8 @@ def track(args: argparse.Namespace) -> int:
         production,
         backend=args.backend,
         device=args.device,
+        noise=args.noise,
+        fft_size=args.fft_size,
     )
     if not rows:
         raise SuiteError("no configuration in the selection")

@@ -5,6 +5,7 @@
 import numpy as np
 import pytest
 
+from runtime_types import unchecked
 from solprop.constants import C
 from solprop.exceptions import ProcessingError
 from solprop.grid import EnvelopeGrid
@@ -143,6 +144,34 @@ def test_a_passband_defaults_to_wavelength(grid):
 def test_a_passband_refuses_what_names_no_light(limits, axis, match):
     with pytest.raises(ProcessingError, match=match):
         spectra.Passband(limits, axis)
+
+
+@pytest.mark.parametrize(
+    ("limits", "axis", "unit"),
+    [
+        ((700e-9,), "wavelength", "m"),
+        ((700e-9, 800e-9, 900e-9), "wavelength", "m"),
+        ((), "f", "Hz"),
+        ((1e14,), "omega", "rad/s"),
+    ],
+)
+def test_a_passband_refuses_other_than_two_limits(limits, axis, unit):
+    # The annotation refuses a wrong length first under the suite's type hook; a
+    # caller without a type checker meets the class's own check.
+    band = object.__new__(spectra.Passband)
+    with pytest.raises(ProcessingError, match=f"two limits, in {unit}"):
+        unchecked(spectra.Passband.__init__)(band, limits, axis)
+
+
+def test_bandpass_refuses_other_than_two_limits(grid):
+    with pytest.raises(ProcessingError, match="two limits"):
+        unchecked(spectra.bandpass)(grid, (700e-9, 800e-9, 900e-9))
+
+
+@pytest.mark.parametrize("width", [-1.0, 0.0])
+def test_a_passband_refuses_a_width_that_is_not_positive(width):
+    with pytest.raises(ProcessingError, match="taper width must be positive"):
+        spectra.Passband((700e-9, 800e-9), width=width)
 
 
 def test_an_accessor_takes_a_passband():
