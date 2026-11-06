@@ -612,6 +612,11 @@ struct RegisterIndex {
   // One polarisation: a column is its mode, without a division (a flag of its own,
   // which the compiler cannot fold back into `column / 1`).
   bool scalar{};
+#if defined(KOKKOS_ENABLE_CUDA)
+  // A stage of the volume route on CUDA (`volume_order_`): the scratch is `(y, x,
+  // omega)`, the state's and the registers' own order, so nothing crosses.
+  bool volume{};
+#endif
   KOKKOS_INLINE_FUNCTION std::size_t mode(const std::size_t column) const {
     return scalar ? column : column / n_pol;
   }
@@ -621,6 +626,10 @@ struct RegisterIndex {
   // The transverse scratch's position of the element, on any build.
   KOKKOS_INLINE_FUNCTION std::size_t cell(const std::size_t column,
                                           const std::size_t omega) const {
+#if defined(KOKKOS_ENABLE_CUDA)
+    if (volume)
+      return column * n + omega;
+#endif
     return (omega * n_pol + pol(column)) * layout.plane + layout.offset(mode(column));
   }
   KOKKOS_INLINE_FUNCTION std::size_t operator()(const std::size_t column,
@@ -2365,6 +2374,16 @@ public:
     return {transverse_layout(), problem_.n_pol_state, problem_.n_omega, plane,
             problem_.n_pol_state == 1};
   }
+  // A stage's scratch positions: the volume route's own order on CUDA, or the scratch's
+  // (`register_index`). Every other pass over the scratch forms its own input in
+  // `(omega, y, x)`, since the scratch is dead between them.
+  RegisterIndex stage_index() const noexcept {
+    auto index = register_index();
+#if defined(KOKKOS_ENABLE_CUDA)
+    index.volume = volume_order_;
+#endif
+    return index;
+  }
   // The unscaled transverse DFT's sample count: the plane's, or the slab's y axis.
   double inverse_transverse_count() const noexcept {
     return 1.0 / static_cast<double>(problem_.slab_geometry() ? problem_.n_y
@@ -2694,6 +2713,11 @@ public:
   // (omega, y, x) at once and forms the response there, in place of the chunks'
   // transposes and temporal transforms (`separable_volume_core`).
   bool volume_kerr_ = false;
+  // The volume route's stages hold the scratch as `(y, x, omega)`, `volume_scratch_`,
+  // on CUDA (solprop #365): its rank-3 transform is then cuFFT's frequency-fastest
+  // `{N,N,T}`, and its input and fold no longer cross layouts.
+  bool volume_order_ = false;
+  ComplexView3 volume_scratch_;
   std::unique_ptr<VolumePlan> volume_forward_, volume_inverse_;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   ComplexView transform_work_;
@@ -4557,13 +4581,22 @@ void GeneralWorkspace::plan() {
                    !problem_.raman && !problem_.envelope_plasma &&
                    !problem_.dispersive && separable_dispersive_ == nullptr &&
                    problem_.harmonic_factor == 0.0 && separable_gaps_.empty();
+#if defined(KOKKOS_ENABLE_CUDA)
+    // At 768 x 768 x 600 on an NVIDIA H200, cuFFT's `{N,N,T}` takes 14.7 ms a transform
+    // against 17.6 ms for `{T,N,N}` (solprop #365). An in-stage absorber evaluates its
+    // term from the same input in the scratch's order, so it keeps that order.
+    volume_order_ = volume_kerr_ && !problem_.in_stage_absorber;
+#endif
+    if (volume_order_)
+      volume_scratch_ = ComplexView3(transverse_.data(), problem_.n_y, problem_.n_x,
+                                     problem_.n_omega);
     if (volume_kerr_) {
       constexpr std::size_t volume_axes = 3;
-      volume_forward_ =
-          std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
-                                       KokkosFFT::Direction::forward, volume_axes);
+      const auto& volume = volume_order_ ? volume_scratch_ : transverse_;
+      volume_forward_ = std::make_unique<VolumePlan>(
+          execution_space_, volume, volume, KokkosFFT::Direction::forward, volume_axes);
       volume_inverse_ =
-          std::make_unique<VolumePlan>(execution_space_, transverse_, transverse_,
+          std::make_unique<VolumePlan>(execution_space_, volume, volume,
                                        KokkosFFT::Direction::backward, volume_axes);
     }
     std::size_t work = KokkosFFT::compute_required_workspace_size<Complex>(
@@ -5693,7 +5726,7 @@ void column_norms(const char* label, const ExecutionSpace& execution,
 void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const auto state = current_;
   const auto stage_register = register_stage_;
-  const auto index = register_index();
+  const auto index = stage_index();
   const auto spatial = spatial_;
   const auto at = stage_phi_at_;
   const auto active = active_mask_;
@@ -5713,7 +5746,8 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
     }
     return value * scale;
   };
-  if (problem_.low_storage_tiled_input) {
+  // In the volume route's order the scratch is the state's, so the input streams.
+  if (problem_.low_storage_tiled_input && !volume_order_) {
     // Read along the state's bins and written along the scratch's rows, a tile at a
     // time.
     tiled_crossing(
@@ -5752,7 +5786,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   // A device gathers and scatters the scratch through its own tiles.
   [[maybe_unused]] const auto n_pol = problem_.n_pol_state;
   [[maybe_unused]] const auto layout = transverse_layout();
-  const auto index = register_index();
+  const auto index = stage_index();
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double scale = inverse_transverse_count();
   const int stage = static_cast<int>(pass);
@@ -5831,19 +5865,32 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
     return final && in_norm(omega) != 0U ? squared_abs(a) : 0.0;
   };
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-  tiled_update(
-      "solprop_native.low_storage.separable_fold", execution_space_,
-      problem_.n_columns(), problem_.n_omega, exchange || forward,
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        return layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol);
-      },
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega, Complex& cell) {
-        static_cast<void>(body(column, omega, cell, state(column, omega)));
-      },
-      KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
-                    const Complex value) {
-        layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol) = value;
-      });
+  // In the volume route's order, the scratch's cell sits beside the registers' and the
+  // state's, so the fold streams all three.
+  if (volume_order_)
+    cartesian_for(
+        "solprop_native.low_storage.separable_fold", execution_space_,
+        problem_.n_columns(), problem_.n_omega,
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+          static_cast<void>(body(column, omega,
+                                 scratch.data()[index.cell(column, omega)],
+                                 state(column, omega)));
+        });
+  else
+    tiled_update(
+        "solprop_native.low_storage.separable_fold", execution_space_,
+        problem_.n_columns(), problem_.n_omega, exchange || forward,
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+          return layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol);
+        },
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                      Complex& cell) {
+          static_cast<void>(body(column, omega, cell, state(column, omega)));
+        },
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                      const Complex value) {
+          layout.cell(scratch, omega * n_pol + column % n_pol, column / n_pol) = value;
+        });
 #else
   // The host's registers sit at the scratch cell's own position (`RegisterIndex`), so a
   // block of adjacent columns reads them, and the scratch, in contiguous runs at every
@@ -8985,7 +9032,7 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
   const auto noise = noise_;
   const auto scratch = transverse_;
   const auto whole = whole_propagator_;
-  const auto index = register_index();
+  const auto index = stage_index();
   const auto n_stages = problem_.n_stages;
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double inverse_area_count = inverse_transverse_count();
@@ -9141,7 +9188,7 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
   const auto window = omega_window_;
   const auto active = active_mask_;
   const auto delta = stage_phi_delta_;
-  const auto index = register_index();
+  const auto index = stage_index();
   crossing_for<false, false, true>(
       "solprop_native.free.finish_transform", execution_space_, problem_.n_columns(),
       problem_.n_omega,
@@ -9254,9 +9301,8 @@ void GeneralWorkspace::separable_to_frequency(const TransverseChunk& chunk) {
 // pack's and the crop's transposes.
 void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
   Kokkos::Profiling::pushRegion("solprop_native.free.volume_core");
-  graph::execute(*volume_inverse_, transverse_, transverse_,
-                 KokkosFFT::Normalization::none);
-  const auto scratch = transverse_;
+  const auto scratch = volume_order_ ? volume_scratch_ : transverse_;
+  graph::execute(*volume_inverse_, scratch, scratch, KokkosFFT::Normalization::none);
   const auto window = time_window_;
   const auto kerr_density = stage_kerr_density_;
   const double kerr_coefficient = problem_.kerr_coefficient;
@@ -9264,11 +9310,13 @@ void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
   const double conjugate_factor = problem_.conjugate_factor;
   const double scale = 1.0 / static_cast<double>(problem_.n_t);
   const auto plane = transverse_.extent(1) * transverse_.extent(2);
+  const bool time_fastest = volume_order_;
+  const auto n_t = problem_.n_t;
   launch::parallel_for(
       "solprop_native.free.volume_kerr",
-      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, transverse_.size()),
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, scratch.size()),
       KOKKOS_LAMBDA(const std::size_t item) {
-        const std::size_t time = item / plane;
+        const std::size_t time = time_fastest ? item % n_t : item / plane;
         Complex& cell = scratch.data()[item];
         const Complex value = scale * cell;
         const double modulus = squared_abs(value);
@@ -9284,8 +9332,7 @@ void GeneralWorkspace::separable_volume_core(const std::size_t stage) {
                       (weighted_imag * value.real() - weighted_real * value.imag())));
         cell = result * window(time);
       });
-  graph::execute(*volume_forward_, transverse_, transverse_,
-                 KokkosFFT::Normalization::none);
+  graph::execute(*volume_forward_, scratch, scratch, KokkosFFT::Normalization::none);
   Kokkos::Profiling::popRegion();
 }
 
@@ -16280,6 +16327,7 @@ void GeneralWorkspace::close() noexcept {
   transverse_inverse_.reset();
   volume_forward_.reset();
   volume_inverse_.reset();
+  volume_scratch_ = {};
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   transform_work_ = {};
 #endif
