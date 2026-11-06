@@ -106,7 +106,7 @@ def test_the_scan_browser_draws_a_line_or_a_map(qtbot: QtBot, tmp_path: Path):
     assert view.status.text() == "no scan" and view.result.count() == 0
 
 
-def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(
+def test_a_scan_set_up_on_its_stage_runs_and_shows_its_results(  # noqa: PLR0915 - one story
     qtbot: QtBot, tmp_path: Path
 ) -> None:
     window = WorkflowWindow(workspace=tmp_path / "workspace")

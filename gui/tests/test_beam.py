@@ -18,11 +18,10 @@ from solprop.recipe import Recipe
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.service import handlers
-from solprop_gui.service.reduce import TIME_OVERSAMPLING
 from solprop_gui.service import run as worker
 from solprop_gui.service.beam import across
 from solprop_gui.service.outbox import Outbox
-from solprop_gui.service.reduce import Display, Reducer
+from solprop_gui.service.reduce import TIME_OVERSAMPLING, Display, Reducer
 from solprop_gui.service.worker import RunSpec
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.plane import PlaneView
