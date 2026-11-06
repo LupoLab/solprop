@@ -83,6 +83,8 @@ BACKENDS: Mapping[str, BackendEntry] = {
     "native": BackendEntry(requires=("solprop_native",), extras=()),
     # Apple-silicon GPUs through MLX, single precision only (SEP 33).
     "mlx": BackendEntry(requires=("mlx",), extras=("mlx",)),
+    # The Julia experiment: CPU, or NVIDIA GPU with SOLPROP_JULIA_DEVICE=cuda.
+    "julia": BackendEntry(requires=("juliacall",), extras=("julia",)),
 }
 """The backends this package knows, by name."""
 
@@ -683,4 +685,8 @@ def _construct(
         from solprop.backends.mlx_gpu.backend import MlxBackend  # noqa: PLC0415
 
         return MlxBackend(problem, grid=grid, modes=modes, profiles=profiles)
+    if name == "julia":  # pragma: no cover - needs the Julia experiment's runtime
+        from solprop.backends.julia import JuliaBackend  # noqa: PLC0415
+
+        return JuliaBackend(problem, grid=grid, modes=modes, profiles=profiles)
     raise AssertionError(f"unhandled backend registry entry {name!r}")

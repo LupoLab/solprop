@@ -72,3 +72,6 @@ class NativePinHook(MetadataHookInterface):
         # raised only with the GPU lane and the arithmetic probes run (Q9).
         apple_silicon = 'sys_platform == "darwin" and platform_machine == "arm64"'
         extras["mlx"] = [f"mlx>=0.32.4,<0.33; {apple_silicon}"]
+        # The Julia backend experiment, through JuliaCall; its Julia packages are
+        # pinned by julia/Manifest.toml.
+        extras["julia"] = ["juliacall==0.9.37"]

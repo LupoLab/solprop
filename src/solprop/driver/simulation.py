@@ -1315,7 +1315,7 @@ def _stepper_record(settings: StepperSettings) -> StepperRecord:
     )
 
 
-LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
+LOW_STORAGE_BACKENDS = ("native", "numpy_ref", "julia")
 """The backends that execute :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
 
 ``numpy_ref`` from SEP 24's phase 1 and solprop-native from phase 3, on every route the
@@ -1394,10 +1394,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "native", "mlx"):
+    if backend not in ("auto", "numpy_ref", "native", "mlx", "julia"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref, native "
-            f"and mlx only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref, native, "
+            f"mlx and julia only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )

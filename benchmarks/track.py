@@ -36,7 +36,7 @@ from benchmarks.system import (
     thread_environment,
 )
 
-BACKENDS = ("numpy_ref", "native", "mlx")
+BACKENDS = ("numpy_ref", "native", "mlx", "julia")
 """The backends a benchmark can name; ``mlx`` only on an Apple GPU."""
 
 REPEAT_TOLERANCE = 1e-9

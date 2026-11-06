@@ -50,3 +50,6 @@ docs/introduction/lessons/searchindex
 .benchmarks/
 *.profraw
 *.profdata
+.julia-runtime/
+.julia-depot/
+julia/LocalPreferences.toml
