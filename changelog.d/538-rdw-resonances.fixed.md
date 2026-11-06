@@ -1,0 +1,1 @@
+`tools.lambda_rdw_all` skips a sign change of the phase mismatch through a resonance of the guide, where the mismatch has a pole or is not a number, instead of raising a bare `ValueError` from SciPy on an antiresonant fibre's default search window (#538).
