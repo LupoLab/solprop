@@ -80,8 +80,8 @@ def runtime() -> Any:
     """Load the experimental Julia module from this source checkout.
 
     ``SOLPROP_JULIA_EXE`` names the Julia 1.13 executable (default: the one
-    ``julia/bootstrap.py`` downloads) and ``SOLPROP_JULIA_DEPOT`` its package depot
-    (default ``.julia-depot``). ``SOLPROP_JULIA_DEVICE=cuda`` loads CUDA.jl first, so
+    ``julia/bootstrap.py`` downloads), ``SOLPROP_JULIA_DEPOT`` its package depot
+    (default ``.julia-depot``) and ``SOLPROP_JULIA_ROOT`` the checkout (`checkout`). ``SOLPROP_JULIA_DEVICE=cuda`` loads CUDA.jl first, so
     that the engine's CUDA extension is available.
 
     Returns
@@ -94,7 +94,7 @@ def runtime() -> Any:
     BackendError
         If the runtime or Julia project has not been prepared.
     """
-    root = Path(__file__).resolve().parents[4]
+    root = checkout()
     if "juliacall" in sys.modules:
         raise BackendError(
             "julia requires a fresh Python process: JuliaCall was already initialized"
@@ -145,6 +145,21 @@ def runtime() -> Any:
     return module.SolpropJulia
 
 
+def checkout() -> Path:
+    """Return the source checkout whose ``julia/`` project the engine runs.
+
+    ``SOLPROP_JULIA_ROOT`` names it for an installed (non-editable) solprop; by
+    default it is the checkout this module was imported from.
+
+    Returns
+    -------
+    pathlib.Path
+        The checkout's root directory.
+    """
+    named = os.environ.get("SOLPROP_JULIA_ROOT")
+    return Path(named) if named else Path(__file__).resolve().parents[4]
+
+
 def source_digest() -> str:
     """Return a SHA-256 over the Julia sources, the manifest and this adapter.
 
@@ -157,7 +172,7 @@ def source_digest() -> str:
     str
         Hexadecimal digest.
     """
-    root = Path(__file__).resolve().parents[4]
+    root = checkout()
     paths = sorted(
         [
             *(root / "julia/src").rglob("*.jl"),
@@ -166,12 +181,12 @@ def source_digest() -> str:
             root / "julia/Manifest.toml",
             root / "julia/cuda/Project.toml",
             root / "julia/cuda/Manifest.toml",
-            *Path(__file__).parent.glob("*.py"),
         ]
     )
+    adapter = sorted(Path(__file__).parent.glob("*.py"))
     digest = hashlib.sha256()
-    for path in paths:
+    for path in [*paths, *adapter]:
         if path.is_file():
-            digest.update(str(path.relative_to(root)).encode())
+            digest.update(path.name.encode())
             digest.update(path.read_bytes())
     return digest.hexdigest()
