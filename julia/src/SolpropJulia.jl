@@ -15,6 +15,7 @@ module SolpropJulia
 using LinearAlgebra
 using FFTW
 using PythonCall
+using Polyester: @batch
 import AcceleratedKernels as AK
 import KernelAbstractions as KA
 
@@ -43,13 +44,17 @@ include("stages.jl")
 
 real_type(engine) = real(eltype(engine.work.y))
 
+# Read at load, not at precompilation: a constant would be baked into the cache.
+__init__() = (TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"; nothing)
+
 """Read the shared settings and route to the modal or the free-space engine."""
 function create(input)
     host = HostInput(input)
     T = host.has("precision") && host.string("precision") == "single" ? Float32 : Float64
     backend = device_backend(Val(Symbol(host.has("device") ? host.string("device") : "cpu")))
-    FFTW.set_num_threads(host.int("fft_threads"))
-    BLAS.set_num_threads(host.int("blas_threads"))
+    # One pool runs everything (launch.jl, `plan`): the libraries' own are single.
+    FFTW.set_num_threads(1)
+    BLAS.set_num_threads(1)
     c = (
         backend=backend, T=T, tasks=host.int("threads"),
         fft_threads=host.int("fft_threads"),

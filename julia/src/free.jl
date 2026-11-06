@@ -41,7 +41,7 @@ function create_free(c, host)
     fine, modal = dzeros(c, C, nf, chunk), dzeros(c, R, nt, chunk)
     analytic = dzeros(c, C, nt, chunk)
     coarse, coarse_spec = dzeros(c, R, nc, chunk), dzeros(c, C, nw, chunk)
-    planes = (threads=c.transverse_fft_threads, shape=:planes)
+    planes = (threads=c.transverse_fft_threads, batch=1)
     work = (
         adams=nothing, path=nothing, raman=nothing,
         plasma=plasma_workspace(c, host, nt, chunk, chunk, nm),
@@ -167,7 +167,7 @@ function source_free!(engine, lab)
             each!(c, size(modal)...) do t, m
                 @inbounds projected[t, m] = scale * modal[t, m]
             end
-            analytic_signal!(analytic, projected, w, c, chunk)
+            analytic_signal!(analytic, projected, w.analytic_forward, w.analytic_inverse, c, chunk)
             nonlinear_nodes!(projected, analytic, c, factor, nothing, chunk)
         else
             each!(c, size(modal)...) do t, m

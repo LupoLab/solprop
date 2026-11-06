@@ -22,7 +22,7 @@ function nonlinear_nodes!(nodes, values, c, factor, raman, count)
             @inbounds nodes[t, m] = polarization(values[t, m], f, a) * window[t]
         end
     else
-        drive, r = raman.drive, T(raman.factor)
+        drive, r = raman.products ? raman.nodal : raman.drive, T(raman.factor)
         each!(c, size(nodes, 1), count) do t, m
             @inbounds begin
                 v = nodes[t, m]
@@ -52,19 +52,19 @@ function nonlinear_envelope!(nodes, c, factor, raman, count)
 end
 
 """Replace `analytic` by the analytic signal of the real columns of `nodes`."""
-function analytic_signal!(analytic, nodes, w, c, count)
+function analytic_signal!(analytic, nodes, forward, inverse, c, count)
     nt, chunk = size(analytic)
     each!(c, nt, chunk) do t, m
         @inbounds analytic[t, m] = m <= count ? nodes[t, m] : 0
     end
-    w.analytic_forward * analytic
+    forward * analytic
     # The unnormalised inverse's 1/nt is folded into the one-sided spectral factor.
     T = real(eltype(analytic))
     one, two, half = inv(T(nt)), 2 / T(nt), nt ÷ 2
     each!(c, nt, chunk) do f, m
         @inbounds analytic[f, m] *= (f == 1 || f == half + 1) ? one : f <= half ? two : zero(T)
     end
-    w.analytic_inverse * analytic
+    inverse * analytic
     nothing
 end
 
@@ -241,9 +241,9 @@ function project_plasma!(p, c, first, last, quadrature)
     count = last - first + 1
     for (values, full, coarse) in ((p.gated, p.projected, p.coarse), (p.edge, p.edge_projected, p.coarse_edge))
         block = @view values[:, 1:count]
-        mul!(full, block, @view(c.projection[first:last, :]), true, true)
+        gemm!(full, block, @view(c.projection[first:last, :]), true, true, c)
         quadrature && c.embedded &&
-            mul!(coarse, block, @view(c.projection_coarse[first:last, :]), true, true)
+            gemm!(coarse, block, @view(c.projection_coarse[first:last, :]), true, true, c)
     end
 end
 
@@ -308,9 +308,16 @@ end
 
 # --- Raman ----------------------------------------------------------------------------
 
-function raman_workspace(c, host, nt, chunk)
+"""The Raman workspace: the kernel's spectrum and the drives' transforms.
+
+With fewer of the M (M + 1) / 2 modal products than nodes, each product of the modes'
+time signals is convolved once and a node's convolved drive is their sum weighted by
+its synthesis (native's ``raman_modal_products``): the convolution is linear, so this
+agrees with convolving the node's own drive to the rounding of the drive's scale.
+"""
+function raman_workspace(c, host, nt, chunk; modes=0, nodes=0, synthesis=nothing)
     host.flag("raman") || return nothing
-    T = c.T
+    T, C = c.T, Complex{c.T}
     rows, rates = host.array("raman_undamped", Float64), host.array("raman_rates", Float64)
     dt = host.real("dt")
     kernel = zeros(2nt)
@@ -320,27 +327,68 @@ function raman_workspace(c, host, nt, chunk)
     kernel .*= host.real("raman_fraction")
     # The inverse transform is unnormalised: its 1/(2 nt) is folded into the kernel.
     spectrum = FFTW.rfft(kernel) .* (dt / (2nt))
-    drive = dzeros(c, T, 2nt, chunk)
-    frequency = dzeros(c, Complex{T}, nt + 1, chunk)
-    (kernel=upload(c, Complex{T}.(spectrum)), factor=host.real("raman_factor"),
-     thg=host.flag("raman_thg"), drive=drive, frequency=frequency,
+    count = modes * (modes + 1) ÷ 2
+    products = !c.envelope && synthesis !== nothing && nodes >= 2 && count < nodes && count <= chunk
+    columns = products ? count : chunk
+    drive = dzeros(c, T, 2nt, columns)
+    frequency = dzeros(c, C, nt + 1, columns)
+    thg = host.flag("raman_thg")
+    extra = (;)
+    if products
+        pairs = [(m, n) for m in 1:modes for n in m:modes]
+        weights = [synthesis[m, j] * synthesis[n, j] * (m == n ? 1 : 2) for (m, n) in pairs, j in 1:nodes]
+        signal = dzeros(c, C, thg ? 0 : nt, thg ? 0 : modes)
+        extra = (weights=upload(c, T.(weights)), nodal=dzeros(c, T, nt, chunk),
+                 first=upload(c, first.(pairs)), second=upload(c, last.(pairs)), signal=signal,
+                 signal_forward=thg ? nothing : plan(c, plan_fft!, signal, 1),
+                 signal_inverse=thg ? nothing : plan(c, plan_bfft!, signal, 1))
+    end
+    (kernel=upload(c, C.(spectrum)), factor=host.real("raman_factor"), thg=thg,
+     products=products, drive=drive, frequency=frequency, extra...,
      forward=plan(c, plan_rfft, drive, 1; threads=c.raman_fft_threads),
      inverse=plan(c, plan_brfft, frequency, 2nt, 1; threads=c.raman_fft_threads))
+end
+
+"""Convolve the drive's columns with the Raman kernel in place."""
+function convolve!(r, c)
+    (; drive, frequency, kernel) = r
+    @section :raman_forward mul!(frequency, r.forward, drive)
+    each!(c, size(frequency)...) do f, m
+        @inbounds frequency[f, m] *= kernel[f]
+    end
+    @section :raman_inverse mul!(drive, r.inverse, frequency)
+    nothing
 end
 
 """Convolve each node's drive, `|E|^2` (or half the analytic signal's), with the kernel."""
 function raman_drive!(r, nodes, analytic, c, count)
     nt = size(nodes, 1)
-    (; drive, frequency, kernel) = r
-    thg = r.thg
+    drive, thg = r.drive, r.thg
     each!(c, 2nt, size(drive, 2)) do t, m
         @inbounds drive[t, m] = t > nt || m > count ? zero(eltype(drive)) :
                                 thg ? abs2(nodes[t, m]) : abs2(analytic[t, m]) / 2
     end
-    mul!(frequency, r.forward, drive)
-    each!(c, nt + 1, size(drive, 2)) do f, m
-        @inbounds frequency[f, m] *= kernel[f]
-    end
-    mul!(drive, r.inverse, frequency)
-    nothing
+    convolve!(r, c)
 end
+
+"""Convolve the modal products once a source: `a_m a_n`, or `Re(a_m conj a_n) / 2`."""
+function raman_products!(r, modal, c)
+    nt, modes = size(modal)
+    (; drive, first, second) = r
+    thg = r.thg
+    values = thg ? modal : r.signal
+    thg || analytic_signal!(r.signal, modal, r.signal_forward, r.signal_inverse, c, modes)
+    each!(c, 2nt, size(drive, 2)) do t, p
+        @inbounds begin
+            a, b = values[t, first[p]], values[t, second[p]]
+            drive[t, p] = t > nt ? zero(eltype(drive)) : thg ? real(a) * real(b) :
+                          (real(a) * real(b) + imag(a) * imag(b)) / 2
+        end
+    end
+    convolve!(r, c)
+end
+
+"""A chunk's convolved node drives, rebuilt from the convolved products."""
+raman_nodal!(r, first, last, c) =
+    gemm!(@view(r.nodal[:, 1:last-first+1]), @view(r.drive[1:size(r.nodal, 1), :]),
+          @view(r.weights[:, first:last]), true, false, c)

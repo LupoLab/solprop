@@ -32,20 +32,23 @@ const PARALLEL_SAMPLES = 65536
 
 On a CPU each task takes whole columns, or pieces of one when there are fewer columns
 than tasks, and runs a contiguous `@simd` loop over its rows: an index divide per
-sample costs a factor of ten (julia/bench/launch.jl). On a GPU each sample is a thread.
+sample costs a factor of ten (julia/bench/launch.jl). The tasks are Polyester's,
+whose threads wait spinning: a pass between serial work costs 2.2 us on four Xeon
+cores where a spawned task costs 10 and `Threads.@threads` 110 (10240 x 4; 13, 49 and
+147 us over 1728 x 128). On a GPU each sample is a thread.
 """
-@inline each!(f::F, c, nt::Integer, nm::Integer) where {F} =
-    each_on!(f, c.backend, c.tasks, Int(nt), Int(nm))
+@inline each!(f::F, c, nt::Integer, nm::Integer; heavy=false) where {F} =
+    each_on!(f, c.backend, c.tasks, Int(nt), Int(nm), heavy)
 
-function each_on!(f::F, ::KA.CPU, tasks, nt, nm) where {F}
-    pieces, rows = tiling(tasks, nt, nm)
+function each_on!(f::F, ::KA.CPU, tasks, nt, nm, heavy) where {F}
+    pieces, rows = tiling(tasks, nt, nm, heavy)
     if pieces * nm == 1
         @inbounds @simd for t in 1:nt
             @inline f(t, 1)
         end
         return nothing
     end
-    AK.foreachindex(1:pieces*nm; max_tasks=tasks, min_elems=1) do k
+    @batch for k in 1:pieces*nm
         m = (k - 1) ÷ pieces + 1
         first = (k - (m - 1) * pieces - 1) * rows + 1
         @inbounds @simd for t in first:min(first + rows - 1, nt)
@@ -55,13 +58,18 @@ function each_on!(f::F, ::KA.CPU, tasks, nt, nm) where {F}
     nothing
 end
 
-"""Split `nt` x `nm` samples into column pieces: one task's worth each."""
-function tiling(tasks, nt, nm)
-    if tasks == 1 || nt * nm < PARALLEL_SAMPLES
+"""Split `nt` x `nm` samples into column pieces: one task's worth each.
+
+A `heavy` body (tens of operations a sample, such as the phi functions) is worth
+splitting at a thirty-second of the samples a light one needs.
+"""
+function tiling(tasks, nt, nm, heavy=false)
+    least = heavy ? PARALLEL_SAMPLES ÷ 32 : PARALLEL_SAMPLES
+    if tasks == 1 || nt * nm < least
         return 1, nt
     end
     nm >= tasks && return 1, nt
-    pieces = min(cld(tasks, nm), cld(nt * nm, PARALLEL_SAMPLES ÷ 4))
+    pieces = min(cld(tasks, nm), cld(nt * nm, least ÷ 4))
     pieces, cld(nt, pieces)
 end
 
@@ -69,7 +77,7 @@ KA.@kernel inbounds = true function each_kernel!(f)
     t, m = KA.@index(Global, NTuple)
     f(t, m)
 end
-function each_on!(f::F, backend, tasks, nt, nm) where {F}
+function each_on!(f::F, backend, tasks, nt, nm, heavy) where {F}
     each_kernel!(backend, (256, 1))(f; ndrange=(nt, nm))
     nothing
 end
@@ -77,7 +85,7 @@ end
 """Call `f(m)` for each of `nm` columns, whose body runs sequentially down one."""
 function each_column!(f::F, c, nm::Integer) where {F}
     if oncpu(c)
-        AK.foreachindex(1:Int(nm); max_tasks=c.tasks, min_elems=1) do m
+        @batch for m in 1:Int(nm)
             @inline f(m)
         end
     else
@@ -91,12 +99,12 @@ end
 `op` must be associative and commutative: the order is the tiling's (CPU) or the
 reduction tree's (GPU), and differs with the width (SEP 25 bounds it, not bits).
 """
-function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer) where {F,O}
+function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=false) where {F,O}
     nt, nm = Int(nt), Int(nm)
     if oncpu(c)
-        pieces, rows = tiling(c.tasks, nt, nm)
+        pieces, rows = tiling(c.tasks, nt, nm, heavy)
         partials = fill(neutral, pieces * nm)
-        AK.foreachindex(1:pieces*nm; max_tasks=c.tasks, min_elems=1) do k
+        @batch for k in 1:pieces*nm
             m = (k - 1) ÷ pieces + 1
             first = (k - (m - 1) * pieces - 1) * rows + 1
             value = neutral
@@ -113,22 +121,85 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer) where {F
     end
 end
 
-# FFTW's planner: native's policy (native/include/solprop_native/fft_plan.hpp). Serial
-# row transforms and every transverse plane are measured, threaded rows estimated (a
-# measured threaded plan was slower there); SOLPROP_FFTW_PLAN overrides all of them.
+# FFTW's planner measures every plan unless SOLPROP_FFTW_PLAN says otherwise. Unlike
+# native's policy (rows estimated when threaded), a threaded estimate is far slower
+# here: the Raman convolution's c2r of 73728 x 17 takes 6.6 ms estimated and 1.49 ms
+# measured on four Xeon cores, 7.5 and 4.9 ms on one (planning is at construction).
 const FLAGS = Dict("estimate" => FFTW.ESTIMATE, "measure" => FFTW.MEASURE,
                    "patient" => FFTW.PATIENT)
-function plan_flags(shape::Symbol, threads)
+function plan_flags()
     chosen = get(ENV, "SOLPROP_FFTW_PLAN", "")
-    isempty(chosen) && return shape === :rows && threads > 1 ? FFTW.ESTIMATE : FFTW.MEASURE
+    isempty(chosen) && return FFTW.MEASURE
     haskey(FLAGS, chosen) || throw(ArgumentError("SOLPROP_FFTW_PLAN must be estimate, measure or patient"))
     FLAGS[chosen]
 end
 
 """Plan `kind(a, args...)` for the engine's device; inverses are left unnormalised.
 
-On a CPU, measuring overwrites `a`: plan before anything is stored in it.
+On a CPU with several tasks the transform is split into blocks of whole batches along
+dimension `batch` (columns for row transforms, rows for transverse planes), one
+single-threaded plan each, run by the pool that runs every other pass: FFTW's and
+BLAS's own threads beside Polyester's spinning ones made a four-thread rdw run seven
+times slower than one thread. Measuring overwrites `a`: plan before storing in it.
 """
-plan(c, kind, a, args...; threads=c.fft_threads, shape=:rows) =
-    oncpu(c) ? kind(a, args...; flags=plan_flags(shape, threads), num_threads=threads) :
-    kind(a, args...)
+function plan(c, kind, a, args...; threads=c.fft_threads, batch=2)
+    oncpu(c) || return kind(a, args...)
+    blocks = min(threads, size(a, batch))
+    blocks <= 1 && return kind(a, args...; flags=plan_flags(), num_threads=1)
+    ranges = [r for r in Iterators.partition(axes(a, batch), cld(size(a, batch), blocks))]
+    # A block's view starts anywhere in the array: its plan may not assume alignment.
+    plans = [kind(block_view(a, batch, r), args...; flags=plan_flags() | FFTW.UNALIGNED,
+                  num_threads=1) for r in ranges]
+    Blocked(plans, ranges, batch)
+end
+
+struct Blocked{P}
+    plans::Vector{P}
+    ranges::Vector{UnitRange{Int}}
+    batch::Int
+end
+block_view(a, batch, r) = batch == 2 ? view(a, :, r) : view(a, r, ntuple(_ -> Colon(), ndims(a) - 1)...)
+function LinearAlgebra.mul!(y, p::Blocked, x)
+    @batch for b in eachindex(p.plans)
+        mul!(block_view(y, p.batch, p.ranges[b]), p.plans[b], block_view(x, p.batch, p.ranges[b]))
+    end
+    y
+end
+function Base.:*(p::Blocked, x)
+    @batch for b in eachindex(p.plans)
+        p.plans[b] * block_view(x, p.batch, p.ranges[b])
+    end
+    x
+end
+
+"""`C = alpha A B + beta C`: on a CPU, blocks of rows of `C` and `A` as the pool's tasks."""
+function gemm!(C, A, B, alpha, beta, c)
+    blocks = oncpu(c) ? min(c.tasks, cld(length(C), PARALLEL_SAMPLES ÷ 4)) : 1
+    blocks <= 1 && return mul!(C, A, B, alpha, beta)
+    rows = cld(size(C, 1), blocks)
+    @batch for b in 1:blocks
+        r = (b-1)*rows+1:min(b * rows, size(C, 1))
+        mul!(view(C, r, :), view(A, r, :), B, alpha, beta)
+    end
+    C
+end
+
+# Section timers for development: SOLPROP_JULIA_TIMING=1 when the module loads. Off,
+# `@section` is its expression alone. On a GPU the times are launch times only.
+const TIMING = Ref(false)
+const TIMES = Dict{Symbol,Float64}()
+macro section(name, ex)
+    quote
+        if TIMING[]
+            local started = time_ns()
+            local result = $(esc(ex))
+            TIMES[$name] = get(TIMES, $name, 0.0) + (time_ns() - started) * 1e-9
+            result
+        else
+            $(esc(ex))
+        end
+    end
+end
+timings() = Dict(String(k) => v for (k, v) in TIMES)
+clear_timings() = (empty!(TIMES); nothing)
+timing_enabled() = TIMING[]

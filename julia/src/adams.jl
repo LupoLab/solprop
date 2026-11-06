@@ -144,8 +144,16 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     step = Float64(h)
     mask = c.norm_mask
     # The predictor, the flow and its moments, and the state's norm for the scale.
-    squared = reduce_each(+, zero(T), c, size(y)...) do f, m
+    active = c.mask
+    squared = @section :adams_predict reduce_each(+, zero(T), c, size(y)...; heavy=true) do f, m
         @inbounds begin
+            # Outside the band the state, the history and the source are exactly zero,
+            # and so is everything this element forms.
+            if !active[f]
+                lab[f, m] = 0
+                compensated && (endpoint[f, m] = 0; error[f, m] = 0)
+                return zero(T)
+            end
             x = ComplexF64(step * linear[f, m])
             if phi !== nothing
                 x = zero(ComplexF64)
@@ -189,8 +197,12 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     magnitude = sqrt(squared)
     relative, absolute, weight = T(c.rtol) * magnitude, T(c.atol), c.weights
     zero3 = (zero(T), zero(T), zero(T))
-    norms = reduce_each(.+, zero3, c, size(y)...) do f, m
+    norms = @section :adams_correct reduce_each(.+, zero3, c, size(y)...; heavy=true) do f, m
         @inbounds begin
+            if !active[f]
+                candidate[f, m] = 0
+                return zero3
+            end
             corrected = zero(C)
             for k in 1:N
                 weighted = corrector[1, k] * source[f, m]

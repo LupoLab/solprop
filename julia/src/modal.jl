@@ -58,7 +58,7 @@ function create_modal(c, host)
     band = dzeros(c, C, nw, nm)
     work = (
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        raman=raman_workspace(c, host, nt, chunk), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
+        raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
         stages=dzeros(c, C, nw, nm, ns), forward=dzeros(c, C, nw, nm, ns), inverse=dzeros(c, C, nw, nm, ns),
@@ -90,36 +90,39 @@ function source!(engine, lab; quadrature=false)
     c, w = engine.config, engine.work
     c.free && return source_free!(engine, lab)
     nm = size(lab, 2)
-    scatter!(w.fine, lab, c)
-    mul!(w.modal, w.inverse_plan, w.fine)
+    @section :scatter scatter!(w.fine, lab, c)
+    @section :inverse_fft mul!(w.modal, w.inverse_plan, w.fine)
     fill!(w.projected, 0)
     quadrature && fill!(w.projected_coarse, 0)
     clear_plasma!(w.plasma)
     if engine.factor != 0 || w.plasma !== nothing || w.raman !== nothing
+        products = w.raman !== nothing && w.raman.products
+        products && @section :raman raman_products!(w.raman, w.modal, c)
         chunk, nn = size(w.nodes, 2), size(c.synthesis, 2)
         for first in 1:chunk:nn
             last = min(first + chunk - 1, nn)
             count = last - first + 1
             nodes = @view w.nodes[:, 1:count]
-            mul!(nodes, w.modal, @view(c.synthesis[:, first:last]))
+            @section :synthesis gemm!(nodes, w.modal, @view(c.synthesis[:, first:last]), true, false, c)
             if w.plasma !== nothing
-                plasma_current!(w.plasma, w.nodes, c, count)
-                project_plasma!(w.plasma, c, first, last, quadrature)
+                @section :plasma plasma_current!(w.plasma, w.nodes, c, count)
+                @section :plasma_projection project_plasma!(w.plasma, c, first, last, quadrature)
             end
+            products && @section :raman raman_nodal!(w.raman, first, last, c)
             node_response!(engine, count)
-            mul!(w.projected, nodes, @view(c.projection[first:last, :]), true, true)
+            @section :projection gemm!(w.projected, nodes, @view(c.projection[first:last, :]), true, true, c)
             quadrature && c.embedded &&
-                mul!(w.projected_coarse, nodes, @view(c.projection_coarse[first:last, :]), true, true)
+                gemm!(w.projected_coarse, nodes, @view(c.projection_coarse[first:last, :]), true, true, c)
         end
     end
-    mul!(w.fine, w.forward_plan, w.projected)
-    w.plasma === nothing || add_plasma!(w.fine, w.plasma, w.forward_plan, c)
+    @section :forward_fft mul!(w.fine, w.forward_plan, w.projected)
+    w.plasma === nothing || @section :plasma_spectrum add_plasma!(w.fine, w.plasma, w.forward_plan, c)
     if c.in_stage
         absorber!(w.absorber, w.modal, c)
-        isempty(c.spatial_absorber) || mul!(w.absorber, w.modal, c.spatial_absorber, true, true)
+        isempty(c.spatial_absorber) || gemm!(w.absorber, w.modal, c.spatial_absorber, true, true, c)
         mul!(w.absorber_spec, w.forward_plan, w.absorber)
     end
-    finish_source!(w.source, w.fine, c.in_stage ? w.absorber_spec : nothing, c)
+    @section :finish finish_source!(w.source, w.fine, c.in_stage ? w.absorber_spec : nothing, c)
     engine.calls += 1
     nothing
 end
@@ -131,13 +134,13 @@ function node_response!(engine, count)
     if c.envelope
         raman === nothing || raman_drive!(raman, nodes, nodes, c, count)
         nonlinear_envelope!(nodes, c, engine.factor, raman, count)
-    elseif c.analytic || (raman !== nothing && !raman.thg)
-        analytic_signal!(w.analytic, nodes, w, c, count)
-        raman === nothing || raman_drive!(raman, nodes, w.analytic, c, count)
-        nonlinear_nodes!(nodes, c.analytic ? w.analytic : nodes, c, engine.factor, raman, count)
+    elseif c.analytic || (raman !== nothing && !raman.thg && !raman.products)
+        @section :analytic analytic_signal!(w.analytic, nodes, w.analytic_forward, w.analytic_inverse, c, count)
+        raman === nothing || raman.products || @section :raman raman_drive!(raman, nodes, w.analytic, c, count)
+        @section :kerr nonlinear_nodes!(nodes, c.analytic ? w.analytic : nodes, c, engine.factor, raman, count)
     else
-        raman === nothing || raman_drive!(raman, nodes, nodes, c, count)
-        nonlinear_nodes!(nodes, nodes, c, engine.factor, raman, count)
+        raman === nothing || raman.products || @section :raman raman_drive!(raman, nodes, nodes, c, count)
+        @section :kerr nonlinear_nodes!(nodes, nodes, c, engine.factor, raman, count)
     end
 end
 
@@ -182,7 +185,7 @@ function population_snapshot(engine, input)
     for first in 1:chunk:nn
         last = min(first + chunk - 1, nn)
         count = last - first + 1
-        mul!(@view(w.nodes[:, 1:count]), w.modal, @view(c.synthesis[:, first:last]))
+        gemm!(@view(w.nodes[:, 1:count]), w.modal, @view(c.synthesis[:, first:last]), true, false, c)
         maxima .= max.(maxima, population_parts!(p, w.nodes, c, first, count))
     end
     (Vector{Float64}(Array(p.fractions)), Vector{Float64}(Array(p.peaks)), maxima)

@@ -36,7 +36,7 @@ function trial!(engine, dz::Float64)
     c, w = engine.config, engine.work
     T = real_type(engine)
     (; y, lab, stages, forward, inverse, source) = w
-    propagators!(engine, dz)
+    @section :propagators propagators!(engine, dz)
     for stage in 1:7
         stage == 1 && engine.fsal_valid && continue
         w.path !== nothing && material_stage!(engine, stage)
@@ -59,13 +59,13 @@ function trial!(engine, dz::Float64)
                 lab[f, m] = forward[f, m, slot] * (y[f, m] + combination)
             end
         end
-        source!(engine, lab; quadrature=stage == 7)
+        @section :source source!(engine, lab; quadrature=stage == 7)
         each!(c, size(y)...) do f, m
             @inbounds stages[f, m, stage] = inverse[f, m, slot] * source[f, m]
         end
     end
     engine.fsal_valid = true
-    combine!(engine, dz, c.free ? 1 : 7)
+    @section :combine combine!(engine, dz, c.free ? 1 : 7)
 end
 
 """The candidate and the error estimate, and the controller's norm of the error.

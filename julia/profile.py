@@ -6,8 +6,9 @@
 ``python julia/profile.py PLAN.json ROW [FRACTION]`` builds the row's case for the
 julia backend, warms it up, then samples Julia's stacks over a propagation to
 ``FRACTION`` of the row's stop (default 1) and prints the flat profile. Run it with
-``SOLPROP_JULIA_THREADS=1``: Julia's sampling profiler is unreliable when Python
-owns the threads.
+``SOLPROP_JULIA_THREADS=1``: Julia's sampling profiler crashes when Python owns more
+threads. ``SOLPROP_JULIA_TIMING=1`` prints the engine's section timers instead, at
+any width.
 """
 
 import json
@@ -37,6 +38,19 @@ def main() -> None:
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     engine.propagate_to(0.5 * stop)
     from juliacall import Main as jl  # noqa: PLC0415 - after the runtime starts
+
+    timing = bool(engine._jl.timing_enabled())  # noqa: SLF001
+    if timing:
+        engine._jl.clear_timings()  # noqa: SLF001
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        started = time.perf_counter()
+        engine.propagate_to(stop)
+        seconds = time.perf_counter() - started
+        times = engine._jl.timings()  # noqa: SLF001
+        for name in sorted(times, key=lambda n: -float(times[n])):
+            sys.stdout.write(f"{name:>20} {float(times[name]):9.4f} s\n")
+        sys.stdout.write(f"{row['id']}: {seconds:.3f} s to {stop:.3g} m\n")
+        return
     jl.seval("using Profile; Profile.init(n=10^7, delay=0.0005)")
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     jl.seval("Profile.clear(); Profile.start_timer()")

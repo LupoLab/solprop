@@ -243,13 +243,9 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
     control, tableau = problem.stepper.controller, problem.stepper.tableau
     chunk = min(transform.node_chunk, transform.n_nodes)
     temporal_columns = chunk if transform.kind == "free" else shape[1]
-    # Short one-column transforms lose to task startup. The Xeon A/B sweep
-    # retained serial transforms below 16k real-side samples, a four-thread cap
-    # above it, and an independent cap for the doubled Raman convolution.
-    fft_default = 1 if grids.n_to * temporal_columns < 16384 else min(threads, 4)
-    raman_default = 1 if 2 * grids.n_to * chunk < 16384 else min(threads, 4)
-    fft_threads = thread_limit("SOLPROP_JULIA_FFT_THREADS", fft_default)
-    blas_default = 1 if transform.kind == "mode_averaged" else min(threads, 4)
+    # One pool runs every pass, transforms and products included (julia/src/launch.jl):
+    # a transform is split into at most this many blocks of whole columns.
+    fft_threads = thread_limit("SOLPROP_JULIA_FFT_THREADS", threads)
     config: dict[str, object] = {
         "adams_order": problem.stepper.integrator.order
         if isinstance(problem.stepper.integrator, Multistep)
@@ -309,11 +305,9 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         and problem.stepper.propagator_mode != "recompute",
         "threads": threads,
         "fft_threads": fft_threads,
-        "raman_fft_threads": thread_limit(
-            "SOLPROP_JULIA_RAMAN_FFT_THREADS", raman_default
-        ),
+        "raman_fft_threads": fft_threads,
         "transverse_fft_threads": fft_threads,
-        "blas_threads": thread_limit("SOLPROP_JULIA_BLAS_THREADS", blas_default),
+        "blas_threads": 1,
         "chunk": transform.node_chunk,
         "device": os.environ.get("SOLPROP_JULIA_DEVICE", "cpu"),
     }
@@ -449,7 +443,7 @@ class JuliaBackend(StepDriver[object]):
         self._varying = _varying(problem)
         if self._varying:
             self._prepare_stages(0.0, 0.0)
-        self._plan_flag = os.environ.get("SOLPROP_FFTW_PLAN") or "native policy"
+        self._plan_flag = os.environ.get("SOLPROP_FFTW_PLAN") or "measure"
         self._weight = (
             np.empty(0)
             if problem.transform.geometry is not None
