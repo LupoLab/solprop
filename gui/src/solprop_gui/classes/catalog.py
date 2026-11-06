@@ -271,6 +271,7 @@ GNLSE: Final = ProblemClass(
     summary="A fibre given by its γ and Taylor coefficients alone, in the GNLSE.",  # noqa: RUF001 - gamma
     route="gnlse",
     example="soliton",
+    examples=("soliton", "fibre_supercontinuum"),
     sections=(
         Section(
             "Fibre",

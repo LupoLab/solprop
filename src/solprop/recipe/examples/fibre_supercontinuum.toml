@@ -1,0 +1,30 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The canonical photonic-crystal-fibre supercontinuum of Dudley, Genty and Coen, Rev.
+# Mod. Phys. 78, 1135 (2006), Fig. 3: a 50 fs, 10 kW sech at 835 nm in 15 cm.
+# mirrors: docs/examples/supercontinuum/plot_05_fibre_supercontinuum.py
+
+[recipe]
+format = 1
+route = "gnlse"
+title = "Supercontinuum in a photonic crystal fibre"
+
+[build]
+gamma = 0.11
+length = 0.15
+betas = [
+    0.0, 0.0, -11.830e-27, 8.1038e-41, -9.5205e-56, 2.0737e-70, -5.3943e-85,
+    1.3486e-99, -2.5495e-114, 3.0524e-129, -1.7140e-144,
+]
+wavelength = "835 nm"
+wavelength_limits = ["400 nm", "2 um"]
+trange = "12.5 ps"
+fwhm = "50 fs"
+shape = "sech"
+peak_power = "10 kW"
+raman = true
+shock = true
+n_save = 201
+seed = 20261106
