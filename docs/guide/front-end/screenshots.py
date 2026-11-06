@@ -17,6 +17,8 @@ Every number in them is the one solprop computes for the example; nothing is sta
 The Run stage is shown after its run ends, since a frame caught on the way depends on
 the machine's speed. A screenshot is not compared with what is committed (fonts and
 antialiasing differ between machines), so a stale one is caught by reading the page.
+Home is also written, cut to its tiles, as the showcase in ``docs/_static`` that the
+repository's README and the manual's front page show.
 """
 
 import sys
@@ -26,7 +28,7 @@ from collections.abc import Callable
 from pathlib import Path
 
 import numpy as np
-from PySide6.QtCore import QPoint, QPointF, QSettings, QStandardPaths
+from PySide6.QtCore import QPoint, QPointF, QRect, QSettings, QStandardPaths
 from PySide6.QtWidgets import QApplication, QWidget
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE
@@ -35,6 +37,13 @@ from solprop_gui.views.page_plots import LinePlot
 
 IMAGES = Path(__file__).resolve().parent / "images"
 """Where the screenshots are written."""
+
+SHOWCASE = Path(__file__).resolve().parents[2] / "_static" / "readme-gui-home.png"
+"""Home, cut to its tiles, for the README and the manual's front page."""
+
+SHOWCASE_HEIGHT = 640
+"""How much of the window's height the showcase keeps, in pixels: down to the tiles'
+buttons."""
 
 SIZE = (1280, 820)
 """The window's size, in pixels."""
@@ -150,6 +159,8 @@ def main() -> None:  # noqa: PLR0915 - one walk through the window
     _spin(app, lambda: bool(sheet._examples))
     _settle(app, 1.0)
     _save(window, "home")
+    window.grab(QRect(0, 0, SIZE[0], SHOWCASE_HEIGHT)).save(str(SHOWCASE))
+    sys.stdout.write(f"wrote {SHOWCASE.name}\n")
 
     # The capillary's sheet, and a target typed into its soliton order.
     open_class("capillary")
