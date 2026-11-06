@@ -80,7 +80,10 @@ function adams_workspace(c, host, nw, nm)
               slots=zeros(Int, slots))
     (store=dzeros(c, C, nw, nm, slots), states=held(nw, nm, slots), rates=held(nw, nm, slots),
      moments=dzeros(c, C, nw, nm, width), carried=held(nw, nm, max(width - 1, 0)),
-     endpoint=held(nw, nm), host=tables, device=map(a -> upload(c.backend, copy(a)), tables),
+     # The device's tables at the state's precision: a binary64 coefficient beside a
+     # binary32 state would widen a trial's every product (and its norms' types).
+     endpoint=held(nw, nm), host=tables,
+     device=map(a -> upload(c.backend, eltype(a) <: Integer ? copy(a) : c.T.(a)), tables),
      sizes=zeros(Int, 3), compensated=compensated)
 end
 

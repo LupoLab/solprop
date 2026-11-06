@@ -83,8 +83,9 @@ def arm_configuration(configuration: Record, backend: str) -> Record:
     """Return one arm's configuration: its backend and that backend's precision."""
     return {
         **configuration,
-        "backend": backend,
-        "precision": "single" if backend == "mlx" else "double",
+        # "julia32" is the julia backend in single precision (the Julia experiment).
+        "backend": "julia" if backend == "julia32" else backend,
+        "precision": "single" if backend in ("mlx", "julia32") else "double",
     }
 
 

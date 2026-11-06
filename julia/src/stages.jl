@@ -8,11 +8,12 @@
 function path_workspace(c, host)
     host.has("phi_terms") || return nothing
     C = Complex{c.T}
-    phi, pre = host.array("phi_terms", C), host.array("prefactor_terms", C)
+    # Phi's terms stay binary64, as the operator does (modal.jl).
+    phi, pre = host.array("phi_terms", ComplexF64), host.array("prefactor_terms", C)
     stages = 7
     (phi=upload(c, phi), prefactor=upload(c, pre),
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
-     delta_device=dzeros(c, c.T, size(phi, 3), stages),
+     delta_device=dzeros(c, Float64, size(phi, 3), stages),
      weights_device=dzeros(c, c.T, size(pre, 3), stages), material=zeros(3, stages))
 end
 
@@ -22,7 +23,7 @@ function configure_stages!(engine, delta, weights, material)
     copyto!(p.delta, Matrix{Float64}(delta))
     copyto!(p.weights, Matrix{Float64}(weights))
     copyto!(p.material, Matrix{Float64}(material))
-    copyto!(p.delta_device, real_type(engine).(p.delta))
+    copyto!(p.delta_device, p.delta)
     copyto!(p.weights_device, real_type(engine).(p.weights))
     material_stage!(engine, 1)
     nothing

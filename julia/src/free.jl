@@ -18,14 +18,17 @@ function create_free(c, host)
     # Both inverse transforms are unnormalised; their 1/(nt n_x n_y) goes into the
     # factor that forms the physical field from them.
     scale = inv(T(nt) * T(nm))
+    # The separable operator stays binary64 at either precision: the longitudinal root's
+    # compensated subtraction decides its branch near grazing (free_element).
+    R64, C64 = Float64, ComplexF64
     op = (
-        k_squared=upload(c, host.array("k_squared", C)), k_squared_low=upload(c, host.array("k_squared_low", C)),
-        kperp_sq=upload(c, host.array("kperp_sq", T)), kperp_sq_low=upload(c, host.array("kperp_sq_low", T)),
-        frame=upload(c, host.array("frame", T)), spectral_rate=upload(c, host.array("spectral_rate", T)),
-        prefactor_numerator=upload(c, host.array("prefactor_numerator", C)),
-        prefactor_clamped=upload(c, host.array("prefactor_clamped", C)),
-        active=upload(c, host.array("active", Bool)), kperp_rate=upload(c, host.array("kperp_rate", T)),
-        evanescent_rate=T(host.real("evanescent_rate")),
+        k_squared=upload(c, host.array("k_squared", C64)), k_squared_low=upload(c, host.array("k_squared_low", C64)),
+        kperp_sq=upload(c, host.array("kperp_sq", R64)), kperp_sq_low=upload(c, host.array("kperp_sq_low", R64)),
+        frame=upload(c, host.array("frame", R64)), spectral_rate=upload(c, host.array("spectral_rate", R64)),
+        prefactor_numerator=upload(c, host.array("prefactor_numerator", C64)),
+        prefactor_clamped=upload(c, host.array("prefactor_clamped", C64)),
+        active=upload(c, host.array("active", Bool)), kperp_rate=upload(c, host.array("kperp_rate", R64)),
+        evanescent_rate=host.real("evanescent_rate"),
     )
     c = merge(c, (
         spatial_shape=shape, op=op, field_scale=T(host.real("pad_scale")) * scale,
@@ -105,7 +108,7 @@ function free_propagators!(engine, h)
         fill!(forward, 1)
         fill!(inverse, 1)
     else
-        op, both, distance = c.op, !c.low_storage, real_type(engine)(h)
+        op, both, distance = c.op, !c.low_storage, Float64(h)
         each!(c, size(forward, 1), size(forward, 2)) do f, m
             @inbounds begin
                 exponent = distance * first(free_element(op, f, m))
@@ -189,7 +192,8 @@ function source_free!(engine, lab)
     extra = live ? loss : physical
     each!(c, size(source)...) do f, m
         @inbounds begin
-            value = last(free_element(op, f, m)) * omega_window[f] * physical[f, m]
+            prefactor = oftype(physical[f, m], last(free_element(op, f, m)))
+            value = prefactor * omega_window[f] * physical[f, m]
             if live && mask[f]
                 value += extra[f, m]
             end
@@ -259,7 +263,7 @@ function population_free_snapshot(engine, input)
     c, w = engine.config, engine.work
     p = w.plasma
     (; physical, fine, modal, projected) = w
-    copyto!(physical, device_matrix(engine, input))
+    copyto!(physical, device_matrix(engine, input) .* real_type(engine)(inv(c.scale)))
     transverse!(physical, w.spatial_inverse, c)
     chunk, nm = size(modal, 2), size(physical, 2)
     scale = c.field_scale

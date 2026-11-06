@@ -94,16 +94,6 @@ def test_julia_matches_the_reference(runtime, case, stepper, fraction):
     assert float(np.linalg.norm(field - reference)) <= 1e-10 * scale
 
 
-def test_julia_refuses_single_precision(runtime):
-    """Single precision is not admitted until its error budgets are qualified."""
-    del runtime
-    configuration = CASES["rdw"].configuration("rk", 1, "julia", fraction=0.001)
-    simulation = build(configuration | {"precision": "single", "backend": "numpy_ref"})
-    problem = simulation.translate()
-    with pytest.raises(BackendError, match="single precision"):
-        select("julia", problem, grid=simulation.grid, modes=simulation.modes)
-
-
 def test_julia_reports_its_engine(runtime):
     """Metadata names the runtime and the sources; the ledger counts owned arrays."""
     del runtime
@@ -118,3 +108,25 @@ def test_julia_reports_its_engine(runtime):
     ledger = engine.memory_ledger()
     assert ledger["work.y"] == 16 * problem.shape[1] * problem.shape[3]
     engine.close()
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:3] + WINDOWS[4:6])
+def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fraction):
+    """Binary32 (SEP 33) agrees with the binary32 reference on the same contract.
+
+    A single-precision run's grid is its own, so the reference is numpy_ref's binary32
+    path, not the binary64 run. The steps may differ: binary32's error estimate is
+    noisier near rtol's floor.
+    """
+    del runtime
+    configuration = CASES[case].configuration(
+        stepper, 2, "julia", fraction=fraction, noise="none"
+    ) | {"precision": "single"}
+    field, _ = _run("julia", configuration)
+    reference, _ = _run("numpy_ref", configuration)
+    # SEP 33's whole-run field envelope is 1e-3; over these few steps two binary32
+    # implementations differ by their rounding, ~1e-6 (PR #543's records), so 1e-4
+    # holds two orders in hand and still catches a mis-scaled response (O(1)).
+    scale = float(np.linalg.norm(reference))
+    assert float(np.linalg.norm(field - reference)) <= 1e-4 * scale

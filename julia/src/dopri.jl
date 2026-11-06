@@ -14,8 +14,7 @@ function propagators!(engine, dz)
     c.cache_propagators && engine.propagator_dz == dz && return nothing
     (; linear) = c
     (; forward, inverse) = w
-    T = real_type(engine)
-    steps = ntuple(s -> T(dz * c.nodes_c[s]), Val(7))
+    steps = ntuple(s -> dz * c.nodes_c[s], Val(7))
     each!(c, size(linear)...) do f, m
         @inbounds for s in 1:7
             exponent = steps[s] * linear[f, m]

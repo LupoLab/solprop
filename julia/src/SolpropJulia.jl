@@ -72,6 +72,8 @@ function create(input)
         analytic_factor=T(host.real("analytic_factor")), factor=host.real("factor"),
         rtol=host.real("rtol"), atol=host.real("atol"),
         cache_propagators=host.has("cache_propagators") ? host.flag("cache_propagators") : true,
+        # A binary32 state is held as a / s, s an exact power of two (SEP 33, rule 2).
+        scale=host.has("state_scale") ? host.real("state_scale") : 1.0,
     )
     engine = c.free ? create_free(c, host) : create_modal(c, host)
     oncpu(c) || (SYNCHRONIZE[] = () -> KA.synchronize(backend))

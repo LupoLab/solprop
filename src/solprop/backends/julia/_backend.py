@@ -45,6 +45,7 @@ from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.stepper.tableau import DOPRI5
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.linop import power_weight_at
+from solprop.translate.precision import launch_peak, state_scale
 from solprop.translate.problem import KernelProblem
 from solprop.translate.stage import terms
 
@@ -117,7 +118,6 @@ def _refuse(problem: KernelProblem) -> None:
         problem.stepper,
     )
     reasons = {
-        "single precision": problem.precision.single,
         "envelope plasma": problem.grid_kind == "envelope" and problem.flags.has_plasma,
         "resolved modal or radial envelopes": problem.grid_kind == "envelope"
         and transform.kind not in {"free", "mode_averaged"},
@@ -248,7 +248,15 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
     # One pool runs every pass, transforms and products included (julia/src/launch.jl):
     # a transform is split into at most this many blocks of whole columns.
     fft_threads = thread_limit("SOLPROP_JULIA_FFT_THREADS", threads)
+    # A binary32 run holds its state as a / s (SEP 33, rule 2): the cubic responses
+    # take s**2, the plasma reads the physical field s E (the engine's) and its loss
+    # potential 1 / s**2, and the controller's absolute tolerance is divided by s.
+    single = problem.precision.single
+    scale = state_scale(launch_peak(problem.initial.field0, problem.grid_kind)) if single else 1.0
+    factor *= scale**2
     config: dict[str, object] = {
+        "precision": "single" if single else "double",
+        "state_scale": scale,
         "adams_order": problem.stepper.integrator.order
         if isinstance(problem.stepper.integrator, Multistep)
         else 0,
@@ -302,7 +310,7 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         else kerr.self_factor + kerr.conjugate_factor,
         "split": responses.absorber_scheme == "split_step",
         "rtol": control.rtol,
-        "atol": control.atol,
+        "atol": control.atol / scale,
         "cache_propagators": transform.kind != "free"
         and problem.stepper.propagator_mode != "recompute",
         "threads": threads,
@@ -341,7 +349,7 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
                     table.log_field_min,
                     table.d_log_field,
                     channel.charge_mass_ratio,
-                    channel.ionisation_potential,
+                    channel.ionisation_potential / scale**2,
                     float(channel.density(0.0)),
                     float(channel.preionisation(0.0)),
                 ]
@@ -359,7 +367,7 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
             raman_undamped=raman.undamped.T.copy(),
             raman_rates=np.array([float(rate(0.0)) for rate in raman.decay_rates]),
             raman_fraction=raman.fraction,
-            raman_factor=EPS0 * float((raman.density or responses.density)(0.0)),
+            raman_factor=EPS0 * float((raman.density or responses.density)(0.0)) * scale**2,
             raman_thg=raman.thg,
             dt=grids.dt_fine,
         )
@@ -444,6 +452,11 @@ class JuliaBackend(StepDriver[object]):
             self._jl.create, _configuration(problem, self._threads)
         )
         self._varying = _varying(problem)
+        self._scale2 = (
+            state_scale(launch_peak(problem.initial.field0, problem.grid_kind)) ** 2
+            if problem.precision.single
+            else 1.0
+        )
         if self._varying:
             self._prepare_stages(0.0, 0.0)
         self._plan_flag = os.environ.get("SOLPROP_FFTW_PLAN") or "measure"
@@ -639,7 +652,7 @@ class JuliaBackend(StepDriver[object]):
         material = np.array(
             [
                 [
-                    0.0 if kerr is None else kerr.coefficient * b.kerr_density,
+                    0.0 if kerr is None else kerr.coefficient * b.kerr_density * self._scale2,
                     b.plasma_densities[0] if b.plasma_densities else 0.0,
                     b.preionisation,
                 ]

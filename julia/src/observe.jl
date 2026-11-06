@@ -28,14 +28,25 @@ function copy_between!(target, source, c)
     end
     target
 end
-copy_state!(engine, buffer) =
-    (@section :observe copy_between!(host_wrap(buffer, ComplexF64), engine.work.y, engine.config); nothing)
+function copy_state!(engine, buffer)
+    @section :observe begin
+        target = copy_between!(host_wrap(buffer, ComplexF64), engine.work.y, engine.config)
+        scale = engine.config.scale
+        scale == 1 || (target .*= scale)
+    end
+    nothing
+end
 
 """Load a host state given as its (n_omega, n_modes) column-major view."""
 function load!(engine, input)
     y = engine.work.y
     source = host_wrap(input, ComplexF64)
-    oncpu(engine.config) ? copy_between!(y, source, engine.config) : copyto!(y, eltype(y).(source))
+    inverse = inv(engine.config.scale)
+    if oncpu(engine.config) && eltype(y) == ComplexF64 && inverse == 1
+        copy_between!(y, source, engine.config)
+    else
+        copyto!(y, upload(engine.config, eltype(y).(source .* inverse)))
+    end
     reset!(engine)
 end
 
@@ -92,9 +103,9 @@ function monitor_power(engine)
         mul!(w.coarse, w.coarse_inverse, w.lab)
         add_power!(power, w.coarse, columns, 1, size(w.y, 2), c)
     end
-    Vector{Float64}(Array(power))
+    Vector{Float64}(Array(power)) .* engine.config.scale^2
 end
-split_power(engine) = Vector{Float64}(Array(engine.work.monitor.split))
+split_power(engine) = Vector{Float64}(Array(engine.work.monitor.split)) .* engine.config.scale^2
 
 function columns_into!(target, source, first, count, c)
     each!(c, size(target)...) do f, m
@@ -124,7 +135,7 @@ function occupancy(engine)
             @inbounds Atomix.@atomic histogram[buckets[f, m], 1] += abs2(y[f, m]) * columns[m]
         end
     end
-    vec(sum(Array{Float64}(Array(histogram)); dims=2))
+    vec(sum(Array{Float64}(Array(histogram)); dims=2)) .* engine.config.scale^2
 end
 
 # --- the transverse edge (SEP 44): per-node and per-column energies -----------------
@@ -148,7 +159,7 @@ function column_energy(engine)
     colsum!(engine.config, out, size(y)...) do f, m
         @inbounds abs2(y[f, m])
     end
-    Vector{Float64}(Array(out))
+    Vector{Float64}(Array(out)) .* engine.config.scale^2
 end
 
 """Hold a radial read's synthesis rows (0-based `rows` of `inverse`) for `node_energy`."""
@@ -183,7 +194,7 @@ function edge_energy(engine)
         end
         all = Array(out)
         nodes[edge.selected] .= all[edge.selected]
-        return nodes
+        return nodes .* c.scale^2
     end
     synthesised = edge.synthesised
     gemm!(synthesised, y, edge.matrix, true, false, c)
@@ -191,5 +202,5 @@ function edge_energy(engine)
         @inbounds abs2(synthesised[f, m])
     end
     nodes[edge.selected] .= Array(out)
-    nodes
+    nodes .* c.scale^2
 end

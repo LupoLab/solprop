@@ -80,7 +80,7 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
         # ionisation potential; density and preionisation are a stage's (stages.jl).
         parameters=host.array("plasma_parameters", Float64),
         taps=upload(c, host.array("plasma_taps", T)), floor=host.flag("plasma_floor"),
-        dt=T(host.real("dt")),
+        dt=T(host.real("dt")), field_scale=T(c.scale),
         inverse_omega=upload(c, T.(inv.(host.array("omega", Float64)))),
         derivative=upload(c, host.array("window_derivative", T)),
         rate=dzeros(c, T, nt, chunk), fraction=dzeros(c, T, nt, chunk),
@@ -105,7 +105,10 @@ end
     @inbounds value = ((table[1, j] * s + table[2, j]) * s + table[3, j]) * s + table[4, j]
     min(exp(value), cap)
 end
-@inline rate_arguments(p) = (p.coefficients, ntuple(k -> typeof(p.dt)(p.parameters[k]), 5)...)
+@inline rate_arguments(p) =
+    (p.field_scale, p.coefficients, ntuple(k -> typeof(p.dt)(p.parameters[k]), 5)...)
+"""The rate at a scaled field's physical value `s E`: exact, s a power of two."""
+@inline scaled_rate(value, scale, args...) = rate_value(scale * value, args...)
 
 # A symmetric FIR, reflected at the ends as RunningIntegral is, then a running
 # trapezoid. The scan's order is strict: no reassociation.
@@ -181,7 +184,7 @@ end
 @inline function exposure_column!(rate, exposure, nodes, node, taps, dt, args)
     peak = zero(dt)
     @inbounds for t in axes(nodes, 1)
-        value = rate_value(nodes[t, node], args...)
+        value = scaled_rate(nodes[t, node], args...)
         rate[t, node] = value
         peak = max(peak, value)
     end
@@ -226,7 +229,7 @@ function plasma_samples!(p, nodes, c, count)
     density, initial = T(p.parameters[8]), T(p.parameters[9])
     nt, none = size(nodes, 1), zero(T)
     each!(c, nt, count) do t, n
-        @inbounds rate[t, n] = rate_value(nodes[t, n], args...)
+        @inbounds rate[t, n] = scaled_rate(nodes[t, n], args...)
     end
     integrate_samples!(fraction, rate, current, taps, dt, c, count)
     each!(c, nt, count) do t, n
@@ -341,7 +344,7 @@ function population_samples!(p, nodes, c, first, count)
     initial, none = T(p.parameters[9]), zero(T)
     nt, reach = size(nodes, 1), 2 * (length(taps) - 1)
     each!(c, nt, count) do t, n
-        @inbounds rate[t, n] = rate_value(nodes[t, n], args...)
+        @inbounds rate[t, n] = scaled_rate(nodes[t, n], args...)
     end
     integrate_samples!(fraction, rate, current, taps, dt, c, count)
     columns = 1:count

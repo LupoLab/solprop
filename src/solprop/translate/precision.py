@@ -82,7 +82,7 @@ binary64 at 1e-4 does, or closer. An explicit tolerance above it is the caller's
 is admitted.
 """
 
-SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
+SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx", "julia")
 """The backends that admit ``precision="single"``.
 
 ``numpy_ref`` is the single-precision oracle (SEP 33 phase 1) and ``mlx`` the Apple-GPU

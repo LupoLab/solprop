@@ -42,7 +42,9 @@ function create_modal(c, host)
     # Every inverse transform is unnormalised: its 1/nt is folded into the tables that
     # read the time-domain field, the synthesis and the in-stage absorber.
     c = merge(c, (
-        linear=upload(c, host.array("linear", C)), prefactor=upload(c, host.array("prefactor", C)),
+        # The operator stays binary64 at either precision: propagators and the Adams
+        # flow are formed from it in binary64 and rounded once (SEP 33, 4.1 item 3).
+        linear=upload(c, host.array("linear", ComplexF64)), prefactor=upload(c, host.array("prefactor", C)),
         synthesis=upload(c, T.(synthesis ./ nt)), projection=upload(c, host.array("projection", T)),
         projection_coarse=upload(c, host.array("projection_coarse", T)),
         embedded=host.flag("embedded"), spatial_absorber=upload(c, T.(spatial ./ nt)),
@@ -179,7 +181,7 @@ function population_snapshot(engine, input)
     engine.config.free && return population_free_snapshot(engine, input)
     c, w = engine.config, engine.work
     p = w.plasma
-    scatter!(w.fine, device_matrix(engine, input), c)
+    scatter!(w.fine, device_matrix(engine, input) .* real_type(engine)(inv(c.scale)), c)
     mul!(w.modal, w.inverse_plan, w.fine)
     chunk, nn = size(w.nodes, 2), size(c.synthesis, 2)
     maxima = zeros(6)
