@@ -1,53 +1,65 @@
 # solprop-gui
 
 `solprop-gui` is a desktop front end for [solprop](https://solprop.readthedocs.io/en/latest/),
-a Python package for ultrafast nonlinear pulse propagation. It is meant to let someone set
-up, run and understand a solprop simulation without writing Python, and an expert do the
-same faster than a script would. It never becomes a dead end: every setup made in it
-leaves as a solprop recipe file or a plain Python script, and every results file solprop
-writes can be opened in it.
+a Python package for ultrafast nonlinear pulse propagation. It sets up, runs and reads
+solprop simulations without a script. Setups are described in physics terms: a capillary's
+core radius, a gas and its pressure, a pulse's wavelength, duration and energy.
 
-**It is in development**, and not yet released. It covers solid-core fibres (GNLSE),
-gas-filled capillaries (mode-averaged and multimode) and antiresonant fibres, and beams in
-free space (Cartesian, line and radial). For each it can set up and check a run, show it
-live, browse its results (the Overview along z, a plane with its spectrogram, the
-statistics), and compress the pulse after it (Post-process). It also has the waveguide
-explorer, scans, and a service that lets runs outlive the window
-(`SOLPROP_GUI_SERVICE=1`).
-
-The distribution is `solprop-gui` and the import package `solprop_gui`. It is built from
-the `gui/` directory of the [solprop repository](https://github.com/LupoLab/solprop) and
-released at solprop's own version, which it requires exactly.
+**It is experimental.** Its window, its workflow and the files it writes for itself may
+change between releases before 1.0. The recipes and results files it makes are solprop's
+own, and keep solprop's guarantees.
 
 ## Installing
 
-Once released, it will install with solprop:
+It installs with solprop's `gui` extra, and starts with one command:
 
 ```sh
 pip install "solprop[gui]"
 solprop-gui
 ```
 
-Until then, run it from a checkout of the solprop repository:
+It is released at solprop's own version, and requires exactly that version of solprop.
+On Linux, Qt needs a few system libraries; on Debian or Ubuntu:
 
 ```sh
-uv sync --locked --no-install-package solprop-native --extra gui
-uv run --no-sync poe fetch-wheel      # CI's native wheel: needs `gh`, no compiler
-uv run --no-sync solprop-gui
+sudo apt install libegl1 libxkbcommon0 libxcb-cursor0
 ```
 
-`uv sync --extra gui` instead builds the native backend from source, which needs a C++20
-compiler (`native/README.md`).
+## What it does
 
-It uses Qt for Python ([PySide6](https://doc.qt.io/qtforpython-6/)) and
-[pyqtgraph](https://www.pyqtgraph.org/). solprop does all the physics: the window runs it in
-separate processes and shows what it returns.
+- **Home** offers a problem class for each common geometry: gas-filled capillaries,
+  antiresonant fibres, radial filaments, Cartesian and line beams, the GNLSE, and
+  step-index and graded-index fibres. Every other route is set up on a form built from
+  solprop's parameter metadata.
+- **Setup** is one sheet per class, checked as you type, with the numbers solprop computes
+  for it (a soliton order, a zero-dispersion wavelength) and a preview plot. A number can
+  be typed as a target, and solprop solves for the input that gives it.
+- **Run** shows the spectrum and the pulse growing along the waveguide, and can stop and
+  resume. A service process can keep runs going after the window closes.
+- **Analyse** reads the results on pages of the class, all at one plane, with zoom,
+  readouts, widths at half maximum and publication figures drawn by `solprop.plotting`.
+- **Scans** run a setup over a grid of its parameters, and any point opens as a setup.
+- **Design a waveguide** explores a guide's dispersion, loss and phase matching, with no
+  pulse and no run.
 
-## Design
+Every setup saves as a solprop recipe, or shows as the Python script that builds it, and
+every solprop results file opens in the window. solprop does all the physics: the window
+runs it in separate processes and shows what it returns. It is drawn with Qt for Python
+([PySide6](https://doc.qt.io/qtforpython-6/)) and [pyqtgraph](https://www.pyqtgraph.org/).
 
-The design is [`docs/dev/gui/design.md`](../docs/dev/gui/design.md) in the solprop
-repository; the rules for working on this package are in [`AGENTS.md`](AGENTS.md).
+## Documentation
+
+- [The user guide's chapter on the front end](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html),
+  which also opens offline from the window's **Help** menu
+- [The solprop manual](https://solprop.readthedocs.io/en/latest/)
+- [The front end's design](https://solprop.readthedocs.io/en/latest/dev/gui/design.html)
+
+The source is the
+[`gui/` directory of the solprop repository](https://github.com/LupoLab/solprop/tree/main/gui);
+issues go to [its tracker](https://github.com/LupoLab/solprop/issues).
 
 ## Licence
 
-GPL-3.0-or-later, as solprop.
+The program is GPL-3.0-or-later, as solprop is. The user guide's pages and figures, and
+the application's icon, are CC-BY-4.0. The window's font, IBM Plex Sans, is under the SIL
+Open Font License 1.1. The package carries each licence's text.

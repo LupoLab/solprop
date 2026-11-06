@@ -138,6 +138,10 @@ uv pip install "solprop[gui]"
 solprop-gui
 ```
 
+The front end is experimental. It needs more of Linux than solprop does: every Qt for
+Python (PySide6) release for CPython 3.14 wants glibc 2.34 or newer on x86-64 and 2.39
+on aarch64, so on an older glibc `solprop[gui]` does not install, though solprop does.
+
 ## Checking the installation
 
 Use Python in the activated environment, or a notebook kernel using that same

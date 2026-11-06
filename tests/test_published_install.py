@@ -135,3 +135,42 @@ def test_readme_check_requires_the_tagged_example(check_script, monkeypatch, tmp
     readme = "# No example"
     with pytest.raises(ValueError, match="no Python example"):
         check_script["_readme_example"]("0.1.0", tmp_path)
+
+
+def _faked_install(check_script, monkeypatch, said: str) -> list[tuple[str, list[str]]]:
+    calls: list[tuple[str, list[str]]] = []
+
+    def run(command, _directory, name):
+        calls.append((name, command))
+        if name == "backend":
+            return json.dumps({"versions": {}, "backend": "native"})
+        if name == "gui":
+            return json.dumps({"solprop-gui": "0.2.0", "guide_pages": 6})
+        return said if name == "gui-version" else ""
+
+    monkeypatch.setitem(check_script["_check"].__globals__, "_run", run)
+    monkeypatch.setattr(check_script["venv"].EnvBuilder, "create", lambda *_: None)
+    monkeypatch.setattr(check_script["sys"], "version_info", (3, 14, 0))
+    monkeypatch.delenv("GITHUB_STEP_SUMMARY", raising=False)
+    return calls
+
+
+def test_the_front_end_is_installed_through_the_extra_and_checked(
+    check_script, monkeypatch, tmp_path
+):
+    calls = _faked_install(check_script, monkeypatch, "0.2.0\n")
+    directory = tmp_path / "install"
+    check_script["_check"]("0.2.0", directory, readme_example=False, gui=True)
+    commands = dict(calls)
+    assert commands["pip-install"][-1] == "solprop[gui]==0.2.0"
+    assert [name for name, _ in calls][-2:] == ["gui", "gui-version"]
+    assert commands["gui-version"][-1] == "--version"
+    record = json.loads((directory / "evidence/result.json").read_text("utf-8"))
+    assert record["status"] == "passed" and record["gui"]
+    assert record["gui_installed"]["guide_pages"] == 6
+
+
+def test_a_front_end_at_another_version_fails(check_script, monkeypatch, tmp_path):
+    _faked_install(check_script, monkeypatch, "0.1.9\n")
+    with pytest.raises(RuntimeError, match=r"0\.1\.9"):
+        check_script["_check"]("0.2.0", tmp_path / "i", readme_example=False, gui=True)

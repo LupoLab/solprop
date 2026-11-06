@@ -234,7 +234,7 @@ serves.
   *outcome* is solprop's `RunOutcome.status` (running, complete, budget exhausted,
   failed), which has no "stopped". Whether a run can be resumed is never assumed from
   either: it is asked of solprop (`resumability`, SEP 41 S17), which gives the mode
-  (`resume=True`, from an interpolated plane, or forced, for a file already forced) or the
+  (`resume=True`, or `resume="interpolated"` from an interpolated plane) or the
   reason it cannot (no checkpoint before a failure, no work left, another output schema, a
   writer still alive), and whether the file can be rebuilt from itself. A changed grid, a
   wider time window included, is always a new run.
@@ -636,7 +636,7 @@ A sheet shows one pulse's wavelength, duration and energy. Advanced opens the li
   pulse's own wavelength), with units fs, fs², fs³.
 - **From data**: an import dialog for spectra (wavelength or frequency, intensity,
   optional phase) or temporal fields, from CSV/TXT with column picking and a preview,
-  building `DataPulse.from_spectral_density` or `DataPulse.from_time`. Common formats
+  building `DataPulse.from_spectral_density` or a `TimeDataPulse`. Common formats
   (two-column spectra, FROG/SPIDER retrievals) are proposed as solprop loaders (S12) so
   scripts get them too.
 - **CW** (advanced): `CWPulse` for seeding.
@@ -1023,9 +1023,9 @@ filtering, and the reduction used for display.
 
 - `import solprop` itself is lazy (about 30 ms), but building anything is not: importing
   `solprop.recipe` loads the driver, the backends and h5py (about 0.5 s warm, several
-  seconds cold), and numba compilation and FFTW planning add more on a first run. None of
+  seconds cold), and FFTW planning adds more on a first run. None of
   this may happen in the window's process; the light parts it may use are listed in 13.5.
-- A run uses all the cores it is given (numba, FFTW, OpenMP, native threads); a run in
+- A run uses all the cores it is given (FFTW, OpenMP, native threads); a run in
   the GUI process would fight the GUI for the GIL and the cores.
 - Stopping today is a signal: solprop's handlers turn SIGINT into `KeyboardInterrupt`
   and SIGTERM into `RunTerminated` (a signal arriving while a plane is being committed
@@ -1200,7 +1200,7 @@ should check at start and print the exact install line in place of Qt's error ab
 plugin.
 
 Standalone bundles (PyInstaller, Briefcase, or a conda `constructor` installer) come
-later; the native backend, numba caches and FFTW make them a separate piece of work,
+later; the native backend and FFTW make them a separate piece of work,
 best done with solprop's release packaging.
 
 ## 14. Open questions

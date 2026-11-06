@@ -256,6 +256,10 @@ Then, for every release:
    in an issue and repair it in a new version if the published files need changing.
    If PyPI has not yet made the new files available, rerun the failed install jobs once
    they appear; the check does not retry a failed resolution or hide its first result.
+   With `PUBLISH_GUI` set, `published-install-gui` follows `publish-gui` on the same
+   platforms: it installs `solprop[gui]==X.Y.Z`, runs `pip check`, checks that the front
+   end is at the version and carries the user guide's chapter, and that `solprop-gui
+   --version` answers. Its artifacts are named `published-install-gui-<platform>`.
 4. Publish a GitHub release from the tag, with the version's changelog section as its
    notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
    NOTES.md`. Zenodo archives it and gives it a DOI; on the first release, add the
@@ -282,6 +286,8 @@ example is available to complete the first release's outstanding platform checks
 ```sh
 gh workflow run published-install.yml -f version=0.1.0 -f readme_example=true
 ```
+
+`gui=true` installs `solprop[gui]` instead and checks the front end as well.
 
 Before the new workflow is on `main`, GitHub cannot dispatch it by name. The existing
 **Wheels** workflow also accepts `published_version`: with that input it skips the

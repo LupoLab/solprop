@@ -206,8 +206,9 @@ class AboutDialog(QDialog):
             f"{COPYRIGHT}.<br>By {', '.join(authors())}.<br><br>"
             "solprop is free software: you can redistribute it and modify it under "
             "the terms of the GNU General Public License, version 3 or (at your "
-            "option) any later version. It comes with no warranty. The window's "
-            "typeface, IBM Plex Sans, is under the SIL Open Font License 1.1.",
+            "option) any later version. It comes with no warranty. The user guide "
+            "and the icon are under Creative Commons Attribution 4.0, and the "
+            "window's typeface, IBM Plex Sans, under the SIL Open Font License 1.1.",
             "note",
         )
         credits_.setWordWrap(True)

@@ -39,6 +39,21 @@ assert backend == "native", backend
 print(json.dumps({"versions": versions, "backend": backend}, indent=2))
 """
 
+_GUI_CHECK = """
+import importlib.metadata as metadata
+import json
+import sys
+
+from solprop_gui.help.manual import chapter_folder, pages
+
+expected = sys.argv[1]
+version = metadata.version("solprop-gui")
+assert version == expected, version
+folder = chapter_folder()
+assert folder is not None and "site-packages" in str(folder), folder
+print(json.dumps({"solprop-gui": version, "guide_pages": len(pages(folder))}))
+"""
+
 
 def _version(value: str) -> str:
     version = value.removeprefix("v")
@@ -92,7 +107,9 @@ def _readme_example(version: str, directory: Path) -> Path:
     return example
 
 
-def _check(version: str, directory: Path, *, readme_example: bool) -> None:
+def _check(
+    version: str, directory: Path, *, readme_example: bool, gui: bool = False
+) -> None:
     directory.mkdir(parents=True, exist_ok=False)
     evidence = directory / "evidence"
     evidence.mkdir()
@@ -103,6 +120,7 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "readme_example": readme_example,
+        "gui": gui,
         "status": "running",
     }
     _write_record(record, evidence)
@@ -126,7 +144,7 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
                 "--no-cache-dir",
                 "--report",
                 str(evidence / "install-report.json"),
-                f"solprop=={version}",
+                f"solprop[gui]=={version}" if gui else f"solprop=={version}",
             ],
             directory,
             "pip-install",
@@ -137,6 +155,18 @@ def _check(version: str, directory: Path, *, readme_example: bool) -> None:
             [str(python), "-I", "-c", _CHECK, version], directory, "backend"
         )
         record["installed"] = json.loads(installed)
+        if gui:
+            front_end = _run(
+                [str(python), "-I", "-c", _GUI_CHECK, version], directory, "gui"
+            )
+            record["gui_installed"] = json.loads(front_end)
+            # The command answers at the version without loading Qt.
+            command_line = environment / (
+                "Scripts/solprop-gui.exe" if os.name == "nt" else "bin/solprop-gui"
+            )
+            answered = _run([str(command_line), "--version"], directory, "gui-version")
+            if answered.strip() != version:
+                raise RuntimeError(f"solprop-gui --version said {answered.strip()!r}")
         if readme_example:
             example = _readme_example(version, directory)
             os.environ["MPLBACKEND"] = "Agg"
@@ -161,11 +191,13 @@ def main() -> None:
     parser.add_argument("--version", type=_version, required=True)
     parser.add_argument("--directory", type=Path, required=True)
     parser.add_argument("--readme-example", action="store_true")
+    parser.add_argument("--gui", action="store_true", help="install solprop[gui] too")
     arguments = parser.parse_args()
     _check(
         arguments.version,
         arguments.directory.resolve(),
         readme_example=arguments.readme_example,
+        gui=arguments.gui,
     )
 
 
