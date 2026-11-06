@@ -210,6 +210,7 @@ from solprop.processing import (
     spatial_grid_of,
     specres,
     spectral_bands,
+    time_axis,
     time_bandwidth,
     transform_limit,
 )
@@ -493,6 +494,7 @@ __all__ = [
     "spectrogram",
     "start_session",
     "time_1d",
+    "time_axis",
     "time_bandwidth",
     "transform_limit",
     "transmission",
