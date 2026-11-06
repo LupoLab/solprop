@@ -47,6 +47,7 @@ from monitor_cases import (
     record_after_march,
     watched,
 )
+from solprop.backends.mlx_gpu import backend as mlx_backend
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
     fft_probe,
@@ -912,12 +913,14 @@ def test_a_non_finite_source_stops_every_march(march):
             backend.propagate_to(0.05)
 
 
-def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
-    """The device's trial past ``exp(88.72)`` is a rejection, as the oracle's is.
+def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk(monkeypatch):
+    """The interaction picture's trial past ``exp(88.72)`` is rejected, as the oracle's.
 
+    The lab-frame trial is turned off, so the device forms the inverse propagator.
     Both runs are adaptive and take their own steps after the rejections, so they are
     held to the survival record's field envelope, not to a rounding bound.
     """
+    monkeypatch.setattr(mlx_backend, "_TRANSPORT_REACH", math.inf)
     device = run_to_end(overflowing_beam("single"), "mlx")
     oracle = run_to_end(overflowing_beam("single"), "numpy_ref")
     history = device.step_history
@@ -925,6 +928,46 @@ def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
     assert history.error_norm[0] == np.inf
     assert np.all(np.isfinite(history.error_norm[history.accepted]))
     assert_within(device.require_field(), oracle.require_field(), 1e-3)
+
+
+@gpu_only
+def test_a_trial_past_binary32s_range_is_taken_whole_in_the_lab_frame():
+    """Past ``|Re dPhi| = 79.8`` the stages are carried by forward flows alone.
+
+    No inverse is formed, so the device takes the millimetre in one step as binary64
+    does, where the interaction picture is rejected twice and shrinks. Both runs are
+    adaptive, so they are held to the survival record's field envelope.
+    """
+    device = run_to_end(overflowing_beam("single"), "mlx")
+    double = run_to_end(overflowing_beam("double"), "numpy_ref")
+    history = device.step_history
+    assert history.n_rejected == 0
+    assert int(np.sum(history.accepted)) == int(np.sum(double.step_history.accepted))
+    assert_within(device.require_field(), double.require_field(), 1e-3)
+
+
+@gpu_only
+@pytest.mark.parametrize("case", ["gnlse", "capillary"])
+def test_the_lab_frame_trial_is_the_interaction_picture_to_rounding(case, monkeypatch):
+    """Forced on every trial, the lab-frame combination changes only the rounding.
+
+    The same replayed steps (a soliton's ten, an ionising capillary's sixteen): the
+    forms differ by where each stage's flow is applied (``exp(Phi_i - Phi_j)`` on the
+    source against ``exp(Phi_i) exp(-Phi_j)``), a few units of binary32 rounding a
+    stage, against the field's largest sample.
+    """
+    fields = []
+    for reach in (math.inf, -1.0):
+        monkeypatch.setattr(mlx_backend, "_TRANSPORT_REACH", reach)
+        with ExitStack() as cleanup:
+            simulation = gnlse("single") if case == "gnlse" else capillary("single")
+            backend = loaded(on("mlx", simulation), cleanup)
+            backend.propagate_to(float(simulation.settings.save_planes[-1]))
+            observed = backend.observe()
+            assert observed.field is not None
+            fields.append(observed.field)
+    scale = float(np.max(np.abs(fields[0])))
+    assert_within(fields[1], fields[0], 1e-5 * scale, what="lab frame")
 
 
 def test_the_state_stays_complex64_on_the_device():

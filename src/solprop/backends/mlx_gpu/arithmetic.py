@@ -451,12 +451,16 @@ class DoubleFloatTerms:
         CPU device.
     host : numpy.ndarray or None
         The binary64 terms, kept on MLX's CPU device only.
+    real_bound : tuple of float
+        Each term's largest ``|Re T_t|``, so that ``sum_t |w_t| real_bound_t`` bounds
+        a combination's real parts without forming it.
     """
 
     shape: tuple[int, ...]
     n_terms: int
     parts: tuple[mx.array, ...]
     host: np.ndarray | None = None
+    real_bound: tuple[float, ...] = ()
 
     @classmethod
     def upload(cls, terms: np.ndarray) -> "DoubleFloatTerms":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
@@ -482,12 +486,29 @@ class DoubleFloatTerms:
             raise BackendError("a stage term must be finite to reach the device")
         shape = values.shape[1:]
         flat = values.reshape(-1)
+        bound = tuple(float(np.max(np.abs(term.real), initial=0.0)) for term in values)
         if on_gpu():
             re_hi, re_lo = _split(flat.real)
             im_hi, im_lo = _split(flat.imag)
             parts = tuple(mx.array(part) for part in (re_hi, re_lo, im_hi, im_lo))
-            return cls(shape, int(values.shape[0]), parts)
-        return cls(shape, int(values.shape[0]), (), values)
+            return cls(shape, int(values.shape[0]), parts, real_bound=bound)
+        return cls(shape, int(values.shape[0]), (), values, real_bound=bound)
+
+    def real_reach(self, weights: np.ndarray) -> float:
+        """Return a bound on ``max |Re sum_t w_t T_t|`` from the terms' own bounds.
+
+        Parameters
+        ----------
+        weights : numpy.ndarray
+            One binary64 weight per term.
+
+        Returns
+        -------
+        float
+            ``sum_t |w_t| max |Re T_t|``.
+        """
+        w = np.abs(np.asarray(weights, dtype=np.float64).reshape(-1))
+        return float(np.dot(w, np.asarray(self.real_bound)))
 
     @property
     def nbytes(self) -> int:

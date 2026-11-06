@@ -1687,6 +1687,28 @@ state as it is: not under the split-step collar, and dropped when the collar's q
 setting changes (`_collar_changed`) or the anchor moved by a landing. The oracle keeps
 every stage (`docs/dev/stepper.md` section 10, trap 10).
 
+**The lab-frame trial.** The interaction picture's stage input
+`exp(Phi_i) (a + h sum_j a_ij exp(-Phi_j) S_j)` forms the inverse `exp(-Phi_j)`, which
+overflows binary32 once a strong collar or loss puts `|Re Phi_j|` past 88.72; the
+controller then rejects the trial with an infinite norm and shrinks it far below what
+binary64 takes. When a bound on any `|Re Phi|` of the trial
+(`DoubleFloatTerms.real_reach`: the weighted sum of each term's largest `|Re T_t|`,
+stored at upload) passes nine tenths of `log FLT_MAX`, `MlxBackend._trial_graph`
+combines the stages in the lab frame instead: `exp(Phi_i) a + h sum_j a_ij
+exp(Phi_i - Phi_j) S_j` for each input and `exp(Phi) a + h sum_j b_j exp(Phi - Phi_j)
+S_j` at the end (`_transported_input`, `_transported_end`). The nodes never decrease,
+so every factor is a forward flow and a damped bin underflows harmlessly. It is the
+same method rearranged: forced on every trial it agrees with the interaction picture
+to a few binary32 units (5e-7 of the peak on the tests' soliton and capillary; 8e-7 to
+7e-6 over the RDW, filament and blueshift cases), but costs one double-float flow per
+distinct node difference -- 2.7 s against 0.22 s on a mode-averaged RDW, whose operator
+has 18 terms -- so it is taken only past the bound, and every other run is bitwise as
+before. The radial Kerr beam whose first trial reaches `|Re Phi| = 459` then takes its
+millimetre in one step as binary64 does, where the interaction picture is rejected
+twice and needs 14. Only the Metal device takes it; the CPU device stays the oracle's
+form. The stages it forms are untransported sources, so first-same-as-last holds
+across the two forms.
+
 **Adams** (`mlx_gpu/adams.py`, #342). `MlxBackend._adams_engine` returns `MlxAdams`, an
 `AdamsEngine` whose history -- the untransported source rows and, for a varying
 operator, each sample's state -- stays on the device; the march keeps the controller.

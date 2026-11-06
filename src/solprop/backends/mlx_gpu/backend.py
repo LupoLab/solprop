@@ -112,6 +112,10 @@ except ``log1p``, whose compiled form is as accurate but not the same function.
 ``SOLPROP_MLX_FUSED=0`` evaluates operation by operation, for comparisons.
 """
 
+_TRANSPORT_REACH = 0.9 * math.log(float(np.finfo(np.float32).max))
+"""The bound on a trial's ``|Re dPhi|`` past which its stages are combined in the lab
+frame (:meth:`MlxBackend._trial_graph`): nine tenths of binary32's ``log FLT_MAX``."""
+
 _HEAD = 5
 """The stage values before the channels': the taper and its inverse, Kerr's factor
 and harmonic factor, and Raman's factor (:class:`_StageValues`)."""
@@ -454,6 +458,8 @@ class MlxBackend(NumpySingleBackend):
         self._stage_input = compiled(self._stage_input_core)
         self._trial_end = compiled(self._trial_end_core)
         self._norm_sums = compiled(self._norm_sums_core)
+        self._transported_input = compiled(self._transported_input_core)
+        self._transported_end = compiled(self._transported_end_core)
         self._alarm_ratio = compiled(self._alarm_ratio_core)
         # Whether each stage is evaluated as it is formed, bounding the live graph to
         # one stage; a batch evaluates its members' steps together instead.
@@ -945,7 +951,15 @@ class MlxBackend(NumpySingleBackend):
         pairs: dict[bytes, tuple[mx.array, mx.array]] = {}
         stages: list[mx.array] = []
         last = len(tableau.nodes) - 1
-        for index, node in enumerate(tableau.nodes):
+        bundles = [
+            self._stage_scalars(z, z + float(node) * dz) for node in tableau.nodes
+        ]
+        # Past binary32's range the inverse propagator overflows: the stages are then
+        # combined in the lab frame, each carried by exp(Phi(c_i) - Phi(c_j)), a forward
+        # flow since the nodes never decrease, and no inverse is formed.
+        transported = self._needs_transport([step, *bundles])
+        flows: dict[bytes, mx.array] = {}
+        for index, bundle in enumerate(bundles):
             first = self._first
             if index == 0 and first is not None and first[0] == z and first[1] is state:
                 # First-same-as-last: the stage is the source at the state itself,
@@ -953,10 +967,22 @@ class MlxBackend(NumpySingleBackend):
                 # or as this anchor's first stage before a rejection.
                 stages.append(first[2])
                 continue
-            bundle = self._stage_scalars(z, z + float(node) * dz)
-            forward, back = self._propagator_pair(bundle, pairs)
-            lab = self._stage_input(state, stages, forward, length)
-            stage = self._device_nonlinear(lab, bundle, back)
+            if transported:
+                forward = self._forward_flow(bundle.phi_delta, flows)
+                factors = [
+                    self._forward_flow(
+                        np.asarray(bundle.phi_delta) - np.asarray(earlier.phi_delta),
+                        flows,
+                    )
+                    for earlier in bundles[: len(stages)]
+                ]
+                lab = self._transported_input(state, stages, factors, forward, length)
+                # The source itself: a stage of this form is untransported.
+                stage = self._device_nonlinear(lab, bundle, self._unit)
+            else:
+                forward, back = self._propagator_pair(bundle, pairs)
+                lab = self._stage_input(state, stages, forward, length)
+                stage = self._device_nonlinear(lab, bundle, back)
             if self._fsal and index == 0:
                 self._first = (z, state, stage)
             elif self._fsal and index == last:
@@ -976,10 +1002,142 @@ class MlxBackend(NumpySingleBackend):
                 # builds the next; the norm's read waits for all of them.
                 mx.async_eval(stage)
             stages.append(stage)
-        propagator, _ = self._propagator_pair(step, pairs)
-        carried, advanced = self._trial_end(state, stages, propagator, length)
+        if transported:
+            factors = [
+                self._forward_flow(
+                    np.asarray(step.phi_delta) - np.asarray(bundle.phi_delta), flows
+                )
+                for bundle in bundles
+            ]
+            flow = self._forward_flow(step.phi_delta, flows)
+            carried, advanced = self._transported_end(
+                state, stages, factors, flow, length
+            )
+        else:
+            propagator, _ = self._propagator_pair(step, pairs)
+            carried, advanced = self._trial_end(state, stages, propagator, length)
         self._last_stages = stages
         return state, carried, advanced
+
+    def _needs_transport(self, bundles: list[StageScalars]) -> bool:
+        """Return whether a trial's inverse propagators could overflow binary32.
+
+        Parameters
+        ----------
+        bundles : list of solprop.translate.stage.StageScalars
+            The step's and its stages' scalars.
+
+        Returns
+        -------
+        bool
+            Whether a bound on any ``|Re dPhi|`` passes nine tenths of ``log FLT_MAX``.
+        """
+        if not on_gpu():
+            return False
+        reach = max(
+            self._phi.real_reach(np.asarray(bundle.phi_delta)) for bundle in bundles
+        )
+        return reach > _TRANSPORT_REACH
+
+    def _forward_flow(self, weights: Any, flows: dict[bytes, mx.array]) -> mx.array:
+        """Return ``exp(sum_t w_t T_t)``, once per distinct weights in a trial.
+
+        Parameters
+        ----------
+        weights : numpy.ndarray
+            Binary64 weights over the operator's terms.
+        flows : dict
+            The trial's flows, by their weights' bytes.
+
+        Returns
+        -------
+        mlx.core.array
+            The flow; exactly one for zero weights.
+        """
+        w = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if not np.any(w):
+            return self._unit
+        key = w.tobytes()
+        if key not in flows:
+            flows[key] = self._phi.pair(*self._phi.device_weights(w))[0]
+        return flows[key]
+
+    def _transported_input_core(
+        self,
+        state: mx.array,
+        sources: list[mx.array],
+        factors: list[mx.array],
+        forward: mx.array,
+        length: mx.array,
+    ) -> mx.array:
+        """Return a stage's input in the lab frame, carrying each earlier source.
+
+        ``exp(Phi_i) a + h sum_j a_ij exp(Phi_i - Phi_j) S_j``, the interaction
+        picture's input with its inverse propagators folded into forward flows.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        sources : list of mlx.core.array
+            The earlier stages' sources, untransported.
+        factors : list of mlx.core.array
+            ``exp(Phi_i - Phi_j)`` per earlier stage.
+        forward : mlx.core.array
+            ``exp(Phi_i)``.
+        length : mlx.core.array
+            The step, a float32 scalar.
+
+        Returns
+        -------
+        mlx.core.array
+            The stage's input.
+        """
+        matrix = self._problem.stepper.tableau.matrix
+        index = len(sources)
+        combination = mx.zeros_like(state)
+        for previous, (source, factor) in enumerate(zip(sources, factors, strict=True)):
+            weight = float(matrix[index, previous])
+            if weight != 0.0:
+                combination = combination + weight * (factor * source)
+        return forward * state + length * combination
+
+    def _transported_end_core(
+        self,
+        state: mx.array,
+        sources: list[mx.array],
+        factors: list[mx.array],
+        flow: mx.array,
+        length: mx.array,
+    ) -> tuple[mx.array, mx.array]:
+        """Return the embedded difference and the trial state, in the lab frame.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        sources : list of mlx.core.array
+            Every stage's source, untransported.
+        factors : list of mlx.core.array
+            ``exp(Phi(z + h) - Phi_j)`` per stage.
+        flow : mlx.core.array
+            ``exp(Phi(z + h) - Phi(z))``.
+        length : mlx.core.array
+            The step, a float32 scalar.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The embedded difference at the step's end, and the trial state.
+        """
+        tableau = self._problem.stepper.tableau
+        solution = mx.zeros_like(state)
+        error = mx.zeros_like(state)
+        for index, (source, factor) in enumerate(zip(sources, factors, strict=True)):
+            carried = factor * source
+            solution = solution + float(tableau.solution_weights[index]) * carried
+            error = error + float(tableau.error_weights[index]) * carried
+        return length * error, flow * state + length * solution
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, mx.array]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Take one interaction-picture DOPRI5 step on the device and score it.

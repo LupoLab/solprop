@@ -63,7 +63,10 @@ interfaces. Under single precision:
   run's floor `dz_min`) over which a strong collar or loss reaches that exponent is
   refused at translation, with the shortest step that fits, and one within a tenth of
   it is warned of; a 1 mm capillary's default collar on 0.25 mm steps is one such case.
-  The low-storage march and the exponential Adams method apply forward flows only: a
+  On `mlx` an adaptive `RungeKutta()` trial past that range is combined in the lab frame
+  instead, by forward flows only, so it is not rejected and shrunk for the inverse's
+  sake: a radial Kerr beam whose first trial reaches 459 takes its millimetre in one
+  step, as binary64 does. The low-storage march and the exponential Adams method apply forward flows only: a
   damped bin's flow underflows harmlessly towards zero, so they are limited by growth
   alone, which no passive medium has. The Kerr beams' 0.5 µm steps, whose spectral
   collar reaches 150 to 180, run in binary32 with `LowStorageRungeKutta()` for this
