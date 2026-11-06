@@ -111,7 +111,8 @@ selecting a response does not invent missing constants.
 `Mixture.fill` takes species-to-fraction mappings summing to one and a total pressure
 in bar. Pressure may be a scalar, a `ZProfile`, endpoint pressures, or a pair of
 position and pressure sequences. Endpoint pairs require `length=` in metres. The
-standard pressure-gradient floor applies unless `floor=` is supplied.
+standard pressure-gradient floor applies unless `floor=` is supplied; a floor is
+refused beside a scalar or a `ZProfile`, which have no end to apply it to.
 A zero fraction is an exact zero-density population and retains its label.
 
 ```{code-block} python
