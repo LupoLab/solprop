@@ -562,8 +562,9 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, a transverse window sized with the boundary monitor, and a radial beam and a
-line beam under the Kerr effect built from plain objects.
+capillary, a transverse window sized with the boundary monitor, a radial beam and a
+line beam under the Kerr effect built from plain objects, and two beams crossing in
+argon, launched together as a sum of beams.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -781,6 +782,23 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Reading a radial filament from its file</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="Two 800 nm, 40 fs pulsed beams of 0.2 mJ each and 150 um waist enter 1 bar of argon 0.8 mm apart, tilted 5 mrad towards each other, so that they cross 8 cm in and separate again by 16 cm. Where they overlap they interfere: fringes 80 um apart, lambda over twice the sine of the angle. Each beam alone is at about 0.6 of argon&#x27;s critical power for self-focusing, but in the bright fringes the intensity is up to four times one beam&#x27;s, and the Kerr effect focuses them.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_12_crossing_beams_kerr_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_12_crossing_beams_kerr`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Two beams crossing in argon</div>
     </div>
 
 
