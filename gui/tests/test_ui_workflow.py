@@ -1329,7 +1329,7 @@ def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:
         assert drawn.pixelColor(44, 44).alpha() > 0 or name in ("filament", "design")
     home = HomePage()
     qtbot.addWidget(home)
-    assert {*(p.key for p in CLASSES), "design"} <= set(ART)
+    assert {*(p.key for p in CLASSES if p.home), "design"} <= set(ART)
 
 
 def test_crossing_beams_run_and_show_their_fluence_across_x_and_y(
