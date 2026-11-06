@@ -207,37 +207,53 @@ end
 
 # --- the Poynting statistics' time-domain power ------------------------------------
 
-"""The state's analytic power per mode and its on-axis flux, for the statistics.
-
-`stats._poynting_statistics`'s transforms: the analytic signals of the state and of
-the state times its power weight (`weight`, (n_omega, n_modes)), the cycle-averaged
-power `Re(a conj b)` per mode and time, and with `axis` ((2, n_modes)) the on-axis
-flux. A field grid's analytic signal keeps the zero-frequency and Nyquist bins once,
-as `fourier.analytic_signal` does; an envelope's state already is one. Returns the
-power (n_t, n_modes) and the flux (n_t), in the state's physical units.
-"""
-function poynting(engine, weight, axis)
+"""Hold the Poynting statistics' buffers and their transform, and the power weight
+(`weight`, (n_omega, n_modes)) and on-axis rows (`axis`, (2, n_modes), or `nothing`).
+A varying guide's weight is bound again at each plane; nothing else changes."""
+function bind_poynting!(engine, weight, axis)
     c, w = engine.config, engine.work
-    y = w.y
     T = real_type(engine)
     C = Complex{T}
-    nw, nm = size(y)
+    nw, nm = size(w.y)
     nt = c.nc
     s = w.statistics[]
-    if s === nothing || size(s.signal, 2) != nm
-        signal, weighted = dzeros(c, C, nt, nm), dzeros(c, C, nt, nm)
-        s = (signal=signal, weighted=weighted, weight=dzeros(c, T, nw, nm),
-             inverse=plan(c, plan_bfft!, signal, 1))
+    if s === nothing
+        signal = dzeros(c, C, nt, nm)
+        rows = axis === nothing ? nothing : upload(c, T.(permutedims(Matrix{Float64}(axis))))
+        width = rows === nothing ? 0 : size(rows, 2)
+        s = (signal=signal, weighted=dzeros(c, C, nt, nm), weight=dzeros(c, T, nw, nm),
+             inverse=plan(c, plan_bfft!, signal, 1), rows=rows,
+             electric=dzeros(c, C, nt, width), magnetic=dzeros(c, C, nt, width),
+             power=dzeros(c, T, nt, nm), flux=dzeros(c, T, nt),
+             host_power=zeros(T, nt, nm), host_flux=zeros(T, rows === nothing ? 0 : nt))
         w.statistics[] = s
     end
     copyto!(s.weight, T.(Matrix{Float64}(weight)))
-    (; signal, weighted) = s
-    weights, envelope, nyquist = s.weight, c.envelope, nt ÷ 2 + 1
-    unit, two, none = one(T), T(2), zero(C)
+    nothing
+end
+
+"""The state's analytic power per mode and its on-axis flux, for the statistics.
+
+`stats._poynting_statistics`'s transforms: the analytic signals of the state and of
+the state times its power weight, the cycle-averaged power `Re(a conj b)` per mode and
+time, and with `flux` the on-axis flux through the bound rows. A field grid's analytic
+signal keeps the zero-frequency and Nyquist bins once, as `fourier.analytic_signal`
+does; an envelope's state already is one. Returns host arrays the engine reuses: the
+power (n_t, n_modes) and the flux (n_t), in the state's physical units.
+"""
+function poynting!(engine, flux)
+    c, w = engine.config, engine.work
+    y, s = w.y, w.statistics[]
+    T = real_type(engine)
+    nw = size(y, 1)
+    nt, nm = size(s.signal)
+    (; signal, weighted, weight, power) = s
+    envelope, nyquist = c.envelope, nt ÷ 2 + 1
+    unit, two, none = one(T), T(2), zero(Complex{T})
     for (target, weighting) in ((signal, false), (weighted, true))
         each!(c, nt, nm) do k, m
             @inbounds begin
-                value = k <= nw ? y[k, m] * (weighting ? weights[k, m] : unit) : none
+                value = k <= nw ? y[k, m] * (weighting ? weight[k, m] : unit) : none
                 if !envelope
                     value = k == 1 || k == nyquist ? complex(real(value)) : k < nyquist ? two * value : none
                 end
@@ -247,13 +263,29 @@ function poynting(engine, weight, axis)
         s.inverse * target
     end
     # Each inverse is unnormalised: numpy's 1/n_t on each signal, and the state scale.
-    factor = (c.scale / nt)^2
-    power = Array(real.(signal .* conj.(weighted))) .* factor
-    flux = Float64[]
-    if axis !== nothing
-        rows = upload(c, T.(Matrix{Float64}(axis)))
-        electric, magnetic = signal * transpose(rows), weighted * transpose(rows)
-        flux = vec(sum(Array(real.(electric .* conj.(magnetic))); dims=2)) .* factor
+    factor = T((c.scale / nt)^2)
+    each!(c, nt, nm) do t, m
+        @inbounds power[t, m] = real(signal[t, m] * conj(weighted[t, m])) * factor
     end
-    (Matrix{Float64}(power), flux)
+    copyto!(s.host_power, power)
+    if flux
+        (; electric, magnetic, rows) = s
+        gemm!(electric, signal, rows, true, false, c)
+        gemm!(magnetic, weighted, rows, true, false, c)
+        values, start = s.flux, zero(T)
+        each!(c, nt, 1) do t, _
+            @inbounds begin
+                value = start
+                for j in axes(electric, 2)
+                    value += real(electric[t, j] * conj(magnetic[t, j]))
+                end
+                values[t] = value * factor
+            end
+        end
+        copyto!(s.host_flux, values)
+    end
+    (s.host_power, s.host_flux)
 end
+
+const bind_poynting_b = bind_poynting!
+const poynting_b = poynting!

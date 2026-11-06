@@ -449,6 +449,8 @@ class JuliaBackend(StepDriver[object]):
         if str(self._jl.loaded_digest()) != self._digest:
             raise BackendError("julia sources changed after the runtime loaded them")
         self._threads = thread_limit("SOLPROP_JULIA_THREADS")
+        self._fixed: dict[str, object] | None = None
+        self._poynting_weight: np.ndarray | None = None
         if not 1 <= self._threads <= int(self._jl.runtime()[1]):
             raise BackendError("julia thread count must fit the initialized runtime")
         self._engine = call_julia(
@@ -508,6 +510,12 @@ class JuliaBackend(StepDriver[object]):
         self._observed_field(engine)
         if self._problem.flags.has_plasma:
             call_julia(jl.population_snapshot, engine, None)
+        if self._weight.size:
+            # The Poynting transforms' plan is measured here, not at the first plane.
+            axis = None if self._modes is None else self._on_axis_synthesis(self._modes)
+            self._bind_poynting(axis)
+            for flux in (False, axis is not None):
+                np.asarray(call_julia(jl.poynting_b, engine, flux)[0])
         call_julia(jl.bind_monitor_b, engine, None, None)
         self.metadata()
 
@@ -984,14 +992,10 @@ class JuliaBackend(StepDriver[object]):
             )
             values["energy"] = (grid.dt / grid.n_t) * np.sum(spectral, axis=-1)
         if names - {"omega0", "energy"}:
-            wanted = "peak_intensity" in names
-            power, flux = call_julia(
-                self._jl.poynting,
-                self._engine,
-                np.ascontiguousarray(self._weight[:, 0, :].T),
-                np.ascontiguousarray(axis) if wanted and axis is not None else None,
-            )
-            power = np.asarray(power).T
+            wanted = "peak_intensity" in names and axis is not None
+            self._bind_poynting(axis)
+            power, flux = call_julia(self._jl.poynting_b, self._engine, wanted)
+            power = np.asarray(power, dtype=np.float64).T
             total_power = np.sum(power, axis=0)
             if "peak_power" in names:
                 values["peak_power"] = np.max(power, axis=-1)
@@ -1002,7 +1006,7 @@ class JuliaBackend(StepDriver[object]):
                     values[name] = _power_half_width(
                         grid, total_power, outermost=name.endswith("outer")
                     )
-            if wanted:
+            if "peak_intensity" in names:
                 if axis is None:
                     msg = (
                         "Poynting peak_intensity requires the on-axis synthesis matrix"
@@ -1012,6 +1016,24 @@ class JuliaBackend(StepDriver[object]):
                     0.5 * EPS0 * C * np.max(np.asarray(flux))
                 )
         return values
+
+    def _bind_poynting(self, axis: np.ndarray | None) -> None:
+        """Give the engine the power weight, when it is a new one, and the on-axis rows.
+
+        Parameters
+        ----------
+        axis : numpy.ndarray or None
+            The on-axis synthesis (2, n_modes); bound with the first weight.
+        """
+        if self._poynting_weight is self._weight:
+            return
+        call_julia(
+            self._jl.bind_poynting_b,
+            self._engine,
+            np.ascontiguousarray(self._weight[:, 0, :].T),
+            None if axis is None else np.ascontiguousarray(axis),
+        )
+        self._poynting_weight = self._weight
 
     def _populations(self, spec: StatsSpec, state: np.ndarray) -> dict[str, np.ndarray]:
         """Reduce fresh accepted-field populations at an observation."""
@@ -1058,14 +1080,32 @@ class JuliaBackend(StepDriver[object]):
         """
         self._check_open()
         assert self._engine is not None
+        return (
+            super().metadata()
+            | self._provenance()
+            | {"resident_source_evaluations": int(self._engine.calls)}
+        )
+
+    def _provenance(self) -> dict[str, object]:
+        """Return the engine's fixed provenance, read from Julia once.
+
+        A run records the metadata at every plane; these fields do not change.
+
+        Returns
+        -------
+        dict
+            The runtime, thread and plan fields of :meth:`metadata`.
+        """
+        if self._fixed is not None:
+            return self._fixed
+        assert self._engine is not None
         version, threads, fft, blas, library = self._jl.runtime()
         config = self._engine.config
         free = self._problem.transform.kind == "free"
-        return super().metadata() | {
+        self._fixed = {
             "julia_version": str(version),
             "julia_source_digest": self._digest,
             "device": str(self._jl.device_name(self._engine)),
-            "resident_source_evaluations": int(self._engine.calls),
             "propagator_cache": (
                 "schedule_run_mean"
                 if self._low_storage is not None
@@ -1089,6 +1129,7 @@ class JuliaBackend(StepDriver[object]):
             "plan_flag": self._plan_flag,
             "experimental": True,
         }
+        return self._fixed
 
     def memory_ledger(self) -> dict[str, int]:
         """List owned numerical arrays, excluding opaque library plan internals.
