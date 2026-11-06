@@ -21,6 +21,8 @@ from solprop.backends import select
 from solprop.exceptions import BackendError
 
 os.environ.setdefault("SOLPROP_JULIA_CHECK", "1")
+# Bounds checked: an @inbounds index slip raises here instead of corrupting memory.
+os.environ.setdefault("PYTHON_JULIACALL_CHECK_BOUNDS", "yes")
 DEVICE = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
 pytestmark = [pytest.mark.medium] + ([pytest.mark.gpu] if DEVICE != "cpu" else [])
 

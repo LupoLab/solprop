@@ -34,7 +34,8 @@ function bind_monitor!(engine, columns, buckets)
     nothing
 end
 function monitor_workspace(c, nw, nm, nc)
-    (columns=dzeros(c, c.T, nm), buckets=dzeros(c, Int32, nw, nm), power=dzeros(c, c.T, nc),
+    # Bucket one until a crossing binds its own: an index the histogram always holds.
+    (columns=dzeros(c, c.T, nm), buckets=fill!(dzeros(c, Int32, nw, nm), Int32(1)), power=dzeros(c, c.T, nc),
      split=dzeros(c, c.T, nc), histogram=dzeros(c, c.T, 128, c.tasks))
 end
 

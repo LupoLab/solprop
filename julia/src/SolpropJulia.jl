@@ -88,6 +88,9 @@ function warm!(engine)
     if c.low_storage
         rk4!(engine, 1e-12, 1e-12)
     elseif a !== nothing
+        # Valid history rows, so that no warm trial reads outside the store.
+        fill!(a.host.slots, 1)
+        copyto!(a.device.slots, a.host.slots)
         adams_start!(engine)
         for n in 1:size(a.moments, 3)
             a.sizes .= (min(n, size(a.moments, 3) - 1), n, 1)
@@ -99,12 +102,20 @@ function warm!(engine)
         trial!(engine, 1e-12)
     end
     commit!(engine, 1e-12, true)
+    # The observers' paths too: the monitor, the edge (on a provisional binding), the
+    # occupancy and the populations.
     state_power(engine)
-    occupancy(engine)
     host_state(engine)
-    for buffer in (w.y, w.candidate, w.lab, w.source, w.error, w.stages)
-        fill!(buffer, 0)
-    end
+    occupancy(engine)
+    nm = size(w.y, 2)
+    bind_edge!(engine, c.free ? nothing : Matrix{Float64}(I, nm, nm), [0])
+    node_energy(engine)
+    column_energy(engine)
+    w.edge[] = nothing
+    w.plasma === nothing || population_snapshot(engine, zeros(ComplexF64, size(w.y)))
+    buffers = (w.y, w.candidate, w.lab, w.source, w.error, w.stages, w.forward, w.inverse)
+    a === nothing || (buffers = (buffers..., a.store, a.states, a.rates, a.moments, a.carried, a.endpoint))
+    foreach(buffer -> fill!(buffer, 0), buffers)
     engine.fsal_valid, engine.calls, engine.propagator_dz = false, 0, NaN
     TIMING[] && empty!(TIMES)
     nothing

@@ -458,6 +458,7 @@ class JuliaBackend(StepDriver[object]):
         self._alarm_reported = False
         self._host_blas = _hold_host_blas()
         self._edge_key: tuple[int, bool] | None = None
+        self._warm_bridge()
         if isinstance(problem.stepper.integrator, LowStorageRungeKutta):
             from solprop.backends.low_storage import LowStorageMarch  # noqa: PLC0415
 
@@ -467,6 +468,37 @@ class JuliaBackend(StepDriver[object]):
             from solprop.backends.multistep import AdamsMarch  # noqa: PLC0415
 
             self._adams = AdamsMarch(self, problem.stepper.integrator)
+
+    def _warm_bridge(self) -> None:
+        """Call each bridge entry the march reaches with the arguments it will pass.
+
+        The engine compiled and ran its own paths at construction; what is left is
+        the bridge's per-function wrappers and argument conversions, which otherwise
+        compile inside a run's first boundary reading or edge read.
+        """
+        _, n_modes, _, n_omega = self._problem.shape
+        jl, engine = self._jl, self._engine
+        # A crossing's bucket table is read-only, which is part of its bridge type.
+        buckets = np.zeros((n_modes, n_omega), dtype=np.uint8)
+        buckets.setflags(write=False)
+        for columns, table in ((None, None), (np.ones(n_modes), buckets)):
+            call_julia(jl.bind_monitor_b, engine, columns, table)
+        for name in ("state_power", "occupancy", "split_power", "column_energy"):
+            np.asarray(call_julia(getattr(jl, name), engine))
+        free = self._problem.transform.kind == "free"
+        inverse = None if free else np.eye(n_modes)
+        call_julia(jl.bind_edge_b, engine, inverse, np.zeros(1, dtype=np.int64))
+        call_julia(jl.node_energy, engine)
+        call_julia(jl.device_name, engine)
+        np.asarray(call_julia(jl.host_state, engine))
+        if self._problem.flags.has_plasma:
+            call_julia(
+                jl.population_snapshot,
+                engine,
+                np.zeros((n_omega, n_modes), dtype=np.complex128),
+            )
+        call_julia(jl.bind_monitor_b, engine, None, None)
+        self.metadata()
 
     def _adams_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Copy the resident state for rare host persistence and budget reports."""
