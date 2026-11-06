@@ -2471,6 +2471,23 @@ against the build before them: `he_rdw_averaged` 0.988 (0.986–1.007), `rdw` 0.
 
 **Scratch-order registers on the volume route**, tried on the A40 and not adopted, take the fold from 407 to 387 ms and the step to 2,538 ms, with the fold's tile staging the state rather than the scratch. A layout change needs its own issue.
 
+**The scratch in the registers' order** ([#365](https://github.com/LupoLab/solprop/issues/365)), on CUDA only. A stage of the volume route views the scratch as `(y, x, omega)`, the state's and the
+registers' order, so its rank-3 pair is cuFFT's frequency-fastest `{N,N,T}`, and its input and fold stream instead of crossing. A probe of the two orders on an NVIDIA H200, CUDA 13.1,
+T = 600, took `{N,N,T}` 2.49, 11.08, 14.71, 17.62 and 13.81 ms a transform at N = 384, 750, 768, 800 and 900, against 3.74, 14.97, 17.63, 17.97 and 18.96 ms for `{T,N,N}`, and `{N,N,T}`
+needs no work area at those sizes but 768. A step, from a field-free point with the check off, (24 steps - 8 steps) / 16, three interleaved rounds against the build before it
+(`c0bd23f2` against `8e9b4e76`):
+
+| N x N x 600, NVIDIA H200 | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 50.96–51.17 | 36.22–36.49 | 0.713 | 7.23 → 5.91 |
+| 768 | 225.21–225.78 | 203.88–204.13 | 0.905 | 23.14 → 23.14 |
+
+At 768 the transforms account for it: eight of them are 23.4 ms apart in the probe, and the step gains 21.6 ms. `python -m benchmarks ab --device --length 0.3`, 3 rounds:
+`kerr_beam_384` x0.971 (0.928–1.003), fields to 3.2e-17. On the NVIDIA A40, CUDA 12.8.1, where the orders are within 1 % at 768, two rounds against `29e9e156`, whose native code is
+the same: 2,535 and 2,578 ms a step before, 2,556 and 2,597 after, at 768; 559 and 560 ms before, 513 and 513 after, at 384; `ab --device` geometric mean 0.998, with `kerr_beam_384`
+x1.010 (0.997–1.042) and `kerr_beam_192` x0.977 (0.950–1.070). The device tests pass on both cards. With the stage's window read in the old order, nine of them fail across the three
+marches, and with the fold reading the old order, three low-storage ones do. HIP keeps the scratch's order until rocFFT's orders are measured.
+
 On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold 6240 (nine cores of one socket, bound passive threads, on a machine others shared; three rounds, the same steps): `kerr_beam_192` 0.982 (0.978–0.996) at one thread and 0.974 (0.973–0.987) at nine; `kerr_beam_384` 0.981 (0.981–0.982) at nine, fields to 6.4e-16.
 `rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
 Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
