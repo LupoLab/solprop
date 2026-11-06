@@ -327,7 +327,7 @@ lint-fix   = "ruff check --fix ."
 fmt        = "ruff format ."
 lint       = "ruff check ."
 types      = "basedpyright"
-docstrings = "python -m numpydoc lint src/solprop/*.py src/solprop/**/*.py docs/dev/figures/build.py docs/guide/figures/geometries.py docs/primer/figures/primer_figures.py"
+docstrings = "python -m numpydoc lint src/solprop/*.py src/solprop/**/*.py docs/dev/figures/build.py docs/guide/figures/geometries.py docs/guide/front-end/screenshots.py docs/primer/figures/primer_figures.py"
 spell      = "codespell"
 reuse      = "reuse lint"
 changelog-check = "python -m tools.release_notes check"
@@ -412,6 +412,14 @@ sequence = [
     { cmd = "python docs/primer/figures/primer_figures.py" },
 ]
 help = "Redraw the structure, geometry and primer figures (needs the dev group)."
+
+# The front end's chapter of the user guide shows the real window, taken offscreen by a
+# script that runs the examples it shows. Run it after changing what those pages show,
+# and commit the PNGs it writes; they are not compared, since fonts differ by machine.
+[tool.poe.tasks.guide-screenshots]
+cmd = "python docs/guide/front-end/screenshots.py"
+env = { QT_QPA_PLATFORM = "offscreen" }
+help = "Retake the front end's screenshots in the user guide (needs --extra gui)."
 
 # No gallery script is executed by `poe docs`: the generated pages, figures and
 # checksums of the lessons, tutorials and worked examples (docs/introduction/lessons/,

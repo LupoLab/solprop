@@ -119,6 +119,10 @@ class HomePage(QWidget):
         Emitted with a recent run's results file.
     setup_chosen : Signal
         Emitted with a recent setup's file.
+    workspace_wanted : Signal
+        Emitted when another folder for the runs is to be picked.
+    workspace : PySide6.QtWidgets.QLabel
+        Which folder the runs go in.
     """
 
     class_chosen = Signal(str)
@@ -128,6 +132,7 @@ class HomePage(QWidget):
     open_setup_wanted = Signal()
     results_chosen = Signal(str)
     setup_chosen = Signal(str)
+    workspace_wanted = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:  # noqa: PLR0915 - a layout
         """Make the page, listing nothing recent yet."""
@@ -188,6 +193,16 @@ class HomePage(QWidget):
         side = QVBoxLayout()
         side.setSpacing(6)
         side.addWidget(named_label("Recent runs", "h3"))
+        self.workspace = named_label("", "note")
+        self.workspace.setWordWrap(True)
+        change = QPushButton("Change…")
+        change.setObjectName("plain")
+        change.setToolTip("Choose the folder new runs are made in, and listed from.")
+        change.clicked.connect(self.workspace_wanted)
+        where = QHBoxLayout()
+        where.addWidget(self.workspace, 1)
+        where.addWidget(change)
+        side.addLayout(where)
         side.addLayout(self.runs)
         side.addSpacing(12)
         side.addWidget(named_label("Recent setups", "h3"))
@@ -253,6 +268,23 @@ class HomePage(QWidget):
         """Offer the examples of every other route, below the tile."""
         tile = self.tiles["other"]
         self.others.popup(tile.mapToGlobal(tile.rect().bottomLeft()))
+
+    def show_workspace(self, folder: Path) -> None:
+        """Say which folder the runs go in.
+
+        Parameters
+        ----------
+        folder : pathlib.Path
+            The folder.
+        """
+        home = Path.home()
+        shown = (
+            f"~/{folder.relative_to(home)}"
+            if folder.is_relative_to(home)
+            else str(folder)
+        )
+        self.workspace.setText(f"In {shown}")
+        self.workspace.setToolTip(str(folder))
 
     def show_runs(self, runs: Sequence[RunEntry]) -> None:
         """List the workspace's latest runs.

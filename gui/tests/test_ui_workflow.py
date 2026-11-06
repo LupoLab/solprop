@@ -119,6 +119,16 @@ def test_home_offers_each_class_and_asks_for_nothing_open(
     assert chosen.args == ["capillary"]
     window.document.undo.clear()
     shot(window, tmp_path, "home")
+    # Home says where runs go, and another folder is kept and listed from.
+    assert window.home.workspace.text().startswith("In ")
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    window.run_panel.set_workspace(elsewhere)
+    assert window.home.workspace.toolTip() == str(elsewhere)
+    assert window.settings.value("workspace") == str(elsewhere)
+    assert window.home.runs.count() == 1  # "No runs yet." in the new folder
+    window.home.show_workspace(Path.home() / "runs")
+    assert window.home.workspace.text() == "In ~/runs"
 
 
 @pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)

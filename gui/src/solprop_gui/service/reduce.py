@@ -56,7 +56,9 @@ class Display:
     time_range : tuple of float or None
         The time window, s; ``None`` takes the first plane's whole window.
     n_time : int
-        Time bins.
+        Time bins: four times the wavelength bins, because a short pulse fills a
+        small part of its time window (a 5 fs pulse in a 200 fs window spans 50
+        of them).
     bandpass : tuple of float or None
         A wavelength band, m, the power is computed within (solprop's ``bandpass``
         keyword); ``None`` for the whole spectrum.
@@ -70,7 +72,7 @@ class Display:
     wavelength_range: tuple[float, float] | None = None
     n_wavelength: int = 512
     time_range: tuple[float, float] | None = None
-    n_time: int = 512
+    n_time: int = 2048
     bandpass: tuple[float, float] | None = None
 
     def within(self, keywords: Mapping[str, object]) -> Display:

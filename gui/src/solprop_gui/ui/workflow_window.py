@@ -196,6 +196,9 @@ class WorkflowWindow(QMainWindow):
         self.home.open_setup_wanted.connect(self.choose_setup)
         self.home.results_chosen.connect(self.open_results)
         self.home.setup_chosen.connect(self.open_setup)
+        self.home.workspace_wanted.connect(self.run_panel.choose_workspace)
+        self.run_panel.workspace_changed.connect(self._workspace_changed)
+        self.home.show_workspace(self.run_panel.workspace)
         self.sheet.edited.connect(
             lambda name, table, value: self.document.edit(
                 name, table, value, merging=True
@@ -1021,6 +1024,18 @@ class WorkflowWindow(QMainWindow):
         names = [saved] if isinstance(saved, str) else list(saved)  # pyright: ignore[reportArgumentType, reportCallIssue]
         path = str(model.path)
         self.settings.setValue(_RECENT_SETUPS, [path, *(n for n in names if n != path)])
+
+    def _workspace_changed(self, folder: str) -> None:
+        """Make runs in another folder, keep it, and list its runs.
+
+        Parameters
+        ----------
+        folder : str
+            The folder.
+        """
+        self.settings.setValue("workspace", folder)
+        self.home.show_workspace(Path(folder))
+        self.refresh_home()
 
     def refresh_home(self) -> None:
         """List the recent runs and setups on Home."""

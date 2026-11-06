@@ -20,6 +20,7 @@ and approximation limits are part of these chapters; the
 | Read, plot, and interpret a saved run | [Results and interpretation](results/index.md) |
 | Design a configuration, compress a pulse, or scan parameters | [Design and workflows](workflows/index.md) |
 | Select a backend or tune a large calculation | [Backends and performance](performance/index.md) |
+| Set up, run and read a simulation in a desktop window, with no script | [The desktop front end](front-end/index.md) |
 
 Each section links to [examples](../examples/index.md) that put the models to use.
 When comparing a simulation with an experiment, read both the physical assumptions
@@ -38,4 +39,5 @@ numerics/index
 results/index
 workflows/index
 performance/index
+front-end/index
 ```
