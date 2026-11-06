@@ -11,6 +11,11 @@
 [![Licence: GPL-3.0-or-later](https://img.shields.io/badge/licence-GPL--3.0--or--later-blue.svg)](https://github.com/LupoLab/solprop/blob/main/LICENSE)
 [![REUSE](https://img.shields.io/badge/REUSE-compliant-green)](https://reuse.software)
 
+> **New: a desktop GUI (experimental).** Set up, run and explore simulations in a window,
+> with no script: `pip install "solprop[gui]"`, then `solprop-gui`. See
+> [the desktop GUI](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html)
+> and its section below.
+
 **Ultrafast nonlinear pulse propagation in Python** — from few-cycle pulses in
 gas-filled hollow-core fibres to multimode solid-core fibres and free-space beams.
 
@@ -87,6 +92,40 @@ prop_2d(run, "wavelength")
   design tools, and pulse compressors (Taylor phase, chirped mirrors, materials,
   gratings and prisms). One import, `import solprop.sol as sol`, sets up an interactive
   session.
+
+## A desktop GUI (experimental)
+
+![The solprop desktop GUI's Home, with a tile for each kind of simulation](https://raw.githubusercontent.com/LupoLab/solprop/main/docs/_static/readme-gui-home.png)
+
+solprop now comes with an experimental desktop front end, `solprop-gui`, for setting up,
+running and reading simulations without writing a line of Python:
+
+```sh
+pip install "solprop[gui]"
+solprop-gui
+```
+
+- **Pick what you are simulating**: gas-filled capillaries, antiresonant fibres,
+  GNLSE, step-index and graded-index fibres, radial filaments, and Cartesian and line
+  beams, each starting from a few chosen examples.
+- **One setup sheet, in physics terms**: core radius, gas and pressure, pulse
+  wavelength, duration and energy, checked as you type, with the numbers solprop
+  computes for it (soliton order, zero-dispersion wavelength, fission length,
+  P/P<sub>cr</sub>) and a preview plot. Type a target into one of those numbers and
+  solprop solves for the pressure or energy that gives it.
+- **Watch it run**: the spectrum and the pulse grow along the fibre as it goes; stop it
+  and resume it.
+- **Explore the results** at any point along the propagation: maps, spectra, pulses,
+  spectrograms, energy, peak power and electron density along z, with zoom, readouts, widths at half
+  maximum, and publication figures drawn by `solprop.plotting`.
+- **Scan and design**: run a grid over any parameters and open any point as a setup, or
+  explore a waveguide's dispersion, loss and phase matching with no pulse at all.
+- **Never a dead end**: every setup saves as a recipe or as the Python script that
+  builds it, and every solprop results file opens in the window.
+
+Its interface may still change between releases.
+[The desktop GUI](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html) chapter of the user guide walks through it; the window's Help
+menu opens the same pages offline.
 
 ## Fast CPUs and GPUs: the native backend
 

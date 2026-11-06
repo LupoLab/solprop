@@ -332,12 +332,17 @@ def test_a_spectrogram_on_a_narrow_envelope_grid_has_its_carrier(tmp_path):
 
     narrow = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1100e-9), 200e-15)
     assert real_field_oversampling(narrow) > 1
-    text = (
-        Recipe.example("antiresonant_fibre")
-        .to_text()
-        .replace('length = "0.05 m"', 'length = "1 mm"')
-        .replace('["300 nm", "1600 nm"]', '["600 nm", "1100 nm"]')
-    )
+    recipe = Recipe.example("antiresonant_fibre")
+    for path, value in (
+        ("length", "1 mm"),
+        ("wavelength_limits", ["600 nm", "1100 nm"]),
+        ("trange", "200 fs"),
+        ("envelope", True),
+        ("plasma", False),
+        ("n_save", 2),
+    ):
+        recipe.set(path, value)
+    text = recipe.to_text()
     path = tmp_path / "run.h5"
     Recipe.loads(text).run(path)
     with open_file(str(path)) as output:

@@ -156,7 +156,7 @@ enough to resolve the beat below: at one plane per millimetre it would alias.
         energy=100e-9,
         shape="sech",
         launch={labels[0]: 0.5, labels[1]: 0.5},
-        n_save=81,
+        n_save=201,
         rtol=1e-5,
         noise=None,
         absorber=False,
@@ -215,7 +215,7 @@ tolerance. They beat with the channels' relative phase: the period is close to
 
  .. code-block:: none
 
-    total energy changed by 1.8e-07
+    total energy changed by 3.6e-08
     closed-form beat length 0.785 mm
 
 
@@ -256,7 +256,7 @@ channel.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 12.189 seconds)
+   **Total running time of the script:** (0 minutes 12.315 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_10_graded_index_fibre.py:

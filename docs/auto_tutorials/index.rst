@@ -414,7 +414,7 @@ graded-index fibre.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="The first chart resolves the six lowest vector branches of a weakly guiding fibre: a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact equation; 2.405 and 3.832 are weak-guidance limits. The silica strand has a 1.25 um radius and its transverse profile is frozen at 835 nm. A 568 pJ, 50 fs sech pulse propagates for 15 cm with Kerr and silica Raman. The time window is reduced to 1 ps, and no shot noise is added. This is an example of mode-averaged propagation, not a converged supercontinuum prediction.">
+    <div class="sphx-glr-thumbcontainer" tooltip="The first chart resolves the six lowest vector branches of a weakly guiding fibre: a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact equation; 2.405 and 3.832 are weak-guidance limits. The silica strand has a 1.25 um radius and its transverse profile is frozen at 835 nm. A 568 pJ, 50 fs sech pulse propagates for 5 cm with Kerr and silica Raman, saved at 201 planes. The 2 ps window holds the Raman-shifted solitons, so the boundary monitor stays on, and no shot noise is added. This is an example of mode-averaged propagation, not a converged supercontinuum prediction.">
 
 .. only:: html
 
@@ -562,8 +562,9 @@ one direction, a planar guide resolved across its width, a weak band calibrated 
 the low-storage march, a four-wave-mixing delay scan run through one backend with
 statistics-only planes, far-field spectra collected through apertures in a mask
 plane, a beam prepared by Kerr self-focusing in a gas gap and coupled into a
-capillary, a transverse window sized with the boundary monitor, and a radial beam and a
-line beam under the Kerr effect built from plain objects.
+capillary, a transverse window sized with the boundary monitor, a radial beam and a
+line beam under the Kerr effect built from plain objects, and two beams crossing in
+argon, launched together as a sum of beams.
 
 For the full filament and crossing-beam lessons, begin with the
 :doc:`/introduction/index`.
@@ -781,6 +782,23 @@ For the full filament and crossing-beam lessons, begin with the
 .. raw:: html
 
       <div class="sphx-glr-thumbnail-title">Reading a radial filament from its file</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="Two 800 nm, 40 fs pulsed beams of 0.2 mJ each and 150 um waist enter 1 bar of argon 0.8 mm apart, tilted 5 mrad towards each other, so that they cross 8 cm in and separate again by 16 cm. Where they overlap they interfere: fringes 80 um apart, lambda over twice the sine of the angle. Each beam alone is at about 0.6 of argon&#x27;s critical power for self-focusing, but in the bright fringes the intensity is up to four times one beam&#x27;s, and the Kerr effect focuses them.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_12_crossing_beams_kerr_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_12_crossing_beams_kerr`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Two beams crossing in argon</div>
     </div>
 
 

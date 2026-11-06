@@ -77,7 +77,7 @@ with warnings.catch_warnings():
         fwhm=7.5e-15,
         energy=275e-6,
         modes=2,
-        n_save=51,
+        n_save=201,
         progress="none",
         seed=20261027,
     )

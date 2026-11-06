@@ -1,0 +1,1 @@
+An example of the canonical photonic-crystal-fibre supercontinuum of Dudley, Genty and Coen (Rev. Mod. Phys. 78, 1135 (2006), Fig. 3), in the supercontinuum gallery and as `Recipe.example("fibre_supercontinuum")`, which the desktop front end lists for its GNLSE class.

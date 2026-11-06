@@ -25,9 +25,10 @@ The first chart resolves the six lowest vector branches of a weakly guiding fibr
 a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact
 equation; 2.405 and 3.832 are weak-guidance limits.
 The silica strand has a 1.25 um radius and its transverse profile is frozen at
-835 nm. A 568 pJ, 50 fs sech pulse propagates for 15 cm with Kerr and silica Raman.
-The time window is reduced to 1 ps, and no shot noise is added. This is an example
-of mode-averaged propagation, not a converged supercontinuum prediction.
+835 nm. A 568 pJ, 50 fs sech pulse propagates for 5 cm with Kerr and silica Raman,
+saved at 201 planes. The 2 ps window holds the Raman-shifted solitons, so the boundary
+monitor stays on, and no shot noise is added. This is an example of mode-averaged
+propagation, not a converged supercontinuum prediction.
 
 The strand propagates through the public ``prop_gnlse(fibre=...)`` entry: the
 mode supplies dispersion, loss and effective area, and ``n2`` supplies the
@@ -43,7 +44,7 @@ taken as transparent, would absorb (MaterialRangeWarning), and the rectangular g
 wall model passes its first-order validity at its longest wavelengths
 (GrazingIncidenceWarning).
 
-.. GENERATED FROM PYTHON SOURCE LINES 31-67
+.. GENERATED FROM PYTHON SOURCE LINES 32-68
 
 .. code-block:: Python
 
@@ -95,11 +96,11 @@ wall model passes its first-order validity at its longest wavelengths
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 68-69
+.. GENERATED FROM PYTHON SOURCE LINES 69-70
 
 The strand dispersion and its zero crossing use the implicit derivative.
 
-.. GENERATED FROM PYTHON SOURCE LINES 69-80
+.. GENERATED FROM PYTHON SOURCE LINES 70-81
 
 .. code-block:: Python
 
@@ -126,24 +127,23 @@ The strand dispersion and its zero crossing use the implicit derivative.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 81-84
+.. GENERATED FROM PYTHON SOURCE LINES 82-84
 
-The mode itself is the fibre of a mode-averaged GNLSE run. Its window is kept
-narrow on purpose (above): the supercontinuum's radiation leaves it, which the
-boundary monitor would otherwise stop the run for, so the check is off.
+The mode itself is the fibre of a mode-averaged GNLSE run. Over 5 cm the solitons
+shed by fission shift to the red and walk off in time; the 2 ps window keeps them.
 
-.. GENERATED FROM PYTHON SOURCE LINES 84-127
+.. GENERATED FROM PYTHON SOURCE LINES 84-126
 
 .. code-block:: Python
 
     strand_output = prop_gnlse(
         None,
-        0.15,
+        0.05,
         fibre=strand,
         n2=2.6e-20,
         wavelength=835e-9,
         wavelength_limits=(400e-9, 1400e-9),
-        trange=1e-12,
+        trange=2e-12,
         fwhm=50e-15,
         energy=568e-12,
         shape="sech",
@@ -153,18 +153,17 @@ boundary monitor would otherwise stop the run for, so the check is off.
         atol=1e-14,
         dz_max=0.001,
         dz_init=1.5e-5,
-        n_save=2,
+        n_save=201,
         progress="none",
         noise=None,
-        boundary_check=None,
     )
     # The grid prop_gnlse built from those keywords, for the wavelength axis.
     grid = grid_of(strand_output)
     figure, axis = plt.subplots(figsize=(7, 3.5))
     active = grid.omega > 0
     order = np.argsort(2 * np.pi * C / grid.omega[active])
-    spectra = np.abs(strand_output.fields("fft")[:, 0, 0, active]) ** 2
-    for values, label in zip(spectra, ("Input", "After 15 cm"), strict=True):
+    spectra = np.abs(strand_output.fields("fft")[[0, -1], 0, 0][:, active]) ** 2
+    for values, label in zip(spectra, ("Input", "After 5 cm"), strict=True):
         axis.semilogy(
             (2 * np.pi * C / grid.omega[active])[order] * 1e9,
             values[order] / spectra[0].max(),
@@ -193,15 +192,16 @@ boundary monitor would otherwise stop the run for, so the check is off.
  .. code-block:: none
 
     MaterialRangeWarning: SiO2 (fit/SiO2) is taken as transparent, and drops an absorption coefficient of 2.81e+03 /m (k = 0.000609) at 2717 nm, beyond the transparent approximation's bound of 100 /m: the band reaches an absorbing region the lossless solve does not represent
+    BoundaryWarning: the temporal collar removed 6.20e-05 of the launch energy, whose square root is above the 1e-03 budget: what left the window may have mattered; widen trange to keep it
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 128-129
+.. GENERATED FROM PYTHON SOURCE LINES 127-128
 
 Rectangular x/y partners have separate propagation constants and losses.
 
-.. GENERATED FROM PYTHON SOURCE LINES 129-167
+.. GENERATED FROM PYTHON SOURCE LINES 128-166
 
 .. code-block:: Python
 
@@ -258,12 +258,12 @@ Rectangular x/y partners have separate propagation constants and losses.
 
     GrazingIncidenceWarning: RectMode(x11, 100 um x 20 um, Ar 5 bar, loss=True): the first-order wall-pair model reaches lambda |q| / (2 pi a) = 0.179 at 2332 nm, above the 0.1 it is valid to; its neglected terms are second order in that ratio. Narrow the band towards shorter wavelengths, widen the guide, or keep lower orders
     Rectangular transmitted energy: 9.954503e-09 J
-    Complete step-index/rectangular example: 7.917 s
+    Complete step-index/rectangular example: 2.257 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 168-174
+.. GENERATED FROM PYTHON SOURCE LINES 167-173
 
 Related reading
 ---------------
@@ -275,7 +275,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.997 seconds)
+   **Total running time of the script:** (0 minutes 2.286 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_03_stepindex_rectangular.py:

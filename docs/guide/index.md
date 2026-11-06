@@ -10,6 +10,14 @@ or start with the chapter for your geometry. Detailed equations, conventions,
 and approximation limits are part of these chapters; the
 [API reference](../api/index.md) gives the precise arguments of each function.
 
+:::{admonition} Prefer a window to a script?
+:class: tip
+
+The experimental desktop GUI, `solprop-gui` (`pip install "solprop[gui]"`), sets up,
+runs and reads simulations with no code, and saves every setup as a recipe or a Python
+script to continue here: see [the desktop front end](front-end/index.md).
+:::
+
 | To… | Start with… |
 |---|---|
 | Choose a model, input pulse, and computational window | [Setting up a simulation](setup/index.md) |
@@ -20,6 +28,7 @@ and approximation limits are part of these chapters; the
 | Read, plot, and interpret a saved run | [Results and interpretation](results/index.md) |
 | Design a configuration, compress a pulse, or scan parameters | [Design and workflows](workflows/index.md) |
 | Select a backend or tune a large calculation | [Backends and performance](performance/index.md) |
+| Set up, run and read a simulation in a desktop window, with no script | [The desktop front end](front-end/index.md) |
 
 Each section links to [examples](../examples/index.md) that put the models to use.
 When comparing a simulation with an experiment, read both the physical assumptions
@@ -38,4 +47,5 @@ numerics/index
 results/index
 workflows/index
 performance/index
+front-end/index
 ```

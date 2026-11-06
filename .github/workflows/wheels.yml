@@ -34,6 +34,9 @@ on:
       - "native/cmake/**"
       - "gui/pyproject.toml"
       - "gui/hatch_build.py"
+      - "gui/README.md"
+      # The front end's chapter of the user guide, which its sdist and wheel carry.
+      - "docs/guide/front-end/**"
       - "hatch_build.py"
       - ".github/workflows/wheels.yml"
 
@@ -391,6 +394,16 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
+      # On a tag, the citation names the tag's version: a tag on a commit whose
+      # CITATION.cff still names the last release cannot publish.
+      - name: CITATION.cff names the tag's version
+        if: github.ref_type == 'tag'
+        run: |
+          cited=$(sed -n 's/^version: *//p' CITATION.cff | tr -d "\"'" | tr -d '[:space:]')
+          if [ "$cited" != "${GITHUB_REF_NAME#v}" ]; then
+            echo "::error::CITATION.cff names version '$cited', the tag $GITHUB_REF_NAME"
+            exit 1
+          fi
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: uv python install 3.14
       - run: uv build --package solprop --out-dir dist
@@ -431,9 +444,10 @@ jobs:
           }
           check wheel "$wheel" native
           check sdist "$sdist" native
-      # The front end with solprop's `gui` extra, from these files: the two pins
-      # (hatch_build.py, gui/hatch_build.py) meet, and the command answers at the
-      # version without loading Qt.
+      # The front end, from its wheel through solprop's `gui` extra and from its own
+      # sdist: the two pins (hatch_build.py, gui/hatch_build.py) meet, the environment is
+      # consistent, the command answers at the version without loading Qt, and the user
+      # guide's chapter is carried for the window's Help.
       - name: Install the front end and check it
         working-directory: ${{ runner.temp }}
         env:
@@ -442,11 +456,20 @@ jobs:
           WHEELHOUSE: ${{ github.workspace }}/wheelhouse
         run: |
           wheel=$(echo "$DIST"/solprop-*.whl)
+          gui_sdist=$(echo "$DIST_GUI"/solprop_gui-*.tar.gz)
           version=$(basename "$(echo "$DIST"/solprop-*.tar.gz)" .tar.gz)
           version=${version#solprop-}
-          uv venv --python 3.14 gui
-          uv pip install --python gui/bin/python --find-links "$DIST_GUI" --find-links "$WHEELHOUSE" "${wheel}[gui]"
-          test "$(gui/bin/solprop-gui --version)" = "$version"
+          check() { # environment, then what to install
+            environment=$1
+            shift
+            uv venv --python 3.14 "$environment"
+            uv pip install --python "$environment/bin/python" --find-links "$DIST_GUI" --find-links "$WHEELHOUSE" "$@"
+            uv pip check --python "$environment/bin/python"
+            test "$("$environment/bin/solprop-gui" --version)" = "$version"
+            "$environment/bin/python" -I -c "from solprop_gui.help.manual import chapter_folder, pages; folder = chapter_folder(); assert folder is not None and 'site-packages' in str(folder), folder; assert len(pages(folder)) > 1, folder"
+          }
+          check gui-wheel "${wheel}[gui]"
+          check gui-sdist "$wheel" "$gui_sdist"
 
   # SEP 43 section 7's minimum systems, as far as a hosted machine reaches them: the
   # oldest macOS runner, a RHEL 8 age container with no compiler (glibc 2.28, what the
@@ -592,6 +615,20 @@ jobs:
     uses: ./.github/workflows/published-install.yml
     with:
       version: ${{ github.ref_name }}
+
+  # The front end as a user installs it, `solprop[gui]` from PyPI, on the same platforms.
+  published-install-gui:
+    needs: [publish-native, publish, publish-gui]
+    if: >-
+      ${{ !cancelled()
+      && vars.PUBLISH_GUI == 'true'
+      && needs.publish-native.result == 'success'
+      && needs.publish.result == 'success'
+      && needs.publish-gui.result == 'success' }}
+    uses: ./.github/workflows/published-install.yml
+    with:
+      version: ${{ github.ref_name }}
+      gui: true
 
   qualify-published:
     if: github.event_name == 'workflow_dispatch' && inputs.published_version != ''

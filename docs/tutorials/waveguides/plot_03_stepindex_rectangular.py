@@ -10,9 +10,10 @@ The first chart resolves the six lowest vector branches of a weakly guiding fibr
 a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact
 equation; 2.405 and 3.832 are weak-guidance limits.
 The silica strand has a 1.25 um radius and its transverse profile is frozen at
-835 nm. A 568 pJ, 50 fs sech pulse propagates for 15 cm with Kerr and silica Raman.
-The time window is reduced to 1 ps, and no shot noise is added. This is an example
-of mode-averaged propagation, not a converged supercontinuum prediction.
+835 nm. A 568 pJ, 50 fs sech pulse propagates for 5 cm with Kerr and silica Raman,
+saved at 201 planes. The 2 ps window holds the Raman-shifted solitons, so the boundary
+monitor stays on, and no shot noise is added. This is an example of mode-averaged
+propagation, not a converged supercontinuum prediction.
 
 The strand propagates through the public ``prop_gnlse(fibre=...)`` entry: the
 mode supplies dispersion, loss and effective area, and ``n2`` supplies the
@@ -78,17 +79,16 @@ axis.legend()
 figure.tight_layout()
 
 # %%
-# The mode itself is the fibre of a mode-averaged GNLSE run. Its window is kept
-# narrow on purpose (above): the supercontinuum's radiation leaves it, which the
-# boundary monitor would otherwise stop the run for, so the check is off.
+# The mode itself is the fibre of a mode-averaged GNLSE run. Over 5 cm the solitons
+# shed by fission shift to the red and walk off in time; the 2 ps window keeps them.
 strand_output = prop_gnlse(
     None,
-    0.15,
+    0.05,
     fibre=strand,
     n2=2.6e-20,
     wavelength=835e-9,
     wavelength_limits=(400e-9, 1400e-9),
-    trange=1e-12,
+    trange=2e-12,
     fwhm=50e-15,
     energy=568e-12,
     shape="sech",
@@ -98,18 +98,17 @@ strand_output = prop_gnlse(
     atol=1e-14,
     dz_max=0.001,
     dz_init=1.5e-5,
-    n_save=2,
+    n_save=201,
     progress="none",
     noise=None,
-    boundary_check=None,
 )
 # The grid prop_gnlse built from those keywords, for the wavelength axis.
 grid = grid_of(strand_output)
 figure, axis = plt.subplots(figsize=(7, 3.5))
 active = grid.omega > 0
 order = np.argsort(2 * np.pi * C / grid.omega[active])
-spectra = np.abs(strand_output.fields("fft")[:, 0, 0, active]) ** 2
-for values, label in zip(spectra, ("Input", "After 15 cm"), strict=True):
+spectra = np.abs(strand_output.fields("fft")[[0, -1], 0, 0][:, active]) ** 2
+for values, label in zip(spectra, ("Input", "After 5 cm"), strict=True):
     axis.semilogy(
         (2 * np.pi * C / grid.omega[active])[order] * 1e9,
         values[order] / spectra[0].max(),

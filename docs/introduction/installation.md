@@ -131,6 +131,21 @@ version, so the two have to come from one commit. There are two ways to get that
 To work on solprop itself, use the [contributor setup](../dev/contributing.md), where
 `uv run --no-sync poe fetch-wheel` installs CI's wheel into a clone.
 
+**The desktop front end.** `solprop[gui]` adds `solprop-gui`, a window for setting up,
+running and reading simulations without a script
+([the desktop front end](../guide/front-end/index.md)):
+
+```sh
+uv pip install "solprop[gui]"
+solprop-gui
+```
+
+The front end is experimental. It needs more of Linux than solprop does: every Qt for
+Python (PySide6) release for CPython 3.14 wants glibc 2.34 or newer on x86-64 and 2.39
+on aarch64, so on an older glibc `solprop[gui]` does not install, though solprop does.
+There, as above, an installer may fall back to an older solprop without the front end;
+`pip install "solprop[gui]>=0.2"` shows the error instead.
+
 ## Checking the installation
 
 Use Python in the activated environment, or a notebook kernel using that same

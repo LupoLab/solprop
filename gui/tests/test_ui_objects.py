@@ -1,0 +1,157 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The registered types' editors and the guided routes' cards, offscreen."""
+
+from collections.abc import Mapping
+from pathlib import Path
+
+from pytestqt.qtbot import QtBot
+
+from solprop_gui.model.recipe import MISSING
+from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.objects import ObjectField, ObjectListField
+from test_ui import WAIT_MS, leave, private_settings, shot  # noqa: F401 - a fixture
+
+
+def keyword(
+    name: str, kind: str = "number", unit: str | None = "m", **extra: object
+) -> dict[str, object]:
+    meta: dict[str, object] = {
+        "name": name,
+        "forms": [{"kind": kind, "unit": unit, **extra}],
+        "summary": f"The {name}.",
+        "level": "basic",
+        "display": "um" if unit == "m" else None,
+    }
+    return meta
+
+
+CATALOG = {
+    "Box": [
+        {**keyword("width"), "required": True},
+        {**keyword("depth"), "level": "advanced"},
+        keyword("shape", "choice", None, choices=["flat", "round"]),
+    ],
+    "Ring": [keyword("radius")],
+}
+
+
+def row(meta: Mapping[str, object]) -> ParameterRow:
+    return ParameterRow(meta, "object", catalog=CATALOG)
+
+
+def test_an_object_field_edits_one_type_s_table(qtbot: QtBot, tmp_path: Path):
+    field = ObjectField(["Box", "Ring", "Unknown"], CATALOG, row)
+    qtbot.addWidget(field)
+    assert field.types == ["Box", "Ring"]  # a type the kernel did not describe is out
+    seen = []
+    field.changed.connect(seen.append)
+    box = field.by_name["Box"]
+    assert not box.rows["depth"].isVisibleTo(field)  # advanced, unset: behind "more"
+    assert box.more.text() == "more (1)"
+    box.more.setChecked(True)
+    assert box.rows["depth"].isVisibleTo(field) and box.more.text() == "fewer"
+    leave(box.rows["width"].number.number, "10")  # pyright: ignore[reportAttributeAccessIssue]
+    assert seen[-1] == {"type": "Box", "width": "10 um"}
+    box.rows["width"].reset.click()  # pyright: ignore[reportAttributeAccessIssue]
+    assert seen[-1] == {"type": "Box"}
+    field.picker.setCurrentIndex(field.picker.findData("Ring"))
+    assert seen[-1] == {"type": "Ring"}
+    field.set_value({"type": "Box", "width": "5 um", "depth": "1 um", "x": 1})
+    assert field.table() == {"type": "Box", "width": "5 um", "depth": "1 um"}
+    assert field.fits({"type": "Ring"}) and not field.fits({"type": "Unknown"})
+    assert not field.fits([{"type": "Box"}])
+    field.set_value("not a table")  # the type picked, empty
+    assert field.table() == {"type": "Box"}
+    shot(field, tmp_path, "object")
+
+
+def test_an_object_list_adds_removes_and_keeps_one_table(qtbot: QtBot):
+    field = ObjectListField(["Box", "Ring"], CATALOG, row)
+    qtbot.addWidget(field)
+    seen = []
+    field.changed.connect(seen.append)
+    assert field.value() is None
+    field.add_button.click()
+    assert seen[-1] == [{"type": "Box"}]
+    field.items[0].picker.setCurrentIndex(1)
+    assert seen[-1] == [{"type": "Ring"}]
+    field.add_item()
+    assert len(seen[-1]) == 2
+    field.remove_item(field.items[0])
+    assert seen[-1] == [{"type": "Box"}]
+    field.remove_item(field.items[0])
+    assert seen[-1] is None
+    # One table loaded is written back as one table while one is left.
+    field.set_value({"type": "Ring", "radius": "3 um"})
+    assert field.single and field.value() == {"type": "Ring", "radius": "3 um"}
+    field.add_item()
+    assert isinstance(seen[-1], list) and len(seen[-1]) == 2
+    assert field.fits([{"type": "Box"}]) and not field.fits([])
+    assert not field.fits([{"type": "Nope"}]) and not field.fits("x")
+    field.set_value("x")
+    assert field.items == []
+
+
+def test_a_row_offers_its_types_and_falls_back_to_text(qtbot: QtBot):
+    meta = keyword("lattice", "object", None, types=["Box"], recipe=True)
+    single = ParameterRow(meta, catalog=CATALOG)
+    qtbot.addWidget(single)
+    assert single.modes == ["object"]
+    seen = []
+    single.edited.connect(lambda *args: seen.append(args))
+    single.set_value({"type": "Box", "width": "2 um"})
+    assert single.stack.currentWidget() is single.object
+    single.object.picker.setCurrentIndex(0)
+    leave(single.object.current().rows["width"].number.number, "3")  # pyright: ignore[reportAttributeAccessIssue]
+    assert seen[-1] == ("lattice", "build", {"type": "Box", "width": "3 um"})
+    single.set_value(MISSING)
+    listed = ParameterRow({**meta, "name": "pulses"}, catalog=CATALOG)
+    qtbot.addWidget(listed)
+    assert listed.modes == ["objects"]
+    listed.set_value([{"type": "Box"}])
+    assert listed.stack.currentWidget() is listed.objects
+    listed.set_value(MISSING)
+    bare = ParameterRow(meta)  # no catalog: as text
+    qtbot.addWidget(bare)
+    assert bare.modes == ["text"]
+    single.set_per_width(True)
+    assert "per metre of y" in single.label.text()
+    single.set_per_width(False)
+    assert single.label.text() == "Tube lattice"
+
+
+def test_the_taylor_coefficients_are_one_row_per_order(qtbot: QtBot):
+    from solprop_gui.ui.betas import BetasField  # noqa: PLC0415 - only here
+
+    field = BetasField()
+    qtbot.addWidget(field)
+    seen = []
+    field.changed.connect(seen.append)
+    refused = []
+    field.refused.connect(refused.append)
+    field.set_value([0, 0, "-0.01183 ps^2/m"])
+    assert len(field.fields) == 3 and field.fields[2].unit() == "ps^2/m"
+    leave(field.fields[2].number, "-20")
+    assert seen[-1] == [0, 0, "-20 ps^2/m"]
+    field.add_order()
+    assert seen[-1] == [0, 0, "-20 ps^2/m", 0]
+    assert field.fields[3].unit() == "ps^3/km"
+    field.remove_order()
+    field.remove_order()
+    assert seen[-1] == [0, 0]
+    field.fields[1].number.setText("x")
+    field._changed()
+    assert refused and "x" in refused[-1]
+    field.set_value(None)
+    assert field.fields == [] and field.value() is None
+    field.remove_order()  # none left: nothing to remove
+    assert not BetasField.fits([True]) and BetasField.fits([0, "1 ps/m"])
+    row = ParameterRow(
+        {"name": "betas", "forms": [{"kind": "array", "elements": "betas"}]}
+    )
+    qtbot.addWidget(row)
+    row.set_value([0, 0, "-1 ps^2/km"])
+    assert row.stack.currentWidget() is row.betas

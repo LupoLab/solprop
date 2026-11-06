@@ -15,6 +15,10 @@ on:
         description: Also run the release's full README example (manual qualification only)
         default: false
         type: boolean
+      gui:
+        description: Install solprop[gui] and check the front end too
+        default: false
+        type: boolean
   workflow_dispatch:
     inputs:
       version:
@@ -25,13 +29,17 @@ on:
         description: Also run the release's full README example (manual qualification only)
         default: false
         type: boolean
+      gui:
+        description: Install solprop[gui] and check the front end too
+        default: false
+        type: boolean
 
 permissions:
   contents: read
 
 jobs:
   install:
-    name: published-install (${{ matrix.id }})
+    name: published-install${{ inputs.gui && ' gui' || '' }} (${{ matrix.id }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
@@ -51,6 +59,7 @@ jobs:
       MPLBACKEND: Agg
       VERSION: ${{ inputs.version }}
       RUN_README: ${{ inputs.readme_example }}
+      WITH_GUI: ${{ inputs.gui }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -64,12 +73,15 @@ jobs:
           if [ "$RUN_README" = true ]; then
             args+=(--readme-example)
           fi
+          if [ "$WITH_GUI" = true ]; then
+            args+=(--gui)
+          fi
           uv run --no-project --no-config --python 3.14 python -I \
             "$GITHUB_WORKSPACE/.github/scripts/published_install.py" "${args[@]}"
       - name: Preserve the installation evidence, including failures
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: published-install-${{ matrix.id }}
+          name: published-install${{ inputs.gui && '-gui' || '' }}-${{ matrix.id }}
           path: ${{ runner.temp }}/published-install/evidence/
           if-no-files-found: warn
