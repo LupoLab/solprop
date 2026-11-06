@@ -133,7 +133,9 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     if log:
         floor = float(np.max(values)) * 10.0 ** ((db_min - 10.0) / 10.0)
         values = 10.0 * np.log10(np.maximum(values, floor) / np.max(values))
-    mesh = ax.pcolormesh(times * T_TO_FS, ordinate, values, shading="auto", cmap=cmap)
+    mesh = ax.pcolormesh(
+        times * T_TO_FS, ordinate, values, shading="auto", cmap=cmap, rasterized=True
+    )
     if log:
         mesh.set_clim(db_min, 0.0)
     label = "Intensity (dB)" if log else "Intensity (arb.)"
