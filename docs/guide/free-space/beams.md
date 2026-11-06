@@ -306,6 +306,19 @@ intensities, the beam radius, the full width and the on-axis spectrum
 [statistics catalogue](../results/statistics.md) defines each, and the model page
 [says how the widths are measured](model.md#spatial-collar-and-statistics).
 
+A radial file also answers for the beam itself, from the file alone:
+{py:func}`~solprop.processing.beams.fluence_along` gives the fluence across the beam at every
+plane, {py:func}`~solprop.processing.beams.radial_spectrum` and
+{py:func}`~solprop.processing.beams.radial_intensity` one plane across the beam,
+{py:func}`~solprop.processing.beams.on_axis_spectra`,
+{py:func}`~solprop.processing.beams.on_axis_power` and
+{py:func}`~solprop.processing.beams.on_axis_spectrogram` the light on the axis, and
+{py:func}`~solprop.processing.beams.far_field` its energy per solid angle against wavelength,
+where conical emission shows as rings. The angle is the one outside the medium. The
+[filament reader example](../../auto_tutorials/free_space/plot_11_radial_filament.rst) uses them,
+and {py:func}`~solprop.tools.beam_params` gives a beam's Rayleigh range, critical power and
+Marburger distance.
+
 ## Where it runs
 
 Radial, Cartesian and line runs execute on `numpy_ref` and the native

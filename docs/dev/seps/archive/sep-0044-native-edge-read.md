@@ -6,17 +6,17 @@
 | **Title** | Reading the transverse edge where the state lives |
 | **Author** | John Travers |
 | **Drafting agent** | Claude Opus 5.5 |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-04 |
 | **Resolution** | Accepted 2026-11-04, in [#515](https://github.com/LupoLab/solprop/pull/515) |
-| **Requires** | [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) |
+| **Requires** | [SEP 40](sep-0040-transverse-absorbing-boundaries.md) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Claude Opus 5.5, on `feature/sep-0044-native-edge`: phases 1 to 4 done; phase 5's documents are in, and `Final` is the maintainer's |
-| **Manual pages** | — |
+| **Implementation** | Complete 2026-11-05: John Travers, with Opus 5.5, on `feature/sep-0044-native-edge`, [#520](https://github.com/LupoLab/solprop/pull/520) |
+| **Manual pages** | [Running: the boundary check on a free-space scan](../../../guide/setup/running.md#many-inputs-one-backend-the-runner); [Free-space model: transverse boundaries](../../../guide/free-space/model.md) |
 
 ## Part I — Proposal
 
@@ -89,7 +89,7 @@ implementation without them, which [#396](https://github.com/LupoLab/solprop/iss
 on some cases, with the read ceiling and the read's host cost as the two causes. That limit is
 not the table above: a device's cost is far larger, and it is measured against the same build's check-off point. By the maintainer's decision
 (R4) this SEP retires that limit: the cost is to be as small as possible, and reported.
-[ADR-057](../decisions.md) and `_boundary_energies` are the pattern for a reduction that
+[ADR-057](../../decisions.md) and `_boundary_energies` are the pattern for a reduction that
 runs where the state lives, with `numpy_ref`'s host form as the reference.
 
 **Issues.** This fixes [#385](https://github.com/LupoLab/solprop/issues/385) for CUDA and HIP, and
@@ -365,7 +365,7 @@ check and 9.8 s with [#502](https://github.com/LupoLab/solprop/issues/502)'s rin
   read as a new runner would.
 - **Whole runs.** `tests/backends/test_transverse_backends.py` extended to every route and to collars. Exact stops, read counts
   and records against `numpy_ref` hold only on controlled witnesses, with matched histories and margins from the decision thresholds.
-  Other adaptive runs are held to an accuracy envelope ([testing.md](../testing.md) §3).
+  Other adaptive runs are held to an accuracy envelope ([testing.md](../../testing.md) §3).
 - **No monitor-induced transfer.** The promise is about what the monitor costs: requested fields, some statistics, interpolation and
   a terminal checkpoint keep their own transfers. Refusing `_observed_field` can't see a direct `field_to_host()`, so native counts the bytes
   through its crossing paths, each way, and a field-free default run through launch, reads and shutdown is held to none to the host,
@@ -433,8 +433,8 @@ physics decision, left to [#388](https://github.com/LupoLab/solprop/issues/388).
 
 ### 13. References
 
-1. SEP 40, [Transverse absorbing boundaries](archive/sep-0040-transverse-absorbing-boundaries.md), §5.3 and §7.7.
-2. ADR-049, ADR-057 and ADR-061, [decisions](../decisions.md).
+1. SEP 40, [Transverse absorbing boundaries](sep-0040-transverse-absorbing-boundaries.md), §5.3 and §7.7.
+2. ADR-049, ADR-057 and ADR-061, [decisions](../../decisions.md).
 
 ## Part II — Implementation record
 
@@ -501,7 +501,7 @@ SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 th
 
 ### Phase 4 — 2026-11-05
 
-The read qualified on an NVIDIA H200 and an AMD Instinct MI325X, the first AMD card to run it, within a rental the maintainer approved. Each ran a CUDA or HIP build on the card: the H200 at `9a5d2346` and again at `8cd170e2`, and the MI325X at `9a5d2346`. The tables are in the ledger, [the native read on the data-centre cards](../benchmarks.md#the-native-read-on-the-data-centre-cards).
+The read qualified on an NVIDIA H200 and an AMD Instinct MI325X, the first AMD card to run it, within a rental the maintainer approved. Each ran a CUDA or HIP build on the card: the H200 at `9a5d2346` and again at `8cd170e2`, and the MI325X at `9a5d2346`. The tables are in the ledger, [the native read on the data-centre cards](../../benchmarks.md#the-native-read-on-the-data-centre-cards).
 
 **§7's gates,** `python -m benchmarks.device_split 768`, 8 fixed steps and 4 planes, one read a step:
 
@@ -525,6 +525,18 @@ Before this work those points took 70 s and 29 s, so x11.9 and x6.9. A requested
 
 **Phase 5.** §8's documents went in with the phases that changed what they say, and this report and the ledger entry finish them. Nothing is left for `Final` but the maintainer's decision.
 
+### Completion — 2026-11-05
+
+The maintainer set `Final` here without an AMD pass at the head. A rented AMD Instinct MI325X had no capacity for a day, and an AMD Instinct MI300X failed twice before it started. Since `9a5d2346`, the MI325X's commit, the branch has run on the NVIDIA H200 at `8cd170e2` and on the NVIDIA A40 at its later commits, and its HIP build with tests compiles at the head. The only C++ changed since then keeps a device's split collar at the node chunk, whose cost the MI325X measured, and answers the native lint and tidy lanes. Three things have not run on an AMD card: a whole scan on a kept backend, the hard-edge fuzz with the far field's contraction pragma removed, which should fail there, and rocFFT's work area for each plan. [#541](https://github.com/LupoLab/solprop/issues/541) carries them.
+
+Both manual pages named above link here, and the release note cites the SEP. Nothing is left open in this SEP; what follows it is in issues:
+
+- [#541](https://github.com/LupoLab/solprop/issues/541): the AMD pass above, and §7's gates there at the head.
+- [#529](https://github.com/LupoLab/solprop/issues/529): a device's FFT plans each hold a work area, the largest row of its memory.
+- [#504](https://github.com/LupoLab/solprop/issues/504): far-field hard edges on HIP; the fuzz is in the tree, and #541 shows whether it sees #497's bug there.
+- [#365](https://github.com/LupoLab/solprop/issues/365): a device step's transforms and layout, against a dedicated single-transform engine.
+- [#346](https://github.com/LupoLab/solprop/issues/346): the plane's own record, which still crosses.
+
 ## Part III — History
 
 - 2026-11-04: Drafted. Tracking issue: [#514](https://github.com/LupoLab/solprop/issues/514).
@@ -533,6 +545,7 @@ Before this work those points took 70 s and 29 s, so x11.9 and x6.9. A requested
 - 2026-11-04: John Travers (human) reviewed the revised proposal, and the maintainer accepted it.
 - 2026-11-04: Implementation started on `feature/sep-0044-native-edge`; phases 1 and 2 reported in Part II.
 - 2026-11-05: Phase 4 reported in Part II.
+- 2026-11-05: Final, without an AMD pass at the head (#541); the SEP moved to the archive (John Travers, with Opus 5.5).
 
 ### AI review — 2026-11-04
 

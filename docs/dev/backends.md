@@ -492,7 +492,7 @@ refuse a fluence negative beyond its rounding budget. The helper
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
 (SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
-**The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/sep-0044-native-edge-read.md)).
+**The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
@@ -1456,7 +1456,11 @@ free-space envelope whose material response is the Kerr term alone, with one
 polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
 identity) takes its stage core on a device through one rank-3 transform of the scratch
 volume each way, forming the polarisation in place between them, instead of the chunks'
-transposing pack and crop and their temporal transforms. The state crosses the seam once
+transposing pack and crop and their temporal transforms. On a device the stage holds that
+scratch as `(y, x, omega)`, the state's own order, so the transform keeps frequency
+contiguous and the stage's input and fold stream beside the registers. Every other pass
+over the scratch forms its own input in `(omega, y, x)`, and an in-stage absorber keeps
+that order for the stage too. The state crosses the seam once
 at a load and once at an observation, straight between the memory space and the NumPy
 buffer.
 

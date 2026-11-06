@@ -47,7 +47,7 @@ resonance by 0.08 nm. The argon index comes from optmat, whose fit covers the wh
 spectral grid of the propagation, so no material-range warning is raised. The fitted
 area is available separately; propagation uses Marcatili's field area.
 
-.. GENERATED FROM PYTHON SOURCE LINES 35-56
+.. GENERATED FROM PYTHON SOURCE LINES 35-55
 
 .. code-block:: Python
 
@@ -63,7 +63,6 @@ area is available separately; propagation uses Marcatili's field area.
     from solprop.modes import MarcatiliMode, TubeLattice, VincettiMode
     from solprop.modes.base import beta2, db_per_m
     from solprop.processing.axes import grid_of
-    from solprop.stats import StatsSpec
 
     started = perf_counter()
     lattice = TubeLattice(180e-9, 9e-6, 6)
@@ -79,12 +78,12 @@ area is available separately; propagation uses Marcatili's field area.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 57-59
+.. GENERATED FROM PYTHON SOURCE LINES 56-58
 
 The fitted tube resonances change both attenuation and dispersion. The loss
 uses the power coefficient; no imaginary-index factor of two is added.
 
-.. GENERATED FROM PYTHON SOURCE LINES 59-72
+.. GENERATED FROM PYTHON SOURCE LINES 58-71
 
 .. code-block:: Python
 
@@ -113,11 +112,11 @@ uses the power coefficient; no imaginary-index factor of two is added.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 73-74
+.. GENERATED FROM PYTHON SOURCE LINES 72-73
 
 Gas pressure changes the material contribution while tube geometry stays fixed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 74-91
+.. GENERATED FROM PYTHON SOURCE LINES 73-90
 
 .. code-block:: Python
 
@@ -150,12 +149,12 @@ Gas pressure changes the material contribution while tube geometry stays fixed.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 92-94
+.. GENERATED FROM PYTHON SOURCE LINES 91-93
 
 Overlay the propagated spectrum with the fibre's loss curve. Spectral energy
 per wavelength includes the omega-to-wavelength Jacobian before normalisation.
 
-.. GENERATED FROM PYTHON SOURCE LINES 94-143
+.. GENERATED FROM PYTHON SOURCE LINES 93-141
 
 .. code-block:: Python
 
@@ -179,7 +178,6 @@ per wavelength includes the omega-to-wavelength Jacobian before normalisation.
         n_r=8,
         n_save=11,
         rtol=1e-5,
-        stats=StatsSpec(names=("energy",)),
         progress=NullReporter(),
         seed=20261027,
     )
@@ -221,12 +219,12 @@ per wavelength includes the omega-to-wavelength Jacobian before normalisation.
 
  .. code-block:: none
 
-    Complete Vincetti example: 0.664 s
+    Complete Vincetti example: 1.319 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-150
+.. GENERATED FROM PYTHON SOURCE LINES 142-148
 
 Related reading
 ---------------
@@ -238,7 +236,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.710 seconds)
+   **Total running time of the script:** (0 minutes 1.363 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_waveguides_plot_01_antiresonant_fibre.py:

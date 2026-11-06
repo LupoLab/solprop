@@ -35,11 +35,6 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
-- [SEP 44 — Reading the transverse edge where the state lives](seps/sep-0044-native-edge-read.md):
-  the boundary check's transverse reductions move into native memory on the radial, Cartesian,
-  line and planar routes, on CPU and device builds, so that in a field-free native run the monitor brings no
-  state-sized data to the host. Judging stays in Python, and a requested collar's reductions move too.
-
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.

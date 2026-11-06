@@ -809,6 +809,7 @@ MODULES = {
         Module(
             "processing/",
             (
+                "beams",
                 "axes",
                 "fields",
                 "spectra",
@@ -818,6 +819,7 @@ MODULES = {
                 "mixtures",
                 "modal",
                 "planes",
+                "plane_file",
                 "scans",
             ),
         ),

@@ -849,7 +849,7 @@ process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the ful
 
 ### The native read of the transverse edge
 
-[SEP 44](seps/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
+[SEP 44](seps/archive/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
 
 Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
 
@@ -896,6 +896,8 @@ An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ hos
 | `peak_intensity`, ms | 134 | 75 | 164 | 74 | |
 
 The crossings are native's own byte count in `tests/backends/test_native_edge_reading.py`, which ran on both cards, and the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards. At 51 steps the temporal monitor's sums take most of what the check still costs: on the H200 0.38 s of 0.58 s, and the edge's 18 reads 0.11 s.
+
+**At the head, on an AMD Instinct MI300X** ([#541](https://github.com/LupoLab/solprop/issues/541)). This ran the later commits the MI325X above did not: ROCm 10.0.0, `gfx942`, an Intel Xeon Platinum 8568Y+ host, 20 cores, at `c0bd23f2`, on 2026-11-06. `pytest -m gpu` passed over `tests`, 251 with 1 skipped, and over `native/tests`, 31. The modules of the edge, the collar, the split rows, the transverse backends, the scans, the runner and the stop passed too, 270 with 3 skipped. The same probe at 768 x 768 x 600, 8 steps, 4 planes, takes 2.87 s with the check on and 2.13 s with it off, x1.35. At 384 x 384 x 600, 51 steps, 17 planes, the check costs x1.19. At 768 a step takes 241 ms and an edge read 32 ms. `field_to_host` takes 168 ms, `energy` 6.7, `on_axis_intensity` 14.5, `beam_radius` and `fwhm_r` 48, and `peak_intensity` 78. Every aim holds. These figures are the MI300X's own, not the MI325X's at a later commit. A whole `Local` scan of 5 points through `with_input`, check on, ran two rounds each way, and every point finished. Keeping the backend took 768 x 768 x 600, 8 steps, from 37.4 and 36.2 s to 29.2 and 28.9 s, x0.79, and 384 x 384 x 600, 51 steps, from 27.7 and 27.0 s to 23.7 and 23.7 s, x0.87. With the far field's `clang fp contract(off)` removed, as on #497's base, 31 of the hard-edge fuzz's 120 cases fail (12 of the circle's 40 seeds, 19 of the ellipse's, none of the half-plane's), and so does the older hard-edge test. So the fuzz sees that bug on HIP too.
 
 `python -m benchmarks ab --device` against `main` at `8ed26dd7`, 3 rounds, the same work:
 
@@ -964,7 +966,9 @@ So a `Local` scan on a device now keeps the backend while each point is the last
 | 768 | 21.09 to 5.28 | 38.46 to 22.64 | 21.37, 21.41 to 21.37, 21.46 |
 | 900 | 14.48 to 7.24 | 37.80 to 30.56 | 28.74, 28.61 to 28.64, 28.50 |
 
-`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB. rocFFT's sharing hasn't run on an AMD card.
+`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB.
+
+rocFFT's plans share it as well. On an AMD Instinct MI300X (ROCm 10.0.0, `gfx942`) at `c0bd23f2`, 8 steps, check off, the plans grow by 1.35, 5.07, 5.76 and 7.28 GiB at 384, 750, 768 and 900 x 900 x 600, and a run holds 7.01, 21.95, 23.37 and 30.85 GiB. Asked of rocFFT directly, in place, Z2Z, a rank-3 plan with the frequency innermost (rocFFT lengths `{T, N, N}`, which rocFFT lists innermost first) has a work area of one state at every N from 320 to 1200 and every T from 512 to 1024. With x innermost, an AMD Instinct MI325X's plans need one state too, at N = 384, 750, 768, 800 and 900 with T = 600. A rank-2 plan batched over T takes one state at 192 and 384, none at 256 and 512, and 1.10, 1.08 and 1.06 states at 640, 768 and 1024. A rank-1 plan takes none. So at 768 x 768 x 600 four areas of their own would hold 22.0 GiB, as the MI325X's 22.02 GiB at `9a5d2346` did, and the shared one holds the largest of them.
 
 ### The transverse edge against 0.1.0
 
@@ -1001,7 +1005,7 @@ and ×1.015.
 Two changes reduce it, neither moving a field by more than rounding:
 
 - **A read leaves out what cannot reach its resolution** (`READ_RESOLUTION`,
-  `transverse_monitor.py`; removed by [SEP 44](seps/sep-0044-native-edge-read.md), since a
+  `transverse_monitor.py`; removed by [SEP 44](seps/archive/sep-0044-native-edge-read.md), since a
   read on the state's own memory has no copy to save). Each read synthesised every frequency plane, and a run's light
   occupies from a fifth to a third of them at this level on the filaments and Kerr beams.
   A read now leaves out the planes whose energy together is at most 1e-3 of the warning. By
@@ -2446,6 +2450,8 @@ node chunk, and `Transform` needs no field to tell a stated budget from the defa
 cards, and cuFFT's work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk). A CPU keeps the
 chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
 
+**A whole state again.** #361's 10 % is asked of a change that costs default memory, and this one costs none, so the maintainer asked for it back if an interleaved run on an AMD card shows a consistent gain. A device now takes every row at once whatever the node budget, with no seam field: in place, the block's only memory is its plans' work area. On an NVIDIA A40, CUDA 12.8.1, `python -m benchmarks ab --device --length 0.3`, 3 rounds, against the same tree at the node chunk, the same steps and final fields with no difference: `kerr_beam_384` x0.989 (0.958–0.994), `kerr_beam_192` x0.971 (0.951–1.065), and every route without the collar between x0.998 and x1.004. On an AMD Instinct MI300X, ROCm 10.0.0, at `c0bd23f2` against the same tree at the node chunk: a field-free point of 8 steps with the check off, the median of a runner's second and third runs, three interleaved rounds of fresh processes. At 384 x 384 x 600 the rounds give x0.990, x0.988 and x0.990 (0.576 to 0.569 s), and at 768 x 768 x 600 x0.984, x0.983 and x0.986 (2.172 to 2.138 s), with the plans' memory the same. `ab --device --length 0.3`, 3 rounds, gives `kerr_beam_384` x0.952 (0.912–0.999), with the final fields identical. Every round gained, so it stays, though at about 1.5 % of a point it is far from #361's 10 %.
+
 **The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
 overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the
 plane's stride through tiles of team scratch (42.5 to 24.9 ms). On a host the branch is out of line: inlined there, it took the tabulated fold's kernel past GCC's inlining limit,
@@ -2469,11 +2475,42 @@ against the build before them: `he_rdw_averaged` 0.988 (0.986–1.007), `rdw` 0.
 
 **Scratch-order registers on the volume route**, tried on the A40 and not adopted, take the fold from 407 to 387 ms and the step to 2,538 ms, with the fold's tile staging the state rather than the scratch. A layout change needs its own issue.
 
+**The scratch in the registers' order** ([#365](https://github.com/LupoLab/solprop/issues/365)), on a device. A stage of the volume route views the scratch as `(y, x, omega)`, the state's and the
+registers' order, so its rank-3 pair is cuFFT's frequency-fastest `{N,N,T}`, and its input and fold stream instead of crossing. A probe of the two orders on an NVIDIA H200, CUDA 13.1,
+T = 600, took `{N,N,T}` 2.49, 11.08, 14.71, 17.62 and 13.81 ms a transform at N = 384, 750, 768, 800 and 900, against 3.74, 14.97, 17.63, 17.97 and 18.96 ms for `{T,N,N}`, and `{N,N,T}`
+needs no work area at those sizes but 768. A step, from a field-free point with the check off, (24 steps - 8 steps) / 16, three interleaved rounds against the build before it
+(`c0bd23f2` against `8e9b4e76`):
+
+| N x N x 600, NVIDIA H200 | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 50.96–51.17 | 36.22–36.49 | 0.713 | 7.23 → 5.91 |
+| 768 | 225.21–225.78 | 203.88–204.13 | 0.905 | 23.14 → 23.14 |
+
+At 768 the transforms account for it: eight of them are 23.4 ms apart in the probe, and the step gains 21.6 ms. `python -m benchmarks ab --device --length 0.3`, 3 rounds:
+`kerr_beam_384` x0.971 (0.928–1.003), fields to 3.2e-17. On the NVIDIA A40, CUDA 12.8.1, where the orders are within 1 % at 768, two rounds against `29e9e156`, whose native code is
+the same: 2,535 and 2,578 ms a step before, 2,556 and 2,597 after, at 768; 559 and 560 ms before, 513 and 513 after, at 384; `ab --device` geometric mean 0.998, with `kerr_beam_384`
+x1.010 (0.997–1.042) and `kerr_beam_192` x0.977 (0.950–1.070). The device tests pass on both cards. With the stage's window read in the old order, nine of them fail across the three
+marches, and with the fold reading the old order, three low-storage ones do.
+
+**On HIP too.** On an AMD Instinct MI325X, ROCm 10.0.0, `gfx942`, rocFFT's two orders take the same time. In place, Z2Z, T = 600, frequency innermost (rocFFT lengths
+`{T,N,N}`, cuFFT's `{N,N,T}`) took 4.07, 15.66, 15.31, 16.72 and 20.94 ms a transform at N = 384, 750, 768, 800 and 900, against 4.10, 16.20, 15.31, 16.69 and 20.35 ms with x innermost. Both
+need one state of work area at every one of those sizes. The step gains all the same, from the input and fold that no longer cross layouts. Three interleaved rounds, the same method,
+against #542's head (`931ac0dc`):
+
+| N x N x 600, AMD Instinct MI325X | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 57.30–58.02 | 51.80–52.20 | 0.902 | 7.009 → 7.013 |
+| 768 | 210.00–211.22 | 198.87–199.73 | 0.946 | 23.37 → 23.37 |
+
+At 768 eight transforms are the same in the probe, so all of the step's 11.8 ms is in the passes beside them. `python -m benchmarks ab --device --length 0.3`, 3 rounds: `kerr_beam_384`
+x0.978 (0.974–0.982), fields to 1.8e-17. `pytest -m gpu` (251 passed, 1 skipped), the native device tests (31 passed) and the affected modules (172 passed, 3 skipped) pass on that
+card in the new order.
+
 On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold 6240 (nine cores of one socket, bound passive threads, on a machine others shared; three rounds, the same steps): `kerr_beam_192` 0.982 (0.978–0.996) at one thread and 0.974 (0.973–0.987) at nine; `kerr_beam_384` 0.981 (0.981–0.982) at nine, fields to 6.4e-16.
 `rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
 Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
 
-A data-centre card has to confirm the step on an H200 and an MI325X, what rocFFT's plans hold, and what the launches are worth.
+The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth, and an MI325X the step and the device tests with HIP in the scratch's new order, above.
 
 ### `mlx` against `native` on an Apple M5 Max
 

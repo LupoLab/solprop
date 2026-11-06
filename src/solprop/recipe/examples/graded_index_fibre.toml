@@ -1,0 +1,44 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Two radial channels of a parabolic graded-index core, with the core's Kerr response.
+# mirrors: docs/tutorials/waveguides/plot_10_graded_index_fibre.py
+# The exterior index is the script's own arithmetic, written to the last digit: the
+# axis index times sqrt(1 - 2 Delta), the core's index at its radius.
+
+[recipe]
+format = 1
+route = "waveguide"
+title = "A graded-index fibre"
+
+[build]
+modes = []
+length = "5 mm"
+grid = { type = "FieldGrid.from_limits", length = "5 mm", reference_wavelength = "1.03 um", wavelength_limits = ["900 nm", "1.2 um"], trange = "2 ps" }
+wavelength = "1.03 um"
+fwhm = "100 fs"
+energy = "100 nJ"
+shape = "sech"
+launch = { "LP0,1" = 0.5, "LP0,2" = 0.5 }
+n_save = 81
+rtol = 1e-5
+noise = "none"
+absorber = false
+boundary_check = "none"
+
+[build.provider]
+type = "ModalGuide.on_grid"
+knots = 21
+n_r = 2
+
+[build.provider.provider]
+type = "GradedIndexProvider"
+permittivity = { type = "PowerLawPermittivity", centre = { type = "IndexMaterial", index = 1.45 }, contrast = 0.005 }
+exterior = { type = "IndexMaterial", index = 1.442731783804599 }
+radius = "25 um"
+family = "LP"
+count = 2
+elements = 64
+extent = 2.0
+core_responses = [{ type = "MaterialKerr", n2 = 2.6e-20, at = "1.03 um" }]

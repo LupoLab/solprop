@@ -89,6 +89,22 @@ compares thread counts on a small machine; a run has no reason to set it. The bu
 the limit that set it are recorded in the run's metadata (`thread_budget`,
 `thread_budget_source`).
 
+A program that starts runs, such as a front end offering a thread count, reads the
+budget from `solprop.backends` rather than counting CPUs itself:
+
+```python
+from solprop.backends import thread_budget
+
+budget = thread_budget()
+print(budget.threads, budget.source)  # for example: 12 affinity
+```
+
+`budget.threads` is at least one; `budget.source` names the tightest limit
+(`"affinity"`, `"cgroup quota"` or the variable that set it), `budget.requested` is
+`SOLPROP_THREADS` or `None`, and `budget.explicit(n)` clamps a count someone asked for to
+what the budget allows. The budget is read afresh on each call, so a value of
+`SOLPROP_THREADS` set later is seen.
+
 These settings apply whatever the pool:
 
 | variable | what it sets | default |
@@ -104,7 +120,8 @@ plane's columns in node chunks, each paying a fixed cost for its launches, its t
 transforms and its gather and scatter. Their default budget is therefore 1 GiB, against
 64 MiB on modal routes; `SimulationSettings.node_budget` sets it explicitly. On a laptop
 short of memory a smaller budget saves memory at some speed; on a large device a larger
-one can still help.
+one can still help. A device takes an envelope's split collar every row at once, whatever
+the budget: it transforms the state's own rows in place and holds no buffer for them.
 
 **Where a free-space step goes.** On the native backend the stages of a free-space
 evaluation are profiling regions (`solprop_native.free.*`) that any Kokkos Tools timer

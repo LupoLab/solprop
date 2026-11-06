@@ -8,9 +8,10 @@ The NumPy reference and native backends
 (``docs/dev/backends.md``). This package exports the seam itself — the
 :class:`~solprop.backends.protocol.Backend` protocol and the record types it returns —
 and :mod:`solprop.backends.registry`, which selects a backend by name and says why one
-is not usable.
+is not usable, and the thread budget every backend's pools are held within.
 """
 
+from solprop._process import ThreadBudget, thread_budget
 from solprop.backends.protocol import (
     Backend,
     BackendHistory,
@@ -28,8 +29,10 @@ __all__ = [
     "Observation",
     "StepStats",
     "StepSummary",
+    "ThreadBudget",
     "available",
     "resolve_name",
     "select",
     "select_batch",
+    "thread_budget",
 ]

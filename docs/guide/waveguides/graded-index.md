@@ -36,6 +36,35 @@ fields = grin.solve(2 * np.pi * C / 1.03e-6, 0.0, nodes=rule)
 tail = grin.tail_bound(2 * np.pi * C / 1.03e-6, outer_radius=50e-6)
 ```
 
+A recipe writes this provider inside `ModalGuide.on_grid`, on the waveguide route, with
+`modes = []` and a `grid` table:
+
+```{code-block} toml
+[build.provider]
+type = "ModalGuide.on_grid"
+knots = 21
+n_r = 2
+
+[build.provider.provider]
+type = "GradedIndexProvider"
+permittivity = { type = "PowerLawPermittivity", centre = { type = "IndexMaterial", index = 1.45 }, contrast = 0.005 }
+exterior = { type = "IndexMaterial", index = 1.442731783804599 }
+radius = "25 um"
+family = "LP"
+count = 2
+elements = 64
+extent = 2.0
+core_responses = [{ type = "MaterialKerr", n2 = 2.6e-20, at = "1.03 um" }]
+```
+
+{py:meth}`ModalGuide.on_grid <solprop.modes.guide.ModalGuide.on_grid>` takes `knots`
+frequencies from 1 % below the active band to 1 % above it, and the provider's node rule
+at the lowest. `knots` and `n_r` are explicit numerical choices, because the count a band
+needs depends on the band: the route refuses too few and warns about a marginal count.
+`Recipe.example("graded_index_fibre")` is the
+[graded-index fibre tutorial](../../auto_tutorials/waveguides/plot_10_graded_index_fibre.rst)
+([recipes](../setup/recipes.md)).
+
 The solver uses continuous linear finite elements for the radial TE₀ or TM₀
 Maxwell sector and matches to a decaying Bessel exterior. It solves the resulting
 frequency-dependent boundary eigenproblem; it does not multiply transfer matrices

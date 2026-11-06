@@ -229,7 +229,7 @@ in both directions; a second test checks the flags and counts named in the `flag
 against the fields of `Flags`.
 
 **The transverse edge.** `StepDriver._edge_reading(state, edge, *, faces, current, full)`
-returns an `_EdgeReading` ([SEP 44](seps/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
+returns an `_EdgeReading` ([SEP 44](seps/archive/sep-0044-native-edge-read.md)): region sums, each column's unweighted energy, each
 line's `(inward, windowed)` strip and the summed rectified current, never the field. The default forms them with
 `_HostEdgeReduction` on a host copy. An override takes the edge's `_EdgeTables` and `_EdgeLine`s, whose weights, strides,
 windows and onsets say all there is to know about the geometry, so a backend holds no face, mask or judgement of its own. It
