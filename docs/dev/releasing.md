@@ -248,9 +248,7 @@ Then, for every release:
    `git push origin vX.Y.Z`: GitHub starts no workflow for a push of more than three
    tags at once. The tag starts the wheels workflow again, on the tagged commit (CI
    does not run on tags): it builds and tests every wheel, and builds solprop's and the
-   front end's distributions and checks an install of each. On a tag, `solprop-dist`
-   first checks that `CITATION.cff`'s `version` is the tag's, so a tag on a commit that
-   still cites the last release fails there and publishes nothing. Every publish job
+   front end's distributions and checks an install of each. Every publish job
    waits for `solprop-dist`, and solprop's two for every wheel's `test` job, so the run
    that publishes has itself tested the release commit on every wheel platform,
    whichever lanes CI skipped on the push to `main`.
