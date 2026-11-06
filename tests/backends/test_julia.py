@@ -273,3 +273,49 @@ def test_julia_trial_tables_are_the_shared_ones_bit_for_bit(runtime, compensated
             np.testing.assert_array_equal(
                 np.asarray(h.cdefects)[:count, :width], shared[6]
             )
+
+
+def test_julia_stage_scalars_are_the_bundles_bit_for_bit(runtime):
+    """The engine's stage scalars, from its own tables, equal scalars_at's.
+
+    rdw's gas fill varies along the capillary: the operator's and prefactor's
+    expansions, the Kerr and plasma densities (the focus cases' only varying one).
+    """
+    del runtime
+    case = "rdw"
+    from solprop._helpers import PLAIN  # noqa: PLC0415
+    from solprop.translate.stage import scalars_at  # noqa: PLC0415
+
+    configuration = CASES[case].configuration(
+        "default", 1, "julia", fraction=0.002, noise="none"
+    )
+    simulation = build(configuration)
+    problem = simulation.translate()
+    engine = select("julia", problem, grid=simulation.grid, modes=simulation.modes)
+    assert engine._varying
+    span = float(configuration["stop"])
+    z, dz = 0.37 * span, 0.21 * span
+    engine._prepare_stages(z, dz)
+    path = engine._engine.work.path
+    count = len(problem.stepper.tableau.nodes)
+    positions = [z] * (count - 1) + [z + dz]
+    bundles = scalars_at(problem, z, positions, helpers=PLAIN)
+    kerr = problem.responses.kerr_coefficients
+    expected = {
+        "delta": np.stack([b.phi_delta for b in bundles], axis=1),
+        "weights": np.stack([b.prefactor for b in bundles], axis=1),
+        "material": np.array(
+            [
+                [
+                    0.0 if kerr is None else kerr.coefficient * b.kerr_density,
+                    b.plasma_densities[0] if b.plasma_densities else 0.0,
+                    b.preionisation,
+                ]
+                for b in bundles
+            ]
+        ).T,
+    }
+    for name, value in expected.items():
+        held = np.asarray(getattr(path, name))[:, :count]
+        np.testing.assert_array_equal(held, value, err_msg=name)
+    engine.close()

@@ -14,7 +14,8 @@ function path_workspace(c, host)
     (phi=upload(c, phi), prefactor=upload(c, pre),
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
      delta_device=dzeros(c, Float64, size(phi, 3), stages),
-     weights_device=dzeros(c, c.T, size(pre, 3), stages), material=zeros(3, stages))
+     weights_device=dzeros(c, c.T, size(pre, 3), stages), material=zeros(3, stages),
+     tables=Dict{String,Any}(), constants=zeros(4))
 end
 
 """Take a trial's stage weights: Phi increments, prefactor weights and material scales."""
@@ -66,3 +67,66 @@ function path_propagators!(engine)
         end
     end
 end
+
+# --- the stage scalars, read by the engine (SEP 39's staged tables) ------------------
+
+"""Hold one of the stage's scalar tables as `PiecewiseChebyshev.packed` gives it:
+`phi` and `prefactor` (the expansions' weights), `kerr`, `plasma`, `preionisation`
+(densities). A name not bound is the constant case `configure_stages_at!` names."""
+bind_stage_table!(engine, name, edges, lower, upper, c) =
+    (engine.work.path.tables[String(name)] =
+         (edges=Vector{Float64}(edges), lower=Float64(lower), upper=Float64(upper),
+          c=Array{Float64,3}(c)); nothing)
+
+"""Hold the stage's constants: the Kerr coefficient (0 for none), the state scale's
+square, and a constant prefactor's span."""
+bind_stage_constants!(engine, kerr, scale2, low, high) =
+    (engine.work.path.constants .= (kerr, scale2, low, high); nothing)
+
+"""A bound table's values at the positions, (n_positions, n_values)."""
+function stage_values(table, positions)
+    out = zeros(length(positions), size(table.c, 3))
+    bad = clenshaw_points!(positions, table.edges, table.lower, table.upper, table.c, out)
+    bad >= 0 && throw(ArgumentError(
+        "z = $(positions[bad+1]) is outside the represented span " *
+        "[$(table.edges[1]), $(table.edges[end])]"))
+    out
+end
+
+"""A trial's stage scalars from the bound tables, then `configure_stages!`.
+
+`translate.stage.scalars_at`'s values for the fields the engine reads, by the same
+operations: Phi's increment from `z0` (the distance, for a constant operator), the
+prefactor's weights (one, for a constant prefactor, inside its span), and the Kerr
+factor, plasma density and preionisation of each position.
+"""
+function configure_stages_at!(engine, z0, positions)
+    path = engine.work.path
+    tables, (kerr, scale2, low, high) = path.tables, path.constants
+    zs = Vector{Float64}(positions)
+    n = length(zs)
+    delta = if haskey(tables, "phi")
+        here = stage_values(tables["phi"], zs)
+        permutedims(here .- stage_values(tables["phi"], [Float64(z0)]))
+    else
+        reshape([z1 - z0 for z1 in zs], 1, n)
+    end
+    weights = if haskey(tables, "prefactor")
+        permutedims(stage_values(tables["prefactor"], zs))
+    else
+        for z in zs
+            low <= z <= high || throw(ArgumentError(
+                "z = $z m lies outside the table, which covers [$low, $high] m"))
+        end
+        ones(1, n)
+    end
+    column(name) = haskey(tables, name) ? stage_values(tables[name], zs)[:, 1] : zeros(n)
+    density = column("kerr")
+    material = permutedims(hcat([kerr * d * scale2 for d in density],
+                                column("plasma"), column("preionisation")))
+    configure_stages!(engine, delta, weights, material)
+end
+
+const bind_stage_table_b = bind_stage_table!
+const bind_stage_constants_b = bind_stage_constants!
+const configure_stages_at_b = configure_stages_at!

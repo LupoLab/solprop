@@ -463,6 +463,7 @@ class JuliaBackend(StepDriver[object]):
             else 1.0
         )
         if self._varying:
+            self._bind_stage_tables()
             self._prepare_stages(0.0, 0.0)
         self._plan_flag = os.environ.get("SOLPROP_FFTW_PLAN") or "measure"
         self._weight = (
@@ -642,43 +643,70 @@ class JuliaBackend(StepDriver[object]):
         return norm, self._engine
 
     def _prepare_stages(self, z: float, dz: float) -> None:
-        """Transfer only the existing seam's scalar bundles before a Julia trial."""
+        """Have the engine form a trial's stage scalars from its bound tables.
+
+        Parameters
+        ----------
+        z : float
+            The trial's anchor, m.
+        dz : float
+            Its step, m.
+        """
         problem = self._problem
         nodes = problem.stepper.tableau.nodes
-        # Resident Adams reads only the first material row and endpoint flow/
-        # material row. Retain the fixed buffer shape without evaluating unused
-        # DOPRI nodes; repeated positions (including dz=0) share a pure bundle.
+        # Resident Adams reads only the first material row and the endpoint's; the
+        # buffer keeps its shape without evaluating the unused DOPRI nodes.
         offsets = (
             [0.0] * (len(nodes) - 1) + [dz]
             if isinstance(problem.stepper.integrator, Multistep)
             else [float(c) * dz for c in nodes]
         )
-        self._hoist(z)
-        bundles = self._stage_bundles(z, [z + offset for offset in offsets])
-        kerr = problem.responses.kerr_coefficients
-        material = np.array(
-            [
-                [
-                    0.0
-                    if kerr is None
-                    else kerr.coefficient * b.kerr_density * self._scale2,
-                    b.plasma_densities[0] if b.plasma_densities else 0.0,
-                    b.preionisation,
-                ]
-                for b in bundles
-            ]
-        ).T.copy()
-        deltas, prefactors = [], []
-        for bundle in bundles:
-            assert bundle.phi_delta is not None and bundle.prefactor is not None
-            deltas.append(bundle.phi_delta)
-            prefactors.append(bundle.prefactor)
         call_julia(
-            self._jl.configure_stages_b,
+            self._jl.configure_stages_at_b,
             self._engine,
-            np.stack(deltas, axis=1),
-            np.stack(prefactors, axis=1),
-            material,
+            z,
+            np.array([z + offset for offset in offsets]),
+        )
+
+    def _bind_stage_tables(self) -> None:
+        """Give the engine the stage's scalar tables, which it then reads itself.
+
+        The tables ``translate.stage.scalars_at`` reads for the fields the engine takes,
+        each as :meth:`~solprop.translate.chebyshev.PiecewiseChebyshev.packed` gives
+        it: the operator's and the prefactor's expansion weights, the Kerr and plasma
+        densities and the preionisation. A constant operator or prefactor binds no
+        table. ``julia/src/stages.jl`` evaluates them by the transcribed Clenshaw pass,
+        so its values are the bundles' bit for bit (tested).
+        """
+        problem = self._problem
+        linear, responses = problem.linear, problem.responses
+        tables: dict[str, PiecewiseChebyshev] = {}
+        if linear.phi_constant is None and linear.separable is None:
+            assert linear.phi_expansion is not None
+            tables["phi"] = linear.phi_expansion.weights
+        if responses.prefactor_constant is None and responses.separable is None:
+            assert responses.prefactor_expansion is not None
+            tables["prefactor"] = responses.prefactor_expansion.weights
+        kerr = responses.kerr_coefficients
+        if kerr is not None:
+            tables["kerr"] = responses.density if kerr.density is None else kerr.density
+        for channel in responses.population_channels[:1]:
+            tables["plasma"] = channel.density
+            tables["preionisation"] = channel.preionisation
+        for name, table in tables.items():
+            call_julia(self._jl.bind_stage_table_b, self._engine, name, *table.packed())
+        low, high = (
+            responses.prefactor_span
+            if "prefactor" not in tables
+            else (-math.inf, math.inf)
+        )
+        call_julia(
+            self._jl.bind_stage_constants_b,
+            self._engine,
+            0.0 if kerr is None else float(kerr.coefficient),
+            float(self._scale2),
+            float(low),
+            float(high),
         )
 
     def _finish(self, state: object, dz: float) -> object:
