@@ -63,6 +63,7 @@ from solprop.pulses import (
     PlanarPulse,
     SechPulse,
     SpatialPulse,
+    SpatialPulseSum,
     load_spectrum,
 )
 from solprop.recipe.document import (
@@ -413,6 +414,7 @@ REGISTRY: Final[Mapping[str, Factory]] = {
             {"wavelength": "m", "negligible_rate": "s^-1", "maximum": "s^-1"},
         ),
         Factory("SpatialPulse", SpatialPulse, _BEAM_UNITS),
+        Factory("SpatialPulseSum", SpatialPulseSum, {}),
         Factory(
             "PlanarPulse",
             PlanarPulse,

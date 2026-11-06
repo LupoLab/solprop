@@ -64,7 +64,7 @@ from solprop.physdata.mixtures import Pressure
 from solprop.physdata.selection import MaterialSelection
 from solprop.physdata.sellmeier import GasSusceptibility
 from solprop.profiles import ZProfile
-from solprop.pulses import PlanarPulse, Pulse, SpatialPulse
+from solprop.pulses import PlanarPulse, Pulse, SpatialPulse, SpatialPulseSum
 from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -93,7 +93,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
     space: RadialGrid,
     medium: SpatialMedium,
     responses: Sequence[object],
-    initial: SpatialPulse | np.ndarray,
+    initial: SpatialPulse | SpatialPulseSum | np.ndarray,
     *,
     settings: SimulationSettings,
     frame: Frame | None = None,
@@ -122,7 +122,7 @@ def prop_radial(  # noqa: PLR0913 - the simulation interface and output controls
         Bulk material, optionally with a varying gas density along z.
     responses : collections.abc.Sequence
         Existing nonlinear response objects; an empty sequence gives linear flow.
-    initial : solprop.pulses.SpatialPulse or numpy.ndarray
+    initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
         Beam specification or internal Hankel spectrum in V m, shape
         ``(n_r, n_pol, n_omega)``.
     settings : solprop.driver.simulation.SimulationSettings
@@ -212,7 +212,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
     space: FreeGrid,
     medium: SpatialMedium,
     responses: Sequence[object],
-    initial: SpatialPulse | np.ndarray,
+    initial: SpatialPulse | SpatialPulseSum | np.ndarray,
     *,
     settings: SimulationSettings,
     frame: Frame | None = None,
@@ -245,7 +245,7 @@ def prop_free(  # noqa: PLR0913 - the simulation interface and output controls
         Constant bulk material; varying profiles are refused.
     responses : collections.abc.Sequence
         Existing nonlinear response objects; an empty sequence gives linear flow.
-    initial : solprop.pulses.SpatialPulse or numpy.ndarray
+    initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
         Beam specification or internal Cartesian DFT spectrum in V/m, shape
         ``(n_x*n_y, n_pol, n_omega)``.
     settings : solprop.driver.simulation.SimulationSettings
