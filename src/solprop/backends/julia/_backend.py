@@ -480,8 +480,7 @@ class JuliaBackend(StepDriver[object]):
         jl, engine = self._jl, self._engine
         # A crossing's bucket table is read-only, which is part of its bridge type.
         buckets = np.zeros((n_modes, n_omega), dtype=np.uint8)
-        buckets.setflags(write=False)
-        for columns, table in ((None, None), (np.ones(n_modes), buckets)):
+        for columns, table in ((None, None), (np.ones(n_modes), buckets.T)):
             call_julia(jl.bind_monitor_b, engine, columns, table)
         for name in ("state_power", "occupancy", "split_power", "column_energy"):
             np.asarray(call_julia(getattr(jl, name), engine))
@@ -490,7 +489,7 @@ class JuliaBackend(StepDriver[object]):
         call_julia(jl.bind_edge_b, engine, inverse, np.zeros(1, dtype=np.int64))
         call_julia(jl.node_energy, engine)
         call_julia(jl.device_name, engine)
-        np.asarray(call_julia(jl.host_state, engine))
+        self._observed_field(engine)
         if self._problem.flags.has_plasma:
             call_julia(
                 jl.population_snapshot,
@@ -544,8 +543,9 @@ class JuliaBackend(StepDriver[object]):
         object
             Opaque Julia engine handle.
         """
-        # A column-major (n_omega, n_modes) view: the engine copies it once.
-        call_julia(self._jl.load_b, self._engine, state[0, :, 0, :].T)
+        # A column-major (n_omega, n_modes) view of a contiguous copy: the engine reads it.
+        values = np.ascontiguousarray(state[0, :, 0, :], dtype=np.complex128)
+        call_julia(self._jl.load_b, self._engine, values.T)
         self._fsal = False
         self._alarm = math.nan
         return self._engine
@@ -718,9 +718,13 @@ class JuliaBackend(StepDriver[object]):
         numpy.ndarray
             Independent complex128 host array in the seam layout.
         """
-        # The engine's own column-major array, viewed: one copy makes it the host's.
-        values = np.asarray(call_julia(self._jl.host_state, state))
-        return np.array(values.T, dtype=np.complex128)[None, :, None, :]
+        del state
+        # The engine fills a host array, through its column-major (n_omega, n_modes)
+        # view, with the pool's threads.
+        _, n_modes, _, n_omega = self._problem.shape
+        values = np.empty((n_modes, n_omega), dtype=np.complex128)
+        call_julia(self._jl.copy_state_b, self._engine, values.T)
+        return values[None, :, None, :]
 
     def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
         """Hold the monitor's column weights and rate buckets in the engine.
@@ -738,7 +742,9 @@ class JuliaBackend(StepDriver[object]):
             self._jl.bind_monitor_b,
             self._engine,
             None if monitor.columns is None else np.asarray(monitor.columns),
-            None if crossing is None else np.asarray(crossing.buckets),
+            None
+            if crossing is None
+            else np.ascontiguousarray(crossing.buckets, dtype=np.uint8).T,
         )
 
     def _edge_reading(
@@ -858,6 +864,8 @@ class JuliaBackend(StepDriver[object]):
         """
         spatial = self._problem.transform.geometry is not None
         _refuse_stats(spec, spatial=spatial)
+        if not spec.names:
+            return {}
         if self._varying:
             self._weight = power_weight_at(self._problem, self._z)
             self._prepare_stages(self._z, 0.0)

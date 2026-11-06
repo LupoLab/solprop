@@ -10,14 +10,32 @@ host_candidate(engine) = host_view(engine.work.candidate)
 host_view(a::Matrix{ComplexF64}) = a
 host_view(a) = Matrix{ComplexF64}(Array(a))
 
+"""A Python buffer's memory as a Julia array; the caller keeps the buffer alive."""
+host_wrap(buffer, T) = (array = PyArray{T}(buffer); unsafe_wrap(Array, pointer(array), size(array)))
+
+"""Copy a state between the engine and a host (n_omega, n_modes) column-major buffer.
+
+On a CPU the pool's tasks copy, each touching its own pages: a single-threaded copy
+of a 226 MB Cartesian state into fresh host memory took 75-220 ms.
+"""
+function copy_between!(target, source, c)
+    if oncpu(c) && eltype(target) == eltype(source)
+        each!(c, size(target)...) do f, m
+            @inbounds target[f, m] = source[f, m]
+        end
+    else
+        copyto!(target, convert(Array{eltype(target)}, Array(source)))
+    end
+    target
+end
+copy_state!(engine, buffer) =
+    (@section :observe copy_between!(host_wrap(buffer, ComplexF64), engine.work.y, engine.config); nothing)
+
 """Load a host state given as its (n_omega, n_modes) column-major view."""
 function load!(engine, input)
     y = engine.work.y
-    if y isa Matrix{ComplexF64}
-        copyto!(y, PyArray(input))
-    else
-        copyto!(y, Matrix{eltype(y)}(PyArray(input)))
-    end
+    source = host_wrap(input, ComplexF64)
+    oncpu(engine.config) ? copy_between!(y, source, engine.config) : copyto!(y, eltype(y).(source))
     reset!(engine)
 end
 
@@ -29,7 +47,13 @@ function bind_monitor!(engine, columns, buckets)
     weights = columns === nothing ? ones(T, nm) : T.(Vector{Float64}(columns))
     copyto!(w.monitor.columns, weights)
     if buckets !== nothing
-        copyto!(w.monitor.buckets, Int32.(permutedims(Matrix{Int}(buckets))) .+ Int32(1))
+        # The (n_omega, n_modes) view of the crossing's table, converted by the pool.
+        table = host_wrap(buckets, UInt8)
+        target = oncpu(c) ? w.monitor.buckets : similar(table, Int32)
+        each!(merge(c, (backend=KA.CPU(),)), size(table)...) do f, m
+            @inbounds target[f, m] = Int32(table[f, m]) + Int32(1)
+        end
+        oncpu(c) || copyto!(w.monitor.buckets, target)
     end
     nothing
 end
@@ -162,7 +186,7 @@ function edge_energy(engine)
         return nodes
     end
     synthesised = edge.synthesised
-    mul!(synthesised, y, edge.matrix)
+    gemm!(synthesised, y, edge.matrix, true, false, c)
     colsum!(c, out, size(synthesised)...) do f, m
         @inbounds abs2(synthesised[f, m])
     end

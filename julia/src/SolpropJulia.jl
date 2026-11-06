@@ -195,6 +195,7 @@ const rk4_b = rk4!
 const configure_stages_b = configure_stages!
 const load_b = load!
 const bind_monitor_b = bind_monitor!
+const copy_state_b = copy_state!
 const bind_edge_b = bind_edge!
 const trial_b = trial!
 const commit_b = commit!
