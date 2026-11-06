@@ -76,7 +76,7 @@ function create_modal(c, host)
         node_forward=spectral ? plan(c, plan_rfft, nodes, 1) : nothing,
         absorber_spec_band=dzeros(c, C, spectral && in_stage ? nw : 0, spectral && in_stage ? nm : 0),
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing),
+        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
         raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -307,12 +307,17 @@ function finish_band!(source, band, loss, c)
     end
 end
 
+"""A state given to an observation, at the engine's scale; `nothing` is its own state."""
+scaled_input(engine, ::Nothing) = engine.work.y
+scaled_input(engine, input) =
+    device_matrix(engine, input) .* real_type(engine)(inv(engine.config.scale))
+
 """Observation populations of an accepted state: fractions, peaks and the six maxima."""
 function population_snapshot(engine, input)
     engine.config.free && return population_free_snapshot(engine, input)
     c, w = engine.config, engine.work
     p = w.plasma
-    scatter!(w.fine, device_matrix(engine, input) .* real_type(engine)(inv(c.scale)), c)
+    scatter!(w.fine, scaled_input(engine, input), c)
     mul!(w.modal, w.inverse_plan, w.fine)
     chunk, nn = size(w.nodes, 2), size(c.synthesis, 2)
     maxima = zeros(6)

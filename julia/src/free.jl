@@ -263,7 +263,7 @@ function population_free_snapshot(engine, input)
     c, w = engine.config, engine.work
     p = w.plasma
     (; physical, fine, modal, projected) = w
-    copyto!(physical, device_matrix(engine, input) .* real_type(engine)(inv(c.scale)))
+    copyto!(physical, scaled_input(engine, input))
     transverse!(physical, w.spatial_inverse, c)
     chunk, nm = size(modal, 2), size(physical, 2)
     scale = c.field_scale

@@ -114,7 +114,7 @@ function warm!(engine)
     node_energy(engine)
     column_energy(engine)
     w.edge[] = nothing
-    w.plasma === nothing || population_snapshot(engine, zeros(ComplexF64, size(w.y)))
+    w.plasma === nothing || population_snapshot(engine, nothing)
     buffers = (w.y, w.candidate, w.lab, w.source, w.error, w.stages, w.forward, w.inverse)
     a === nothing || (buffers = (buffers..., a.store, a.states, a.rates, a.moments, a.carried, a.endpoint))
     foreach(buffer -> fill!(buffer, 0), buffers)

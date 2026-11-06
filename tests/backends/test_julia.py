@@ -130,3 +130,35 @@ def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fra
     # holds two orders in hand and still catches a mis-scaled response (O(1)).
     scale = float(np.linalg.norm(reference))
     assert float(np.linalg.norm(field - reference)) <= 1e-4 * scale
+
+
+def test_julia_poynting_statistics_match_the_host(runtime):
+    """The engine's analytic signals give the shared host function's statistics."""
+    del runtime
+    from solprop.stats import _poynting_statistics  # noqa: PLC0415
+
+    configuration = CASES["rdw"].configuration(
+        "default", 2, "julia", fraction=0.002, noise="none"
+    )
+    simulation = build(configuration)
+    problem = simulation.translate()
+    engine = select(
+        "julia",
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    engine.propagate_to(float(configuration["stop"]))
+    state = engine.observe(field=True).field[0]
+    axis = engine._on_axis_synthesis(simulation.modes)  # noqa: SLF001
+    spec = problem.stats_spec
+    ours = engine._poynting(spec, simulation.grid, state, axis)  # noqa: SLF001
+    host = _poynting_statistics(spec, simulation.grid, state, engine._weight, axis)  # noqa: SLF001
+    assert set(ours) == set(host)
+    for name, value in host.items():
+        # The same transforms in another library and order: rounding of the analytic
+        # signals' sums, far below the 1e-10 the fields are held to.
+        np.testing.assert_allclose(ours[name], value, rtol=1e-11, atol=0, err_msg=name)
+    engine.close()

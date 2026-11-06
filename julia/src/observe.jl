@@ -204,3 +204,56 @@ function edge_energy(engine)
     nodes[edge.selected] .= Array(out)
     nodes .* c.scale^2
 end
+
+# --- the Poynting statistics' time-domain power ------------------------------------
+
+"""The state's analytic power per mode and its on-axis flux, for the statistics.
+
+`stats._poynting_statistics`'s transforms: the analytic signals of the state and of
+the state times its power weight (`weight`, (n_omega, n_modes)), the cycle-averaged
+power `Re(a conj b)` per mode and time, and with `axis` ((2, n_modes)) the on-axis
+flux. A field grid's analytic signal keeps the zero-frequency and Nyquist bins once,
+as `fourier.analytic_signal` does; an envelope's state already is one. Returns the
+power (n_t, n_modes) and the flux (n_t), in the state's physical units.
+"""
+function poynting(engine, weight, axis)
+    c, w = engine.config, engine.work
+    y = w.y
+    T = real_type(engine)
+    C = Complex{T}
+    nw, nm = size(y)
+    nt = c.nc
+    s = w.statistics[]
+    if s === nothing || size(s.signal, 2) != nm
+        signal, weighted = dzeros(c, C, nt, nm), dzeros(c, C, nt, nm)
+        s = (signal=signal, weighted=weighted, weight=dzeros(c, T, nw, nm),
+             inverse=plan(c, plan_bfft!, signal, 1))
+        w.statistics[] = s
+    end
+    copyto!(s.weight, T.(Matrix{Float64}(weight)))
+    (; signal, weighted) = s
+    weights, envelope, nyquist = s.weight, c.envelope, nt ÷ 2 + 1
+    unit, two, none = one(T), T(2), zero(C)
+    for (target, weighting) in ((signal, false), (weighted, true))
+        each!(c, nt, nm) do k, m
+            @inbounds begin
+                value = k <= nw ? y[k, m] * (weighting ? weights[k, m] : unit) : none
+                if !envelope
+                    value = k == 1 || k == nyquist ? complex(real(value)) : k < nyquist ? two * value : none
+                end
+                target[k, m] = value
+            end
+        end
+        s.inverse * target
+    end
+    # Each inverse is unnormalised: numpy's 1/n_t on each signal, and the state scale.
+    factor = (c.scale / nt)^2
+    power = Array(real.(signal .* conj.(weighted))) .* factor
+    flux = Float64[]
+    if axis !== nothing
+        rows = upload(c, T.(Matrix{Float64}(axis)))
+        electric, magnetic = signal * transpose(rows), weighted * transpose(rows)
+        flux = vec(sum(Array(real.(electric .* conj.(magnetic))); dims=2)) .* factor
+    end
+    (Matrix{Float64}(power), flux)
+end

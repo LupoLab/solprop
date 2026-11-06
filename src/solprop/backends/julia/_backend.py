@@ -26,7 +26,7 @@ from solprop.backends.julia._runtime import (
 from solprop.backends.multistep import source_absent
 from solprop.backends.numpy_ref.passes import plasma_integration_statistics
 from solprop.backends.spatial import collect_spatial, radial_absorber_matrix
-from solprop.constants import EPS0
+from solprop.constants import C, EPS0
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -36,6 +36,7 @@ from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.stats import (
     _POYNTING_STATISTICS,
+    _power_half_width,
     StatsSpec,
     _poynting_statistics,
     collect,
@@ -506,11 +507,7 @@ class JuliaBackend(StepDriver[object]):
         call_julia(jl.device_name, engine)
         self._observed_field(engine)
         if self._problem.flags.has_plasma:
-            call_julia(
-                jl.population_snapshot,
-                engine,
-                np.zeros((n_omega, n_modes), dtype=np.complex128),
-            )
+            call_julia(jl.population_snapshot, engine, None)
         call_julia(jl.bind_monitor_b, engine, None, None)
         self.metadata()
 
@@ -933,12 +930,86 @@ class JuliaBackend(StepDriver[object]):
                 if self._modes is None:
                     raise BackendError("julia peak_intensity requires modes")
                 axis = self._on_axis_synthesis(self._modes)
-            values.update(_poynting_statistics(spec, grid, state, self._weight, axis))
+            values.update(self._poynting(spec, grid, state, axis))
         if "quadrature_error" in spec.names:
             values["quadrature_error"] = np.asarray(self._alarm)
         if _SPECIES_STATS.intersection(spec.names):
             values.update(self._populations(spec, state))
         return {name: value[None] for name, value in values.items()}
+
+    def _poynting(
+        self,
+        spec: StatsSpec,
+        grid: TimeGrid,
+        state: np.ndarray,
+        axis: np.ndarray | None,
+    ) -> dict[str, np.ndarray]:
+        """``stats._poynting_statistics`` with its analytic signals formed by the engine.
+
+        The transforms and the on-axis product are the engine's (``poynting``), the
+        reductions over their short results the reference's own. Windowed statistics
+        take the host function.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            The requested statistics.
+        grid : solprop.grid.TimeGrid
+            The run's grid.
+        state : numpy.ndarray
+            The state, (n_modes, n_pol, n_omega), the host copy the plane read.
+        axis : numpy.ndarray or None
+            The on-axis synthesis (2, n_modes), for ``peak_intensity``.
+
+        Returns
+        -------
+        dict
+            The requested Poynting statistics.
+        """
+        names = set(spec.names) & _POYNTING_STATISTICS
+        if names & {"energy_window", "peak_power_window"}:
+            return _poynting_statistics(spec, grid, state, self._weight, axis)
+        values: dict[str, np.ndarray] = {}
+        density = np.abs(state) ** 2 * self._weight
+        if "omega0" in names:
+            total = np.sum(density, axis=-1)
+            with np.errstate(invalid="ignore", divide="ignore"):
+                values["omega0"] = np.sum(density * grid.omega, axis=-1) / total
+        if "energy" in names:
+            spectral = (
+                density
+                if grid.kind == "envelope"
+                else density
+                * np.concatenate(([1.0], np.full(grid.n_omega - 2, 4.0), [1.0]))
+            )
+            values["energy"] = (grid.dt / grid.n_t) * np.sum(spectral, axis=-1)
+        if names - {"omega0", "energy"}:
+            wanted = "peak_intensity" in names
+            power, flux = call_julia(
+                self._jl.poynting,
+                self._engine,
+                np.ascontiguousarray(self._weight[:, 0, :].T),
+                np.ascontiguousarray(axis) if wanted and axis is not None else None,
+            )
+            power = np.asarray(power).T
+            total_power = np.sum(power, axis=0)
+            if "peak_power" in names:
+                values["peak_power"] = np.max(power, axis=-1)
+            if "peak_power_total" in names:
+                values["peak_power_total"] = np.asarray(np.max(total_power))
+            for name in ("fwhm_t", "fwhm_t_outer"):
+                if name in names:
+                    values[name] = _power_half_width(
+                        grid, total_power, outermost=name.endswith("outer")
+                    )
+            if wanted:
+                if axis is None:
+                    msg = "Poynting peak_intensity requires the on-axis synthesis matrix"
+                    raise BackendError(msg)
+                values["peak_intensity"] = np.asarray(
+                    0.5 * EPS0 * C * np.max(np.asarray(flux))
+                )
+        return values
 
     def _populations(self, spec: StatsSpec, state: np.ndarray) -> dict[str, np.ndarray]:
         """Reduce fresh accepted-field populations at an observation."""
@@ -946,9 +1017,9 @@ class JuliaBackend(StepDriver[object]):
 
         parts = np.zeros(6)
         if self._problem.flags.has_plasma:
-            raw = call_julia(
-                self._jl.population_snapshot, self._engine, state[:, 0, :].T.copy()
-            )
+            # The engine reads the state it holds, which is the one observed.
+            del state
+            raw = call_julia(self._jl.population_snapshot, self._engine, None)
             fractions, peaks = (np.asarray(raw[i], dtype=float)[None] for i in (0, 1))
             parts = np.asarray(raw[2], dtype=float)
         else:
