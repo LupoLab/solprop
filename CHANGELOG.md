@@ -547,6 +547,7 @@ All notable changes to solprop are recorded here. The format follows
   columns. `solprop.capabilities.output` gains `refused_readers`, which states these
   refusals with the readers' own text, while it still admits a spatial file's `energy`
   statistic. Modal files read as before (#147, #406).
+- A tilted `SpatialPulse` travels towards +x (+y) for a positive `tilt`, as documented and as `coupling.Alignment` tilts a beam; it went the other way. Scripts that compensated by negating the tilt must remove the minus sign.
 - `get_spectrogram`, and so `plotting.spectrogram`, no longer alias on a narrow envelope grid. The real field is now oversampled until it resolves the carrier: an 800 nm pulse on a 600 nm to 1100 nm band used to appear near 2.9 µm.
 - Under `absorber_scheme="split_step"`, the default on the spatial routes, the boundary
   monitor judges the time window's guards on the power each step's split finds, halfway
