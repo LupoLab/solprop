@@ -55,8 +55,9 @@ class Passband:
     Raises
     ------
     solprop.exceptions.ProcessingError
-        If the axis is unknown, a wavelength limit is not positive, or a frequency limit
-        is negative.
+        If the axis is unknown, ``spec_range`` does not hold two limits, a wavelength
+        limit is not positive, a frequency limit is negative, or the width is not
+        positive.
 
     Examples
     --------
@@ -76,6 +77,8 @@ class Passband:
         """Refuse an unknown axis, and limits that name no light on it."""
         _check_choice(self.axis, SPECTRAL_AXES, "axis")
         _check_limits(self.spec_range, self.axis)
+        if self.width is not None:
+            _check_width(self.width)
 
 
 Bandpass = tuple[float, float] | Passband | Float[np.ndarray, " n_omega"]
@@ -140,9 +143,9 @@ def bandpass(
     Raises
     ------
     solprop.exceptions.ProcessingError
-        If the axis is unknown, a wavelength limit is not positive, a frequency limit
-        is negative, or the width is not positive -- including the default width of an
-        empty pass band (equal limits).
+        If the axis is unknown, ``spec_range`` does not hold two limits, a wavelength
+        limit is not positive, a frequency limit is negative, or the width is not
+        positive -- including the default width of an empty pass band (equal limits).
 
     Examples
     --------
@@ -170,9 +173,7 @@ def bandpass(
             DEFAULT_BANDPASS_BINS * grid.d_omega,
             DEFAULT_BANDPASS_FRACTION * (edges[1] - edges[0]),
         )
-    if width <= 0.0:
-        msg = f"the taper width must be positive, got {width!r}"
-        raise ProcessingError(msg)
+    _check_width(width)
     return planck_taper(
         grid.omega, edges[0] - width, edges[0], edges[1], edges[1] + width
     )
@@ -311,7 +312,29 @@ def _output_limits(
     return low, high
 
 
-def _check_limits(limits: tuple[float, float], axis: SpectralAxis) -> None:
+_LIMIT_UNITS = {"wavelength": "m", "f": "Hz", "omega": "rad/s"}
+"""The unit of a spectral limit on each axis."""
+
+
+def _check_width(width: float) -> None:
+    """Refuse a taper width that is not positive.
+
+    Parameters
+    ----------
+    width : float
+        Width of each taper edge, rad/s.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the width is not positive.
+    """
+    if width <= 0.0:
+        msg = f"the taper width must be positive, in rad/s, got {width!r}"
+        raise ProcessingError(msg)
+
+
+def _check_limits(limits: tuple[float, ...], axis: SpectralAxis) -> None:
     """Refuse limits that name no light on their axis.
 
     Parameters
@@ -324,9 +347,14 @@ def _check_limits(limits: tuple[float, float], axis: SpectralAxis) -> None:
     Raises
     ------
     solprop.exceptions.ProcessingError
-        If a wavelength limit is not positive, or a frequency limit is negative; zero
-        frequency is allowed, as the lower edge of a low-pass band.
+        If ``limits`` does not hold two values, a wavelength limit is not positive, or
+        a frequency limit is negative; zero frequency is allowed, as the lower edge of
+        a low-pass band.
     """
+    if len(limits) != 2:
+        unit = _LIMIT_UNITS[axis]
+        msg = f"spec_range must hold two limits, in {unit}, got {limits!r}"
+        raise ProcessingError(msg)
     if axis == "wavelength" and min(limits) <= 0.0:
         msg = f"wavelength limits must be positive, got {limits!r}"
         raise ProcessingError(msg)

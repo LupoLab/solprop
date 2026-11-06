@@ -2396,9 +2396,14 @@ class HostHistory:
                 )
                 raise BackendError(msg)
         self.reset()
-        self._store = np.array(rows["store"], dtype=np.complex128, copy=True)
+        # In the state's precision: binary32 on SEP 33's single-precision path, as the
+        # store was kept; the operator's rates stay binary64 there too.
+        dtype = (
+            np.complex64 if self._backend._problem.precision.single else np.complex128
+        )
+        self._store = np.array(rows["store"], dtype=dtype, copy=True)
         if self.compensated:
-            self._states = np.array(rows["states"], dtype=np.complex128, copy=True)
+            self._states = np.array(rows["states"], dtype=dtype, copy=True)
             self._rates = np.array(rows["rates"], dtype=np.complex128, copy=True)
         self._weights = [
             None

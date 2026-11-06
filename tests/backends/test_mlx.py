@@ -47,6 +47,7 @@ from monitor_cases import (
     record_after_march,
     watched,
 )
+from solprop.backends.mlx_gpu import backend as mlx_backend
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
     fft_probe,
@@ -72,6 +73,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stepper import (
     FixedSchedule,
     LowStorageRungeKutta,
+    Multistep,
     PIController,
     RungeKutta,
 )
@@ -167,6 +169,191 @@ def test_the_polarisation_taper_agrees_with_the_oracle():
 def test_low_storage_agrees_with_the_oracle():
     device, oracle = pair(lambda: gnlse("single", integrator=LowStorageRungeKutta()))
     assert_within(device, oracle, step_bound(10, 2, 11))
+
+
+@gpu_only
+def test_adams_agrees_with_the_oracle():
+    """The exponential Adams march replayed: its history and its trials on the device.
+
+    The moments are double-float on the device and binary64 on the host, each rounded
+    once, so they differ by at most one ulp; the step's bound covers that.
+    """
+    device, oracle = pair(lambda: gnlse("single", integrator=Multistep()))
+    assert_within(device, oracle, step_bound(10, 2, 11))
+
+
+def adams_gradient(backend: str) -> Simulation:
+    """Return an argon capillary on a pressure gradient, Kerr only, Adams replayed.
+
+    A varying operator: the history carries the transported compensation.
+    """
+    length = 0.004
+    return Simulation.from_capillary(
+        50e-6,
+        length,
+        "Ar",
+        (1.0, 0.5),
+        wavelength=800e-9,
+        wavelength_limits=(300e-9, 3e-6),
+        trange=300e-15,
+        fwhm=10e-15,
+        energy=20e-6,
+        plasma=False,
+        n_save=2,
+        backend=backend,
+        precision="single",
+        integrator=Multistep(),
+        schedule=FixedSchedule.uniform(0.0, length, length / 16),
+        # The in-stage collar's stability would hold an Adams step to micrometres.
+        absorber_scheme="split_step",
+        noise=None,
+    )
+
+
+@gpu_only
+def test_a_compensated_adams_history_agrees_with_the_oracle():
+    device = finish(adams_gradient("mlx"))
+    oracle = finish(adams_gradient("numpy_ref"))
+    assert_within(device, oracle, step_bound(16, 2, 13))
+
+
+@gpu_only
+def test_the_trial_kernel_rounds_the_binary64_moments_once():
+    """Flow, moments and a compensation factor against binary64, rounded once."""
+    from solprop.backends.exponential import phi_functions  # noqa: PLC0415
+
+    rng = np.random.default_rng(342)
+    n = 4096
+    # Bins on both sides of the join, with phases of thousands of radians.
+    terms = np.stack(
+        [
+            rng.normal(0, 0.3, n)
+            + 1j * rng.normal(0, 1, n) * np.repeat([0.4, 900], n // 2),
+            rng.normal(0, 0.01, n) + 1j * rng.normal(0, 0.2, n),
+        ]
+    ).reshape(2, 1, 1, n)
+    device = DoubleFloatTerms.upload(terms)
+    weights = np.array([0.6, 1.7])
+    rate = np.array([1.3, -0.2])
+    span = 0.4
+    flow, moments, factors = device.trial(
+        np.stack([weights, rate - weights / 2.0]), 7, np.array([span]), endpoint=False
+    )
+    x = np.tensordot(weights, terms, axes=1)
+    phi = phi_functions(x, 7)
+    expected = np.stack([math.factorial(k) * phi[k + 1] for k in range(7)])
+    factor = np.exp(span * x) * np.tensordot(rate - weights / 2.0, terms, axes=1)
+    for found, reference in (
+        (np.array(flow), np.exp(x)),
+        (np.array(moments), expected),
+        (np.array(factors[0]), factor),
+    ):
+        scale = np.maximum(np.abs(reference), np.finfo(np.float32).tiny)
+        # Rounded once from at least 44 bits: within one binary32 ulp.
+        assert np.max(np.abs(found - reference) / scale) <= 2 * U32
+
+
+@gpu_only
+@pytest.mark.parametrize(
+    "build",
+    [
+        pytest.param(lambda: capillary("single"), id="capillary"),
+        pytest.param(lambda: plasma_beam("single", route="radial"), id="radial"),
+        pytest.param(lambda: plasma_beam("single", route="cartesian"), id="cartesian"),
+    ],
+)
+def test_the_field_plasma_statistics_agree_with_the_oracle(build):
+    """The populations at every node, on the device by the stage's own passes.
+
+    The oracle scans in binary64 from the widened field; the device in binary32 with
+    the stage's rate kernel, running integral and stable population, as the envelope
+    grid's statistics already do.
+    """
+    from solprop.backends.numpy_ref.backend import NumpyRefBackend  # noqa: PLC0415
+
+    with ExitStack() as cleanup:
+        backend = loaded(on("mlx", build()), cleanup)
+        backend.propagate_to(float(build().settings.save_planes[-1]))
+        observed = backend.observe().field
+        assert observed is not None
+        field = observed[0]
+        device = cast(MlxBackend, backend)._species_statistics(field)
+        oracle = NumpyRefBackend._species_statistics(cast(MlxBackend, backend), field)
+    assert set(device) == set(oracle)
+    assert float(np.max(oracle["species_ionisation"])) > 1e-8
+    for name, expected in oracle.items():
+        # The final fractions' binary32 scans: a few thousand units of rounding,
+        # against the statistic's largest value (an outer node's 1e-17 is zero there).
+        scale = float(np.max(np.abs(expected)))
+        np.testing.assert_allclose(device[name], expected, rtol=0.0, atol=1e-4 * scale)
+
+
+@pytest.mark.parametrize("steps", [None, 10], ids=["adaptive", "replayed"])
+def test_reusing_the_last_stage_as_the_next_first_changes_nothing(steps):
+    """First-same-as-last: the last stage's input is the accepted state itself.
+
+    The first stage's propagators are exactly one, so the reused stage is the one a
+    fresh evaluation would form, and the march is bitwise the same with or without it.
+    """
+    fields = []
+    for reuse in (False, True):
+        with ExitStack() as cleanup:
+            backend = cast(
+                MlxBackend,
+                loaded(on("mlx", gnlse("single", steps=steps)), cleanup),
+            )
+            assert backend._fsal
+            backend._fsal = reuse
+            backend.propagate_to(0.05)
+            observed = backend.observe()
+            assert observed.field is not None
+            fields.append((observed.field, observed.n_steps))
+    assert fields[0][1] == fields[1][1]
+    assert np.array_equal(fields[0][0], fields[1][0])
+
+
+@gpu_only
+@pytest.mark.parametrize("route", ["radial", "cartesian"])
+def test_the_transverse_edge_is_read_on_the_device_as_the_host_reads_it(route):
+    """Node and column energies from the device's own transform or synthesis.
+
+    Binary32 sums against the host's binary64 ones: held to a millionth of the
+    state's energy, three orders below the edge's warning.
+    """
+    from solprop.backends.driver import StepDriver  # noqa: PLC0415
+
+    simulation = on("mlx", spatial_kerr(route, "single"))
+    problem = simulation.translate()
+    with ExitStack() as cleanup:
+        backend = cast(MlxBackend, select("mlx", problem, grid=simulation.grid))
+        cleanup.callback(backend.close)
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None and monitor.transverse is not None
+        backend.set_initial(problem.initial.field0, None)
+        backend._bind_monitor(monitor)
+        backend.propagate_to(float(simulation.settings.save_planes[-1]))
+        state, edge = backend._require_state(), monitor.transverse
+        whole = StepDriver._edge_reading(backend, state, edge, full=True)
+        assert whole.totals is not None and whole.columns is not None
+        # The nodes' sums carry the grid's own weights, the columns' the state's.
+        scales = {"columns": float(np.sum(whole.columns))}
+        nodes = float(np.max(whole.totals))
+        for full in (True, False):
+            device = backend._edge_reading(state, edge, full=full)
+            host = StepDriver._edge_reading(backend, state, edge, full=full)
+            for name in ("faces", "clip", "totals", "columns"):
+                found, expected = getattr(device, name), getattr(host, name)
+                if expected is None:
+                    assert found is None
+                    continue
+                scale = scales.get(name, nodes)
+                assert np.max(np.abs(found - expected)) <= 1e-6 * scale
+
+
+def test_mlx_refuses_the_interaction_formulation_by_name():
+    simulation = gnlse("single", integrator=Multistep(formulation="interaction"))
+    with pytest.raises(BackendError, match="interaction formulation"):
+        select("mlx", simulation.translate(), grid=simulation.grid)
 
 
 @pytest.mark.parametrize("gas", ["Ar", "N2"])
@@ -717,8 +904,8 @@ def test_a_non_finite_source_stops_every_march(march):
         backend = cast(MlxBackend, loaded(on("mlx", simulation), cleanup))
         original = backend._device_sources
 
-        def poisoned(field, bundle, raman):
-            sources = original(field, bundle, raman)
+        def poisoned(field, values, raman):
+            sources = original(field, values, raman)
             return type(sources)(sources.polarisation * math.nan, sources.current)
 
         backend._device_sources = poisoned
@@ -726,12 +913,14 @@ def test_a_non_finite_source_stops_every_march(march):
             backend.propagate_to(0.05)
 
 
-def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
-    """The device's trial past ``exp(88.72)`` is a rejection, as the oracle's is.
+def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk(monkeypatch):
+    """The interaction picture's trial past ``exp(88.72)`` is rejected, as the oracle's.
 
+    The lab-frame trial is turned off, so the device forms the inverse propagator.
     Both runs are adaptive and take their own steps after the rejections, so they are
     held to the survival record's field envelope, not to a rounding bound.
     """
+    monkeypatch.setattr(mlx_backend, "_TRANSPORT_REACH", math.inf)
     device = run_to_end(overflowing_beam("single"), "mlx")
     oracle = run_to_end(overflowing_beam("single"), "numpy_ref")
     history = device.step_history
@@ -739,6 +928,46 @@ def test_an_adaptive_trial_that_overflows_binary32_is_rejected_and_shrunk():
     assert history.error_norm[0] == np.inf
     assert np.all(np.isfinite(history.error_norm[history.accepted]))
     assert_within(device.require_field(), oracle.require_field(), 1e-3)
+
+
+@gpu_only
+def test_a_trial_past_binary32s_range_is_taken_whole_in_the_lab_frame():
+    """Past ``|Re dPhi| = 79.8`` the stages are carried by forward flows alone.
+
+    No inverse is formed, so the device takes the millimetre in one step as binary64
+    does, where the interaction picture is rejected twice and shrinks. Both runs are
+    adaptive, so they are held to the survival record's field envelope.
+    """
+    device = run_to_end(overflowing_beam("single"), "mlx")
+    double = run_to_end(overflowing_beam("double"), "numpy_ref")
+    history = device.step_history
+    assert history.n_rejected == 0
+    assert int(np.sum(history.accepted)) == int(np.sum(double.step_history.accepted))
+    assert_within(device.require_field(), double.require_field(), 1e-3)
+
+
+@gpu_only
+@pytest.mark.parametrize("case", ["gnlse", "capillary"])
+def test_the_lab_frame_trial_is_the_interaction_picture_to_rounding(case, monkeypatch):
+    """Forced on every trial, the lab-frame combination changes only the rounding.
+
+    The same replayed steps (a soliton's ten, an ionising capillary's sixteen): the
+    forms differ by where each stage's flow is applied (``exp(Phi_i - Phi_j)`` on the
+    source against ``exp(Phi_i) exp(-Phi_j)``), a few units of binary32 rounding a
+    stage, against the field's largest sample.
+    """
+    fields = []
+    for reach in (math.inf, -1.0):
+        monkeypatch.setattr(mlx_backend, "_TRANSPORT_REACH", reach)
+        with ExitStack() as cleanup:
+            simulation = gnlse("single") if case == "gnlse" else capillary("single")
+            backend = loaded(on("mlx", simulation), cleanup)
+            backend.propagate_to(float(simulation.settings.save_planes[-1]))
+            observed = backend.observe()
+            assert observed.field is not None
+            fields.append(observed.field)
+    scale = float(np.max(np.abs(fields[0])))
+    assert_within(fields[1], fields[0], 1e-5 * scale, what="lab frame")
 
 
 def test_the_state_stays_complex64_on_the_device():

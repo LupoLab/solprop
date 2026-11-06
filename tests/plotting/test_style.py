@@ -110,6 +110,13 @@ def test_a_wavelength_range_converts_to_frequency(axis, turn):
     assert high == pytest.approx(turn / 400e-9)
 
 
+@pytest.mark.parametrize("axis", ["f", "omega"])
+@pytest.mark.parametrize("limits", [(0.0, 1e-6), (-1e-6, 1e-6)])
+def test_a_wavelength_range_that_names_no_frequency_is_refused(axis, limits):
+    with pytest.raises(ProcessingError, match="wavelength_limits must be positive"):
+        style.wavelength_to_axis(axis, limits)
+
+
 def test_a_given_spectral_range_is_used_as_it_is():
     assert style._spec_range("f", (2e15, 0.0), (400e-9, 2e-6)) == (0.0, 2e15)
 

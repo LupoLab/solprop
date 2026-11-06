@@ -162,8 +162,9 @@ KOKKOS_INLINE_FUNCTION std::size_t far_field_band_edge(const std::size_t band,
  * input (an exact hard-mask contract). A device compiler keeps its own contraction
  * default, so a CUDA build spells each operation with a round-to-nearest intrinsic and
  * a HIP build, whose intrinsics are no protection, takes the block above. A HIP
- * device's square root is the compiler's own, which decided every edge the device tests
- * tried; its correct rounding is observed there, not guaranteed by its documentation.
+ * device's square root is `__builtin_sqrt`, so `llvm.sqrt.f64`, which LLVM defines as a
+ * conforming IEEE 754 square root, correctly rounded, unless the call carries `afn`;
+ * AMD's own math documentation promises less (docs/dev/accuracy.md section 7).
  */
 SOLPROP_NATIVE_STRICT_FUNCTION
 KOKKOS_INLINE_FUNCTION double far_field_radius(const double scale, const double k_x,

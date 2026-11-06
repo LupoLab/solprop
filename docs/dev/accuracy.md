@@ -501,6 +501,23 @@ which that target does not bound.
    accuracy_figures.backend_equivalence()
 ```
 
+**A hard aperture edge** decides exactly as `numpy_ref` decides on every backend, a
+stronger contract than the ladder's. SEP 23's mask-plane radius rounds each product and
+sum on its own and takes a correctly rounded square root. On a CPU and in a CUDA build
+that root is IEEE 754's (`std::sqrt`, `__dsqrt_rn`). In a HIP build it is the
+compiler's. HIP's `sqrt(double)` is `__builtin_sqrt`, which becomes `llvm.sqrt.f64`.
+LLVM defines that intrinsic to match a conforming IEEE 754 library unless the call
+carries the approximate-functions flag `afn`, and solprop's HIP build sets no fast-math
+option. The AMDGPU backend has expanded it that way since 2023 (LLVM `e3fd8f8`): for
+`gfx942` under ROCm 7.2.4 a kernel's double `sqrt` compiles to a reciprocal-root
+estimate refined by fused multiply-adds, not the bare `v_sqrt_f64`. AMD's documentation of HIP's
+math functions promises less. It lists `__dsqrt_rn` as round-to-nearest-even and `sqrt`
+at 1 ulp, both measured over `[0, 100]` rather than guaranteed. The device tests'
+hard-edge fuzz in `tests/backends/test_native_far_field.py` holds the contract on each
+card it runs on. On an AMD Instinct MI300X it fails 31 of its 120 cases with the far
+field's contraction pragma removed
+([#504](https://github.com/LupoLab/solprop/issues/504)).
+
 
 ## 8. Where Luna is not converged, and where the two codes still differ
 

@@ -1251,10 +1251,14 @@ class KernelProblem:
     def _check_single_exponent(self) -> None:
         """Refuse a step whose propagator or its inverse overflows binary32.
 
-        The interaction picture multiplies each stage by ``exp(-dPhi)`` and the state
-        by ``exp(dPhi)``; held in binary32, either is infinite once ``|Re dPhi|``
-        passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches 709.78. A strong
-        spectral collar on a long step is the usual cause. As
+        The Runge-Kutta interaction picture multiplies each stage by ``exp(-dPhi)`` and
+        the state by ``exp(dPhi)``; held in binary32, either is infinite once
+        ``|Re dPhi|`` passes ``log(FLT_MAX)``, about 88.72, where binary64 reaches
+        709.78. A strong spectral collar on a long step is the usual cause. The
+        low-storage march and the exponential Adams flow apply forward flows only, so a
+        damped bin's flow underflows harmlessly towards zero and only growth,
+        ``Re dPhi > 0``, can overflow: they are held to ``max Re dPhi``, Adams's times
+        the reach of its history (a sample is carried up to ``order + 1`` steps). As
         :meth:`_check_exponent_budget` does for binary64, a replayed schedule's
         longest step, or the floor ``dz_min``, is held to the limit -- an adaptive
         controller rejects a non-finite trial above its floor and shrinks -- and every
@@ -1281,15 +1285,40 @@ class KernelProblem:
         start = float(self.initial.z)
         end = float(self.stepper.save_planes[-1])
         step = min(step, end - start)
+        integrator = self.stepper.integrator
+        forward = not self.stepper.interpolate_planes and (
+            isinstance(integrator, LowStorageRungeKutta)
+            or (
+                isinstance(integrator, Multistep)
+                and integrator.formulation == "exponential"
+            )
+        )
+        reach = integrator.order + 1 if isinstance(integrator, Multistep) else 1
+        operator = self.linear.separable
+        geometry = self.transform.geometry
+        bounds = (
+            rate_bounds(operator)
+            if operator is not None
+            else radial_rate_bounds(self.linear)
+            if geometry is not None and geometry.kind == "radial"
+            else None
+        )
         exponent = 0.0
-        for first in {start, end - step}:
-            phase = delta_phi(self.linear, first, first + step)
-            exponent = max(exponent, float(np.max(np.abs(np.real(phase)))))
+        if bounds is not None:
+            # A free-space operator's rates, bounded as the binary64 budget bounds
+            # them, without forming the volume (seconds on a 384^2 x 750 grid).
+            growth = reach * step * bounds.gain
+            exponent = growth if forward else max(step * bounds.loss, growth)
+        for first in () if bounds is not None else {start, end - step}:
+            real = np.real(delta_phi(self.linear, first, first + step))
+            found = reach * float(np.max(real)) if forward else np.max(np.abs(real))
+            exponent = max(exponent, float(found))
         if exponent <= EXPONENT_BUDGET * LOG_FLT_MAX:
             return
+        name = "growth Re dPhi" if forward else "|Re dPhi|"
         message = (
             f"precision='single': the {source} {step:.3e} m gives a propagator "
-            f"exponent |Re dPhi| of {exponent:.1f}"
+            f"exponent {name} of {exponent:.1f}"
         )
         remedy = (
             "take steps shorter than "
@@ -1299,7 +1328,12 @@ class KernelProblem:
         if exponent > LOG_FLT_MAX:
             msg = (
                 f"{message}, past binary32's range exp({LOG_FLT_MAX:.2f}): the "
-                f"interaction picture's inverse propagator overflows; {remedy}"
+                + (
+                    "forward flow overflows"
+                    if forward
+                    else "interaction picture's inverse propagator overflows"
+                )
+                + f"; {remedy}"
             )
             raise TranslationError(msg)
         warnings.warn(
