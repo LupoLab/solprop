@@ -229,14 +229,18 @@ function gemm!(C, A, B, alpha, beta, c)
 end
 
 # Section timers for development: SOLPROP_JULIA_TIMING=1 when the module loads. Off,
-# `@section` is its expression alone. On a GPU the times are launch times only.
+# `@section` costs one branch.
 const TIMING = Ref(false)
 const TIMES = Dict{Symbol,Float64}()
+# A device's timed sections wait for its queue at both ends (`synchronize_all`).
+const SYNCHRONIZE = Ref{Any}(() -> nothing)
 macro section(name, ex)
     quote
         if TIMING[]
+            SYNCHRONIZE[]()
             local started = time_ns()
             local result = $(esc(ex))
+            SYNCHRONIZE[]()
             TIMES[$name] = get(TIMES, $name, 0.0) + (time_ns() - started) * 1e-9
             result
         else

@@ -122,7 +122,8 @@ function weighted_norm(engine, error, magnitude)
 end
 
 """Accept the candidate: the mask, the split-step collar, then the quadrature alarm."""
-function commit!(engine, dz::Float64, monitored::Bool=false)
+commit!(engine, dz::Float64, monitored::Bool=false) = @section :commit commit_step!(engine, dz, monitored)
+function commit_step!(engine, dz, monitored)
     c, w = engine.config, engine.work
     mask!(engine, w.candidate)
     if c.split_active

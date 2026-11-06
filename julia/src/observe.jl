@@ -5,7 +5,7 @@
 # monitor's reductions, formed here so that only short vectors cross (SEP 21, ADR-057).
 
 """The accepted state, for the host: the engine's own array on a CPU in binary64."""
-host_state(engine) = host_view(engine.work.y)
+host_state(engine) = @section :observe host_view(engine.work.y)
 host_candidate(engine) = host_view(engine.work.candidate)
 host_view(a::Matrix{ComplexF64}) = a
 host_view(a) = Matrix{ComplexF64}(Array(a))
@@ -48,7 +48,8 @@ function add_power!(power, samples, weights, first, count, c)
 end
 
 """`P(t)` of the accepted state on the coarse time axis: the monitor's `power`."""
-function state_power(engine)
+state_power(engine) = @section :monitor monitor_power(engine)
+function monitor_power(engine)
     c, w = engine.config, engine.work
     (; power, columns) = w.monitor
     fill!(power, 0)
@@ -140,7 +141,8 @@ end
 """Each physical node's energy at the bound rows (`bind_edge!`), zero elsewhere: the
 radial synthesis's rows, or every node of a Cartesian grid through the transverse
 inverse transform."""
-function node_energy(engine)
+node_energy(engine) = @section :edge edge_energy(engine)
+function edge_energy(engine)
     c, w = engine.config, engine.work
     y, edge = w.y, w.edge[]
     T = real_type(engine)

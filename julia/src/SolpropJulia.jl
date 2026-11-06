@@ -73,6 +73,7 @@ function create(input)
         cache_propagators=host.has("cache_propagators") ? host.flag("cache_propagators") : true,
     )
     engine = c.free ? create_free(c, host) : create_modal(c, host)
+    oncpu(c) || (SYNCHRONIZE[] = () -> KA.synchronize(backend))
     compile!(engine)
     engine
 end
