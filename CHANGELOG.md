@@ -190,6 +190,7 @@ All notable changes to solprop are recorded here. The format follows
   saved plane to the callable and keeps nothing, so a reducing scan on `SimulationRunner` is
   a few lines and costs no volume beyond the plane's own. `check_cache`, `resume` and
   `resumability` now refuse any output handler by name (#499).
+- Readers of a radial beam from its file, in `solprop.processing`: `on_axis_spectra`, `radial_spectrum`, `far_field`, `on_axis_power` and `on_axis_spectrogram`. `solprop.tools.beam_params` gives a Gaussian beam's Rayleigh range, critical power, power ratio and Marburger collapse distance, and `beam_through_lens` the waist a lens makes. `Recipe.example("filament")` is a filament in argon with plasma, and a new tutorial reads one.
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
 - solprop.backends exports `thread_budget` and `ThreadBudget`: how many threads a process may run at once, and the limit that sets it, for a front end to show.
 - An `ApertureSet` row may be an ellipse, a rectangle or a half-plane (`shapes`, `extents`), with its own edge profile (`profiles`), so a far-field statistic can express an instrument's mask: a knife edge at a fixed position in a far-field plane, whose wavevector moves with frequency, no longer needs the field on the host. A half-plane is half-open and tiles the columns with its complement. Line grids take half-planes bounded in x and rectangles, and the offline `Aperture` takes the same shapes. Unset, the new fields leave every existing result, record and configuration hash as they were (#446, part of #186).
@@ -201,6 +202,7 @@ All notable changes to solprop are recorded here. The format follows
   geometric mean. `SOLPROP_NATIVE_CPU_VARIANT=x86-64-v2` asks for it.
 - A plane observer can measure a spatial run's planes while it runs: `PlaneView.stored()` returns the plane's stored spectrum (what the `solprop.spatial` functionals take with the run's `SpatialFlux`) and `PlaneView.field_plane()` the plane as `processing.field_plane` reads it, whose `spectral_energy` is the beam's energy per bin.
 - `SOLPROP_REQUIRE_DEVICE` (`cuda`, `hip` or `any`) makes a run refuse before allocating anything unless it would execute on a native device build that sees a device, so a job doesn't fall onto a CPU wheel that a new release installed over its source build.
+- `solprop.spatial.spatial_power`, `spatial_intensity` and `on_axis_trace`, and `solprop.processing.on_axis_power`, take `oversampling=`, resampling the time axis by zero-padding the spectrum as `get_power` does, so a beam's pulse is drawn smoothly and its peak found between samples. `solprop.processing.time_axis(grid, oversampling)` returns the times they lie on.
 - `solprop.processing.get_spectrogram` returns a plane's spectrogram as data (gate positions,
   spectral axis and map, per unit of the axis asked for, with a `bandpass=` window), the map
   `plotting.spectrogram` draws, so a front end can draw it interactively.
@@ -543,6 +545,7 @@ All notable changes to solprop are recorded here. The format follows
   columns. `solprop.capabilities.output` gains `refused_readers`, which states these
   refusals with the readers' own text, while it still admits a spatial file's `energy`
   statistic. Modal files read as before (#147, #406).
+- `get_spectrogram`, and so `plotting.spectrogram`, no longer alias on a narrow envelope grid. The real field is now oversampled until it resolves the carrier: an 800 nm pulse on a 600 nm to 1100 nm band used to appear near 2.9 µm.
 - Under `absorber_scheme="split_step"`, the default on the spatial routes, the boundary
   monitor judges the time window's guards on the power each step's split finds, halfway
   through its factor, instead of the state it leaves, whose guards it had damped by about

@@ -30,6 +30,15 @@ from solprop.processing.axes import (
     spectral_order,
     transverse_units,
 )
+from solprop.processing.beams import (
+    far_field,
+    fluence_along,
+    on_axis_power,
+    on_axis_spectra,
+    on_axis_spectrogram,
+    radial_intensity,
+    radial_spectrum,
+)
 from solprop.processing.coherence import band_coherence, g12, g12_of, spectral_bands
 from solprop.processing.compression import (
     CepOptimum,
@@ -48,6 +57,7 @@ from solprop.processing.fields import (
     NOISE_FLOORS,
     FieldKind,
     NoiseFloor,
+    field_spectrogram,
     get_field,
     get_phase,
     get_power,
@@ -55,6 +65,8 @@ from solprop.processing.fields import (
     get_spectrogram,
     get_spectrum,
     nearest_plane,
+    real_field_oversampling,
+    time_axis,
 )
 from solprop.processing.mixtures import (
     absorbed_spectral_energy,
@@ -147,8 +159,11 @@ __all__ = [
     "electric_field",
     "energy",
     "example_output",
+    "far_field",
     "field_autocorrelation",
     "field_plane",
+    "field_spectrogram",
+    "fluence_along",
     "fluence_map",
     "fwhm",
     "fwhm_f",
@@ -173,9 +188,15 @@ __all__ = [
     "moment",
     "nearest_plane",
     "node_fluence",
+    "on_axis_power",
+    "on_axis_spectra",
+    "on_axis_spectrogram",
     "optimise_cep",
     "peak_power",
     "physical_energy",
+    "radial_intensity",
+    "radial_spectrum",
+    "real_field_oversampling",
     "reconstructed_flux",
     "save_field_plane",
     "spatial_grid_of",
@@ -185,6 +206,7 @@ __all__ = [
     "spectral_axis",
     "spectral_bands",
     "spectral_order",
+    "time_axis",
     "time_bandwidth",
     "transform_limit",
     "transverse_units",

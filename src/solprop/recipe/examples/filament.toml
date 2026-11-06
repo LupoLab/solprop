@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A collimated 30 fs beam of 300 um waist in 1 bar of argon, on a radial grid, at about
+# three times the critical power: it collapses, the plasma arrests it, and a filament
+# forms.
+# mirrors: docs/tutorials/free_space/plot_11_radial_filament.py
+
+[recipe]
+format = 1
+route = "radial"
+title = "A filament in argon"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = "25 cm", reference_wavelength = "800 nm", wavelength_limits = ["500 nm", "1400 nm"], trange = "300 fs", thg = false }
+space = { type = "RadialGrid", radius = "1.2 mm", n_r = 128 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "1 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+    { type = "EnvelopePlasmaResponse", gas = "Ar", rate = { type = "OptmatRate", source = "Ar", wavelength = "800 nm" } },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulse"
+temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "30 fs", energy = "0.88 mJ" }
+waist = "300 um"
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-5, atol = 1e-11 }
+save_planes = [
+    "0.3125 cm", "0.6250 cm", "0.9375 cm", "1.2500 cm", "1.5625 cm", "1.8750 cm",
+    "2.1875 cm", "2.5000 cm", "2.8125 cm", "3.1250 cm", "3.4375 cm", "3.7500 cm",
+    "4.0625 cm", "4.3750 cm", "4.6875 cm", "5.0000 cm", "5.3125 cm", "5.6250 cm",
+    "5.9375 cm", "6.2500 cm", "6.5625 cm", "6.8750 cm", "7.1875 cm", "7.5000 cm",
+    "7.8125 cm", "8.1250 cm", "8.4375 cm", "8.7500 cm", "9.0625 cm", "9.3750 cm",
+    "9.6875 cm", "10.0000 cm", "10.3125 cm", "10.6250 cm", "10.9375 cm", "11.2500 cm",
+    "11.5625 cm", "11.8750 cm", "12.1875 cm", "12.5000 cm", "12.8125 cm", "13.1250 cm",
+    "13.4375 cm", "13.7500 cm", "14.0625 cm", "14.3750 cm", "14.6875 cm", "15.0000 cm",
+    "15.3125 cm", "15.6250 cm", "15.9375 cm", "16.2500 cm", "16.5625 cm", "16.8750 cm",
+    "17.1875 cm", "17.5000 cm", "17.8125 cm", "18.1250 cm", "18.4375 cm", "18.7500 cm",
+    "19.0625 cm", "19.3750 cm", "19.6875 cm", "20.0000 cm", "20.3125 cm", "20.6250 cm",
+    "20.9375 cm", "21.2500 cm", "21.5625 cm", "21.8750 cm", "22.1875 cm", "22.5000 cm",
+    "22.8125 cm", "23.1250 cm", "23.4375 cm", "23.7500 cm", "24.0625 cm", "24.3750 cm",
+    "24.6875 cm", "25.0000 cm",
+]
+dz_init = "0.01 mm"
+dz_max = "0.5 mm"
+stats = { type = "StatsSpec", names = ["energy", "peak_intensity", "electron_density", "beam_radius", "fwhm_r", "on_axis_intensity"] }
+ionisation_field_range = [1e8, 1e11]
