@@ -1,0 +1,1 @@
+A run of a guide that is the same along its length (a fixed fibre, a uniform fill) records its mode basis once instead of once for each saved plane, so a step-index fibre with 201 saved planes now starts at once rather than after about 95 s.

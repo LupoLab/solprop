@@ -1713,7 +1713,8 @@ def _plane_bases(
 
     A spatial basis is its transverse grid and a general one its checked reference,
     the same at every plane; an ordinary mode set's basis is evaluated at each plane
-    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary.
+    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary,
+    and once for a set whose every mode is ``z_constant``.
 
     Parameters
     ----------
@@ -1758,6 +1759,11 @@ def _plane_bases(
             "metric": {"kind": metric.get("kind"), "gauge_id": metric.get("gauge_id")},
         }
         identities = [basis_identity("general_modal", record)] * len(planes)
+    elif all(mode.z_constant for mode in modes):
+        # A guide that is the same at every plane has one basis there: evaluated once,
+        # since a solved mode (a step-index fibre's) costs a mode solve per evaluation.
+        route = "modal"
+        identities = [modal_basis_identity(modes, grid, planes[0])] * len(planes)
     else:
         route = "modal"
         identities = [modal_basis_identity(modes, grid, z) for z in planes]
