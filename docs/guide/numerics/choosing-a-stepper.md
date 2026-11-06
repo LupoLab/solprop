@@ -37,8 +37,8 @@ on; pass `integrator=`, `rtol=` or `atol=` to choose another.
 | `prop_free` (Cartesian, line) | `RungeKutta()` | 1e-4 | 0 | none |
 | `prop_planar` | `Multistep()` | 1e-5 | 0 | none (not carried) |
 
-Under `precision="single"` every interface takes `RungeKutta()` and no noise (and
-admits `Multistep()`), and its `rtol` is the larger of the table's and `1e-6`, at most
+Under `precision="single"` every interface takes the table's integrator and no noise,
+and its `rtol` is the larger of the table's and `1e-6`, at most
 `1e-4`: `1e-6` on `prop_gnlse` and `prop_capillary`, the table's on the others
 ([single precision](../performance/single-precision.md)). The
 spatial interfaces' tolerances apply where their `SimulationSettings` give no

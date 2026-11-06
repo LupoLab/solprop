@@ -122,8 +122,9 @@ alone, replay with fixed orders: `RungeKutta()`, as above, or
 `Multistep(variable_order=False)`, whose order rises from one as its history accrues to
 `order` and stays there, by a rule that reads no estimate. Two such replays of one
 schedule make the same truncation errors, so their difference is rounding alone.
-Single precision steps with `RungeKutta()` by default, so a comparison across
-precisions is a Runge–Kutta one unless both name `Multistep(variable_order=False)`. Recording the order sequence in the schedule
+Single precision steps with each interface's own default, so a comparison across
+precisions replays the same method; name `Multistep(variable_order=False)` or
+`RungeKutta()` on both to fix its orders. Recording the order sequence in the schedule
 would also fix a variable-order replay's orders, and make it match its adaptive run;
 that would extend the saved schedule and is not done, since a fixed order gives the
 comparison without it.

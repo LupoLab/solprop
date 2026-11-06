@@ -63,14 +63,12 @@ interfaces. Under single precision:
   strong collar or loss reaches that exponent is refused at translation, with the
   shortest step that fits, and one within a tenth of it is warned of. A 1 mm capillary's
   default collar on 0.25 mm steps is one such case.
-- **The integrator.** The default is `RungeKutta()` (DOPRI5), and the low-storage
-  march and the Adams integrator, `Multistep()` in its exponential formulation, are
-  admitted ([the Adams record](#the-adams-integrator-in-binary32)). The binary64 default
-  of `prop_capillary` and `prop_radial` is `Multistep()`
-  ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), so on those
-  interfaces a default run changes method as well as arithmetic when it changes
-  precision: pass `integrator=Multistep()` to keep the method, or
-  `integrator=RungeKutta()` to both, as the survival record below does.
+- **The integrator.** Each interface takes its binary64 default
+  ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` in
+  its exponential formulation on `prop_capillary`, `prop_radial` and `prop_planar`
+  ([the Adams record](#the-adams-integrator-in-binary32)), `RungeKutta()` (DOPRI5)
+  elsewhere; the low-storage march is admitted too. A run changes arithmetic, not
+  method, when it changes precision.
 - **Noise.** A default `noise` resolves to none, and the run records why; an explicit
   noise model is refused (below).
 - **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are

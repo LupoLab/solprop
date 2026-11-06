@@ -179,7 +179,7 @@ def test_a_copy_of_the_settings_still_names_no_integrator():
     assert not dataclasses.replace(settings, step_planes=2).integrator_named
     assert dataclasses.replace(settings, integrator=Multistep()).integrator_named
     single = dataclasses.replace(settings, precision="single", backend="numpy_ref")
-    assert isinstance(single.integrator, RungeKutta)
+    assert isinstance(single.integrator, Multistep)
     assert not single.integrator_named
 
 
@@ -355,9 +355,9 @@ def _build(route, precision, through):  # noqa: PLR0911 - one return per route f
     )
 
 
-# route: (binary64 integrator, binary64 rtol, binary32 rtol). Binary32 steps with
-# RungeKutta() everywhere; its rtol is the larger of binary64's and the floor 1e-6,
-# capped at 1e-5 (the maintainers' ruling on the single-precision default).
+# route: (integrator, binary64 rtol, binary32 rtol). Both precisions step with the
+# route's integrator (#342); binary32's rtol is the larger of binary64's and the floor
+# 1e-6, capped at 1e-4 (the maintainers' ruling on the single-precision default).
 DEFAULTS = {
     "gnlse": (RungeKutta, 1e-7, 1e-6),
     "capillary": (Multistep, 1e-6, 1e-6),
@@ -405,7 +405,7 @@ def test_every_route_resolves_its_default_integrator_and_tolerance(
     if precision == "double":
         assert (integrator, rtol) == (double_integrator, double_rtol)
     else:
-        assert (integrator, rtol) == (RungeKutta, single_rtol)
+        assert (integrator, rtol) == (double_integrator, single_rtol)
     assert not simulation.settings.integrator_named
 
 
@@ -417,7 +417,8 @@ def test_a_copy_in_the_other_precision_takes_the_route_s_default(route):
     assert type(double.integrator) is DEFAULTS[route][0]
     assert not double.integrator_named
     back = dataclasses.replace(double, precision="single")
-    assert isinstance(back.integrator, RungeKutta)
+    assert type(back.integrator) is DEFAULTS[route][0]
+    assert not back.integrator_named
 
 
 def test_the_single_precision_tolerance_rule():
@@ -638,7 +639,7 @@ def test_the_table_holds_what_every_route_resolves(route):
     assert row.rtol == double_rtol
     assert default_rtol(TABLE_ROWS[route], "single") == single_rtol
     assert type(default_integrator(TABLE_ROWS[route], "double")) is integrator
-    assert type(default_integrator(TABLE_ROWS[route], "single")) is RungeKutta
+    assert type(default_integrator(TABLE_ROWS[route], "single")) is integrator
 
 
 def test_every_row_of_the_table_is_measured_or_a_named_variant():

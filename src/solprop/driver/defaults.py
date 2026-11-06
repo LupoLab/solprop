@@ -413,8 +413,9 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
         A :data:`RouteName`, or ``None`` for settings built by hand, which step with
         ``Multistep()``.
     precision : {'double', 'single'}
-        The run's precision. Single precision refuses the Adams method until its
-        survival is established (SEP 33, Q2), so it always takes ``RungeKutta()``.
+        The run's precision. Both take the route's own integrator: binary32 Adams
+        agrees with binary64 Adams to the method's truncation (#342), and on ``mlx``
+        it is the faster on the four-mode capillary and the radial routes.
 
     Returns
     -------
@@ -427,12 +428,11 @@ def default_integrator(route: str | None, precision: str) -> Multistep | RungeKu
     >>> type(default_integrator("gnlse", "double")).__name__
     'RungeKutta'
     >>> type(default_integrator("capillary", "single")).__name__
-    'RungeKutta'
+    'Multistep'
     >>> type(default_integrator(None, "double")).__name__
     'Multistep'
     """
-    if precision == "single":
-        return RungeKutta()
+    del precision  # one rule in both precisions since #342
     name = "Multistep" if route is None else route_defaults(route).integrator
     return RungeKutta() if name == "RungeKutta" else Multistep()
 

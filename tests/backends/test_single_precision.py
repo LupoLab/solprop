@@ -287,7 +287,8 @@ def overflowing_beam(precision: str) -> Simulation:
     """Return a radial Kerr beam whose first trial step is the whole millimetre.
 
     The default collar over that step reaches ``|Re dPhi| = 459``: inside binary64's
-    range, past binary32's 88.72.
+    range, past binary32's 88.72, in the interaction picture's inverse propagator --
+    a Runge-Kutta trial's; the exponential Adams flow forms no inverse.
     """
     length = 1e-3
     grid = EnvelopeGrid.from_limits(
@@ -302,6 +303,7 @@ def overflowing_beam(precision: str) -> Simulation:
         dz_init=length,
         precision=precision,  # pyright: ignore[reportArgumentType]
         backend="numpy_ref",
+        integrator=RungeKutta(),
     )
     return Simulation.from_radial(
         grid,
