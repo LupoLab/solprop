@@ -102,7 +102,7 @@ class DeviceSources:
     current: mx.array | None
 
 
-FUSED = os.environ.get("SOLPROP_MLX_FUSED", "1") != "0"
+_FUSED = os.environ.get("SOLPROP_MLX_FUSED", "1") != "0"
 """Whether a Metal run compiles each stage with ``mx.compile`` (the default).
 
 A compiled stage fuses the stage's element-wise passes into few kernels and replays
@@ -392,12 +392,12 @@ class MlxBackend(NumpySingleBackend):
             if geometry is None or self._free_prefactor is None
             else mx.array(self._cast(geometry.absorber_rate))
         )
-        # Each stage is one compiled graph on the Metal device (FUSED); its inputs are
+        # Each stage is one compiled graph on the Metal device (_FUSED); its inputs are
         # the lab field, the inverse propagator, the prefactor, the Raman spectrum and
         # the stage's values, and everything else it reads is the problem's, fixed
         # for the backend's life. MLX's CPU device evaluates op by op: its population
         # and envelope plasma run on the host.
-        self._fused = FUSED and on_gpu()
+        self._fused = _FUSED and on_gpu()
         compiled = mx.compile if self._fused else (lambda function: function)
         self._stage_function = compiled(self._stage_core)
         self._stage_input = compiled(self._stage_input_core)

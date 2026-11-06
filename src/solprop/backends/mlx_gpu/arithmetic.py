@@ -41,6 +41,7 @@ __all__ = [
     "gemm_probe",
     "on_gpu",
     "population",
+    "population_parameters",
     "prefix_scan",
     "rate_kernel",
 ]
