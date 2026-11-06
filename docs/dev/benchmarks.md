@@ -897,6 +897,8 @@ An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ hos
 
 The crossings are native's own byte count in `tests/backends/test_native_edge_reading.py`, which ran on both cards, and the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards. At 51 steps the temporal monitor's sums take most of what the check still costs: on the H200 0.38 s of 0.58 s, and the edge's 18 reads 0.11 s.
 
+**At the head, on an AMD Instinct MI300X** ([#541](https://github.com/LupoLab/solprop/issues/541)). This ran the later commits the MI325X above did not: ROCm 10.0.0, `gfx942`, an Intel Xeon Platinum 8568Y+ host, 20 cores, at `c0bd23f2`, on 2026-11-06. `pytest -m gpu` passed over `tests`, 251 with 1 skipped, and over `native/tests`, 31. The modules of the edge, the collar, the split rows, the transverse backends, the scans, the runner and the stop passed too, 270 with 3 skipped. The same probe at 768 x 768 x 600, 8 steps, 4 planes, takes 2.87 s with the check on and 2.13 s with it off, x1.35. At 384 x 384 x 600, 51 steps, 17 planes, the check costs x1.19. At 768 a step takes 241 ms and an edge read 32 ms. `field_to_host` takes 168 ms, `energy` 6.7, `on_axis_intensity` 14.5, `beam_radius` and `fwhm_r` 48, and `peak_intensity` 78. Every aim holds. These figures are the MI300X's own, not the MI325X's at a later commit. A whole `Local` scan of 5 points through `with_input`, check on, ran two rounds each way, and every point finished. Keeping the backend took 768 x 768 x 600, 8 steps, from 37.4 and 36.2 s to 29.2 and 28.9 s, x0.79, and 384 x 384 x 600, 51 steps, from 27.7 and 27.0 s to 23.7 and 23.7 s, x0.87. With the far field's `clang fp contract(off)` removed, as on #497's base, 32 of the hard-edge fuzz's 121 cases fail, so the fuzz sees that bug on HIP too.
+
 `python -m benchmarks ab --device` against `main` at `8ed26dd7`, 3 rounds, the same work:
 
 | | H200 | Fields | MI325X | Fields |
@@ -964,7 +966,9 @@ So a `Local` scan on a device now keeps the backend while each point is the last
 | 768 | 21.09 to 5.28 | 38.46 to 22.64 | 21.37, 21.41 to 21.37, 21.46 |
 | 900 | 14.48 to 7.24 | 37.80 to 30.56 | 28.74, 28.61 to 28.64, 28.50 |
 
-`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB. rocFFT's sharing hasn't run on an AMD card.
+`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB.
+
+rocFFT's plans share it as well. On an AMD Instinct MI300X (ROCm 10.0.0, `gfx942`) at `c0bd23f2`, 8 steps, check off, the plans grow by 1.35, 5.07, 5.76 and 7.28 GiB at 384, 750, 768 and 900 x 900 x 600, and a run holds 7.01, 21.95, 23.37 and 30.85 GiB. Asked of rocFFT directly, in place, Z2Z, a rank-3 plan's work area is one state at every N from 320 to 1200 and every T from 512 to 1024. A rank-2 plan batched over T takes one state at 192 and 384, none at 256 and 512, and 1.10, 1.08 and 1.06 states at 640, 768 and 1024. A rank-1 plan takes none. So at 768 x 768 x 600 four areas of their own would hold 22.0 GiB, as the MI325X's 22.02 GiB at `9a5d2346` did, and the shared one holds the largest of them.
 
 ### The transverse edge against 0.1.0
 
@@ -2446,7 +2450,7 @@ node chunk, and `Transform` needs no field to tell a stated budget from the defa
 cards, and cuFFT's work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk). A CPU keeps the
 chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
 
-**A whole state again.** #361's 10 % is asked of a change that costs default memory, and this one costs none, so the maintainer asked for it back if an interleaved run on an AMD card shows a consistent gain. A device now takes every row at once whatever the node budget, with no seam field: in place, the block's only memory is its plans' work area. On an NVIDIA A40, CUDA 12.8.1, `python -m benchmarks ab --device --length 0.3`, 3 rounds, against the same tree at the node chunk, the same steps and final fields with no difference: `kerr_beam_384` x0.989 (0.958–0.994), `kerr_beam_192` x0.971 (0.951–1.065), and every route without the collar between x0.998 and x1.004.
+**A whole state again.** #361's 10 % is asked of a change that costs default memory, and this one costs none, so the maintainer asked for it back if an interleaved run on an AMD card shows a consistent gain. A device now takes every row at once whatever the node budget, with no seam field: in place, the block's only memory is its plans' work area. On an NVIDIA A40, CUDA 12.8.1, `python -m benchmarks ab --device --length 0.3`, 3 rounds, against the same tree at the node chunk, the same steps and final fields with no difference: `kerr_beam_384` x0.989 (0.958–0.994), `kerr_beam_192` x0.971 (0.951–1.065), and every route without the collar between x0.998 and x1.004. On an AMD Instinct MI300X, ROCm 10.0.0, at `c0bd23f2` against the same tree at the node chunk: a field-free point of 8 steps with the check off, the median of a runner's second and third runs, three interleaved rounds of fresh processes. At 384 x 384 x 600 the rounds give x0.990, x0.988 and x0.990 (0.576 to 0.569 s), and at 768 x 768 x 600 x0.984, x0.983 and x0.986 (2.172 to 2.138 s), with the plans' memory the same. `ab --device --length 0.3`, 3 rounds, gives `kerr_beam_384` x0.952 (0.912–0.999), with the final fields identical. Every round gained, so it stays, though at about 1.5 % of a point it is far from #361's 10 %.
 
 **The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
 overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the
@@ -2492,7 +2496,7 @@ On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold
 `rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
 Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
 
-A data-centre card has to confirm the step on an H200 and an MI325X, what rocFFT's plans hold, and what the launches are worth.
+The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth. No MI325X has run the head.
 
 ## Reference tables
 
