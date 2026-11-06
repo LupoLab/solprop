@@ -93,7 +93,7 @@ expansion. A
 total-degree expansion is not part of the contract: it failed the joint memory and
 build-cost criterion on the short fixture.
 
-**The contract has no version number** (ADR-068). `KERNEL_SCHEMA_VERSION` ended at 47;
+**The contract has no version number** (ADR-068). `KERNEL_SCHEMA_VERSION` is gone, and the last number taken was 47;
 "kernel schema N" elsewhere in these documents and in the code names the number a change
 took, as history. The tables of this document describe the contract as it stands. A
 change to it, to the protected surface of `StepDriver` or to the stage bundles of
