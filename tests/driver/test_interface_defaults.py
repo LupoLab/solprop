@@ -179,7 +179,7 @@ def test_a_copy_of_the_settings_still_names_no_integrator():
     assert not dataclasses.replace(settings, step_planes=2).integrator_named
     assert dataclasses.replace(settings, integrator=Multistep()).integrator_named
     single = dataclasses.replace(settings, precision="single", backend="numpy_ref")
-    assert isinstance(single.integrator, RungeKutta)
+    assert isinstance(single.integrator, Multistep)
     assert not single.integrator_named
 
 
@@ -355,9 +355,9 @@ def _build(route, precision, through):  # noqa: PLR0911 - one return per route f
     )
 
 
-# route: (binary64 integrator, binary64 rtol, binary32 rtol). Binary32 steps with
-# RungeKutta() everywhere; its rtol is the larger of binary64's and the floor 1e-6,
-# capped at 1e-5 (the maintainers' ruling on the single-precision default).
+# route: (integrator, binary64 rtol, binary32 rtol). Both precisions step with the
+# route's integrator (#342); binary32's rtol is the larger of binary64's and the floor
+# 1e-6, capped at 1e-4 (the maintainers' ruling on the single-precision default).
 DEFAULTS = {
     "gnlse": (RungeKutta, 1e-7, 1e-6),
     "capillary": (Multistep, 1e-6, 1e-6),
@@ -368,8 +368,8 @@ DEFAULTS = {
     "waveguide mode_average": (RungeKutta, 1e-5, 1e-5),
     "waveguide general": (RungeKutta, 1e-5, 1e-5),
     "radial": (Multistep, 1e-5, 1e-5),
-    "free cartesian": (RungeKutta, 1e-4, 1e-5),
-    "free line": (RungeKutta, 1e-4, 1e-5),
+    "free cartesian": (RungeKutta, 1e-4, 1e-4),
+    "free line": (RungeKutta, 1e-4, 1e-4),
     "planar": (Multistep, 1e-5, 1e-5),
 }
 
@@ -405,7 +405,7 @@ def test_every_route_resolves_its_default_integrator_and_tolerance(
     if precision == "double":
         assert (integrator, rtol) == (double_integrator, double_rtol)
     else:
-        assert (integrator, rtol) == (RungeKutta, single_rtol)
+        assert (integrator, rtol) == (double_integrator, single_rtol)
     assert not simulation.settings.integrator_named
 
 
@@ -417,16 +417,18 @@ def test_a_copy_in_the_other_precision_takes_the_route_s_default(route):
     assert type(double.integrator) is DEFAULTS[route][0]
     assert not double.integrator_named
     back = dataclasses.replace(double, precision="single")
-    assert isinstance(back.integrator, RungeKutta)
+    assert type(back.integrator) is DEFAULTS[route][0]
+    assert not back.integrator_named
 
 
 def test_the_single_precision_tolerance_rule():
     assert [rtol_in_precision(rtol, "single") for rtol in (1e-8, 1e-7, 1e-6)] == [
         SINGLE_RTOL_FLOOR
     ] * 3
-    assert [rtol_in_precision(rtol, "single") for rtol in (1e-5, 1e-4, 1e-3)] == [
+    assert rtol_in_precision(1e-5, "single") == 1e-5
+    assert [rtol_in_precision(rtol, "single") for rtol in (1e-4, 1e-3)] == [
         SINGLE_RTOL_CAP
-    ] * 3
+    ] * 2
     assert rtol_in_precision(1e-4, "double") == 1e-4
     # An explicit tolerance is the caller's, above the cap included.
     simulation = Simulation.from_waveguide(
@@ -438,18 +440,19 @@ def test_the_single_precision_tolerance_rule():
 # ------------------------------------------------- refusals name their option
 
 
-def test_single_precision_refuses_the_adams_method_by_its_own_name():
+def test_single_precision_admits_the_adams_method():
+    # #342: binary32 Adams agrees with binary64 Adams to the method's own truncation.
     for backend in ("numpy_ref", "mlx"):
-        with pytest.raises(DriverError, match=r"Adams integrator \(Multistep\) is not"):
-            SimulationSettings(
-                PIController(rtol=1e-6, atol=0.0),
-                save_planes=[1.0],
-                dz_max=1.0,
-                dz_init=1e-3,
-                precision="single",
-                backend=backend,
-                integrator=Multistep(),
-            )
+        settings = SimulationSettings(
+            PIController(rtol=1e-6, atol=0.0),
+            save_planes=[1.0],
+            dz_max=1.0,
+            dz_init=1e-3,
+            precision="single",
+            backend=backend,
+            integrator=Multistep(),
+        )
+        assert isinstance(settings.integrator, Multistep)
 
 
 def test_a_tdse_run_s_refusals_name_the_precision_and_the_integrator():
@@ -636,7 +639,7 @@ def test_the_table_holds_what_every_route_resolves(route):
     assert row.rtol == double_rtol
     assert default_rtol(TABLE_ROWS[route], "single") == single_rtol
     assert type(default_integrator(TABLE_ROWS[route], "double")) is integrator
-    assert type(default_integrator(TABLE_ROWS[route], "single")) is RungeKutta
+    assert type(default_integrator(TABLE_ROWS[route], "single")) is integrator
 
 
 def test_every_row_of_the_table_is_measured_or_a_named_variant():

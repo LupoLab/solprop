@@ -50,8 +50,8 @@ what runs it: a CPU build of the native backend, in a second environment, or
 `Multistep()` ([the Adams integrator](../numerics/adams.md)) and `RungeKutta()`, each
 the default of some interfaces
 ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), are available across
-the binary64 backends for their supported configurations; single precision
-refuses `Multistep()` on every backend. Beside a coupled flow, Adams requires its
+the binary64 backends for their supported configurations; single precision admits
+`Multistep()` in its exponential formulation on `numpy_ref` and `mlx`. Beside a coupled flow, Adams requires its
 exponential formulation; CF4 requires Runge–Kutta on the reference backend. Check the
 response and geometry chapters for further restrictions. The backend used is
 logged at INFO and recorded in the output.
@@ -183,10 +183,10 @@ to binary64 ([transverse boundaries](../free-space/model.md#transverse-boundarie
 The backend is **experimental** in this release. Its Metal kernels run in the macOS
 default lane of continuous integration, which requires a usable Metal device, but
 coverage and runtime type checks remain absent there
-([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). Its speed has not been
-re-measured on the default grids, whose 2-3-5-smooth sizes MLX's GPU transform runs
-four to eight times slower than powers of two: build single-precision grids with
-`fft_size="pow2"` ([grid sizes on `mlx`](single-precision.md#grid-sizes-on-mlx)).
+([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). MLX's GPU transform
+runs 2-3-5-smooth sizes past 4096 six to twelve times slower than powers of two, so the
+keyword interfaces size a single-precision run's grid for it, and a grid of your own
+takes `transforms="mlx"` ([grid sizes on `mlx`](single-precision.md#grid-sizes-on-mlx)).
 
 MLX computes float32 matrix products in TF32 by default on Apple GPUs, which SEP 25's
 arithmetic rules forbid. solprop sets `MLX_ENABLE_TF32=0` when it imports the backend,

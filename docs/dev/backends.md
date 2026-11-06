@@ -180,7 +180,10 @@ its engines and the native backend's resident engine pass it down. `numpy_ref` t
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
 checks; `native` takes its own
 `NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
-`lagrange_basis.hpp`). Both perform the same operations in the same order under
+`lagrange_basis.hpp`); `mlx` takes `NATIVE` too, as its stage tables are host work.
+Only where the native package is absent -- it is a runtime dependency, so the
+documentation build and the `no-native` lane -- does `mlx` import with `PLAIN`, the
+same rows more slowly. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
 filled them. A record may add a third operation, an exponential Adams trial's
 coefficient tables in one call (`Helpers.tables`, the composition of
@@ -467,8 +470,10 @@ lookup, the envelope-grid plasma's cycle moments and the statistics are evaluate
 binary64 from the binary32 field, which is what the oracle defines. Its constructor, and
 so `mlx`'s, applies the settings' own admission (`translate.precision.admit_precision`):
 a problem that reaches `registry.select` without passing `SimulationSettings` is still
-refused the Adams integrator, outside the survival study's private switch, and an
-adaptive `rtol` below the floor. `native` refuses a single-precision
+refused an adaptive `rtol` below the floor. The Adams integrator is admitted (#342):
+binary32 Adams agrees with binary64 Adams to the method's own truncation on the survival
+cases, and a single-precision history resumes in binary32 (`HostHistory.load_rows`,
+`NumpySingleBackend._adams_restore`). `native` refuses a single-precision
 problem by name.
 
 **Selection.** `backends/registry.py`: `available()` detects with
@@ -492,7 +497,9 @@ A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
-the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
+the reference, which `numpy_ref` uses, and `mlx` where a collar's strip or current is asked for. `mlx` otherwise forms the node and column
+energies on the device (`MlxBackend._edge_reading`: the Cartesian or line grid's transverse inverse transform, the radial synthesis in
+binary32), within a millionth of the state's energy of the host's, and reads those sums only. `native` forms them on its own state against
 the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
@@ -1646,8 +1653,9 @@ statistics from the widened state -- while the state and every per-step pass liv
 device (`mlx_gpu/passes.py`, the oracle's passes in MLX). It admits the fibre, radial
 and Cartesian (and line) routes with Runge–Kutta, the low-storage march (`MlxLowStorage`)
 and lockstep batches (`MlxBatchRunner`, which builds every member's step before one
-evaluation, reached through `select_batch`; the `Batch` executor refuses `mlx`), with every response the oracle runs; a z table, Adams and interpolated
-planes are refused by name. The radial route is the fibre route's quadrature with the Hankel
+evaluation, reached through `select_batch`; the `Batch` executor refuses `mlx`), with every response the oracle runs, and the exponential Adams integrator
+(`MlxAdams`, below); a z table, the interaction formulation and interpolated planes are
+refused by name. The radial route is the fibre route's quadrature with the Hankel
 matrices as its synthesis and projection, its plasma spectrum formed on the nodes and
 projected once (`_device_radial_plasma`), and its absorber matrix applied in the stage.
 The Cartesian route (`_device_free`) uploads its separable operator once, at unit
@@ -1659,19 +1667,95 @@ gated and edge currents, the envelope plasma's drive and loss -- are projected i
 matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
+**Compiled stages.** On the Metal device each stage is one `mx.compile` graph
+(`MlxBackend._stage_core`), and so are a stage's input combination, the step's end and
+the norm's reductions: MLX fuses their element-wise passes into few kernels and replays
+the traced graph rather than rebuilding it in Python. A compiled function sees only its
+inputs, so everything that varies with position -- the taper and its inverse, Kerr's,
+Raman's and the plasma channels' factors, the populations' `1 - p` and `p` -- is formed on
+the host in binary64, rounded once as the eager stage rounded it, and passed as one float32
+vector (`_StageValues`); the prefactor, the Raman spectrum and the propagators are inputs
+too, and what the alarm reads comes back as outputs. MLX compiles each operation with the
+eager kernel's rounding (no contraction, no reassociation), so the compiled stage is
+bitwise the eager one on every route (`log1p` aside, an equally accurate but different
+function, which the GPU's rate kernel does not use); MLX's eager `x**2` rounds through
+`pow`, so the passes square by products. A stage's propagator and its inverse are one
+kernel (`DoubleFloatTerms.pair`), the inverse's phasor the conjugate of the forward's
+(bitwise the separate kernel's), formed once per distinct fraction of a trial.
+`SOLPROP_MLX_FUSED=0` evaluates op by op, for comparison.
+
+**First-same-as-last.** Under DOPRI5 `mlx` reuses an accepted step's last stage as the
+next step's first, as `native` does, and keeps a first stage across a rejection at the
+same anchor. Each stage returns its source before the inverse propagator; the last
+stage's input is the trial state itself, and the next first stage's propagators are
+exactly one, so the reused stage is bitwise the one a fresh evaluation would form (a
+test holds the march to that). It is taken only where the step's finish leaves the
+state as it is: not under the split-step collar, and dropped when the collar's quiet
+setting changes (`_collar_changed`) or the anchor moved by a landing. The oracle keeps
+every stage (`docs/dev/stepper.md` section 10, trap 10).
+
+**The lab-frame trial.** The interaction picture's stage input
+`exp(Phi_i) (a + h sum_j a_ij exp(-Phi_j) S_j)` forms the inverse `exp(-Phi_j)`, which
+overflows binary32 once a strong collar or loss puts `|Re Phi_j|` past 88.72; the
+controller then rejects the trial with an infinite norm and shrinks it far below what
+binary64 takes. When a bound on any `|Re Phi|` of the trial
+(`DoubleFloatTerms.real_reach`: the weighted sum of each term's largest `|Re T_t|`,
+stored at upload) passes nine tenths of `log FLT_MAX`, `MlxBackend._trial_graph`
+combines the stages in the lab frame instead: `exp(Phi_i) a + h sum_j a_ij
+exp(Phi_i - Phi_j) S_j` for each input and `exp(Phi) a + h sum_j b_j exp(Phi - Phi_j)
+S_j` at the end (`_transported_input`, `_transported_end`). The nodes never decrease,
+so every factor is a forward flow and a damped bin underflows harmlessly. It is the
+same method rearranged: forced on every trial it agrees with the interaction picture
+to a few binary32 units (5e-7 of the peak on the tests' soliton and capillary; 8e-7 to
+7e-6 over the RDW, filament and blueshift cases), but costs one double-float flow per
+distinct node difference -- 2.7 s against 0.22 s on a mode-averaged RDW, whose operator
+has 18 terms -- so it is taken only past the bound, and every other run is bitwise as
+before. The radial Kerr beam whose first trial reaches `|Re Phi| = 459` then takes its
+millimetre in one step as binary64 does, where the interaction picture is rejected
+twice and needs 14. Only the Metal device takes it; the CPU device stays the oracle's
+form. The stages it forms are untransported sources, so first-same-as-last holds
+across the two forms.
+
+**Adams** (`mlx_gpu/adams.py`, #342). `MlxBackend._adams_engine` returns `MlxAdams`, an
+`AdamsEngine` whose history -- the untransported source rows and, for a varying
+operator, each sample's state -- stays on the device; the march keeps the controller.
+A trial makes one source evaluation and one synchronisation, which reads the defects'
+scaled sums, the anchor's, the trial state's finiteness and the envelope plasma's
+failures. Its flow and moments come from one double-float kernel
+(`DoubleFloatTerms.trial`): the step's exponent combined from the operator's terms,
+`exp(x)` with its phase reduced by whole turns of a double-float `2 pi`, and
+`k! phi_{k+1}(x)` by the reference's far recurrence beyond its join and its scaled
+series and doubling within it, each rounded once -- within one binary32 ulp of the
+binary64 forms rounded, as SEP 33 rounds every propagator. The same pass forms the
+transported compensation's factors (SEP 16 section 4.2), `exp(s_j x)(D(z_j) - x/h)`
+with the rates differenced in their weights over the terms in binary64
+(`linop.rate_weights`, native's form), so a sample keeps its rate as weights and a
+snapshot holds `rate_weights`. The predictor and the corrector with its defects are one
+kernel each (`adams._APPLY`), every formula's increment per element in registers in the
+reference's order. A carrier frame, or an operator without device terms (the Cartesian
+route's separable one), takes the host moments; the interaction formulation, the
+untransported witness and MLX's CPU device are refused. The backend takes the native
+package's compiled helpers (`solprop_native._helpers.NATIVE`, SEP 29 section 6.6), which
+evaluate the stage tables' rows and the Adams basis bitwise as the Python forms do. On an Apple M5 Max under load,
+one DOPRI5 trial on power-of-two grids, op by op against compiled: `he_rdw_averaged` 5.30
+against 2.91 ms, `rdw` 7.76 against 4.76, `radial_filament_256` 14.1 against 6.88,
+`spatial_absorber` 3.69 against 2.38, `kerr_beam_192` 246 against 131 and
+`cartesian_filament_128` 806 against 316 ms.
+
 **Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
 `tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
 that the device is available. That lane runs without coverage or the runtime type
 checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve
 `mlx.core`, and the coverage lane omits `mlx_gpu`
-([testing](testing.md#the-mlx-omission)). The default `fft_size="auto"` takes the smooth
-size that a cost model fitted to FFTW's CPU transforms ranks cheapest
-(`grid._RADIX_PENALTY`); MLX's GPU FFT runs such sizes four to eight times slower than
-the next power of two (real transforms on an Apple M5 Max: 902 µs at 12288 against
-218 µs at 16384, 7629 µs at 98304 against 992 µs at 131072), so on default grids `mlx`
-can be slower than binary64 `native`, and the guide sends single-precision grids to
-`fft_size="pow2"`. Full support waits on power-of-two grids by default under single
-precision (or a per-backend transform cost), a macOS `mlx` CI job (coverage with a
+([testing](testing.md#the-mlx-omission)). `fft_size="auto"` minimises a per-library
+transform cost (`grid.fft_cost`): FFTW's (`grid._RADIX_PENALTY`) by default, MLX's when a
+keyword interface builds the grid of a single-precision run on `mlx` or `auto`
+(`driver.simulation._transform_library`), or when a grid is built with
+`transforms="mlx"`. MLX's GPU FFT is direct at every 2-3-5-smooth length up to 4096 and
+at powers of two, and takes Bluestein's algorithm elsewhere, six to twelve times the
+next power of two (an rfft and irfft pair on an Apple M5 Max: 715 µs at 10240 against
+63 µs at 16384), so past 4096 its cost picks the power of two. Full support waits on a
+macOS `mlx` CI job (coverage with a
 recorded floor, the runtime type checks, basedpyright on `mlx_gpu`), the default
 in-stage collar's tests restored on the default geometry, bounds against the oracle
 that can detect an `mlx` error, and a re-timing on an idle machine
