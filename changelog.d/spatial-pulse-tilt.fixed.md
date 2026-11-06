@@ -1,0 +1,1 @@
+A tilted `SpatialPulse` travels towards +x (+y) for a positive `tilt`, as documented and as `coupling.Alignment` tilts a beam; it went the other way. Scripts that compensated by negating the tilt must remove the minus sign.
