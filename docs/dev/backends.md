@@ -1449,7 +1449,7 @@ free-space envelope whose material response is the Kerr term alone, with one
 polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
 identity) takes its stage core on a device through one rank-3 transform of the scratch
 volume each way, forming the polarisation in place between them, instead of the chunks'
-transposing pack and crop and their temporal transforms. On CUDA the stage holds that
+transposing pack and crop and their temporal transforms. On a device the stage holds that
 scratch as `(y, x, omega)`, the state's own order, so the transform keeps frequency
 contiguous and the stage's input and fold stream beside the registers. Every other pass
 over the scratch forms its own input in `(omega, y, x)`, and an in-stage absorber keeps

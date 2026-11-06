@@ -612,8 +612,8 @@ struct RegisterIndex {
   // One polarisation: a column is its mode, without a division (a flag of its own,
   // which the compiler cannot fold back into `column / 1`).
   bool scalar{};
-#if defined(KOKKOS_ENABLE_CUDA)
-  // A stage of the volume route on CUDA (`volume_order_`): the scratch is `(y, x,
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // A stage of the volume route on a device (`volume_order_`): the scratch is `(y, x,
   // omega)`, the state's and the registers' own order, so nothing crosses.
   bool volume{};
 #endif
@@ -626,7 +626,7 @@ struct RegisterIndex {
   // The transverse scratch's position of the element, on any build.
   KOKKOS_INLINE_FUNCTION std::size_t cell(const std::size_t column,
                                           const std::size_t omega) const {
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     if (volume)
       return column * n + omega;
 #endif
@@ -2374,12 +2374,12 @@ public:
     return {transverse_layout(), problem_.n_pol_state, problem_.n_omega, plane,
             problem_.n_pol_state == 1};
   }
-  // A stage's scratch positions: the volume route's own order on CUDA, or the scratch's
-  // (`register_index`). Every other pass over the scratch forms its own input in
-  // `(omega, y, x)`, since the scratch is dead between them.
+  // A stage's scratch positions: the volume route's own order on a device, or the
+  // scratch's (`register_index`). Every other pass over the scratch forms its own input
+  // in `(omega, y, x)`, since the scratch is dead between them.
   RegisterIndex stage_index() const noexcept {
     auto index = register_index();
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     index.volume = volume_order_;
 #endif
     return index;
@@ -2714,8 +2714,9 @@ public:
   // transposes and temporal transforms (`separable_volume_core`).
   bool volume_kerr_ = false;
   // The volume route's stages hold the scratch as `(y, x, omega)`, `volume_scratch_`,
-  // on CUDA (solprop #365): its rank-3 transform is then cuFFT's frequency-fastest
-  // `{N,N,T}`, and its input and fold no longer cross layouts.
+  // on a device (solprop #365): its rank-3 transform then keeps frequency contiguous
+  // (cuFFT's `{N,N,T}`, rocFFT's `{T,N,N}`), and its input and fold no longer cross
+  // layouts.
   bool volume_order_ = false;
   ComplexView3 volume_scratch_;
   std::unique_ptr<VolumePlan> volume_forward_, volume_inverse_;
@@ -4581,7 +4582,7 @@ void GeneralWorkspace::plan() {
                    !problem_.raman && !problem_.envelope_plasma &&
                    !problem_.dispersive && separable_dispersive_ == nullptr &&
                    problem_.harmonic_factor == 0.0 && separable_gaps_.empty();
-#if defined(KOKKOS_ENABLE_CUDA)
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     // At 768 x 768 x 600 on an NVIDIA H200, cuFFT's `{N,N,T}` takes 14.7 ms a transform
     // against 17.6 ms for `{T,N,N}` (solprop #365). An in-stage absorber evaluates its
     // term from the same input in the scratch's order, so it keeps that order.

@@ -968,7 +968,7 @@ So a `Local` scan on a device now keeps the backend while each point is the last
 
 `python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB.
 
-rocFFT's plans share it as well. On an AMD Instinct MI300X (ROCm 10.0.0, `gfx942`) at `c0bd23f2`, 8 steps, check off, the plans grow by 1.35, 5.07, 5.76 and 7.28 GiB at 384, 750, 768 and 900 x 900 x 600, and a run holds 7.01, 21.95, 23.37 and 30.85 GiB. Asked of rocFFT directly, in place, Z2Z, a rank-3 plan's work area is one state at every N from 320 to 1200 and every T from 512 to 1024. A rank-2 plan batched over T takes one state at 192 and 384, none at 256 and 512, and 1.10, 1.08 and 1.06 states at 640, 768 and 1024. A rank-1 plan takes none. So at 768 x 768 x 600 four areas of their own would hold 22.0 GiB, as the MI325X's 22.02 GiB at `9a5d2346` did, and the shared one holds the largest of them.
+rocFFT's plans share it as well. On an AMD Instinct MI300X (ROCm 10.0.0, `gfx942`) at `c0bd23f2`, 8 steps, check off, the plans grow by 1.35, 5.07, 5.76 and 7.28 GiB at 384, 750, 768 and 900 x 900 x 600, and a run holds 7.01, 21.95, 23.37 and 30.85 GiB. Asked of rocFFT directly, in place, Z2Z, a rank-3 plan with the frequency innermost (rocFFT lengths `{T, N, N}`, which rocFFT lists innermost first) has a work area of one state at every N from 320 to 1200 and every T from 512 to 1024. With x innermost, an AMD Instinct MI325X's plans need one state too, at N = 384, 750, 768, 800 and 900 with T = 600. A rank-2 plan batched over T takes one state at 192 and 384, none at 256 and 512, and 1.10, 1.08 and 1.06 states at 640, 768 and 1024. A rank-1 plan takes none. So at 768 x 768 x 600 four areas of their own would hold 22.0 GiB, as the MI325X's 22.02 GiB at `9a5d2346` did, and the shared one holds the largest of them.
 
 ### The transverse edge against 0.1.0
 
@@ -2475,7 +2475,7 @@ against the build before them: `he_rdw_averaged` 0.988 (0.986–1.007), `rdw` 0.
 
 **Scratch-order registers on the volume route**, tried on the A40 and not adopted, take the fold from 407 to 387 ms and the step to 2,538 ms, with the fold's tile staging the state rather than the scratch. A layout change needs its own issue.
 
-**The scratch in the registers' order** ([#365](https://github.com/LupoLab/solprop/issues/365)), on CUDA only. A stage of the volume route views the scratch as `(y, x, omega)`, the state's and the
+**The scratch in the registers' order** ([#365](https://github.com/LupoLab/solprop/issues/365)), on a device. A stage of the volume route views the scratch as `(y, x, omega)`, the state's and the
 registers' order, so its rank-3 pair is cuFFT's frequency-fastest `{N,N,T}`, and its input and fold stream instead of crossing. A probe of the two orders on an NVIDIA H200, CUDA 13.1,
 T = 600, took `{N,N,T}` 2.49, 11.08, 14.71, 17.62 and 13.81 ms a transform at N = 384, 750, 768, 800 and 900, against 3.74, 14.97, 17.63, 17.97 and 18.96 ms for `{T,N,N}`, and `{N,N,T}`
 needs no work area at those sizes but 768. A step, from a field-free point with the check off, (24 steps - 8 steps) / 16, three interleaved rounds against the build before it
@@ -2490,13 +2490,27 @@ At 768 the transforms account for it: eight of them are 23.4 ms apart in the pro
 `kerr_beam_384` x0.971 (0.928–1.003), fields to 3.2e-17. On the NVIDIA A40, CUDA 12.8.1, where the orders are within 1 % at 768, two rounds against `29e9e156`, whose native code is
 the same: 2,535 and 2,578 ms a step before, 2,556 and 2,597 after, at 768; 559 and 560 ms before, 513 and 513 after, at 384; `ab --device` geometric mean 0.998, with `kerr_beam_384`
 x1.010 (0.997–1.042) and `kerr_beam_192` x0.977 (0.950–1.070). The device tests pass on both cards. With the stage's window read in the old order, nine of them fail across the three
-marches, and with the fold reading the old order, three low-storage ones do. HIP keeps the scratch's order until rocFFT's orders are measured.
+marches, and with the fold reading the old order, three low-storage ones do.
+
+**On HIP too.** On an AMD Instinct MI325X, ROCm 10.0.0, `gfx942`, rocFFT's two orders take the same time. In place, Z2Z, T = 600, frequency innermost (rocFFT lengths
+`{T,N,N}`, cuFFT's `{N,N,T}`) took 4.07, 15.66, 15.31, 16.72 and 20.94 ms a transform at N = 384, 750, 768, 800 and 900, against 4.10, 16.20, 15.31, 16.69 and 20.35 ms with x innermost. Both
+need one state of work area at every one of those sizes. The step gains all the same, from the input and fold that no longer cross layouts. Three interleaved rounds, the same method,
+against #542's head (`931ac0dc`):
+
+| N x N x 600, AMD Instinct MI325X | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 57.30–58.02 | 51.80–52.20 | 0.902 | 7.009 → 7.013 |
+| 768 | 210.00–211.22 | 198.87–199.73 | 0.946 | 23.37 → 23.37 |
+
+At 768 eight transforms are the same in the probe, so all of the step's 11.8 ms is in the passes beside them. `python -m benchmarks ab --device --length 0.3`, 3 rounds: `kerr_beam_384`
+x0.978 (0.974–0.982), fields to 1.8e-17. `pytest -m gpu` (251 passed, 1 skipped), the native device tests (31 passed) and the affected modules (172 passed, 3 skipped) pass on that
+card in the new order.
 
 On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold 6240 (nine cores of one socket, bound passive threads, on a machine others shared; three rounds, the same steps): `kerr_beam_192` 0.982 (0.978–0.996) at one thread and 0.974 (0.973–0.987) at nine; `kerr_beam_384` 0.981 (0.981–0.982) at nine, fields to 6.4e-16.
 `rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
 Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
 
-The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth. No MI325X has run the head.
+The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth, and an MI325X the step and the device tests with HIP in the scratch's new order, above.
 
 ## Reference tables
 
