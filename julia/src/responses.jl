@@ -189,8 +189,69 @@ end
     peak
 end
 
-"""The plasma current of each node of a chunk, gated by the window and the collar."""
-function plasma_current!(p, nodes, c, count)
+"""The plasma current of each node of a chunk, gated by the window and the collar.
+
+On a CPU each node's column is one task, scanned in order with its exact zero support
+skipped. On a GPU, where a column a thread leaves most of the device idle, every
+pass is a sample a thread and the two running integrals are column-wise scans: their
+sums are reassociated, which SEP 25 permits and the tests bound, as native's
+two-level device scans do.
+"""
+plasma_current!(p, nodes, c, count) =
+    oncpu(c) && !SAMPLE_PLASMA[] ? plasma_columns!(p, nodes, c, count) :
+    plasma_samples!(p, nodes, c, count)
+# SOLPROP_JULIA_PLASMA=samples takes the GPU's path on a CPU too.
+const SAMPLE_PLASMA = Ref(false)
+
+"""`out` = the running trapezoid of the FIR-filtered `values`, every column at once."""
+function integrate_samples!(out, values, scratch, taps, dt, c, count)
+    nt = size(values, 1)
+    each!(c, nt, count) do t, n
+        @inbounds scratch[t, n] = filtered(values, t, n, taps)
+    end
+    half = dt / 2
+    each!(c, nt, count) do t, n
+        @inbounds out[t, n] = t == 1 ? zero(dt) : half * (scratch[t, n] + scratch[t-1, n])
+    end
+    AK.accumulate!(+, @view(out[:, 1:count]); dims=1, init=zero(dt), backend=c.backend)
+    nothing
+end
+
+function plasma_samples!(p, nodes, c, count)
+    T = typeof(p.dt)
+    (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative) = p
+    window, floor = c.window, p.floor
+    args = rate_arguments(p)
+    charge, potential = T(p.parameters[6]), T(p.parameters[7])
+    density, initial = T(p.parameters[8]), T(p.parameters[9])
+    nt, none = size(nodes, 1), zero(T)
+    each!(c, nt, count) do t, n
+        @inbounds rate[t, n] = rate_value(nodes[t, n], args...)
+    end
+    integrate_samples!(fraction, rate, current, taps, dt, c, count)
+    each!(c, nt, count) do t, n
+        @inbounds begin
+            exposure = floor ? max(fraction[t, n], none) : fraction[t, n]
+            value = 1 - (1 - initial) * exp(-exposure)
+            fraction[t, n] = value
+            integrand[t, n] = value * charge * nodes[t, n]
+        end
+    end
+    integrate_samples!(current, integrand, gated, taps, dt, c, count)
+    each!(c, nt, count) do t, n
+        @inbounds begin
+            field = nodes[t, n]
+            squared = field * field
+            loss = rate[t, n] > 0 && squared > 0 ?
+                   (potential * rate[t, n] * (1 - fraction[t, n]) / squared) * field : none
+            total = density * (current[t, n] + loss)
+            gated[t, n] = window[t] * total
+            edge[t, n] = derivative[t] * total
+        end
+    end
+end
+
+function plasma_columns!(p, nodes, c, count)
     T = typeof(p.dt)
     (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative) = p
     window, floor = c.window, p.floor

@@ -50,6 +50,7 @@ real_type(engine) = real(eltype(engine.work.y))
 function __init__()
     TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"
     CHECK[] = get(ENV, "SOLPROP_JULIA_CHECK", "0") == "1"
+    SAMPLE_PLASMA[] = get(ENV, "SOLPROP_JULIA_PLASMA", "columns") == "samples"
     nothing
 end
 
@@ -75,7 +76,38 @@ function create(input)
     engine = c.free ? create_free(c, host) : create_modal(c, host)
     oncpu(c) || (SYNCHRONIZE[] = () -> KA.synchronize(backend))
     compile!(engine)
+    warm!(engine)
     engine
+end
+
+"""Run each path once on the zero state, then forget it: a GPU's kernels compile at
+their first launch, which `compile!`'s inference does not reach."""
+function warm!(engine)
+    c, w = engine.config, engine.work
+    a = w.adams
+    if c.low_storage
+        rk4!(engine, 1e-12, 1e-12)
+    elseif a !== nothing
+        adams_start!(engine)
+        for n in 1:size(a.moments, 3)
+            a.sizes .= (min(n, size(a.moments, 3) - 1), n, 1)
+            adams_trial_width!(engine, 1e-12, Val(n))
+        end
+        adams_accept!(engine, 1)
+        fill!(a.sizes, 0)
+    else
+        trial!(engine, 1e-12)
+    end
+    commit!(engine, 1e-12, true)
+    state_power(engine)
+    occupancy(engine)
+    host_state(engine)
+    for buffer in (w.y, w.candidate, w.lab, w.source, w.error, w.stages)
+        fill!(buffer, 0)
+    end
+    engine.fsal_valid, engine.calls, engine.propagator_dz = false, 0, NaN
+    TIMING[] && empty!(TIMES)
+    nothing
 end
 
 """Compile every entry point the march calls for this engine's types, now.
