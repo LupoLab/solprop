@@ -279,6 +279,7 @@ from solprop.pulses import (
     PulseSum,
     SechPulse,
     SpatialPulse,
+    SpatialPulseSum,
 )
 from solprop.spatial import SpatialDispersion, SpatialFlux, SpatialMedium, peak_field
 from solprop.spatial_absorber import SpatialAbsorberDesign
@@ -2236,7 +2237,7 @@ class Simulation(Displayed):
         DriverError
             If a spatial pulse comes without a spatial grid and a medium.
         """
-        if not isinstance(initial, SpatialPulse):
+        if not isinstance(initial, SpatialPulse | SpatialPulseSum):
             return _built(initial, grid)
         if self.spatial_grid is None or self.medium is None:
             msg = "a SpatialPulse requires spatial_grid and medium"
@@ -4136,7 +4137,7 @@ class Simulation(Displayed):
         space: RadialGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4160,7 +4161,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
             Beam specification or internal Hankel spectrum in V m, with shape
             ``(n_r, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4242,7 +4243,7 @@ class Simulation(Displayed):
         space: FreeGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4271,7 +4272,7 @@ class Simulation(Displayed):
             Constant bulk material; varying profiles are refused.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
             Beam specification or internal Cartesian DFT spectrum in V/m, with shape
             ``(n_x*n_y, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4496,7 +4497,7 @@ class Simulation(Displayed):
         space: RadialGrid | FreeGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4517,7 +4518,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
             Beam specification or internal spectrum, a Hankel spectrum in V m or a
             raw Cartesian DFT spectrum in V/m, with shape ``(n_columns, n_pol,
             n_omega)``.
@@ -12144,7 +12145,7 @@ def _spatial_input_peak(
     peak = peak_field(simulation.grid, space, simulation._field0)
     jones = (
         np.asarray(initial.jones, dtype=np.complex128)
-        if isinstance(initial, SpatialPulse)
+        if isinstance(initial, SpatialPulse | SpatialPulseSum)
         else np.ones(1, dtype=np.complex128)
     )
     circular = (

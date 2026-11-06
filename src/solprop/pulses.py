@@ -71,6 +71,7 @@ __all__ = [
     "SechPulse",
     "ShapedPulse",
     "SpatialPulse",
+    "SpatialPulseSum",
     "TimeDataPulse",
     "load_spectrum",
 ]
@@ -535,6 +536,176 @@ class SpatialPulse(Displayed):
         limit = _GAUSS_EXPONENT_CLIP ** (1 / (2 * self.order))
         scaled = np.minimum(radius, self.waist * limit) / self.waist
         return np.exp(-(scaled ** (2 * self.order)))
+
+
+@dataclass(frozen=True, eq=False, repr=False)
+class SpatialPulseSum(Displayed):
+    """Several beams launched together: the input is the sum of their fields.
+
+    Two beams crossing at an angle, a pump beside a weaker probe, a beam and a displaced
+    replica: each member is a :class:`SpatialPulse` with its own temporal pulse, energy
+    or peak power, waist, displacement and tilt, built and scaled on the grid exactly as
+    it would be alone; the spectra are then added, as :class:`PulseSum` adds pulses.
+    The energies of beams that do not overlap at the launch plane add; beams that
+    overlap there interfere, as the fields do.
+
+    Attributes
+    ----------
+    beams : tuple of SpatialPulse
+        The members, at least one, sharing one Jones vector: the envelope plasma
+        response reads the launch's polarisation, which a sum of different ones does
+        not have.
+
+    Raises
+    ------
+    PulseError
+        If there are no members, a member is not a :class:`SpatialPulse`, or the
+        members' Jones vectors differ.
+
+    Examples
+    --------
+    Two beams 3 mm apart, of 1 uJ each, launch 2 uJ:
+
+    >>> from solprop.grid import EnvelopeGrid, FreeGrid
+    >>> from solprop.pulses import GaussianPulse, SpatialPulse, SpatialPulseSum
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 300e-15)
+    >>> space = FreeGrid(radius_x=4e-3, n_x=64, radius_y=4e-3, n_y=64)
+    >>> medium = SpatialMedium("Ar", pressure=1.0)
+    >>> pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    >>> left = SpatialPulse(pulse, 0.5e-3, displacement=(-1.5e-3, 0.0))
+    >>> right = SpatialPulse(pulse, 0.5e-3, displacement=(1.5e-3, 0.0))
+    >>> spectrum = SpatialPulseSum((left, right)).build(grid, space, medium=medium)
+    >>> energy = spatial_energy(spectrum, SpatialFlux.resolve(grid, space, medium))
+    >>> print(f"{energy:.3e} J")
+    2.000e-06 J
+    """
+
+    beams: tuple[SpatialPulse, ...]
+
+    def __post_init__(self) -> None:
+        """Freeze the members and check that they can be launched together.
+
+        Raises
+        ------
+        PulseError
+            If there are no members, a member is not a beam, or their Jones vectors
+            differ.
+        """
+        members = tuple(self.beams)
+        if not members:
+            msg = "a SpatialPulseSum needs at least one beam"
+            raise PulseError(msg)
+        for index, member in enumerate(members):
+            if not isinstance(member, SpatialPulse):
+                msg = (
+                    f"member {index} of the SpatialPulseSum is a "
+                    f"{type(member).__name__}: give SpatialPulse beams"
+                )
+                raise PulseError(msg)
+        first = _unit_jones(members[0].jones)
+        if any(
+            len(member.jones) != len(first)
+            or not np.allclose(_unit_jones(member.jones), first)
+            for member in members[1:]
+        ):
+            msg = (
+                "the beams of a SpatialPulseSum must share one Jones vector: the "
+                "launch's polarisation is read as one state"
+            )
+            raise PulseError(msg)
+        object.__setattr__(self, "beams", members)
+
+    @property
+    def jones(self) -> tuple[complex, ...]:
+        """Return the members' common Jones vector, as the first member gives it.
+
+        Returns
+        -------
+        tuple of complex
+            One scalar component or two Cartesian components.
+        """
+        return self.beams[0].jones
+
+    def __repr__(self) -> str:
+        """Return a one-line description listing the members.
+
+        Returns
+        -------
+        str
+            For example ``SpatialPulseSum(SpatialPulse(...), SpatialPulse(...))``.
+        """
+        return f"SpatialPulseSum({', '.join(repr(member) for member in self.beams)})"
+
+    def _describe(self) -> tuple[str, list[tuple[str, object]]]:
+        """Return the title and one row per member.
+
+        Returns
+        -------
+        tuple
+            The title and ``(key, value)`` rows.
+        """
+        return "SpatialPulseSum", [
+            (f"beam {index}", repr(member)) for index, member in enumerate(self.beams)
+        ]
+
+    def build(
+        self,
+        grid: TimeGrid,
+        space: RadialGrid | FreeGrid | PlanarGrid,
+        *,
+        medium: SpatialMedium,
+        z: float = 0.0,
+        side: FluxSide | None = None,
+        frame: Frame | None = None,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the sum of the members' spectra on a spatial grid.
+
+        Parameters
+        ----------
+        grid : solprop.grid.TimeGrid
+            Field or envelope temporal grid.
+        space : solprop.grid.RadialGrid or solprop.grid.FreeGrid
+            Transverse samples; every member is built on it independently.
+        medium : solprop.spatial.SpatialMedium
+            The medium at the launch plane.
+        z : float, optional
+            Position of the launch plane in m.
+        side : {'before', 'after'} or None, optional
+            Side of a declared index jump at ``z``; required there.
+        frame : solprop.linear.Frame or None, optional
+            Launch frame, normally the run's frame.
+
+        Returns
+        -------
+        numpy.ndarray
+            The members' common spectrum shape, in the internal convention of
+            :meth:`SpatialPulse.build`.
+        """
+        spectra = [
+            np.asarray(
+                member.build(grid, space, medium=medium, z=z, side=side, frame=frame)
+            )
+            for member in self.beams
+        ]
+        return np.sum(spectra, axis=0).astype(np.complex128)
+
+
+def _unit_jones(jones: tuple[complex, ...]) -> np.ndarray:
+    """Return a Jones vector normalised to unit squared magnitude.
+
+    Parameters
+    ----------
+    jones : tuple of complex
+        One or two components, not all zero.
+
+    Returns
+    -------
+    numpy.ndarray
+        The normalised vector.
+    """
+    vector = np.asarray(jones, dtype=np.complex128)
+    return vector / np.sqrt(np.sum(np.abs(vector) ** 2))
 
 
 _EDGE_FLUENCE: Final = 1e-6
