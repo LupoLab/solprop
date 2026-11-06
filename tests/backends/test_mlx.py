@@ -287,6 +287,30 @@ def test_the_field_plasma_statistics_agree_with_the_oracle(build):
         np.testing.assert_allclose(device[name], expected, rtol=0.0, atol=1e-4 * scale)
 
 
+@pytest.mark.parametrize("steps", [None, 10], ids=["adaptive", "replayed"])
+def test_reusing_the_last_stage_as_the_next_first_changes_nothing(steps):
+    """First-same-as-last: the last stage's input is the accepted state itself.
+
+    The first stage's propagators are exactly one, so the reused stage is the one a
+    fresh evaluation would form, and the march is bitwise the same with or without it.
+    """
+    fields = []
+    for reuse in (False, True):
+        with ExitStack() as cleanup:
+            backend = cast(
+                MlxBackend,
+                loaded(on("mlx", gnlse("single", steps=steps)), cleanup),
+            )
+            assert backend._fsal
+            backend._fsal = reuse
+            backend.propagate_to(0.05)
+            observed = backend.observe()
+            assert observed.field is not None
+            fields.append((observed.field, observed.n_steps))
+    assert fields[0][1] == fields[1][1]
+    assert np.array_equal(fields[0][0], fields[1][0])
+
+
 def test_mlx_refuses_the_interaction_formulation_by_name():
     simulation = gnlse("single", integrator=Multistep(formulation="interaction"))
     with pytest.raises(BackendError, match="interaction formulation"):

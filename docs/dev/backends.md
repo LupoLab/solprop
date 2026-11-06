@@ -1675,6 +1675,16 @@ kernel (`DoubleFloatTerms.pair`), the inverse's phasor the conjugate of the forw
 (bitwise the separate kernel's), formed once per distinct fraction of a trial.
 `SOLPROP_MLX_FUSED=0` evaluates op by op, for comparison.
 
+**First-same-as-last.** Under DOPRI5 `mlx` reuses an accepted step's last stage as the
+next step's first, as `native` does, and keeps a first stage across a rejection at the
+same anchor. Each stage returns its source before the inverse propagator; the last
+stage's input is the trial state itself, and the next first stage's propagators are
+exactly one, so the reused stage is bitwise the one a fresh evaluation would form (a
+test holds the march to that). It is taken only where the step's finish leaves the
+state as it is: not under the split-step collar, and dropped when the collar's quiet
+setting changes (`_collar_changed`) or the anchor moved by a landing. The oracle keeps
+every stage (`docs/dev/stepper.md` section 10, trap 10).
+
 **Adams** (`mlx_gpu/adams.py`, #342). `MlxBackend._adams_engine` returns `MlxAdams`, an
 `AdamsEngine` whose history -- the untransported source rows and, for a varying
 operator, each sample's state -- stays on the device; the march keeps the controller.

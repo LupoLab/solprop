@@ -398,6 +398,19 @@ class MlxBackend(NumpySingleBackend):
         # for the backend's life. MLX's CPU device evaluates op by op: its population
         # and envelope plasma run on the host.
         self._fused = _FUSED and on_gpu()
+        # First-same-as-last (DOPRI5): the last stage of an accepted step is the next
+        # step's first, as native reuses it, unless the step's finish changes the state
+        # (the split-step collar). The reuse is exact: the last stage's input is the
+        # accepted state, and the first stage's propagators are exactly one.
+        tableau = problem.stepper.tableau
+        self._fsal = bool(
+            tableau is not None
+            and tableau.first_same_as_last
+            and problem.responses.absorber_scheme != "split_step"
+        )
+        self._first: tuple[float, Any, mx.array] | None = None
+        self._pending_first: tuple[float, mx.array] | None = None
+        self._last_source: mx.array | None = None
         compiled = mx.compile if self._fused else (lambda function: function)
         self._stage_function = compiled(self._stage_core)
         self._stage_input = compiled(self._stage_input_core)
@@ -515,6 +528,7 @@ class MlxBackend(NumpySingleBackend):
         """
         super().set_initial(field, noise, z=z, resume=resume)
         self._state = cast(Any, mx.array(np.asarray(self._require_state())))
+        self._first = self._pending_first = None
 
     def _observed_field(
         self, state: Any
@@ -576,6 +590,12 @@ class MlxBackend(NumpySingleBackend):
             If the state is not finite.
         """
         finished = state * self._active
+        if self._pending_first is not None:
+            # The accepted state is the last stage's input: masking leaves it as it is,
+            # its bins outside the band being zero, so that stage is the next first.
+            position, source = self._pending_first
+            self._first = (position, finished, source)
+            self._pending_first = None
         responses = self._problem.responses
         rate = responses.temporal_absorber
         if rate is not None and responses.absorber_scheme == "split_step":
@@ -888,11 +908,26 @@ class MlxBackend(NumpySingleBackend):
         # end three times (its last two stages and the step itself).
         pairs: dict[bytes, tuple[mx.array, mx.array]] = {}
         stages: list[mx.array] = []
-        for node in tableau.nodes:
+        last = len(tableau.nodes) - 1
+        for index, node in enumerate(tableau.nodes):
+            first = self._first
+            if index == 0 and first is not None and first[0] == z and first[1] is state:
+                # First-same-as-last: the stage is the source at the state itself,
+                # evaluated already -- as the last stage of the step that reached it,
+                # or as this anchor's first stage before a rejection.
+                stages.append(first[2])
+                continue
             bundle = self._stage_scalars(z, z + float(node) * dz)
             forward, back = self._propagator_pair(bundle, pairs)
             lab = self._stage_input(state, stages, forward, length)
             stage = self._device_nonlinear(lab, bundle, back)
+            if self._fsal and index == 0:
+                self._first = (z, state, stage)
+            elif self._fsal and index == last:
+                # Its input is the trial state itself: the next step's first stage,
+                # if this one is accepted with no change to the state (_finish).
+                assert self._last_source is not None  # set by the stage just formed
+                self._pending_first = (z + dz, self._last_source)
             # Evaluated at each stage boundary: the graph of one stage -- its node
             # chunks and the scans' levels -- is then the most that is ever live
             # (SEP 33 section 6.3), where a whole step's graph would hold seven.
@@ -1203,6 +1238,9 @@ class MlxBackend(NumpySingleBackend):
             envelope = outputs.get("envelope")
             self._last_envelope = None if envelope is None else tuple(envelope)  # pyright: ignore[reportAttributeAccessIssue]
             self._last_bundle = bundle
+        # The stage's source before its inverse propagator: the last stage's is the
+        # next step's first (first-same-as-last, _trial_graph).
+        self._last_source = outputs["source"]
         return outputs["stage"]
 
     def _stage_core(  # noqa: PLR0912, PLR0915 - the oracle's modal stage, pass by pass
@@ -1225,7 +1263,8 @@ class MlxBackend(NumpySingleBackend):
         Returns
         -------
         dict
-            ``stage``, the derivative; on the modal route without its radial plasma
+            ``stage``, the derivative, and ``source``, the same before the inverse
+            propagator; on the modal route without its radial plasma
             also ``projected``, and ``coarse``, ``plasma`` and ``envelope`` where they
             exist; ``failures``, the envelope plasma's, when it runs.
         """
@@ -1241,18 +1280,19 @@ class MlxBackend(NumpySingleBackend):
         raman = inputs.get("raman")
         failures: list[mx.array] = []
         if self._free_prefactor is not None:
-            stage = self._device_free(lab, values, back, raman, failures, bundle)
-            return {"stage": stage, "failures": failures}
+            source = self._device_free(lab, values, raman, failures, bundle)
+            return {"stage": back * source, "source": source, "failures": failures}
         modal_t = device.to_time(lab[0], self._pad_crop, grids.n_to, kind=kind)
         absorber = self._device_absorber(modal_t)
         if self._radial_plasma:
             spectrum = self._device_radial_plasma(modal_t, values, raman)
-            normalised = self._normalised(spectrum, inputs["prefactor"], absorber)
-            return {"stage": back * normalised[None]}
+            source = self._normalised(spectrum, inputs["prefactor"], absorber)[None]
+            return {"stage": back * source, "source": source}
         if len(responses.response_order) == 1:
             if absorber is None:
-                return {"stage": mx.zeros_like(lab)}
-            return {"stage": back * absorber[None]}
+                zero = mx.zeros_like(lab)
+                return {"stage": zero, "source": zero}
+            return {"stage": back * absorber[None], "source": absorber[None]}
         taper, inverse = values[0], values[1]
         n_pol = transform.n_pol
         # Per stream (the polarisation, the plasma's gated and edge currents, the
@@ -1305,7 +1345,8 @@ class MlxBackend(NumpySingleBackend):
         if drives is not None:
             spectrum = spectrum + self._envelope_spectrum(drives)
         normalised = self._normalised(spectrum, inputs["prefactor"], absorber)
-        outputs["stage"] = back * normalised[None]
+        outputs["source"] = normalised[None]
+        outputs["stage"] = back * outputs["source"]
         return outputs
 
     def _normalised(
@@ -1427,12 +1468,11 @@ class MlxBackend(NumpySingleBackend):
         self,
         lab: mx.array,
         values: _StageValues,
-        back: mx.array,
         raman: mx.array | None,
         failures: list[mx.array],
         bundle: StageScalars | None = None,
     ) -> mx.array:
-        """Evaluate a Cartesian (or line) stage derivative on the device.
+        """Evaluate a Cartesian (or line) stage's source on the device, untransported.
 
         The oracle's ``_nonlinear_free``: the transverse inverse transform, the
         responses per chunk of columns on the fine time grid, the forward transforms,
@@ -1444,8 +1484,6 @@ class MlxBackend(NumpySingleBackend):
             The lab-frame stage input, ``(1, n_columns, n_pol, n_omega)``.
         values : _StageValues
             The stage's values.
-        back : mlx.core.array
-            ``exp(-dPhi)`` of the stage.
         raman : mlx.core.array or None
             The narrowed Raman kernel spectrum.
         failures : list of mlx.core.array
@@ -1456,7 +1494,7 @@ class MlxBackend(NumpySingleBackend):
         Returns
         -------
         mlx.core.array
-            The stage derivative in the interaction variable.
+            The stage's source before the inverse propagator.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -1523,7 +1561,7 @@ class MlxBackend(NumpySingleBackend):
                 lab.shape[1:]
             )
             result = result + self._active * collar
-        return back * result[None]
+        return result[None]
 
     def _device_sources(
         self, field: mx.array, values: _StageValues, raman: mx.array | None
@@ -2094,6 +2132,10 @@ class MlxBackend(NumpySingleBackend):
             The double-float accurate propagator, complex64.
         """
         return self._propagators(self._stage_scalars(anchor, position))[0]
+
+    def _collar_changed(self) -> None:
+        """Forget a reused first stage, evaluated under the other collar setting."""
+        self._first = self._pending_first = None
 
     def _adams_engine(
         self,
