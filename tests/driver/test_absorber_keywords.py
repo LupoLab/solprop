@@ -19,7 +19,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from solprop.boundaries import absorber, no_absorber
+from solprop.boundaries import absorber, custom_absorber, no_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.simulation import _spatial_default, _with_boundary
 from solprop.exceptions import DriverError
@@ -116,7 +116,7 @@ def _settings(grid: FieldGrid | EnvelopeGrid, **keywords: Any) -> SimulationSett
 
 
 def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
-    """The real-space collar reads the in-stage length, which ``False`` keeps."""
+    """``False`` zeroes the settings' collar's rates and keeps its lengths."""
     collar = dataclasses.replace(absorber(grid), collar_length=0.02)
     settings = _with_boundary(_settings(grid, absorber=collar), grid, False, None)
     off = settings.absorber
@@ -125,11 +125,13 @@ def test_spatial_absorber_false_keeps_the_lengths(grid: FieldGrid) -> None:
     assert not np.any(off.temporal_rate_fine)
     assert off.in_stage_length == collar.in_stage_length
     assert off.reference_length == collar.reference_length
-    # The settings carry none: the hard mask alone, the real-space collar off.
+    # The settings carry none: the hard mask alone.
     bare = _with_boundary(_settings(grid), grid, False, None).absorber
     assert bare is not None
     assert not np.any(bare.spectral_rate)
-    assert bare.spatial is False
+    assert not np.any(bare.temporal_rate)
+    assert bare.temporal is False
+    assert bare.band_mask.any()
 
 
 def _radial(grid: EnvelopeGrid, **keywords: Any) -> Simulation:
@@ -234,14 +236,16 @@ def test_absorber_false_keeps_the_held_plasma_gate() -> None:
     assert plasma_source_record(off.grids) == plasma_source_record(on.grids)
 
 
-def test_spatial_defaults_leave_the_real_space_collar_off() -> None:
+def test_spatial_defaults_give_the_default_temporal_collar() -> None:
     """A spatial run whose settings declare no absorber gets the default temporal and
-    spectral collars, with the real-space collar inert as before (SEP 21, D6, D9)."""
+    spectral collars (SEP 21, D6); its transverse boundary is left to the settings'
+    ``spatial_absorber``, where a real-space collar is asked for (SEP 40)."""
     grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 2e-6), 200e-15)
     settings = _spatial_default(_settings(grid), grid)
     assert settings.absorber is not None
     assert settings.absorber.temporal
-    assert settings.absorber.spatial is False
+    assert np.array_equal(settings.absorber.temporal_rate, absorber(grid).temporal_rate)
+    assert settings.spatial_absorber is None
     given = _settings(grid, absorber=absorber(grid))
     assert _spatial_default(given, grid) is given
 
@@ -267,3 +271,19 @@ def test_the_modal_interfaces_take_the_boundary_check() -> None:
     assert isinstance(watched, PlaneStore)
     assert watched.outcome is not None and watched.outcome.execution is not None
     assert "boundary_monitor" in watched.outcome.execution
+
+
+def test_absorber_false_clears_a_custom_rate_with_the_total():
+    # The share cannot outlive the total it is a share of.
+    grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (700e-9, 900e-9), 100e-15, thg=False)
+    settings = SimulationSettings(
+        save_planes=[1e-3],
+        dz_max=1e-3,
+        dz_init=1e-6,
+        controller=PIController(rtol=1e-6, atol=1e-12),
+        absorber=custom_absorber(grid, 3.0),
+    )
+    cleared = _with_boundary(settings, grid, absorber=False, scheme=None)
+    assert cleared.absorber is not None
+    assert cleared.absorber.user_rate is None
+    assert not np.any(cleared.absorber.spectral_rate)

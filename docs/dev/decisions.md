@@ -33,7 +33,8 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-002 — NumPy oracle, numba CPU, and a native Kokkos backend for CPUs and devices
 
-- **Status:** accepted; the default selection is ADR-029's
+- **Status:** accepted; the default selection is ADR-029's; the numba CPU backend is
+  retired by ADR-064
 - **Context:** CPU performance is the stated priority; GPU is wanted but secondary. An
   earlier prototype study found that an array compiler (JAX/XLA) reaches within ~8 % of
   hand-written kernels on a bandwidth-bound step but loses 11× on multi-accumulator
@@ -348,7 +349,7 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-023 — numba and pyfftw are core dependencies
 
-- **Status:** accepted
+- **Status:** superseded by ADR-064
 - **Decision:** The optimised numba CPU backend is always installed, with pyfftw for its
   transforms. The native backend is an optional second distribution
   (`solprop-native`, built from `native/`), installed through the `native` extra, which
@@ -469,7 +470,8 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-029 — Prefer the installed native backend when no backend is specified
 
-- **Status:** accepted; sets the default selection that ADR-002 leaves open
+- **Status:** accepted; sets the default selection that ADR-002 leaves open; its fallback
+  is ADR-064's
 - **Context:** the optional native backend has measured CPU and GPU improvements, and
   installing its target-specific build should make ordinary propagation use it. Numba CPU
   remains a core dependency and the portable fallback. This is an installation policy,
@@ -1162,7 +1164,7 @@ Withdrawn (development-process record, not a design decision).
   [SEP 12](seps/archive/sep-0012-tdse-nonlinear-response.md) and
   [SEP 26](seps/archive/sep-0026-edge-free-tdse-source.md); one exception added on
   2026-10-28 (`collar_placement="inside"`); its rules on resuming and on recorded fields
-  narrowed by ADR-063
+  narrowed by ADR-063, and restored by ADR-066
 - **Context:** before a first release there are no external output files to keep. An
   option or reader whose only purpose is to reproduce an earlier form of a configuration
   or record is a second code path to test and document, with no scientific use.
@@ -1187,10 +1189,8 @@ Withdrawn (development-process record, not a design decision).
   no scientific use of it was found.
 - **Consequences:** an unwindowed native SAE run's lattice must pass the certificate. A
   change that moves an identity bumps the version it moves and adds no compatibility
-  layer. ADR-063 sets the resume-compatibility policy: a file of another output schema
-  is still never resumed, but by that precondition rather than through the resume key,
-  and a field added to a record carries a neutral value rather than refusing every
-  earlier file.
+  layer. ADR-066 sets the resume policy: a file of another output schema is never resumed,
+  by that precondition, and a field added to a record refuses every earlier file.
 
 ## ADR-052 — One thread budget per process, which every pool stays within
 
@@ -1466,9 +1466,22 @@ Withdrawn (development-process record, not a design decision).
       engine's included), and read at the next check; not read back from the state
       after the split, whose deep-collar residue `e^{αh}` multiplied into removals above
       the launch energy;
+    - under the split scheme the occupancies, guards and collar, are judged on the
+      power each accepted step's split finds, taken halfway through its factor,
+      `P e^{−αh/2}` (the symmetric splitting's state at the step's end), summed by the
+      same finish, and a reading without it is refused (kernel schema 43): the state after
+      the split hid a pulse walking out, and the state before it stopped one 40 %
+      early ([#127](https://github.com/LupoLab/solprop/issues/127), 2026-11-02);
+    - under the split scheme no step walks the light more than half the collar's
+      width, `h ≤ 0.5 w / max|dτ/dz|`, the rate that of the fastest bins holding more
+      than `1e-6` of the energy: read from the launch at translation, where it holds
+      `dz_max` and refuses a longer fixed schedule, and from the state at every check,
+      where it caps the steps until the next and stops a fixed schedule it falls below
+      ([#149](https://github.com/LupoLab/solprop/issues/149),
+      [#440](https://github.com/LupoLab/solprop/issues/440), maintainer, 2026-11-03);
     - the monitor's reading is the backend's: at a check each backend reduces the
       state's energy and its four weighted energies where the state lives, and only
-      those five numbers and the split's removal reach the host; `numpy_ref`'s host
+      those five numbers and the split's sums reach the host; `numpy_ref`'s host
       reduction is the reference, and the input-noise floor is read on the host once,
       at the launch (2026-10-28);
     - the record continues across a resume: no launch check, the totals, launch
@@ -1521,8 +1534,7 @@ Withdrawn (development-process record, not a design decision).
 - **Why:** breaking costs nothing before anyone depends on the package, and a promise
   made now would freeze seams already known to need work.
 - **Consequences:** a released version cannot read a development output file; keep an
-  older install for those. ADR-063 sets the resume-compatibility policy
-  ([SEP 42](seps/archive/sep-0042-tolerant-resume.md)).
+  older install for those. ADR-066 sets the resume policy.
 
 ## ADR-059 — Host vector maths on SLEEF for the native CPU kernels on x86-64
 
@@ -1634,7 +1646,9 @@ Withdrawn (development-process record, not a design decision).
 
 - **Status:** accepted (maintainer, 2026-10-31); amends
   [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
-  `numpy_ref`, `numba_cpu` and the native CPU build
+  `numpy_ref`, `numba_cpu` and the native CPU build; Tier 2 and the statement that the
+  documentation build installs no native backend are superseded by ADR-064; ADR-068 makes
+  `native` the primary backend
 - **Context:** solprop has four backends, and each new feature was implemented three
   times before its SEP could be final: in the reference, in Numba and in C++. The native
   backend is where production runs happen; `numba_cpu` runs the same CPU problems more
@@ -1698,9 +1712,11 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-063 — A resume compares records by what matters to the run
 
-- **Status:** accepted (maintainer, 2026-11-01, with
-  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrows ADR-051 and sets the policy
-  ADR-058 left open
+- **Status:** superseded by ADR-066, except its amendment on how often the schema is bumped,
+  which stands. Accepted (maintainer, 2026-11-01, with
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md)); narrowed ADR-051 and set the policy
+  ADR-058 left open; amended 2026-11-02 for how often the schema is bumped (the last
+  bullet)
 - **Context:** a file resumed only when the rebuilt run's configuration hash equalled
   the stored one. A release that added a field, an optmat release with the same numbers,
   a looser tolerance or another platform's mathematics library each refused a resume of
@@ -1740,3 +1756,207 @@ Withdrawn (development-process record, not a design decision).
   from its tag (`docs/dev/releasing.md`). 0.2.0, the first release of output schema 2,
   is tagged after SEP 42, so that every released reader of schema 2 knows these rules; a
   later change to what force records bumps the schema.
+- **Amendment, how often the schema is bumped** (maintainer, 2026-11-02): the bump rule
+  above applies per release, not per change. The first change after a release that an
+  older reader would misread or could not append to bumps the schema; later such changes
+  before the next release fold into that version. Development builds between releases
+  are not compatible with one another, and a known difference between them is refused
+  by name rather than read two ways (#80, the Multistep ledger's run-length encoded
+  orders, folded into schema 2).
+
+## ADR-064 — `numba_cpu` is retired: no Tier 2, and the documentation lane runs on the wheel
+
+- **Status:** accepted, with [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md); supersedes
+  ADR-061's Tier 2 and its statement that the documentation build installs no native
+  backend, removes the fallback of ADR-029, and ends ADR-023
+- **Context:** every test, route and kernel of `numba_cpu` was a second copy of what
+  `native` does. In the 0.1.0 history it took 1.5 to 2.8 times as long as native by
+  geometric mean, with no winning configuration among the 22 measured on three machines,
+  though with no rows on Windows or Linux aarch64, or for scans (#314). Its remaining value
+  was reach, and a second x86-64-v2 build in the x86-64 wheels and a Windows on Arm wheel
+  replace most of that (SEP 43 §3, §6.1, §6.2). 0.1.0 was unannounced and has no known
+  users, so a freeze or a feedback period would have protected nobody we know of.
+- **Decision:**
+  - The `numba_cpu` backend and the `numba` and `pyfftw` dependencies go, with no
+    deprecation cycle. Tier 2 is empty: Tier 1 is `numpy_ref` and `native`, and Tier 3 is
+    `mlx`. ADR-061's other rules stand.
+  - `numba_cpu` goes before 0.2, so 0.1.0 is the last release with it.
+  - solprop-native is a required dependency, pinned to solprop's version in the built
+    metadata, with no extra, and solprop is supported where it installs. On any other
+    platform the installer's resolution error is the answer.
+  - `backend="auto"` is `native`, with no fallback: it refuses with no native package or
+    below the processor floor. A TDSE response resolves to `numpy_ref`, and single precision
+    to `mlx`, as before (SEP 43 §5).
+  - `numpy_ref` is the numerical reference, and the executor of the supported features that
+    native doesn't run yet (SEP 43 §5). That list isn't a waiver of SEP 0's parity rule.
+  - `backend="numba_cpu"` raises `BackendError`, naming `native` and `numpy_ref`. An output
+    or snapshot of the current schema that records it still loads, and may continue on
+    another backend: a recorded name is not a request.
+  - The processor check reads `/proc/cpuinfo` on Linux, then NumPy's features, and refuses
+    if neither answers; it never assumes a build is safe.
+  - CI's documentation lane runs on the wheel `native-wheel` builds, which now runs for
+    documentation-only changes too, on Linux. A lesson or tutorial may use anything `native`
+    runs. Read the Docs stays free of native: it executes no gallery script, since all
+    gallery output is committed.
+- **Why:** development and test time goes to the backends that decide correctness and that
+  production runs on; the seam stops paying for a third implementation.
+- **Consequences:**
+  - Intel macOS, ppc64le, musl, older glibc, macOS before 14, Arm below Neoverse N1 and
+    Windows before 10 version 2004 are unsupported, by choice. A process with a GPU build has
+    no compiled CPU backend: a CPU run there needs a second environment with the CPU wheel,
+    or `numpy_ref`.
+  - `SOLPROP_NUMBA_THREADS`, `SOLPROP_NUMBA_REGIME`, `SOLPROP_FFTW_THREADS`,
+    `SOLPROP_TRANSVERSE_FFTW_THREADS`, `SOLPROP_PASS_TIMERS`, `NUMBA_DISABLE_JIT` and
+    `NUMBA_NUM_THREADS` go. `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM`,
+    `SOLPROP_BLAS_THREADS` and `SOLPROP_THREADS` stay: the native backend reads them.
+  - A plain `uv sync` in a checkout compiles native, since anyone there is developing.
+    `uv run --no-project tools/setup_light.py` sets up with no native package and no
+    compiler, for Python and documentation contributors, and `poe fetch-wheel` installs CI's
+    wheel only if it fits the tree.
+  - An exact pin means a new release replaces a source or GPU build with that release's CPU
+    wheel. Released source builds take a local version label, and a GPU job can set
+    `SOLPROP_REQUIRE_DEVICE`, which reads the actual build.
+  - Records keep the rows `numba_cpu` wrote, as evidence of what it measured. Records of
+    decisions that name it, this log's included, stay as written.
+
+## ADR-065 — No memory admission: a run that doesn't fit fails with an out-of-memory error
+
+- **Status:** accepted, 2026-11-04. Supersedes the memory admission of SEP 22, SEP 41 and
+  earlier decisions. Those records stay as written.
+- **Decision:** solprop no longer estimates a run's memory before allocating or compares
+  it with a budget. `estimate_memory`, `estimate_guide_memory`, `solprop.driver.memory`,
+  `memory_budget=`, `SOLPROP_MEMORY_BUDGET`, `--memory-budget`, `MemoryBudgetError`,
+  `MemoryBudgetWarning` and the record's `memory` entry are removed. A run that doesn't
+  fit fails with `MemoryError` or is killed by the kernel or the scheduler.
+  - Each backend's `memory_ledger()` stays. It reports the buffers a constructed backend
+    holds, and `Simulation.estimate` reports its total.
+  - Scan workers and batch groups stay bounded, from measured RSS and the ledger, because
+    those limits decide how much runs at once rather than warn. TDSE's
+    `TDSEExecution.memory_limit` stays and raises `DriverError`; it now covers atomic
+    storage alone.
+- **Why:** the estimate duplicated in Python the buffers the backends hold, and that cost
+  grows with every route. On `native` its base was `numpy_ref`'s count, not native's own,
+  and an exact count would have meant mirroring dozens of C++ buffers per route. Measured
+  on `c2090d6c`, native held 1.04 to 1.41 times the estimate on ordinary runs (#501). The
+  check usually only warned, and a backend first-touches its buffers at construction, so
+  a run that doesn't fit normally fails near the start anyway.
+- **Consequences:**
+  - A run killed by the kernel or a scheduler gets no Python error: exit status 137, with
+    no message from solprop.
+  - A large run that fits only without the Adams history no longer gets a refusal naming
+    `RungeKutta()`; the stepper and resources pages give that advice.
+  - A run keeping its planes in memory can run out partway through, and a general modal
+    guide fails while its tables are built. Both were previously refused or warned about
+    before they started.
+
+## ADR-066 — A resume continues on an exact configuration hash
+
+- **Status:** accepted, 2026-11-04. Supersedes ADR-063 and the design of
+  [SEP 42](seps/archive/sep-0042-tolerant-resume.md), except ADR-063's amendment on how often
+  the schema is bumped. Restores ADR-051's rule that every field is recorded.
+- **Context:** restarting a run is rare, and restarting from an earlier version essentially
+  never happens. SEP 42's path-by-path comparison cost a classification for each new recorded
+  field, frozen records at each release, and a decision in every pull request that touched
+  the record, to serve a case nobody uses.
+- **Decision:**
+  - A resume continues when the file's configuration hash equals the requested run's.
+    Otherwise it is refused, naming the fields that differ. "The same version" means this
+    hash and nothing else: the solprop version is not compared, so a commit that leaves the
+    record alone still continues.
+  - `resume="force"` and `--force` are removed. `resume` takes `False`, `True` or
+    `"interpolated"`.
+  - `solprop.output.compatibility`, its class and neutral tables, the frozen records,
+    `RunMetadata.compare`, the `resume` entry of a session's execution record,
+    `RunOutcome.resumes` and `forced_positions` are removed. So are `record_none` and the
+    refusal of four-column `absorbed_power`: every field is recorded at its default, and
+    development builds are not compatible with one another.
+  - Reading is unchanged. A file of output schema 2 written by another build still reads,
+    with an absent field taking its default.
+  - `source=` in `field_plane` and a scan's reuse of a finished point use the same hash.
+  - Nothing is carved out of the key for rounding, and provenance stays in it. A carve-out
+    was tried for a band rule's taps and dropped, as the measurement below shows it can't
+    deliver a resume between CPU families without rebuilding the class table.
+- **What is refused again,** each of which ADR-063 existed to allow:
+  - a looser or tighter tolerance, or another integrator;
+  - an optmat release, even with the same numbers;
+  - a solprop release or commit that adds a recorded field or moves a recorded number;
+  - another platform's or CPU family's mathematics library, BLAS or FFT;
+  - a `source=` simulation with any of these differences.
+
+  These are refused on purpose. To carry on, launch a new segment from a saved plane or write
+  a new file.
+- **What was measured** (2026-11-04), 31 example recipes built on `numpy_ref` in one
+  environment. Hashes were the same on AMD EPYC 7763 and EPYC 7513 nodes, and on a repeat,
+  apart from 2 recipes with unseeded noise, which a resume redraws from the file's seed. All
+  31 differed between those and an Intel Xeon Gold 6240, which also had another glibc and
+  Python patch version, in the launch, absorber rates, quadrature weights, effective areas
+  and noise spectra. Forcing other OpenBLAS kernels on the Xeon moved 23 to 27 of 34 recipes.
+  So a long job has to stay on one CPU family to resume.
+- **Why not a SEP:** SEP 42 stays `Final` as the record of what it did, with a note pointing
+  here. The maintainer judged a decision record enough for removing a mechanism, and the same
+  goes for ADR-067.
+- **Consequences:** adding a recorded field needs no other step, and a release no longer
+  freezes records.
+
+## ADR-067 — A low-storage run holds no plane
+
+- **Status:** accepted, 2026-11-04. Replaces SEP 22's Q14, which held the state of the last
+  field-free plane. Bumps the kernel schema to 46.
+- **Decision:** `SimulationSettings.held_plane`, `StepDriver.set_held_plane`,
+  `held_observation`, `_hold`, `_held_field`, `_drop_held`, the native state's `hold_plane`,
+  `release_plane` and `held_to_host`, and the ledger's `held_plane` row are removed. A
+  low-storage run saves the one state volume it cost, 5.27 GiB at 768² × 600.
+- **What is lost:** a step abandoned in flight after a field-free plane leaves no checkpoint
+  there, and the file resumes from the last plane that kept its field, or not at all. On
+  native only an exception inside the engine can do that, since a signal waits for the step,
+  and on `numpy_ref` a Python interrupt can too. A stop between steps checkpoints as ever. A
+  killed process never had the held state. To keep a resumable state, keep the field at some
+  planes with `fields="planes"`.
+
+## ADR-068 — Native is the primary backend; `numpy_ref` stays the oracle for numbers
+
+- **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
+  [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
+  implemented under them, stay as written.
+- **Context:** production runs on `native`, and the costs of the split between Python and
+  native decide what those runs can do. The written rules still steered work as if the
+  reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
+  contract was the only crossing, and there was one step loop. None of those describes the
+  code. There are seven marches (`backends.md` §1), and the protected driver surface is as
+  much a crossing as the contract. `KERNEL_SCHEMA_VERSION` had 14 literal sites in 10 files,
+  moved 11 times in 12 days, collided 3 times between parallel pull requests, and missed a
+  change made only in C++.
+- **Decision:**
+  - `native` is the primary backend. `numpy_ref` remains the oracle for numbers and stays
+    comprehensive: every other backend is validated against it, and every new feature lands
+    on it. The order of implementation is free, and native may shape the contract.
+  - `numba_cpu` is gone (ADR-064) and constrains nothing. `mlx` doesn't constrain native
+    either: it stays as it is, kept runnable and correct, and its future is undecided.
+  - The kernel contract and the protected surface of `StepDriver` are the two crossings. A
+    backend that lacks a feature still refuses it by name, whichever backend that is, and
+    nothing falls back silently.
+  - The seam has no version number. A change to it rewrites the frozen tables in
+    `tests/backends/test_driver.py` in the same commit and adds a release-note fragment. The
+    two packages are released together and pinned to one version. `check_build` looks up the
+    members the adapter relies on by name. In an editable checkout it also compares the
+    extension with the digest of what it is compiled from (`native/CMakeLists.txt` and the C++
+    sources and headers under `native/src` and `native/include`), which CMake embeds and
+    Python recomputes once per process. `KERNEL_SCHEMA_VERSION` ended at 45.
+- **Why:** development time goes where the runs are, and correctness is still decided
+  against the reference. A number that changes with every seam change costs a merge conflict
+  each time and guards little: within one repository at one pinned version, the frozen tables
+  catch a seam change in the commit that makes it, and the digest catches the case that
+  mattered at run time, a stale extension beside newer sources.
+- **Consequences:**
+  - A SEP may land on native first, and the manual page comes with whichever lands first. A
+    SEP is still `Final` only with parity on `numpy_ref` and native CPU, or an exception
+    written into it.
+  - A native run's record names `source_digest` in `backend.settings` where it named
+    `schema_version`. Neither enters the configuration hash or a resume check.
+  - An editable checkout refuses to construct a native backend after any edit to the digested
+    sources until it is rebuilt, including a comment, so a C++ change can't be tested by
+    accident against an old build. Python under `native/src/solprop_native` is not digested,
+    since it isn't compiled.
+  - A wheel skips the comparison, and has only the pin and the name lookup between it and a
+    mismatched solprop. `poe fetch-wheel` keeps its own check on the tree.
+  - "Kernel schema N" in the code and the documents is history: the number a change took.

@@ -11,14 +11,13 @@ process that imports it plans the same transforms at once. Wisdom only chooses a
 FFTW's exact algorithms, so it never changes what a transform computes; which algorithm
 was chosen can change the rounding, as a new measurement can.
 
-The variable is the one ``numba_cpu`` reads (``solprop.backends.numba_cpu.fft``), and
-nothing is read or written without it. The native backend links its own FFTW, whose
-wisdom pyFFTW's cannot read, so it keeps a file of its own beside the named one,
-``<name>.native-<key>``. The key digests the FFTW library's wisdom preamble (its version
-and the signature of its planner's configuration) and the processor's model, so
-machines of different kinds sharing a home directory keep separate plans, and a file
-from another FFTW is never offered to this one; FFTW refuses foreign wisdom by its
-signature in any case.
+Nothing is read or written without the variable. The native backend links its own FFTW,
+whose wisdom another FFTW build cannot read, so it keeps a file of its own beside the
+named one, ``<name>.native-<key>``. The key digests the FFTW library's wisdom preamble
+(its version and the signature of its planner's configuration) and the processor's
+model, so machines of different kinds sharing a home directory keep separate plans, and
+a file from another FFTW is never offered to this one; FFTW refuses foreign wisdom by
+its signature in any case.
 
 Many processes of a scan may share one file. A reader never takes a lock: the file is
 only ever replaced whole, by an atomic rename. A writer takes an exclusive lock on
@@ -52,7 +51,7 @@ __all__ = ["digest", "load", "store", "wisdom_file"]
 logger = logging.getLogger(__name__)
 
 ENVIRONMENT = "SOLPROP_FFTW_WISDOM"
-"""The variable naming the wisdom file, shared with ``numba_cpu``."""
+"""The variable naming the wisdom file."""
 
 _LOCK = threading.Lock()
 # Per wisdom file: the (mtime, size) of the version this process imported last, and the
@@ -228,8 +227,8 @@ def digest() -> str | None:
     Returns
     -------
     str or None
-        The first sixteen hex characters of a BLAKE2b over FFTW's exported wisdom, as
-        ``numba_cpu`` records; ``None`` on a build without FFTW wisdom.
+        The first sixteen hex characters of a BLAKE2b over FFTW's exported wisdom;
+        ``None`` on a build without FFTW wisdom.
     """
     wisdom = _core.export_fftw_wisdom()
     if wisdom is None:

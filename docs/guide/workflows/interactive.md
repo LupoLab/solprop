@@ -74,7 +74,7 @@ pressure floor or a vacuum end are log records, not warnings, and are not touche
 
 `import solprop` alone does none of this and stays cheap: the namespace is loaded on
 first use, like every other submodule. Importing `solprop.sol` takes noticeably longer,
-because it loads matplotlib, h5py and numba.
+because it loads matplotlib and h5py.
 
 ## What is in it
 
@@ -91,7 +91,7 @@ the same object as in its home module:
    * - runs
      - ``prop_capillary``, ``prop_gnlse``, ``prop_waveguide``, ``prop_radial``, ``prop_free``, ``prop_planar``, ``Simulation``, ``SimulationSettings``, ``Multistep``, ``RungeKutta``, ``Scan``, ``ScanPoint``, ``run_scan``, ``Local``, ``Pool``, ``Queue``, ``Slurm``, ``Batch``
    * - outputs
-     - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``open_scan``, ``ScanOutput``
+     - ``open_file``, ``resume``, ``MemoryOutput``, ``HDF5Output``, ``CallbackOutput``, ``open_scan``, ``ScanOutput``
    * - building blocks
      - the grids, the pulses, ``MarcatiliMode``, ``VincettiMode``, ``TubeLattice``, ``StepIndexMode``, ``RectMode``, ``SlabMode`` (with ``gaussian_coupling``, ``gaussian_projection``, ``per_unit_width_to_gaussian`` and ``gaussian_to_per_unit_width``), ``PlanarGrid``, ``IndexTable``, the tabulated modes, ``ModeCollection``, ``Gas``, ``Mixture``, ``species``, ``MaterialSelection``, the glasses and ``glass``, ``Constant``, ``Linear``, ``PiecewiseLinear``, ``PressureGradient``, ``DensityPath``, ``OptmatRate``, ``KerrResponse``, ``PlasmaResponse``, ``EnvelopePlasmaResponse``, ``RamanResponse``, ``DampedOscillator``, ``RotationalLines``, ``SpecifiedMode``
    * - mode and material numbers
@@ -101,7 +101,7 @@ the same object as in its home module:
    * - plots
      - ``prop_2d``, ``time_1d``, ``spec_1d``, ``spectrogram``, ``plot_energy``, ``plot_stats``, ``wavelength_to_axis``
    * - processing
-     - ``grid_of``, ``get_field``, ``get_power``, ``get_power_weight``, ``get_spectrum``, ``get_spectral_density``, ``get_phase``, ``bandpass``, ``energy``, ``peak_power``, ``fwhm``, ``fwhm_t``, ``fwhm_f``, ``arrival_time``, ``time_bandwidth``, ``specres``, ``g12``, the autocorrelations and ``coherence_time``, and the general modal accessors ``electric_field``, ``magnetic_field``, ``reconstructed_flux``, ``physical_energy`` and their companions (:doc:`../results/processing`)
+     - ``grid_of``, ``spatial_grid_of``, ``fluence_map``, ``get_field``, ``get_power``, ``get_power_weight``, ``get_spectrum``, ``get_spectral_density``, ``get_spectrogram``, ``get_phase``, ``bandpass``, ``energy``, ``peak_power``, ``fwhm``, ``fwhm_t``, ``fwhm_f``, ``arrival_time``, ``time_bandwidth``, ``specres``, ``g12``, the autocorrelations and ``coherence_time``, and the general modal accessors ``electric_field``, ``magnetic_field``, ``reconstructed_flux``, ``physical_energy`` and their companions (:doc:`../results/processing`)
    * - optics and compression
      - ``TaylorPhase``, ``Material``, ``ChirpedMirror``, ``Chain``, ``chirped_mirrors``, ``GratingPair``, ``PrismPair``, ``PrismGeometry``, ``littrow_angle``, ``brewster_angle``, ``brewster_apex``, ``compress_taylor``, ``compress_material``, ``compress_mirrors``, ``compress_gratings``, ``compress_prisms``, ``optimise_cep``, ``transform_limit``, ``apply_transfer``, ``Compression``, ``CepOptimum`` (:doc:`compression`)
    * - the session
@@ -173,7 +173,7 @@ MemoryOutput
   field per plane: 2 x 1 x 4097 (modes x components x omega)
   statistics:      energy, fwhm_t, omega0, peak_intensity, peak_power, zdw, ...
   between planes:  none
-  run:             RunMetadata(multimode, field grid of 8192, 2 modes, numba_cpu, ...
+  run:             RunMetadata(multimode, field grid of 8192, 2 modes, native, ...
 
 In [4]: pulse
 GaussianPulse

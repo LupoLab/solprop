@@ -34,7 +34,7 @@ do not launch the full suite merely because a SEP is being committed or merged.
 | invariant | energy and photon number where conserved, Parseval, time reversal, symmetries, positivity, orthonormality of modes | grids, transforms, modes, responses |
 | convergence | halve the step or double the grid and the error scales at the expected order; three levels with an order gate that rejects `order > p + 3` | stepper, quadrature, tables, Chebyshev |
 | round trip | build → translate → run → process and recover a known input | pulses, output, processing |
-| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on both Tier 1 backends always; ADR-061) |
+| parity | field vs envelope for narrowband pulses; mode-averaged vs one-mode multimode; batch vs sequential; backend vs reference | every nonlinear feature, on each backend that runs it (on `numpy_ref` and `native` always; ADR-061) |
 | property-based | `hypothesis` over grid sizes, pulse parameters, pressures | grids, pulses, materials, Chebyshev |
 | golden regression | `pytest-regressions` (`num_regression`) with tolerance, reference stored next to the test | materials tables, stored Luna results |
 | reference problem | the ladder in [stepper.md §11](stepper.md#11-verification-ladder-for-solprops-solver-tests): P0 linear, P1 N-soliton with phase, P2 analytic z-varying loss and dispersion, P3 cross-scheme Richardson | solver work |
@@ -74,7 +74,7 @@ instead of a tier marker:
 | default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | interpreted CPU kernel bodies, then the compiled fast and medium tiers, both under xdist with one thread per worker; 100 % of the package but the `mlx` backend, which needs macOS on Apple silicon and is tested in the macOS lane (`coverage-cpu.ini`; [the `mlx` omission](#the-mlx-omission)) |
+| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package but the `mlx` backend, which needs macOS on Apple silicon and is tested in the macOS lane (`coverage-cpu.ini`; [the `mlx` omission](#the-mlx-omission)) |
 | gpu | `uv run pytest -m gpu` | needs a card |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
 
@@ -87,11 +87,12 @@ The coverage lane's 100 % leaves out one package, `solprop/backends/mlx_gpu`
 - the coverage lane runs on Linux, where MLX does not install (it installs on macOS on
   Apple silicon only), so the package cannot be imported there, let alone measured;
 - its tests, `tests/backends/test_mlx.py` and the `mlx` cases of
-  `tests/backends/test_single_precision.py`, run in the macOS default lane, on MLX's
-  CPU device where the hosted runner exposes no Metal GPU, and without the runtime type
-  checks (ADR-053); the custom Metal kernels (the `gpu_only` tests) run only on a Metal
-  device, by hand: `uv run pytest tests/backends/test_mlx.py
-  tests/backends/test_single_precision.py` on an Apple-silicon Mac with the `mlx` extra;
+  `tests/backends/test_single_precision.py`, run on Metal in the macOS default lane,
+  including the custom kernels (the `gpu_only` tests). The lane asserts that Metal is
+  available, so losing the device fails the job rather than silently skipping those
+  tests. It runs without coverage or the runtime type checks (ADR-053);
+- no CI pass selects MLX's CPU device with `SOLPROP_MLX_DEVICE=cpu`; that path remains
+  available for local tests, where the custom kernels' tests skip;
 - basedpyright runs on Linux, where `mlx.core` does not resolve, so the package's MLX
   calls are not type-checked.
 
@@ -124,15 +125,18 @@ remain serial-only; normal grouped runs do not regenerate witnesses. The benchma
 suite under `benchmarks/` is outside `testpaths` and is never collected.
 
 A lane's remaining scheduling floor is its longest group. Pinning `SOLPROP_THREADS` (each
-worker's thread budget, ADR-052, which every pool of both backends stays within),
+worker's thread budget, ADR-052, which every pool stays within),
 `SOLPROP_NATIVE_THREADS`, `VECLIB_MAXIMUM_THREADS`, `OPENBLAS_NUM_THREADS`,
 `MKL_NUM_THREADS` and `OMP_NUM_THREADS` to one keeps eighteen workers from each opening a
-thread pool over the same cores. `NUMBA_NUM_THREADS` is not pinned: it is numba's
-ceiling, not its default. A test that compares thread counts lifts the budget for itself
+thread pool over the same cores. A test that compares thread counts lifts the budget for itself
 to four threads (the `thread_budget_lifted` fixture) and asks for several; a native
 thread probe runs with `SOLPROP_THREADS` blank and `SOLPROP_OVERSUBSCRIBE=1`, so it gets
 the count it asks for on any runner, and saves the Kokkos pool it ran with for its
-caller to check (`tests/backends/matched.py::native_thread_fields`). Serial and parallel runs select the same tests; inspect
+caller to check (`tests/backends/matched.py::native_thread_fields`). Native sizes each
+operation by the work it holds, which keeps a small case on one thread at any pool, so such a
+test forces the pools and asserts the widths its operations took from the run's
+`execution_sizing` (`assert_threaded`, in `tests/backends/forced_threads.py` and
+`native/tests/thread_sizing.py`). Serial and parallel runs select the same tests; inspect
 the current `--durations` output before choosing another independent group to split. The
 lane stays
 reproducible: `pytest-randomly` picks one seed in the controller and the workers share it,
@@ -152,23 +156,23 @@ carry a claim that used to need four thousand.
 
 ### Tiers and backends
 
-Medium tests are parametrised over every installed compatible backend and stay medium. The
-base checkout has `numpy_ref` and `numba_cpu`; an installed `solprop-native` adds `native`
-conditionally. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
-defaulting to what `backend="auto"` selects (`native` where installed, else `numba_cpu`); the backend-versus-reference parity test of §1, with the
+Medium tests are parametrised over every installed compatible backend and stay medium. A
+plain `uv sync` has `numpy_ref` and `native`; the
+[lightweight setup](contributing.md) has no native package, takes
+`SOLPROP_TEST_BACKEND=numpy_ref`, and skips the native-only tests. The slow ladders run on the backend selected by `SOLPROP_TEST_BACKEND`,
+defaulting to what `backend="auto"` selects, `native`; the backend-versus-reference parity test of §1, with the
 equivalence tolerance of §3, stands in for duplicate copies already known to agree.
 
 Spatial tests select their backends through the explicit spatial fixtures of
-`tests/backends/conftest.py`, which cover NumPy, Numba CPU and an installed native backend.
+`tests/backends/conftest.py`, which cover NumPy and an installed native backend.
 
-For native development, `uv sync --extra native` builds `native/` and installs it
+For native development, a plain `uv sync` builds `native/` and installs it
 editable into the repository's environment before a lane runs; how, and when a build
 must be rebuilt, is
 [Building the native backend](../guide/performance/building-native.md#a-development-build).
 `uv run poe check-native` runs the native package's own gate and `uv run poe check-all`
 both gates. What the backend does not support it refuses by name
-([backends.md](backends.md)). On macOS import the native package before pyFFTW so the
-process loads one OpenMP runtime; `tests/backends/conftest.py` does this deliberately.
+([backends.md](backends.md)).
 The `gpu` lane checks build coherence, one complete device step and same-card
 repeats within a rounding bound on an accelerator build; host thread-count tests skip on a
 device build by design, and fixed-geometry same-card repeats stand in for them. The slow equivalence and
@@ -186,9 +190,8 @@ SOLPROP_TEST_BACKEND=native uv run pytest -m gpu
 ```
 
 The two thread settings matter: eighteen xdist workers each initialising an
-eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding applied to a
-process that runs both compiled backends pins numba's and Kokkos's workers to the same
-cores.
+eighteen-thread Kokkos pool oversubscribe the machine, and OpenMP binding pins each
+worker's threads to the same first cores.
 
 ### Budgets and timing assertions
 
@@ -391,7 +394,7 @@ are done when:
   `SOLPROP_WRITE_RECORDS=1` on a clean tree, and says why they moved;
 - a hot-path change carries a benchmark entry ([benchmark rules](benchmarks.md#rules)).
 
-A change is qualified on `numpy_ref`, `numba_cpu` and, when installed, the native CPU
+A change is qualified on `numpy_ref` and the native CPU
 build; device builds are exercised separately with `pytest -m gpu`. No test, lane or
 timing runs a full-length propagation: qualify on about ten steps or a fibre short enough
 to finish in seconds (`AGENTS.md`, qualification scope).
@@ -405,5 +408,5 @@ Tests, records and benchmarks refer to these by name.
 | **P0–P3** | the solver's verification ladder: linear only (P0), N-soliton recurrence with phase (P1), analytic z-varying loss and dispersion (P2), full UPPE against a Richardson reference (P3); see [stepper.md](stepper.md) §11 |
 | **M1** | N = 6 soliton recurrence through `prop_gnlse`: GNLSE, envelope grid, mode-averaged, checked against the analytic solution with its phase |
 | **M2**, **RDW** | resonant dispersive-wave emission into the VUV in a hollow capillary: 125 µm core radius, 1.5 m, helium from 0.8 bar to vacuum, four HE₁ₘ modes, a 7.5 fs 275 µJ pulse, field grid, Kerr and plasma; full and reduced sizes, against a stored Luna witness and solprop's own converged reference |
-| **M3** | the M2 case on `numba_cpu`: the compiled backend against `numpy_ref` (and Luna) at equal achieved error; the whole-run benchmark rows |
+| **M3** | the M2 case on a compiled backend (`numba_cpu` when it was recorded): against `numpy_ref` (and Luna) at equal achieved error; the whole-run benchmark rows |
 | **M4**, **CtC** | the comb-to-continuum supercontinuum: 16 µm core radius, 0.2 m of hydrogen at 40 bar, six HE₁ₘ modes, a 400 fs pulse at 515 nm on a 4 ps field grid, Raman and plasma; full and reduced sizes, against a stored Luna witness |

@@ -142,7 +142,8 @@ second:
 |---|---|
 | `SpatialFlux.resolve(grid, space, medium, z=0.0, side=None)` | the measure of the plane at `z` in `medium` |
 | `spatial_energy(field, flux)`, `planar_mode_energy(field, flux)` | energy in J (J/m on a line), from $Y_z$; per slab mode for the planar guide |
-| `spatial_power(field, flux)` | axial power in W (W/m on a line) in time; its time integral is the energy |
+| `spatial_energy_spectrum(field, flux)` | energy in J (J/m on a line) per frequency bin, shape `(n_omega,)`, summed over the slab modes for the planar guide; the bins sum to `spatial_energy`; not the density `beam_spectrum` |
+| `spatial_power(field, flux, oversampling=1)` | axial power in W (W/m on a line) in time; its time integral is the energy. `oversampling=4` resamples the time axis by zero-padding the spectrum, as `get_power` does, onto {py:func}`~solprop.processing.fields.time_axis` `(grid, 4)`; `spatial_intensity` and `on_axis_trace` take it too |
 | `spatial_fluence(field, flux)`, `planar_fluence(field, flux)` | signed fluence in J/m² at the nodes |
 | `spatial_intensity(field, flux)`, `planar_intensity(field, flux)` | signed local flux in W/m² at the nodes and times |
 | `on_axis_intensity(field, flux)`, `on_axis_spectrum(field, flux)` | the axial flux and its spectral density on the axis |
@@ -155,7 +156,8 @@ energy or peak power at that plane, and
 {py:func}`~solprop.noise.spatial_noise` takes a resolved `SpatialFlux`.
 {py:func}`solprop.stats.collect` takes `flux=` for a saved plane, and in-run statistics use the
 measure of the plane at which they are recorded. A saved run records the measure
-(`flux_model` and `flux_plan` in its spatial metadata), and processing resolves each
+(`flux_model` and `flux_plan` in its spatial metadata, with large coefficient arrays
+[stored beside the record](../results/output.md#the-schema-version)), and processing resolves each
 saved plane at its own position. A plane measured at a different position, or in a
 different medium, needs a new record.
 

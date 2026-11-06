@@ -122,7 +122,7 @@ def test_the_gnlse_refuses_a_dispersive_policy_by_name():
 def test_a_constant_kerr_response_beside_a_dispersive_policy_is_refused():
     """A caller's responses are taken as they are, but not one law beside another."""
     grid = FieldGrid.from_limits(1e-4, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 8e-5
     )
@@ -233,5 +233,5 @@ def test_changing_the_electronic_law_changes_the_resume_key(tmp_path, first, sec
     assert one.configuration_hash() != two.configuration_hash()
     path = written(tmp_path / "run.h5", one)
     assert check_cache(path, capillary(**first).metadata())
-    with pytest.raises(OutputError, match=r"materials: .*policies\.electronic"):
+    with pytest.raises(OutputError, match=r"materials\.policies\.electronic"):
         check_cache(path, two)

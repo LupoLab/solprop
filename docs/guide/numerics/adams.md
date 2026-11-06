@@ -46,8 +46,8 @@ run = prop_capillary(
 
 `integrator=Multistep(order=3)` caps the order, `integrator=Multistep(formulation="interaction")`
 takes the interaction picture and `integrator=RungeKutta()` the Runge–Kutta march, on
-every entry point and on `SimulationSettings`. Both formulations run on `numpy_ref`,
-`numba_cpu` and `native`, CPU and device, on the GNLSE, fibre and capillary mode sets,
+every entry point and on `SimulationSettings`. Both formulations run on `numpy_ref`
+and `native`, CPU and device, on the GNLSE, fibre and capillary mode sets,
 the general modal route and the radial, Cartesian, line and planar free-space routes,
 with constant and varying operators and every noise model the route admits. Beside a
 coupled flow (a coherent capillary wall, a split block, a moving guide) only the
@@ -55,8 +55,8 @@ exponential formulation runs, on its constant-Schur and frozen-residual sections
 interaction formulation and CF4 sections are refused by name. Another backend refuses
 `Multistep()` by name and runs `RungeKutta()`. `Multistep(carrier_frame="scalar")`
 removes the carrier's rotation from the exponential history on field grids
-([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`,
-`numba_cpu` and native CPU builds.
+([the carrier frame](#the-carrier-frame)); it is opt-in and runs on `numpy_ref`
+and native CPU builds.
 
 `Multistep()` is SEP 13's selected method, in SEP 16's exponential formulation:
 
@@ -226,14 +226,15 @@ for them enters the error norm.
 weak-band errors from 1e-3 to 1e-5). On the six-mode hydrogen comb-to-continuum launch, a
 Raman-active source that is costly to evaluate, it took 2.0 to 3.3 times less time
 than IP-DOPRI5 and 1.5 to 2.5 times less than the interaction formulation on
-`numba_cpu`, and won on native CPU too. On developed GNLSE supercontinuum windows it
+the since-retired `numba_cpu` backend, and won on native CPU too. On developed GNLSE
+supercontinuum windows it
 took two to five times fewer calls than both and, from 3e-4 to 1e-5, 3 to 36 % less
-time than IP-DOPRI5 and 8 to 31 % less than the interaction formulation on
+time than IP-DOPRI5 and 8 to 31 % less than the interaction formulation, again on
 `numba_cpu`; at 1e-3 the interaction formulation was as fast.
 Where the source is cheap and the state small — a radial beam with Kerr alone — its
 per-step arithmetic outweighs the calls it saves and the interaction formulation is
 faster. [Choosing a stepper](choosing-a-stepper.md#measured) ranks the methods on full
-runs, on both compiled backends and on devices. Beside the
+runs, on the native backend's CPU build and on devices. Beside the
 `modified` noise, whose source is partly linear in each weak bin's own field (above),
 prefer the interaction formulation until the exponential one is measured on a
 developed noisy window.
@@ -280,7 +281,7 @@ instead is kept only as a test witness: where the compensation dominates, its er
 under-reported to the controller ([SEP 16](../../dev/seps/archive/sep-0016-unified-multistep.md)
 §4.2, Q8).
 
-**Where it runs.** On `numpy_ref`, `numba_cpu` and native CPU, for the constant
+**Where it runs.** On `numpy_ref` and native CPU, for the constant
 operators — the GNLSE, fibres and capillaries with constant profiles, constant general
 modal guides and the radial, Cartesian, line and planar free-space routes — and for
 varying diagonal operators: gas gradients, steady fills with ports, tapers. The compiled
@@ -304,10 +305,9 @@ sample is the material source alone. The interaction formulation stays refused, 
 would carry its history through inverse actions whose conditioning grows with loss; a
 CF4 section, which exponentiates the generator inside each stage, is excluded. On the
 scalar wall and the taper (0.2 mm windows) it takes
-two to three times fewer calls than IP-DOPRI5 at matched error. On `numba_cpu` and
+two to three times fewer calls than IP-DOPRI5 at matched error. On
 the native backend, the bins on the flow actions' eigenbasis route take their matrix functions as
-`W f(x + h λ) Y` from that basis; `numba_cpu` forms them, applies them and carries the
-compensation in compiled passes.
+`W f(x + h λ) Y` from that basis.
 
 ### The carrier frame
 
@@ -396,13 +396,12 @@ frequency; a launch away from it, or a custom frame, leaves part of the rotation
 changes the cost and never the exactness. Either shift needs the exponential
 formulation, and the free-space routes refuse it until it is qualified there.
 
-**On the compiled backends.** `numba_cpu` fuses the shift into its passes: the moments
+**On the native backend.** The engine fuses the shift into its kernels: the moments
 pass forms $\varphi(x - \sigma)$ with $e^x$ beside it, and the predictor and corrector
 multiply each history row by its factor $e^{\sigma(1-\theta_j)}$ as they read it, so
-the stored samples are never copied. The native engine does the same in its kernels;
-its $\sigma$ is formed on the host from the operator's own representation at the
+the stored samples are never copied. Its $\sigma$ is formed on the host from the operator's own representation at the
 reference element, one number a step, so nothing is read back from the engine, and the
-accepted step's $\sigma$ is held for its interpolated planes. Both follow `numpy_ref`
+accepted step's $\sigma$ is held for its interpolated planes. It follows `numpy_ref`
 to rounding on matched steps. On ten replayed steps of a dense-gas capillary each step
 cost 4–6 % more than the unshifted method's with a cheap Kerr source and under 1 % more
 with Raman ([benchmarks](../../dev/benchmarks.md)); the policy pays for itself only
@@ -593,8 +592,8 @@ not promise identical bits ([SEP 25](../../dev/seps/archive/sep-0025-rounding-le
 with a minutes-long source cheap to continue ([ADR-046](../../dev/decisions.md)). The
 native backend keeps its history resident and copies it to the host only for the
 snapshot. Without a snapshot -- `resume_history=False`, an unreadable one, or one
-the resuming backend cannot continue (a frozen-residual coupled flow's history crosses
-only between `numpy_ref` and `numba_cpu`) -- the history restarts at order one and the
+the resuming backend cannot continue (a frozen-residual coupled flow's history does not
+cross between `numpy_ref` and `native`) -- the history restarts at order one and the
 startup call is charged again, and the resumed run agrees with the uninterrupted one to
 its tolerance. A method whose history cannot be kept at all (the comparison methods'
 general path) warns when its resume restarts it.
@@ -651,11 +650,11 @@ takes more steps, so the call saving shrinks in wall time or disappears: a
 single-mode capillary, a coupled wall. On `native` the `Multistep()` controller runs
 natively as well ([SEP 39](../../dev/seps/archive/sep-0039-native-adams-march.md)),
 so a step costs its kernels and almost no Python. [Choosing a stepper](choosing-a-stepper.md)
-gives the measured ranking by regime, on both compiled backends and on devices.
+gives the measured ranking by regime, on the native backend's CPU build and on devices.
 
 ## Limitations
 
-- `numpy_ref`, `numba_cpu` and `native` on every route, for both formulations, but
+- `numpy_ref` and `native` on every route, for both formulations, but
   beside a coupled flow, where the exponential formulation alone steps its
   constant-Schur and frozen-residual sections and CF4 sections are refused. On `native`
   the history and the step's arithmetic are resident in the engine, on the CPU and on
@@ -700,7 +699,7 @@ gives the measured ranking by regime, on both compiled backends and on devices.
   At `rtol = 1e-4` all methods agree to about 1 %. There, use `RungeKutta()` or
   `rtol <= 1e-4`, or `carrier_frame="scalar"` (0.05 on the same case,
   [the carrier frame](#the-carrier-frame)) where the populated band is the observable.
-- **The carrier frame** (`carrier_frame="scalar"`) runs on `numpy_ref`, `numba_cpu`
+- **The carrier frame** (`carrier_frame="scalar"`) runs on `numpy_ref`
   and native CPU builds; a native device build and the free-space routes refuse it by
   name. At a matched total-field error it leaves weak bands less accurate than the
   default, by up to a few hundred times on the dense-gas launches measured. A march

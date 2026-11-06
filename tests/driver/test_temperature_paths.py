@@ -120,7 +120,7 @@ def test_a_shared_pair_under_a_temperature_path_becomes_two_populations():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_temperature_path_runs_ten_steps_on_every_backend(backend):
     if backend == "native":
         pytest.importorskip("solprop_native")
@@ -148,7 +148,7 @@ def test_a_temperature_path_runs_ten_steps_on_every_backend(backend):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_constant_temperature_path_runs_like_the_number(backend):
     # The same problem either way, so the two runs are one march, within its rounding
     # budget (SEP 25); the prescribed planes exactly.
@@ -168,7 +168,7 @@ def test_a_constant_temperature_path_runs_like_the_number(backend):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 def test_three_populations_take_the_z_table_on_every_backend(backend):
     # Three independent density paths exceed the two-parameter expansion, so Phi
     # takes the z table, which the native CPU build evaluates natively (SEP 29

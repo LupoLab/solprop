@@ -50,11 +50,25 @@ class State:
     def spatial_statistics(
         self, flags: int, intensity_factor: float, z: float
     ) -> npt.NDArray[np.float64]: ...
+    def plane_fluence_trace(
+        self,
+        center_x: float,
+        center_y: float,
+        dx: float,
+        dy: float,
+        extent: float,
+        spacing: float,
+        n_radii: int,
+        cosines: npt.NDArray[np.float64],
+        sines: npt.NDArray[np.float64],
+    ) -> npt.NDArray[np.float64]: ...
+    def axis_spectrum(
+        self, matrix: npt.NDArray[np.float64]
+    ) -> npt.NDArray[np.complex128]: ...
     def aperture_statistics(
         self,
         flags: int,
         apertures: npt.NDArray[np.float64],
-        profile_code: int,
         exponent: int,
         regions: npt.NDArray[np.float64],
         intensity_factor: float,
@@ -97,8 +111,6 @@ class State:
         material: dict[str, npt.NDArray[np.float64] | int],
         rebuild_table: bool,
     ) -> float: ...
-    def hold_plane(self) -> None: ...
-    def held_to_host(self) -> npt.NDArray[np.complex128]: ...
     def adams_allocate(
         self, slots: int, compensated: bool = False, interpolate: bool = True
     ) -> None: ...
@@ -282,8 +294,39 @@ class State:
         column_weights: npt.NDArray[np.float64],
     ) -> None: ...
     def unbind_monitor(self) -> None: ...
+    def bind_occupancy(self, buckets: npt.NDArray[np.uint8], count: int) -> None: ...
     def monitor_reading(self) -> npt.NDArray[np.float64]: ...
     def field_to_host(self) -> npt.NDArray[np.complex128]: ...
+    def bind_edge(
+        self,
+        faces: npt.NDArray[np.float64],
+        clip: npt.NDArray[np.float64],
+        totals: npt.NDArray[np.float64],
+        synthesis: npt.NDArray[np.float64],
+        first_row: int,
+    ) -> None: ...
+    def crossed_bytes(self) -> tuple[int, int]: ...
+    def bind_edge_lines(
+        self,
+        axes: npt.NDArray[np.uint64],
+        counts: npt.NDArray[np.uint64],
+        positions: npt.NDArray[np.uint64],
+        windows: npt.NDArray[np.float64],
+        inward: npt.NDArray[np.uint64],
+        factors: npt.NDArray[np.float64],
+        measures: npt.NDArray[np.float64],
+        onsets: npt.NDArray[np.uint64],
+        steps: npt.NDArray[np.float64],
+        k_min: float,
+        scale: npt.NDArray[np.float64],
+        batch_bytes: int,
+    ) -> None: ...
+    def edge_reading(
+        self, faces: bool, whole: bool, totals: bool, strip: bool, current: bool
+    ) -> tuple[
+        npt.NDArray[np.float64], npt.NDArray[np.float64], npt.NDArray[np.float64], float
+    ]: ...
+    def set_crossing_workers(self, workers: int) -> None: ...
     def stage_to_host(self, stage: int) -> npt.NDArray[np.complex128]: ...
     def projected_to_host(self, coarse: bool = False) -> npt.NDArray[np.complex128]: ...
     @property

@@ -93,7 +93,9 @@ fi
 # the editable native package is then built without isolation, from this tree. Later
 # commands must not sync, which would remove it again.
 python_executable="$workspace_root/.venv/bin/python"
-uv sync --frozen --inexact --python 3.14 --project "$workspace_root"
+# Native is a required workspace member, so this sync would build it: the lines below
+# install it themselves.
+uv sync --frozen --inexact --python 3.14 --project "$workspace_root" --no-install-package solprop-native
 export UV_NO_SYNC=1
 # An editable install records the version of the commit it was installed at, and a
 # sync considers it satisfied after the commit moves: reinstall solprop so its metadata
@@ -104,7 +106,7 @@ if [[ -z "$qualification_python" ]] && { stage lint || stage pytest; }; then
 fi
 # The repository's version, as hatch-vcs gives solprop and setuptools-scm gives this
 # package: the native wheel built below must carry it (one version for both).
-expected_version=$("$python_executable" -c 'import sys; from setuptools_scm import get_version; print(get_version(root=sys.argv[1], fallback_version="0.0.0"))' "$workspace_root")
+expected_version=$("$python_executable" -m setuptools_scm --config "$repo_root/pyproject.toml")
 mkdir -p build
 if stage lint; then
 uv run ruff format --check .
@@ -166,7 +168,7 @@ if ! stage wheel; then
 fi
 quality_temp=$(mktemp -d "${TMPDIR:-/tmp}/solprop-native-check.XXXXXX")
 trap 'rm -rf "$quality_temp"' EXIT
-distribution_wheel=(-Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION "-Cbuild-dir=build/distribution-{wheel_tag}")
+distribution_wheel=(-Ccmake.define.SOLPROP_NATIVE_PROFILE=DISTRIBUTION -Ccmake.define.SOLPROP_NATIVE_WARNINGS_AS_ERRORS=ON "-Cbuild-dir=build/distribution-{wheel_tag}")
 if [[ -n "$qualification_python" ]]; then
   uv build --wheel --no-build-isolation "${distribution_wheel[@]}" --out-dir "$quality_temp/wheel"
 else

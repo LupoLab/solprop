@@ -16,6 +16,7 @@ their events with the production bound and compares the attempts and the end sta
 
 import gzip
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -59,7 +60,11 @@ class _Progress(NullReporter):
 
 
 class _Monitor:
-    """The quiet collar's step cap, its checks due every step."""
+    """The quiet collar's step cap, its checks due every step; no split collar's
+    crossing cap, and no transverse edge."""
+
+    step_cap = math.inf
+    transverse = None
 
     def __init__(self, interval: float) -> None:
         self.interval = interval

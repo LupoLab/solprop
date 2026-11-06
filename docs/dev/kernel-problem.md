@@ -83,8 +83,7 @@ along z ([the expansion in the parameters](../guide/numerics/linear-tables.md#th
 that is not available they fall back to a Chebyshev table of z. The NumPy reference evaluates through {func}`~solprop.translate.linop.delta_phi`,
 {func}`~solprop.translate.linop.unitary_phase` and
 {func}`~solprop.translate.responses.prefactor_at`. Compiled backends combine fixed
-terms with the small host-scalar stage bundle. Numba CPU also evaluates z tables
-through its host adapter, and `native`'s CPU build evaluates them natively into term
+terms with the small host-scalar stage bundle. `native`'s CPU build evaluates z tables natively into term
 slots that the stage weights select; its device builds refuse them. See the
 [kernel contract](kernel-contract.md) for the spatial representation and exact support
 rules.
@@ -153,7 +152,7 @@ A backend calls {meth}`solprop.translate.problem.KernelProblem.validate` and ref
 anything inconsistent. Most of the contract's promises are kept by construction — each group
 freezes and checks its own arrays, so a writeable array or a mismatched interval count
 cannot be built in the first place — and what `validate` adds is everything that spans
-groups: the schema version; the shapes against the canonical state shape; finiteness; that
+groups: the shapes against the canonical state shape; finiteness; that
 the $\Phi$ table covers the run; that every table along z spans the same range; and that a
 replayed fixed schedule lands on every save plane and every hard kink. A failure raises
 {class}`solprop.exceptions.TranslationError` naming the field.
@@ -269,7 +268,7 @@ save planes    [0.5, 1.0]
 
 and a backend built on it needs to know nothing else.
 
-## Rebuilding, and the schema version
+## Rebuilding
 
 When a mixture is updated — in a scan over fill fractions, say
 ({py:meth}`~solprop.driver.simulation.Simulation.with_mixture`) — the rebuild carries a
@@ -280,6 +279,5 @@ the parameter ranges still cover the new paths; changing the fill fractions inva
 pressure expansion. Scalar weights and material tables are rebuilt. The record stays on
 the host and never crosses to the backend.
 
-The problem carries a schema version, which every backend checks before it runs one; a
-saved output file carries its own, independent metadata schema. The current numbers are
-stated at the top of the [kernel contract](kernel-contract.md).
+The problem carries no version number: the [kernel contract](kernel-contract.md) §1 says
+what guards it. A saved output file carries its own metadata schema.

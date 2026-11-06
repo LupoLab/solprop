@@ -46,23 +46,23 @@ How each is reached, and where it runs:
 
 | decomposition | amplitude, energy | entry point | backends |
 |---|---|---|---|
-| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | all three |
-| [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | all three |
-| [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | all three |
-| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | all three (CF4 on `numpy_ref` only) |
-| [antiresonant](#antiresonant-tube-lattice) | √W, J | `prop_capillary(..., lattice=TubeLattice(...))` | all three |
-| [step-index, exact](#step-index-fibres-exact) | √W, J | `prop_gnlse(fibre=StepIndexMode(...))`; the general route | all three |
-| [graded-index](#graded-index-providers) | √W true power, J | `prop_waveguide((), ..., provider=guide)` | all three |
-| [general modal, vector](#the-general-modal-route-vector-fields) | √W true power, J | `prop_waveguide((), ..., provider=guide)`, `Simulation.from_waveguide` | all three |
-| [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | all three, including a moving solid guide |
-| [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | all three |
-| [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | all three |
-| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | all three |
-| [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | all three |
-| [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | all three |
-| [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | all three |
+| [mode-averaged](#mode-averaged-one-field-and-one-area) | √W, J | `prop_gnlse`, `Simulation.from_gnlse`; `prop_capillary(mode_average=True)` | both CPU |
+| [capillary, radial](#capillary-modes-on-a-radial-rule) | √W, J | `prop_capillary(modes=N)`, `Simulation.from_capillary` | both CPU |
+| [capillary, full 2-D](#capillary-modes-on-the-full-cross-section) | √W, J | `prop_waveguide(modes, ..., gas=...)`, `Simulation.from_waveguide` | both CPU |
+| [coherent wall](#the-capillary-wall-two-ways) | √W, J | `prop_capillary(..., wall=CoherentWall())` | both CPU (CF4 on `numpy_ref` only) |
+| [antiresonant](#antiresonant-tube-lattice) | √W, J | `prop_capillary(..., lattice=TubeLattice(...))` | both CPU |
+| [step-index, exact](#step-index-fibres-exact) | √W, J | `prop_gnlse(fibre=StepIndexMode(...))`; the general route | both CPU |
+| [graded-index](#graded-index-providers) | √W true power, J | `prop_waveguide((), ..., provider=guide)` | both CPU |
+| [general modal, vector](#the-general-modal-route-vector-fields) | √W true power, J | `prop_waveguide((), ..., provider=guide)`, `Simulation.from_waveguide` | both CPU |
+| [a guide that moves along z](#guides-that-move-along-z) | √W, J | the route's own, with a `ZProfile` | both CPU, including a moving solid guide |
+| [rectangular hollow](#rectangular-hollow-guides) | √W, J | `prop_waveguide(modes, ..., gas=...)` | both CPU |
+| [planar, uniform in y](#planar-hollow-guides-uniform-in-y) | √(W/m), J/m: per metre of y | `prop_waveguide(modes, ..., gas=...)`, `ModeCollection.slab` | both CPU |
+| [radial free space](#radial-free-space) | V m (spectrum), J | `prop_radial`, `Simulation.from_radial` | both CPU |
+| [Cartesian free space](#cartesian-free-space) | V/m, J | `prop_free`, `Simulation.from_free` | both CPU |
+| [line free space](#line-free-space-x-only) | V/m, J/m: per metre of y | `prop_free(grid, LineGrid(...), ...)` | both CPU |
+| [planar, resolved in y](#planar-guides-resolved-in-y) | √(W/m) per y frequency, J | `prop_planar`, `Simulation.from_planar` with a `PlanarGrid` | both CPU |
 
-"All three" backends means `numpy_ref`, `numba_cpu` and the native backend's CPU build.
+"Both CPU" backends means `numpy_ref` and the native backend's CPU build.
 The native backend's GPU builds (CUDA and HIP) also run the mode-averaged, multimode, general modal,
 coherent-wall and moving-guide routes, and the CUDA build runs radial, Cartesian and line
 free space; the planar guide resolved in y is not qualified on a GPU, and a CF4
@@ -276,7 +276,7 @@ exact vector Maxwell roots family by family, but it has not been checked against
 resolved-cladding solve of a mixed state.
 
 **Entry point.** `prop_capillary(..., wall=CoherentWall())`. The scalar and TE/TM blocks
-run on all three backends, straight, tapered or in a gradient; `method="cf4"` runs on
+run on both CPU backends, straight, tapered or in a gradient; `method="cf4"` runs on
 `numpy_ref` alone ([the capillary chapter](../waveguides/capillaries.md)). The block is
 scalar in the **state**, one component per channel, but not in the synthesis: a
 $\mathrm{TE}_{0m}$, $\mathrm{TM}_{0m}$ or EH set beside the `te_tm` wall resolves
@@ -546,9 +546,11 @@ transform per Cartesian component $p$. The state's columns are the transverse
 frequencies $k_i = \alpha_i/R$ ({class}`~solprop.grid.RadialGrid`).
 
 **Boundary.** $E = 0$ at $R$: the nodes $r_i = R\alpha_i/\alpha_{N+1}$ sit at the zeros of
-$J_0$. When the run declares an absorber (free-space entry points carry none by default, and
-without one the field reflects at $R$), a Planck collar over the outer `window_factor` (a
-tenth by default) absorbs as a rate inside every stage, not as a mask ([spatial collar](../free-space/model.md#spatial-collar-and-statistics)).
+$J_0$, with $R$ the grid's `outer_radius`, `radius * (1 + collar_fraction)`; `radius` is the
+requested aperture. By default the field reflects at $R$, the monitor watches the edge,
+and a safety ramp acts on the highest $k_r$; a requested collar in the room outside
+`radius` absorbs as a rate inside every stage, not as a mask
+([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 **Units.** The stored spectrum is in V m and the field in V/m. The weights carry the whole
 $2\pi$; the energy is in J, the axial Poynting flux of the medium at the plane
@@ -587,10 +589,10 @@ assumed about symmetry.
 **Expansion.** $E_p(x,y,t)$ on a periodic $n_x \times n_y$ grid, stored as its raw
 forward DFT; column `ix + n_x*iy`, x fastest ({class}`~solprop.grid.FreeGrid`).
 
-**Boundary.** Periodic, with an absorbing collar when the run declares an absorber (none by
-default, so light leaving one side re-enters on the other): the periodic half-width is
-`radius * (1 + window_factor)` on each axis, and the collar is the product of two Planck
-windows over the added width ([Cartesian free space](../free-space/cartesian.md)).
+**Boundary.** Periodic: the periodic half-width is `radius * (1 + collar_fraction)` on
+each axis, so by default light leaving one side re-enters on the other, which the monitor
+watches; a requested collar is the product of two Planck windows' complements over the
+added width ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 **Units.** Stored and physical fields in V/m; spatial weights $\Delta x\Delta y$ and
 spectral weights $\Delta x\Delta y/N$; energy in J, the axial flux of the medium.
@@ -679,8 +681,8 @@ DFT, uniform in y ({class}`~solprop.grid.LineGrid`). It is
 the [Cartesian grid](#cartesian-free-space) with $n_y = 1$: one y column carrying
 $k_y = 0$, no y collar and a unit y measure.
 
-**Boundary.** Periodic in x with an absorbing collar over the added `window_factor` of
-the half-width when the run declares an absorber, exactly the Cartesian x axis; nothing bounds or varies in y.
+**Boundary.** Periodic in x, with a requested collar over the added `collar_fraction` of
+the half-width, exactly the Cartesian x axis; nothing bounds or varies in y.
 
 **Units.** Fields in V/m; spatial weights $\Delta x$ and spectral weights $\Delta x/n_x$,
 in m, so the energy is in **J/m** and the power in **W/m**, per metre of y; intensity
@@ -727,9 +729,9 @@ it resolves.
 
 **Boundary.** In x, the uniform slab's: the field truncated at the plates and each
 channel's wall pair in its complex $\kappa_p(\omega)^2$. In y, the Cartesian grid's: periodic
-with the Planck collar over the added `window_factor` of the half-width, applied as an
-in-stage rate when the run declares an absorber, so that a beam that diffracts or breaks
-up in y does not wrap around the periodic grid.
+with a requested collar over the added `collar_fraction` of the half-width, applied as an
+in-stage rate, so that a beam that diffracts or breaks up in y does not wrap around the
+periodic grid; the safety ramp acts on each `(p, k_y)` column, which is diagonal there.
 
 **Normalisation and units.** Modal amplitudes per y sample in √(W/m), exactly the uniform
 slab's; the geometry integrates over y, so energy is in **J** and power in **W**, and
@@ -770,8 +772,8 @@ or when both TE and TM are wanted: the state is scalar, one polarisation family.
 is $n_{\rm modes}\,n_y$ columns and $n_x n_y$ nodes per time sample.
 
 **Entry point.** `prop_planar(grid, PlanarGrid(modes, radius_y, n_y), responses, launch,
-settings=...)` and `Simulation.from_planar`; `numpy_ref`, `numba_cpu` and native CPU
-execute it, the compiled two within derived bounds of `numpy_ref`.
+settings=...)` and `Simulation.from_planar`; `numpy_ref` and native CPU
+execute it, native within derived bounds of `numpy_ref`.
 
 ## Radial and azimuthal free space: considered, not built
 

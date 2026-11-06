@@ -24,12 +24,12 @@ rather than style, ask rather than guess.
 
 | | |
 |---|---|
-| Packages | `solprop` (`src/solprop/`) and the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)): one repository, two distributions, one version |
+| Packages | `solprop` (`src/solprop/`), the native backend `solprop-native` (`native/`, its own rules in [`native/AGENTS.md`](native/AGENTS.md)) and the desktop front end `solprop-gui` (`gui/`, its own rules in [`gui/AGENTS.md`](gui/AGENTS.md)): one repository, three distributions, one version |
 | Purpose | Ultrafast nonlinear pulse propagation (UPPE and GNLSE; field and envelope; single-mode, multimode and general modal guides; radial, Cartesian, planar and line free space) |
 | Python | 3.14 — equal to `requires-python` in `pyproject.toml` |
-| Platforms | Linux, macOS and Windows for `numpy_ref` and `numba_cpu`; solprop-native as wheels for osx-arm64, linux-64, linux-aarch64 and win-64, from source on Linux and macOS (GPU builds on Linux); the Queue and Slurm scan executors POSIX-only |
+| Platforms | solprop runs where solprop-native installs: wheels for osx-arm64, linux-64, linux-aarch64, win-64 and win-arm64; from source on Linux and macOS (GPU builds on Linux), with no support promise elsewhere; the Queue and Slurm scan executors POSIX-only |
 | Type checker | `basedpyright`, pinned exactly in the dev group |
-| Backends | In tiers (ADR-061). Tier 1, the core: the NumPy reference (`numpy_ref`, the oracle) and the native backend (`native`, the `solprop-native` distribution built from `native/`: preferred when installed, and the GPU path). Tier 2, mature: Numba CPU (`numba_cpu`, in-tree). Tier 3, experimental: `mlx` (single precision on Apple GPUs) |
+| Backends | The native backend (`native`, the `solprop-native` distribution built from `native/`, a required dependency): what `auto` selects, with no fallback, and the GPU path. The NumPy reference (`numpy_ref`, the oracle): the numerical reference, and the executor of the short list of supported features in SEP 43 §5. `mlx`: experimental, single precision on Apple GPUs. `numba_cpu` is retired: naming it raises `BackendError` |
 | Materials | [optmat](https://github.com/LupoLab/optmat), the curated optical-materials package |
 | Design docs | `docs/dev/` — architecture, conventions, stepper, algorithms, backends, kernel contract, decisions, roadmap, open questions, testing, accuracy, benchmarks, benchmarking, dependencies, tooling |
 | Planned work | [GitHub issues](https://github.com/LupoLab/solprop/issues): open work goes in an issue, not on the roadmap, which lists only SEPs (ADR-062). [`CONTRIBUTING.md`](CONTRIBUTING.md) says how to write an issue and how to label an issue or a pull request |
@@ -41,9 +41,10 @@ rather than style, ask rather than guess.
 
 | Task | Command |
 |---|---|
-| Sync environment | `uv sync`; `uv sync --extra native` also builds and installs the native backend from `native/` (editable). A plain `uv sync` removes it; `uv sync --inexact` keeps a hand-installed one or Pyroraptor |
+| Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `--extra gui --group gui-test` adds the front end from `gui/` with its test plugin. A sync removes every extra it does not name; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. After that setup, `uv run --no-sync poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
 | Full gate (see below) | `uv run poe check` |
-| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs both gates |
+| Native gate | `uv run poe check-native` (`native/scripts/check.sh`); `uv run poe check-all` runs the three gates |
+| Front-end gate | `uv run poe check-gui` (its types, docstrings and tests; needs `--extra gui --group gui-test`) |
 | Lint with autofix | `uv run ruff check --fix .` |
 | Format | `uv run ruff format .` |
 | Type-check | `uv run basedpyright` |
@@ -53,7 +54,7 @@ rather than style, ask rather than guess.
 | Default tests (fast + medium) | `uv run poe test` (under xdist, one thread per worker); `uv run pytest` runs them serially, for one file or test and for debugging |
 | Medium tier | `uv run poe test-medium` |
 | Slow lane | `uv run poe test-slow` |
-| Coverage lane (100 % required) | `uv run poe cov` (kernel bodies interpreted first, remaining suite compiled) |
+| Coverage lane (100 % required) | `uv run poe cov` |
 | GPU tests | `uv run pytest -m gpu` (needs a GPU build of solprop-native and a device) |
 | Benchmarks | `uv run poe bench` plans; `uv run python -m benchmarks track` runs (on an otherwise idle machine) |
 | Build docs | `uv run poe docs` (executes no gallery script; refuses stale committed output) |
@@ -85,9 +86,10 @@ The full gate, `uv run poe check`, runs in this order (CI runs the same steps):
 5. `numpydoc lint` — every public docstring validates.
 6. `codespell` — no misspellings.
 7. `reuse lint` — every file states its copyright and licence.
-8. `poe test` — fast and medium tiers, doctests included, under xdist with one thread
+8. `poe changelog-check` — release-note fragments and changelog structure validate.
+9. `poe test` — fast and medium tiers, doctests included, under xdist with one thread
    per worker.
-9. `sphinx-build -W -n --keep-going` — docs build clean.
+10. `sphinx-build -W -n --keep-going` — docs build clean.
 
 Report what passed, failed or remains deferred. The
 coverage lane requires 100 % of statements and branches of the whole package
@@ -99,15 +101,19 @@ because it takes longer. `# pragma: no cover` needs a reason on the same line.
 `poe check` split into parallel jobs (the static checks and the documentation on Linux;
 the default lane on macOS and Windows with the native CPU wheel built from this tree; and
 on Linux the coverage lane, which is the default lane with coverage and the runtime type
-checks); the slow lane on Linux and macOS; and the default lane at the lowest dependency
-versions. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
+checks); the slow lane on Linux and macOS; the default lane at the lowest dependency
+versions; and a few modules with no native package. The long lanes run as shards of whole modules (`SOLPROP_TEST_SHARD`), and only
 the coverage lane runs the type checks (ADR-053; `docs/dev/tooling.md`, "CI"). Between
 them the jobs run exactly `poe check`'s steps: change both in the same commit.
+
+**Changes touching `gui/`** follow [`gui/AGENTS.md`](gui/AGENTS.md); its gate runs in CI
+as the `gui` jobs, on Linux, macOS and Windows, for every change to `gui/` or to solprop.
 
 **Changes touching `native/`** follow [`native/AGENTS.md`](native/AGENTS.md). Their full
 gate, `uv run poe check-native` (`uv run poe check-all` for both gates), also runs in CI:
 the native gate as the `native-quality` jobs and the distribution wheel's build and smoke
-test as `native-wheel`, whose wheel the macOS, Windows and coverage lanes install.
+test as `native-wheel`, whose wheel the documentation, test, slow, coverage and
+lowest-dependency lanes install.
 
 **Slices of a phased SEP.** Develop first and test towards the end. Each slice runs the
 fast checks only: `ruff check --fix`, `ruff format`, `ruff check`, `basedpyright` and the
@@ -116,8 +122,8 @@ test modules that directly exercise the code it changed (`uv run pytest -n auto
 pull request, a draft from the start of implementation. After a CI failure, rerun the
 failing modules locally, fix, and push; never the whole lane.
 
-**Qualification scope.** A change is qualified on `numpy_ref`, `numba_cpu` and, when it
-is installed, the native **CPU** build; GPU builds are exercised separately with
+**Qualification scope.** A change is qualified on `numpy_ref` and the native
+**CPU** build; GPU builds are exercised separately with
 `pytest -m gpu` on a machine that has a device. **No test, lane or timing runs a
 full-length propagation** (a 0.2 m multimode capillary, a metre of fibre): qualify and
 benchmark on about ten steps, or on a fibre short enough to finish in seconds. Two
@@ -134,7 +140,9 @@ Do not declare work finished while any required check fails. If a check genuinel
 pass, say so explicitly and explain why — never suppress a check to make the gate green.
 
 New functionality is not done until it is **tested**, **documented in the manual** as
-well as in docstrings, and recorded in `CHANGELOG.md`. Any physical constant,
+well as in docstrings, and recorded in a `changelog.d/` fragment
+([format](changelog.d/README.md)). The rolling release PR collects these into
+`CHANGELOG.md`; implementation PRs do not edit that shared file. Any physical constant,
 coefficient, citation, reference state or validity range you transcribe is cited to its
 primary source in the docstring or the data file; say in your summary what you verified
 against that source and what you could not.
@@ -208,9 +216,9 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   starts and marked ready when the last commit sets `Final`; there are no per-phase pull
   requests. CI runs on every push to it and need not be green while it is a draft; a push
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
-  top of an open pull request's branch when pull requests are stacked behind CI. Within
-  each phase: `numpy_ref` first with its tests and manual page, then native CPU in
-  `native/`; `numba_cpu` and `mlx` only where the SEP says so (the tiers, below). A
+  top of another agent's open pull request, when the SEP needs that work first. Within
+  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
+  tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
   SEP.
@@ -219,7 +227,7 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   run, sources checked and not checked, limitations, numbered open questions and a
   handoff.
 - **Finishing.** At `Final`, the manual pages the SEP produced link to it, its open
-  questions move to issues, its tracking issue closes, and the `CHANGELOG.md` line cites
+  questions move to issues, its tracking issue closes, and its release-note fragment cites
   it.
 
 ---
@@ -251,7 +259,8 @@ to it; a function that departs from it says so in the first line of its docstrin
   sentinel where raising is correct.
 - Respect the layers (`architecture.md §3`): physics code never contains performance
   tricks; backend code never contains physics knowledge; the kernel contract
-  (`kernel-contract.md`) is the only crossing.
+  (`kernel-contract.md`) and the protected driver surface (frozen in
+  `tests/backends/test_driver.py`) are the crossings.
 
 ## Environment and dependencies
 
@@ -302,32 +311,27 @@ no blanket `# noqa`). What is left to judgement:
   explicit validation at public boundaries. The hook constrains how you annotate
   (`ArrayLike | float`, quoted self-returns, no `numpy.typing.NDArray`, ...): see
   `docs/dev/tooling.md`, "jaxtyping + beartype". Run the gate on the merged tree.
-- `scipy-stubs` is a dev dependency. numba and pyfftw ship no stubs: use a narrowly
-  scoped ignore with a comment at the import.
+- `scipy-stubs` is a dev dependency. A dependency that ships no stubs (pyfluids) takes a
+  narrowly scoped ignore with a comment at the import.
 
 ## Backends, kernels and hot paths
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Tiers** (ADR-061, `backends.md §10`) set where development goes. Tier 1,
-  `numpy_ref` and `native`: every new feature lands on both, and they come first for
-  testing and development. Tier 2, `numba_cpu`: mature; keep what it runs correct and
-  in parity, and add a feature only where its SEP says so. Tier 3, `mlx`: experimental;
-  keep it runnable and correct, add nothing as part of other work. A backend without a
-  feature refuses it by name.
-- The **NumPy reference backend is the oracle**. Every other backend is validated against
-  it (one linear application, one nonlinear evaluation, one step, eight steps, each
-  statistic, a full run) with tolerances derived from summation bounds and asserted `> 0`.
-- Hot code lives only under `src/solprop/backends/` and `src/solprop/translate/`.
-- **numba kernels**: `@njit(cache=True, nogil=True)` with `njit` imported from
-  `solprop._numba_cache`, never from numba; explicit signatures for stage kernels. The
-  wrapper sets the floating-point licence (below): contraction by default, reassociation
-  only where a kernel asks for it, `strict=True` for a protected helper, nothing else.
-- **Never disk-cache a parallel closure or a closure that captures a dispatcher**
-  (`cache=False`; memoise the factory in-process with `functools.cache`). Why is in
-  `backends.md §3.2`; `tests/backends/test_numba_cache_policy.py` enforces it.
-- Per-element mathematics is written once in `backends/bodies.py` through
-  `define_bodies(decorate)` and composes through the closure, never module globals.
+- **Where features land** (ADR-061, ADR-064, ADR-068, `backends.md §10`). `native` is the
+  primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
+  order, and `native` may shape the contract. `mlx`: experimental; keep it runnable and
+  correct, add nothing as part of other work. A backend without a feature refuses it by
+  name.
+- The **NumPy reference backend is the oracle** for numbers. Every other backend is
+  validated against it (one linear application, one nonlinear evaluation, one step, eight
+  steps, each statistic, a full run) with tolerances derived from summation bounds and
+  asserted `> 0`.
+- Hot code lives only under `src/solprop/backends/`, `src/solprop/translate/` and
+  `native/`.
+- **Native kernels** follow [`native/AGENTS.md`](native/AGENTS.md). The floating-point
+  licence (below) applies to them: contraction by default, reassociation only where a
+  kernel asks for it, `SOLPROP_NATIVE_STRICT_*` for a protected helper, nothing else.
 - **No allocation, logging, Python objects or exceptions inside kernels**; every buffer
   is a parameter; failures are status codes checked by the driver.
 - **Reproducibility to the error bound** ([SEP 25](docs/dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -352,16 +356,20 @@ The long form is [`backends.md`](docs/dev/backends.md).
     tolerance. Adaptive work counts may differ; accounting for actual work is exact.
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
-- Device arrays never cross the seam; backends take and return host arrays.
-- **`KERNEL_SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
-  protected `StepDriver` surface and the stage bundles of `translate/stage.py`, frozen in
-  `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
-  literal in the same commit and adds a changelog line.
+- Device arrays never cross the `Backend` protocol, whose methods take and return host
+  arrays. Between `StepDriver` and its subclass the state is an opaque handle (an MLX
+  array, a native state), and the shared code reads it only through `_observed_field`,
+  which copies it to the host.
+- **The seam has no version number** (ADR-068). A change to the `KernelProblem` fields,
+  the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
+  the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
+  release-note fragment. solprop and solprop-native are released together and pinned to
+  one version, and an editable checkout's extension is compared with its `native/` sources
+  by digest (`check_build`).
 - Every hot-path change comes with a benchmark ledger entry
   ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
   on about ten steps or a short `ab --length` window; report the window measured and
   never extrapolate it to a full run.
-- Every kernel is also exercised in the coverage lane (`NUMBA_DISABLE_JIT=1`).
 
 ## Errors, warnings and logging
 
@@ -447,8 +455,12 @@ The long form is [`testing.md`](docs/dev/testing.md).
 - The user guide under `docs/guide/` is tested: every `python` block runs in
   `tests/test_guide_snippets.py` (compiled in the default lane, run in the slow lane);
   keep snippets to seconds and fence illustration as `sh` or `text`.
-- Keep `README.md` and the introduction current; record notable changes in
-  `CHANGELOG.md` (Keep a Changelog) under `Unreleased`.
+- Keep `README.md` and the introduction current; record notable changes in a unique
+  `changelog.d/<slug>.<category>.md` fragment. No issue is needed just for a fragment.
+  Only the rolling release PR normally edits `CHANGELOG.md` (Keep a Changelog): it
+  collects the fragments under `Unreleased` after merges. Edit the source fragments,
+  not the generated draft; mark the release PR ready before making release edits
+  ([releasing](docs/dev/releasing.md#the-rolling-release-pr)).
 - The build passes with `-W -n --keep-going`.
 - Design documents under `docs/dev/` describe the code as it is: a change that alters
   the design updates them in the same branch. A design problem found while working is
@@ -467,6 +479,10 @@ The long form is [`testing.md`](docs/dev/testing.md).
   commits rather than one large one. Stage deliberately with `git add <paths>`.
 - Changes reach `main` as pull requests with green CI, or by a local merge when the
   maintainers ask for one.
+- **Few pull requests, few pushes.** CI runs its whole matrix on every push to every pull
+  request, so keep one agent's work in one pull request, or a few, rather than one per
+  step. Stack only on another agent's open pull request, when your work needs it before it
+  lands. Commit as often as you like and push in batches.
 - **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
   search the issues, the pull requests and the SEPs, link what is related, and follow its
   sections and labels.

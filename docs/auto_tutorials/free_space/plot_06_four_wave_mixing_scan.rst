@@ -37,13 +37,14 @@ wanted only as statistics. This tutorial builds it the memory-lean way
   ``region_spectrum`` boxes of transverse wavevector;
 - a custom spectral absorber, :func:`~solprop.boundaries.custom_absorber`, for an
   absorption band of the sample;
-- a transverse safety ramp, :class:`~solprop.boundaries.TransverseCollar`.
+- the transverse safety ramp every free-space run carries, set by
+  :class:`~solprop.boundaries.SpatialAbsorber` (SEP 40).
 
 It then shows why the grid, not the ramp, keeps the cubic products from aliasing, and
 checks the grid by refinement. The sample is a generic dispersionless glass, so the
 correlation has a closed form to compare with.
 
-.. GENERATED FROM PYTHON SOURCE LINES 33-54
+.. GENERATED FROM PYTHON SOURCE LINES 34-55
 
 Scales and the one-half rule
 ----------------------------
@@ -67,7 +68,7 @@ about :math:`3.5K_0`, so the rule asks for :math:`k_{x,\max} > 7K_0`, a spacing 
 2.6 μm. A spacing of 2 μm puts :math:`K_0` at 0.11 of :math:`k_{x,\max}` and the
 signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
 
-.. GENERATED FROM PYTHON SOURCE LINES 54-96
+.. GENERATED FROM PYTHON SOURCE LINES 55-99
 
 .. code-block:: Python
 
@@ -77,10 +78,12 @@ signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
     import matplotlib.pyplot as plt
     import numpy as np
 
-    from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+    from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
     from solprop.constants import C
     from solprop.driver import Simulation, SimulationSettings
+    from solprop.exceptions import BoundaryError
     from solprop.grid import EnvelopeGrid, FreeGrid
+    from solprop.monitor import BoundaryCheck
     from solprop.nonlinear.responses import KerrResponse
     from solprop.physdata.nonlinear_data import chi3_from_n2
     from solprop.pulses import GaussianPulse
@@ -103,7 +106,7 @@ signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
 
     def transverse_grid(spacing, n_y=16):
         """A 0.3 mm by 0.24 mm box at the given x spacing, without a real-space collar."""
-        return FreeGrid(0.15e-3, round(0.3e-3 / spacing), 0.12e-3, n_y, window_factor=0.0)
+        return FreeGrid(0.15e-3, round(0.3e-3 / spacing), 0.12e-3, n_y, collar_fraction=0.0)
 
 
     space = transverse_grid(2e-6)
@@ -127,7 +130,7 @@ signal at 0.33. In y the beams' own spread decides, and 15 μm suffices.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 97-107
+.. GENERATED FROM PYTHON SOURCE LINES 100-110
 
 Build the launch
 ----------------
@@ -140,7 +143,7 @@ Gaussian times a temporal envelope of unit peak, scaled to ``FIELD``. Its energy
 then what it carries through the sample's entrance, the axial Poynting flux in the
 glass (:doc:`/guide/free-space/flux`).
 
-.. GENERATED FROM PYTHON SOURCE LINES 107-131
+.. GENERATED FROM PYTHON SOURCE LINES 110-134
 
 .. code-block:: Python
 
@@ -181,7 +184,7 @@ glass (:doc:`/guide/free-space/flux`).
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 132-155
+.. GENERATED FROM PYTHON SOURCE LINES 135-159
 
 Statistics, absorber and collar
 -------------------------------
@@ -198,16 +201,17 @@ into the linear operator, exact and free whatever the step
 (``temporal=False``): the medium has no dispersion, so nothing walks to the edge of
 the time window, and a collar that absorbs nothing in time compiles no temporal pass.
 The beams stay well inside the box too, so the grid has no real-space collar
-(``window_factor=0``).
+(``collar_fraction=0``).
 
-The transverse collar ramps a power rate up to 20 000 m⁻¹ over the outer tenth of
-the grid's wavenumbers, which removes 60 dB of field at the edge over about 0.7 mm.
-On this grid nothing physical reaches that band; the ramp is a safety net against
-content creeping towards the Nyquist edge.
+Every free-space run carries a transverse safety ramp over the outer tenth of the
+grid's wavenumbers, designed from the grid (SEP 40);
+``SpatialAbsorber(real_space=False)`` names it explicitly here. On this grid nothing
+physical reaches that band; the ramp is a safety net against content creeping towards
+the Nyquist edge.
 
 The steps are replayed, eight per run, so every delay takes the same schedule.
 
-.. GENERATED FROM PYTHON SOURCE LINES 155-208
+.. GENERATED FROM PYTHON SOURCE LINES 159-212
 
 .. code-block:: Python
 
@@ -244,7 +248,7 @@ The steps are replayed, eight per run, so every delay takes the same schedule.
                 names=("energy", "region_spectrum"), spectral_regions=regions
             ),
             "absorber": band_absorber,
-            "transverse_absorber": TransverseCollar(2e4),
+            "spatial_absorber": SpatialAbsorber(real_space=False),
             "fields": "none",
         }
         options.update(changes)
@@ -271,7 +275,7 @@ The steps are replayed, eight per run, so every delay takes the same schedule.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 209-214
+.. GENERATED FROM PYTHON SOURCE LINES 213-218
 
 The scan
 --------
@@ -279,7 +283,7 @@ The runner translates, admits the memory and builds the backend once; each delay
 is one ``run`` on it, with the delay recorded in that run's configuration and hash.
 The energy in each box is the region spectrum summed over frequency.
 
-.. GENERATED FROM PYTHON SOURCE LINES 214-229
+.. GENERATED FROM PYTHON SOURCE LINES 218-233
 
 .. code-block:: Python
 
@@ -306,12 +310,45 @@ The energy in each box is the region spectrum summed over frequency.
 
  .. code-block:: none
 
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.44e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.02e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.04e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.02e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.44e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.40e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     peak signal efficiency: 3.61e-04 of the beams' energy
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 230-235
+.. GENERATED FROM PYTHON SOURCE LINES 234-239
 
 In the weak-conversion limit the signal :math:`2\mathbf k_1-\mathbf k_2` is driven by
 :math:`E_1^2E_2^*`, so its energy follows :math:`\int I_1^2(t)\,I_2(t-\tau)\,dt`.
@@ -319,7 +356,7 @@ For Gaussian pulses of intensity FWHM :math:`T` that is a Gaussian in
 :math:`\tau` of FWHM :math:`T\sqrt{3/2}`, 61 fs here; the medium has no dispersion
 to change it. The scan's second moment, read as a Gaussian's width, recovers it.
 
-.. GENERATED FROM PYTHON SOURCE LINES 235-255
+.. GENERATED FROM PYTHON SOURCE LINES 239-259
 
 .. code-block:: Python
 
@@ -358,25 +395,60 @@ to change it. The scan's second moment, read as a Gaussian's width, recovers it.
 
     correlation FWHM: 61.1 fs (predicted 61.2 fs)
 
-    <matplotlib.legend.Legend object at 0x12a2d6cf0>
+    <matplotlib.legend.Legend object at 0x1278927b0>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 256-267
+.. GENERATED FROM PYTHON SOURCE LINES 260-274
 
-Grid sizing, not the collar, prevents aliasing
-----------------------------------------------
+Grid sizing, not the ramp, prevents aliasing
+--------------------------------------------
 On a grid of 7.4 μm the beams sit at :math:`0.40\,k_{x,\max}`, at the edge of the
 one-half rule once their spread is counted, and the signal at
 :math:`1.2\,k_{x,\max}`, past the grid's edge. It is generated already folded, at
 :math:`3K_0-2k_{x,\max} \approx -0.8\,k_{x,\max} \approx -2K_0`: an unphysical beam
 on the wrong side, at an angle where a cubic product of the two beams, landing only
-on odd multiples of :math:`K_0`, puts nothing. It lands where the collar's ramp is
-exactly zero, because the fold happens inside the product's evaluation, so the collar
+on odd multiples of :math:`K_0`, puts nothing. It lands where the safety ramp is
+exactly zero, because the fold happens inside the product's evaluation, so the ramp
 cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 ``field_planes=(-1,)``) to show the transverse spectrum.
 
-.. GENERATED FROM PYTHON SOURCE LINES 267-303
+The ramp does see the beams' own content near the grid's edge, and its ledger stops
+the coarse run, as it should: the grid cannot resolve the light (SEP 40).
+
+.. GENERATED FROM PYTHON SOURCE LINES 274-281
+
+.. code-block:: Python
+
+
+    coarse = transverse_grid(7.4e-6)
+    try:
+        simulation_for(coarse).run(progress="none")
+    except BoundaryError as error:
+        print(f"7.4 μm grid: {str(error).split(':')[0]}")
+
+
+
+
+
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: the safety ramp has removed 8.30e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.01e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    7.4 μm grid: the safety ramp has removed 1.14e-04 of the launch energy above the input noise's share, past the stop of 1e-04
+
+
+
+
+.. GENERATED FROM PYTHON SOURCE LINES 282-283
+
+A relaxed check lets the coarse runs finish, so that what they hold can be read.
+
+.. GENERATED FROM PYTHON SOURCE LINES 283-320
 
 .. code-block:: Python
 
@@ -393,11 +465,11 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
         return np.fft.fftshift(spatial_grid.k_x), np.fft.fftshift(profile / profile.sum())
 
 
-    coarse = transverse_grid(7.4e-6)
+    relaxed = BoundaryCheck(transverse_budget=1.0)
     cases = {
-        "7.4 μm, no collar": (coarse, None),
-        "7.4 μm, collar": (coarse, TransverseCollar(2e4)),
-        "2 μm, collar": (space, TransverseCollar(2e4)),
+        "7.4 μm, no ramp": (coarse, False),
+        "7.4 μm, ramp": (coarse, SpatialAbsorber(real_space=False)),
+        "2 μm, ramp": (space, SpatialAbsorber(real_space=False)),
     }
     figure, axis = plt.subplots(figsize=(7, 3.8), layout="constrained")
     for label, (spatial_grid, collar) in cases.items():
@@ -405,7 +477,8 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
             spatial_grid,
             fields="planes",
             field_planes=(-1,),
-            transverse_absorber=collar,
+            spatial_absorber=collar,
+            boundary_check=relaxed,
         ).run(progress="none")
         k_x, profile = kx_spectrum(spatial_grid, run)
         axis.semilogy(k_x / K0, profile, ".-", ms=3, label=label)
@@ -429,17 +502,20 @@ cannot touch it. Each run below keeps its exit field (``fields="planes"``,
 
  .. code-block:: none
 
-    7.4 μm, no collar: energy fraction within K0/4 of +-2 K0: 5.47e-03
-    7.4 μm, collar: energy fraction within K0/4 of +-2 K0: 5.32e-03
-    2 μm, collar: energy fraction within K0/4 of +-2 K0: 1.37e-05
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    7.4 μm, no ramp: energy fraction within K0/4 of +-2 K0: 5.47e-03
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    7.4 μm, ramp: energy fraction within K0/4 of +-2 K0: 5.40e-03
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    2 μm, ramp: energy fraction within K0/4 of +-2 K0: 1.37e-05
 
-    <matplotlib.legend.Legend object at 0x12aeaa270>
+    <matplotlib.legend.Legend object at 0x127550590>
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 304-316
+.. GENERATED FROM PYTHON SOURCE LINES 321-333
 
-On the coarse grid the alias carries the same energy with and without the collar,
+On the coarse grid the alias carries the same energy with and without the ramp,
 to within the little the ramp takes from the beams' and the alias's own far tails:
 it has nothing else to act on. On the 2 μm grid the band at :math:`\pm2K_0` holds
 only the far tails of the beams, broadened by self- and cross-phase modulation, and
@@ -452,7 +528,7 @@ where it was. The signal efficiency at zero delay on a 3 μm grid, which breaks 
 one-half rule for the signal (:math:`k_{x,\max} = 6.1K_0 < 7K_0`), on the scan's
 grid, and on a grid finer in both directions:
 
-.. GENERATED FROM PYTHON SOURCE LINES 316-331
+.. GENERATED FROM PYTHON SOURCE LINES 333-348
 
 .. code-block:: Python
 
@@ -479,20 +555,28 @@ grid, and on a grid finer in both directions:
 
  .. code-block:: none
 
-    3 μm x 15 μm: 3.608952e-04, +1.1e-03 from the finest
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.03e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.04e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 5.0000e-04 m: 1.17e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
+    3 μm x 15 μm: 3.608957e-04, +1.1e-03 from the finest
     2 μm x 15 μm: 3.605193e-04, +7.7e-05 from the finest
-    1.5 μm x 10 μm: 3.604917e-04, +0.0e+00 from the finest
+    1.5 μm x 10 μm: 3.604918e-04, +0.0e+00 from the finest
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 332-335
+.. GENERATED FROM PYTHON SOURCE LINES 349-352
 
 The 3 μm grid is off by about a part in a thousand: there the signal's own cubic
 products fold onto the other signal. The scan's grid is within about a part in
 ten thousand of the finest, far below what the correlation width needs.
 
-.. GENERATED FROM PYTHON SOURCE LINES 337-345
+.. GENERATED FROM PYTHON SOURCE LINES 354-362
 
 The absorption band
 -------------------
@@ -503,7 +587,7 @@ At the scan's energy self-phase modulation reshapes the spectrum as well; a copy
 beam 1 a hundred times weaker in field, one more input to a runner, is linear to
 about a part in a million and shows the rate alone.
 
-.. GENERATED FROM PYTHON SOURCE LINES 345-366
+.. GENERATED FROM PYTHON SOURCE LINES 362-383
 
 .. code-block:: Python
 
@@ -541,13 +625,16 @@ about a part in a million and shows the rate alone.
 
  .. code-block:: none
 
+    BoundaryWarning: the launch holds 2.38e-06 of its energy in the outer 5% of the requested size on its y- face: the aperture clips it
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: light reached the transverse edge on its y- face at z = 6.2500e-04 m: 1.41e-06 of the launch energy above its launch value, which the wall or the wrap returns (SEP 40 section 5.3)
     largest departure of the transmission from exp(-alpha L): 7.2e-07
-    tutorial run time: 7.2 s
+    tutorial run time: 12.6 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 367-374
+.. GENERATED FROM PYTHON SOURCE LINES 384-391
 
 Related reading
 ---------------
@@ -560,7 +647,7 @@ and the transverse safety ramp. The design is
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 7.271 seconds)
+   **Total running time of the script:** (0 minutes 12.755 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_06_four_wave_mixing_scan.py:

@@ -10,9 +10,9 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 from tests.backends.test_tdse_march import ManufacturedBinding
+from tests.driver.test_resume import run_until
 from tests.driver.test_run import NullBackend
 
-from solprop.backends.memory import MemoryEstimate
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
@@ -20,15 +20,12 @@ from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
 from solprop.driver import simulation as simulation_module
 from solprop.driver import tdse as runtime_module
-from solprop.driver.memory import MemoryAdmission, MemoryLimit
 from solprop.exceptions import (
     DriverError,
-    MemoryBudgetError,
-    MemoryBudgetWarning,
     ResponseBudgetError,
     TDSECostWarning,
 )
-from solprop.grid import FieldGrid, RadialGrid
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.linear import Frame
 from solprop.noise import NoiseRealisation
 from solprop.nonlinear.tdse import (
@@ -39,6 +36,7 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.output import (
+    CallbackOutput,
     MemoryOutput,
     RunOutcome,
     SavedPlane,
@@ -54,6 +52,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
+from solprop.translate import problem as problem_module
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -150,6 +149,235 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     again = launch.with_input(launch._field0)
     assert again.initial_z == 5e-6
     assert_array_equal(again.settings.save_planes, launch.settings.save_planes)
+
+
+def test_a_replaced_modal_input_is_copied_once_by_its_conversion(state_copies):
+    # The power conversion is the launch's one copy: the problem takes the quotient
+    # as its own, and a later change to the caller's array reaches neither.
+    simulation = tiny_simulation()
+    simulation.translate()
+    field = np.array(simulation._field0)
+    problem = simulation.with_input(field).translate()
+    assert problem.transform.geometry is None
+    assert problem.shape not in state_copies
+    launch = problem.initial.field0.copy()
+    field[...] = 0.0
+    assert_array_equal(problem.initial.field0, launch)
+    assert np.any(launch)
+
+
+@pytest.fixture
+def state_copies(monkeypatch):
+    """Record the shape of every copy the problem's initial arrays take."""
+    copies = []
+    original_copy = problem_module._held_copy
+
+    def counted(values, dtype):
+        copies.append(values.shape)
+        return original_copy(values, dtype)
+
+    monkeypatch.setattr(problem_module, "_held_copy", counted)
+    return copies
+
+
+def test_a_built_in_pulse_is_held_without_a_copy(state_copies):
+    # solprop's own pulses build a new array: neither the simulation nor the problem
+    # copies it, on a modal route or in free space.
+    modal = tiny_simulation()
+    problem = modal.translate()
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9), 1e-4
+    )
+    settings = SimulationSettings(
+        save_planes=[1e-4], dz_max=5e-5, dz_init=5e-5, backend="numpy_ref"
+    )
+    free = Simulation.from_free(
+        grid, space, SpatialMedium(), [], pulse, settings=settings, noise=None
+    )
+    spatial = free.translate()
+    assert state_copies == []
+    assert spatial.initial.field0.base is free._field0
+    assert not modal._field0.flags.writeable
+    assert not problem.initial.field0.flags.writeable
+
+
+def test_another_pulse_s_build_is_copied(state_copies):
+    # A pulse that is not solprop's may hand back an array it keeps: it is copied, and
+    # the pulse's array is neither shared nor frozen.
+    simulation = tiny_simulation()
+
+    class Kept:
+        """A duck-typed pulse returning the array it holds."""
+
+        def __init__(self, spectrum):
+            self.spectrum = spectrum
+
+        def build(self, grid):
+            del grid
+            return self.spectrum
+
+    kept = Kept(np.array(simulation._field0))
+    derived = simulation.with_input(kept)
+    assert state_copies == [kept.spectrum.shape]
+    assert kept.spectrum.flags.writeable
+    assert not np.shares_memory(derived._field0, kept.spectrum)
+
+
+def _free_from(field):
+    """Return a small vacuum Cartesian simulation launched from the array `field`."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    space = FreeGrid(4e-4, 4, 3e-4, 3, collar_fraction=0)
+    # A flat transverse launch is the subject, not the boundary: no ramp, no monitor.
+    settings = SimulationSettings(
+        save_planes=[1e-4],
+        dz_max=5e-5,
+        dz_init=5e-5,
+        backend="numpy_ref",
+        spatial_absorber=False,
+        boundary_check=None,
+    )
+    return Simulation.from_free(
+        grid, space, SpatialMedium(), [], field, settings=settings, noise=None
+    )
+
+
+def _column_field():
+    """Return a writeable launch for `_free_from`: one Gaussian column per column."""
+    grid = EnvelopeGrid.from_limits(1e-4, 800e-9, (700e-9, 950e-9), 150e-15, thg=False)
+    column = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9).build(grid)
+    return np.broadcast_to(column, (12, 1, grid.n_omega)).copy()
+
+
+def test_changing_the_input_array_after_construction_changes_nothing(state_copies):
+    # What was passed is what runs: the array is copied once, when the simulation is
+    # built, and the translated problem holds that copy rather than a second one.
+    field = _column_field()
+    reference = _free_from(field.copy())
+    simulation = _free_from(field)
+    field *= 10.0
+    assert state_copies.count(field.shape) == 2  # one per simulation, no more
+    problem = simulation.translate()
+    assert np.shares_memory(problem.initial.field0, simulation._field0)
+    assert np.shares_memory(simulation.initial, simulation._field0)
+    assert field.flags.writeable
+    estimated = simulation.estimate()
+    output = simulation.run(progress="none")
+    expected = reference.run(progress="none")
+    assert isinstance(output, MemoryOutput) and isinstance(expected, MemoryOutput)
+    assert state_copies.count(field.shape) == 2
+    assert estimated.memory == reference.estimate().memory
+    # The same copied launch on the same backend: the entrance plane is the same bits.
+    assert_array_equal(output.plane_field(0), expected.plane_field(0))
+    assert (
+        simulation.metadata().configuration_hash()
+        == reference.metadata().configuration_hash()
+    )
+
+
+def test_the_recorded_input_cannot_be_made_writeable(state_copies):
+    # A view of the read-only copy: neither the run nor its record can be changed
+    # through it, and it is taken back as it is by a simulation built from it.
+    simulation = _free_from(_column_field())
+    assert isinstance(simulation.initial, np.ndarray)
+    with pytest.raises(ValueError, match="WRITEABLE"):
+        simulation.initial.setflags(write=True)
+    again = _free_from(simulation.initial)
+    assert np.shares_memory(again._field0, simulation._field0)
+    assert len(state_copies) == 1
+
+
+def test_a_real_input_is_recorded_as_given_so_an_older_file_resumes(tmp_path):
+    # Before the copy the record was the caller's float64 array itself: the record
+    # keeps that dtype and those values, so the configuration and its hash are the
+    # same, and a file written then resumes now.
+    real = np.ascontiguousarray(np.real(_column_field()))
+    before = _free_from(real)
+    before.initial = real  # what the simulation recorded before it copied its input
+    path = tmp_path / "part.h5"
+    run_until(before, path, after=1)
+    after = _free_from(real.copy())
+    assert isinstance(after.initial, np.ndarray)
+    assert after.initial.dtype == np.float64
+    assert_array_equal(after.initial, real)
+    assert (
+        after.metadata().configuration_hash() == before.metadata().configuration_hash()
+    )
+    resumed = after.run(path, resume=True)
+    assert resumed.n_saved == 2
+
+
+@pytest.mark.parametrize("dtype", [">f8", "<f8", ">c16"])
+def test_an_input_s_dtype_is_recorded_byte_order_and_all(dtype):
+    # The record serialises the exact dtype string of an inline array: a big-endian
+    # input keeps its byte order, so its configuration hash is what it was before the
+    # simulation copied its input.
+    given = _column_field()
+    given = (np.real(given) if dtype.endswith("f8") else given).astype(dtype)
+    before = _free_from(given)
+    before.initial = given  # what the simulation recorded before it copied its input
+    after = _free_from(given.copy())
+    assert isinstance(after.initial, np.ndarray)
+    assert after.initial.dtype == np.dtype(dtype)
+    assert after._field0.dtype == np.complex128
+    assert (
+        after.metadata().configuration_hash() == before.metadata().configuration_hash()
+    )
+
+
+def test_a_modal_array_input_is_held_beside_its_converted_launch():
+    # On a modal route the problem holds the launch converted to its internal
+    # amplitude, a second state beside the simulation's copy.
+    capillary = Simulation.from_capillary(
+        256e-6,
+        0.001,
+        "He",
+        0.1,
+        wavelength=800e-9,
+        wavelength_limits=(400e-9, 1.6e-6),
+        trange=60e-15,
+        fwhm=6e-15,
+        energy=1e-9,
+        modes=1,
+        n_save=2,
+        plasma=False,
+        noise=None,
+        backend="numpy_ref",
+    )
+    derived = capillary.with_input(np.array(capillary._field0))
+    problem = derived.translate()
+    assert not np.shares_memory(problem.initial.field0, derived._field0)
+
+
+def test_a_wrongly_shaped_array_is_refused_before_it_is_copied(state_copies):
+    field = _column_field()
+    with pytest.raises(DriverError, match="spatial input must have shape"):
+        _free_from(field[:-1])
+    simulation = _free_from(field)
+    with pytest.raises(DriverError, match="existing mode and grid shape"):
+        simulation.with_input(field[:-1])
+    assert state_copies == [field.shape]
+
+
+def test_a_broadcast_input_is_copied_as_its_block_at_construction(state_copies):
+    field = _column_field()
+    row = np.array(field[:1])
+    simulation = _free_from(np.broadcast_to(row, field.shape))
+    row[...] = 0.0
+    assert state_copies == [row.shape]
+    assert simulation._field0.strides[0] == 0 and np.any(simulation._field0)
+    assert np.shares_memory(simulation.translate().initial.field0, simulation._field0)
+
+
+def test_a_replaced_array_input_is_copied_when_derived(state_copies):
+    simulation = _free_from(_column_field())
+    replacement = _column_field()
+    derived = simulation.with_input(replacement)
+    launch = np.array(derived.translate().initial.field0)
+    replacement[...] = 0.0
+    assert_array_equal(derived.translate().initial.field0, launch)
+    assert state_copies.count(replacement.shape) == 2
 
 
 def test_interior_input_uses_actual_z_modal_weight():
@@ -301,7 +529,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
             problem.initial.field0[..., problem.grids.active_mask],
         )
         assert np.all(observed.require_field()[..., ~problem.grids.active_mask] == 0)
-        assert backend.metadata()["response_calls"] == dataclasses.asdict(CallLedger())
+        assert backend.metadata()["response_calls"] == CallLedger().to_record()
     finally:
         backend.close()
 
@@ -463,7 +691,7 @@ def write_atomic_state(
         RunOutcome(
             "complete" if complete else "failed",
             z,
-            logical_calls=dataclasses.asdict(CallLedger(startup=1, predictor=1)),
+            logical_calls=CallLedger(startup=1, predictor=1).to_record(),
             atomic_calls={}
             if missing_ledger
             else dataclasses.asdict(AtomicCallLedger(4, 2, 0, 2, 0, 0)),
@@ -509,32 +737,6 @@ def test_tdse_completed_resume_prepares_no_resources(
     monkeypatch.setattr(simulation_module, "select", forbidden)
     output = atomic_simulation.run(path, resume=True, progress="none")
     assert output.n_saved == 2
-
-
-def test_shared_memory_budget_counts_optical_and_atomic_storage(
-    atomic_simulation, monkeypatch
-):
-    monkeypatch.setattr(
-        runtime_module,
-        "estimate_binding_memory",
-        lambda *args, **kwargs: {"atomic": 70},
-    )
-    problem = atomic_simulation.translate()
-    execution = TDSEExecution(memory_limit=200)
-    estimate = MemoryEstimate("numpy_ref", {"base": 60})
-    with pytest.raises(MemoryBudgetError, match="combined optical and TDSE"):
-        simulation_module._tdse_memory_execution(
-            problem, execution, MemoryAdmission(estimate, MemoryLimit(100))
-        )
-    admitted = simulation_module._tdse_memory_execution(
-        problem, execution, MemoryAdmission(estimate, MemoryLimit(150))
-    )
-    assert admitted.memory_limit == 150
-    with pytest.warns(MemoryBudgetWarning, match="combined optical and TDSE"):
-        advisory = simulation_module._tdse_memory_execution(
-            problem, execution, MemoryAdmission(estimate, MemoryLimit(100, "warn"))
-        )
-    assert advisory.memory_limit == 200
 
 
 @pytest.mark.medium
@@ -612,7 +814,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     )
     saved = SavedPlane(z=5e-6, field=simulation._field0)
     outcome = RunOutcome(
-        "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
+        "failed", saved.z, logical_calls=CallLedger(startup=2).to_record()
     )
     state = ResumeState(
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
@@ -634,7 +836,7 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         message = "finite stored field"
     elif case == "cap":
         outcome = RunOutcome(
-            "failed", saved.z, logical_calls=dataclasses.asdict(CallLedger(startup=2))
+            "failed", saved.z, logical_calls=CallLedger(startup=2).to_record()
         )
         message = "below previously"
     else:
@@ -649,15 +851,6 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
     )
     with pytest.raises(DriverError, match=message):
         simulation_module._validate_resume(problem, state, None)
-
-
-def test_atomic_memory_admission_refuses_an_ordinary_problem():
-    problem = tiny_simulation().translate()
-    admission = MemoryAdmission(
-        MemoryEstimate("numpy_ref", {"base": 60}), MemoryLimit(100)
-    )
-    with pytest.raises(DriverError, match="TDSE descriptor"):
-        simulation_module._tdse_memory_execution(problem, TDSEExecution(), admission)
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])
@@ -770,6 +963,17 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
                 metadata=atomic_simulation.metadata(),
                 progress="none",
             )
+
+
+def test_a_handler_that_keeps_nothing_is_refused_a_tdse_run(
+    atomic_simulation, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("resource preparation must follow output admission")
+
+    monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
+    with pytest.raises(DriverError, match="terminal checkpoints"):
+        atomic_simulation.run(CallbackOutput(lambda plane: None), progress="none")
 
 
 @pytest.mark.medium

@@ -5,11 +5,13 @@
 """Species axes, transverse populations and final inventory accounting."""
 
 import dataclasses
+import math
 
 import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
+from bounds import assert_within, gamma
 from mixture_cases import mixture_case
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.populations import population_statistics
@@ -22,6 +24,22 @@ from solprop.translate.free import free_transform
 from solprop.translate.problem import Flags
 from solprop.translate.radial import radial_transform
 from solprop.translate.responses import compile_responses
+
+
+def test_the_ionisation_inventory_is_the_sum_over_the_nodes():
+    """Every node's density, fraction, potential and weight enter the running sum."""
+    rng = np.random.default_rng(107)
+    fractions = rng.uniform(0.0, 1.0, (2, 5000))
+    weights = rng.uniform(1e-12, 1e-10, 5000)
+    density = np.array([2e24, 1e25])
+    potential = np.array([2.5e-18, 3.4e-18])
+    result = species_statistics(density, fractions, np.ones(2), potential, weights)
+    exact = [
+        math.fsum(weights * density[index] * fractions[index] * potential[index])
+        for index in range(2)
+    ]
+    # Three products and a sequential sum of 5000 terms: Higham's gamma, in EPS's terms.
+    assert_within(result["species_ionisation_energy"], exact, gamma(5003))
 
 
 def test_densest_total_node_differs_from_each_individual_species_peak():

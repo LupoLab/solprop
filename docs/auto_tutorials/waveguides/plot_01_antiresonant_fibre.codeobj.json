@@ -103,29 +103,6 @@
    "name": "NullReporter"
   }
  ],
- "StatsSpec": [
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop.stats",
-   "module_short": "solprop.stats",
-   "name": "StatsSpec"
-  },
-  {
-   "is_class": true,
-   "is_explicit": false,
-   "module": "solprop",
-   "module_short": "solprop",
-   "name": "StatsSpec"
-  },
-  {
-   "is_class": false,
-   "is_explicit": false,
-   "module": "solprop.stats",
-   "module_short": "solprop.stats",
-   "name": "StatsSpec"
-  }
- ],
  "TubeLattice": [
   {
    "is_class": true,

@@ -64,6 +64,28 @@ so that propagating through one reference length `ℓ` applies the collar profil
 propagation", with `boundary_N = 20`. The strength of the absorber is then a physical
 distance rather than a step count.
 
+**A slice of a run.** That distance follows the grid's length, so `boundary_N` gives a slice
+its own strength: a quarter of a run, rebuilt from its own grid, has a collar four times as
+strong as its parent's, and the in-stage collar's stability limit and the steps follow.
+`boundary_length=parent.reference_length` keeps the parent's. A continuation through
+`with_input` is not affected, since it [keeps the tables](../results/interior-launch.md).
+
+```python
+from solprop.boundaries import absorber
+from solprop.grid import FieldGrid
+
+
+def grid_of(length):
+    return FieldGrid.from_limits(length, 800e-9, (400e-9, 2e-6), 400e-15)
+
+
+whole = absorber(grid_of(1.0))
+piece = absorber(grid_of(0.25))
+kept = absorber(grid_of(0.25), boundary_length=whole.reference_length)
+assert abs(piece.temporal_rate.max() / whole.temporal_rate.max() - 4.0) < 1e-9
+assert kept.temporal_rate.max() == whole.temporal_rate.max()
+```
+
 Where each part goes is decided by what can be applied *exactly*:
 
 | part | mechanism | why |
@@ -145,6 +167,52 @@ better at, and why it stays selectable.
 The two agree to first order in the step and differ at second, by `(αh/2)²/2` — which is
 what the tests assert, and what would be false if the factor of one half were dropped.
 
+**The split's crossing limit.** The split damps the collar once per accepted step, at the
+step's end. A step whose group-delay walk-off exceeds the collar's width carries light
+through the collar and round the periodic window into the interior, where the factor
+does not touch it; on a nearly linear stretch the error estimate sees nothing, and a
+low-source run's steps grow long. So under `absorber_scheme="split_step"` no step walks
+the light more than half the collar:
+
+$$ h \le c\,\frac{w}{\max |\mathrm{d}\tau/\mathrm{d}z|}, \qquad c = 0.5, $$
+
+with `w` the collar's width and `dτ/dz = ∂(β − β_frame)/∂ω` the group-delay walk-off
+against the frame ({py:func}`solprop.boundaries.split_crossing_step`,
+{py:data}`solprop.boundaries.SPLIT_CROSSING`), taken over **the bins that hold light**.
+Every `(mode, frequency)` bin's walk-off is read from the translated operator into one of
+128 rate buckets ({py:class}`solprop.boundaries.SplitCrossing`,
+{py:func}`solprop.translate.linop.walk_off_buckets`: centred differences, one-sided at
+the active band's edges and the last propagating bin before evanescence, a z-varying
+guide read at its operator's own nodes, a coupled taper's modes each at their own
+propagation constant from the flow's generator); the fastest buckets that between
+them hold at most `1e-6` of the energy ({py:data}`solprop.boundaries.SPLIT_OCCUPIED_SHARE`)
+are set aside, since all of that light wrapping would be a field error within the
+monitor's default budget, and the fastest bucket left gives the rate.
+
+- At translation the rate is read from the launch. It holds an adaptive run's `dz_max`,
+  which is logged at `INFO` when it is lowered, and a fixed schedule whose longest step
+  exceeds it is refused with a `TranslationError` that names the limit.
+- The boundary monitor reads it again from the state at every check, where each
+  backend sums the state's energy per bucket beside its other numbers, and the steps
+  until the next check are capped by it, on every march, the native one included. Light
+  that spreads into faster bins, a filament's or a pulse's broadening spectrum, so
+  shortens the steps as it goes: on the 256-node radial filament of the benchmark suite
+  the cap falls from 0.28 m at the launch to about 6 mm within 2 mm, above every step
+  the run takes. A fixed schedule cannot shorten its steps, so a check whose cap falls
+  below any of the schedule's steps before the next check stops the run with a
+  `BoundaryError` naming the cap, and a resumed schedule is held to the state it
+  resumes from at once.
+- A run with `boundary_check=None` is held to the launch's limit alone.
+
+Read over every bin, outer transverse columns near their cutoff would set the limit even
+where they hold nothing: a 100 µm beam on a 1 mm radial grid of 512 nodes with a 70 fs
+collar took 109 steps over 5 cm instead of 25. Read where the light is, it takes 25 again,
+and the benchmark suite's cases take the steps they took before. On a linear GNLSE pulse
+walking one window per metre, the limit takes `Multistep` from 14 steps of up to 0.3 m,
+which left 0.12 of the launch wrapped into the window, to 27 steps of 0.054 m, which leave
+2e-4, the share a 1423 fs window should still hold. The in-stage scheme absorbs inside
+every stage and has no such limit.
+
 ## Geometry, and the collar that is not one
 
 The collar geometry comes from the grid: the spectral collar rises over `[ω_min/2, ω_min]`
@@ -220,6 +288,55 @@ band edges carrying nothing but shot noise, fires on almost every run — and a 
 is usually wrong is one people learn to ignore. A caller who passes the span of the band
 it cares about does not have that problem.
 
+### Sizing the collar from a walk-off
+
+A run that knows its drift can ask for the collar that stops it, rather than turn the drift
+into a strength by hand. Setting the attenuation above to `Γ` and the rate to
+`α(t) = A(1 − W(t))/ℓ_c` gives
+
+$$ \ell_c = \frac{L}{\Delta\tau\,\Gamma}\,\frac{A}{2}\int (1 - W)\,\mathrm{d}t
+         = \frac{6.3\,w\,L}{\Gamma\,\Delta\tau}, $$
+
+since by the Planck taper's symmetry `W(x) + W(w − x) = 1` each edge of width `w` contributes
+`w/2` to the integral. Both edges count: on the periodic axis they meet at the end of the
+window, and a packet re-enters the flat region only after crossing both. With
+`Γ = log(10³)`, the condition {py:func}`~solprop.boundaries.warn_walkoff` checks, the default
+strength `A·boundary_N = 252` stops a drift of `252 w/(2Γ) = 18.2 w`
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) §4.2).
+
+```python
+drift = 1.5e-12  # s, over the grid's length
+walking = absorber(grid_of(1.0), walkoff=drift)
+assert (walking.spectral_rate == whole.spectral_rate).all()  # the spectral collar stays
+print(f"{walking.in_stage_length:.4f} m against {whole.in_stage_length:.4f} m")
+```
+
+`walkoff` fills `collar_length` ([below](#two-lengths-the-spectral-rate-and-the-in-stage-collars))
+and nothing else. So:
+
+- **Which length.** The drift is measured over the grid's own `length`. The rate depends only
+  on the speed `Δτ/L`, so a slice given its own drift, a quarter of the length and a quarter
+  of the walk-off, gets its parent's temporal collar. Given its parent's whole drift it gets
+  a collar four times as strong.
+- **Beside `boundary_N` or `boundary_length`.** Neither conflicts with it, and neither is
+  refused: they keep setting `reference_length` and the spectral rate, and `walkoff` sets the
+  temporal rates. A slice that keeps both of its parent's strengths passes
+  `boundary_length=parent.reference_length` and its own drift.
+- **Beside `temporal=False`.** Refused: there is no temporal collar to size.
+- **The window.** It does not bound the drift. The attenuation depends on the collar's width
+  and not the window's, and a drift of several windows is absorbed on its first crossing. It
+  costs steps instead: at this strength an explicit method's step is held to `r w/(Γ v)`,
+  about `0.48 w/v` for DOPRI5 (`r = 3.3`, the [stable step](#the-two-temporal-schemes)), so a
+  long drift through a narrow collar is better served by a wider window.
+
+A linear packet walking through this collar at the stated drift leaves `exp(−2Γ)` of its
+power, a millionth, to within the one sample the sizing's integral leaves out of the period.
+The sizing assumes a steady drift over the run, as `warn_walkoff` does. Walk-off that starts
+late, after fission or as a soliton decelerates, crosses faster than the mean and is absorbed
+less, so the [monitor](#watching-the-windows-edges) stays the measurement. The default
+strength stays what it is for that reason: weak light that walks far needs its margin
+([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), decision D3).
+
 ```{eval-rst}
 .. plot::
    :caption: Left: the temporal collar of the RDW field grid and the absorption rate it becomes, for two absorber strengths. Right: the property the whole scheme exists for -- the surviving field after 0.3 m is the same however that distance is subdivided, while a per-step multiply gives a different answer for every step count.
@@ -277,9 +394,10 @@ it cares about does not have that problem.
 ## Two lengths: the spectral rate and the in-stage collars
 
 A single length would set three things: the spectral collar's strength, the ceiling
-`60/ℓ` every rate is validated against, and the strength of the in-stage collars, the
-temporal `12.6 (1 − W(t))/ℓ` and, on a spatial grid, the transverse
-`12.6 (1 − W(x, y))/ℓ` ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
+`60/ℓ` every rate is validated against, and the strength of the in-stage temporal collar,
+`12.6 (1 − W(t))/ℓ`. (A free-space run's real-space collar is designed separately, from
+a protected band and its width:
+[transverse boundaries](../free-space/model.md#transverse-boundaries).)
 The two kinds of rate are applied very differently. The spectral rate is diagonal in ω
 and rides the linear operator, where it is exact and free whatever its strength; the
 in-stage collars are explicit terms, and their largest rate bounds the step an explicit
@@ -290,9 +408,8 @@ So {py:class}`~solprop.boundaries.Absorber` carries two lengths
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §4.6):
 
 - `reference_length`, `ℓ`, sets the spectral rate and its ceiling `60/ℓ`;
-- `collar_length`, `ℓ_c`, sets the in-stage collars — the temporal one's largest rate
-  is `12.6/ℓ_c`, and the spatial collar is `12.6 (1 − W)/ℓ_c` — and their ceiling
-  `60/ℓ_c`. `None`, the default, means `reference_length`, and a value equal to the
+- `collar_length`, `ℓ_c`, sets the in-stage temporal collar — its largest rate is
+  `12.6/ℓ_c` — and its ceiling `60/ℓ_c`. `None`, the default, means `reference_length`, and a value equal to the
   reference length is stored as `None`. {py:attr}`~solprop.boundaries.Absorber.in_stage_length` returns
   the length in force.
 
@@ -302,10 +419,14 @@ to 6 µm; the spatial collar's peak would rise from `2.5 × 10⁵` to `2.1 × 10
 DOPRI5 stable step fall from 26 µm to 3.1 µm. With two lengths the spectral rate moves
 and the collars do not.
 
-`collar_length` is whatever sets the temporal collar's strength — `boundary_N` or
-`boundary_length` today. [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md), which
-owns the temporal collar, may parameterise that strength by a protected walk-off; the
-spatial collar follows the same length until its findings say otherwise.
+`collar_length` is whatever sets the temporal collar's strength: `walkoff`, when
+[it is given](#sizing-the-collar-from-a-walk-off), or else `boundary_N` or `boundary_length`.
+Nothing but the temporal collar reads it. A free-space run's real-space collar, which
+[SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md) and
+[SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) expected to share
+this length, is designed from its own protected band
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)), so a walk-off
+moves no transverse strength.
 
 ### A custom spectral absorber
 
@@ -332,8 +453,175 @@ already reaches its ceiling at the band edges, so any rate added there moves the
 reference length; the explicit collars never move. A zero rate returns the collar field
 for field, so its runs have the collar's results and configuration hash.
 
-The user's rate is summed into the collar's, so a diagnostic of the spectral collar's
-absorbed energy reports the two together.
+The operator takes the sum, and `Absorber.user_rate` keeps the user's share of it:
+`spectral_rate` stays the total, so the operator moves by no bit, and
+`0 <= user_rate <= spectral_rate` holds on every bin. `absorbed_power` reports the share as
+its own `custom` channel and the collar alone as `spectral`, so what your loss took and
+what the numerical collar took read apart, and their sum is the power the spectral rate
+removes. A rate added twice adds its shares. A collar without one has `user_rate=None`,
+which the run record leaves out, so its record and hash stay; set, the share is
+recorded, since two splits of one total are not one run. `absorber=False` clears it with
+the rate it belongs to. In vacuum, on a linear beam, a bin's energy falls by
+$1-e^{-L\sum_i\alpha_i}$ and each rate's share of that is $\alpha_j/\sum_i\alpha_i$
+([the statistic](../results/statistics.md#regions-and-the-beam)).
+
+### A spectral walk-off absorber
+
+A temporal collar cannot tell light that is merely late from light about to wrap, so it
+removes everything past the edge of its flat region. For a detector that integrates over
+time, that late light is signal. Where the walk-off can be predicted, a rate in `ω` can leave
+it alone and remove only the frequencies that would land on the part of the window that
+matters. This is a recipe, written with what the caller knows, and not a built-in.
+
+**The geometry.** Light at `ω` walks from the frame by
+
+$$ \Delta\tau(\omega) = \left|\beta_1(\omega) - \beta_1(\omega_{\rm frame})\right| L. $$
+
+On a periodic window of length `W`, light that has walked but not wrapped is still exact
+physics. Let the pulse and any delay scan occupy the protected region `|t| ≤ h`. A packet
+launched at `τ` and walking later lands at `τ + Δτ − W` once it wraps, so it enters the
+protected region when `Δτ ≥ W − h − τ`; the worst launch, `τ = +h`, gives `Δτ = W − 2h`, and
+one walking earlier from `τ = −h` gives the same. So the rate has to be full by `W − 2h`: light
+just past it lands just inside the region, and a rate still rising there would let much of it
+through. It rises as a raised cosine over the `h` before that, and stays full beyond:
+
+$$ \alpha(\omega) = \alpha_f\,P\!\left(\frac{\Delta\tau(\omega) - (W - 3h)}{h}\right),
+   \qquad P(x) = \tfrac12\bigl(1 - \cos\pi\,\mathrm{clip}(x, 0, 1)\bigr). $$
+
+Bins in the rise lose light that would not have reached the region. That is the price of the
+guarantee, and the check below measures it.
+
+**The strength.** Power falls as `exp(−αz)`, so light launched at the entrance leaves with
+`exp(−α_f L)`. Light born part-way is the harder case. What walks `Δτ` over the whole length
+reaches the protected region after `(W − 2h)/Δτ` of it, when it has lost only that share of
+the exponent. To hold a power fraction `f` for all of it, take the largest walk-off the run
+carries, as `warn_walkoff`'s span is taken:
+
+$$ \alpha_f = \frac{\ln(1/f)}{L}\,\frac{\max(\Delta\tau,\,W-2h)}{W - 2h}. $$
+
+`f = 10⁻⁶` is the collar's own `Γ = log(10³)` in field. All of it sits in the linear operator,
+where it is exact and needs no transform pair, and it adds no in-stage stability limit.
+
+```python
+import numpy as np
+
+from solprop.boundaries import custom_absorber
+from solprop.constants import C
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import LineGrid
+from solprop.physdata.glasses import fused_silica
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialMedium
+from solprop.stats import StatsSpec
+from solprop.stepper import PIController, RungeKutta
+
+length = 40e-6
+medium = SpatialMedium(fused_silica())
+grid = FieldGrid.from_limits(length, 800e-9, (150e-9, 2e-6), 120e-15, collar_fraction=0)
+window = grid.n_t * grid.dt
+protected = 25e-15  # h: the pulse and the delay scan
+
+
+def beta1(omega):
+    """The group delay per metre of the medium, s/m."""
+    index = np.real(medium.index(omega))
+    return (index + omega * np.real(medium.dindex_domega(omega))) / C
+
+
+active = grid.active_mask
+delay = np.zeros(grid.n_omega)  # what walks furthest is what the run carries
+delay[active] = (
+    np.abs(beta1(grid.omega[active]) - beta1(np.array([grid.omega0]))) * length
+)
+carried = delay[grid.inband_mask].max()
+
+arrival = window - 2 * protected  # the earliest walk-off to land on the region
+onset = arrival - protected
+full = np.log(1e6) / length * max(carried, arrival) / arrival
+walkoff_rate = (
+    full * 0.5 * (1 - np.cos(np.pi * np.clip((delay - onset) / protected, 0, 1)))
+)
+boundary = custom_absorber(grid, walkoff_rate, collar=absorber(grid, temporal=False))
+```
+
+For a guide, `delay` comes from {py:func}`solprop.modes.base.beta1` with the mode and the
+frame's `omega0`. On a grid whose collar fraction is zero, as here, the window is the request,
+since a spectral-only collar needs no room in time. Nothing the run carries is absorbed when
+`W ≥ 3h + max Δτ`; leave some margin on top, for what the linear estimate misses. A window
+shorter than that trades light for samples, and the check below says how much. Here it is
+far shorter, so the rate starts at about 193 nm and is full from about 175 nm.
+
+**The limits.**
+
+- It is a prediction from linear dispersion. It knows nothing of the nonlinear changes of group
+  delay: the soliton self-frequency shift, the plasma blue-shift, cross-phase modulation. It
+  suits weakly nonlinear runs, and a strongly nonlinear run keeps the collar and `warn_walkoff`,
+  which need no dispersion model.
+- It assumes light travels the whole length. The rate acts on a frequency wherever it is, so
+  light born part-way that would never wrap is absorbed as well. That errs on the side of safety
+  for the protected region, and it is a loss of signal for the band.
+- It acts on a frequency and not on a time. A bin past the onset is lost at every delay, also
+  where light launched at `−h` would still sit inside the protected region at the end. So the
+  loss depends on the delay, and it is worst for the launch furthest from wrapping.
+- A narrower rise keeps more of the band, since a width `s` in place of `h` needs only
+  `W ≥ 2h + s + max Δτ`, but it spreads the edge further, as the next point says.
+- It rests on the group-delay picture. A rise over `s` in delay is a rise over `s/(|β₂|L)` in
+  frequency, whose edge spreads in time by about `|β₂|L/s`, so it needs `s² ≫ |β₂|L` where the
+  rate rises.
+- It needs the caller's protected half-width. The rate cannot find it from the run.
+- One `(n_omega,)` rate must cover every mode and every transverse column. A multimode or
+  strongly angular run needs the worst case over them, which absorbs more of the rest.
+
+**How it costs less.** With no temporal rate the run compiles no temporal pass, under either
+scheme ([below](#a-spectral-only-collar)). On a Kerr run over ten steps on native CPU, with the
+fields agreeing, that took about 10 % off the per-step time of the collar under the split scheme,
+the spatial routes' default, and about half off the in-stage term, on the same grid
+([the ledger](../../dev/benchmarks.md#a-spectral-walk-off-absorber-against-the-temporal-collar)).
+
+**Check it per band.** A fraction of total power hides what this rate does. Weak short-wavelength
+light can lose most of its band while the run's energy moves by `10⁻⁵`, and the band's loss is
+what says the window is too short. The rate is diagonal in `ω`, so each bin loses
+`α(ω) S(ω, z)`, with `S` the `beam_spectrum`, integrated in `z`. That statistic is taken at saved
+planes and not [between them](../results/statistics.md#between-the-planes), so the integral runs
+over the planes, with an error of about `(α Δz)²/12` of a bin's loss by the trapezoid. Dividing
+by what the band kept and lost together counts light the run generated part-way as well as
+light it launched. `absorbed_power` has the user's share as its `custom` channel, but over the
+whole beam: only this product reads it per band. A lossy medium's own absorption is a further
+channel: fused silica absorbs at these wavelengths, and what it takes appears in neither count.
+
+```python
+planes = np.linspace(length / 32, length, 32)
+settings = SimulationSettings(
+    controller=PIController(rtol=1e-6, atol=1e-14),
+    save_planes=planes,
+    dz_max=length / 32,
+    dz_init=length / 32,
+    integrator=RungeKutta(),
+    backend="numpy_ref",
+    absorber=boundary,
+    boundary_check=None,
+    stats=StatsSpec(names=("beam_spectrum",)),
+)
+beam = SpatialPulse(GaussianPulse(wavelength=170e-9, fwhm=20e-15, energy=1e-9), 1e-3)
+space = LineGrid(4e-3, 16)
+output = Simulation.from_free(
+    grid, space, medium, [], beam, settings=settings, noise=None
+).run(progress="none")
+
+# (n_z, n_omega), J/(rad/s) per metre of y
+spectrum = np.asarray(output["stats/beam_spectrum"])
+z = np.asarray(output["z"])
+lost = np.trapezoid(walkoff_rate * spectrum, z, axis=0)
+collar_lost = np.trapezoid(
+    (boundary.spectral_rate - walkoff_rate) * spectrum, z, axis=0
+)
+wavelength = 2 * np.pi * C / np.where(grid.omega > 0, grid.omega, np.inf)
+band = (wavelength >= 150e-9) & (wavelength <= 190e-9)
+share = lost[band].sum() / (
+    lost[band].sum() + collar_lost[band].sum() + spectrum[-1, band].sum()
+)
+print(f"the walk-off rate took {share:.2f} of the 150-190 nm band")
+```
 
 ### A spectral-only collar
 
@@ -346,8 +634,7 @@ pass under either scheme: no in-stage term, no split pass and its transverse tra
 pair, and the first-same-as-last stage recycled. `absorber_scheme` is still recorded and
 applies to nothing, and its refusal of interpolated planes does not fire. The grid is
 unchanged. Measured on a Cartesian envelope grid of 192 × 192 × 300 with a spectral-only
-collar, the pass that compiling away removes cost 1.3–2.3 times a step on `numba_cpu` and
-1.2–1.6 times on native CPU
+collar, the pass that compiling away removes cost 1.2–1.6 times a step on native CPU
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §3; the phase-1
 re-measurement is in its
 [implementation record](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md#phase-1-report--driver-output-and-absorber)). Under the in-stage
@@ -358,15 +645,16 @@ A spectral-only collar is passed as `absorber=absorber(grid, temporal=False)`; a
 that turns both soft collars off on the fibre entry points is
 [SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)'s.
 
-### A transverse collar
+### The transverse boundary
 
-The collars above act on time, frequency and the transverse coordinates. A Cartesian
-run may also carry a ramp in the transverse **wavenumber**,
-`SimulationSettings(transverse_absorber=TransverseCollar(strength))`
-({py:class}`~solprop.boundaries.TransverseCollar`, SEP 22): a power rate diagonal in
-$k_\perp$, which rides the linear operator exactly, like the spectral rate, rather than
-the stages. It is a safety ramp at the grid's largest wavenumbers, not anti-aliasing,
-and is independent of the `Absorber` and its lengths:
+The collars above act on time and frequency. A free-space run's transverse boundary is
+its own ([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): a wall or a
+wrap at the grid's outer size, a safety ramp in the transverse **wavenumber** on every
+geometry, which rides the linear operator exactly like the spectral rate, the monitor's
+transverse edge, and, on request, a designed real-space collar,
+`spatial_absorber=SpatialAbsorber(...)`
+({py:class}`~solprop.boundaries.SpatialAbsorber`). It is independent of the `Absorber` and
+its lengths: [transverse boundaries](../free-space/model.md#transverse-boundaries) and
 [grid sizing and the transverse safety ramp](../free-space/cartesian.md#grid-sizing-and-the-transverse-safety-ramp).
 
 ## Which runs carry one, and how to change it
@@ -374,7 +662,7 @@ and is independent of the `Absorber` and its lengths:
 | entry point | absorber by default |
 |---|---|
 | `prop_capillary`, `prop_waveguide`, `prop_gnlse` and their `Simulation.from_*` builders | the grid's default collar, `absorber(grid)`: spectral and temporal, `boundary_N = 20`, applied in every stage |
-| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the real-space transverse collar stays off, as before (`Absorber.spatial=False`) |
+| `prop_radial`, `prop_free`, `prop_planar` and their builders, whose settings declare none | the same temporal and spectral collar, applied once per accepted step (`absorber_scheme="split_step"`) unless planes are interpolated; the transverse boundary is the safety ramp and the monitor's edge, with a real-space collar only on request (`spatial_absorber`, SEP 40) |
 | a `Simulation` built directly with its own `SimulationSettings` | none unless `SimulationSettings(absorber=...)` is given |
 
 Every `prop_*` entry point takes `absorber=` and `absorber_scheme=`. Pass
@@ -394,10 +682,12 @@ a scheme or interpolate their planes, which the split refuses: on the spatial ca
 performance-tracking suite the in-stage collar took 1.2 to 4.6 times the steps of the
 split one, at equal or worse accuracy inside the requested window
 ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)). The split is unconditionally
-stable, so a fixed schedule on a spatial route keeps its collar.
+stable, so a fixed schedule on a spatial route keeps its collar, within the split's
+[crossing limit](#the-two-temporal-schemes).
 
-On a spatial grid an absorber given explicitly also switches on the real-space transverse
-collar ([free-space propagation](../free-space/model.md#spatial-collar-and-statistics)).
+An absorber given explicitly does not switch on the real-space transverse collar, which is
+[asked for on its own](../free-space/model.md#spatial-collar-and-statistics) with
+`spatial_absorber`.
 
 ## Watching the window's edges
 
@@ -437,11 +727,12 @@ long step, and the exponential Adams march no longer limits its order by the col
 stability; the first step after the term returns is held to that limit. Under input
 noise the floor alone fills the collar far above the threshold, so the option only acts
 on noise-free runs; on a 2 cm noise-free GNLSE Raman/shock run whose pulse stays clear it
-saved 6 to 9 % per step on `numba_cpu` and `native` (Apple M5 Max). It is off by default
+saved 6 to 9 % per step across `native` and the since-retired `numba_cpu` (Apple M5 Max). It is off by default
 because a run cannot know in advance whether its light stays clear, and an omission
-judged too early is an error nothing reports (ADR-057). It applies to binary64 modal
-stages with the in-stage scheme; the split scheme, the low-storage march, the general
-modal route, coupled flows, a radial real-space collar and single precision always keep
+judged too early is an error nothing reports (ADR-057). It applies to binary64 modal and
+radial stages with the in-stage scheme; the split scheme, the low-storage march, the
+general modal route, coupled flows, a real-space collar, single precision, and the
+Cartesian, line and planar routes, whose stages keep the term regardless, always keep
 the collar. The record's `collar_left_out_checks` counts the checks that found it out.
 
 **Above the shot-noise floor.** Input noise, on by default, puts one photon per mode across
@@ -449,10 +740,12 @@ the whole window, guards and collar included. Light below that floor cannot be t
 the vacuum, so the monitor judges what lies above it: from each region's energy it
 subtracts three times the floor's expected share (the floor is uniform in time on
 average, and three times its expectation clears its fluctuation in a narrow guard), and
-from the collar's removal rate the floor's expected removal. A weak launch is therefore
-not stopped for its own noise, while light well above the floor that reaches an edge
-still is. Light that arrives at an edge weaker than the vacuum's own share of it is not
-reported.
+from the collar's removal the floor's expected removal, up to the floor itself: the
+input noise puts one floor in at the launch and never adds to it, so the floor cannot
+lose more than that, however long the run. A weak launch is therefore not stopped for its
+own noise, while light well above the floor that reaches an edge still is. Light that
+arrives at an edge, or leaves through the collar, weaker than the vacuum's own share of
+it is not reported.
 
 What the monitor saw is kept in the run's execution record, under `boundary_monitor`: the
 launch occupancies, the largest guard and collar occupancies and where the guards peaked,
@@ -473,19 +766,46 @@ is exact on every step, checked or not. Read back from the state the split leave
 same removal would multiply whatever the band mask left deep in the collar by `e^{αh}`,
 into removals larger than the launch and false warnings.
 
+The same finish keeps the energy and the guards' and collar's energies of that power
+taken halfway through the split's factor, `P e^{−αh/2}`, and under the split every share
+of a check is judged on them, the no-light test included; a backend whose reading after
+a step lacks them is refused rather than judged on the state the split left. The state the split leaves has its guards, deep in the collar, damped by `e^{−αh}`,
+about `e^{−10}` at an adaptive step, so a pulse walking out showed nothing there and ran
+to the end of its fibre; the state before the split holds what walked into the guard
+during the step unabsorbed, and stopped the same pulse 40 % early. Half the factor is
+the symmetric (Strang) splitting's state at the step's end, second order in the step
+where the one-sided split is first. On a GNLSE pulse walking out of its window, the
+split's stop falls within 1 % of the in-stage scheme's at every `dz_max` from adaptive to
+2.5e-4 m, and a radial one's within 6 %.
+
 A check reads five numbers of the state, its energy and the four weighted energies above,
 and each backend forms them where the state lives: on the GPU for `mlx` and a device build
-of `native`, in compiled code for `numba_cpu` and `native` on the CPU, and with NumPy for
+of `native`, in compiled code for `native` on the CPU, and with NumPy for
 `numpy_ref`, the reference the others are tested against. The field is not copied to the
 host to be watched.
 
 A resumed run continues the record: the state it resumes from is checked by the first
 step, not judged as a launch, so a run stopped at an edge can be resumed under a relaxed
 check (the check is not part of the resume key; the quiet-collar opt-in is). The totals,
-the launch occupancies and the rows of a closing record are restored, so the removed
-fraction and the guard maxima continue against the original launch, and `resumed_at`
-lists where the run was resumed. A run killed without a closing record restores its
-totals, and its rows start again at the resume.
+the launch occupancies, the quiet collar's state and the rows of a closing record are
+restored, so the removed fraction and the guard maxima continue against the original
+launch, and `resumed_at` lists where the run was resumed. A run killed without a closing
+record restores its totals, and its rows start again at the resume. The record continues
+from the latest execution that kept one: an execution killed before its monitor started,
+or run with `boundary_check=None`, is passed over, and the stretch it ran unwatched is
+listed under `unwatched` as `[start, end]` in metres, because what left the window there
+is unknown rather than zero. The record also keeps the signed removal (`removed_signed`)
+and the floor's expected removal (`floor_removed_fraction`), so that a resume continues
+from the same numbers the whole run would hold.
+
+On a free-space run the monitor also watches the **transverse edge**
+([SEP 40](../../dev/seps/archive/sep-0040-transverse-absorbing-boundaries.md)): the energy in the
+outer 5 % of the grid's outer size above its launch value with no collar, and what
+returns with a requested one, at `BoundaryCheck`'s levels or its own `transverse_budget`,
+which relaxes the transverse edge without relaxing time. Its reads are spaced as a ceiling
+on the step, and its record joins the monitor's under `transverse`, with a
+`transverse_status` that only reads `clear` for a run that read its edge at the required
+spacing and found nothing ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 
 `SimulationSettings(boundary_check=None)`, or `boundary_check=None` on any `prop_*`
 function or `Simulation.from_*` constructor, watches nothing; a `BoundaryCheck` with a

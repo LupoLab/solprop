@@ -1,0 +1,1 @@
+The native backend now refuses an unknown `SOLPROP_FFTW_PLAN` value, which it had read as `measure`, and a problem whose `response_order` omits a response it holds, which it had run anyway. An empty `SOLPROP_FFTW_PLAN` now counts as unset (#460).

@@ -63,8 +63,9 @@ six-mode hydrogen-filled capillary: the plasma statistics are read off what the 
 last stage left behind, which is the state the step accepted. Under the default
 [Adams method](../numerics/adams.md) a step's one evaluation is at its predicted state, not the
 accepted one, so the plasma statistics scan the columns afresh, about the cost of a
-source evaluation: the channel adds **80 %** to the first case's run at $N = 1$. A
-period of ten brings that to about 8 %; the statistics at the save planes are unaffected. Evaluating the power weight of each row (the
+source evaluation. On `native` on an AMD EPYC 7763, the channel adds about **55 %** to the
+first case's run at $N = 1$ on one thread and **76 %** on sixteen. A period of ten brings that
+to about 6 % and 8 %; the statistics at the save planes are unaffected. Evaluating the power weight of each row (the
 $\operatorname{Re} n_{\rm eff}$ factor of the Poynting flux, see
 [power and intensity](power-and-intensity.md)) adds about **0.06 ms** per row, under one
 percentage point of the first case's step.
@@ -150,11 +151,13 @@ capability does not admit is refused by name
 ({py:mod}`solprop.output.capability`). The gate is applied at **four** doors: at
 {py:class}`~solprop.stats.StatsSpec` admission in the run loop, in each backend's
 `stats`, in the accessors of {py:mod}`solprop.processing.modal`, and in the
-modal-amplitude processing functions {py:func}`~solprop.processing.time.energy` and
-{py:func}`~solprop.processing.time.peak_power`. The
-last two see only the stored record, and `peak_power(modes="sum")` is
+modal-amplitude readers of {py:mod}`solprop.processing` and the plots drawn from them
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). Those readers see only the
+stored record. On a general modal file the fourth door refuses `energy` and
+`peak_power` (and the plot of the energy): `peak_power(modes="sum")` is
 `peak_power_total`, so without that door the number the other three refuse would come
-back through a different import.
+back through a different import. On a spatial file it refuses every one of them,
+because they read the columns as modes ([below](#spatial-files-and-the-modal-readers)).
 
 ```{eval-rst}
 .. list-table::
@@ -180,7 +183,10 @@ back through a different import.
        replacement. The same thirteen are the ``accessors`` list a general modal record
        publishes, so a file says what it admits.
    * - ``spatial``
-     - A radial or Cartesian beam, unchanged, and the general names refused.
+     - A radial, Cartesian, line or planar beam: every statistic unchanged (its
+       ``energy`` is the beam's axial flux), and the general names refused. The
+       processing and plotting readers that read each column as a mode are refused
+       by name ([below](#spatial-files-and-the-modal-readers)).
 ```
 
 The refusal names the basis and what to use instead, and never redefines the old name:
@@ -191,6 +197,41 @@ analytic_flux or reconstructed E/H with an explicit detector definition. A gener
 guide resolves E_x, E_y and E_z at its own quadrature nodes, and its coordinate
 quantities are not additive, so the old name is refused rather than redefined
 ```
+
+### Spatial files and the modal readers
+
+The processing readers were written for a mode axis of true-power amplitudes in
+$\sqrt{\mathrm W}$. A radial or Cartesian column is a field sample in V m or V/m, and a
+planar column a slab amplitude per $y$ frequency, so $|a|^2$ summed over the columns is
+neither a power nor an energy: a 3 nJ launch would read back as about 5e-15 J. On a
+spatial file the readers that form it refuse by name, at the same door, and name the
+[spatial functional](../free-space/flux.md#using-the-measure) to use instead:
+`energy`, `peak_power`, `get_power`, `get_spectral_density`, `fwhm_t`, `fwhm_f`,
+`time_bandwidth`, `arrival_time`, the two autocorrelations and `coherence_time`, the
+plots `prop_2d`, `time_1d`, `spec_1d` and `plot_energy`, and a plane observer's
+`power` and `spectral_density`
+({py:data}`~solprop.output.capability.COLUMN_READINGS`). The refusal follows the scan
+reductions' wording, names only functionals that work on the file's route, and points
+to the beam statistics the run recorded, if any:
+
+```{code-block} text
+energy measures modal amplitudes and this is a radial run, whose columns are not: use
+solprop.spatial.spatial_energy; the run's own beam statistics are energy. ...
+```
+
+A spectral reader on a radial, Cartesian or line file points to
+{py:func}`~solprop.spatial.spatial_energy_spectrum`, the energy per bin that is also the
+`spectral_energy` of the plane {py:func}`~solprop.processing.planes.field_plane` reads,
+or to {py:func}`~solprop.spatial.on_axis_spectrum`; on a planar file, whose planes
+`field_plane` does not read, it points to `spatial_energy_spectrum` alone, which sums
+each bin over the slab modes and y frequencies of the stored slab amplitudes. `time_1d` is refused for a field too, since it would label a column's
+field in W^1/2; {py:func}`~solprop.processing.fields.get_field` reads it.
+
+The run's statistics are not affected: `stats/energy` of a spatial run is the beam's
+energy, from the same functional, and {py:func}`solprop.capabilities.output` admits it.
+The readers' refusals are stated apart, in its `refused_readers`.
+`get_spectrum`, `get_field` and `get_phase` return the stored columns as they are, in
+the file's own units, and read every file.
 
 **The two scalar general names are not indexed by channel, and that is the point.** `physical_energy`
 is the
@@ -307,7 +348,7 @@ record what such a detector measures, at every saved plane, without storing the 
 | `aperture_on_axis_spectrum` | the on-axis spectral fluence behind each aperture placed in a Fourier plane |
 | `region_spectrum` | the spectrum in each box of transverse wavevector of `spectral_regions` |
 | `beam_spectrum` | the whole-beam spectral energy density, the axial flux of the medium at the plane |
-| `absorbed_power` | the power the spectral, transverse, evanescent and material absorbers remove, per unit length |
+| `absorbed_power` | the power the spectral collar, the transverse, evanescent and material absorbers and a custom spectral rate each remove, per unit length |
 
 Their shapes and units are in the [catalogue](statistics-catalogue.md) and their
 equations in the [definitions](statistics-definitions.md#far-field-spectra).
@@ -367,7 +408,7 @@ parameter and is exact for a physical hard stop, at the staircase error above. F
 smooth quadrature weight, prefer `rcos`: it is exactly one inside $r-w$ and zero outside
 $r+w$, flat at its centre and has no tail bias. Quadrature `tanh` is admitted only at
 $w\le D/8$ ($r/w\ge4$), where the centre slope is about $0.02$ of the case measured
-above and its error of order $2	imes10^{-7}$. Amplitude `tanh` with $2\le r/w<4$ is the
+above and its error of order $2\times10^{-7}$. Amplitude `tanh` with $2\le r/w<4$ is the
 one choice that reaches the $10^{-5}$ class: an {py:class}`~solprop.stats.ApertureSet`
 built so warns once ({py:class}`~solprop.exceptions.ApertureEdgeWarning`, naming `rcos`)
 and runs what was asked.
@@ -420,6 +461,93 @@ holds the mask. The amplitude is linear in the field, so $W$ enters it once unde
 weightings (at $D_q$ under quadrature weighting); with $W\equiv1$ it is
 `on_axis_spectrum`.
 
+### Aperture shapes
+
+An {py:class}`~solprop.stats.ApertureSet` row is a circle unless `shapes` says otherwise,
+and each row may have its own profile (`profiles`), so a hard knife edge can sit beside
+apodised holes. `weighting` stays one per set: a hard row's $W^p$ is the same under both.
+
+| `shapes` entry | keeps | measures | with an edge |
+|---|---|---|---|
+| `circle` | $\rho\le r$ | `diameters` | the profile of $\rho-r$ |
+| `ellipse` | $(\Delta x/a)^2+(\Delta y/b)^2\le1$ | `extents` $(2a,2b)$ | a scaled circle: the profile of its radius in the frame where it is a circle of radius $\sqrt{ab}$ |
+| `rectangle` | $|\Delta x|\le a$ and $|\Delta y|\le b$ | `extents` $(2a,2b)$ | the product $W(|\Delta x|)W(|\Delta y|)$ of two straight edges |
+| `half_plane_x_ge` | $x\ge X$ | none | the edge at $X-x$ |
+| `half_plane_x_lt` | $x<X$ | none | one minus `half_plane_x_ge` |
+| `half_plane_y_ge`, `half_plane_y_lt` | $y\ge Y$, $y<Y$ | none | the same in $y$ |
+
+A row's `diameters` entry is zero unless it is a circle, its `extents` entry zero unless
+it is an ellipse or a rectangle, and `extents` is `None` when no row needs it: a table
+that would be silently unused is refused. A half-plane's `centres` row holds its edge's
+position on the axis it names and zero on the other. Every position is physical, and the
+map is the apertures': a column's image lies at $x=s(\omega)\kappa_x$, so an edge fixed
+in the plane sits at $\kappa_x=\omega X/(cz)$, moving with frequency, which no box of
+`spectral_regions` can express. With $W\in\{0,1\}$ the collected spectrum is exactly the
+sum `region_spectrum` forms over the columns the edge admits at that bin, with the same
+Parseval weights and the same axial flux ([below](#regions-and-the-beam)).
+
+**Half-open, so that a half-plane and its complement tile the columns.** The two sides of
+one edge read one sign: an image exactly on $x=X$ belongs to $x\ge X$ and not to $x<X$,
+as regions' edges do. The hard pair sums to one on every column, to the bit. Holes are
+closed, like a circle: an aperture is a stop, and a rectangle on a line is the slit a
+circle of that width is. What the pair tiles is **the columns the map reaches**, those
+with $s|\boldsymbol\kappa|<z$: the weight is zero beyond, as for every aperture. In vacuum
+those carry all the beam's flux; in a medium, columns beyond $\omega/c$ still propagate but
+cannot leave the exit face, so a half-plane and its complement fall short of
+`beam_spectrum`, and `region_spectrum` does not. A half-plane at $X=0$ with its region
+counterpart `(0, inf, -inf, inf)` agrees within that disc. With a smooth edge the
+complement is $1-W$: quadrature weighting then sums to one, while under amplitude weighting
+$W^2+(1-W)^2<1$ on the edge, as two soft masks' powers do; their fields sum to the field.
+
+**The edges.** `supergauss` falls from a centre, so a half-plane refuses it; on an ellipse
+it is $\exp[-(\rho_e)^n]$ with $\rho_e$ the normalised radius, and on a rectangle the
+product of one in each axis. A half-plane's or a rectangle's edge width is $w$ in metres
+all the way along. An ellipse's is not: the scaling makes it $w\,a/\sqrt{ab}$ along $x$ and
+$w\,b/\sqrt{ab}$ along $y$. That is the price of a scaled circle, and it is what makes
+quadrature sound there: the map to the circular frame has a constant Jacobian, so the
+corrected $D_q$ of a circle of diameter $2\sqrt{ab}$ integrates to the hard ellipse's
+$\pi ab$ exactly where it does on a circle, with a residual of the same order. Straight
+edges need no correction: a symmetric edge's $W(u)$ alone integrates to the hard edge's,
+so a rectangle's half-widths and a half-plane's position are used as given. The range of
+$w$ is that of the circle's with $D$ read as $\sqrt{D_xD_y}$ of an ellipse and the smaller
+width of a rectangle, except that quadrature `tanh` on a rectangle stops at $w\le D/10$,
+which keeps its two tails' bias, each $(w/2a)e^{-2a/w}$, under the $2\times10^{-5}$ a
+circle's has at $D/8$. A half-plane needs only $w>0$.
+
+**The paraxial disc.** A hole must lie inside the disc. A half-plane reaches its edge by
+nature: its own edge must lie inside, or it would select all of the disc or nothing. The
+map's paraxial error matters only where the edge decides: a column's true image in a free
+far field lies $O(\theta^2)$ of its $x$ from the paraxial one, $\theta$ its whole angle
+from the axis, so only columns that near the edge can change sides. At $X=0$ the decision
+is the sign of $\kappa_x$ and is exact.
+
+A line takes `half_plane_x_ge`, `half_plane_x_lt` and `rectangle`, whose $y$ edges meet
+no column, so it is the slit of its $x$ width with $D_q=D$; it refuses an ellipse and a
+half-plane bounded in $y$, which hold every column or none. The table is checked without
+its grid, so $D_y$ still counts towards the paraxial reach and the limit on the edge
+width: give a slit a $D_y$ like its $D_x$. Radial and planar-hybrid
+geometry have no far-field statistic at all. The offline
+{py:class}`~solprop.coupling.elements.Aperture` takes the same outlines from the same
+seam ({py:class}`~solprop.spatial.ApertureOutline`) and refuses all but a circle on a
+radial grid, and a set of unset `shapes`, `profiles` and `extents` keeps its record and
+its configuration hash from before they existed.
+
+```{code-block} python
+from solprop.stats import ApertureSet, StatsSpec
+
+mask = ApertureSet(
+    centres=[[1.2e-3, 0.0], [1.2e-3, 0.0], [-3e-3, 1e-3]],
+    diameters=[0.0, 0.0, 0.0],
+    distances=[0.25] * 3,
+    edges=[0.0, 0.0, 40e-6],
+    extents=[[0.0, 0.0], [0.0, 0.0], [1.5e-3, 0.4e-3]],
+    shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle"),
+    profiles=("hard", "hard", "rcos"),
+    labels=("signal", "the rest", "slit"),
+)
+spec = StatsSpec(names=("energy", "aperture_spectrum"), apertures=mask)
+```
+
 ### Regions and the beam
 
 A region is a half-open box
@@ -445,15 +573,22 @@ with its magnetic closure at the same frequency, so each column carries its own
 admittance. These are the powers crossing the run's last plane inside the medium; the
 transmission of an exit face is not modelled.
 
-`absorbed_power` is four powers in J/m, in the order `spectral`, `transverse`,
-`evanescent`, `material` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`), each a power
-rate weighted by the same real admittance as `energy`: the spectral
-absorber's rate on every bin, as the stages apply it; the transverse-wavevector rate,
-zero until the operator carries one; the evanescent cap
-$2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins; and
+`absorbed_power` is five powers in J/m, in the order `spectral`, `transverse`,
+`evanescent`, `material`, `custom` ({py:data}`~solprop.spatial.ABSORBED_CHANNELS`), each a
+power rate weighted by the same real admittance as `energy`: the spectral collar's rate
+on every bin, as the stages apply it; the transverse-wavevector rate, zero until the
+operator carries one; the evanescent cap
+$2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins;
 $2\operatorname{Im}k_z$ on active propagating bins, the loss of a complex index (negative
-for gain), exactly zero for a real one. Together they are the whole real part of the
-separable operator, so their sum is $-dU/dz$ of `energy` under the linear flow. The
+for gain), exactly zero for a real one; and a
+[custom spectral rate](../numerics/boundaries.md#a-custom-spectral-absorber), exactly zero
+without one. Together they are the whole real part of the separable operator, so their sum
+is $-dU/dz$ of `energy` under the linear flow. Each is an instantaneous rate at its plane.
+What one channel takes over a length is its integral along $z$, whose quadrature error is
+yours to bound; every channel here is a power rate acting on the one power, so on a linear
+beam a bin's share is $\alpha_j/\sum_i\alpha_i\,(1-e^{-L\sum_i\alpha_i})$, with the
+material and transverse rates inside the sum. A whole channel has no single fraction when
+the rates vary across the bins. The
 physical-space spatial collar and the temporal collar are diagonal in other
 representations and are not included (the collar diagnostic watches the first), nor are
 nonlinear losses. It is the one far-field statistic admitted
@@ -462,8 +597,8 @@ nonlinear losses. It is the one far-field statistic admitted
 ### The line, end bins and what is refused
 
 On a line ($n_y=1$) the spectra and powers are per metre of $y$ and the on-axis spectra
-stay local. An aperture is a slit of full width $D$ along $x$, its $y$ centre must be
-zero, its edges are straight and $D_q=D$; a region selects nothing unless its
+stay local. A circle or a rectangle is a slit of full width $D$ along $x$, its $y$ centre
+must be zero, its edges are straight and $D_q=D$; a region selects nothing unless its
 $\kappa_y$ interval contains zero, and is refused otherwise. At a field grid's
 zero-frequency and Nyquist bins every spectrum follows `spectral_density`'s documented
 rule; both bins are zero on every grid solprop builds.
@@ -474,14 +609,11 @@ plane, so {py:func}`~solprop.stats.collect` forms them from a plane with
 run's linear operator, which a plane does not carry, and `collect` refuses it by name. A spec naming a statistic whose
 table it does not carry is refused when it is built, and so are radial and planar-hybrid
 geometry, which have no Cartesian transverse wavevector. All five run on `numpy_ref`,
-through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on
-`numba_cpu`, which computes them natively in one compiled pass over the state, threaded
-over bands of columns whose sums do not depend on the thread count; it agrees with the
+through the reference pass {py:func}`~solprop.spatial.aperture_statistics`, and on the
+native backend, which computes them in one compiled pass over the state; it agrees with the
 reference within a rounding bound, and decides every hard edge as the reference does.
-On `numba_cpu` the same pass also forms `on_axis_spectrum` (an aperture with
-$W\equiv1$), and a plane's five statistics cost about as much as `energy`. The native
-backend runs the same pass natively, in the same order of sums, and agrees with both
-within that bound; a solprop-native build from before this pass is refused them by
+The same pass also forms `on_axis_spectrum` (an aperture with
+$W\equiv1$). A solprop-native build from before this pass is refused them by
 name, before it is built.
 Lockstep batch members must carry equal tables.
 

@@ -4,7 +4,9 @@
 
 """A run record is serialised once, however often its hashed part is asked for."""
 
-from solprop.output import schema
+import logging
+
+from solprop.output import MemoryOutput, schema
 from solprop.output.schema import _example_metadata
 
 
@@ -29,3 +31,16 @@ def test_the_hashed_part_is_serialised_once_and_handed_out_as_copies(monkeypatch
     first["extra"] = 1
     assert "extra" not in metadata.hashed()
     assert metadata.configuration_hash() == key
+
+
+def test_a_memory_output_computes_no_hash_unless_it_logs_it(caplog):
+    # The record caches its digest and serialised part, so what is cached is what ran.
+    quiet = _example_metadata()
+    MemoryOutput().open(quiet)
+    assert "_configuration_digest" not in vars(quiet)
+    assert "_hashed_record" not in vars(quiet)
+
+    logged = _example_metadata()
+    with caplog.at_level(logging.DEBUG, logger="solprop.output.memory"):
+        MemoryOutput().open(logged)
+    assert logged.configuration_hash()[:12] in caplog.text

@@ -39,13 +39,13 @@ JAXTYPING_HOOK = (
 
 # Hypothesis's per-example deadline is a wall-clock limit, which a parallel lane on a
 # shared node exceeds without anything being wrong: the first example of a property
-# also pays the import and JIT costs. Examples are bounded by their count instead.
+# also pays the import costs. Examples are bounded by their count instead.
 settings.register_profile("solprop", deadline=None)
 settings.load_profile("solprop")
 
 # Any driver test can select the installed backend, even without collecting
-# tests/backends. On macOS Kokkos must load before pyFFTW's private OpenMP runtime.
-# A present but broken wheel fails here; only an absent optional wheel is omitted.
+# tests/backends. A present but broken wheel fails here; only an absent optional wheel
+# is omitted.
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
@@ -53,12 +53,46 @@ import convergence_records  # noqa: E402 - `tests/` reaches sys.path with this f
 import shards  # noqa: E402 - test helper beside conftest
 import solprop  # noqa: E402, F401 - imported after the hook so the package is checked too
 from distribution import remember_nodeid  # noqa: E402 - test helper beside conftest
+from solprop import _process  # noqa: E402 - needs the hook above
 from solprop.backends import registry  # noqa: E402 - needs the hook above
+from solprop.driver import simulation  # noqa: E402 - needs the hook above
 
-# The lanes without the native package run on `backend="auto"`, and its fallback
-# warning fires once per process: under `filterwarnings = ["error"]` it would fail
-# whichever test came first on each worker. The warning's own tests reset this flag.
-registry._warned_native_fallback = True
+# NumPy's OpenBLAS on Windows on Arm crashes or hangs in small linear solves when a
+# thread variable sizes it at load (solprop._process), so that lane's task sets none,
+# and the pools are limited here once they are loaded, for the other lanes' one thread.
+if _process.sizes_blas_after_load():
+    import scipy.linalg  # noqa: F401
+    import threadpoolctl
+
+    threadpoolctl.threadpool_limits(1, user_api="blas")
+
+
+# Outside tests, backend="auto" refuses where no native package is installed (SEP 43
+# section 5). A lightweight environment or the `no-native` lane names numpy_ref in
+# SOLPROP_TEST_BACKEND, and most tests take the default backend, including in fixtures
+# that outlive a test, so `auto` means that name for the session. A test of the refusal
+# itself says `real_auto`.
+_NAMED_BACKEND = os.environ.get("SOLPROP_TEST_BACKEND")
+_REAL_AUTO = {"on": False}
+_REAL_RESOLVE = registry.resolve_name
+
+
+def _resolve_for_tests(backend="auto"):
+    named = backend == "auto" and not _REAL_AUTO["on"]
+    return _NAMED_BACKEND if named else _REAL_RESOLVE(backend)
+
+
+if _NAMED_BACKEND and importlib.util.find_spec("solprop_native") is None:
+    registry.resolve_name = _resolve_for_tests
+    simulation.resolve_name = _resolve_for_tests
+
+
+@pytest.fixture(autouse=True)
+def _keep_the_real_auto(request, monkeypatch):
+    """Give a ``real_auto`` test the refusal that the session otherwise replaces."""
+    if request.node.get_closest_marker("real_auto") is not None:
+        monkeypatch.setitem(_REAL_AUTO, "on", True)
+
 
 # ------------------------------------------------------------------------- the tiers
 #
@@ -78,7 +112,10 @@ _COLLECTED_TIERS: dict[str, tuple[str, ...]] = {}
 def pytest_collection_modifyitems(config, items):
     """Record original tier identities, then assign groups before xdist names them."""
     _COLLECTED_TIERS.clear()
+    no_native = importlib.util.find_spec("solprop_native") is None
     for item in items:
+        if no_native and item.get_closest_marker("child_runs_auto") is not None:
+            item.add_marker(pytest.mark.skip(reason="auto refuses in a child process"))
         remember_nodeid(item)
         _COLLECTED_TIERS[item.nodeid] = tuple(
             name for name in TIER_MARKERS if item.get_closest_marker(name) is not None
@@ -247,7 +284,17 @@ def thread_budget_lifted(monkeypatch):
 
 
 def pytest_terminal_summary(terminalreporter):
-    """Name every convergence record this session wrote."""
+    """Name every convergence record this session wrote, and say what a lane cannot.
+
+    A lane without native still runs the tests that take ``backend_class``, whose only
+    backend is then the reference: their parity comparisons are ``numpy_ref`` against
+    itself and pass by construction, so a green run there says nothing about parity.
+    """
+    if importlib.util.find_spec("solprop_native") is None:
+        terminalreporter.write_line(
+            "solprop_native is not installed: parity tests ran numpy_ref against "
+            "itself, so this run is no evidence of parity"
+        )
     written = convergence_records.written_paths()
     if not written:
         return

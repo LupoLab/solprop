@@ -7,7 +7,9 @@ Waveguide models
 
 Antiresonant fibres, tabulated modes, step-index, graded-index and rectangular guides,
 the general modal route for guides that supply their own vector fields, a declared basis
-over a split pair, and hollow planar guides per unit width.
+over a split pair, hollow planar guides per unit width, a gas-filled hollow
+rectangular guide built from a supplied mode, and a pulse in two channels of a
+graded-index fibre.
 
 
 .. raw:: html
@@ -157,6 +159,40 @@ over a split pair, and hollow planar guides per unit width.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A hollow silica channel 250 um wide and 100 um high, filled with 5 bar of argon, guides a 30 fs, 800 nm pulse in its lowest x-polarised mode. The mode is supplied as an object (~solprop.modes.rectangular.RectMode) to the waveguide route, which binds it to the route&#x27;s fill, and the run is a plain prop_waveguide: the waveguide route&#x27;s starting point, and the call its example recipe mirrors (``Recipe.example(&quot;hollow_rectangular&quot;)``).">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_09_hollow_rectangular_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_09_hollow_rectangular`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A gas-filled hollow rectangular waveguide</div>
+    </div>
+
+
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A parabolic graded-index core has channels whose group delays nearly agree, which is what the profile is for. This example launches a femtosecond pulse equally into the two lowest radial LP channels of a 25 um core and follows it for 5 mm with the core&#x27;s Kerr response. The channels broaden, and the Kerr term moves energy between them as their relative phase turns.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/waveguides/images/thumb/sphx_glr_plot_10_graded_index_fibre_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/waveguides/plot_10_graded_index_fibre`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">A pulse in two channels of a graded-index fibre</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -175,4 +211,6 @@ over a split pair, and hollow planar guides per unit width.
    /auto_tutorials/waveguides/plot_06_graded_index
    /auto_tutorials/waveguides/plot_07_split_block
    /auto_tutorials/waveguides/plot_08_planar
+   /auto_tutorials/waveguides/plot_09_hollow_rectangular
+   /auto_tutorials/waveguides/plot_10_graded_index_fibre
 

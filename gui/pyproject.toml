@@ -1,0 +1,130 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+[build-system]
+# setuptools-scm 9 is the oldest that reads scm.git.describe_command below.
+requires = ["hatchling", "hatch-vcs", "setuptools-scm>=9"]
+build-backend = "hatchling.build"
+
+[project]
+name = "solprop-gui"
+description = "A desktop front end for solprop: set up, run and read ultrafast propagation simulations"
+readme = "README.md"
+license = "GPL-3.0-or-later"
+# The wheel carries the licence; a copy of the root LICENSE, since license-files cannot
+# reach outside the project directory.
+license-files = ["LICENSE"]
+# The same authors as solprop's.
+authors = [
+  { name = "John C. Travers", email = "jtravs@gmail.com" },
+  { name = "Christian Brahms" },
+]
+requires-python = ">=3.14"
+# `solprop` is pinned to this release's own version by hatch_build.py, as solprop's
+# `gui` extra pins this package: the two are released together at one version.
+dynamic = ["version", "dependencies"]
+classifiers = [
+  # 0.x: the interfaces may still change between minor releases.
+  "Development Status :: 2 - Pre-Alpha",
+  "Environment :: X11 Applications :: Qt",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.14",
+  "Topic :: Scientific/Engineering :: Physics",
+]
+
+[project.scripts]
+solprop-gui = "solprop_gui.app:main"
+
+[project.urls]
+Homepage = "https://solprop.readthedocs.io/"
+Documentation = "https://solprop.readthedocs.io/en/latest/dev/gui/design.html"
+Source = "https://github.com/LupoLab/solprop/tree/main/gui"
+Issues = "https://github.com/LupoLab/solprop/issues"
+Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.version.raw-options]
+# One version for every distribution of the repository, from its tags.
+root = ".."
+fallback_version = "0.0.0"
+# Release tags only, as in solprop and native/ (tests/test_release_tags.py).
+scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "--abbrev=40", "--match", "v*"]
+
+[tool.hatch.metadata.hooks.custom]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/solprop_gui"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/LICENSE", "/README.md", "/hatch_build.py", "/pyproject.toml"]
+exclude = ["__pycache__", "*.py[cod]", ".pytest_cache", ".coverage*", ".DS_Store"]
+
+# The solprop it pins resolves to the repository's root project in the workspace.
+[tool.uv.sources]
+solprop = { workspace = true }
+
+# ------------------------------------------------------------------------------ ruff
+# solprop's rules, with this package as the first party.
+[tool.ruff]
+extend = "../pyproject.toml"
+src = ["src", "tests"]
+
+[tool.ruff.lint.isort]
+known-first-party = ["solprop_gui"]
+known-third-party = ["solprop"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["D", "ANN", "PLR2004", "ARG"]
+
+# -------------------------------------------------------------------------- type check
+[tool.basedpyright]
+include = ["src", "tests"]
+typeCheckingMode = "standard"
+pythonVersion = "3.14"
+failOnWarnings = true
+venvPath = ".."
+venv = ".venv"
+reportMissingTypeStubs = false
+
+# ------------------------------------------------------------------------------ pytest
+[tool.pytest.ini_options]
+testpaths = ["tests", "src"]
+addopts = "-ra --strict-markers --strict-config --doctest-modules"
+filterwarnings = ["error"]
+# Widgets run without a display; tests/conftest.py also sets it before Qt is imported.
+qt_api = "pyside6"
+xfail_strict = true
+
+# ---------------------------------------------------------------------------- numpydoc
+# solprop's checks.
+[tool.numpydoc_validation]
+checks = ["all", "ES01", "SA01", "EX01", "GL01", "GL02"]
+exclude = ['\.__init__$', '^test_']
+
+# ---------------------------------------------------------------------------- coverage
+# The quality bar is split by layer (docs/dev/gui/design.md, decision D11): the layers
+# without Qt are held to solprop's 100 %; the widgets and views are exercised by smoke
+# and offscreen screenshot tests instead, and are left out of the measure.
+[tool.coverage.run]
+source = ["solprop_gui"]
+branch = true
+omit = [
+  "*/solprop_gui/app.py",
+  "*/solprop_gui/__main__.py",
+  "*/solprop_gui/ui/*",
+  "*/solprop_gui/views/*",
+]
+
+[tool.coverage.report]
+fail_under = 100
+show_missing = true
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@overload",
+  "raise NotImplementedError",
+  "^\\s*\\.\\.\\.$",
+]

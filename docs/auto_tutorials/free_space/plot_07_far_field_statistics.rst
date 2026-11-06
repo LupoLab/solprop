@@ -73,7 +73,7 @@ of 0.8 mm, twenty waists, puts six lattice points across the far-field radius.
     from matplotlib.patches import Circle
     from scipy import integrate
 
-    from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+    from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
     from solprop.constants import C
     from solprop.driver import SimulationSettings, prop_free
     from solprop.grid import EnvelopeGrid, FreeGrid
@@ -102,7 +102,7 @@ of 0.8 mm, twenty waists, puts six lattice points across the far-field radius.
     ANGLE = 0.010
     K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
     grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (740e-9, 870e-9), 300e-15)
-    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, window_factor=0.0)
+    space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, collar_fraction=0.0)
     k_max = float(np.max(np.abs(space.k_x)))
     print(f"K0/k_max = {K0 / k_max:.2f}; grid {space.n_x} x {space.n_y} x {grid.n_omega}")
 
@@ -273,7 +273,7 @@ is evanescent.
             period=1,
         ),
         absorber=band,
-        transverse_absorber=TransverseCollar(2e4),
+        spatial_absorber=SpatialAbsorber(real_space=False),
         fields="planes",
         field_planes=(-1,),
     )
@@ -300,6 +300,7 @@ is evanescent.
 
  .. code-block:: none
 
+    BoundaryWarning: the fixed schedule's longest step, 1.250e-04 m, is longer than the transverse edge's read spacing, 6.250e-05 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
     9 planes from 0.000 to 1.000 mm
 
 
@@ -371,7 +372,7 @@ statistic here weights it.
  .. code-block:: none
 
 
-    <matplotlib.colorbar.Colorbar object at 0x128a79a90>
+    <matplotlib.colorbar.Colorbar object at 0x6fb1c4a6900>
 
 
 
@@ -422,7 +423,7 @@ peaks near the coherence length :math:`\pi/|\Delta k|` and falls back.
     coherence length pi/|dk| = 0.69 mm
     signal peaks at z = 0.750 mm
 
-    <matplotlib.legend.Legend object at 0x12995fcb0>
+    <matplotlib.legend.Legend object at 0x6fb15447230>
 
 
 
@@ -638,8 +639,8 @@ to the beam spectrum needs no further normalisation.
 
  .. code-block:: none
 
-    collect against the run: 3.7e-16
-    from the definition against the run, largest difference in collected fraction: 2.2e-16
+    collect against the run: 2.5e-16
+    from the definition against the run, largest difference in collected fraction: 2.8e-16
 
 
 
@@ -693,7 +694,7 @@ transmission of the exit face into air is not modelled.
 
     quadrants against the beam spectrum: 3.2e-16
     towards +x 1.3721e-07 J, towards -x 1.3708e-07 J; upper 1.5409e-07 J, lower 1.2020e-07 J
-    exit energy 2.742884e-07 J; beam spectrum integral 2.742884e-07 J; relative difference 1.6e-15
+    exit energy 2.742885e-07 J; beam spectrum integral 2.742885e-07 J; relative difference 6.0e-15
 
 
 
@@ -702,22 +703,22 @@ transmission of the exit face into air is not modelled.
 
 The absorbed power
 ------------------
-``absorbed_power`` gives four powers in J/m, the spectral, transverse, evanescent and
-material channels; sampled at every step, their integral along z is the energy the
-absorbers took. The Kerr response moves energy between frequencies but adds none, so
-that integral matches the drop of ``energy`` from the entrance, to the trapezoid
-rule's error over eight steps. The spectral channel, the absorption band, carries
-almost all of it; the transverse collar's channel rises from nothing as the
-nonlinear halo creeps towards the grid's edge, still more than four decades below;
-the evanescent and material channels are exactly zero.
+``absorbed_power`` gives five powers in J/m, the spectral collar, transverse,
+evanescent, material and custom channels; sampled at every step, their integral along
+z is the energy the absorbers took. The Kerr response moves energy between frequencies
+but adds none, so that integral matches the drop of ``energy`` from the entrance, to
+the trapezoid rule's error over eight steps. The spectral channel, the absorption
+band, carries almost all of it; the transverse collar's channel rises from nothing as
+the nonlinear halo creeps towards the grid's edge, still more than four decades below;
+the evanescent, material and custom channels are exactly zero.
 
-.. GENERATED FROM PYTHON SOURCE LINES 504-524
+.. GENERATED FROM PYTHON SOURCE LINES 504-525
 
 .. code-block:: Python
 
 
     rows_z = np.asarray(output["step_stats/z"])
-    rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 4)
+    rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 5)
     at_entrance = np.asarray(output["stats/absorbed_power"])[0]
     samples_z = np.concatenate([[0.0], rows_z])
     samples = np.concatenate([at_entrance[None], rows])
@@ -730,7 +731,8 @@ the evanescent and material channels are exactly zero.
     axis.set(xlabel="z (mm)", ylabel="absorbed power (J/m)")
     axis.legend()
     print(
-        f"evanescent and material channels: {np.max(np.abs(samples[:, 2:])):.1f} J/m; "
+        "evanescent, material and custom channels: "
+        f"{np.max(np.abs(samples[:, 2:])):.1f} J/m; "
         f"transverse at the exit {samples[-1, 1]:.1e} J/m"
     )
     print(f"tutorial run time: {time.perf_counter() - started:.1f} s")
@@ -749,13 +751,13 @@ the evanescent and material channels are exactly zero.
  .. code-block:: none
 
     energy drop 1.5701e-08 J; absorbed 1.5704e-08 J
-    evanescent and material channels: 0.0 J/m; transverse at the exit 1.0e-09 J/m
-    tutorial run time: 1.4 s
+    evanescent, material and custom channels: 0.0 J/m; transverse at the exit 7.6e-10 J/m
+    tutorial run time: 21.9 s
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 525-532
+.. GENERATED FROM PYTHON SOURCE LINES 526-533
 
 Related reading
 ---------------
@@ -768,7 +770,7 @@ far-zone and Fourier-plane conditions and the paraxial error;
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 1.482 seconds)
+   **Total running time of the script:** (0 minutes 22.151 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_07_far_field_statistics.py:

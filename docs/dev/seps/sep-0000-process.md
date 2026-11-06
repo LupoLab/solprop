@@ -211,7 +211,7 @@ supersedes it. A return to `Draft` moves its roadmap listing back to the draft s
 An implementer picks up an accepted SEP with a commit that sets the status to
 `In progress` and records, in the **Implementation** field, who is implementing it and the
 branch. Every phase is made on that one branch, `feature/sep-NNNN-short-slug`, which may
-start on top of an open pull request's branch when pull requests are stacked behind CI.
+start on top of another agent's open pull request, when the SEP needs that work first.
 Push that commit and open the SEP's one pull request from it, as a draft titled
 `WIP: SEP N …` and linked from the tracking issue, so that CI can run during development
 and the work can be followed. Each phase is:
@@ -235,7 +235,7 @@ A SEP becomes `Final` when:
 
 - every phase is merged and reported;
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
-  [ADR-061](../decisions.md)), with parity tests, and on `numba_cpu` or `mlx` too where
+  [ADR-061](../decisions.md)), with parity tests, and on `mlx` too where
   the accepted SEP says so — or the accepted SEP records a justified exception, which
   then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
@@ -248,7 +248,8 @@ of the published artefacts, for example); being documentation alone, it runs onl
 documentation checks in CI. The commit that sets `Final` fills in **Manual pages**,
 moves the file with `git mv` to `docs/dev/seps/archive/`, moves its index row to the
 archived table and its toctree entry to the archive index, fixes the relative links the
-move breaks, removes its roadmap link, and cites the SEP in the `CHANGELOG.md` line.
+move breaks, removes its roadmap link, and cites the SEP in its `changelog.d/`
+release-note fragment, collected by the [rolling release PR](../releasing.md#the-rolling-release-pr).
 
 A Final SEP is a historical record. It is not updated to follow later changes to the code;
 the manual and the design pages describe current behaviour. Only errata and a
@@ -282,17 +283,20 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
 
 ### Implementation rules
 
-- **Backends in order.** A feature is implemented first on `numpy_ref`, the oracle, with
-  its tests and its manual page; then on the native CPU build in `native/`. Device (GPU)
+- **Backends in either order** ([ADR-068](../decisions.md)). A feature is implemented on
+  `numpy_ref`, the oracle for numbers, and on the native CPU build in `native/`, each with
+  its tests, and the manual page with whichever lands first; `native` may shape the
+  contract. Device (GPU)
   qualification follows the standing policy of [backends.md](../backends.md), later and
-  in one pass. `numba_cpu` (Tier 2) and `mlx` (Tier 3) take the feature only where the
+  in one pass. `mlx` (Tier 3) takes the feature only where the
   SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.
   A SEP is Final only when the backends that run the feature agree within tolerances
   derived from summation bounds, as for every other feature ([testing.md](../testing.md)).
 - **The seam.** A change to the kernel problem, the stage bundles or the protected driver
-  surface bumps `KERNEL_SCHEMA_VERSION`, as `AGENTS.md` requires; the SEP says in which phase.
+  surface rewrites the frozen tables and adds a release-note fragment, as `AGENTS.md`
+  requires; the SEP says in which phase.
 - **Tests.** Unit, invariant, convergence and parity tests as [testing.md](../testing.md)
   sets out, against the analytic and independent references the SEP names; every
   tolerance justified in a comment.
@@ -336,7 +340,7 @@ assumption that had to be invented are all said plainly.
 | Design pages (`docs/dev/`) | How the code is built, as it is now |
 | [Issues](https://github.com/LupoLab/solprop/issues) | Planned work (ADR-062) |
 | [Roadmap](../roadmap.md) | Accepted and draft SEPs |
-| `CHANGELOG.md` | What changed in each release, citing the SEP |
+| `changelog.d/`, collected into `CHANGELOG.md` by the release PR | What changed in each release, citing the SEP |
 
 The theory of a SEP moves into the manual when it is implemented: the manual page carries
 the derivation in its current form, and the SEP remains the record of the proposal.
@@ -373,3 +377,6 @@ that edits this document and adds a line to its history.
   implementation starts, not when the SEP is set `Final`, so that CI can run during
   development and the work can be followed; it is marked ready at `Final` (maintainer's
   decision, already the practice on SEP 40 and SEP 41).
+- 2026-11-04: A SEP's branch stacks only on another agent's open pull request, and one agent's
+  work isn't divided across a stack, since every pull request and push runs CI's whole
+  matrix (maintainer's decision).

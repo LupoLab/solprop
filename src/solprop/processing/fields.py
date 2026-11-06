@@ -28,24 +28,34 @@ then includes the zero-frequency bin, where a wavelength is undefined.
 No window is ever applied implicitly. ``bandpass`` is a keyword, it is a wavelength
 range, and nothing happens without it.
 
+**A spatial file's columns are not modes.** :func:`get_power` and
+:func:`get_spectral_density` read each column of the mode axis as a modal amplitude in
+sqrt(W), so on a radial, Cartesian, line or planar file they refuse by name and name the
+functional of :mod:`solprop.spatial` that measures the quantity. :func:`get_spectrum`,
+:func:`get_field` and :func:`get_phase` return the stored columns as they are, in the
+file's own units, and read every file.
+
 **The noise floor.** A run with input shot noise saves a field that carries its seed,
 one photon per active bin and channel. ``noise_floor="subtract"`` on
 :func:`get_spectral_density` removes exactly that seed's energy, bin by bin and channel
 by channel, and returns the signed remainder (SEP 37, section 5.5).
 """
 
-from typing import Literal
+import math
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact
 
 from solprop import fourier
-from solprop.exceptions import ProcessingError
+from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
+from solprop.output.capability import capability_of
 from solprop.output.schema import Convention, Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
+    SPECTRAL_AXES,
     Band,
     ModeSelection,
     SpectralAxis,
@@ -54,23 +64,32 @@ from solprop.processing.axes import (
     _keep_index,
     _nearest_plane,
     _plane_field,
+    _refuse_by_basis,
     _squeeze,
     grid_of,
     spectral_axis,
 )
 
+if TYPE_CHECKING:
+    from scipy.signal import ShortTimeFFT
+
 __all__ = [
+    "DEFAULT_GATE_POSITIONS",
     "FIELD_KINDS",
     "NOISE_FLOORS",
     "FieldKind",
     "ModeSelection",
     "NoiseFloor",
+    "field_spectrogram",
     "get_field",
     "get_phase",
     "get_power",
     "get_spectral_density",
+    "get_spectrogram",
     "get_spectrum",
     "nearest_plane",
+    "real_field_oversampling",
+    "time_axis",
 ]
 
 FieldKind = Literal["analytic", "real", "envelope"]
@@ -84,6 +103,16 @@ NoiseFloor = Literal["keep", "subtract"]
 
 NOISE_FLOORS: tuple[NoiseFloor, ...] = ("keep", "subtract")
 """The saved density as it stands, and the density less the seed's energy."""
+
+DEFAULT_GATE_POSITIONS = 256
+"""How many gate positions a spectrogram uses when it is not told."""
+
+# A spectrogram's gate is a Gaussian of the stated full width at half maximum,
+# truncated where it has fallen to exp(-8) of its peak; beyond that it contributes
+# below any colour floor a map is drawn with.
+_GATE_SIGMAS = 4.0
+
+_FWHM_TO_SIGMA = 1.0 / (2.0 * np.sqrt(2.0 * np.log(2.0)))
 
 
 def nearest_plane(output: Output, z: float) -> int:
@@ -185,10 +214,20 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     if noise_floor != "keep":
+        metadata = output.metadata
+        spatial = metadata is not None and capability_of(metadata) == "spatial"
+        # get_spectral_density refuses a spatial file's columns, so it is no way
+        # forward there.
+        forward = (
+            "a spatial file has no reader of the floor-subtracted density, because "
+            "get_spectral_density would read its columns as modes"
+            if spatial
+            else "ask get_spectral_density for the floor-subtracted density"
+        )
         msg = (
             "noise_floor='subtract' removes a power, one photon per bin, and a "
-            "spectrum is an amplitude, whose modulus squared cannot be negative; ask "
-            "get_spectral_density for the floor-subtracted density"
+            f"spectrum is an amplitude, whose modulus squared cannot be negative; "
+            f"{forward}"
         )
         raise ProcessingError(msg)
     grid = grid_of(output)
@@ -268,6 +307,8 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
         If ``noise_floor`` is not one of :data:`NOISE_FLOORS`, or is ``'subtract'``
         for a run without input noise, or if ``spec_range`` selects no sample of the
         abscissa (a range in another axis's units, say).
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes.
 
     Examples
     --------
@@ -277,6 +318,74 @@ def get_spectral_density(  # noqa: PLR0913 - the abscissa and the smoothing on t
     >>> wavelength, density = get_spectral_density(example_output(), plane=0)
     >>> bool(np.all(np.diff(wavelength) > 0))
     True
+    """
+    _refuse_by_basis(output, "get_spectral_density")
+    return _spectral_density(
+        output,
+        axis,
+        plane=plane,
+        z=z,
+        modes=modes,
+        band=band,
+        spec_range=spec_range,
+        resolution=resolution,
+        noise_floor=noise_floor,
+    )
+
+
+def _spectral_density(  # noqa: PLR0913 - the keywords of get_spectral_density
+    output: Output,
+    axis: SpectralAxis = "wavelength",
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    band: Band = "active",
+    spec_range: tuple[float, float] | None = None,
+    resolution: float | None = None,
+    noise_floor: NoiseFloor = "keep",
+) -> tuple[Float[np.ndarray, " n_x"], Float[np.ndarray, "*shape n_x"]]:
+    """Return the density of every column, ungated, whatever the columns are.
+
+    The ungated per-column reading behind :func:`get_spectral_density`, for internal
+    callers that already know the basis is modal or handle a spatial file themselves:
+    a reader gated under its own name, or one that weights each column by its own
+    measure, as :func:`solprop.processing.mixtures.absorbed_spectral_energy` does. On
+    a spatial file each column's value is ``|E|^2`` in its own units, not a density in
+    J.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    axis : {'wavelength', 'f', 'omega'}
+        The abscissa, in m, Hz or rad/s.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which columns to return; ``'sum'`` adds their values.
+    band : {'active', 'all'}
+        Which part of the stored axis to use.
+    spec_range : tuple of float or None
+        Limits on the abscissa, in its own units.
+    resolution : float or None
+        Instrument resolution, in the units of the abscissa.
+    noise_floor : {'keep', 'subtract'}
+        Whether to remove the input noise's seed.
+
+    Returns
+    -------
+    x : numpy.ndarray
+        The abscissa, shape ``(n_x,)``, ascending.
+    density : numpy.ndarray
+        The value per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        As :func:`get_spectral_density`.
     """
     _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
     grid = grid_of(output)
@@ -501,6 +610,12 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     power : numpy.ndarray
         Instantaneous power, W, with trivial axes squeezed.
 
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored run is a spatial one, whose columns are not modal amplitudes:
+        :func:`solprop.spatial.spatial_power` of a saved plane is the beam's power.
+
     Examples
     --------
     >>> import numpy as np
@@ -509,6 +624,62 @@ def get_power(  # noqa: PLR0913 - a plane, a mode set, a window and an optical e
     >>> t, power = get_power(example_output(), plane=0)
     >>> bool(np.all(power >= 0.0))
     True
+    """
+    _refuse_by_basis(output, "get_power")
+    return _power(
+        output,
+        plane=plane,
+        z=z,
+        modes=modes,
+        oversampling=oversampling,
+        bandpass=bandpass,
+        transfer=transfer,
+        transform_limit=transform_limit,
+    )
+
+
+def _power(  # noqa: PLR0913 - the keywords of get_power
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    oversampling: int = 1,
+    bandpass: spectra.Bandpass | None = None,
+    transfer: TransferFunction | None = None,
+    transform_limit: bool = False,
+) -> tuple[Float[np.ndarray, " n_t"], Float[np.ndarray, "*shape n_t"]]:
+    """Return ``sum_pol |a(t)|^2`` of every column, ungated.
+
+    The per-column reading behind :func:`get_power`, without its refusal of a spatial
+    file: for an internal caller that has already been gated under its own name, or
+    that knows the basis is modal.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    plane : int or None
+        Index of the plane wanted, negative from the end.
+    z : float or None
+        Position of the plane wanted, m.
+    modes : int, sequence of int, 'sum' or None
+        Which columns to return; ``'sum'`` adds them.
+    oversampling : int
+        Factor by which to resample the time axis, at least 1.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied before the transform.
+    transfer : TransferFunction or None
+        An optics-convention element applied to the spectrum.
+    transform_limit : bool
+        Whether to discard the spectral phase first.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        Time axis, s.
+    power : numpy.ndarray
+        The squared modulus summed over polarisation, W on a modal file.
     """
     _, t, amplitude = _plane_amplitude(
         output,
@@ -643,6 +814,49 @@ def _fft_norm(grid: TimeGrid) -> float:
     return grid.dt / np.sqrt(2.0 * np.pi)
 
 
+def time_axis(grid: TimeGrid, oversampling: int = 1) -> Float[np.ndarray, " n_t"]:
+    """Return the times a reading resampled by zero-padding its spectrum lies on.
+
+    The grid's own ``t`` at ``oversampling = 1``; otherwise ``oversampling`` times as
+    many samples over the same window, centred on zero, coinciding with the grid's
+    every ``oversampling``-th. It is the axis of :func:`get_power` and
+    :func:`get_field`, and of :func:`solprop.spatial.spatial_power` and its kin, at
+    the same factor.
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+    oversampling : int, optional
+        The factor, at least 1.
+
+    Returns
+    -------
+    numpy.ndarray
+        The times, s.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If ``oversampling`` is below one.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.processing.fields import time_axis
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> fine = time_axis(grid, 4)
+    >>> fine.size == 4 * grid.n_t, bool(np.allclose(fine[::4], grid.t))
+    (True, True)
+    """
+    if oversampling < 1:
+        msg = f"oversampling must be at least 1, got {oversampling}"
+        raise ProcessingError(msg)
+    n_t = oversampling * grid.n_t
+    return (np.arange(n_t, dtype=float) - n_t / 2) * (grid.dt / oversampling)
+
+
 def _to_time(
     grid: TimeGrid,
     stored: Complex[np.ndarray, "*rest n_omega"],
@@ -703,13 +917,11 @@ def _to_time(
         )
     if transfer is not None:
         stored = stored * stored_factor(grid, transfer)
-    n_t = oversampling * grid.n_t
     if oversampling > 1:
-        stored = fourier.oversample(stored, n_t, kind=grid.kind)
+        stored = fourier.oversample(stored, oversampling * grid.n_t, kind=grid.kind)
     samples = fourier.inverse(stored, kind=grid.kind)
     amplitude = fourier.analytic_signal(samples) if grid.kind == "field" else samples
-    t = (np.arange(n_t, dtype=float) - n_t / 2) * (grid.dt / oversampling)
-    return t, amplitude
+    return time_axis(grid, oversampling), amplitude
 
 
 def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its spectrum
@@ -767,3 +979,267 @@ def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its sp
         transform_limit=transform_limit,
     )
     return grid, t, amplitude
+
+
+def get_spectrogram(  # noqa: PLR0913 - a plane, a mode, the gate and a window
+    output: Output,
+    axis: SpectralAxis = "f",
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    modes: ModeSelection = None,
+    time_range: tuple[float, float] | None = None,
+    gate_fwhm: float | None = None,
+    positions: int = DEFAULT_GATE_POSITIONS,
+    bandpass: spectra.Bandpass | None = None,
+    transfer: TransferFunction | None = None,
+) -> tuple[
+    Float[np.ndarray, " n_slices"],
+    Float[np.ndarray, " n_x"],
+    Float[np.ndarray, "n_x n_slices"],
+]:
+    """Return the time-frequency map of one saved plane.
+
+    The real field (:func:`get_field`) is gated by a Gaussian of the given full width
+    at half maximum and transformed at evenly spaced positions
+    (:class:`scipy.signal.ShortTimeFFT`), which trades time resolution against
+    frequency resolution in the usual way: a gate of duration ``tau`` resolves
+    frequencies no better than ``1/tau``. The map is ``abs(stft) ** 2``, in arbitrary
+    units, per unit of the abscissa asked for: the change of variable carries the
+    Jacobian of :func:`solprop.processing.axes.spectral_axis`, as
+    :func:`get_spectral_density` does, so a map on wavelength is a density per metre.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    axis : {'f', 'omega', 'wavelength'}
+        The spectral abscissa, in Hz, rad/s or m.
+    plane : int or None
+        Index of the plane, negative from the end; the last plane when neither it nor
+        ``z`` is given.
+    z : float or None
+        Position of the plane, m: the nearest saved plane.
+    modes : int, sequence of int, 'sum' or None
+        Which mode. A multimode run must name one: a spectrogram is of a field, and
+        modal fields do not add away from a point in space.
+    time_range : tuple of float or None
+        The time range the gate positions cover, s, in either order and clipped to
+        the time window; the whole window by default.
+    gate_fwhm : float or None
+        Width of the gate, s; a twentieth of the time range by default.
+    positions : int
+        How many gate positions to place across the time range.
+    bandpass : tuple of float, Passband, numpy.ndarray or None
+        A window applied to the spectrum before the transform, as :func:`get_field`
+        takes it: the map of the light in that band.
+    transfer : TransferFunction or None
+        A linear optical element of :mod:`solprop.optics` applied first, so that the
+        map is of the pulse after it.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        The gate positions within the time range, s, shape ``(n_slices,)``.
+    x : numpy.ndarray
+        The positive frequencies of the transform on ``axis``, ascending, shape
+        ``(n_x,)``.
+    values : numpy.ndarray
+        The map, shape ``(n_x, n_slices)``, arbitrary units per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ModeError
+        If a multimode run does not name a single mode.
+    solprop.exceptions.ProcessingError
+        If the time range misses the time window or selects no gate position, the
+        gate is not positive or is wider than the window, the number of positions is
+        not positive, or ``axis`` is unknown.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.processing._examples import example_output
+    >>> from solprop.processing.fields import get_spectrogram
+    >>> t, f, values = get_spectrogram(example_output(), positions=32)
+    >>> values.shape == (f.size, t.size), bool(np.all(np.diff(f) > 0))
+    (True, True)
+    """
+    _check_choice(axis, SPECTRAL_AXES, "axis")
+    if plane is None and z is None:
+        plane = -1
+    t, field = get_field(
+        output,
+        kind="real",
+        plane=plane,
+        z=z,
+        modes=modes,
+        oversampling=real_field_oversampling(grid_of(output)),
+        bandpass=bandpass,
+        transfer=transfer,
+    )
+    if field.ndim > 1:
+        msg = (
+            "a spectrogram is of one field: name a single mode, because modal fields "
+            f"do not add away from a point in space (this run has {field.shape[0]})"
+        )
+        raise ModeError(msg)
+    return field_spectrogram(
+        t,
+        field,
+        axis,
+        time_range=time_range,
+        gate_fwhm=gate_fwhm,
+        positions=positions,
+    )
+
+
+def real_field_oversampling(grid: TimeGrid) -> int:
+    """Return the oversampling a real field needs to resolve its carrier.
+
+    An envelope grid samples only the band about its carrier, so a narrow band's time
+    step can be too coarse for the carrier it took out, and its real field would alias.
+    A field grid resolves its own band by construction.
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        The grid.
+
+    Returns
+    -------
+    int
+        The factor, at least 1.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid
+    >>> wide = EnvelopeGrid.from_limits(0.1, 800e-9, (300e-9, 1600e-9), 200e-15)
+    >>> narrow = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1100e-9), 200e-15)
+    >>> real_field_oversampling(narrow) > real_field_oversampling(wide)
+    True
+    """
+    if grid.kind != "envelope":
+        return 1
+    return max(1, math.ceil(float(np.max(grid.omega)) * float(grid.dt) / math.pi))
+
+
+def field_spectrogram(
+    t: Float[np.ndarray, " n_t"],
+    field: Float[np.ndarray, " n_t"],
+    axis: SpectralAxis = "f",
+    *,
+    time_range: tuple[float, float] | None = None,
+    gate_fwhm: float | None = None,
+    positions: int = DEFAULT_GATE_POSITIONS,
+) -> tuple[
+    Float[np.ndarray, " n_slices"],
+    Float[np.ndarray, " n_x"],
+    Float[np.ndarray, "n_x n_slices"],
+]:
+    """Return the spectrogram of one real field already in hand.
+
+    What :func:`get_spectrogram` does once it has read a mode's field, for a field read
+    otherwise, such as the one on a beam's axis.
+
+    Parameters
+    ----------
+    t : numpy.ndarray
+        The field's times, s, evenly spaced.
+    field : numpy.ndarray
+        The real field.
+    axis : {'f', 'omega', 'wavelength'}
+        The spectral abscissa, in Hz, rad/s or m.
+    time_range : tuple of float or None
+        The time range the gate positions cover, s, in either order and clipped to
+        the time window; the whole window by default.
+    gate_fwhm : float or None
+        Width of the gate, s; a twentieth of the time range by default.
+    positions : int
+        How many gate positions to place across the time range.
+
+    Returns
+    -------
+    t : numpy.ndarray
+        The gate positions within the time range, s, shape ``(n_slices,)``.
+    x : numpy.ndarray
+        The positive frequencies of the transform on ``axis``, ascending, shape
+        ``(n_x,)``.
+    values : numpy.ndarray
+        The map, shape ``(n_x, n_slices)``, arbitrary units per unit of ``x``.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If the time range misses the time window or selects no gate position, the
+        gate is not positive or is wider than the window, or the number of positions
+        is not positive.
+    """
+    if positions < 1:
+        msg = f"a spectrogram needs at least one gate position, got {positions!r}"
+        raise ProcessingError(msg)
+    window = (float(t[0]), float(t[-1]))
+    low, high = window if time_range is None else time_range
+    low, high = min(low, high), max(low, high)
+    if high < window[0] or low > window[1]:
+        msg = (
+            f"the time range {time_range!r} holds no gate position: the window is "
+            f"{window[0]:.4g} s to {window[1]:.4g} s"
+        )
+        raise ProcessingError(msg)
+    low, high = max(low, window[0]), min(high, window[1])
+    span = high - low
+    width = span / 20.0 if gate_fwhm is None else gate_fwhm
+    if not 0.0 < width <= window[1] - window[0]:
+        msg = (
+            f"the gate's width must be positive and within the time window "
+            f"({window[1] - window[0]:.4g} s), got {width!r}"
+        )
+        raise ProcessingError(msg)
+    dt = float(t[1] - t[0])
+    transform = _gate_transform(dt, width, span, positions)
+    intensity = np.abs(transform.stft(field)) ** 2
+    times = t[0] + transform.t(field.size)
+    inside = (times >= low) & (times <= high)
+    if not inside.any():
+        msg = f"the time range {time_range!r} holds no gate position"
+        raise ProcessingError(msg)
+    frequency = transform.f
+    positive = frequency > 0.0
+    # |stft|^2 is per frequency bin, Hz: per rad/s it is that over 2 pi.
+    x, jacobian = spectral_axis(2.0 * np.pi * frequency[positive], axis)
+    values = intensity[positive][:, inside] * (jacobian / (2.0 * np.pi))[:, None]
+    order = np.argsort(x)
+    return times[inside], x[order], values[order]
+
+
+def _gate_transform(
+    dt: float, width: float, span: float, positions: int
+) -> "ShortTimeFFT":  # noqa: UP037 - the runtime type hook resolves this at import
+    """Return the short-time transform of a Gaussian gate of the given width.
+
+    Parameters
+    ----------
+    dt : float
+        Sample spacing of the field, s.
+    width : float
+        Full width at half maximum of the gate, s.
+    span : float
+        Time range the gate positions cover, s.
+    positions : int
+        How many positions to place across that range.
+
+    Returns
+    -------
+    scipy.signal.ShortTimeFFT
+        The transform, with its hop chosen to give about ``positions`` slices.
+    """
+    # scipy.signal takes half a second to import: only a spectrogram needs it.
+    from scipy.signal import ShortTimeFFT  # noqa: PLC0415
+    from scipy.signal.windows import gaussian  # noqa: PLC0415
+
+    sigma = width * _FWHM_TO_SIGMA
+    half = max(int(np.ceil(_GATE_SIGMAS * sigma / dt)), 1)
+    window = gaussian(2 * half + 1, sigma / dt)
+    hop = max(round(span / dt / max(positions, 1)), 1)
+    return ShortTimeFFT(window, hop=hop, fs=1.0 / dt, fft_mode="onesided")

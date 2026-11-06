@@ -4,16 +4,18 @@
 
 """The native Adams march stops where the Python march would (solprop SEP 39 7.5).
 
-A native call runs many attempts and returns at an event; whatever stops the run --
-a native failure at the startup sample, a trial or an accept, the floor, the budget, a
-signal during the call, a progress reporter's exception as the call's steps are
-recorded -- leaves the backend at the call's last accepted step, its state, position,
-history and ledger together, and a terminal checkpoint that a resume continues.
+A native call runs many attempts and returns at an event or its bound; whatever stops
+the run -- a native failure at the startup sample, a trial or an accept, the floor, the
+budget, a signal or a stop flag during the call, a progress reporter's exception as the
+call's steps are recorded -- leaves the backend at the call's last accepted step, its
+state, position, history and ledger together, and a terminal checkpoint that a resume
+continues.
 """
 
 import dataclasses
 import signal
-from typing import Any
+import threading
+from typing import Any, cast
 
 import pytest
 
@@ -22,8 +24,10 @@ from driver.test_resume import CrashError
 from driver.test_resume_history import RTOL, assert_accurate_run, soliton, tight_run
 from march_bounds import TIGHTER
 from solprop.backends import available
+from solprop.cli import main
 from solprop.exceptions import ConvergenceError, ResponseBudgetError, RunTerminated
-from solprop.output.hdf5 import resume
+from solprop.output.hdf5 import open_file, resume
+from solprop.recipe import Recipe
 from solprop.stepper.multistep import Multistep
 
 pytestmark = [
@@ -174,6 +178,160 @@ def test_sigterm_during_a_native_call_waits_for_its_commit(
     assert state.march.z == state.checkpoint.plane.z > seen[0]
 
 
+FORMS = {
+    "exponential": Multistep(),
+    "interaction": Multistep(formulation="interaction"),
+}
+"""The two forms of the native march."""
+
+needs_default_sigint = pytest.mark.skipif(
+    signal.getsignal(signal.SIGINT) is not signal.default_int_handler,
+    reason="something else handles SIGINT here",
+)
+
+
+ONE_PLANE_LENGTH = 0.2
+"""The one-plane run's length, m, with an N = 10 soliton: about a thousand steps."""
+
+
+def one_plane(build_simulation, form: str):
+    """Return an N = 10 soliton saved only at its end, with no boundary monitor: only a
+    native call's own bound returns the march to Python before the end of the run."""
+
+    def unmonitored():
+        simulation = build_simulation(
+            order=10,
+            length=ONE_PLANE_LENGTH,
+            n_save=2,
+            backend="native",
+            rtol=RTOL,
+            integrator=FORMS[form],
+        )
+        simulation.settings = dataclasses.replace(
+            simulation.settings, boundary_check=None
+        )
+        return simulation
+
+    return unmonitored
+
+
+def calling(monkeypatch, at_call: int, act) -> list[int]:
+    """Run `act` as native call number `at_call` begins; return each call's attempts."""
+    run = NativeAdamsMarch._native_run
+    attempts: list[int] = []
+
+    def counted(self, state, bounds):
+        if len(attempts) + 1 == at_call:
+            act()
+        result = run(self, state, bounds)
+        attempts.append(len(result["rows"]))
+        return result
+
+    monkeypatch.setattr(NativeAdamsMarch, "_native_run", counted)
+    return attempts
+
+
+def assert_stopped_at_its_call(part, attempts: list[int], at_call: int) -> None:
+    """Assert the run made no native call after `at_call`, and stopped at its end."""
+    assert len(attempts) == at_call
+    assert all(found <= NativeAdamsMarch.MAX_ATTEMPTS for found in attempts)
+    assert_consistent_stop(part)
+    with open_file(part) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "failed"
+        assert 0.0 < stored.outcome.z < ONE_PLANE_LENGTH
+        assert stored.n_saved == 1
+        taken = cast("int", stored.outcome.logical_calls["accepted_steps"])
+    assert taken <= sum(attempts)
+
+
+@pytest.mark.parametrize("form", FORMS)
+def test_a_flag_set_during_a_native_call_stops_the_march_as_it_returns(
+    build_simulation, tmp_path, monkeypatch, form
+):
+    flag = threading.Event()
+    attempts = calling(monkeypatch, 3, flag.set)
+    part = tmp_path / "part.h5"
+    one_plane(build_simulation, form)().run(part, progress="none", stop=flag)
+    assert_stopped_at_its_call(part, attempts, 3)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("form", FORMS)
+@pytest.mark.parametrize(
+    ("number", "raised"),
+    [
+        pytest.param(
+            signal.SIGTERM, RunTerminated, marks=needs_default_sigterm, id="sigterm"
+        ),
+        pytest.param(
+            signal.SIGINT, KeyboardInterrupt, marks=needs_default_sigint, id="sigint"
+        ),
+    ],
+)
+def test_a_signal_during_a_one_plane_march_stops_it_as_the_native_call_returns(
+    build_simulation, tmp_path, monkeypatch, form, number, raised
+):
+    # Python's handler runs when the call's bound brings the main thread back to the
+    # interpreter, so a signal needs no plane to reach the run.
+    build = one_plane(build_simulation, form)
+    part = tmp_path / "part.h5"
+    with monkeypatch.context() as patch:
+        attempts = calling(patch, 3, lambda: signal.raise_signal(number))
+        with pytest.raises(raised):
+            build().run(part, progress="none")
+    assert_stopped_at_its_call(part, attempts, 3)
+    build().run(part, resume=True, progress="none")
+    with open_file(part) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "complete"
+        assert stored.outcome.z == ONE_PLANE_LENGTH
+
+
+ONE_PLANE_RECIPE = f"""\
+[recipe]
+format = 1
+route = "gnlse"
+
+[build]
+gamma = 0.11
+length = "{ONE_PLANE_LENGTH} m"
+betas = [0, 0, "-0.01183 ps^2/m"]
+wavelength = "835 nm"
+wavelength_limits = ["500 nm", "2 um"]
+trange = "1 ps"
+width = "100 fs"
+peak_power = "1075 W"
+shape = "sech"
+n_save = 2
+noise = "none"
+backend = "native"
+integrator = {{type = "Multistep"}}
+"""
+"""The N = 10 soliton of :func:`one_plane`, as a recipe."""
+
+
+@needs_default_sigterm
+def test_the_command_line_stops_a_one_plane_march_on_its_first_signal(
+    tmp_path, monkeypatch, capsys
+):
+    # `solprop run` maps the signal onto the run's flag, so here the signal has nothing
+    # but the flag to reach the march by: unpolled, the run finished its plane.
+    recipe, part = tmp_path / "soliton.toml", tmp_path / "part.h5"
+    recipe.write_text(ONE_PLANE_RECIPE, encoding="utf-8")
+    with monkeypatch.context() as patch:
+        attempts = calling(patch, 3, lambda: signal.raise_signal(signal.SIGTERM))
+        status = main(["run", str(recipe), "-o", str(part), "--progress", "none"])
+    assert status == 128 + signal.SIGTERM
+    assert "solprop resume" in capsys.readouterr().err
+    assert_stopped_at_its_call(part, attempts, 3)
+    assert main(["resume", str(part), "--progress", "none"]) == 0
+    with open_file(part) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "complete"
+        assert stored.outcome.z == ONE_PLANE_LENGTH
+
+
 def two_marches(build, monkeypatch, run) -> dict[str, Any]:
     """Run `run(simulation)` on the native march and on the host one; return each
     march's outcome: the error's class and message, its position and its ledger."""
@@ -256,3 +414,27 @@ def test_both_marches_take_the_same_steps(build_simulation, tmp_path, monkeypatc
     )
     assert found["native"]["error"] is None
     assert_same_stop(found["native"], found["host"])
+
+
+@needs_default_sigterm
+def test_a_signal_too_late_to_stop_the_run_says_so(tmp_path, monkeypatch, capsys):
+    # A signal after the run's last poll stops nothing: the file is complete, so the
+    # command mustn't exit as stopped, or tell anyone to resume it.
+    recipe, output = tmp_path / "soliton.toml", tmp_path / "run.h5"
+    recipe.write_text(ONE_PLANE_RECIPE, encoding="utf-8")
+    run = Recipe.run
+
+    def signalled(self, *args, **kwargs):
+        result = run(self, *args, **kwargs)
+        signal.raise_signal(signal.SIGTERM)
+        return result
+
+    monkeypatch.setattr(Recipe, "run", signalled)
+    status = main(["run", str(recipe), "-o", str(output), "--progress", "none"])
+    assert status == 0
+    error = capsys.readouterr().err
+    assert "too late" in error
+    assert "solprop resume" not in error
+    with open_file(output) as stored:
+        assert stored.outcome is not None
+        assert stored.outcome.status == "complete"

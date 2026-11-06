@@ -29,7 +29,7 @@ calibration
 (:doc:`/guide/numerics/fixed-schedules`). Here a 30 fs line beam whose peak field is
 ``sqrt(2)`` times the soliton's, twice the soliton power, self-phase modulates over one
 diffraction length, and the weak band is the light
-it generates below 690 nm: three parts in ten thousand of the energy. The whole field
+it generates below 690 nm: two parts in ten thousand of the energy. The whole field
 converges twenty times faster than that band, so a norm scored on the field would call
 a schedule converged while the band is still wrong. A few seconds on ``numpy_ref``.
 
@@ -65,15 +65,18 @@ a schedule converged while the band is still wrong. A few seconds on ``numpy_ref
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 43-48
+.. GENERATED FROM PYTHON SOURCE LINES 43-51
 
 A ``sech(x/x0)`` line beam whose peak field is ``sqrt(2)`` times the (1+1)-D
 soliton's, ``A0**2 = 8/(3 k0**2 chi3 x0**2)``, at the peak of a 30 fs pulse: twice
 the soliton power ``P'``. It crosses one diffraction length ``k x0**2`` of vacuum
 with an absolute Kerr susceptibility (the line tutorial's beam, shorter and
 stronger). The temporal envelope has unit peak, so the field is stated directly.
+The line needs 128 samples: on 64 the self-focused beam reaches the grid's outer
+wavenumbers, the safety ramp's ledger stops the run (SEP 40), and the band would
+read half as large again.
 
-.. GENERATED FROM PYTHON SOURCE LINES 48-96
+.. GENERATED FROM PYTHON SOURCE LINES 51-99
 
 .. code-block:: Python
 
@@ -81,7 +84,7 @@ stronger). The temporal envelope has unit peak, so the field is stated directly.
     k0 = 2 * math.pi / wavelength
     amplitude = math.sqrt(2 * 8 / (3 * k0**2 * chi3 * x0**2))  # V/m
     length = k0 * x0**2
-    space = LineGrid(20 * x0, 64, window_factor=0)
+    space = LineGrid(20 * x0, 128, collar_fraction=0)
     grid = EnvelopeGrid.from_limits(
         length, wavelength, (600e-9, 1.1e-6), 400e-15, thg=False
     )
@@ -138,14 +141,14 @@ stronger). The temporal envelope has unit peak, so the field is stated directly.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 97-101
+.. GENERATED FROM PYTHON SOURCE LINES 100-104
 
 The parity floor: two computations of one schedule that differ by rounding alone
 measure how far down the band can be resolved at all. While ``numpy_ref`` is the one
 backend executing the march, its two flow treatments -- one tabulated half-step flow
 reused across steps, or the flow formed in every pass -- are those two computations.
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-108
+.. GENERATED FROM PYTHON SOURCE LINES 104-111
 
 .. code-block:: Python
 
@@ -164,18 +167,21 @@ reused across steps, or the flow formed in every pass -- are those two computati
 
  .. code-block:: none
 
-    band fraction 3.384e-04, parity floor 7.6e-19
+    BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    band fraction 2.123e-04, parity floor 6.8e-19
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 109-112
+.. GENERATED FROM PYTHON SOURCE LINES 112-115
 
 Three levels, 15, 30 and 60 steps: the observed order and the error the base schedule
 actually carries, extrapolated. ``order=4`` arms the gate that refuses an order above
 seven; ``requested`` is only quoted, since no adaptive run discovered this schedule.
 
-.. GENERATED FROM PYTHON SOURCE LINES 112-124
+.. GENERATED FROM PYTHON SOURCE LINES 115-127
 
 .. code-block:: Python
 
@@ -199,17 +205,18 @@ seven; ``requested`` is only quoted, since no adaptive run discovered this sched
 
  .. code-block:: none
 
-    observed order 3.81 against a stated order of 4; achieved error 1.17e-06 for a requested tolerance of 1.00e-06
+    BoundaryWarning: the fixed schedule's longest step, 1.309e-03 m, is longer than the transverse edge's read spacing, 1.227e-03 m: light could cross the edge unseen between two reads; the run is reported as coarse (SEP 40 section 5.3)
+    observed order 3.72 against a stated order of 4; achieved error 5.01e-07 for a requested tolerance of 1.00e-06
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 125-127
+.. GENERATED FROM PYTHON SOURCE LINES 128-130
 
 The whole field against the band, rung by rung: the field's relative change is what a
 norm scored on the whole state sees, and it is twenty times smaller than the band's.
 
-.. GENERATED FROM PYTHON SOURCE LINES 127-141
+.. GENERATED FROM PYTHON SOURCE LINES 130-144
 
 .. code-block:: Python
 
@@ -235,18 +242,18 @@ norm scored on the whole state sees, and it is twenty times smaller than the ban
 
  .. code-block:: none
 
-    15 -> 30 steps: field 1.7e-04, band 3.2e-03
-    30 -> 60 steps: field 1.2e-05, band 2.3e-04
+    15 -> 30 steps: field 1.1e-04, band 2.2e-03
+    30 -> 60 steps: field 7.9e-06, band 1.6e-04
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 142-144
+.. GENERATED FROM PYTHON SOURCE LINES 145-147
 
 Replay to a target: one part in a thousand of the band. The schedule is rescaled along
 the measured exponent, and the production run's band is compared with the finest rung.
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-152
+.. GENERATED FROM PYTHON SOURCE LINES 147-155
 
 .. code-block:: Python
 
@@ -266,16 +273,16 @@ the measured exponent, and the production run's band is compared with the finest
 
  .. code-block:: none
 
-    21 steps; band 3.392733e-04 against the finest rung's 3.395887e-04
+    19 steps; band 2.125587e-04 against the finest rung's 2.127628e-04
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 153-154
+.. GENERATED FROM PYTHON SOURCE LINES 156-157
 
 The final spectral energy, summed over the line, with the weak band shaded.
 
-.. GENERATED FROM PYTHON SOURCE LINES 154-168
+.. GENERATED FROM PYTHON SOURCE LINES 157-171
 
 .. code-block:: Python
 
@@ -305,7 +312,7 @@ The final spectral energy, summed over the line, with the weak band shaded.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 169-174
+.. GENERATED FROM PYTHON SOURCE LINES 172-177
 
 Related reading
 ---------------
@@ -316,7 +323,7 @@ describes calibration and replay.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 0.744 seconds)
+   **Total running time of the script:** (0 minutes 1.216 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_free_space_plot_05_low_storage.py:

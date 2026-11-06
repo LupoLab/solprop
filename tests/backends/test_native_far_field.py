@@ -4,26 +4,25 @@
 
 """native CPU's native far-field pass (SEP 23 section 6; section 7 items 3, 10, 11).
 
-The cases of ``test_numba_far_field_kernels.py`` on the native backend: the pass
-against ``numpy_ref``'s :func:`solprop.spatial.aperture_statistics` and against
-``numba_cpu``'s pass, on field and envelope grids, one and two polarisations, a plane
-and a line of three blocks, every profile and weighting; the ``W = 1`` identities;
-hard-edge membership at an edge; thread counts 1, 2 and 4 (one process each, since
-the runtime reads its thread count once); the native ledger against the estimate, to
-the byte; a run through the driver; and the refusals. Every comparison of two separate
-computations is held to the rounding bound of that module, fixed before measuring
-(SEP 25): the native pass sums each band's columns, and then the bands, in the
-``numba_cpu`` pass's order, but its compiler may contract and vectorise otherwise.
+The pass against ``numpy_ref``'s :func:`solprop.spatial.aperture_statistics`, on field
+and envelope grids, one and two polarisations, a plane and a line of three blocks,
+every profile and weighting; the ``W = 1`` identities; hard-edge membership at an edge;
+thread counts 1, 2 and 4 (one process each, since the runtime reads its thread count
+once); the native ledger against the estimate, to the byte; a run through the driver;
+and the refusals. Every comparison of two separate computations is held to the rounding
+bound of ``far_field_cases.py``, fixed before measuring (SEP 25): the native pass sums
+each band's columns and then the bands in an order fixed by the shapes, and its
+compiler may contract and vectorise as it likes.
 """
 
 import dataclasses
 from pathlib import Path
+from typing import Literal
 
 import numpy as np
 import pytest
 
-from backends.matched import native_thread_fields
-from backends.test_numba_far_field_kernels import (
+from backends.far_field_cases import (
     DISTANCE,
     FINE,
     WITH_AXIS,
@@ -32,23 +31,30 @@ from backends.test_numba_far_field_kernels import (
     fine_space,
     holes,
     magnitudes,
+    masks,
     random_field,
     reference,
     spec_of,
     time_grid,
 )
-from bounds import assert_within
+from backends.forced_threads import assert_threaded
+from backends.matched import native_thread_fields
+from bounds import assert_within, gamma
 from solprop.backends import select
-from solprop.backends.memory import estimate_memory, far_field_memory
-from solprop.backends.numba_cpu.spatial import FarFieldPass
-from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
-from solprop.boundaries import TransverseCollar, absorber
+from solprop.backends.spatial import far_field_partials
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.grid import FreeGrid, LineGrid
 from solprop.output import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import FAR_FIELD_STATISTICS, SpatialMedium, mask_plane_radius
+from solprop.spatial import (
+    FAR_FIELD_STATISTICS,
+    SpatialMedium,
+    aperture_outline,
+    mask_plane_offsets,
+    mask_plane_radius,
+)
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
 from solprop.translate.spatial import aperture_tables
@@ -58,9 +64,21 @@ NativeBackend = solprop_native.NativeBackend
 
 PROBE = Path(__file__).with_name("native_far_field_thread_probe.py")
 
+NATIVE_CONSTANTS = 11
+"""The constants before an aperture row's scale row (``far_field.hpp``)."""
 
-def problem_of(grid, space, field, spec, *, medium=None, collar=None):
-    """The kernel problem of ``test_numba_far_field_kernels.problem_of`` for Kokkos."""
+
+def problem_of(  # noqa: PLR0913 - one state and what it is measured under
+    grid,
+    space,
+    field,
+    spec,
+    *,
+    medium=None,
+    collar: SpatialAbsorber | Literal[False] = False,
+    boundary=None,
+):
+    """The kernel problem of one state and its statistics, for Kokkos."""
     simulation = Simulation.from_free(
         grid,
         space,
@@ -72,11 +90,11 @@ def problem_of(grid, space, field, spec, *, medium=None, collar=None):
             save_planes=[1e-4],
             dz_max=1e-4,
             dz_init=1e-4,
-            absorber=absorber(grid, temporal=False),
+            absorber=absorber(grid, temporal=False) if boundary is None else boundary,
             backend="native",
             integrator=RungeKutta(),
             stats=spec,
-            transverse_absorber=collar,
+            spatial_absorber=collar,
         ),
         noise=None,
     )
@@ -113,7 +131,11 @@ def case(kind, n_pol, profile, weighting):
     spec = spec_of(holes(profile, weighting, size=FINE))
     field = random_field(space, n_pol, grid)
     problem = problem_of(
-        grid, space, field, spec, collar=TransverseCollar(4e3, fraction=0.5)
+        grid,
+        space,
+        field,
+        spec,
+        collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
     )
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     return grid, problem, field, tables
@@ -127,11 +149,17 @@ CASES = {
 }
 
 
-# ------------------------------------------------------- item 10: three backends
+# ------------------------------------------------------- item 10: the reference
+
+
+def require_device():
+    """Skip a test that restates a CPU test on a device, without one."""
+    if solprop_native.build_info().device_backend == "none":
+        pytest.skip("the installed solprop-native build has no accelerator backend")
 
 
 @pytest.mark.parametrize("name", list(CASES))
-def test_the_native_pass_matches_the_reference_and_numba_cpu(name):
+def test_the_native_pass_matches_the_reference(name):
     grid, problem, field, tables = case(*CASES[name])
     values, field = native_stats(problem, grid, field, WITH_AXIS)
     assert set(values) == set(WITH_AXIS)
@@ -139,17 +167,6 @@ def test_the_native_pass_matches_the_reference_and_numba_cpu(name):
     assert_matches(
         values, reference(WITH_AXIS, grid, problem, field, tables), absolute, problem
     )
-    # numba_cpu's pass is within the same bound of the exact sums, so the two are
-    # within twice it of each other.
-    numba, _ = FarFieldPass(problem, parallel=False)(WITH_AXIS, grid, field, tables)
-    for one in WITH_AXIS:
-        assert_within(
-            values[one],
-            numba[one],
-            2 * bound_for(absolute, problem, one),
-            elementwise=True,
-            what=one,
-        )
     # Every channel but the evanescent one is live on this fixture (an evanescent
     # column carries no axial flux, SEP 34), and every aperture collects.
     assert np.all(values["absorbed_power"][[0, 1, 3]] > 0)
@@ -157,9 +174,113 @@ def test_the_native_pass_matches_the_reference_and_numba_cpu(name):
     assert np.all(np.max(values["aperture_spectrum"], axis=1) > 0)
 
 
+@pytest.mark.gpu
+@pytest.mark.parametrize("name", list(CASES))
+def test_a_device_pass_matches_the_reference(name):
+    require_device()
+    test_the_native_pass_matches_the_reference(name)
+
+
+SHAPE_CASES = {
+    "envelope hard": ("envelope", 1, "hard", "amplitude"),
+    "envelope tanh": ("envelope", 2, "tanh", "amplitude"),
+    "envelope tanh quadrature": ("envelope", 1, "tanh", "quadrature"),
+    "envelope rcos": ("envelope", 1, "rcos", "amplitude"),
+    "envelope rcos quadrature": ("envelope", 2, "rcos", "quadrature"),
+    "field hard": ("field", 2, "hard", "amplitude"),
+    "field rcos": ("field", 1, "rcos", "amplitude"),
+    "envelope supergauss holes": ("envelope", 1, "supergauss", "amplitude"),
+    "field supergauss holes": ("field", 2, "supergauss", "amplitude"),
+}
+"""Each row takes the profile; a half-plane beside supergauss rows stays hard."""
+
+
+def shape_case(kind, n_pol, profile, weighting):
+    """One parity case of the shaped rows: its grid, problem, field and tables."""
+    grid = time_grid(kind)
+    space = fine_space()
+    spec = spec_of(masks(profile, weighting))
+    field = random_field(space, n_pol, grid)
+    problem = problem_of(
+        grid,
+        space,
+        field,
+        spec,
+        collar=SpatialAbsorber(real_space=False, safety_fraction=0.5),
+    )
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    return grid, problem, field, tables
+
+
+@pytest.mark.parametrize("name", list(SHAPE_CASES))
+def test_the_native_pass_matches_the_reference_on_every_shape(name):
+    grid, problem, field, tables = shape_case(*SHAPE_CASES[name])
+    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    # A rectangle's weight is two transcendentals, so twice the weight's error.
+    assert_matches(
+        values,
+        reference(WITH_AXIS, grid, problem, field, tables),
+        magnitudes(WITH_AXIS, grid, problem, field, tables),
+        problem,
+        factor=2,
+    )
+    assert np.all(np.max(values["aperture_spectrum"], axis=1) > 0)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("name", list(SHAPE_CASES))
+def test_a_device_pass_matches_the_reference_on_every_shape(name):
+    require_device()
+    test_the_native_pass_matches_the_reference_on_every_shape(name)
+
+
+def test_the_native_shapes_sum_each_half_plane_and_its_complement_to_the_beam():
+    # A hard half-plane and its complement tile the columns the map reaches, in vacuum
+    # the whole beam, within the two rows' rounding (each sums a part of the terms).
+    grid = time_grid("envelope")
+    space = fine_space()
+    spec = spec_of(masks("hard"), ("aperture_spectrum", "beam_spectrum"))
+    field = random_field(space, 1, grid)
+    problem = problem_of(grid, space, field, spec, medium=SpatialMedium(1.0))
+    values, _ = native_stats(problem, grid, field, spec.names)
+    beam = values["beam_spectrum"]
+    bound = 2 * gamma(8 * space.n_columns + 64) * beam
+    for first in (0, 2):
+        spectra = values["aperture_spectrum"][first : first + 2]
+        assert np.all(np.max(spectra, axis=1) > 0)
+        assert_within(np.sum(spectra, axis=0), beam, bound, elementwise=True)
+
+
+def test_the_native_pass_matches_the_reference_on_a_line_of_shapes():
+    grid = time_grid("envelope")
+    space = LineGrid(8e-3, 130, collar_fraction=0)  # three blocks of columns
+    apertures = ApertureSet(
+        centres=[[6e-5, 0.0], [6e-5, 0.0], [2e-5, 0.0], [-1e-4, 0.0]],
+        diameters=[0.0, 0.0, 0.0, 3e-4],
+        distances=[DISTANCE] * 4,
+        edges=[1e-5, 1e-5, 1e-5, 2e-5],
+        shapes=("half_plane_x_ge", "half_plane_x_lt", "rectangle", "circle"),
+        extents=[[0.0, 0.0], [0.0, 0.0], [1.6e-4, 1.6e-4], [0.0, 0.0]],
+        profile="rcos",
+        weighting="quadrature",
+    )
+    regions = np.array([[-np.inf, 0.0, -1.0, 1.0], [0.0, 2e4, -np.inf, np.inf]])
+    spec = spec_of(apertures, regions=regions)
+    field = random_field(space, 1, grid, seed=11)
+    problem = problem_of(grid, space, field, spec)
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    values, field = native_stats(problem, grid, field, WITH_AXIS)
+    assert_matches(
+        values,
+        reference(WITH_AXIS, grid, problem, field, tables),
+        magnitudes(WITH_AXIS, grid, problem, field, tables),
+        problem,
+    )
+
+
 def test_the_native_pass_matches_the_reference_on_a_line():
     grid = time_grid("envelope")
-    space = LineGrid(4e-4, 130, window_factor=0)  # three blocks of columns
+    space = LineGrid(4e-4, 130, collar_fraction=0)  # three blocks of columns
     apertures = ApertureSet(
         centres=[[0.0, 0.0], [1.2e-3, 0.0]],
         diameters=[1e-3, 6e-4],
@@ -185,7 +306,7 @@ def test_the_native_pass_matches_the_reference_on_a_line():
 
 def test_the_native_operator_slots_follow_gain_and_zero_frequency():
     grid = time_grid("field")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     spec = spec_of(holes("hard"))
     field = random_field(space, 1, grid)
     field[..., 0] = 1e3  # content at zero frequency
@@ -233,7 +354,7 @@ def test_a_partial_native_request_packs_only_its_statistics():
 
 def test_a_native_hole_enclosing_every_image_is_the_beam_and_the_axis():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 12, collar_fraction=0)
     k_max = np.hypot(np.max(np.abs(space.k_x)), np.max(np.abs(space.k_y)))
     reach = DISTANCE * 299792458.0 * k_max / float(np.min(grid.omega))
     apertures = ApertureSet(
@@ -263,9 +384,15 @@ def test_a_native_hole_enclosing_every_image_is_the_beam_and_the_axis():
     )
 
 
+@pytest.mark.gpu
+def test_a_column_at_a_hard_edge_is_decided_on_a_device_as_the_reference_decides():
+    require_device()
+    test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides()
+
+
 def test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 3e-4, 10, window_factor=0)
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
     column, bin_ = 29, grid.n_omega // 2
     tables = aperture_tables(
         spec_of(holes("hard"), ("aperture_spectrum",)), grid, space
@@ -294,8 +421,137 @@ def test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides():
         problem = problem_of(grid, space, field, spec)
         values, field = native_stats(problem, grid, field, spec.names)
         inside = diameter / 2 >= radius
-        # Structural: the membership is exact, so the one term is in or out.
+        # Structural: the membership is exact, so the one term is in both or neither.
         assert (values["aperture_spectrum"][0, bin_] > 0) == inside
+        tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+        expected = reference(spec.names, grid, problem, field, tables)
+        assert (expected["aperture_spectrum"][0, bin_] > 0) == inside
+
+
+def edge_rows(shape, rng, across, along):
+    """Rows of one shape that put one column on its hard edge and a float either side.
+
+    The circle's diameter and the half-plane's position are placed exactly. An
+    ellipse's edge has no closed form in floats, so its height is bisected to the two
+    adjacent values between which the reference's decision flips.
+    """
+    if shape == "circle":
+        radius = float(np.sqrt(across * across + along * along))
+        twice = 2 * radius
+        return [
+            {"diameter": value}
+            for value in (twice, np.nextafter(twice, 0), np.nextafter(twice, np.inf))
+        ]
+    if shape == "half_plane_x_ge":
+        # across = s k + X, so the edge is at X = -(s k), where the sum is exactly zero.
+        edge = -across
+        return [
+            {"position": value}
+            for value in (edge, np.nextafter(edge, -np.inf), np.nextafter(edge, np.inf))
+        ]
+    width = float(rng.uniform(3.0, 6.0)) * max(abs(across), 1e-5)
+
+    def inside(height):
+        outline = aperture_outline("ellipse", 0.0, (width, height), 0.0, "hard")
+        return outline.weight(np.array([across]), np.array([along]))[0] > 0
+
+    low, high = 1e-9, 1.0
+    assert not inside(low)
+    assert inside(high)
+    while True:
+        middle = 0.5 * (low + high)
+        if middle in (low, high):
+            break
+        if inside(middle):
+            high = middle
+        else:
+            low = middle
+    return [{"width": width, "height": value} for value in (low, high)]
+
+
+def decide_edges(seed, shape):
+    """Compare native's decisions at columns on a shape's edge with the reference's.
+
+    One lit sample per frequency bin, so a row's spectrum at that bin is that column's
+    alone, in the row or out of it.
+    """
+    rng = np.random.default_rng(seed)
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
+    tables = aperture_tables(
+        spec_of(holes("hard"), ("aperture_spectrum",)), grid, space
+    )
+    assert tables is not None
+    field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+    # An inactive bin is masked at the load, so it would decide nothing.
+    active = np.flatnonzero(grid.active_mask & (grid.omega > 0))
+    bins = rng.choice(active, size=5, replace=False)
+    rows = []
+    for bin_ in bins:
+        column = int(rng.integers(space.n_columns))
+        field[column, 0, bin_] = 1e3
+        centre = rng.uniform(-3e-4, 3e-4, 2)
+        if shape == "half_plane_x_ge":
+            centre[1] = 0.0
+        across, along = mask_plane_offsets(
+            tables.scale[0, bin_ : bin_ + 1],
+            tables.k_x[column % space.n_x : column % space.n_x + 1],
+            tables.k_y[column // space.n_x : column // space.n_x + 1],
+            (0.0, centre[1]) if shape == "half_plane_x_ge" else centre,
+        )
+        offsets = float(across[0, 0]), float(along[0, 0])
+        rows += [(int(bin_), centre, row) for row in edge_rows(shape, rng, *offsets)]
+    apertures = ApertureSet(
+        centres=[
+            [row.get("position", centre[0]), centre[1]] for _, centre, row in rows
+        ],
+        diameters=[row.get("diameter", 0.0) for _, _, row in rows],
+        distances=[DISTANCE] * len(rows),
+        shapes=(shape,) * len(rows),
+        extents=None
+        if shape != "ellipse"
+        else [[row["width"], row["height"]] for _, _, row in rows],
+    )
+    spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
+    problem = problem_of(grid, space, field, spec)
+    values, field = native_stats(problem, grid, field, spec.names)
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    expected = reference(spec.names, grid, problem, field, tables)
+    decided = [
+        (
+            bool(values["aperture_spectrum"][index, bin_] > 0),
+            bool(expected["aperture_spectrum"][index, bin_] > 0),
+        )
+        for index, (bin_, _, _) in enumerate(rows)
+    ]
+    # Each of the five targets' rows straddle its edge, so each gives both answers.
+    for start in range(0, len(decided), len(decided) // 5):
+        target = decided[start : start + len(decided) // 5]
+        assert {theirs for _, theirs in target} == {True, False}
+    assert [ours for ours, _ in decided] == [theirs for _, theirs in decided]
+
+
+EDGE_SHAPES = ("circle", "half_plane_x_ge", "ellipse")
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("shape", EDGE_SHAPES)
+def test_columns_on_a_shape_s_edge_decide_natively_as_the_reference_decides(
+    shape, seed
+):
+    decide_edges(seed, shape)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("seed", range(40))
+@pytest.mark.parametrize("shape", EDGE_SHAPES)
+def test_columns_on_a_shape_s_edge_decide_on_a_device_as_the_reference_decides(
+    shape, seed
+):
+    # solprop #504: a fused product and sum on HIP once moved 16 of 588 such decisions,
+    # and this fuzz is what would catch that coming back.
+    require_device()
+    decide_edges(seed, shape)
 
 
 # ------------------------------------------------ item 11: thread counts, bands
@@ -322,6 +578,7 @@ def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
         for threads in (1, 2, 4)
     }
     for threads in (2, 4):
+        assert_threaded(results[threads]["sizing"], threads, "kernels.stage")
         # The bands and every sum's order are fixed by the shapes: within the
         # rounding bound (not asserted to the bit).
         assert_matches(results[threads], results[1], absolute, problem)
@@ -333,64 +590,54 @@ def test_the_native_pass_does_not_depend_on_the_thread_count(tmp_path):
     )
 
 
-def test_the_native_partials_are_held_and_estimated_to_the_byte():
+def test_the_native_partials_are_held_to_the_byte():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     spec = spec_of(holes("tanh"), WITH_AXIS)
     field = random_field(space, 2, grid)
     problem = problem_of(grid, space, field, spec)
     n_slots, n_bands = far_field_partials(problem)
-    rows = far_field_memory(problem, "native")
-    assert rows == {"far_field_partials": 8 * n_bands * n_slots * grid.n_omega}
+    partials = 8 * n_bands * n_slots * grid.n_omega
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()
-        assert ledger["far_field_partials"] == rows["far_field_partials"]
+        assert ledger["far_field_partials"] == partials
         # The axes, then the tables and packed output once a call has run.
         assert ledger["far_field_tables"] == 8 * (space.n_x + space.n_y)
         owner.set_initial(problem.initial.field0, None)
         owner.stats(problem.stats_spec)
         # Three apertures' rows and four boxes; twelve spectral rows (the beam, four
-        # regions, three collected, three through the holes, the axis) and the four
+        # regions, three collected, three through the holes, the axis) and the five
         # absorbed powers.
-        tables = 3 * (6 + grid.n_omega) + 4 * 4
-        packed = 12 * grid.n_omega + 4
+        tables = 3 * (NATIVE_CONSTANTS + grid.n_omega) + 4 * 4
+        packed = 12 * grid.n_omega + 5
         ledger = owner.memory_ledger()
         assert ledger["far_field_tables"] == 8 * (
             space.n_x + space.n_y + tables + packed
         )
-        assert ledger["far_field_partials"] == rows["far_field_partials"]
+        assert ledger["far_field_partials"] == partials
     finally:
         owner.close()
-    assert (
-        estimate_memory(problem, "native").groups["base"]
-        == estimate_memory(problem, "numpy_ref").groups["base"]
-        + rows["far_field_partials"]
-    )
 
 
-def test_on_axis_intensity_takes_no_native_slot():
-    # Kokkos forms on_axis_intensity in its own spatial pass, so its partials, and the
-    # estimate's row, leave the W = 1 slot out; numba_cpu's pass reads that slot.
+def test_on_axis_intensity_reads_the_native_axis_slots():
+    # Its spectra are the W = 1 slot's, so its partials hold them.
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 12, 2.5e-4, 10, window_factor=0.1)
+    space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
     spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
     problem = problem_of(grid, space, field, spec)
-    n_slots, n_bands = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
-    assert n_slots == 1
-    # The axis amplitude and its closure, 4 n_pol slots.
-    assert far_field_partials(problem)[0] == 1 + 4 * 2
-    rows = far_field_memory(problem, "native")
-    assert rows == {"far_field_partials": 8 * n_bands * grid.n_omega}
-    assert far_field_memory(problem, "numba_cpu") == {
-        "statistics_partials": 8 * (n_bands + 1) * 9 * grid.n_omega
-    }
+    # The beam, then the axis amplitude and its closure, 4 n_pol slots.
+    n_slots, n_bands = far_field_partials(problem)
+    assert n_slots == 1 + 4 * 2
     owner = select("native", problem, grid=grid)
     try:
+        # Held from construction: no statistic allocates them.
+        held = owner.memory_ledger()["far_field_partials"]
+        assert held == 8 * n_bands * n_slots * grid.n_omega
         owner.set_initial(problem.initial.field0, None)
         values = owner.stats(problem.stats_spec)
-        assert owner.memory_ledger()["far_field_partials"] == rows["far_field_partials"]
+        assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
     assert values["on_axis_intensity"].shape == (1,)
@@ -413,13 +660,56 @@ def test_declared_apertures_leave_a_request_without_them_unchanged():
     )
 
 
+@pytest.mark.parametrize("kind", ["envelope", "field"])
+def test_the_native_custom_channel_is_the_reference_s(kind):
+    grid = time_grid(kind)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
+    collar = absorber(grid, temporal=False)
+    boundary = custom_absorber(
+        grid, lambda omega: 1e3 * (omega > grid.omega0), collar=collar
+    )
+    names = ("absorbed_power",)
+    spec = StatsSpec(names=names)
+    field = random_field(space, 1, grid)
+    problem = problem_of(grid, space, field, spec, boundary=boundary)
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    values, field = native_stats(problem, grid, field, names)
+    assert values["absorbed_power"].shape == (5,)
+    assert values["absorbed_power"][0] > 0 and values["absorbed_power"][4] > 0
+    assert_matches(
+        values,
+        reference(names, grid, problem, field, tables),
+        magnitudes(names, grid, problem, field, tables),
+        problem,
+        names,
+    )
+
+
+def test_the_on_axis_spectrum_alone_reads_no_tables():
+    # The W = 1 slot needs no aperture or region table: an empty payload crosses.
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
+    names = ("on_axis_spectrum",)
+    spec = StatsSpec(names=names)
+    field = random_field(space, 1, grid)
+    problem = problem_of(grid, space, field, spec)
+    tables = aperture_tables(spec_of(holes("hard")), grid, space)
+    values, field = native_stats(problem, grid, field, names)
+    assert_matches(
+        values,
+        reference(names, grid, problem, field, tables),
+        magnitudes(names, grid, problem, field, tables),
+        problem,
+        names,
+    )
+
+
 def test_a_native_request_beyond_the_held_partials_grows_them():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     bare = problem_of(grid, space, field, StatsSpec(names=("energy",)))
     assert far_field_partials(bare) == (0, 0)
-    assert far_field_memory(bare, "native") == {}
     owner = NativeBackend(bare, grid=grid)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0
@@ -445,7 +735,7 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
 
 def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 16, 3e-4, 16, window_factor=0.1)
+    space = FreeGrid(3e-4, 16, 3e-4, 16, collar_fraction=0.1)
     launch = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 6e-5
     ).build(grid, space, medium=SpatialMedium(1 + 1e-6j))
@@ -470,26 +760,30 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
                 backend=backend,
                 integrator=RungeKutta(),
                 stats=spec,
+                # The launch puts 5e-5 into the safety ramp's band, which warns
+                # (SEP 40 section 5.3); the subject is the statistics' placement.
+                spatial_absorber=False,
+                boundary_check=None,
             ),
             noise=None,
         )
 
     outputs = {
         backend: simulation_on(backend).run(MemoryOutput())
-        for backend in ("native", "numba_cpu")
+        for backend in ("native", "numpy_ref")
     }
-    native, numba = outputs["native"], outputs["numba_cpu"]
+    native, oracle = outputs["native"], outputs["numpy_ref"]
     simulation = simulation_on("native")
     # The entrance plane and two saved planes.
     assert native["stats/aperture_spectrum"].shape == (3, 3, grid.n_omega)
     assert native["stats/region_spectrum"].shape == (3, 4, grid.n_omega)
-    assert native["stats/absorbed_power"].shape == (3, 4)
+    assert native["stats/absorbed_power"].shape == (3, 5)
     # The periodic channel's rows, one per accepted step on each backend.
     rows = np.asarray(native["step_stats/absorbed_power"])
-    assert rows.shape[1:] == (4,)
+    assert rows.shape[1:] == (5,)
     np.testing.assert_allclose(
         rows,
-        np.asarray(numba["step_stats/absorbed_power"]),
+        np.asarray(oracle["step_stats/absorbed_power"]),
         atol=1e-9 * float(np.max(np.abs(rows))),
     )
     # The entrance plane: one state, two passes, within the rounding bound of its
@@ -501,7 +795,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     for name in WITH_AXIS:
         assert_within(
             native[f"stats/{name}"][0],
-            numba[f"stats/{name}"][0],
+            oracle[f"stats/{name}"][0],
             2 * bound_for(absolute, problem, name),
             elementwise=True,
             what=name,
@@ -509,38 +803,38 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     # Two steps later the backends' fields differ by their steps' rounding, far
     # below the controller's tolerance: the statistics within 1e-9 of their scale.
     for name in WITH_AXIS:
-        scale = float(np.max(np.abs(numba[f"stats/{name}"][-1])))
+        scale = float(np.max(np.abs(oracle[f"stats/{name}"][-1])))
         np.testing.assert_allclose(
-            native[f"stats/{name}"][-1], numba[f"stats/{name}"][-1], atol=1e-9 * scale
+            native[f"stats/{name}"][-1], oracle[f"stats/{name}"][-1], atol=1e-9 * scale
         )
 
 
 def test_the_native_refusals_name_what_is_missing():
     grid = time_grid("envelope")
-    space = FreeGrid(3e-4, 8, 3e-4, 8, window_factor=0)
+    space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
     problem = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, grid=grid)
     try:
         owner.set_initial(np.ascontiguousarray(field[None]), None)
         native = owner._native_state
-        apertures = np.zeros((1, 6 + grid.n_omega))
+        apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
+        unknown = apertures.copy()
+        unknown[0, 8] = 7.0  # a profile code past supergauss
         regions = np.empty((0, 4))
         with pytest.raises(ValueError, match="flags"):
-            native.aperture_statistics(16, apertures, 0, 2, regions, 1.0)
+            native.aperture_statistics(16, apertures, 2, regions, 1.0)
         with pytest.raises(ValueError, match="profile"):
-            native.aperture_statistics(512, apertures, 7, 2, regions, 1.0)
+            native.aperture_statistics(512, unknown, 2, regions, 1.0)
         with pytest.raises(ValueError, match="rows"):
-            native.aperture_statistics(512, apertures[:, :-1], 0, 2, regions, 1.0)
+            native.aperture_statistics(512, apertures[:, :-1], 2, regions, 1.0)
         with pytest.raises(ValueError, match="regions"):
-            native.aperture_statistics(256, apertures, 0, 2, np.empty((1, 3)), 1.0)
+            native.aperture_statistics(256, apertures, 2, np.empty((1, 3)), 1.0)
         with pytest.raises(ValueError, match="NaN"):
-            native.aperture_statistics(
-                256, apertures, 0, 2, np.full((1, 4), np.nan), 1.0
-            )
+            native.aperture_statistics(256, apertures, 2, np.full((1, 4), np.nan), 1.0)
         with pytest.raises(TypeError):
             native.aperture_statistics(
-                512, apertures.astype(np.float32), 0, 2, regions, 1.0
+                512, apertures.astype(np.float32), 2, regions, 1.0
             )
         # The far-field statistics without tables formed for them.
         with pytest.raises(BackendError, match="tables"):

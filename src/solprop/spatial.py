@@ -25,6 +25,7 @@ from jaxtyping import Complex, Float
 from numpy.typing import ArrayLike
 
 from solprop import fourier
+from solprop._process import parallel_rows
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
 from solprop.exceptions import GridError, MaterialError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -43,17 +44,21 @@ if TYPE_CHECKING:
 __all__ = [
     "ABSORBED_CHANNELS",
     "APERTURE_PROFILES",
+    "APERTURE_SHAPES",
     "EDGE_MOMENTS",
     "EVANESCENT_RATE",
     "FAR_FIELD_STATISTICS",
     "OPERATOR_STATISTICS",
+    "ApertureOutline",
     "ApertureProfile",
+    "ApertureShape",
     "ApertureTables",
     "AxialFactors",
     "FluxSide",
     "SpatialDispersion",
     "SpatialFlux",
     "SpatialMedium",
+    "aperture_outline",
     "aperture_profile",
     "aperture_scale",
     "aperture_statistics",
@@ -61,11 +66,18 @@ __all__ = [
     "beam_radius",
     "cartesian_fluence_widths",
     "check_aperture_profile",
+    "check_aperture_shape",
+    "column_spectrum",
     "critical_power",
+    "edge_profile",
     "fwhm_r",
+    "mask_plane_offsets",
     "mask_plane_radius",
+    "node_spectrum",
+    "on_axis_field",
     "on_axis_intensity",
     "on_axis_spectrum",
+    "on_axis_trace",
     "peak_field",
     "physical_evanescent_rate",
     "planar_fluence",
@@ -76,6 +88,7 @@ __all__ = [
     "quadrature_half_width",
     "radial_fluence_widths",
     "spatial_energy",
+    "spatial_energy_spectrum",
     "spatial_fluence",
     "spatial_intensity",
     "spatial_power",
@@ -511,19 +524,7 @@ class SpatialDispersion:
             Inactive material bins are zero. No spatial-frequency table is built.
         """
         square, low = self.material_squares(z)
-        x_squared = [Fraction(float(value)) ** 2 for value in space.k_x]
-        y_squared = [Fraction(float(value)) ** 2 for value in space.k_y]
-        transverse_low = np.array(
-            [
-                float(x + y - Fraction(float(high)))
-                for (x, y), high in zip(
-                    ((x, y) for y in y_squared for x in x_squared),
-                    space.kperp_sq,
-                    strict=True,
-                )
-            ]
-        )
-        return square, low, transverse_low
+        return square, low, _transverse_residual(space)
 
     def material_squares(
         self, z: float = 0.0
@@ -711,7 +712,9 @@ def _check_field(
         raise GridError(msg)
 
 
-def _analytic(grid: TimeGrid, spectrum: np.ndarray) -> np.ndarray:
+def _analytic(
+    grid: TimeGrid, spectrum: np.ndarray, oversampling: int = 1
+) -> np.ndarray:
     """Reconstruct the analytic field with the common temporal FFT convention.
 
     Parameters
@@ -720,14 +723,39 @@ def _analytic(grid: TimeGrid, spectrum: np.ndarray) -> np.ndarray:
         Temporal transform layout and sampling.
     spectrum : numpy.ndarray
         Internal temporal spectrum with frequency on the final axis.
+    oversampling : int, optional
+        Factor by which to resample the time axis by zero-padding the spectrum, at
+        least 1; the samples then lie on
+        :func:`solprop.processing.fields.time_axis` of the grid.
 
     Returns
     -------
     numpy.ndarray
         Complex analytic samples with time on the final axis.
     """
+    _check_oversampling(oversampling)
+    if oversampling > 1:
+        spectrum = fourier.oversample(spectrum, oversampling * grid.n_t, kind=grid.kind)
     samples = fourier.inverse(spectrum, kind=grid.kind)
     return fourier.analytic_signal(samples) if grid.kind == "field" else samples
+
+
+def _check_oversampling(oversampling: int) -> None:
+    """Refuse an oversampling factor below one.
+
+    Parameters
+    ----------
+    oversampling : int
+        The factor.
+
+    Raises
+    ------
+    GridError
+        If it is below one.
+    """
+    if oversampling < 1:
+        msg = f"oversampling must be at least 1, got {oversampling}"
+        raise GridError(msg)
 
 
 FluxSide = Literal["before", "after"]
@@ -800,7 +828,8 @@ class SpatialFlux:
     for signed local flux :math:`S_z=\tfrac12\operatorname{Re}(E_aG_a^*)`. Only
     active propagating columns at positive frequency are forward power ports; every
     other bin has zero admittance. Build one with :meth:`resolve`; a different plane
-    needs a new record (``docs/guide/free-space/flux.md``).
+    needs a new record (``docs/guide/free-space/flux.md``). A measure read back from a
+    results file holds its recorded coefficients and no medium.
 
     Attributes
     ----------
@@ -808,8 +837,10 @@ class SpatialFlux:
         Temporal grid of the field.
     space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
         Transverse geometry of the field.
-    medium : SpatialMedium
-        The bulk medium; for a planar grid, its slab modes' own fill.
+    medium : SpatialMedium or None
+        The bulk medium; for a planar grid, its slab modes' own fill. None for a
+        measure rebuilt from a file's record, which cannot be resolved again on
+        another grid.
     z : float
         Position of the plane in m.
     side : {'before', 'after'} or None
@@ -821,7 +852,7 @@ class SpatialFlux:
 
     grid: TimeGrid
     space: RadialGrid | FreeGrid | PlanarGrid
-    medium: SpatialMedium
+    medium: SpatialMedium | None
     z: float
     side: FluxSide | None
     coefficients: object
@@ -910,6 +941,33 @@ class SpatialFlux:
             columns,
         )
 
+    def whole_admittance(self) -> Complex[np.ndarray, "n_modes n_omega"]:
+        """Return every column's admittance, its chunks formed in threads.
+
+        Returns
+        -------
+        numpy.ndarray
+            :meth:`admittance` of every column, shape ``(n_modes, n_omega)``.
+        """
+        chunks = self.chunks()
+        admittance = np.empty(
+            (self.space.spectral_weights.size, self.grid.n_omega), dtype=np.complex128
+        )
+
+        def work(rows: slice) -> None:
+            """Form one block of the chunks' admittance.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of chunks.
+            """
+            for columns in chunks[rows]:
+                admittance[columns] = self.admittance(columns)
+
+        parallel_rows(len(chunks), admittance.nbytes, work)
+        return admittance
+
     def chunks(self) -> list[slice]:
         """Return column slices bounding an integrated sum's working memory.
 
@@ -924,6 +982,77 @@ class SpatialFlux:
             slice(start, min(start + size, n_columns))
             for start in range(0, n_columns, size)
         ]
+
+
+def _exact_squares(
+    values: Float[np.ndarray, " n"],
+) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
+    """Return each value's square as the sum of two floats, exactly (Dekker, Veltkamp).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Each zero or of magnitude within ``[2**-450, 2**500]``, where the split can't
+        overflow and the low part can't underflow.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The rounded squares and their exact residuals.
+    """
+    split = 134217729.0 * values  # 2**27 + 1
+    upper = split - (split - values)
+    lower = values - upper
+    high = values * values
+    return high, ((upper * upper - high) + 2.0 * upper * lower) + lower * lower
+
+
+def _transverse_residual(space: FreeGrid) -> Float[np.ndarray, " n_modes"]:
+    """Return ``k_x**2 + k_y**2 - kperp_sq`` per column, rounded from its exact value.
+
+    ``math.fsum`` rounds the exact sum of its floats, as a rational sum would.
+
+    Parameters
+    ----------
+    space : solprop.grid.FreeGrid
+        Stored unsquared transverse axes in rad/m, with x fastest.
+
+    Returns
+    -------
+    numpy.ndarray
+        The real residuals in m^-2.
+    """
+    k_x, k_y = np.asarray(space.k_x), np.asarray(space.k_y)
+    moduli = np.abs(np.concatenate((k_x, k_y)))
+    moduli = moduli[moduli != 0.0]
+    if moduli.size and not (moduli.min() >= 2.0**-450 and moduli.max() <= 2.0**500):
+        x_squared = [Fraction(float(value)) ** 2 for value in k_x]
+        y_squared = [Fraction(float(value)) ** 2 for value in k_y]
+        return np.array(
+            [
+                float(x + y - Fraction(float(high)))
+                for (x, y), high in zip(
+                    ((x, y) for y in y_squared for x in x_squared),
+                    space.kperp_sq,
+                    strict=True,
+                )
+            ]
+        )
+    x_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_x)), strict=True))
+    y_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_y)), strict=True))
+    fsum = math.fsum
+    return np.fromiter(
+        (
+            fsum((y_high, y_low, x_high, x_low, -high))
+            for ((y_high, y_low), (x_high, x_low)), high in zip(
+                ((y, x) for y in y_parts for x in x_parts),
+                np.asarray(space.kperp_sq).tolist(),
+                strict=True,
+            )
+        ),
+        dtype=np.float64,
+        count=k_x.size * k_y.size,
+    )
 
 
 def _check_flux(
@@ -1022,6 +1151,76 @@ def spatial_energy(
     return float(np.sum(_column_power(spectrum, flux)))
 
 
+def spatial_energy_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, " n_omega"]:
+    """Split the physical energy crossing the plane into its frequency bins.
+
+    The same weighted sum as :func:`spatial_energy`, accumulated per bin rather
+    than in total: the axial admittance of :meth:`SpatialFlux.admittance`, the
+    transverse Parseval weights and the analytic-signal endpoint weights of
+    :func:`solprop.fourier.energy_weights`. Each value is an energy, not a density:
+    divide by ``grid.d_omega`` for J/(rad/s). A bin with no real admittance, such as
+    DC or one outside the active band, carries none.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m, shape
+        ``(n_modes, n_pol, n_omega)``; on a :class:`solprop.modes.slab.PlanarGrid`,
+        the internal ``(p, k_y)`` slab amplitudes in sqrt(W/m), shape
+        ``(n_p*n_y, 1, n_omega)``, the channel fastest.
+    flux : SpatialFlux
+        The plane's measure (:meth:`SpatialFlux.resolve`).
+
+    Returns
+    -------
+    numpy.ndarray
+        Energy in J per frequency bin (J/m on a :class:`solprop.grid.LineGrid`),
+        shape ``(n_omega,)``. The bins sum to :func:`spatial_energy`. On a planar
+        grid a bin is the energy at that frequency summed over every slab mode and
+        y frequency, with the slab weight of :func:`planar_mode_energy`, so the bins
+        also sum to that function's total.
+
+    Raises
+    ------
+    GridError
+        If the spectrum's shape or finiteness is invalid.
+
+    See Also
+    --------
+    spatial_energy : The total energy crossing the plane.
+    planar_mode_energy : A planar beam's energy per slab mode.
+
+    Examples
+    --------
+    >>> from solprop.grid import EnvelopeGrid, RadialGrid
+    >>> from solprop.pulses import GaussianPulse, SpatialPulse
+    >>> from solprop.spatial import SpatialFlux, SpatialMedium
+    >>> from solprop.spatial import spatial_energy_spectrum
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> space = RadialGrid(1e-3, 16)
+    >>> medium = SpatialMedium("Ar", pressure=1.0)
+    >>> pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    >>> spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    >>> flux = SpatialFlux.resolve(grid, space, medium)
+    >>> per_bin = spatial_energy_spectrum(spectrum, flux)
+    >>> per_bin.shape == (grid.n_omega,)
+    True
+    >>> print(f"{per_bin.sum():.3e} J")
+    1.000e-06 J
+    """
+    _check_flux(spectrum, flux)
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    total = np.zeros(grid.n_omega)
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        total += np.sum(flux.space.spectral_weights[columns, None] * real * density, 0)
+    return flux.energy_scale * weights * total
+
+
 def planar_mode_energy(
     spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
 ) -> Float[np.ndarray, " n_p"]:
@@ -1063,6 +1262,8 @@ def power_trace(
     weights: Float[np.ndarray, " n_modes"],
     grid: TimeGrid,
     scale: float,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, " n_t"]:
     r"""Return the axial power through a plane in time from column spectra.
 
@@ -1083,20 +1284,26 @@ def power_trace(
         Temporal grid.
     scale : float
         ``eps0 c / 2`` for fields in V/m, one for slab amplitudes.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1.
 
     Returns
     -------
     numpy.ndarray
-        Power in W (W/m on a line), shape ``(n_t,)``, signed and not clipped.
+        Power in W (W/m on a line), shape ``(oversampling n_t,)``, signed and not
+        clipped.
     """
-    field = _analytic(grid, spectrum)
-    closure = _analytic(grid, np.conj(admittance)[:, None, :] * spectrum)
+    field = _analytic(grid, spectrum, oversampling)
+    closure = _analytic(grid, np.conj(admittance)[:, None, :] * spectrum, oversampling)
     product = np.real(field * np.conj(closure))
     return scale * np.einsum("j,jpt->t", weights, product)
 
 
 def spatial_power(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, " n_t"]:
     """Return the axial power crossing the plane at every time sample.
 
@@ -1107,20 +1314,28 @@ def spatial_power(
         amplitudes, shape ``(n_modes, n_pol, n_omega)``.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis by zero-padding the spectrum, at
+        least 1; the samples lie on
+        :func:`solprop.processing.fields.time_axis` ``(flux.grid, oversampling)``.
+        It adds no information, but draws a short pulse smoothly and finds its peak
+        between the grid's samples.
 
     Returns
     -------
     numpy.ndarray
-        Cycle-averaged power in W (W/m on a line), shape ``(n_t,)``. Its time
-        integral is :func:`spatial_energy`.
+        Cycle-averaged power in W (W/m on a line), shape ``(oversampling n_t,)``. Its
+        time integral is :func:`spatial_energy`.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid.
+        If the spectrum's shape or finiteness is invalid, or ``oversampling`` is
+        below one.
     """
     _check_flux(spectrum, flux)
-    total = np.zeros(flux.grid.n_t)
+    _check_oversampling(oversampling)
+    total = np.zeros(oversampling * flux.grid.n_t)
     for columns in flux.chunks():
         total += power_trace(
             spectrum[columns],
@@ -1128,6 +1343,7 @@ def spatial_power(
             flux.space.spectral_weights[columns],
             flux.grid,
             flux.energy_scale,
+            oversampling=oversampling,
         )
     return total
 
@@ -1281,7 +1497,10 @@ def spatial_fluence(
 
 
 def spatial_intensity(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, "n_nodes n_t"]:
     r"""Return the signed local axial flux at every spatial node and time sample.
 
@@ -1297,16 +1516,20 @@ def spatial_intensity(
         amplitudes, shape ``(n_modes, n_pol, n_omega)``.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1, as in
+        :func:`spatial_power`.
 
     Returns
     -------
     numpy.ndarray
-        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+        Flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid.
+        If the spectrum's shape or finiteness is invalid, or ``oversampling`` is
+        below one.
 
     Examples
     --------
@@ -1321,10 +1544,12 @@ def spatial_intensity(
     True
     """
     _check_flux(spectrum, flux, planar=False)
-    return _local_intensity(spectrum, flux)
+    return _local_intensity(spectrum, flux, oversampling)
 
 
-def _local_intensity(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
+def _local_intensity(
+    spectrum: np.ndarray, flux: SpatialFlux, oversampling: int = 1
+) -> np.ndarray:
     """Return the signed local axial flux at the nodes in time.
 
     Parameters
@@ -1333,15 +1558,19 @@ def _local_intensity(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
         Internal spectrum, shape ``(n_modes, n_pol, n_omega)``, already validated.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1.
 
     Returns
     -------
     numpy.ndarray
-        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+        Flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
     """
     field, closure = _local_pair(spectrum, flux)
     grid = flux.grid
-    product = _analytic(grid, field) * np.conj(_analytic(grid, closure))
+    product = _analytic(grid, field, oversampling) * np.conj(
+        _analytic(grid, closure, oversampling)
+    )
     return 0.5 * EPS0 * C * np.sum(np.real(product), axis=1)
 
 
@@ -1543,10 +1772,7 @@ def on_axis_intensity(
     GridError
         If the spectrum is invalid.
     """
-    field, closure = _on_axis_pair(spectrum, flux)
-    grid = flux.grid
-    product = np.real(_analytic(grid, field) * np.conj(_analytic(grid, closure)))
-    return float(0.5 * EPS0 * C * np.max(np.sum(product, axis=0)))
+    return float(np.max(on_axis_trace(spectrum, flux)))
 
 
 def on_axis_spectrum(
@@ -1585,6 +1811,150 @@ def on_axis_spectrum(
     return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=0)
 
 
+def node_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_nodes n_omega"]:
+    """Return the spectral fluence density at every spatial node.
+
+    The local form of :func:`on_axis_spectrum`: the same-frequency real pairing of ``E``
+    and ``G`` at each node, summed over polarisation. Broadband or absorbing fields can
+    give a negative local value; it is not clipped.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Real spectral fluence in J s/m^2 per angular frequency bin, shape
+        ``(n_nodes, n_omega)``. Its sum over frequency times ``grid.d_omega`` is the
+        node's :func:`spatial_fluence`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    _check_flux(spectrum, flux, planar=False)
+    field, closure = _local_pair(spectrum, flux)
+    grid = flux.grid
+    factor = fourier.spectral_density(
+        np.ones(grid.n_omega, complex), grid.dt, kind=grid.kind
+    )
+    return 0.5 * EPS0 * C * factor * np.sum(np.real(field * np.conj(closure)), axis=1)
+
+
+def column_spectrum(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Float[np.ndarray, "n_modes n_omega"]:
+    """Split the physical energy crossing the plane over columns and frequency bins.
+
+    The same weighted sum as :func:`spatial_energy_spectrum`, kept per transverse
+    wavevector column: what a far field is made of. Each value is an energy.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        Energy in J (J/m on a line), shape ``(n_modes, n_omega)``. It sums to
+        :func:`spatial_energy`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    _check_flux(spectrum, flux, planar=False)
+    grid = flux.grid
+    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+    table = np.empty((spectrum.shape[0], grid.n_omega))
+    for columns in flux.chunks():
+        real = np.real(flux.admittance(columns))
+        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
+        table[columns] = (
+            flux.space.spectral_weights[columns, None] * weights * real * density
+        )
+    return flux.energy_scale * table
+
+
+def on_axis_trace(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
+) -> Float[np.ndarray, " n_t"]:
+    """Return the signed axial flux on the beam axis at every time sample.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1, as in
+        :func:`spatial_power`.
+
+    Returns
+    -------
+    numpy.ndarray
+        The flux in W/m^2, summed over polarisation, on ``grid.t``, or on
+        :func:`solprop.processing.fields.time_axis` when oversampled. Its largest
+        value without oversampling is :func:`on_axis_intensity`.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid, or ``oversampling`` is below one.
+    """
+    field, closure = _on_axis_pair(spectrum, flux)
+    grid = flux.grid
+    product = np.real(
+        _analytic(grid, field, oversampling)
+        * np.conj(_analytic(grid, closure, oversampling))
+    )
+    return 0.5 * EPS0 * C * np.sum(product, axis=0)
+
+
+def on_axis_field(
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+) -> Complex[np.ndarray, "n_pol n_omega"]:
+    """Return the temporal spectrum of the electric field on the beam axis.
+
+    Parameters
+    ----------
+    spectrum : numpy.ndarray
+        Internal radial spectrum in V m or Cartesian spectrum in V/m,
+        shape ``(n_modes, n_pol, n_omega)``.
+    flux : SpatialFlux
+        The plane's measure.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum in V/m, per polarisation, in the grid's stored order.
+
+    Raises
+    ------
+    GridError
+        If the spectrum is invalid.
+    """
+    return _on_axis_pair(spectrum, flux)[0]
+
+
 # ----------------------------------------------- far-field apertures (SEP 23)
 
 ApertureProfile = Literal["hard", "tanh", "rcos", "supergauss"]
@@ -1592,6 +1962,33 @@ ApertureProfile = Literal["hard", "tanh", "rcos", "supergauss"]
 
 APERTURE_PROFILES: tuple[ApertureProfile, ...] = ("hard", "tanh", "rcos", "supergauss")
 """Every aperture edge profile, in the order of their integer profile codes."""
+
+ApertureShape = Literal[
+    "circle",
+    "ellipse",
+    "rectangle",
+    "half_plane_x_ge",
+    "half_plane_x_lt",
+    "half_plane_y_ge",
+    "half_plane_y_lt",
+]
+"""The outline of a far-field aperture (``docs/guide/results/statistics.md``).
+
+A half-plane's name states the side it keeps, as an inequality on the physical
+mask-plane coordinate: ``half_plane_x_ge`` is ``x >= X``, ``half_plane_x_lt`` is
+``x < X``.
+"""
+
+APERTURE_SHAPES: tuple[ApertureShape, ...] = (
+    "circle",
+    "ellipse",
+    "rectangle",
+    "half_plane_x_ge",
+    "half_plane_x_lt",
+    "half_plane_y_ge",
+    "half_plane_y_lt",
+)
+"""Every aperture outline, in the order of their integer shape codes."""
 
 EDGE_MOMENTS: Mapping[str, float] = MappingProxyType(
     {"hard": 0.0, "tanh": math.pi**2 / 48, "rcos": 0.25 - 2 / math.pi**2}
@@ -1627,16 +2024,22 @@ ABSORBED_CHANNELS: tuple[str, ...] = (
     "transverse",
     "evanescent",
     "material",
+    "custom",
 )
-"""The channels of ``absorbed_power``, in the order of its four entries."""
+"""The channels of ``absorbed_power``, in the order of its five entries.
+
+``spectral`` is the spectral collar alone and ``custom`` the user's rate
+(:attr:`solprop.boundaries.Absorber.user_rate`). A file from an earlier development
+build has four columns, in these positions, with both in ``spectral``.
+"""
 
 AxialFactors = Callable[[slice], tuple[np.ndarray, np.ndarray | None]]
 """Per-chunk admittance and absorption rates of the plane's medium (SEP 34).
 
 Called with a slice of transverse columns, it returns the dimensionless complex
 admittance ``c k_z/omega``, shape ``(n_chunk, n_omega)``, zero on bins that are no
-forward power port, and the four power rates of :data:`ABSORBED_CHANNELS` in 1/m,
-shape ``(4, n_chunk, n_omega)``, or None where the run's operator is not available
+forward power port, and the power rates of :data:`ABSORBED_CHANNELS` in 1/m,
+shape ``(5, n_chunk, n_omega)``, or None where the run's operator is not available
 (a saved plane). :func:`solprop.translate.spatial.axial_factors` is the in-run
 implementation and :meth:`SpatialFlux.admittance` the saved-plane one.
 """
@@ -1671,6 +2074,100 @@ def check_aperture_profile(kind: object) -> None:
     if kind not in APERTURE_PROFILES:
         msg = f"unknown aperture profile {kind!r}; choose one of {APERTURE_PROFILES}"
         raise OutputError(msg)
+
+
+def check_aperture_shape(kind: object) -> None:
+    """Refuse, by name, anything that is not one of the aperture outlines.
+
+    It takes any object, because a caller outside the test session's runtime type
+    checker can pass anything.
+
+    Parameters
+    ----------
+    kind : object
+        The outline asked for.
+
+    Raises
+    ------
+    OutputError
+        If `kind` is not in :data:`APERTURE_SHAPES`.
+
+    Examples
+    --------
+    >>> from solprop.spatial import check_aperture_shape
+    >>> check_aperture_shape("half_plane_x_ge") is None
+    True
+    """
+    if kind not in APERTURE_SHAPES:
+        msg = f"unknown aperture shape {kind!r}; choose one of {APERTURE_SHAPES}"
+        raise OutputError(msg)
+
+
+def edge_profile(
+    distance: ArrayLike | float, edge: float, kind: ApertureProfile
+) -> Float[np.ndarray, "*shape"]:
+    r"""Return an edge's weight at signed distances from it, negative on the inside.
+
+    The seam every outline shares. A circle passes ``rho - r``; a half-plane has no
+    radius, and passes the signed distance of the image from its edge. With
+    ``t = u/w``: ``hard``, one for ``u <= 0`` and zero beyond; ``tanh``,
+    :math:`\tfrac12[1-\tanh t]`; ``rcos``, :math:`\tfrac12[1-\sin(\pi t/2)]` with
+    ``t`` clipped to ``[-1, 1]``, exactly one at ``t <= -1`` and exactly zero at
+    ``t >= 1``. ``tanh`` and ``rcos`` satisfy the edge symmetry
+    :math:`W(u)+W(-u)=1`. The sign of a difference of two finite floats is exact, so
+    ``hard`` on ``rho - r`` decides as ``rho <= r`` does on every input.
+
+    Parameters
+    ----------
+    distance : array_like or float
+        The signed distance ``u`` from the edge in m, negative inside.
+    edge : float
+        The edge width ``w`` in m for ``tanh`` and ``rcos``, finite and positive; not
+        used for ``hard``.
+    kind : {'hard', 'tanh', 'rcos'}
+        The edge profile. ``supergauss`` is a function of the distance from a centre,
+        not from an edge, and is refused.
+
+    Returns
+    -------
+    numpy.ndarray
+        The dimensionless weight in ``[0, 1]``, the shape of `distance`.
+
+    Raises
+    ------
+    OutputError
+        If the profile is unknown or ``supergauss``, or the edge width is not finite
+        and positive where it is used.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.spatial import edge_profile
+    >>> edge_profile(np.array([-1.0, 0.0, 1.0]), 0.0, "hard").tolist()
+    [1.0, 1.0, 0.0]
+    >>> edge_profile(np.array([-0.2, 0.0, 0.2]), 0.1, "rcos").tolist()
+    [1.0, 0.5, 0.0]
+    """
+    check_aperture_profile(kind)
+    signed = np.asarray(distance, dtype=np.float64)
+    if kind == "hard":
+        return np.asarray(np.where(signed <= 0.0, 1.0, 0.0))
+    if kind == "supergauss":
+        msg = "a supergauss profile falls from a centre and has no edge to measure from"
+        raise OutputError(msg)
+    if not math.isfinite(edge) or edge <= 0:
+        msg = f"a {kind} aperture needs a finite positive edge width, got {edge}"
+        raise OutputError(msg)
+    argument = signed * (1.0 / edge)
+    if kind == "tanh":
+        return np.asarray(0.5 * (1.0 - np.tanh(argument)))
+    clipped = np.clip(argument, -1.0, 1.0)
+    # Exactly one and zero beyond the edge, whatever sin(+-pi/2) rounds to: the
+    # compact support is a structural property a pass may rely on (the early-out).
+    edge_values = 0.5 * (1.0 - np.sin((0.5 * math.pi) * clipped))
+    return np.asarray(
+        np.where(argument <= -1.0, 1.0, np.where(argument >= 1.0, 0.0, edge_values))
+    )
 
 
 def aperture_profile(
@@ -1738,8 +2235,6 @@ def aperture_profile(
         msg = f"an aperture half-width must be finite and positive, got {half_width}"
         raise OutputError(msg)
     rho = np.asarray(radius, dtype=np.float64)
-    if kind == "hard":
-        return np.asarray(np.where(rho <= half_width, 1.0, 0.0))
     if kind == "supergauss":
         if not math.isfinite(edge) or edge < 2:
             msg = (
@@ -1747,19 +2242,7 @@ def aperture_profile(
             )
             raise OutputError(msg)
         return np.asarray(np.exp(-((rho / half_width) ** edge)))
-    if not math.isfinite(edge) or edge <= 0:
-        msg = f"a {kind} aperture needs a finite positive edge width, got {edge}"
-        raise OutputError(msg)
-    argument = (rho - half_width) * (1.0 / edge)
-    if kind == "tanh":
-        return np.asarray(0.5 * (1.0 - np.tanh(argument)))
-    clipped = np.clip(argument, -1.0, 1.0)
-    # Exactly one and zero beyond the edge, whatever sin(+-pi/2) rounds to: the
-    # compact support is a structural property a pass may rely on (the early-out).
-    edge_values = 0.5 * (1.0 - np.sin((0.5 * math.pi) * clipped))
-    return np.asarray(
-        np.where(argument <= -1.0, 1.0, np.where(argument >= 1.0, 0.0, edge_values))
-    )
+    return edge_profile(rho - half_width, edge, kind)
 
 
 def quadrature_half_width(
@@ -1859,6 +2342,48 @@ def aperture_scale(
     return scale
 
 
+def mask_plane_offsets(
+    scale: Float[np.ndarray, " n_omega"],
+    k_x: Float[np.ndarray, " n_chunk"],
+    k_y: Float[np.ndarray, " n_chunk"],
+    centre: Sequence[float] | np.ndarray,
+) -> tuple[Float[np.ndarray, "n_chunk n_omega"], Float[np.ndarray, "n_chunk n_omega"]]:
+    r"""Return each column's offsets ``X - x`` and ``Y - y`` from a mask-plane point.
+
+    With the stored column axes :math:`k^{(s)}=-\kappa` (SEP 23 section 4.1) and the
+    paraxial image :math:`x=s\kappa_x`, the offset is
+    :math:`s k^{(s)}_x+X=X-x`, evaluated as written: a product and a sum, each rounded
+    on its own, so that an edge decides identically on every backend that does the
+    same. A column's image lies at ``x >= X`` exactly where the offset is not positive.
+
+    Parameters
+    ----------
+    scale : numpy.ndarray
+        The aperture's row of :func:`aperture_scale`, m^2, shape ``(n_omega,)``.
+    k_x, k_y : numpy.ndarray
+        Each column's stored transverse wavevector in rad/m, shape ``(n_chunk,)``.
+    centre : sequence of float or numpy.ndarray
+        The point ``(X, Y)`` in the mask plane, physical axes, in m.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        ``X - x`` and ``Y - y`` in m, each of shape ``(n_chunk, n_omega)``.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.spatial import mask_plane_offsets
+    >>> scale, k_x, k_y = np.array([1.0]), np.array([-3.0]), np.zeros(1)
+    >>> across, along = mask_plane_offsets(scale, k_x, k_y, (1.0, 4.0))
+    >>> across.tolist(), along.tolist()
+    ([[-2.0]], [[4.0]])
+    """
+    across = scale[None, :] * k_x[:, None] + float(centre[0])
+    along = scale[None, :] * k_y[:, None] + float(centre[1])
+    return across, along
+
+
 def mask_plane_radius(
     scale: Float[np.ndarray, " n_omega"],
     k_x: Float[np.ndarray, " n_chunk"],
@@ -1897,9 +2422,168 @@ def mask_plane_radius(
     >>> radius.tolist()
     [[4.0]]
     """
-    across = scale[None, :] * k_x[:, None] + float(centre[0])
-    along = scale[None, :] * k_y[:, None] + float(centre[1])
+    across, along = mask_plane_offsets(scale, k_x, k_y, centre)
     return np.sqrt(across * across + along * along)
+
+
+@dataclass(frozen=True)
+class ApertureOutline:
+    r"""One aperture's weight as a function of its image's offsets (SEP 23, #186).
+
+    The seam the far-field statistics and the offline
+    :class:`solprop.coupling.elements.Aperture` share. A circle is
+    :func:`aperture_profile` of the distance from the centre; an ellipse the same of the
+    distance in the frame
+    where it is a circle of radius ``sqrt(a b)``, so its edge width in metres is
+    ``w a/sqrt(a b)`` along x and ``w b/sqrt(a b)`` along y; a rectangle the product
+    :math:`W(|x|)W(|y|)` of two straight edges, closed like a circle; and a half-plane
+    :func:`edge_profile` of the offset across its one edge, half-open, its complement
+    ``1 - W``, so that a half-plane and its complement sum to one on every column, to
+    the bit for ``hard``. Build one with :func:`aperture_outline`.
+
+    Attributes
+    ----------
+    shape : str
+        The outline, one of :data:`APERTURE_SHAPES`.
+    half_width : float
+        The profile's half-width in m: the radius of a circle or of an ellipse's
+        scaled frame, corrected under quadrature weighting; a rectangle's half-width
+        along x; zero on a half-plane.
+    half_height : float
+        A rectangle's half-width along y in m; zero otherwise.
+    stretch : tuple of float
+        The dimensionless factors on ``(across, along)`` that make an ellipse a
+        circle; ``(1.0, 1.0)`` otherwise.
+    edge : float
+        The edge width in m for ``tanh`` and ``rcos``, the order for ``supergauss``,
+        unused for ``hard``.
+    kind : {'hard', 'tanh', 'rcos', 'supergauss'}
+        The edge profile.
+    """
+
+    shape: ApertureShape
+    half_width: float
+    half_height: float
+    stretch: tuple[float, float]
+    edge: float
+    kind: ApertureProfile
+
+    def weight(
+        self, across: Float[np.ndarray, "*shape"], along: Float[np.ndarray, "*shape"]
+    ) -> Float[np.ndarray, "*shape"]:
+        """Return the weight of images at the offsets ``X - x`` and ``Y - y``.
+
+        Parameters
+        ----------
+        across, along : numpy.ndarray
+            The offsets in m (:func:`mask_plane_offsets`), of one shape.
+
+        Returns
+        -------
+        numpy.ndarray
+            The dimensionless weight ``W`` in ``[0, 1]``, of that shape.
+
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from solprop.spatial import aperture_outline
+        >>> outline = aperture_outline("half_plane_x_ge", 0.0, (0.0, 0.0), 0.0, "hard")
+        >>> outline.weight(np.array([-1.0, 0.0, 1.0]), np.zeros(3)).tolist()
+        [1.0, 1.0, 0.0]
+        """
+        if self.shape == "circle":
+            radius = np.sqrt(across * across + along * along)
+            return aperture_profile(radius, self.half_width, self.edge, self.kind)
+        if self.shape == "ellipse":
+            scaled_x = self.stretch[0] * across
+            scaled_y = self.stretch[1] * along
+            radius = np.sqrt(scaled_x * scaled_x + scaled_y * scaled_y)
+            return aperture_profile(radius, self.half_width, self.edge, self.kind)
+        if self.shape == "rectangle":
+            return aperture_profile(
+                np.abs(across), self.half_width, self.edge, self.kind
+            ) * aperture_profile(np.abs(along), self.half_height, self.edge, self.kind)
+        offset = across if self.shape.startswith("half_plane_x") else along
+        kept = edge_profile(offset, self.edge, self.kind)
+        return kept if self.shape.endswith("_ge") else 1.0 - kept
+
+
+def aperture_outline(
+    shape: ApertureShape,
+    diameter: float,
+    extent: tuple[float, float],
+    edge: float,
+    kind: ApertureProfile,
+    *,
+    corrected: bool = False,
+) -> ApertureOutline:
+    r"""Return the constants of one aperture's outline, for the statistics and offline.
+
+    Under quadrature weighting a circle's profile is evaluated at the corrected
+    half-width of :func:`quadrature_half_width`. So is an ellipse's: the map to its
+    circular frame has a constant Jacobian, so
+    :math:`\int W\,dA=(ab/r^2)\,\pi r^2=\pi ab` holds exactly where the circle's
+    :math:`\pi r^2` does, and the residual for a varying intensity keeps its order. A
+    rectangle's and a half-plane's edges are straight and need no correction: the edge
+    symmetry alone gives ``W`` the hard edge's integral.
+
+    Parameters
+    ----------
+    shape : str
+        The outline, one of :data:`APERTURE_SHAPES`.
+    diameter : float
+        A circle's diameter in m; not used otherwise.
+    extent : tuple of float
+        The full widths along x and y of an ellipse or a rectangle in m; not used
+        otherwise.
+    edge : float
+        The edge width in m for ``tanh`` and ``rcos``, the order for ``supergauss``,
+        unused for ``hard``.
+    kind : {'hard', 'tanh', 'rcos', 'supergauss'}
+        The edge profile.
+    corrected : bool, optional
+        Whether a circle's or an ellipse's half-width takes the quadrature correction.
+
+    Returns
+    -------
+    ApertureOutline
+        The outline's constants.
+
+    Raises
+    ------
+    OutputError
+        If the shape is unknown, ``supergauss`` is asked of a half-plane, or the
+        quadrature correction does not apply.
+
+    Examples
+    --------
+    >>> from solprop.spatial import aperture_outline
+    >>> aperture_outline("rectangle", 0.0, (2.0, 4.0), 0.0, "hard").half_height
+    2.0
+    >>> ellipse = aperture_outline("ellipse", 0.0, (1.0, 4.0), 0.0, "hard")
+    >>> ellipse.half_width, ellipse.stretch
+    (1.0, (2.0, 0.5))
+    """
+    check_aperture_shape(shape)
+    check_aperture_profile(kind)
+    half_x, half_y = 0.5 * extent[0], 0.5 * extent[1]
+    half_width, half_height, stretch = 0.0, 0.0, (1.0, 1.0)
+    if shape == "circle":
+        half_width = diameter / 2
+    elif shape == "ellipse":
+        half_width = math.sqrt(half_x * half_y)
+        stretch = (half_width / half_x, half_width / half_y)
+    elif shape == "rectangle":
+        half_width, half_height = half_x, half_y
+    elif kind == "supergauss":
+        msg = (
+            "a supergauss profile falls from a centre, and a half-plane has none; "
+            "use a hard, tanh or rcos edge"
+        )
+        raise OutputError(msg)
+    if corrected and shape in ("circle", "ellipse"):
+        half_width = float(quadrature_half_width(half_width, edge, kind))
+    return ApertureOutline(shape, half_width, half_height, stretch, edge, kind)
 
 
 @dataclass(frozen=True, eq=False)
@@ -1928,7 +2612,7 @@ class ApertureTables:
         Aperture centres in the mask plane, physical axes, in m, shape
         ``(n_apertures, 2)``.
     half_widths : numpy.ndarray
-        The profiles' half-widths in m, ``D/2`` or ``D_q/2``, shape
+        The profiles' half-widths in m (:class:`ApertureOutline`), shape
         ``(n_apertures,)``.
     edges : numpy.ndarray
         Edge widths in m (``tanh``, ``rcos``), orders (``supergauss``), or zeros
@@ -1938,17 +2622,25 @@ class ApertureTables:
     scale : numpy.ndarray
         :func:`aperture_scale` of the distances, m^2, shape ``(n_apertures,
         n_omega)``, zero at and below zero frequency.
-    profile : {'hard', 'tanh', 'rcos', 'supergauss'}
-        The edge profile the set shares.
+    profiles : tuple of str or None
+        Each aperture's edge profile; ``None`` is ``hard`` on every row.
     exponent : int
         The power of the weight in ``aperture_spectrum``: 2 for amplitude
         weighting, 1 for quadrature weighting.
+    shapes : tuple of str or None
+        Each aperture's outline; ``None`` is ``circle`` on every row.
+    half_heights : numpy.ndarray or None
+        Each rectangle's half-width along y in m, zero on other rows, shape
+        ``(n_apertures,)``; ``None`` is zeros.
+    stretches : numpy.ndarray or None
+        The factors that make each ellipse a circle, ones on other rows, shape
+        ``(n_apertures, 2)``; ``None`` is ones.
 
     Raises
     ------
     OutputError
-        If the arrays disagree in shape, the profile is unknown or the exponent is
-        not 1 or 2.
+        If the arrays disagree in shape, a profile or a shape is unknown or the
+        exponent is not 1 or 2.
     """
 
     k_x: Float[np.ndarray, " n_kx"]
@@ -1961,11 +2653,19 @@ class ApertureTables:
     edges: Float[np.ndarray, " n_edge_values"]
     distances: Float[np.ndarray, " n_distances"]
     scale: Float[np.ndarray, "n_scale_rows n_scale_omega"]
-    profile: ApertureProfile = "hard"
+    profiles: tuple[ApertureProfile, ...] | None = None
     exponent: int = 2
+    shapes: tuple[ApertureShape, ...] | None = None
+    half_heights: Float[np.ndarray, " n_half_heights"] | None = None
+    stretches: Float[np.ndarray, "n_stretch_rows 2"] | None = None
 
     def __post_init__(self) -> None:
         """Own read-only copies and check that the tables agree with each other."""
+        count = np.size(self.half_widths)
+        if self.half_heights is None:
+            object.__setattr__(self, "half_heights", np.zeros(count))
+        if self.stretches is None:
+            object.__setattr__(self, "stretches", np.ones((count, 2)))
         for name in (
             "k_x",
             "k_y",
@@ -1977,6 +2677,8 @@ class ApertureTables:
             "edges",
             "distances",
             "scale",
+            "half_heights",
+            "stretches",
         ):
             values = np.array(
                 getattr(self, name),
@@ -1987,6 +2689,7 @@ class ApertureTables:
             values.setflags(write=False)
             object.__setattr__(self, name, values)
         n_apertures = self.half_widths.size
+        assert self.half_heights is not None and self.stretches is not None  # above
         if (
             self.weights.shape != (self.k_x.size * self.k_y.size,)
             or self.on_axis.shape != self.weights.shape
@@ -1997,10 +2700,22 @@ class ApertureTables:
             or self.distances.shape != (n_apertures,)
             or self.scale.ndim != 2
             or self.scale.shape[0] != n_apertures
+            or self.half_heights.shape != (n_apertures,)
+            or self.stretches.shape != (n_apertures, 2)
         ):
             msg = "aperture tables disagree in shape with each other or the columns"
             raise OutputError(msg)
-        check_aperture_profile(self.profile)
+        profiles = ("hard",) * n_apertures if self.profiles is None else self.profiles
+        shapes = ("circle",) * n_apertures if self.shapes is None else self.shapes
+        if len(profiles) != n_apertures or len(shapes) != n_apertures:
+            msg = "aperture tables need one profile and one shape per aperture"
+            raise OutputError(msg)
+        for profile in profiles:
+            check_aperture_profile(profile)
+        for shape in shapes:
+            check_aperture_shape(shape)
+        object.__setattr__(self, "profiles", tuple(profiles))
+        object.__setattr__(self, "shapes", tuple(shapes))
         if self.exponent not in (1, 2):
             msg = f"aperture tables need an exponent of 1 or 2, got {self.exponent!r}"
             raise OutputError(msg)
@@ -2039,15 +2754,33 @@ class ApertureTables:
         return int(self.regions.shape[0])
 
     @property
-    def profile_code(self) -> int:
-        """Return the profile's integer code, its index in :data:`APERTURE_PROFILES`.
+    def profile_codes(self) -> Float[np.ndarray, " n_apertures"]:
+        """Return each row's profile code, its index in :data:`APERTURE_PROFILES`.
 
         Returns
         -------
-        int
-            0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``.
+        numpy.ndarray
+            0 for ``hard``, 1 for ``tanh``, 2 for ``rcos``, 3 for ``supergauss``, as
+            float64 for a compiled pass's row, shape ``(n_apertures,)``.
         """
-        return APERTURE_PROFILES.index(self.profile)
+        assert self.profiles is not None  # filled in at construction
+        return np.array(
+            [APERTURE_PROFILES.index(one) for one in self.profiles], dtype=np.float64
+        )
+
+    @property
+    def shape_codes(self) -> Float[np.ndarray, " n_apertures"]:
+        """Return each row's shape code, its index in :data:`APERTURE_SHAPES`.
+
+        Returns
+        -------
+        numpy.ndarray
+            The codes as float64 for a compiled pass's row, shape ``(n_apertures,)``.
+        """
+        assert self.shapes is not None  # filled in at construction
+        return np.array(
+            [APERTURE_SHAPES.index(one) for one in self.shapes], dtype=np.float64
+        )
 
     @property
     def inverse_widths(self) -> Float[np.ndarray, " n_apertures"]:
@@ -2056,12 +2789,40 @@ class ApertureTables:
         Returns
         -------
         numpy.ndarray
-            ``1/w`` in 1/m for ``tanh`` and ``rcos``, zeros otherwise, shape
-            ``(n_apertures,)``: the factor :func:`aperture_profile` forms itself.
+            ``1/w`` in 1/m on ``tanh`` and ``rcos`` rows, zeros otherwise, shape
+            ``(n_apertures,)``: the factor :func:`edge_profile` forms itself.
         """
-        if self.profile in ("tanh", "rcos"):
-            return 1.0 / self.edges
-        return np.zeros(self.n_apertures)
+        assert self.profiles is not None  # filled in at construction
+        smooth = np.array(
+            [one in ("tanh", "rcos") for one in self.profiles], dtype=bool
+        )
+        widths = np.zeros(self.n_apertures)
+        widths[smooth] = 1.0 / self.edges[smooth]
+        return widths
+
+    def outline(self, index: int) -> ApertureOutline:
+        """Return one row's outline.
+
+        Parameters
+        ----------
+        index : int
+            The aperture.
+
+        Returns
+        -------
+        ApertureOutline
+            Its constants.
+        """
+        assert self.profiles is not None and self.shapes is not None  # filled in
+        assert self.half_heights is not None and self.stretches is not None
+        return ApertureOutline(
+            self.shapes[index],
+            float(self.half_widths[index]),
+            float(self.half_heights[index]),
+            (float(self.stretches[index, 0]), float(self.stretches[index, 1])),
+            float(self.edges[index]),
+            self.profiles[index],
+        )
 
 
 def _aperture_weight(
@@ -2084,18 +2845,13 @@ def _aperture_weight(
     Returns
     -------
     numpy.ndarray
-        ``W_a(rho_a(c, k))``, exactly zero at and below zero frequency and wherever
-        the column's image lies at or beyond the mask plane's distance from the
-        origin (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
+        ``W_a`` of the column's image, exactly zero at and below zero frequency and
+        wherever the column's image lies at or beyond the mask plane's distance from
+        the origin (SEP 23 sections 4.2 and 4.10), shape ``(n_chunk, n_omega)``.
     """
     scale = tables.scale[index]
-    radius = mask_plane_radius(scale, k_x, k_y, tables.centres[index])
-    weight = aperture_profile(
-        radius,
-        float(tables.half_widths[index]),
-        float(tables.edges[index]),
-        tables.profile,
-    )
+    across, along = mask_plane_offsets(scale, k_x, k_y, tables.centres[index])
+    weight = tables.outline(index).weight(across, along)
     # |kappa| >= omega/c lands at or beyond z_m and cannot leave the exit face; the
     # unbounded tanh and supergauss tails would otherwise reach those columns.
     origin = mask_plane_radius(scale, k_x, k_y, (0.0, 0.0))
@@ -2122,7 +2878,7 @@ def aperture_statistics(
     aperture in a Fourier plane, the same-frequency pairing of the coherent
     :math:`A_{a,q}=\sum_c\alpha_cW_aE_{c,q}` with its magnetic closure; the spectrum
     in each box of physical transverse wavevector; the beam spectrum; and the power
-    the spectral, transverse, evanescent and material channels of the linear
+    the spectral, transverse, evanescent, material and custom channels of the linear
     operator remove, :math:`P_j=\tfrac{\varepsilon_0c}{2}\sum_cw_c\sum_{q,k}
     \nu_k\eta r_j|E|^2`. It walks the columns in chunks, forms the
     polarisation-summed spectral density once per chunk and adds the chunk partials
@@ -2154,7 +2910,7 @@ def aperture_statistics(
         J/(rad/s), shapes ``(n_apertures, n_omega)`` and ``(n_regions, n_omega)``;
         ``aperture_on_axis_spectrum`` in J s/m^2, ``(n_apertures, n_omega)``;
         ``beam_spectrum`` in J/(rad/s), ``(n_omega,)``;
-        ``absorbed_power`` in J/m, ``(4,)``, in the order of
+        ``absorbed_power`` in J/m, ``(5,)``, in the order of
         :data:`ABSORBED_CHANNELS`. On a line the spectra and powers are per metre
         of y, and the on-axis spectra stay local.
 
@@ -2632,24 +3388,16 @@ def cartesian_fluence_widths(
     if not math.isfinite(second):
         msg = "Cartesian fluence moments are not representable"
         raise GridError(msg)
-    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
-    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
-    if limit < 2 * spacing:
+    rings = _fluence_rings(x, y, center_x, center_y)
+    if rings is None:
         return second, math.nan, math.nan
-    # Anchor the rule to the grid, not the rounded centroid: otherwise a
-    # one-ulp change in the limiting radius can change every interpolation
-    # point through ceil/linspace, amplifying roundoff into sampling error.
-    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
-    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
-    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
-    angles = 2 * np.pi * np.arange(n_angles) / n_angles
-    averaged = np.empty(radii.size)
-    for index, distance in enumerate(radii):
+    averaged = np.empty(rings.radii.size)
+    for index, distance in enumerate(rings.radii):
         horizontal = np.clip(
-            (center_x + distance * np.cos(angles) - x[0]) / (x[1] - x[0]), 0, x.size - 1
+            (center_x + distance * rings.cosines - x[0]) / (x[1] - x[0]), 0, x.size - 1
         )
         vertical = np.clip(
-            (center_y + distance * np.sin(angles) - y[0]) / (y[1] - y[0]), 0, y.size - 1
+            (center_y + distance * rings.sines - y[0]) / (y[1] - y[0]), 0, y.size - 1
         )
         ix = np.minimum(horizontal.astype(np.intp), x.size - 2)
         iy = np.minimum(vertical.astype(np.intp), y.size - 2)
@@ -2658,10 +3406,92 @@ def cartesian_fluence_widths(
             (1 - fx) * samples[iy, ix] + fx * samples[iy, ix + 1]
         ) + fy * ((1 - fx) * samples[iy + 1, ix] + fx * samples[iy + 1, ix + 1])
         averaged[index] = np.mean(interpolated)
+    return second, *_ring_fluence_widths(rings.radii, averaged)
+
+
+@dataclass(frozen=True)
+class _FluenceRings:
+    """The rings on which a Cartesian fluence is averaged about its centroid.
+
+    Attributes
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero, shape ``(n_radii,)``.
+    cosines, sines : numpy.ndarray
+        The cosine and the sine of each ring's sampling angles, shape ``(n_angles,)``.
+    """
+
+    radii: Float[np.ndarray, " n_radii"]
+    cosines: Float[np.ndarray, " n_angles"]
+    sines: Float[np.ndarray, " n_angles"]
+
+
+def _fluence_rings(
+    x: Float[np.ndarray, " n_x"],
+    y: Float[np.ndarray, " n_y"],
+    center_x: float,
+    center_y: float,
+) -> _FluenceRings | None:
+    """Return the rings of :func:`cartesian_fluence_widths` about a centroid.
+
+    Half the finest pixel spacing in radius, out to the largest circle about the
+    centroid inside the axes, and an angular spacing no larger than that arc length on
+    the largest ring of the plane.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        Uniform increasing physical axes in m, of at least two samples each.
+    center_x, center_y : float
+        The fluence centroid in m.
+
+    Returns
+    -------
+    _FluenceRings or None
+        The rings, or ``None`` when the centroid lies within two half-spacings of an
+        edge, where the threshold widths are undefined.
+    """
+    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
+    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
+    if limit < 2 * spacing:
+        return None
+    # Anchor the rule to the grid, not the rounded centroid: otherwise a
+    # one-ulp change in the limiting radius can change every interpolation
+    # point through ceil/linspace, amplifying roundoff into sampling error.
+    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
+    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
+    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
+    angles = 2 * np.pi * np.arange(n_angles) / n_angles
+    return _FluenceRings(radii, np.cos(angles), np.sin(angles))
+
+
+def _ring_fluence_widths(
+    radii: Float[np.ndarray, " n_radii"], averaged: Float[np.ndarray, " n_radii"]
+) -> tuple[float, float]:
+    """Return the threshold widths of a fluence averaged on its rings.
+
+    Parameters
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero (``_fluence_rings``).
+    averaged : numpy.ndarray
+        The nonnegative fluence averaged on each ring.
+
+    Returns
+    -------
+    tuple of float
+        The first 1/e^2 radius and the FWHM in m, as :func:`radial_fluence_widths`
+        defines them, with the first ring as the axis.
+
+    Raises
+    ------
+    GridError
+        With fewer than three radii, too few to find a width from.
+    """
     _, radius_e2, width = radial_fluence_widths(
         radii[1:], averaged[1:], np.ones(radii.size - 1), float(averaged[0])
     )
-    return second, radius_e2, width
+    return radius_e2, width
 
 
 def _line_fluence_widths(

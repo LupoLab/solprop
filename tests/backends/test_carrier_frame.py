@@ -31,8 +31,8 @@ from scipy.integrate import quad
 from scipy.linalg import expm
 
 import flow_parity
+from backends.conftest import EQUIVALENCE_BACKENDS
 from bounds import EPS, assert_within, carrier_increment_budget
-from solprop.backends import available
 from solprop.backends.exponential import (
     CarrierReference,
     _carrier_refusal,  # pyright: ignore[reportPrivateUsage]
@@ -49,11 +49,6 @@ from solprop.backends.multistep import (
     ExponentialKernels,
     HostHistory,
     coupled_moments,
-)
-from solprop.backends.numba_cpu import NumbaCpuBackend
-from solprop.backends.numba_cpu.multistep import (
-    _per_row,  # pyright: ignore[reportPrivateUsage]
-    _per_slot_row,  # pyright: ignore[reportPrivateUsage]
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
@@ -73,6 +68,9 @@ from solprop.stepper.multistep import (
     lagrange_coefficients,
 )
 from solprop.translate.coupled import schur_blocks, schur_eigenbasis
+
+COMPILED: dict[str, type] = dict(EQUIVALENCE_BACKENDS)
+"""The compiled backends that deliver the scalar shift."""
 
 OFF = Multistep()
 SCALAR = Multistep(carrier_frame="scalar")
@@ -343,7 +341,7 @@ def test_the_refusals_name_the_policy_and_the_route():
     single = _carrier_refusal("scalar", "numpy_ref", everything, None, single=True)
     assert single is not None and "not qualified in single precision" in single
     # Off, or delivered on a guided route: nothing to refuse.
-    assert _carrier_refusal("off", "numba_cpu", frozenset(), "free") is None
+    assert _carrier_refusal("off", "native", frozenset(), "free") is None
     assert _carrier_refusal("scalar", "numpy_ref", everything, None) is None
 
 
@@ -357,24 +355,13 @@ def test_a_backend_refuses_what_it_does_not_deliver():
     refuse_carrier_frame(dataclasses.replace(problem, stepper=stepper), "a backend")
 
 
-def test_the_compiled_passes_take_one_shift_per_row():
-    with pytest.raises(BackendError, match="one carrier shift per batch member"):
-        _per_row(np.zeros((1, 1, 1, 4), dtype=complex), (1, 2, 1, 4))
-    with pytest.raises(BackendError, match="one carrier rotation per row"):
-        _per_slot_row(np.ones((2, 1, 1, 1, 4), dtype=complex), (1, 2, 1, 4))
-
-
-def test_both_compiled_cpu_backends_accept_the_shift():
+@pytest.mark.parametrize("backend_name", sorted(COMPILED))
+def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
     for method in (OFF, SCALAR):
         built = capillary(method)
-        NumbaCpuBackend(built.translate(), grid=built.grid, modes=built.modes).close()
-
-
-def test_a_problem_of_the_older_schema_is_refused():
-    simulation = capillary(SCALAR)
-    stale = dataclasses.replace(simulation.translate(), schema_version=35)
-    with pytest.raises(BackendError, match="version 35"):
-        NumpyRefBackend(stale, grid=simulation.grid, modes=simulation.modes)
+        COMPILED[backend_name](
+            built.translate(), grid=built.grid, modes=built.modes
+        ).close()
 
 
 # --- the reference rule (section 6.1) -------------------------------------------------
@@ -415,7 +402,7 @@ def test_the_chord_is_the_reference_element_on_every_representation():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
     free = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 8, 4e-4, 6, window_factor=0.2),
+        FreeGrid(3e-4, 8, 4e-4, 6, collar_fraction=0.2),
         SpatialMedium(),
         [KerrResponse(1e-22, thg=False)],
         SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6), 60e-6),
@@ -1180,100 +1167,6 @@ def test_the_moments_at_the_reference_bin_take_the_near_branch():
 
 
 # --- the compiled backends (phases 2 and 3) ----------------------------------------
-
-COMPILED: dict[str, type] = {"numba_cpu": NumbaCpuBackend}
-"""The compiled backends that deliver the scalar shift."""
-if "native" in available():
-    from solprop_native import (  # pyright: ignore[reportMissingImports]
-        NativeBackend as _NativeBackend,
-    )
-
-    COMPILED["native"] = _NativeBackend
-
-
-def one_trial_inputs(seed=35):
-    """Return a random trial: exponent, shift, state, store, slots and coefficients."""
-    rng = np.random.default_rng(seed)
-    shape = (2, 2, 1, 64)
-    exponent = rng.normal(size=shape) * 0.2 - 0.05 + 1j * rng.uniform(-30, 30, shape)
-    # One shift per batch member, from its own reference element, under the cap.
-    shift = (1j * np.array([0.8, -0.6])).reshape((2, 1, 1, 1))
-    state = rng.normal(size=shape) + 1j * rng.normal(size=shape)
-    store = rng.normal(size=(7, *shape)) + 1j * rng.normal(size=(7, *shape))
-    nodes = [0.0, -0.7, -1.5, -2.6]
-    slots = np.array([3, 0, 5, 1], dtype=np.int64)
-    return exponent, shift, state, store, nodes, slots
-
-
-def test_the_compiled_passes_follow_the_reference_within_the_budget():
-    # One trial's moments, flow, predictor and corrector on numba_cpu against the
-    # reference, from the same inputs: within twice the increment's rounding budget
-    # (bounds.carrier_increment_budget) plus the flow's few ulp of the state.
-    from solprop.backends.multistep import (  # noqa: PLC0415 - the private helpers
-        _carrier_factors,  # pyright: ignore[reportPrivateUsage]
-    )
-    from solprop.backends.numba_cpu.multistep import (  # noqa: PLC0415
-        NumbaExponentialKernels,
-    )
-
-    exponent, shift, state, store, nodes, slots = one_trial_inputs()
-    order = 3
-    width = len(slots) + 1
-    reference, compiled = ExponentialKernels(), NumbaExponentialKernels()
-    expected = reference.moments(exponent, width, shift=shift)
-    found = compiled.moments(exponent, width, shift=shift)
-    np.testing.assert_allclose(found, expected, rtol=0, atol=512 * EPS)
-    # The flow is the unshifted step's, formed beside the shifted moments.
-    np.testing.assert_allclose(compiled.flow(exponent), np.exp(exponent), rtol=4 * EPS)
-    factors = _carrier_factors(nodes, len(slots), shift)
-    coefficients = lagrange_coefficients(nodes[:order])
-    predicted = (
-        reference.predict(
-            state,
-            np.exp(exponent),
-            expected,
-            store,
-            slots[:order],
-            coefficients,
-            1.0,
-            factors=factors[:order],
-        ),
-        compiled.predict(
-            state,
-            compiled.flow(exponent),
-            found,
-            store,
-            slots[:order],
-            coefficients,
-            1.0,
-            factors=factors[:order],
-        ),
-    )
-    samples = np.stack([store[slot] for slot in slots[:order]])
-    budget = 2 * carrier_increment_budget(
-        coefficients, expected, samples, nodes[:order], shift, exponent - shift
-    ) + 8 * EPS * np.abs(np.exp(exponent) * state)
-    assert np.all(np.abs(predicted[1] - predicted[0]) <= budget)
-    # Unrotated rows are a different sum: the factors are applied, not ignored.
-    unrotated = compiled.predict(
-        state, compiled.flow(exponent), found, store, slots[:order], coefficients, 1.0
-    )
-    assert np.max(np.abs(unrotated - predicted[1])) > 1e3 * np.max(budget)
-
-
-def test_numba_cpu_steps_the_frame_exactly():
-    # The manufactured carrier-following source through the compiled march: exact to
-    # rounding, dense planes and the cap included, in the reference's calls. (The
-    # native engine evaluates its source itself, so a host substitute cannot reach it;
-    # its dense planes are compared with the reference's below.)
-    backend_name = "numba_cpu"
-    simulation = capillary(SCALAR)
-    source = manufactured(simulation.translate())
-    expected = march(simulation, source)
-    run = march(simulation, source, backend_class=COMPILED[backend_name])
-    assert max(run.errors) <= manufactured_budget(run)
-    assert run.march.ledger.total == expected.march.ledger.total
-    assert np.max(run.steps) * abs(reference_rate(run.problem)) <= 1 + 1e-9
 
 
 @pytest.mark.medium

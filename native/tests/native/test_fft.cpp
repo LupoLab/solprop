@@ -155,9 +155,9 @@ TEST(FftProvider, OnePlanPolicyDecidesEverySeedByShapeAndWidth) {
     for (const int threads : {1, 2, 64}) {
       SCOPED_TRACE(threads);
       const bool threaded_rows = shape == native::FftShape::rows && threads > 1;
-      const unsigned expected = requested != nullptr ? explicit_effort
-                                : threaded_rows      ? FFTW_ESTIMATE
-                                                     : FFTW_MEASURE;
+      const unsigned expected = !chosen.empty() ? explicit_effort
+                                : threaded_rows ? FFTW_ESTIMATE
+                                                : FFTW_MEASURE;
       EXPECT_EQ(native::fftw_seed_effort(shape, threads), expected);
     }
 }
@@ -393,11 +393,21 @@ TEST(RamanFftProvider, PreservesRawNormalizationInputAndPartialRows) {
       inverse.execute(outputs, inverses, KokkosFFT::Normalization::none);
       const auto roundtrip =
           Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, restored);
+      // numba_cpu held this round trip to 16 eps ceil(log2 2N) of its peak (SEP 43): a
+      // round trip of one plan pair needs less than a direct DFT's envelope, which a
+      // device's vendor FFT still takes.
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+      const double round_trip_bound = fft_bound(length, length);
+#else
+      const double round_trip_bound = 16 * std::numeric_limits<double>::epsilon() *
+                                      std::ceil(std::log2(2.0 * length)) * 1.625 *
+                                      length;
+#endif
       for (int row = 0; row < rows; ++row) {
         for (int sample = 0; sample < length; ++sample)
           EXPECT_NEAR(roundtrip(row, sample),
                       row < tail ? length * input_host(row, sample) : -5.0,
-                      row < tail ? fft_bound(length, length) : 0.0);
+                      row < tail ? round_trip_bound : 0.0);
         for (int sample = 0; sample <= length / 2; ++sample) {
           const auto expected =
               row < tail

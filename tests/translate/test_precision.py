@@ -60,8 +60,8 @@ def test_admission_refuses_by_name_and_the_study_reaches_adams():
 
     admit(SINGLE)
     admit(DOUBLE, "native", rtol=1e-12)
-    with pytest.raises(TranslationError, match=r"numba_cpu.*binary64 only"):
-        admit(SINGLE, "numba_cpu")
+    with pytest.raises(TranslationError, match=r"native.*binary64 only"):
+        admit(SINGLE, "native")
     with pytest.raises(TranslationError, match="floor 1e-06"):
         admit(SINGLE, rtol=1e-7)
     # A replayed schedule reads no tolerance.

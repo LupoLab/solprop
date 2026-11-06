@@ -8,13 +8,16 @@ In-memory and HDF5 outputs sharing one save protocol
 (:class:`solprop.output.schema.PlaneStore`), one metadata schema and one sign convention
 on the way out: stored fields are in the optics convention and carry the attribute
 ``spectral_convention = "optics"`` (see ``docs/dev/decisions.md``). The manual page is
-``docs/guide/results/output.md``. A TDSE run can also write its raw provider
+``docs/guide/results/output.md``. A run reduced plane by plane stores nothing, and gives
+each plane to a callable instead (:class:`~solprop.output.callback.CallbackOutput`;
+``docs/guide/setup/running.md``). A TDSE run can also write its raw provider
 evaluations to a separate archive
 (:class:`~solprop.output.tdse_archive.TDSEArchive`, read with
 :func:`~solprop.output.tdse_archive.open_tdse_archive`;
 ``docs/guide/media/tdse.md``).
 """
 
+from solprop.output.callback import CallbackOutput
 from solprop.output.hdf5 import (
     COMPRESSIONS,
     HDF5Output,
@@ -24,6 +27,7 @@ from solprop.output.hdf5 import (
     resume,
 )
 from solprop.output.memory import MemoryOutput
+from solprop.output.resumable import Resumability, resumability
 from solprop.output.schema import (
     FIELD_LAYOUT,
     HISTORY_FIELDS,
@@ -39,9 +43,11 @@ from solprop.output.schema import (
     Output,
     PlaneLayout,
     PlaneStore,
+    RetainingOutput,
     RunMetadata,
     RunOutcome,
     SavedPlane,
+    StatedInput,
     StepHistory,
     StepLimits,
     StepperRecord,
@@ -74,6 +80,7 @@ __all__ = [
     "SPECTRAL_CONVENTION",
     "TDSE_ARCHIVE_SCHEMA",
     "BackendRecord",
+    "CallbackOutput",
     "CheckpointOutput",
     "GitProvenance",
     "GridRecord",
@@ -84,7 +91,9 @@ __all__ = [
     "Output",
     "PlaneLayout",
     "PlaneStore",
+    "Resumability",
     "ResumeState",
+    "RetainingOutput",
     "RunMetadata",
     "RunOutcome",
     "SavedPlane",
@@ -92,6 +101,7 @@ __all__ = [
     "SnapshotFiles",
     "SnapshotInfo",
     "SnapshotResult",
+    "StatedInput",
     "StepHistory",
     "StepLimits",
     "StepperRecord",
@@ -105,6 +115,7 @@ __all__ = [
     "read_snapshot",
     "resolve_metadata_write",
     "restore_snapshot",
+    "resumability",
     "resume",
     "serialise",
 ]

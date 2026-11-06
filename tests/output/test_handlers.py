@@ -9,13 +9,15 @@ import json
 import signal
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import h5py
 import numpy as np
 import pytest
 
-from solprop import fourier
+from solprop import _process, fourier
+from solprop.backends.registry import REMOVED_BACKENDS
 from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.noise import input_noise
@@ -44,6 +46,7 @@ from solprop.output.schema import (
     StepperRecord,
     StepStats,
 )
+from solprop.spatial import ABSORBED_CHANNELS
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 
 
@@ -163,6 +166,51 @@ def test_both_handlers_satisfy_the_protocol(factory, tmp_path):
     assert isinstance(handler, Output)
     assert isinstance(handler, PlaneStore)
     assert (handler.n_saved, handler.metadata, handler.closed) == (0, None, False)
+
+
+def test_a_store_converts_a_plane_in_threads_to_the_same_bits(
+    grid, metadata, monkeypatch
+):
+    plane = make_plane(grid, 0)
+    assert plane.field is not None
+    expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
+    monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
+    handler = MemoryOutput()
+    handler.open(metadata)
+    handler.save(plane)
+    # A lossless structural contract: only the order of the rows' work differs.
+    assert handler["field"][0].tobytes() == expected.tobytes()
+    handler.close()
+
+
+def test_a_store_keeps_its_own_copy_of_a_plane(grid, metadata):
+    plane = make_plane(grid, 0)
+    assert plane.field is not None
+    expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
+    handler = MemoryOutput()
+    handler.open(metadata)
+    handler.save(plane)
+    # A run goes on stepping the state an observation may have been a view of.
+    assert not np.shares_memory(handler["field"], plane.field)
+    assert np.array_equal(handler["field"][0], expected)
+    handler.close()
+
+
+def test_a_store_grows_past_its_block_with_every_plane_intact(grid, metadata):
+    # Each plane's room is taken before it is converted, so growing must come first.
+    planes = [make_plane(grid, index) for index in range(5)]
+    handler = MemoryOutput(block=1)
+    handler.open(metadata)
+    for plane in planes:
+        handler.save(plane)
+    for index, plane in enumerate(planes):
+        assert plane.field is not None
+        assert np.array_equal(
+            handler["field"][index],
+            fourier.spectrum_to_optics(plane.field, kind=grid.kind),
+        )
+    handler.close()
 
 
 def test_the_two_handlers_store_the_same_planes_bitwise(grid, metadata, tmp_path):
@@ -702,7 +750,7 @@ def test_check_cache_refuses_a_changed_configuration_by_name(grid, schedule, tmp
     handler.close()
     changed = make_metadata(grid, schedule, configuration={"gamma": 0.22})
     with pytest.raises(
-        OutputError, match=r"these compared values differ: configuration: gamma"
+        OutputError, match=r"these fields changed: configuration\.gamma"
     ):
         check_cache(tmp_path / "run.h5", changed)
 
@@ -808,7 +856,7 @@ def test_an_appending_handler_refuses_a_different_run(grid, schedule, tmp_path):
     again = HDF5Output(path, append=True)
     with pytest.raises(
         OutputError,
-        match=r"cannot be appended to; these compared values differ: configuration",
+        match=r"cannot be appended to; these fields changed: configuration",
     ):
         again.open(make_metadata(grid, schedule, configuration={"gamma": 0.22}))
     again.close()
@@ -968,6 +1016,46 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
         assert file.attrs["backend"] == "numba_cpu"
 
 
+def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
+    tmp_path, grid, schedule
+):
+    """A recorded name is not a request: old output keeps the name it was written with.
+
+    Hand-built, as a file ``numba_cpu`` wrote before SEP 43 removed it; the name is
+    refused where a run asks for it (``tests/backends/test_registry.py``), never where
+    a file is read.
+    """
+    assert "numba_cpu" in REMOVED_BACKENDS
+    record = BackendRecord.from_metadata(
+        {
+            "backend": "numba_cpu",
+            "propagator_mode": "recompute",
+            "numba_threads": 4,
+            "fftw_threads": 2,
+        }
+    )
+    metadata = dataclasses.replace(make_metadata(grid, schedule), backend=record)
+    path = tmp_path / "old.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(make_plane(grid, 0))
+    with h5py.File(path, "r") as file:
+        assert file.attrs["backend"] == "numba_cpu"
+    with open_file(path) as read:
+        stored = read.metadata
+        assert stored is not None
+        written = stored.backend
+        assert written == record
+        assert written is not None
+        assert written.name == "numba_cpu"
+        assert written.settings["numba_threads"] == 4
+        assert "numba_cpu" in repr(stored)
+    # The resume key holds the problem and the state: the old file is the same run.
+    assert check_cache(path, metadata)
+    assert check_cache(path, make_metadata(grid, schedule))
+    assert resume(path).plane.z == make_plane(grid, 0).z
+
+
 def test_the_backend_group_is_outside_the_resume_key(grid, schedule):
     """A run continued on the other backend is the same run.
 
@@ -981,7 +1069,7 @@ def test_the_backend_group_is_outside_the_resume_key(grid, schedule):
         base, backend=BackendRecord("numpy_ref", "tabulate", {"threads": 1})
     )
     other = dataclasses.replace(
-        base, backend=BackendRecord("numba_cpu", "recompute", {"threads": 18})
+        base, backend=BackendRecord("native", "recompute", {"threads": 18})
     )
     assert one.configuration_hash() == other.configuration_hash()
     assert one.differences(other) == ()
@@ -1193,6 +1281,53 @@ def test_a_run_record_declares_the_current_output_schema(metadata):
     assert metadata.schema_version == 2
 
 
+def _four_column_file(grid, metadata, path, *, in_rows=False):
+    """A file as an earlier development build wrote it: four absorbed-power columns."""
+    power = np.array([1.0, 2.0, 3.0, 4.0])
+    plane = make_plane(grid, 0)
+    if in_rows:
+        rows = StepStats(
+            z=np.array([0.0, 0.1]),
+            step=np.array([1, 2], dtype=np.int64),
+            values={"absorbed_power": np.ones((2, 4))},
+        )
+        plane = dataclasses.replace(plane, step_stats=rows)
+    else:
+        plane = dataclasses.replace(plane, stats={"absorbed_power": power})
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane)
+
+
+@pytest.mark.parametrize("in_rows", [False, True])
+def test_a_four_column_file_still_reads_as_it_was_written(
+    grid, metadata, tmp_path, in_rows
+):
+    path = tmp_path / "earlier.h5"
+    _four_column_file(grid, metadata, path, in_rows=in_rows)
+    with hdf5_module.open_file(path) as stored:
+        if in_rows:
+            np.testing.assert_array_equal(
+                stored["step_stats/absorbed_power"], np.ones((2, 4))
+            )
+        else:
+            np.testing.assert_array_equal(
+                stored["stats/absorbed_power"], [[1.0, 2.0, 3.0, 4.0]]
+            )
+    assert ABSORBED_CHANNELS[:4] == ("spectral", "transverse", "evanescent", "material")
+
+
+def test_five_columns_continue_as_before(grid, metadata, tmp_path):
+    path = tmp_path / "now.h5"
+    power = np.ones(len(ABSORBED_CHANNELS))
+    plane = dataclasses.replace(make_plane(grid, 0), stats={"absorbed_power": power})
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane)
+    assert hdf5_module.resume(path).n_saved == 1
+    assert hdf5_module.check_cache(path, metadata)
+
+
 @pytest.mark.parametrize("declared", [1, 10, 28, SCHEMA_VERSION + 1])
 def test_a_file_of_another_output_schema_is_refused_by_name(
     grid, metadata, tmp_path, declared
@@ -1228,6 +1363,7 @@ def test_a_file_of_another_output_schema_is_refused_by_name(
     continued.close()
 
 
+@pytest.mark.child_runs_auto
 @pytest.mark.skipif(sys.platform == "win32", reason="Windows has no SIGKILL")
 def test_planes_reach_the_disk_before_a_hard_stop(tmp_path):
     """Each saved plane is flushed, so a SIGKILL loses at most the plane in flight.

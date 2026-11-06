@@ -32,13 +32,11 @@ from legacy_geometry import LEGACY_GRID
 from selected_backend import selected_backend
 
 try:
-    # Load Kokkos before pyFFTW's wheel-private OpenMP runtime on macOS. The backend
-    # still remains optional: a source tree without the plugin collects the base pair.
+    # The backend is optional: a source tree without the plugin collects the reference.
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 except ImportError:
     NativeBackend = None
 
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
 from solprop.exceptions import MaterialRangeWarning
@@ -75,13 +73,12 @@ GNLSE_SETTINGS = {"density": 1.0, "shock": False, "prefactor_index": 1.0}
 
 BACKENDS: dict[str, type[object]] = {
     "numpy_ref": NumpyRefBackend,
-    "numba_cpu": NumbaCpuBackend,
 }
 if NativeBackend is not None:
     BACKENDS["native"] = NativeBackend
 """Every backend a portable test is run on, by the name the registry knows."""
 
-EQUIVALENCE_BACKENDS: dict[str, type[object]] = {"numba_cpu": NumbaCpuBackend}
+EQUIVALENCE_BACKENDS: dict[str, type[object]] = {}
 if NativeBackend is not None:
     EQUIVALENCE_BACKENDS["native"] = NativeBackend
 
@@ -294,7 +291,6 @@ def substitute():
             parts["initial"],
         )
         problem = KernelProblem(
-            schema_version=base.schema_version,
             grid_kind=base.grid_kind,
             shape=base.shape,
             flags=derived,

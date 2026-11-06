@@ -288,7 +288,7 @@ fastest, at no extra step, and a run stopped on one resumes as from any landed p
 - **Material processing** that reads the requested planes' positions
   (`processing.mixtures`) refuses the extra planes, and **scans** refuse `step_planes`,
   since a scan saves the same planes at every point.
-- On `numba_cpu` and `native` the reused last stage of a step is kept across saved planes
+- On `native` the reused last stage of a step is kept across saved planes
   (ADR-039), so saving costs no evaluation either.
 
 A target just beyond the capped step is *stretched* to rather than approached in two

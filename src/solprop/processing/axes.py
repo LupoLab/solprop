@@ -18,7 +18,7 @@ Second, the accessors work on the grid's **active band** by default, which is wh
 the wavelength axis finite and the selection contiguous.
 """
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Literal, cast
 
@@ -28,8 +28,18 @@ from jaxtyping import Bool, Complex, Float, Inexact, Int
 from solprop import fourier
 from solprop.constants import C
 from solprop.exceptions import ModeError, OutputError, ProcessingError
-from solprop.grid import Collar, EnvelopeGrid, FieldGrid, TimeGrid
+from solprop.grid import (
+    Collar,
+    EnvelopeGrid,
+    FieldGrid,
+    FreeGrid,
+    LineGrid,
+    RadialGrid,
+    TimeGrid,
+)
 from solprop.modes.protocol import TransverseMeasure
+from solprop.modes.slab import PlanarGrid
+from solprop.output.capability import reading_refusal
 from solprop.output.schema import Convention, GridRecord, Output, PlaneStore
 
 __all__ = [
@@ -43,6 +53,7 @@ __all__ = [
     "grid_from_record",
     "grid_of",
     "layout",
+    "spatial_grid_of",
     "spectral_axis",
     "spectral_order",
     "transverse_units",
@@ -168,6 +179,99 @@ def grid_of(output: Output) -> TimeGrid:
         )
         raise OutputError(msg)
     return grid_from_record(metadata.grid)
+
+
+_SPACES = {
+    "solprop.grid.RadialGrid": RadialGrid,
+    "solprop.grid.FreeGrid": FreeGrid,
+    "solprop.grid.LineGrid": LineGrid,
+}
+"""The transverse grids a spatial file's record names, by qualified class name."""
+
+
+def spatial_grid_of(output: Output) -> RadialGrid | FreeGrid | PlanarGrid:
+    """Return the transverse grid a saved spatial run was computed on.
+
+    The spatial counterpart of :func:`grid_of`, read from the record alone, so a file
+    written by a script is read like one written from a recipe. A
+    :class:`~solprop.grid.LineGrid` is a :class:`~solprop.grid.FreeGrid`.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        A memory or HDF5 output handler that has been opened.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid or solprop.grid.FreeGrid or solprop.modes.slab.PlanarGrid
+        The rebuilt grid. A planar grid comes only from a memory output, which keeps
+        the live one.
+
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the handler carries no metadata.
+    solprop.exceptions.ProcessingError
+        If the run has no transverse grid, or it is a hybrid planar run's in a file:
+        that record holds the slab modes' serialised materials, which are not rebuilt.
+
+    Examples
+    --------
+    >>> from solprop.processing import example_output, spatial_grid_of
+    >>> spatial_grid_of(example_output())
+    Traceback (most recent call last):
+        ...
+    solprop.exceptions.ProcessingError: this run's record carries no transverse grid
+    """
+    metadata = output.metadata
+    if metadata is None:
+        msg = (
+            "the output carries no metadata, so its transverse grid cannot be rebuilt: "
+            "open the handler with a RunMetadata before reading it"
+        )
+        raise OutputError(msg)
+    record = metadata.configuration.get("spatial_grid")
+    if isinstance(record, RadialGrid | FreeGrid | PlanarGrid):
+        # A memory output keeps the live grid; a file keeps its serialised record.
+        return record
+    if not isinstance(record, Mapping):
+        msg = "this run's record carries no transverse grid"
+        raise ProcessingError(msg)
+    return _space_from_record(record)
+
+
+def _space_from_record(record: object) -> RadialGrid | FreeGrid:
+    """Rebuild a transverse grid from the record ``coupling.space_record`` writes.
+
+    Parameters
+    ----------
+    record : object
+        ``{"__class__": "module.Name", <init fields>...}``.
+
+    Returns
+    -------
+    solprop.grid.RadialGrid or solprop.grid.FreeGrid
+        The grid.
+
+    Raises
+    ------
+    ProcessingError
+        If the record names no grid solprop rebuilds.
+    """
+    fields = dict(cast("Mapping[str, object]", record))
+    name = cast("str", fields.pop("__class__", ""))
+    kind = _SPACES.get(name)
+    if kind is None:
+        if name.endswith(".PlanarGrid"):
+            msg = (
+                "a hybrid planar file's transverse grid is not rebuilt: its record "
+                "holds the slab modes' serialised materials. The nodes are in "
+                "metadata.spatial['axes']; a memory output keeps the live grid"
+            )
+            raise ProcessingError(msg)
+        msg = f"this run's transverse grid {name or record!r} is not one solprop reads"
+        raise ProcessingError(msg)
+    return kind(**fields)  # pyright: ignore[reportArgumentType] - the grid's own fields
 
 
 @dataclass(frozen=True)
@@ -439,6 +543,51 @@ def _nearest_plane(output: Output, z: float) -> int:
         msg = "the output holds no saved plane, so no position can be selected"
         raise OutputError(msg)
     return int(np.argmin(np.abs(positions - z)))
+
+
+def _refuse_by_basis(output: Output, name: str) -> None:
+    """Refuse a reader the stored basis does not define, by name.
+
+    The whitelist's fourth door (:mod:`solprop.output.capability`). The readers of
+    :mod:`solprop.processing.time`, :mod:`solprop.processing.fields` and the plots
+    drawn from them were written when every run's mode axis was an orthogonal one- or
+    two-component basis whose coordinate powers add up to the physical power. A
+    general modal file is not that, and ``peak_power(modes='sum')`` is
+    :func:`solprop.stats.peak_power_total`, which the run loop, both CPU backends and
+    :mod:`solprop.processing.modal` all refuse on that basis. A spatial file is not
+    that either: its columns are fields in V m or V/m or slab amplitudes, and the
+    readers of :data:`~solprop.output.capability.COLUMN_READINGS` would read them as
+    modes in sqrt(W). Without this check the same numbers came back through a
+    different import, silently wrong in joules and watts.
+
+    Nothing changes for a run on an ordinary modal basis, which is every gas-filled
+    guided run. Each public reader calls this once, under its own name; what it reads
+    through internally is the ungated private reading, so no call is gated twice.
+
+    Parameters
+    ----------
+    output : solprop.output.schema.Output
+        An opened output handler.
+    name : str
+        The reader being asked for, which the refusal names.
+
+    Raises
+    ------
+    solprop.exceptions.OutputError
+        If the stored basis does not admit `name`
+        (:func:`~solprop.output.capability.reading_refusal`). It is an
+        :class:`~solprop.exceptions.OutputError` and not a
+        :class:`~solprop.exceptions.ProcessingError` because it is a statement about
+        the record, and because one gate raising two classes would make the refusal
+        harder to catch than to cause: :mod:`solprop.processing.modal` raises the
+        same class for the same text.
+    """
+    metadata = output.metadata
+    if metadata is None:
+        return
+    refusal = reading_refusal(metadata, name, recorded=output.stat_names)
+    if refusal is not None:
+        raise OutputError(refusal)
 
 
 def _plane_field(

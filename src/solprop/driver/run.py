@@ -33,22 +33,24 @@ import logging
 import math
 import time
 from collections.abc import Mapping, Sequence
-from typing import cast
+from typing import Literal, cast
 
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled
+from solprop._interrupts import committing, handled, poll
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.driver.memory import MemoryAdmission
+from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.summary import resources, run_summary
 from solprop.exceptions import (
+    BackendError,
     DriverError,
     OutputError,
     ResponseBudgetError,
     RunTerminated,
+    StopRequested,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
@@ -57,6 +59,7 @@ from solprop.log import (
     LogReporter,
     ProgressChoice,
     ProgressReporter,
+    StopFlag,
     SummarisingReporter,
     resolve_reporter,
 )
@@ -76,12 +79,15 @@ from solprop.output.schema import (
     FieldsChoice,
     Output,
     PlaneStore,
+    RecipeRecord,
+    RetainingOutput,
     RunMetadata,
     RunOutcome,
     SavedPlane,
     StepHistory,
     StepStats,
     TerminalCheckpoint,
+    _adopted,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -239,6 +245,39 @@ def plane_from_observation(
     )
 
 
+def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlane:
+    """Turn an observation of an unbatched run into a plane without copying its arrays.
+
+    An observation's arrays are read-only and nothing writes to them again
+    (:meth:`solprop.backends.protocol.Backend.observe`), so the plane can hold them as
+    they are: this is what lets a handler reduce a plane and drop it for no more than
+    the backend's own observation, and keep it if it wants to. A batch member is not
+    adopted, since its view would pin the whole batch: that route takes
+    :func:`plane_from_observation`, which copies.
+
+    Parameters
+    ----------
+    observation : solprop.backends.protocol.Observation
+        The observation of an unbatched run.
+    field : bool, optional
+        Whether the plane keeps the field and its noise phase.
+
+    Returns
+    -------
+    solprop.output.schema.SavedPlane
+        The plane, with its statistics still to add.
+    """
+    plane = plane_from_observation(observation, field=False)
+    if not field or observation.field is None:
+        return plane
+    phase = observation.noise_phase
+    return dataclasses.replace(
+        plane,
+        field=_adopted(observation.field[0]),
+        noise_phase=None if phase is None else _adopted(phase[0]),
+    )
+
+
 def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
     """Convert modal output units once, before the handler changes Fourier sign.
 
@@ -275,7 +314,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
     start_plane: int = 0,
-    memory: MemoryAdmission | None = None,
     tdse_binding: TDSEBinding | None = None,
     resume_history: bool | None = None,
     fields: FieldsChoice = "all",
@@ -283,7 +321,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     snapshots: SnapshotController | None = None,
     tdse_archive: TDSEArchiveWriter | None = None,
     boundary_monitor: BoundaryMonitor | None = None,
-    resume_record: Mapping[str, object] | None = None,
+    stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -335,9 +374,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         loads either the last regular plane or a separate terminal checkpoint at
         its actual absolute position. The launch plane is written when the handler
         holds no regular observations, so a resumed run never stores it twice.
-    memory : solprop.driver.memory.MemoryAdmission or None, optional
-        The run's memory admission (:func:`solprop.driver.memory.admit_memory`),
-        recorded as ``memory`` in the backend record's settings; ``None`` records none.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Explicit live atomic runtime owned by the caller. Its ledgers and execution
         facts are captured before the caller closes it. TDSE requires an output
@@ -367,11 +403,17 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         the execution record at every save plane without the per-plane rows, which
         the closing record (complete, failed or out of budget) carries, and its removed
         fraction is reported at the end. ``None`` watches nothing.
-    resume_record : collections.abc.Mapping or None, optional
-        The ``resume`` entry of a session that continues a file across differences
-        from its record (SEP 42 section 5.3): every execution record this session
-        writes carries it, from the first, written before any step, so a session
-        that stops or fails still leaves it. ``None`` records none.
+    stop : solprop.log.StopFlag or None, optional
+        The run's own stop flag, any object with an ``is_set()`` method (SEP 41,
+        S17). It is polled before the first step, before every trial step (on a native
+        ``Multistep()`` march, before every native call) and between save planes; once
+        it is set the run writes its state as for SIGTERM, tells the reporter through
+        ``interrupted``, and raises
+        :class:`~solprop.exceptions.StopRequested`, which
+        :meth:`~solprop.driver.simulation.Simulation.run` turns into a return.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the run was built from (SEP 41, S2), recorded in a plane store at
+        the first run start and never rewritten; ``None`` records none.
 
     Raises
     ------
@@ -436,6 +478,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
     backend.set_progress(reporter)
+    backend.set_stop(stop)
     started = time.perf_counter()
     clock = RunClock.start()
     logger.debug(
@@ -449,11 +492,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         metadata,
         backend,
         tdse_binding,
-        memory,
     )
-    if resume_record is not None:
-        # Only a file resume carries an entry, and its handler is an HDF5Output.
-        cast("PlaneStore", output).record_resume(resume_record)
+    if recipe is not None and isinstance(output, PlaneStore):
+        with committing():
+            output.record_recipe(recipe)
     # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
     # and every save plane; a resumed one keeps what it holds and grows to the rest.
     reserve = getattr(output, "reserve", None)
@@ -462,7 +504,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     _retain(output, retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     # Read before this execution's first record replaces the earlier one's.
-    resumed, monitored = _earlier_execution(output, checkpoint_output)
+    _refuse_unread_collar(problem, backend)
+    resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
     _announce(
         problem,
         metadata,
@@ -473,6 +516,14 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         boundary_check=None if boundary_monitor is None else boundary_monitor.check,
     )
     keeper = _MarchKeeper(output, backend, resume_history)
+    # A plane observer is shown each committed plane (SEP 41, S3); a field the output
+    # does not keep is fetched from the backend only when the observer asks.
+    watch = PlaneWatch(
+        reporter,
+        metadata,
+        lambda: _fetched(problem, backend),
+        clock.observer,
+    )
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
     snapshots_started = False
@@ -485,7 +536,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             checkpoint_output,
             backend,
             tdse_binding,
-            RunOutcome("running", reached),
+            _Status("running", reached),
             clock=clock,
         )
         # The entrance is saved when the handler holds nothing, rather than whenever the
@@ -494,9 +545,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         # starts at plane zero again without wanting a second copy of it.
         if output.n_saved == 0 or missing_current_save:
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending = dataclasses.replace(
                 pending,
                 stats={
@@ -510,20 +559,24 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     checkpoint_output,
                     backend,
                     tdse_binding,
-                    RunOutcome("running", reached),
+                    _Status("running", reached),
                     clock=clock,
                 )
-        attach = getattr(backend, "attach_monitor", None)
-        if boundary_monitor is not None and attach is not None:
+            watch.show(pending, output.n_saved - 1)
+        if boundary_monitor is not None:
             if resumed:
                 # The record continues across the resume (SEP 21, ADR-057).
                 boundary_monitor.resume(
                     monitored,
                     plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
+                    unwatched=unwatched,
                 )
-            attach(boundary_monitor)
+            backend.attach_monitor(boundary_monitor)
         index = start_plane
         while index < planes.size:
+            # Before the first step and between planes, for a backend that does not
+            # poll per trial itself.
+            poll(stop)
             target = float(planes[index])
             pending = None
             pending_save_count = output.n_saved
@@ -539,9 +592,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     summary.max_norm,
                 )
             keep = retention.keeps(output.n_saved)
-            pending = plane_from_observation(
-                _observed(problem, backend, keep=keep), field=keep
-            )
+            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
             pending_save_count = output.n_saved
             pending = dataclasses.replace(
                 pending,
@@ -560,7 +611,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     checkpoint_output,
                     backend,
                     tdse_binding,
-                    RunOutcome("running", reached),
+                    _Status("running", reached),
                     clock=clock,
                 )
             if snapshots is not None:
@@ -575,7 +626,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                         checkpoint_output,
                         backend,
                         tdse_binding,
-                        RunOutcome("running", z),
+                        _Status("running", z),
                         clock=clock,
                     )
 
@@ -587,18 +638,19 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
                     persist=persist,
                     provenance=metadata,
                 )
+            watch.show(pending, output.n_saved - 1)
             reporter.plane(summary.z, summary)
             # A natural step can stop short of the requested plane (SEP 14).
             if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
                 index += 1
-        if boundary_monitor is not None and attach is not None:
+        if boundary_monitor is not None:
             boundary_monitor.finish()
         with committing():
             _record_execution(
                 checkpoint_output,
                 backend,
                 tdse_binding,
-                RunOutcome("complete", reached),
+                _Status("complete", reached),
                 clock=clock,
             )
         reporter.finished(time.perf_counter() - started)
@@ -613,17 +665,26 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             tdse_binding,
             keeper,
             _FailedObservation(
-                pending, output.n_saved > pending_save_count, error, reached, clock
+                pending,
+                output.n_saved > pending_save_count,
+                error,
+                reached,
+                clock,
+                output.n_saved > 0 and retention.keeps(output.n_saved - 1),
             ),
         )
         if failed_z is not None:
             reached = failed_z
-        if isinstance(error, RunTerminated):
-            logger.warning(
-                "%s at z = %.6e m; the run's state there is written, and "
-                "resume=True continues it",
+        if isinstance(error, RunTerminated | StopRequested):
+            # A stop the caller asked for is not a warning; a signal may be one.
+            logger.log(
+                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
+                "%s at z = %.6e m; %s",
                 error,
                 reached,
+                "the run's state there is written, and resume=True continues it"
+                if failed_z is not None
+                else "no state was written there",
             )
         # A reporter holding a terminal (a bar) gives it back before the error
         # propagates; a reporter implementing only the four basic calls is not told,
@@ -632,6 +693,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             reporter.interrupted(reached, error)
         raise
     finally:
+        backend.set_stop(None)
         try:
             output.close()
         except BaseException as error:
@@ -767,6 +829,28 @@ def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observ
     return _power_observation(problem, backend.observe(field=keep))
 
 
+def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
+    """Return the field at the backend's current plane, in output units.
+
+    For a plane observer shown a plane whose field the output does not keep.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    backend : solprop.backends.protocol.Backend
+        The backend, at the plane.
+
+    Returns
+    -------
+    numpy.ndarray
+        The field, as a saved plane holds it.
+    """
+    plane = _adopted_plane(_observed(problem, backend, keep=True))
+    assert plane.field is not None  # observed with its field
+    return plane.field
+
+
 def field_retention(
     problem: KernelProblem, fields: object, field_planes: Sequence[int]
 ) -> FieldRetention:
@@ -843,9 +927,8 @@ def _retain(
     field_shape : tuple of int
         ``(n_modes, n_pol, n_omega)`` of the run's state.
     """
-    retain = getattr(output, "retain", None)
-    if retain is not None:
-        retain(retention, field_shape)
+    if isinstance(output, RetainingOutput):
+        output.retain(retention, field_shape)
 
 
 def _check_retainable(output: Output, retention: FieldRetention) -> None:
@@ -861,13 +944,15 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
     Raises
     ------
     DriverError
-        If the rule keeps fewer than every field and the output has no ``retain``.
+        If the rule keeps fewer than every field and the output has no ``retain``
+        (:class:`~solprop.output.schema.RetainingOutput`).
     """
-    if retention.fields != "all" and getattr(output, "retain", None) is None:
+    if retention.fields != "all" and not isinstance(output, RetainingOutput):
         msg = (
             f"this run asks for {retention.describe()} and its output "
-            f"{type(output).__name__} cannot store field-free planes (it has no "
-            "retain); use a MemoryOutput or an HDF5Output, or fields='all'"
+            f"{type(output).__name__} cannot store field-free planes: give it a "
+            "retain method (RetainingOutput), or use a MemoryOutput or an HDF5Output, "
+            "or fields='all'"
         )
         raise DriverError(msg)
 
@@ -907,10 +992,43 @@ def _resume_position(
     return reached, missing_current_save
 
 
+def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
+    """Refuse a requested collar on a backend that does not read its return (SEP 40).
+
+    A requested real-space collar is judged by what it returns, which the monitor's
+    transverse edge reads; a backend that does not read it refuses the collar by name
+    before the first step (SEP 40 section 6). Its in-stage rate is not the reason:
+    the backends compute it alike.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The run's problem.
+    backend : solprop.backends.protocol.Backend
+        The selected backend.
+
+    Raises
+    ------
+    BackendError
+        If the problem has a requested collar and the backend does not read the edge.
+    """
+    design = problem.transverse
+    if design is None or not design.has_collar:
+        return
+    if backend.reads_transverse_edge:
+        return
+    msg = (
+        f"the {backend.name} backend does not carry a requested real-space collar "
+        "(SpatialAbsorber with real_space=True): run it on one of solprop's own "
+        "backends, or ask for the safety ramp alone"
+    )
+    raise BackendError(msg)
+
+
 def _earlier_execution(
     output: Output, checkpoint_output: CheckpointOutput | None
-) -> tuple[bool, Mapping[str, object] | None]:
-    """Return whether this execution resumes another, and that one's monitor record.
+) -> tuple[bool, Mapping[str, object] | None, tuple[tuple[float, float], ...]]:
+    """Return whether this execution resumes another, and the monitor record to go on.
 
     Parameters
     ----------
@@ -924,15 +1042,49 @@ def _earlier_execution(
     resumed : bool
         Whether the handler holds an earlier execution's planes or outcome.
     record : collections.abc.Mapping or None
-        That execution's boundary-monitor record, or ``None`` without one.
+        The latest earlier execution's boundary-monitor record, searching back past
+        executions that kept none, or ``None`` when none did.
+    unwatched : tuple of tuple of float
+        The stretches, ``(start, end)`` in m, that executions after that record ran
+        without a monitor; from the launch when no execution kept one.
     """
     outcome = None if checkpoint_output is None else checkpoint_output.outcome
     resumed = output.n_saved > 0 or outcome is not None
-    execution = None if outcome is None else outcome.execution
-    record = None if execution is None else execution.get("boundary_monitor")
-    if not isinstance(record, Mapping):
-        return resumed, None
-    return resumed, cast("Mapping[str, object]", record)
+    if outcome is None:
+        return resumed, None, ()
+    # Earliest first: each earlier execution's closing record, then the latest.
+    chain: list[tuple[float, Mapping[str, object]]] = []
+    for previous in outcome.previous_executions:
+        execution = previous.get("execution")
+        reached = previous.get("z")
+        chain.append(
+            (
+                float(reached) if isinstance(reached, int | float) else 0.0,
+                cast("Mapping[str, object]", execution)
+                if isinstance(execution, Mapping)
+                else {},
+            )
+        )
+    chain.append((float(outcome.z), outcome.execution))
+    # The latest record that holds a monitor; executions after it ran unwatched,
+    # each from where the one before it stopped to where it stopped itself, which is
+    # where the next resumed. A hard kill before the monitor is attached
+    # leaves a record without one and an empty stretch, and is passed over.
+    found = -1
+    for index in range(len(chain) - 1, -1, -1):
+        if isinstance(chain[index][1].get("boundary_monitor"), Mapping):
+            found = index
+            break
+    unwatched: list[tuple[float, float]] = []
+    start = 0.0 if found < 0 else chain[found][0]
+    for reached, _ in chain[found + 1 :]:
+        if reached > start:
+            unwatched.append((start, reached))
+        start = max(start, reached)
+    if found < 0:
+        return resumed, None, tuple(unwatched)
+    record = cast("Mapping[str, object]", chain[found][1]["boundary_monitor"])
+    return resumed, record, tuple(unwatched)
 
 
 def _open_run(
@@ -940,7 +1092,6 @@ def _open_run(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
 
@@ -954,8 +1105,6 @@ def _open_run(
         Prepared optical backend supplying actual execution facts.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record in bytes.
 
     Returns
     -------
@@ -965,8 +1114,6 @@ def _open_run(
     executed = backend.metadata()
     if binding is not None:
         executed = {**executed, "tdse": dict(binding.metadata())}
-    if memory is not None:
-        executed = {**executed, "memory": memory.record()}
     output.open(
         dataclasses.replace(metadata, backend=BackendRecord.from_metadata(executed))
     )
@@ -978,7 +1125,6 @@ def open_run_record(
     metadata: RunMetadata,
     backend: Backend,
     binding: TDSEBinding | None,
-    memory: MemoryAdmission | None,
 ) -> None:
     """Open an output with the run's record and execution facts, and save nothing.
 
@@ -997,10 +1143,8 @@ def open_run_record(
         Prepared optical backend.
     binding : TDSEBinding or None
         Optional atomic service supplying execution provenance.
-    memory : MemoryAdmission or None
-        Optional run admission record.
     """
-    _open_run(output, metadata, backend, binding, memory)
+    _open_run(output, metadata, backend, binding)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1012,6 +1156,7 @@ class _FailedObservation:
     error: BaseException
     reached: float
     clock: RunClock
+    last_kept_field: bool
 
 
 class _MarchKeeper:
@@ -1022,7 +1167,7 @@ class _MarchKeeper:
     output : solprop.output.schema.Output
         The run's handler; only one with ``save_march`` keeps a snapshot.
     backend : solprop.backends.protocol.Backend
-        The run's backend; only one with ``march_snapshot`` has one to keep.
+        The run's backend, whose march has a snapshot to keep or none.
     policy : bool or None
         The run's ``resume_history``.
     """
@@ -1030,7 +1175,8 @@ class _MarchKeeper:
     def __init__(self, output: Output, backend: Backend, policy: bool | None) -> None:
         """Hold what keeping a snapshot needs."""
         self._save = getattr(output, "save_march", None)
-        self._snapshot = getattr(backend, "march_snapshot", None)
+        self._snapshot = backend.march_snapshot
+        self._snapshot_nbytes = backend.march_snapshot_nbytes
         self._policy = policy
         self._kept_z: float | None = None
 
@@ -1052,7 +1198,7 @@ class _MarchKeeper:
         """
         if required and self._kept_z == z:
             return
-        if self._save is None or self._snapshot is None:
+        if self._save is None:
             if required:
                 raise OutputError(
                     "snapshot requires a backend and output with Adams history"
@@ -1060,6 +1206,22 @@ class _MarchKeeper:
             return
         if self._policy is False and not required:
             return
+        if self._policy is None and not required:
+            # Before any copy: the snapshot over the limit is the state and the whole
+            # history, on the host.
+            nbytes = self._snapshot_nbytes(z)
+            if nbytes is None:
+                return
+            if nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
+                logger.info(
+                    "the Adams march's state is not kept for a resume: %d bytes is "
+                    "over the %d kept by default (resume_history=True keeps it)",
+                    nbytes,
+                    MARCH_SNAPSHOT_AUTO_BYTES,
+                )
+                self._policy = False
+                return
+            self._policy = True
         snapshot = self._snapshot()
         if snapshot is None or snapshot.z != z:
             if required:
@@ -1067,17 +1229,6 @@ class _MarchKeeper:
                     "snapshot requires Adams history at the accepted endpoint"
                 )
             return
-        if self._policy is None and not required:
-            if snapshot.nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
-                logger.info(
-                    "the Adams march's state is not kept for a resume: %d bytes is "
-                    "over the %d kept by default (resume_history=True keeps it)",
-                    snapshot.nbytes,
-                    MARCH_SNAPSHOT_AUTO_BYTES,
-                )
-                self._policy = False
-                return
-            self._policy = True
         self._save(snapshot)
         self._kept_z = z
 
@@ -1115,42 +1266,19 @@ def _persist_failure(
     if output is None:
         return None
     pending = failure.pending
-    in_flight = getattr(backend, "_in_flight", None)
-    held = None
+    in_flight = backend.in_flight
     if pending is None and in_flight is not None:
-        holder = getattr(backend, "held_observation", None)
-        try:
-            held = None if holder is None else holder()
-        except Exception as held_error:
-            # A held state that cannot be observed (one not finite outside the norm
-            # mask, say) must not replace the original exception: the failure is
-            # recorded as an abandoned step, with the reason beside it.
-            failure.error.add_note(
-                f"the held plane could not be observed: {held_error}"
-            )
-            logger.exception("could not observe the held plane")
-            held = None
-        if held is None:
-            _record_abandoned_step(backend, output, binding, failure, in_flight)
-            return None
+        _record_abandoned_step(backend, output, binding, failure, in_flight)
+        return None
     reached = None
     try:
-        if held is not None:
-            # The low-storage step in flight holds neither end, and the last plane
-            # kept no field: the state held there is checkpointed (SEP 22, Q14).
-            # Its history went out with the plane, so the checkpoint carries none.
-            pending = plane_from_observation(_power_observation(problem, held))
-        elif pending is None:
-            pending = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+        if pending is None:
+            pending = _adopted_plane(_power_observation(problem, backend.observe()))
         elif pending.field is None:
             # A field-free plane keeps no field, and a checkpoint always does (SEP
             # 22, Q1): the state still stands where the plane was observed, so it is
             # observed again for its field alone, the history being the plane's.
-            again = plane_from_observation(
-                _power_observation(problem, backend.observe())
-            )
+            again = _adopted_plane(_power_observation(problem, backend.observe()))
             pending = dataclasses.replace(
                 pending, field=again.field, noise_phase=again.noise_phase
             )
@@ -1183,12 +1311,12 @@ def _persist_failure(
                 output,
                 backend,
                 binding,
-                RunOutcome(
+                _Status(
                     "budget_exhausted"
                     if isinstance(failure.error, ResponseBudgetError)
                     else "failed",
                     reached,
-                    message=f"{type(failure.error).__name__}: {failure.error}",
+                    f"{type(failure.error).__name__}: {failure.error}",
                 ),
                 clock=failure.clock,
                 checkpoint=checkpoint,
@@ -1213,11 +1341,10 @@ def _record_abandoned_step(
 
     The low-storage march accepts each step in place (SEP 24 section 6.2), so a step
     abandoned between its start and its commit leaves a state that is neither of the
-    step's ends, which the backend refuses to observe. When the last plane kept its
-    field nothing is held either (a field-free one's state is held and checkpointed
-    instead, SEP 22, Q14), and nothing honest can be written as a terminal
-    checkpoint: the file ends at its last saved plane, from which a resume continues
-    to rounding, and ``step_planes`` bounds what is lost.
+    step's ends, which the backend refuses to observe, so nothing honest can be written
+    as a terminal checkpoint. The file ends at its last saved plane: a resume continues
+    from one that kept its field, to rounding, with ``step_planes`` bounding what is
+    lost, and refuses one that did not.
 
     Parameters
     ----------
@@ -1233,11 +1360,17 @@ def _record_abandoned_step(
         Where the abandoned step started and its length, m.
     """
     z, dz = step
+    ending = (
+        "from which resume=True continues"
+        if failure.last_kept_field
+        else "which kept no field, so this file cannot be resumed; rerun it, keeping "
+        "a plane's field"
+    )
     reason = (
         f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "
         f"z = {z:.6g} m was abandoned in flight, so the state holds neither end of "
         f"it; the file ends at its last saved plane, z = {failure.reached:.6g} m, "
-        "from which resume=True continues"
+        f"{ending}"
     )
     failure.error.add_note(reason)
     logger.warning("%s", reason)
@@ -1247,11 +1380,10 @@ def _record_abandoned_step(
                 output,
                 backend,
                 binding,
-                RunOutcome(
+                _Status(
                     "failed",
                     failure.reached,
-                    message=f"{type(failure.error).__name__}: {failure.error}; "
-                    f"{reason}",
+                    f"{type(failure.error).__name__}: {failure.error}; {reason}",
                 ),
                 clock=failure.clock,
             )
@@ -1260,11 +1392,30 @@ def _record_abandoned_step(
         logger.exception("could not record the failure")
 
 
+@dataclasses.dataclass(frozen=True)
+class _Status:
+    """What an execution record says of the run, before its accounting is added.
+
+    Attributes
+    ----------
+    status : {'running', 'complete', 'budget_exhausted', 'failed'}
+        The run's status (:class:`~solprop.output.schema.RunOutcome`).
+    z : float
+        Last accepted or saved position, m.
+    message : str
+        Explanation of a stop or failure; empty on ordinary progress.
+    """
+
+    status: Literal["running", "complete", "budget_exhausted", "failed"]
+    z: float
+    message: str = ""
+
+
 def _record_execution(
     output: CheckpointOutput | None,
     backend: Backend,
     binding: TDSEBinding | None,
-    outcome: RunOutcome,
+    status: _Status,
     *,
     clock: RunClock,
     checkpoint: TerminalCheckpoint | None = None,
@@ -1283,7 +1434,7 @@ def _record_execution(
         Optical backend supplying cumulative logical calls and execution facts.
     binding : TDSEBinding or None
         Optional atomic runtime supplying attempted native calls.
-    outcome : RunOutcome
+    status : _Status
         Requested status, absolute position in m and any error message.
     clock : solprop._host.RunClock
         When the run started.
@@ -1294,7 +1445,7 @@ def _record_execution(
         return
     record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
     monitor = record.get("boundary_monitor")
-    if outcome.status == "running" and isinstance(monitor, Mapping):
+    if status.status == "running" and isinstance(monitor, Mapping):
         # The monitor's per-plane rows go out with the closing record alone: rewritten
         # at every plane, the record grew with them and the file with their square.
         record["boundary_monitor"] = {
@@ -1309,9 +1460,12 @@ def _record_execution(
         if binding is None
         else dataclasses.asdict(binding.ledger)
     )
+    # Built once, so that a saved plane validates its record once (RunOutcome).
     output.record_outcome(
-        dataclasses.replace(
-            outcome,
+        RunOutcome(
+            status.status,
+            status.z,
+            status.message,
             logical_calls=logical,
             atomic_calls=cast("Mapping[str, object]", atomic)
             if isinstance(atomic, Mapping)

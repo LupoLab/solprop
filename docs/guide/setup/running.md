@@ -138,7 +138,9 @@ for two-colour and multi-colour inputs, on every keyword entry point of this pag
 Give exactly one of `betas`, `beta` and `fibre`, and one of `gamma` and `n2`.
 The first positional argument is still required, so pass `None` for it:
 `prop_gnlse(None, length, fibre=table, n2=..., ...)`, or the equivalent
-`Simulation.from_gnlse` call. `n2` requires a fibre with an effective area;
+`Simulation.from_gnlse` call. A recipe can hold a `StepIndexMode` as the fibre, with
+`gamma = "none"` (`Recipe.example("step_index_fibre")`); other modes and tables are
+Python only. `n2` requires a fibre with an effective area;
 a table's area is evaluated at `wavelength`. With `gamma`, a table without an
 area uses 1 m². The mapping is `gamma = n2 omega0 / (c A_eff)` and
 `chi3 = (4/3) (1 - f_R) n2 eps0 c`, with unit prefactor index, the usual shock
@@ -235,7 +237,7 @@ propagates the real electric field, with third-harmonic generation on. `envelope
 selects the envelope grid and keeps both `thg` and `plasma` off by default. Explicit
 `plasma=True` or an instantaneous rate object on an envelope grid selects
 [cycle-averaged envelope plasma](../media/ionisation.md#envelope-plasma-sources), which cannot be
-combined with `thg=True`. It runs on `numpy_ref`, `numba_cpu` and the native backend; a
+combined with `thg=True`. It runs on `numpy_ref` and the native backend; a
 backend that cannot run a problem refuses it by name rather than falling back
 ([the backend notes](../../dev/backends.md) give the qualification of each).
 
@@ -288,7 +290,7 @@ straight bore or a taper alike. The block is the run's loss model, so `loss=` mu
 `True`; it needs the contiguous set `modes=N` builds (or one azimuthal order, for the
 `te_tm` block) and a scalar state, and it is refused beside `lattice=` and
 `model="reduced"`, each by name. It carries the default input noise; the modified noise
-model is refused beside it. It runs on `numpy_ref`, `numba_cpu` and the native
+model is refused beside it. It runs on `numpy_ref` and the native
 backend, CPU and GPU builds alike, with the default integration method;
 `CoherentWall(method="cf4")`, which integrates each section by commutator-free
 exponentials of its whole generator, runs on `numpy_ref` alone. See [the coherent wall](../waveguides/coherent-wall.md#the-coherent-wall),
@@ -432,13 +434,23 @@ alone ([output](../results/output.md#statistics-only-planes-which-planes-keep-th
 They are execution settings, outside the configuration hash, and may change after
 translation.
 
+## What a run will cost
+
+`simulation.estimate()` answers before a run: the state's shape, the persistent memory
+its constructed backend holds, the output's size for the planes and fields it keeps, the
+cost of one right-hand-side evaluation on its backend, timed after an untimed warm-up that
+takes the compilation and transform planning (reported as `setup`), and the integrator's
+evaluations per step, with their total for a replayed schedule. It does not predict the
+number of adaptive steps, which the physics decides. It builds the backend, so a run
+that doesn't fit in memory fails here as the run would.
+
 ## Many inputs, one backend: the runner
 
 A large problem pays for its backend before it takes a step: about fifteen copies of the
 state are allocated and first touched, and the transforms are planned. A delay scan or a
 sweep of the input runs the same translated problem for hundreds of inputs, and need pay
 that once. {py:meth}`~solprop.driver.simulation.Simulation.runner` translates (or reuses
-the cached translation), admits the memory and constructs one backend; each
+the cached translation) and constructs one backend; each
 {py:meth}`~solprop.driver.simulation.SimulationRunner.run` then loads one input into it
 and runs the save-plane loop
 ([SEP 22](../../dev/seps/archive/sep-0022-memory-lean-spatial-execution.md) §5.2):
@@ -448,7 +460,7 @@ import dataclasses
 
 simulation.settings = dataclasses.replace(simulation.settings, fields="none")
 spectra = []
-with simulation.runner(memory_budget="60 GiB") as runner:
+with simulation.runner() as runner:
     for delay in delays:
         output = runner.run(
             build_input(delay),                  # an array or a pulse, as with_input takes
@@ -480,14 +492,149 @@ for the input, and refuses by name:
 - a second run started while one is running: one backend steps one input at a time.
 
 A run that raises leaves the runner open, since the next input resets everything; a
-backend that closed itself closes the runner. The runner admits the backend's memory
-once, before constructing it, and admits each run's in-memory output beside it when the
-run starts.
+backend that closed itself closes the runner.
+
+The march holds no input. An array the record keeps by its digest (below) is read in
+place rather than copied, and the runner drops every reference to it, and to the launch
+a modal route converts it to, as soon as the backend has loaded it. So an input formed in
+the call, as above, is freed before the first step. Two arrays are kept all the same: a
+smaller array, which the record carries inline, is copied into it, and the simulation the
+runner was built from keeps its own input for as long as it lives. For a scan over large
+arrays, build that simulation from a broadcast, which holds one repeated block:
+
+
+```{code-block} python
+placeholder = np.broadcast_to(np.zeros((1, 1, 1), dtype=np.complex128), shape)
+simulation = Simulation(grid, (), responses, placeholder, settings=settings, ...)
+```
+
+Spell the call's keywords out too: when any argument is unpacked, Python keeps a call's
+positional arguments for as long as the call runs, so
+`runner.run(build_input(delay), **options)` holds the input through the march, one volume.
 
 `with_input` itself validates only what changed: the replaced input's shape, dtype and
 one finiteness pass, and the replaced noise's, with every other leaf of the translated
 problem shared rather than scanned again; a new `initial_z` keeps the stepper's checks.
 Its `configuration=` merges caller keys into the derived run's record (a key the run
-records itself is refused), and an array input of more than 2²⁰ elements is recorded by
+records itself is refused). An array input, here and in the constructor, is copied when
+the simulation is built, so changing it afterwards changes neither the run nor its
+record; an array input of more than 2²⁰ elements is recorded by
 the SHA-256 of its bytes rather than inline, so a gigabyte launch costs seconds of
 hashing per input rather than gigabytes of JSON.
+
+A caller that already knows what its input is need not pay even that. Both `with_input`
+and `SimulationRunner.run` take `input_identity=`, a string the record then holds with the
+array's dtype and shape ({py:class}`~solprop.output.schema.StatedInput`) in place of the
+array's own record, without reading its bytes, so the run's hash follows the string:
+
+```{code-block} python
+output = runner.run(
+    build_input(delay),
+    input_identity=f"pump {pump_label}, delay {delay:.6e} s",
+    progress="none",
+)
+```
+
+```{warning}
+An identity is taken on trust. Two different arrays stated alike have one configuration
+hash, so **a wrong identity passes a resume and a scan's cache**: the resumed run or the
+cached point is then the wrong one, and nothing can tell. Say everything that makes the
+input what it is, and leave `input_identity` out unless the digest is a measured cost.
+```
+
+Only an array can be stated; a pulse is a small record of itself and is refused. A file
+written with a statement is continued only under the same statement, not by the same array
+without one, since the two records differ. The finiteness pass stays: it costs a few
+percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
+instructions, and it refuses a bad input before it is loaded.
+
+**The boundary check on a free-space scan.** The default
+[`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge at the
+launch, at every plane and at every read, and a requested collar's at every committed step. `native` does it where the
+state lives, with only numbers crossing, even on a device ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` and `mlx` read a host copy of the state
+instead, and transform it out of place: on a device, a whole state's copy at each read. On native
+CPU at 256 × 256 × 48, with sixteen steps and two planes at sixteen threads, the check took a point from 1.8 to 2.0 s and
+from 1.5 to 2.1 volumes above the level before the run. A scan whose window is already settled can
+still pass `boundary_check=None`. That also turns off the check of the time window's edges, since
+no setting keeps one without the other, so settle the window on one input with the check on first.
+
+### A scan that reduces each plane
+
+A scan whose result is a few numbers per input has no use for a store.
+{py:class}`~solprop.output.callback.CallbackOutput` is a handler built from a callable: it
+gives each {py:class}`~solprop.output.schema.SavedPlane` to the callable, the entrance
+first, and keeps nothing, so the body of a hand loop over the backend moves into a few
+lines. Most reductions want statistics and no field, which is a run with `fields="none"`
+and the statistics it names:
+
+```python
+import dataclasses
+
+from solprop.driver import Simulation
+from solprop.output import CallbackOutput
+from solprop.pulses import SechPulse
+from solprop.stats import StatsSpec
+
+simulation = Simulation.from_gnlse(
+    0.11,
+    0.01,
+    [0.0, 0.0, -1.183e-26],
+    wavelength=835e-9,
+    wavelength_limits=(500e-9, 2e-6),
+    trange=1.2e-12,
+    width=100e-15,
+    peak_power=9.8,
+    shape="sech",
+    n_save=3,
+    rtol=1e-6,
+    stats=StatsSpec(names=("peak_power",)),
+)
+simulation.settings = dataclasses.replace(simulation.settings, fields="none")
+
+peak_power = {}
+with simulation.runner() as runner:
+    for launched in (8.0, 9.8, 12.0):
+        peaks = []
+        runner.run(
+            SechPulse(wavelength=835e-9, width=100e-15, peak_power=launched),
+            output=CallbackOutput(
+                lambda plane: peaks.append(plane.stats["peak_power"][0])
+            ),
+            progress="none",
+        )
+        peak_power[launched] = max(peaks)
+```
+
+Under `fields="none"` the callable's plane carries `z`, `stats`, `step_history` and
+`step_stats`, with `field=None` and `noise_phase=None`, and no field leaves the backend,
+even on a device. `Simulation.run` takes the same handler for a single run.
+
+To reduce the field itself, keep it: the default `fields="all"`, or `fields="planes"`, whose
+other planes arrive with `field=None`. The plane then holds the backend's observation
+itself, read-only and not copied, so a plane reduced and let go costs one field volume on
+the host and the handler adds none. (A modal route first converts the amplitudes to true
+power in a new array, so that conversion holds a second volume while it runs.) The field is
+in the internal FFT convention, in the square root of watts: `np.abs(plane.field) ** 2`
+does not depend on the convention, and {py:func}`~solprop.fourier.spectrum_to_optics` gives
+what a file stores, in a second volume.
+
+Nothing writes to a plane's arrays again, so the callable may keep any of them, at the cost
+of what it keeps: `plane.field` is a volume. What the callable raises stops the run and
+propagates, and that plane is not counted.
+
+What the handler cannot do, it refuses by name:
+
+- Reading anything back: `handler["stats/peak_power"]` and `handler.fields()` raise
+  {py:class}`~solprop.exceptions.OutputError`, and so does whatever reads a run through
+  them; `key in handler` answers `False`.
+- A resume: `resume=True` needs a path, and
+  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.resume` and
+  {py:func}`~solprop.output.resumable.resumability` read a file and refuse any handler.
+- A second run: having kept no plane, it has nothing to continue, so build one per run.
+- A TDSE run, whose call ledger has to be recorded.
+
+It also has nowhere to put a checkpoint or a record: a run stopped with `stop=` returns the
+handler with no state written, and a run with an optmat ionisation rate, which reads its
+peak rates back from its output, neither reports its peak field nor warns past the rate's
+range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisation_rate`
+in the callable where that matters.

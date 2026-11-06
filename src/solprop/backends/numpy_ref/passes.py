@@ -741,7 +741,7 @@ def plasma_scan(
     rule the exposure is floored at zero, so the fraction stays in
     ``[preionisation, 1)`` and is non-decreasing to within the filter's undershoot. Here
     the multipass form **is** the reference, and fusing the three sums into one
-    sequential sweep belongs to the compiled backends
+    sequential sweep belongs to the native backend
     (``docs/guide/media/nonlinear.md``).
 
     Parameters
@@ -2199,11 +2199,24 @@ def apply_temporal_rate(
     rate the factors telescope, so the total is ``exp(-alpha(t) L / 2)`` however the
     steps fall. ``alpha`` is a power coefficient, hence the half on the field.
 
+    A complex128 state takes that product as written, in binary64. A complex64 state,
+    the single-precision path's (SEP 33), takes it in binary32 as the correction
+    ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)`` formed in
+    binary64 and rounded once: the factor is exactly one outside the collar, so the
+    round trip's binary32 rounding falls on the collar's correction alone, not on the
+    whole state, as on the ``mlx`` backend. The two forms are the same step in exact
+    arithmetic only when ``F[F^-1[y]] = y``. On a field grid that needs the DC bin,
+    and the Nyquist bin of an even ``n_t``, to be real: the real inverse transform
+    drops their imaginary parts, which the product form loses and the correction
+    form keeps. The backends' finishes mask both bins before the collar, so the
+    forms agree there.
+
     Parameters
     ----------
     state : numpy.ndarray
-        The state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts.
+        The state, complex128 or complex64, shape
+        ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts. On a
+        field grid its DC and Nyquist bins are real (above).
     rate : numpy.ndarray
         ``alpha(t)`` on the coarse time grid, float64, shape ``(n_t,)``, in 1/m,
         non-negative.
@@ -2215,7 +2228,7 @@ def apply_temporal_rate(
     Returns
     -------
     numpy.ndarray
-        The absorbed state, same shape and units.
+        The absorbed state, same shape, units and precision.
 
     Examples
     --------
@@ -2225,6 +2238,13 @@ def apply_temporal_rate(
     >>> absorbed = apply_temporal_rate(state, np.zeros(4), 1.0, kind="field")
     >>> bool(np.allclose(absorbed, state))
     True
+    >>> narrow = apply_temporal_rate(state.astype(np.complex64), np.ones(4), 1.0,
+    ...                              kind="field")
+    >>> narrow.dtype
+    dtype('complex64')
     """
     time = fourier.inverse(state, kind=kind)
+    if state.dtype == np.complex64:
+        change = np.expm1(-0.5 * rate * dz).astype(np.float32)
+        return state + fourier.forward(time * change, kind=kind)
     return fourier.forward(time * np.exp(-0.5 * rate * dz), kind=kind)

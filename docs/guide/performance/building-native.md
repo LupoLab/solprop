@@ -1,17 +1,19 @@
 # Building the native backend
 
 The [native backend](native.md) is the `solprop-native` package, built from the
-`native/` directory of the solprop repository at solprop's own version. On the four
+`native/` directory of the solprop repository at solprop's own version. On the five
 platforms with precompiled wheels — macOS on Apple silicon (osx-arm64), Linux on x86-64
-(linux-64), Linux on aarch64 (linux-aarch64) and Windows on x86-64 (win-64) —
-`pip install "solprop[native]"` installs it and nothing on this page is needed
-([installation](../../introduction/installation.md)). Build it from source to:
+(linux-64), Linux on aarch64 (linux-aarch64), Windows on x86-64 (win-64) and Windows on Arm
+(win-arm64) — `pip install solprop` installs it and nothing on this page is needed
+([installation](../../introduction/installation.md)). A source build is the way past a
+wheel's limits. Build it from source to:
 
 - run on a **GPU**: NVIDIA with CUDA or AMD with HIP. There are no GPU wheels;
 - get the **local** build, compiled for the machine that runs it with that machine's
   vendor BLAS, which is a few per cent faster than the wheel on most cases and more on
   some;
-- run on a platform without a wheel, or work on the backend itself.
+- run on a platform or processor no wheel serves, where it may work, with no support
+  promise, or work on the backend itself.
 
 The instructions cover Linux and macOS. One build is either a CPU build or a GPU build;
 the arithmetic is double precision throughout, and no build enables fast-math.
@@ -93,7 +95,7 @@ From the repository root, use a fresh, owned dependency prefix:
 native_deps="$PWD/native/build/neon-dependencies"
 MACOSX_DEPLOYMENT_TARGET=14.0 native/ci/build-deps.sh "$native_deps"
 export CMAKE_ARGS="-DFFTW_ROOT=$native_deps -DSOLPROP_NATIVE_LIBOMP_LIBRARY=$native_deps/lib/libomp.dylib -DSOLPROP_NATIVE_LIBOMP_INCLUDE_DIR=$native_deps/include -DSOLPROP_NATIVE_BUNDLED_LICENCES=$native_deps/licences"
-uv sync --extra native --reinstall-package solprop-native
+uv sync --reinstall-package solprop-native
 uv run --no-sync python -m solprop_native
 ```
 
@@ -102,23 +104,8 @@ Check the reported `fft_library` and `openmp_library` before benchmarking. The
 supports `--enable-neon` for double and single precision on AArch64. The installed
 libraries identify their codelet family in `fftw_version` and `fftwf_version`, which
 both end in `-neon` for this recipe. Keep these prefixes separate from a comparison's
-baseline libraries. A pyFFTW build used in the same process must also share this
-runtime. To build the existing pyFFTW dependency against that same owned prefix:
-
-```sh
-pyfftw_version=$(uv run --no-sync python -c 'from importlib.metadata import version; print(version("pyfftw"))')
-CC=/opt/homebrew/opt/llvm/bin/clang \
-CXX=/opt/homebrew/opt/llvm/bin/clang++ \
-PYFFTW_FFTW_PREFIX="$native_deps" \
-LDFLAGS="-L$native_deps/lib -Wl,-rpath,$native_deps/lib" \
-uv pip install --python .venv/bin/python --no-deps --no-binary pyfftw \
-  --reinstall --no-cache "pyfftw==$pyfftw_version"
-```
-
-The uncached source build prevents reuse of a wheel linked to another runtime.
-Keep the project's locked pyFFTW version when qualifying a comparison. See
-[OpenMP runtimes](#openmp-runtimes-and-pyfftw) below for import ordering and the
-limits of mixing independently bundled wheels.
+baseline libraries. See [OpenMP runtimes](#openmp-runtimes) below for the limits of mixing
+independently bundled wheels.
 
 For a distributable wheel, `native/ci/build-wheel-macos.sh OUT_DIR DEPS_PREFIX`
 builds the distribution profile, repairs its library references with delocate, and
@@ -148,23 +135,49 @@ it, including the configure summary line described [below](#build-profiles).
 
 ## A development build
 
-In a development checkout, one command builds the native package from `native/` and
+In a development checkout, a plain sync builds the native package from `native/` and
 installs it editable into the repository's environment beside solprop:
 
 ```sh
-uv sync --extra native
+uv sync
 ```
 
-A plain `uv sync` leaves it out, and removes a copy installed by hand. The editable
-install does not rebuild itself: run `uv sync --extra native --reinstall-package
+Without the C++ toolchain the sync stops with CMake's message; a contributor who needs no
+native build has the [lightweight setup](../../dev/contributing.md). The editable
+install does not rebuild itself: run `uv sync --reinstall-package
 solprop-native` after a native change, with any build options in `CMAKE_ARGS`
 ([below](#passing-cmake-options)); a device build is made the same way. `uv run poe
 check-native` runs the native gate and `uv run poe check-all` both gates. A build stays
-valid across solprop changes until solprop's kernel schema (`KERNEL_SCHEMA_VERSION`)
-changes or `check_build()` names a member the installed solprop lacks. Running solprop's test lanes
+valid across solprop changes until the sources under `native/` change, when `check_build()`
+refuses it and names that command, or until `check_build()` names a member the installed
+solprop lacks. Running solprop's test lanes
 against the build is in the developer notes on
 [testing](../../dev/testing.md#tiers-and-backends), and the native package's own tests in
 `native/README.md`.
+
+## Upgrading a source build
+
+solprop requires solprop-native at its own version. Reinstalling or upgrading at the same
+version keeps a source build, and a new release replaces it with that release's CPU wheel,
+with no message, because the exact requirement asks for it. So upgrading means rebuilding
+from the new tag, and a GPU job sets `SOLPROP_REQUIRE_DEVICE`
+([a job that must run on a device](native.md#a-job-that-must-run-on-a-device)), so that one
+which lost its GPU build stops before it starts.
+
+**A released source build takes a version label**, a PEP 440 local version, so that
+`pip list` shows what it is. A real build makes the wheel and the version, and
+`solprop-native==0.3.0` accepts `0.3.0+cuda`:
+
+```sh
+SETUPTOOLS_SCM_PRETEND_VERSION_FOR_SOLPROP_NATIVE=0.3.0+cuda \
+    uv pip install --python /path/to/env/bin/python . ./native
+```
+
+**A development build** is already labelled with its commit, and a requirement that has a
+local label is matched exactly, so it takes no further label; `build_info()` says what it is.
+
+**The label is provenance, not evidence.** A CPU build labelled `+cuda` still reports
+`device_backend` `none`, which is why `SOLPROP_REQUIRE_DEVICE` reads the build itself.
 
 ## Checking a build
 
@@ -177,7 +190,7 @@ python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().
 object suitable for a run log:
 
 - **provenance:** `package_version`, `git_commit` (with `+dirty` for a modified tree),
-  `schema_version` (the kernel-contract version the build implements),
+  `source_digest` (the SHA-256 of the C++ sources and `CMakeLists.txt` it was compiled from),
   `solprop_version_built_against`;
 - **dependencies:** `kokkos_version`, `kokkos_kernels_version`, `kokkos_fft_version`,
   `nanobind_version`;
@@ -205,10 +218,10 @@ counts; selection also accounts for the actual tail width.
 `native_arch_enabled` reports the package's option only; architecture flags passed by
 hand through `CXXFLAGS` appear in `compiler_flags`.
 
-`check_build(problem=None)` raises `solprop.exceptions.BackendError` when the installed
-solprop lacks a driver member or bundle field the build relies on (it names them);
-when `problem` declares a different kernel-contract schema; when the build enables
-fast-math; when the execution-space record is inconsistent; when a GPU build sees no
+`check_build()` raises `solprop.exceptions.BackendError` when an editable checkout's
+sources under `native/` are not the ones the extension was compiled from (it names
+`uv sync`; a wheel skips this); when the installed solprop lacks a driver member or bundle
+field the build relies on (it names them); when the build enables fast-math; when the execution-space record is inconsistent; when a GPU build sees no
 device; when the GEMM provider is unknown or its BLAS is missing or unidentified; when
 a reference build carries a vendor BLAS or machine-specific code, or a distribution
 build carries native code or no BLAS; and when a GPU build's BLAS is not the device's.
@@ -218,12 +231,12 @@ Then, in solprop:
 import solprop
 from solprop.backends.registry import resolve_name
 
-print(resolve_name("auto"))  # "native" when solprop_native is installed
+print(resolve_name("auto"))  # "native"
 solprop.configure_logging("INFO")  # each run logs "Using native backend"
 ```
 
-`resolve_name` only probes whether the package can be found; the log line reports the
-backend actually constructed.
+`resolve_name` only probes whether the package can be found and whether this processor
+meets its baseline; the log line reports the backend actually constructed.
 
 ## Build profiles
 
@@ -247,16 +260,17 @@ wheels are made with, for machines other than the build machine. It is a CPU pro
 
 - a **CPU baseline** instead of the build machine's architecture: `-march=x86-64-v3`
   (AVX2, FMA, BMI1/2: Intel Haswell, AMD Excavator and newer) on x86-64,
-  `-mcpu=apple-m1` on Apple silicon, `-mcpu=neoverse-n1` on Linux aarch64. For an older
-  x86-64 processor (no AVX2), build with `SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2`
-  (SSE4.2 and POPCNT): on the benchmark core it costs up to 2 to 4 %, and on the general
-  modal route about a quarter at one thread and 7 to 12 % at full width, against
-  `x86-64-v3`. The bundled FFTW and OpenBLAS choose their kernels at run time either
+  `-mcpu=apple-m1` on Apple silicon, `-mcpu=neoverse-n1` on Linux aarch64. An older
+  x86-64 processor (no AVX2) gets the `x86-64-v2` build that the x86-64 wheels hold beside
+  it; to build that from source, use `SOLPROP_NATIVE_CPU_BASELINE=x86-64-v2` (SSE4.2 and
+  POPCNT). On the tracking set it costs about 20 to 25 % against `x86-64-v3` by geometric
+  mean, up to 50 % at one thread on the cases that lean on vector maths. The bundled FFTW and OpenBLAS choose their kernels at run time either
   way. The package records its baseline and refuses to import on a processor below it,
   naming the missing features (from `/proc/cpuinfo` on Linux, from
   `IsProcessorFeaturePresent` on Windows, where AVX2 stands for the other x86-64-v3
-  features Windows does not report); solprop's `backend="auto"` then uses `numba_cpu`
-  with a warning;
+  features Windows does not report). Where `/proc/cpuinfo` cannot answer, an x86-64 build
+  asks NumPy's own `cpuid` check, and if nothing can establish the features the package
+  refuses too. solprop's `backend="auto"` raises the same refusal;
 - a **BLAS** that every such machine has and that shares the extension's threads:
   Accelerate on macOS; on Linux an OpenBLAS 0.3.34 that the configure step builds with
   OpenMP and the extension's own compiler (`native/cmake/OpenMPOpenBLAS.cmake`), so that
@@ -308,7 +322,7 @@ In the repository's own environment, pass them to `uv sync` and force the rebuil
 
 ```sh
 CMAKE_ARGS="-DSOLPROP_NATIVE_BLAS_VENDOR=OPENBLAS" \
-  uv sync --extra native --reinstall-package solprop-native
+  uv sync --reinstall-package solprop-native
 ```
 
 Select the compiler with `CXX` or `-DCMAKE_CXX_COMPILER=...`. CMake caches compilers and
@@ -375,7 +389,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | option | default | values and effect |
 |---|---|---|
 | `BUILD_TESTING` | `OFF` in pip and uv builds, `ON` in the presets | builds the GoogleTest native tests and registers them with CTest |
-| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | `ON` | `-Werror` on the package's own sources |
+| `SOLPROP_NATIVE_WARNINGS_AS_ERRORS` | as `BUILD_TESTING`: `OFF` in pip and uv builds, `ON` in the presets | `-Werror` on the package's own sources. Continuous integration turns it on for its wheels too |
 | `SOLPROP_NATIVE_ENABLE_CLANG_TIDY` | `OFF` | runs clang-tidy while compiling the package's sources |
 | `SOLPROP_NATIVE_ENABLE_SANITIZERS` | `OFF` | AddressSanitizer and UBSan on the package's targets; CPU builds only |
 | `SOLPROP_NATIVE_BUILD_BENCHMARKS` | `OFF` | builds the `solprop_native_gemm_benchmark` microbenchmark (never installed) |
@@ -559,7 +573,7 @@ Sanitizer, `rocprof`) to check device memory; the CMake sanitizer option is for 
 builds. GPU builds are qualified with CUDA 13 and a ROCm 7 stack; other toolkit versions
 are expected to work but are untested.
 
-## OpenMP runtimes and pyFFTW
+## OpenMP runtimes
 
 A process can safely load only one OpenMP runtime. Two different runtimes (LLVM's
 `libomp` and GNU's `libgomp`, or two copies of one) each start their own thread pools,
@@ -568,47 +582,33 @@ therefore links every native part — Kokkos, FFTW's threaded library, an OpenMP
 against one runtime: on macOS, either Homebrew's `libomp` with its FFTW, or the one
 runtime in the owned dependency prefix built above.
 
-solprop's `numba_cpu` backend uses [pyFFTW](https://github.com/pyFFTW/pyFFTW), whose
-published wheels bundle their own OpenMP runtimes, so running both backends in one
-process loads a second runtime.
+solprop itself loads no other OpenMP runtime, but a script or another package may: the
+published [pyFFTW](https://github.com/pyFFTW/pyFFTW) wheels, for one, bundle their own. On
+macOS `solprop_native` must then be imported first, and the package raises `RuntimeError`
+at import if pyFFTW is already loaded.
 
-- **On macOS, `solprop_native` must be imported before anything imports pyFFTW.** The
-  package raises `RuntimeError` at import if pyFFTW is already loaded. solprop takes
-  care of this itself: when the native backend is installed, `numba_cpu` imports it
-  before pyFFTW, so both backends can run in one process in either order. A script
-  that imports pyFFTW itself, or a package that does, imports solprop (or
-  `solprop_native`) first.
-- Import order alone does not remove pyFFTW's bundled runtimes. When one process must run
-  both the native and the Numba backends, build pyFFTW from source against the same
-  FFTW, in the same environment.
-- pyFFTW then shares FFTW's process-wide planner with Kokkos-FFT. The package finalises
-  the Kokkos runtime it owns at the very end of interpreter shutdown, after Python has
-  released pyFFTW's plans.
+**The rule stays, and this is why.** pyFFTW's macOS wheel carries and initialises its own
+`libomp`, and solprop no longer loads pyFFTW, so nothing in solprop can decide the order for
+you: importing solprop does not load `solprop_native`, which is loaded when a run first uses the
+backend. The refusal is a clear error rather than a wrong result, and a loaded second runtime is
+what it guards against. No replacement has been shown safe, which
+[SEP 29](../../dev/seps/archive/sep-0029-compiled-backend-distribution.md) asks of it in fresh
+processes, in both import orders, with interleaved short runs. So the guard stays until such a
+run exists.
 
-macOS, against Homebrew's FFTW and `libomp`:
+**What to do.** Import `solprop_native` before pyFFTW, or any package that imports it. `import
+solprop` alone is not enough, since it does not load the backend. In a notebook where a cell has
+already loaded pyFFTW, restart the kernel, or do the work in a fresh process. `backend="numpy_ref"`
+does not load `solprop_native`, and is unthreaded and far slower. Import order alone does not remove
+the second runtime, so where it matters pyFFTW is best built from source against the same FFTW and
+OpenMP runtime.
 
-```sh
-CC=/opt/homebrew/opt/llvm/bin/clang \
-CXX=/opt/homebrew/opt/llvm/bin/clang++ \
-PYFFTW_FFTW_PREFIX=/opt/homebrew/opt/fftw \
-LDFLAGS="-L/opt/homebrew/opt/libomp/lib -Wl,-rpath,/opt/homebrew/opt/libomp/lib" \
-  uv pip install --python /path/to/env/bin/python \
-  --no-deps --no-binary pyfftw --reinstall pyfftw
-```
-
-Linux, against the system FFTW with pthreads, so that pyFFTW adds no OpenMP runtime:
-
-```sh
-CC=gcc CXX=g++ PYFFTW_USE_PTHREADS=1 PYFFTW_FFTW_PREFIX=/usr \
-  uv pip install --python /path/to/env/bin/python \
-  --no-deps --no-binary pyfftw --reinstall pyfftw
-```
-
-For an FFTW installed elsewhere, set `PYFFTW_FFTW_PREFIX` to its prefix; pyFFTW needs the
-single-precision FFTW libraries as well as the double-precision ones. On macOS also
-change both library paths in `LDFLAGS` to that prefix's OpenMP library directory. With AOCL's FFTW,
-build pyFFTW with AOCC and without `PYFFTW_USE_PTHREADS`, so that it uses AOCL's OpenMP
-interface; do not combine a standard FFTW pthreads library with AOCL's FFTW core.
+**What would lift it.** `native/ci/coexistence.py` runs both import orders in fresh processes, starts each package's thread pool and interleaves short
+native and reference runs. On macOS it expects the refusal. Its `--bypass-guard` flag adds a scenario
+that hides pyFFTW from the guard and reports what happens, without failing the script. Run by hand on
+macOS with pyFFTW installed, with `python -I native/ci/coexistence.py --bypass-guard`, it is the
+evidence a change to this rule would start from. The `Wheels` workflow runs the same script on
+`macos-15`, without the flag.
 
 ## Wheels and redistribution
 

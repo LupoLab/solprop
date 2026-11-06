@@ -13,7 +13,7 @@ by rounding alone.
 
 The Kokkos runtime reads its thread count once per process, so a one-against-many
 thread comparison runs a probe script in fresh processes; :func:`native_thread_fields`
-runs one and reads back the arrays it saved.
+runs one, every thread pool forced, and reads back the arrays it saved.
 
 The rest are rounding bounds several modules share, each fixed from what the two
 sides compute: :func:`stash_bound` for a stashed plasma scan against a fresh one,
@@ -23,14 +23,15 @@ sides compute: :func:`stash_bound` for a stashed plasma scan against a fresh one
 
 import dataclasses
 import math
-import os
 import subprocess
 import sys
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 
+from backends.forced_threads import saved_sizing, thread_environment
 from bounds import assert_within, fft_bound, rate_log_sensitivity, scan_bound
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import KernelProblem
@@ -56,33 +57,31 @@ def fixed_order(problem: KernelProblem) -> KernelProblem:
 
 def native_thread_fields(
     probe: Path, threads: int, names: Sequence[str], directory: Path
-) -> dict[str, np.ndarray]:
+) -> dict[str, Any]:
     """Run a thread probe at one Kokkos thread count and return its saved arrays.
 
     The probe takes the path of an ``.npz`` file to write and then its case names, and
     saves one array per case under the case's position (``case0``, ``case1``, ...),
     and the Kokkos pool it ran with (``runtime_threads``), which must be `threads`:
     the lanes' one-thread budget is lifted and oversubscription allowed (ADR-052), so
-    a silent cap fails here rather than comparing one thread with one thread.
+    a silent cap fails here. Native sizes each operation by the work it holds, which
+    keeps a small case on one thread at any pool, so every pool is forced; the result's
+    ``"sizing"`` is the probe's :func:`~backends.forced_threads.record_sizing`, for the
+    test to hold to :func:`~backends.forced_threads.assert_threaded`.
     """
-    environment = os.environ | {
-        "SOLPROP_NATIVE_THREADS": str(threads),
-        "SOLPROP_THREADS": "",
-        "SOLPROP_OVERSUBSCRIBE": "1",
-        "OMP_PROC_BIND": "false",
-    }
     output = directory / f"{probe.stem}-{threads}-{len(list(directory.iterdir()))}.npz"
     subprocess.run(
         [sys.executable, str(probe), str(output), *names],
         check=True,
         capture_output=True,
         text=True,
-        env=environment,
+        env=thread_environment(threads, None),
         cwd=probe.parents[1],
     )
     with np.load(output) as saved:
         assert int(saved["runtime_threads"]) == threads
-        return {name: saved[f"case{index}"] for index, name in enumerate(names)}
+        fields = {name: saved[f"case{index}"] for index, name in enumerate(names)}
+    return fields | {"sizing": saved_sizing(output)}
 
 
 def stash_bound(rate, peak_rate: float, field_range: tuple[float, float], n_to: int):
@@ -103,7 +102,7 @@ def stash_bound(rate, peak_rate: float, field_range: tuple[float, float], n_to: 
 def dispersive_response_bound(n_to: int, evaluator: str, channels: int = 1) -> float:
     """Bound two evaluations of SEP 6's dispersive cubic on one field, relatively.
 
-    The count of ``test_numba_dispersive_kerr.py``'s module docstring: per channel the
+    The count of ``backends/dispersive_cases.py``: per channel the
     symmetric evaluator takes three transforms (the filtered field, its product, the
     output) and the polynomial six, each ``8 eps ceil(log2 n_to)``; the two sides'
     budgets are added. Two evaluations that differ only in where their multipliers

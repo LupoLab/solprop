@@ -66,13 +66,15 @@ def raise_crash():
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_an_exception_as_a_step_is_recorded_leaves_a_consistent_checkpoint(
     build_simulation, tmp_path, backend
 ):
     # The step's state and position are committed before it is recorded: the
     # checkpoint is the accepted step's, and the resumed run is the uninterrupted one
     # to its accuracy envelope (an adaptive pair, SEP 25 section 4.4).
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     build = soliton(build_simulation, backend)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")

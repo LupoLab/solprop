@@ -32,7 +32,7 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop.exceptions import OutputError
-from solprop.fourier import spectrum_to_internal
+from solprop.fourier import GridKind, spectrum_to_internal
 from solprop.output.schema import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
@@ -41,6 +41,7 @@ from solprop.output.schema import (
     SavedPlane,
     StepHistory,
     StepStats,
+    stored_spectrum,
 )
 
 __all__ = ["INITIAL_BLOCK", "MemoryOutput"]
@@ -217,52 +218,11 @@ class MemoryOutput(PlaneStore):
         metadata : RunMetadata
             The record being written.
         """
-        logger.debug("memory output opened for %s", metadata.configuration_hash()[:12])
-
-    def held_bytes(
-        self,
-        n_planes: int,
-        plane_bytes: int,
-        *,
-        kept: int | None = None,
-        field_bytes: int = 0,
-    ) -> int:
-        """Return the bytes the store will allocate for a run's planes.
-
-        The store allocates the planes the run reserves, which the run loop sets to
-        `n_planes`, or more if a larger count was reserved already; past that it grows
-        by doubling, which this does not foresee. A run that keeps its field on some
-        planes only is charged the field on those alone (SEP 22): its statistics on
-        every plane, its field on `kept` of them. The step history and the
-        between-planes rows grow with the steps taken and are not counted.
-
-        Parameters
-        ----------
-        n_planes : int
-            The planes the run will save, the entrance included.
-        plane_bytes : int
-            The bytes of one plane: the field, the noise phase and the statistics.
-        kept : int or None, optional
-            How many planes keep their field; ``None``, every allocated one.
-        field_bytes : int, optional
-            The part of `plane_bytes` a plane without its field does not hold.
-
-        Returns
-        -------
-        int
-            The planes allocated times their bytes, the field only where it is kept.
-
-        Examples
-        --------
-        >>> from solprop.output import MemoryOutput
-        >>> MemoryOutput().held_bytes(201, 1024)
-        205824
-        >>> MemoryOutput().held_bytes(201, 1024, kept=2, field_bytes=1000)
-        6824
-        """
-        rows = max(n_planes, self._planned)
-        fields = rows if kept is None else kept
-        return rows * (plane_bytes - field_bytes) + fields * field_bytes
+        # Guarded: the hash costs seconds on a large grid, and only this line needs it.
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(
+                "memory output opened for %s", metadata.configuration_hash()[:12]
+            )
 
     def _allocate(
         self,
@@ -331,6 +291,46 @@ class MemoryOutput(PlaneStore):
         self._capacity *= 2
         logger.debug("memory output grew to room for %d planes", self._capacity)
 
+    def _make_room(self, plane: SavedPlane) -> None:
+        """Grow the blocks so that they have room for the next plane.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The next plane. The base class has checked it against the run's layout.
+        """
+        if self._capacity == 0:
+            self._allocate(plane, plane.field)
+        elif self._n_saved == self._capacity:
+            self._expand()
+        if (
+            plane.field is not None
+            and self._n_fields == 0
+            and not self._fields.shape[0]
+        ):
+            self._allocate_fields(plane, plane.field)
+
+    def _stored_field(
+        self, plane: SavedPlane, kind: GridKind
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Convert a plane's field straight into its room in the block.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane, which carries a field.
+        kind : {'field', 'envelope'}
+            The grid's spectral layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            The block's row that now holds it.
+        """
+        assert plane.field is not None
+        self._make_room(plane)
+        return stored_spectrum(plane.field, kind, self._fields[self._n_fields])
+
     def _append(
         self,
         plane: SavedPlane,
@@ -343,20 +343,13 @@ class MemoryOutput(PlaneStore):
         plane : SavedPlane
             The plane, whose field is still in the internal convention.
         stored : numpy.ndarray or None
-            That field converted to the optics convention; ``None`` on a field-free
-            plane, which stores none.
+            That field converted to the optics convention, in its row of the block
+            (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.
         """
-        # The base class has already checked the plane against the run's layout.
-        if self._capacity == 0:
-            self._allocate(plane, stored)
-        elif self._n_saved == self._capacity:
-            self._expand()
+        self._make_room(plane)
         index = self._n_saved
         self._z[index] = plane.z
         if stored is not None:
-            if self._n_fields == 0 and self._fields.shape[0] == 0:
-                self._allocate_fields(plane, stored)
-            self._fields[self._n_fields] = stored
             if self._noise_phase is not None:
                 self._noise_phase[self._n_fields] = plane.noise_phase
             self._n_fields += 1

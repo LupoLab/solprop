@@ -27,7 +27,6 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.driver import Simulation, SimulationSettings
-from solprop.driver.memory import admit_memory, field_bytes, plane_bytes
 from solprop.driver.run import field_retention, run_problem
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -77,11 +76,13 @@ def cartesian(
     grid = EnvelopeGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
     )
-    space = FreeGrid(3e-4, 12, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 12, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-6), 40e-6
     )
     settings = SimulationSettings(
+        # The coarse route launches into the safety ramp's band (SEP 40 section 5.3).
+        spatial_absorber=False,
         controller=PIController(rtol=rtol, atol=1e-14),
         save_planes=PLANES,
         dz_max=LENGTH,
@@ -429,25 +430,6 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
         backend.close()
 
 
-def test_the_memory_admission_charges_only_the_kept_fields():
-    simulation = cartesian("numpy_ref")
-    problem = simulation.translate()
-    n_planes = len(PLANES) + 1
-    groups = {}
-    for fields, field_planes in RULES:
-        retention = FieldRetention(fields, field_planes).resolved(n_planes)
-        admission = admit_memory(
-            problem, "numpy_ref", "none", output=MemoryOutput(), retention=retention
-        )
-        groups[fields] = admission.estimate.groups["output"]
-    per_plane, field = plane_bytes(problem), field_bytes(problem)
-    # Exact arithmetic of the store's allocation: the statistics of every plane, the
-    # field of the kept ones.
-    assert groups["all"] == n_planes * per_plane
-    assert groups["planes"] == n_planes * (per_plane - field) + 2 * field
-    assert groups["none"] == n_planes * (per_plane - field)
-
-
 # --- the seam: observe(field=False) (SEP 22 phase 2) --------------------------------
 
 
@@ -499,35 +481,15 @@ def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
     assert asked == [True, False, False, False, True]
 
 
-def test_the_collar_diagnostic_is_skipped_on_field_free_planes_and_recorded(caplog):
-    simulation = keeping(cartesian("numpy_ref"), "none")
+def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
+    # SEP 40 section 5.3 retires the end-of-plane collar diagnostic: the boundary
+    # monitor's transverse edge judges the boundary instead.
+    simulation = keeping(cartesian("numpy_ref"), "all")
     with caplog.at_level(logging.INFO, logger="solprop.backends.numpy_ref.backend"):
         output = stored(simulation.run(progress="none"))
-    skipped = [
-        record for record in caplog.records if "collar diagnostic" in record.message
-    ]
-    # Logged once, at the first field-free plane; every one counted in the record.
-    assert len(skipped) == 1
+    assert not [r for r in caplog.records if "collar" in r.message]
     assert output.outcome is not None
-    assert output.outcome.execution["collar_diagnostic_skipped"] == len(PLANES) + 1
-    # A run that keeps every field evaluates it everywhere and records nothing.
-    kept = stored(keeping(cartesian("numpy_ref"), "all").run(progress="none"))
-    assert kept.outcome is not None
-    assert "collar_diagnostic_skipped" not in kept.outcome.execution
-
-
-def test_a_load_clears_the_skipped_diagnostic_count():
-    simulation = cartesian("numpy_ref")
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.observe(field=False)
-        assert backend.metadata()["collar_diagnostic_skipped"] == 1
-        backend.set_initial(problem.initial.field0, None)
-        assert "collar_diagnostic_skipped" not in backend.metadata()
-    finally:
-        backend.close()
+    assert "collar_diagnostic_skipped" not in output.outcome.execution
 
 
 def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
@@ -567,32 +529,6 @@ def test_a_lockstep_batch_still_refuses_a_shared_observation():
 
     with pytest.raises(BackendError, match="observe_members"):
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
-
-
-def test_the_low_storage_march_holds_its_field_free_plane_with_its_noise_phase():
-    simulation = cartesian("numpy_ref", noise=True)
-    simulation.settings = dataclasses.replace(
-        simulation.settings, integrator=LowStorageRungeKutta()
-    )
-    problem = simulation.translate()
-    backend = NumpyRefBackend(problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        assert backend.held_observation() is None
-        backend.propagate_to(float(PLANES[0]))
-        assert backend.observe(field=False).field is None
-        held = backend.held_observation()
-        assert held is not None and held.z == float(PLANES[0])
-        observed = backend.observe()
-        # The held state is a copy of the state there (exact), its noise phase the
-        # same evaluation; a kept plane then releases it.
-        assert np.array_equal(held.require_field(), observed.require_field())
-        assert held.noise_phase is not None and observed.noise_phase is not None
-        assert np.array_equal(held.noise_phase, observed.noise_phase)
-        assert held.step_history.n_steps == 0
-        assert backend.held_observation() is None
-    finally:
-        backend.close()
 
 
 def test_a_lockstep_split_refuses_a_field_free_observation():

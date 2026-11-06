@@ -40,8 +40,6 @@ import pytest
 
 from bounds import scan_bound
 from flow_parity import (
-    CONTRACTION,
-    FFT_CONSTANT,
     GRID,
     LENGTH,
     QUIET,
@@ -83,10 +81,9 @@ CASES = ("scalar", "te_tm", "taper")
 
 COMPILED = {
     # Per backend: one transform's rounding in eps per log2(n_to), and the
-    # synthesis, tensor and projection's contraction count in eps. numba_cpu's are
-    # flow_parity's (FFTW against pocketfft); Kokkos's are its approved transform
-    # envelope and contraction count (tests/driver/test_native_coupled_flow).
-    "numba_cpu": (FFT_CONSTANT, CONTRACTION),
+    # synthesis, tensor and projection's contraction count in eps. Kokkos's are its
+    # approved transform envelope and contraction count
+    # (tests/driver/test_native_coupled_flow).
     "native": (512.0, 84),
 }
 """The compiled backends and their per-transform and contraction constants."""

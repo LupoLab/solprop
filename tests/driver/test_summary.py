@@ -244,7 +244,7 @@ def test_radial_cartesian_and_line_routes():
     assert rows(radial)["medium"].startswith("SpatialMedium(")
     free = Simulation.from_free(
         grid,
-        FreeGrid(3e-4, 12, 4e-4, 16, window_factor=0),
+        FreeGrid(3e-4, 12, 4e-4, 16, collar_fraction=0),
         SpatialMedium(),
         [],
         pulse,
@@ -254,7 +254,7 @@ def test_radial_cartesian_and_line_routes():
     assert rows(free)["representation"] == "Cartesian 12x16, scalar"
     line = Simulation.from_free(
         grid,
-        LineGrid(1.5e-3, 64, window_factor=0),
+        LineGrid(1.5e-3, 64, collar_fraction=0),
         SpatialMedium(),
         [],
         pulse,
@@ -334,9 +334,6 @@ def test_precision_is_the_state_s():
 
 
 def test_threads_come_from_the_backend_s_record():
-    numba: dict[str, object] = {"numba_threads": 4, "fftw_threads": 2}
-    numba |= {"thread_budget": 8, "thread_budget_source": "affinity"}
-    assert _threads("numba_cpu", numba) == "4 kernel, 2 FFTW; budget 8 (affinity)"
     native = {"thread_budget": 6, "thread_budget_source": "SOLPROP_THREADS"}
     assert _threads("native", native) == "budget 6 (SOLPROP_THREADS)"
     assert _threads("numpy_ref", {}).startswith("1 (NumPy reference); budget ")

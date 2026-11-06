@@ -85,8 +85,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 </style>
 <rect x="0" y="0" width="560" height="500" class="ground" />
 <text x="20.0" y="26.0" font-size="15" class="bold">Cartesian free space</text>
-<text x="20.0" y="44.0" font-size="11" class="dim">FreeGrid(0.3 mm, 16, 0.2 mm, 12): a periodic box whose extra tenth on each side is</text>
-<text x="20.0" y="58.0" font-size="11" class="dim">the absorbing collar, sampled by the FFT, with x fastest in the flattened columns.</text>
+<text x="20.0" y="44.0" font-size="11" class="dim">FreeGrid(0.3 mm, 16, 0.2 mm, 12, collar_fraction=0.1): a periodic box whose extra tenth</text>
+<text x="20.0" y="58.0" font-size="11" class="dim">on each side is room for a collar on request; x is fastest in the flattened columns.</text>
 <rect x="40.0" y="118.33" width="260.0" height="173.33" rx="0" ry="0" class="collar" />
 <rect x="51.82" y="126.21" width="236.36" height="157.58" rx="0" ry="0" class="gas" />
 <circle cx="170.0" cy="205.0" r="7.23" class="ring" />
@@ -302,11 +302,11 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="28.0" y="97.0" font-size="11" class="dim mid">y</text>
 <circle cx="300.0" cy="236.52" r="2.2" class="node-dim" />
 <path d="M300.0,236.52 L345.0,88.0" class="leader" />
-<text x="350.0" y="92.0" font-size="12.5" class="">periodic + absorbing collar</text>
+<text x="350.0" y="92.0" font-size="12.5" class="">periodic; room outside</text>
 <text x="350.0" y="106.0" font-size="11" class="dim">half-width radius × (1 + 0.1)</text>
 <circle cx="229.09" cy="287.73" r="2.2" class="node-dim" />
 <path d="M229.09,287.73 L345.0,134.0" class="leader" />
-<text x="350.0" y="138.0" font-size="12.5" class="">collar: product of two Planck</text>
+<text x="350.0" y="138.0" font-size="12.5" class="">a requested collar: two Planck</text>
 <text x="350.0" y="152.0" font-size="11" class="dim">windows; dim nodes are in it</text>
 <text x="350.0" y="186.0" font-size="12.5" class="">constant media only</text>
 <text x="350.0" y="200.0" font-size="11" class="dim">no symmetry assumed: any</text>

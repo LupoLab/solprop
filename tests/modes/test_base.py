@@ -19,6 +19,7 @@ from solprop.modes.base import (
     beta,
     beta1,
     beta2,
+    beta3,
     db_per_m,
     loss_length,
     transmission,
@@ -139,6 +140,24 @@ def test_beta2_matches_the_second_derivative_of_a_mode_with_a_known_expansion():
     coefficient = evacuated.u_nm**2 * C / (2.0 * radius**2)
     expected = -2.0 * coefficient / omega**3
     assert np.max(np.abs(beta2(evacuated, omega) / expected - 1.0)) < 1e-7
+
+
+def test_beta3_matches_the_third_derivative_of_a_mode_with_a_known_expansion():
+    """Against the same closed form: beta_3 = 6 (u^2 c / (2 a^2)) omega^-4.
+
+    1.5e-6 relative at the chosen step (BETA3_RELATIVE_STEP); 5e-6 leaves room.
+    """
+    radius = 50e-6
+    evacuated = MarcatiliMode(radius, model="reduced", cladding=1.45, loss=False)
+    omega = band(16)
+    coefficient = evacuated.u_nm**2 * C / (2.0 * radius**2)
+    expected = 6.0 * coefficient / omega**4
+    assert np.max(np.abs(beta3(evacuated, omega) / expected - 1.0)) < 5e-6
+
+
+def test_beta3_refuses_a_non_positive_frequency(mode):
+    with pytest.raises(ModeError, match="beta3 differences beta1"):
+        beta3(mode, np.array([0.0]))
 
 
 def test_beta2_is_negative_above_the_zero_dispersion_wavelength(mode):

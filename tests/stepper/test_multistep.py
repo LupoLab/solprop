@@ -4,7 +4,6 @@
 
 """The variable-step Adams algebra of SEP 13 section 4, against exact moments."""
 
-import inspect
 import math
 
 import numpy as np
@@ -15,8 +14,6 @@ from solprop.exceptions import StepperError
 from solprop.stepper.multistep import (
     ComparisonMultistep,
     Multistep,
-    _basis,
-    _basis_rows,
     defect_integral,
     integrated_weights,
     lagrange_coefficients,
@@ -241,7 +238,7 @@ def test_pec_real_interval_is_the_recurrence_spectral_limit(order):
 
 
 def _python_basis(points, upper):
-    """The pure-Python loops the compiled basis replaced, kept as its reference."""
+    """The pure-Python loops of the basis, written out as its reference."""
     weights = np.empty(len(points))
     rows = np.zeros((len(points), len(points)))
     for index, node in enumerate(points):
@@ -306,7 +303,7 @@ def assert_basis_close(got, expected, majorant, count):
 
 
 @pytest.mark.parametrize("seed", range(40))
-def test_the_compiled_basis_is_the_python_loops_to_rounding(seed):
+def test_the_basis_is_the_python_loops_to_rounding(seed):
     """Weights and coefficients as the scalar loops computed them, to rounding."""
     rng = np.random.default_rng(seed)
     count = int(rng.integers(1, 8))
@@ -320,19 +317,9 @@ def test_the_compiled_basis_is_the_python_loops_to_rounding(seed):
     assert_basis_close(got_rows, rows, row_bound, count)
 
 
-@pytest.mark.parametrize("integrate", [False, True])
-def test_the_compiled_basis_is_the_python_one_to_rounding(integrate):
-    # The weights and coefficients every Adams step takes are the compiled form of
-    # the Python loops: the same operations in the same order, which a compiled
-    # kernel may contract, so they agree within both evaluations' rounding.
-    points = np.array([0.0, -0.7, -1.9, -2.6, -4.1])
-    python = inspect.unwrap(_basis_rows)(points, 0.85, integrate)
-    compiled = _basis()(points, 0.85, integrate)
-    rows, weights = _majorant(points.tolist(), 0.85)
-    if integrate:
-        assert_basis_close(compiled[1], python[1], weights, points.size)
-        assert_basis_close(
-            integrated_weights(points, 0.85), python[1], weights, points.size
-        )
-    else:
-        assert_basis_close(compiled[0], python[0], rows, points.size)
+def test_any_change_to_a_comparison_variant_restarts_its_history():
+    variant = ComparisonMultistep(corrector="pec", order=3)
+    assert variant.history_key == repr(variant)
+    assert (
+        variant.history_key != ComparisonMultistep(corrector="pec", order=4).history_key
+    )

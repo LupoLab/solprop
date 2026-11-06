@@ -49,7 +49,7 @@ from scipy.special import j0
 
 from solprop import fourier
 from solprop.constants import C
-from solprop.exceptions import CouplingError
+from solprop.exceptions import CouplingError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.optics import (
     Chain,
@@ -61,7 +61,15 @@ from solprop.optics import (
     TransferFunction,
     stored_factor,
 )
-from solprop.spatial import SpatialFlux, SpatialMedium, aperture_profile, spatial_energy
+from solprop.spatial import (
+    ApertureShape,
+    SpatialFlux,
+    SpatialMedium,
+    aperture_outline,
+    aperture_profile,
+    spatial_energy,
+    spatial_energy_spectrum,
+)
 
 __all__ = [
     "Alignment",
@@ -620,38 +628,6 @@ def _flux(state: SpatialState) -> SpatialFlux:
     return SpatialFlux.resolve(state.grid, state.space, state.medium, z=0.0)
 
 
-def _energy_spectrum(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
-) -> Float[np.ndarray, " n_omega"]:
-    """Split :func:`solprop.spatial.spatial_energy` into temporal bins.
-
-    The same weighted sum, accumulated per bin rather than in total: the axial
-    admittance of :meth:`solprop.spatial.SpatialFlux.admittance`, the transverse
-    Parseval weights and the analytic-signal endpoint weights of
-    :func:`solprop.fourier.energy_weights`.
-
-    Parameters
-    ----------
-    spectrum : numpy.ndarray
-        Stored spectrum, shape ``(n_modes, n_pol, n_omega)``.
-    flux : solprop.spatial.SpatialFlux
-        The plane's measure.
-
-    Returns
-    -------
-    numpy.ndarray
-        Energy per bin in J, shape ``(n_omega,)``.
-    """
-    grid = flux.grid
-    weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
-    total = np.zeros(grid.n_omega)
-    for columns in flux.chunks():
-        real = np.real(flux.admittance(columns))
-        density = np.sum(np.abs(spectrum[columns]) ** 2, axis=1)
-        total += np.sum(flux.space.spectral_weights[columns, None] * real * density, 0)
-    return flux.energy_scale * weights * total
-
-
 @dataclass(frozen=True)
 class _Measured:
     """The physical energy of a plane, in total and per bin.
@@ -684,7 +660,8 @@ def _measure(state: SpatialState, flux: SpatialFlux) -> _Measured:
         Total and per-bin energy, J.
     """
     return _Measured(
-        spatial_energy(state.spectrum, flux), _energy_spectrum(state.spectrum, flux)
+        spatial_energy(state.spectrum, flux),
+        spatial_energy_spectrum(state.spectrum, flux),
     )
 
 
@@ -800,8 +777,8 @@ def _reference_norm(
 def _edge_nodes(space: RadialGrid | FreeGrid) -> Bool[np.ndarray, " n_nodes"]:
     """Return the nodes of the window's outer band.
 
-    The declared collar where there is one, otherwise the outer tenth of each
-    half-width.
+    The room outside the requested size where the grid has some, otherwise the
+    outer tenth of each half-width.
 
     Parameters
     ----------
@@ -813,10 +790,10 @@ def _edge_nodes(space: RadialGrid | FreeGrid) -> Bool[np.ndarray, " n_nodes"]:
     numpy.ndarray
         Boolean mask over the nodes, shape ``(n_nodes,)``.
     """
-    if space.window_factor > 0:
+    if space.collar_fraction > 0:
         return np.asarray(space.window < 1)
     if isinstance(space, RadialGrid):
-        return np.asarray(space.r > 0.9 * space.radius)
+        return np.asarray(space.r > 0.9 * space.outer_radius)
     x, y = _nodes(space)
     return np.asarray(
         (np.abs(x) > 0.9 * np.max(np.abs(space.x)))
@@ -1438,10 +1415,18 @@ class Aperture:
     ``sqrt(W)``. SEP 31 §4.6's intensity-defined aperture is the ``'quadrature'``
     case. A hard aperture (``W`` zero or one) is the same either way.
 
+    `shape` asks for the other outlines of the statistics' seam,
+    :class:`solprop.spatial.ApertureOutline`, with the same conventions: an ellipse is a
+    scaled circle, a rectangle the product of two straight edges, and a half-plane
+    keeps ``x >= X`` or ``x < X`` of the centre ``X``, half-open. As here the profile
+    is evaluated at the half-width given, a quadrature ellipse carries no correction of
+    its half-width, as a circle carries none.
+
     Attributes
     ----------
     radius : float
-        Half-width of the profile in m, finite and positive.
+        Half-width of the profile in m, finite and positive for a circle; zero for any
+        other shape, whose measure is `extent`.
     model_error : float
         Required thin-screen budget in (0, 1).
     edge : float
@@ -1450,10 +1435,17 @@ class Aperture:
     kind : {'hard', 'tanh', 'rcos', 'supergauss'}
         Edge profile. Default ``'hard'``.
     centre : tuple of float
-        Centre ``(x, y)`` in m in the local frame; a radial grid needs the axis.
+        Centre ``(x, y)`` in m in the local frame; a radial grid needs the axis. A
+        half-plane's edge is at the coordinate it names, and the other must be zero.
     weighting : {'amplitude', 'quadrature'}
         ``'amplitude'`` applies ``W`` to the field, ``'quadrature'`` applies
         ``sqrt(W)``. Default ``'amplitude'``.
+    shape : str or None
+        One of :data:`solprop.spatial.APERTURE_SHAPES`; ``None`` (the default) is
+        ``circle``, and ``"circle"`` is stored as ``None``, so the two record alike.
+    extent : tuple of float or None
+        The full widths ``(D_x, D_y)`` of an ellipse or a rectangle in m, positive;
+        ``None`` for any other shape.
 
     Examples
     --------
@@ -1468,6 +1460,13 @@ class Aperture:
     kind: Literal["hard", "tanh", "rcos", "supergauss"] = "hard"
     centre: tuple[float, float] = (0.0, 0.0)
     weighting: Literal["amplitude", "quadrature"] = "amplitude"
+    shape: ApertureShape | None = None
+    extent: tuple[float, float] | None = None
+
+    def __post_init__(self) -> None:
+        """Store a circle as ``None``, so naming the default records nothing new."""
+        if self.shape == "circle":
+            object.__setattr__(self, "shape", None)
 
     def apply(self, state: SpatialState) -> ElementResult:
         """Apply the aperture.
@@ -1485,11 +1484,15 @@ class Aperture:
         Raises
         ------
         CouplingError
-            If the weighting is unknown or an off-axis aperture is asked of a
-            radial grid.
+            If the weighting is unknown; the centre is not finite; an off-axis aperture
+            or anything but a circle is asked of a radial grid; or the shape's measures
+            break their rules.
         """
         if self.weighting not in ("amplitude", "quadrature"):
             msg = f"weighting is 'amplitude' or 'quadrature', got {self.weighting!r}"
+            raise CouplingError(msg)
+        if not np.all(np.isfinite(self.centre)):
+            msg = f"an aperture's centre must be finite, got {self.centre}"
             raise CouplingError(msg)
         if isinstance(state.space, RadialGrid) and any(self.centre):
             msg = (
@@ -1498,17 +1501,22 @@ class Aperture:
             )
             raise CouplingError(msg)
         x, y = _nodes(state.space)
-        distance = np.hypot(x - self.centre[0], y - self.centre[1])
-        weight = aperture_profile(distance, self.radius, self.edge, self.kind)
+        if self.shape is None and self.extent is not None:
+            msg = "extent is an ellipse's or a rectangle's; a circle has a radius"
+            raise CouplingError(msg)
+        if self.shape is None:
+            distance = np.hypot(x - self.centre[0], y - self.centre[1])
+            weight = aperture_profile(distance, self.radius, self.edge, self.kind)
+        else:
+            weight = self._shaped_weight(isinstance(state.space, RadialGrid), x, y)
         amplitude = np.sqrt(weight) if self.weighting == "quadrature" else weight
         n_band = int(np.sum(_band(state.grid)))
         transmission = np.repeat(amplitude[:, None], n_band, axis=1).astype(complex)
+        outline = f"radius={self.radius:g} m" if self.shape is None else f"{self.shape}"
         return _apply_screen(
             state,
             transmission,
-            element=(
-                f"Aperture(radius={self.radius:g} m, {self.kind}, {self.weighting})"
-            ),
+            element=(f"Aperture({outline}, {self.kind}, {self.weighting})"),
             model_error=self.model_error,
             phase_only=False,
             notes=(
@@ -1517,6 +1525,68 @@ class Aperture:
                 else "field transmission W; power goes as W**2",
             ),
         )
+
+    def _shaped_weight(
+        self,
+        radial: bool,
+        x: Float[np.ndarray, " n_nodes"],
+        y: Float[np.ndarray, " n_nodes"],
+    ) -> Float[np.ndarray, " n_nodes"]:
+        """Return the weight of a shape other than a circle at the nodes.
+
+        Parameters
+        ----------
+        radial : bool
+            Whether the plane is on a radial grid.
+        x, y : numpy.ndarray
+            The nodes in m, shape ``(n_nodes,)``.
+
+        Returns
+        -------
+        numpy.ndarray
+            The weight in ``[0, 1]``, shape ``(n_nodes,)``.
+
+        Raises
+        ------
+        CouplingError
+            As :meth:`apply` documents.
+        """
+        shape = self.shape
+        assert shape is not None  # a circle does not come here
+        if radial:
+            msg = (
+                f"a {shape} breaks cylindrical symmetry: use a Cartesian FreeGrid, or "
+                "a circle on the axis"
+            )
+            raise CouplingError(msg)
+        half_plane = shape.startswith("half_plane")
+        if self.radius != 0:
+            msg = f"a radius is a circle's; give zero for a {shape}, and extent"
+            raise CouplingError(msg)
+        if half_plane == (self.extent is not None) or (
+            self.extent is not None
+            and (
+                len(self.extent) != 2
+                or not np.all(np.isfinite(self.extent))
+                or min(self.extent) <= 0
+            )
+        ):
+            msg = (
+                f"a {shape} needs no extent"
+                if half_plane
+                else f"a {shape} needs finite, positive full widths, extent=(D_x, D_y)"
+            )
+            raise CouplingError(msg)
+        off_axis = 1 if shape.startswith("half_plane_x") else 0
+        if half_plane and self.centre[off_axis] != 0:
+            msg = f"a {shape} has an edge on one axis; its other centre must be zero"
+            raise CouplingError(msg)
+        extent = (0.0, 0.0) if self.extent is None else self.extent
+        try:
+            outline = aperture_outline(shape, 0.0, extent, self.edge, self.kind)
+        except OutputError as error:
+            raise CouplingError(str(error)) from error
+        return outline.weight(self.centre[0] - x, self.centre[1] - y)
 
 
 @dataclass(frozen=True, eq=False)
@@ -3007,7 +3077,7 @@ class _WrapCount:
         content = space.spectral_weights[columns, None] * (weights * index) * density
         real = np.real(k_z)
         if isinstance(space, RadialGrid):
-            ratios = [space.k_r[columns][:, None] / space.radius]
+            ratios = [space.k_r[columns][:, None] / space.outer_radius]
         else:
             k_x = np.tile(space.k_x, space.n_y)[columns]
             k_y = np.repeat(space.k_y, space.n_x)[columns]
@@ -3129,7 +3199,7 @@ def _angular_output(
             kernel = j0(np.outer(part, space.k_r)) * scale[None, :]
             values = kernel @ flat
             samples[start : start + block] = np.where(
-                (part < space.radius)[:, None], values, 0.0
+                (part < space.outer_radius)[:, None], values, 0.0
             )
         field_out = samples.reshape(rho.size, *spectrum.shape[1:])
         return _to_spectrum(output, field_out)

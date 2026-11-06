@@ -9,8 +9,7 @@ general modal route with its own mode fields at every position: the synthesis an
 projection maps expanded along z on the path's sections and combined per stage (kernel
 schema 14's ``StageScalars.transform_weights``), and the connection ``Gamma = W^-1 S``
 in the ``"frozen_residual"`` coupled flow beside the generator. ``numpy_ref`` executes
-it, and so do ``numba_cpu`` (``tests/backends/test_numba_moving_guide.py``) and Kokkos
-(``tests/driver/test_native_moving_guide.py``).
+it, and so does Kokkos (``tests/driver/test_native_moving_guide.py``).
 
 The default tier runs the **graded-index** taper, whose solves take milliseconds. The
 step-index validations -- the dense reference that re-solves the guide at every
@@ -41,7 +40,6 @@ from modal_provider_cases import (
     make_provider,
 )
 from solprop.backends import select
-from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
@@ -271,7 +269,7 @@ def test_a_moving_guide_runs_ten_steps_end_to_end_and_records_its_path(
 def test_every_compiled_backend_admits_moving_maps_and_a_new_one_refuses_them(
     kinked_problem,
 ):
-    """Both compiled backends admit the moving maps; the default refuses them by name.
+    """The compiled backend admits the moving maps; the default refuses them by name.
 
     A backend that calls the shared admission without declaring ``moving_maps``
     has not built the per-stage combination, and is refused by name.
@@ -280,7 +278,6 @@ def test_every_compiled_backend_admits_moving_maps_and_a_new_one_refuses_them(
     refuse_general_route(problem, backend="numpy_ref", moving_maps=True)
     with pytest.raises(BackendError, match=r"new executes .*moving maps.*not build"):
         refuse_general_route(problem, backend="new")
-    select("numba_cpu", problem, grid=simulation.grid).close()
     pytest.importorskip("solprop_native")
     select("native", problem, grid=simulation.grid).close()
 
@@ -337,26 +334,6 @@ def test_a_run_longer_than_the_declared_path_is_refused(kinked):
     """The geometry is declared over the provider's z domain and not past it."""
     with pytest.raises((DriverError, TranslationError, Exception), match="path"):
         build(kinked, grin_grid(z_end=2 * LENGTH), length=2 * LENGTH).translate()
-
-
-def test_the_memory_estimate_counts_the_moving_maps_to_the_byte(kinked_problem):
-    """Sections times degree of each map, and the two a stage evaluates."""
-    simulation, problem = kinked_problem
-    estimate = estimate_memory(problem, "numpy_ref")
-    backend = select("numpy_ref", problem, grid=simulation.grid)
-    try:
-        ledger = backend.memory_ledger()
-        held = ledger_groups(ledger)
-    finally:
-        backend.close()
-    for group, value in held.items():
-        if group != "measured":
-            assert estimate.groups[group] == value, group
-    tables = problem.transform.modal_tables
-    assert tables is not None and tables.synthesis is not None
-    one = tables.synthesis[0, 0].nbytes
-    assert ledger["general_synthesis"] == 10 * one
-    assert ledger["general_stage_maps"] == 2 * one
 
 
 @pytest.mark.medium

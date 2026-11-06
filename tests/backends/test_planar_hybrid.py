@@ -24,7 +24,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose, assert_array_equal
 
-from backends.test_numba_band_bounds import rate_error_bound
+from backends.rate_bounds import rate_error_bound
 from bounds import fft_bound, gamma, step_evaluations
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
@@ -167,7 +167,7 @@ def modal_and_planar(family):
     modal = simulation.with_input(
         np.stack([math.sqrt(share) * pulse for share in shares])
     ).translate()
-    space = PlanarGrid(modes, 1e-3, n_y, window_factor=0.0, n_x=n_r)
+    space = PlanarGrid(modes, 1e-3, n_y, collar_fraction=0.0, n_x=n_r)
     # A field uniform in y is its k_y = 0 column alone, n_y times the row value.
     field0 = np.zeros((space.n_columns, 1, grid.n_omega), complex)
     field0[: space.n_p] = modal.initial.field0[0] * n_y
@@ -370,7 +370,7 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
     """
     grid = ENVELOPE
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
-    space = PlanarGrid(modes, 1.2e-3, 128, window_factor=0.0)
+    space = PlanarGrid(modes, 1.2e-3, 128, collar_fraction=0.0)
     omega0 = grid.omega[0]
     beta = np.array([complex(mode.neff(np.array([omega0]))[0]) for mode in modes])
     beta *= omega0 / C
@@ -438,14 +438,16 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
     is the slab mode's SPM locally in y. The phase is taken against the same run without
     the Kerr term, which removes the dispersion and the 1-D Gouy phase in y. The
     closed form leaves out the index factor ``n0**2 / n_eff`` of the prefactor
-    (+3.1e-4 in argon; the state is launched with ``|a|^2 = P'``, not the true-power
-    ``|b|^2``) and the coupling of the Kerr lens with diffraction in y, of relative
-    order ``L / z_R``: 6e-3 at a 2 mm radius, where the measured departure was
-    9.4e-4; at 5 mm, 3.4e-4. The bound is the slab mode's own 2e-3.
+    (+2.6e-4 in argon; the state is launched with ``|a|^2 = P'``, not the true-power
+    ``|b|^2``) and the coupling of the Kerr lens with diffraction in y,
+    ``B L / (3 z_R)`` (1.5e-4 here, 9.4e-4 at a 2 mm radius). Converged in z the
+    departure is 3.5e-4 here and 1.1e-3 at 2 mm. These ten steps add 5.6e-4 of
+    integration error, so this run measures 9.1e-4. The bound is the slab mode's own
+    2e-3.
     """
     grid = ENVELOPE
     mode = SlabMode(HALF_GAP, "Ar", 1.0)
-    space = PlanarGrid([mode], 20e-3, 64, window_factor=0.0)
+    space = PlanarGrid([mode], 20e-3, 64, collar_fraction=0.0)
     field0 = gaussian_beam(space, 5e-3, [1.0], grid, energy=0.5)
     responses = Simulation.from_waveguide(
         [mode],
@@ -582,7 +584,7 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
     mode = SlabMode(HALF_GAP, "Ar", 1.0, loss=False)
     k = float(grid.omega0 * np.real(mode.neff(np.array([grid.omega0]))[0]) / C)
     omega = math.sqrt(2 * 6.0 * k)
-    space = PlanarGrid([mode], 2 * (2 * math.pi / omega), 16, window_factor=0.0)
+    space = PlanarGrid([mode], 2 * (2 * math.pi / omega), 16, collar_fraction=0.0)
     assert space.k_y[4] == pytest.approx(omega, rel=1e-12)
     power = 6.0 / (1e-23 * k / mode.aeff())
     temporal = GaussianPulse(wavelength=800e-9, fwhm=1e-12, peak_power=power).build(

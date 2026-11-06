@@ -2,10 +2,10 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Three-backend parity of the axial-flux statistics (SEP 34 sections 4.2 and 5.1).
+"""Backend parity of the axial-flux statistics (SEP 34 sections 4.2 and 5.1).
 
-The same state, loaded at the same plane, is measured by ``numpy_ref``,
-``numba_cpu`` and, when it is installed, the native CPU backend: energy, the beam,
+The same state, loaded at the same plane, is measured by ``numpy_ref`` and, when it is
+installed, the native CPU backend: energy, the beam,
 aperture and region spectra, the aperture's on-axis spectrum, ``absorbed_power``,
 the on-axis spectrum and intensity, ``peak_intensity`` and the fluence widths. The
 media are lossy (or the planar walls are), so the admittance is complex and the
@@ -24,7 +24,6 @@ import pytest
 from backends.planar_cases import planar_case
 from bounds import assert_within, gamma
 from solprop.backends import select
-from solprop.backends.memory import flux_closure_memory
 from solprop.backends.spatial import fluence_budget, signed_fluence_widths
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
@@ -43,7 +42,7 @@ pytestmark = [
     ),
 ]
 
-BACKENDS = ["numpy_ref", "numba_cpu"] + (
+BACKENDS = ["numpy_ref"] + (
     ["native"] if importlib.util.find_spec("solprop_native") is not None else []
 )
 
@@ -220,32 +219,27 @@ def test_a_width_refuses_a_fluence_negative_beyond_its_normwise_budget():
 def test_the_native_closure_buffers_are_in_the_ledger():
     """The closure's transverse volume, the radial plane measure and its table."""
     grid, problem = _free(FreeGrid(3e-4, 24, 3e-4, 16))
-    rows = flux_closure_memory(problem, "native")
     # One state's bytes beside the transverse scratch, sized for the problem's own
-    # local statistics; the CPU backends form the closure per call.
-    assert rows == {"flux_closure_transverse": 16 * int(np.prod(problem.shape[1:]))}
-    assert flux_closure_memory(problem, "numba_cpu") == {}
+    # local statistics.
+    closure = 16 * int(np.prod(problem.shape[1:]))
     owner = select("native", problem, grid=grid)
     try:
         ledger = owner.memory_ledger()
-        assert ledger["flux_closure_transverse"] == rows["flux_closure_transverse"]
+        assert ledger["flux_closure_transverse"] == closure
         # A separable run's plane measure is its operator's own views.
         assert ledger["flux_coefficients"] == ledger["flux_table"] == 0
-        assert ledger["statistics_flux_magnitude"] > 0
+        # Its fluence takes no time transform, so it holds no magnitude per sample.
+        assert ledger["statistics_flux_magnitude"] == 0
     finally:
         owner.close()
     # Without a local statistic nothing is held until a call first needs it.
     bare = dataclasses.replace(problem, stats_spec=StatsSpec(names=("energy",)))
-    assert flux_closure_memory(bare, "native") == {}
     owner = select("native", bare, grid=grid)
     try:
         assert owner.memory_ledger()["flux_closure_transverse"] == 0
         owner.set_initial(bare.initial.field0, None)
         owner.stats(StatsSpec(names=("peak_intensity",)))
-        assert (
-            owner.memory_ledger()["flux_closure_transverse"]
-            == rows["flux_closure_transverse"]
-        )
+        assert owner.memory_ledger()["flux_closure_transverse"] == closure
     finally:
         owner.close()
     grid, radial = _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3)))
@@ -262,5 +256,6 @@ def test_the_native_closure_buffers_are_in_the_ledger():
             flux.material.coefficients.size * 16 + flux.material.breakpoints.size * 8
         )
         assert ledger["flux_closure_transverse"] == 0
+        assert ledger["statistics_flux_magnitude"] > 0
     finally:
         owner.close()

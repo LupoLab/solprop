@@ -24,12 +24,29 @@ features. The processor is asked in the way each wheel platform offers:
   ``-mcpu=neoverse-n1`` lets GCC (the Linux wheel's compiler) emit: Armv8.2-A with its
   mandatory CRC32, LSE atomics and rounding doubling multiply, plus the N1's
   half-precision arithmetic, dot product and RCpc loads.
+- **Windows on Arm**: ``IsProcessorFeaturePresent`` again, for the wheel's ``armv8.2-a``
+  floor. The core keeps the compiler's generic Armv8-A baseline, but it statically links
+  OpenBLAS built with ``TARGET=NEOVERSEN1``, which compiles with ``-march=armv8.2-a``.
+  Windows reports CRC32 and the LSE atomics that Armv8.1 and Armv8.2 make mandatory, and
+  has no query for the rest of Armv8.2, so those two stand for it.
 - **macOS arm64**: nothing is checked; every Apple silicon Mac is at least an M1.
 
-Where the processor cannot be asked (no ``/proc/cpuinfo``, another platform), or the
-record names a baseline this module does not know (a source build's own ``-march``),
-nothing is checked. A missing record is a local or editable build, compiled for the
-machine it runs on.
+Where ``/proc/cpuinfo`` cannot be read or has no features line, an x86-64 build asks
+NumPy's own ``cpuid`` check, ``__cpu_features__``, a private name that a test holds in
+place. If neither answers, the build refuses to load with
+:class:`CpuFeaturesUnknownError` rather than risk an illegal instruction with no Python
+error, and ``SOLPROP_NATIVE_CPU_VARIANT`` is the deliberate way past that, on the user's
+word about their processor. NumPy's names cover only part of Neoverse N1's list, so
+Linux aarch64 can't ask it. A record naming a baseline this module does not know
+(a source build's own ``-march``) is not checked, and a missing record is a local or
+editable build, compiled for the machine it runs on.
+
+A wheel may carry its extension compiled for more than one baseline: the x86-64 wheels
+hold an x86-64-v3 and an x86-64-v2 build. ``_cpu_baseline.txt`` then names the lowest,
+the wheel's floor, and ``_cpu_variants.txt`` lists each build, best first, as a baseline
+and a module stem. :func:`select_variant` takes the first the processor meets and logs,
+at INFO, which features put a better build out of reach;
+``SOLPROP_NATIVE_CPU_VARIANT`` names a lower one, for tests and comparisons.
 
 The module is pure Python and imports nothing from the package, so solprop's
 automatic backend selection loads it by path and runs the same check without
@@ -38,6 +55,8 @@ importing the package or starting its runtime (``solprop.backends.registry``).
 
 from __future__ import annotations
 
+import logging
+import os
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -49,21 +68,32 @@ __all__ = [
     "BASELINE_RECORD",
     "BUILD_GUIDE",
     "CPUINFO",
+    "ISSUES",
     "REQUIRED_FEATURES",
+    "VARIANTS_RECORD",
+    "VARIANT_SETTING",
     "CpuBaselineError",
+    "CpuFeaturesUnknownError",
     "baseline_shortfall",
     "check_cpu_baseline",
     "cpuinfo_flags",
     "kernel32_feature_query",
     "missing_features",
+    "select_variant",
+    "windows_arm_features",
     "windows_features",
 ]
 
+_LOGGER = logging.getLogger(__name__)
+
 BASELINE_RECORD = "_cpu_baseline.txt"
+VARIANTS_RECORD = "_cpu_variants.txt"
+VARIANT_SETTING = "SOLPROP_NATIVE_CPU_VARIANT"
 CPUINFO = Path("/proc/cpuinfo")
 BUILD_GUIDE = (
     "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
 )
+ISSUES = "https://github.com/LupoLab/solprop/issues"
 
 # The x86-64 psABI microarchitecture levels, as Linux names the CPUID features in
 # /proc/cpuinfo (``abm`` is LZCNT).
@@ -96,11 +126,14 @@ _NEOVERSE_N1 = frozenset(
         "lrcpc",
     }
 )
+# What Windows can report of the Armv8.2-A that the linked OpenBLAS is compiled for.
+_ARMV8_2_A = frozenset({"atomics", "crc32"})
 REQUIRED_FEATURES: dict[str, frozenset[str]] = {
     "x86-64-v2": _X86_64_V2,
     "x86-64-v3": _X86_64_V3,
     "x86-64-v4": _X86_64_V4,
     "neoverse-n1": _NEOVERSE_N1,
+    "armv8.2-a": _ARMV8_2_A,
 }
 """The processor features each checked baseline requires, in Linux's spelling."""
 
@@ -115,6 +148,36 @@ _PF_FEATURES: dict[str, int] = {
     "avx": 39,  # PF_AVX_INSTRUCTIONS_AVAILABLE
     "avx2": 40,  # PF_AVX2_INSTRUCTIONS_AVAILABLE
     "avx512f": 41,  # PF_AVX512F_INSTRUCTIONS_AVAILABLE
+}
+# The same, for Windows on Arm.
+_PF_ARM_FEATURES: dict[str, int] = {
+    "crc32": 31,  # PF_ARM_V8_CRC32_INSTRUCTIONS_AVAILABLE
+    "atomics": 34,  # PF_ARM_V81_ATOMIC_INSTRUCTIONS_AVAILABLE
+}
+# NumPy's names for the x86-64 features, as ``__cpu_features__`` reports them. NumPy
+# sets AVX only when the operating system saves its state through XSAVE, so AVX stands
+# for it.
+_NUMPY_FEATURES: dict[str, str] = {
+    "abm": "LZCNT",
+    "avx": "AVX",
+    "avx2": "AVX2",
+    "avx512bw": "AVX512BW",
+    "avx512cd": "AVX512CD",
+    "avx512dq": "AVX512DQ",
+    "avx512f": "AVX512F",
+    "avx512vl": "AVX512VL",
+    "bmi1": "BMI",
+    "bmi2": "BMI2",
+    "cx16": "CX16",
+    "f16c": "F16C",
+    "fma": "FMA3",
+    "lahf_lm": "LAHF",
+    "movbe": "MOVBE",
+    "popcnt": "POPCNT",
+    "sse4_1": "SSE41",
+    "sse4_2": "SSE42",
+    "ssse3": "SSSE3",
+    "xsave": "AVX",
 }
 # Features Windows does not report, each stood for by one it does (module docstring).
 _WINDOWS_IMPLIED: dict[str, frozenset[str]] = {
@@ -150,7 +213,40 @@ class CpuBaselineError(ImportError):
         super().__init__(
             f"this solprop-native build requires an {baseline} processor, and this "
             f"one lacks {', '.join(self.missing_features)}; build solprop-native from "
-            f"source on this machine instead ({BUILD_GUIDE})"
+            f"source on this machine instead ({BUILD_GUIDE}), or report this processor "
+            f"({ISSUES})"
+        )
+
+
+class CpuFeaturesUnknownError(ImportError):
+    """This processor's features could not be established, so the build isn't loaded.
+
+    Parameters
+    ----------
+    baseline
+        The build's recorded CPU baseline, for example ``"x86-64-v3"``.
+    variants
+        The builds that :data:`VARIANT_SETTING` may name; empty for a single build.
+
+    Attributes
+    ----------
+    baseline : str
+        The recorded CPU baseline.
+    """
+
+    def __init__(self, baseline: str, variants: Iterable[str] = ()) -> None:
+        self.baseline = baseline
+        names = ", ".join(variants)
+        named = (
+            f"name a build this processor runs with {VARIANT_SETTING} ({names}), "
+            if names
+            else ""
+        )
+        super().__init__(
+            f"cannot establish this processor's features, so the solprop-native build "
+            f"with CPU baseline {baseline} is not loaded; {named}build solprop-native "
+            f"from source on this machine ({BUILD_GUIDE}), or report this system "
+            f"({ISSUES})"
         )
 
 
@@ -220,6 +316,44 @@ def windows_features(is_present: Callable[[int], object]) -> frozenset[str]:
     return frozenset(present | _WINDOWS_ALWAYS)
 
 
+def windows_arm_features(is_present: Callable[[int], object]) -> frozenset[str]:
+    """Return what Windows on Arm reports of the features this module knows.
+
+    Parameters
+    ----------
+    is_present
+        ``IsProcessorFeaturePresent``, or a stand-in for tests.
+
+    Returns
+    -------
+    frozenset[str]
+        The features in Linux's spelling.
+    """
+    return frozenset(
+        name for name, constant in _PF_ARM_FEATURES.items() if is_present(constant)
+    )
+
+
+def numpy_features() -> frozenset[str] | None:
+    """Return NumPy's view of the x86-64 features, or ``None`` if it gives none.
+
+    Returns
+    -------
+    frozenset[str] | None
+        The features in Linux's spelling; ``None`` when NumPy no longer has the private
+        name, or lacks one of the features asked for.
+    """
+    try:
+        from numpy._core._multiarray_umath import (
+            __cpu_features__ as present,  # pyright: ignore[reportUnknownVariableType]
+        )
+    except ImportError:
+        return None
+    if not all(key in present for key in _NUMPY_FEATURES.values()):
+        return None
+    return frozenset(name for name, key in _NUMPY_FEATURES.items() if present[key])
+
+
 def kernel32_feature_query() -> Callable[[int], object]:
     """Return ``kernel32.IsProcessorFeaturePresent``; Windows only.
 
@@ -242,21 +376,26 @@ def _processor_features(
     platform: str,
     cpuinfo: Path,
     feature_query: Callable[[], Callable[[int], object]],
+    numpy_query: Callable[[], frozenset[str] | None],
 ) -> frozenset[str] | None:
     """Return the processor's features as a baseline's check reads them, or ``None``.
 
-    ``None`` means the processor cannot be asked here.
+    ``None`` means nothing could establish them (module docstring).
     """
     x86 = baseline.startswith("x86-64-")
-    if x86 and platform == "win32":
-        return windows_features(feature_query())
-    if platform != "linux":
-        return None
-    try:
-        text = cpuinfo.read_text(encoding="utf-8")
-    except OSError:
-        return None
-    return cpuinfo_flags(text, "flags" if x86 else "Features")
+    if platform == "win32":
+        query = feature_query()
+        return windows_features(query) if x86 else windows_arm_features(query)
+    flags = None
+    if platform == "linux":
+        try:
+            text = cpuinfo.read_text(encoding="utf-8")
+        except OSError:
+            text = ""
+        flags = cpuinfo_flags(text, "flags" if x86 else "Features")
+    if flags:
+        return flags
+    return numpy_query() if x86 else None
 
 
 def baseline_shortfall(
@@ -265,7 +404,8 @@ def baseline_shortfall(
     platform: str | None = None,
     cpuinfo: Path = CPUINFO,
     feature_query: Callable[[], Callable[[int], object]] = kernel32_feature_query,
-) -> CpuBaselineError | None:
+    numpy_query: Callable[[], frozenset[str] | None] = numpy_features,
+) -> CpuBaselineError | CpuFeaturesUnknownError | None:
     """Return the refusal a processor below this build's baseline earns, or ``None``.
 
     Parameters
@@ -278,12 +418,16 @@ def baseline_shortfall(
         The processor description read on Linux.
     feature_query
         Returns Windows's ``IsProcessorFeaturePresent``; a stand-in for tests.
+    numpy_query
+        Returns NumPy's view of the features; a stand-in for tests.
 
     Returns
     -------
-    CpuBaselineError | None
-        The error naming the missing features, or ``None`` when the processor meets
-        the baseline or cannot be checked.
+    CpuBaselineError | CpuFeaturesUnknownError | None
+        The error naming the missing features, or the error saying they couldn't be
+        established; ``None`` when the processor meets the baseline, this module doesn't
+        check the baseline, or :data:`VARIANT_SETTING` has named a build of an unknown
+        processor.
     """
     try:
         baseline = (package_dir / BASELINE_RECORD).read_text(encoding="utf-8").strip()
@@ -292,10 +436,17 @@ def baseline_shortfall(
     if baseline not in REQUIRED_FEATURES:
         return None
     flags = _processor_features(
-        baseline, sys.platform if platform is None else platform, cpuinfo, feature_query
+        baseline,
+        sys.platform if platform is None else platform,
+        cpuinfo,
+        feature_query,
+        numpy_query,
     )
     if flags is None:
-        return None
+        names = [name for name, _ in read_variants(package_dir)]
+        if os.environ.get(VARIANT_SETTING, "").strip() in names:
+            return None
+        return CpuFeaturesUnknownError(baseline, names)
     missing = missing_features(baseline, flags)
     return CpuBaselineError(baseline, missing) if missing else None
 
@@ -314,7 +465,118 @@ def check_cpu_baseline(package_dir: Path, cpuinfo: Path = CPUINFO) -> None:
     ------
     CpuBaselineError
         If the processor lacks a feature of the recorded baseline.
+    CpuFeaturesUnknownError
+        If nothing could establish the processor's features.
     """
     error = baseline_shortfall(package_dir, cpuinfo=cpuinfo)
     if error is not None:
         raise error
+
+
+def read_variants(package_dir: Path) -> tuple[tuple[str, str], ...]:
+    """Return a wheel's builds, best first, as ``(baseline, module stem)`` pairs.
+
+    Parameters
+    ----------
+    package_dir
+        The installed package directory.
+
+    Returns
+    -------
+    tuple[tuple[str, str], ...]
+        The builds; empty when the package holds only its one extension.
+    """
+    try:
+        text = (package_dir / VARIANTS_RECORD).read_text(encoding="utf-8")
+    except OSError:
+        return ()
+    pairs = (line.split() for line in text.splitlines() if line.strip())
+    return tuple((baseline, stem) for baseline, stem in pairs)
+
+
+def select_variant(
+    package_dir: Path,
+    *,
+    requested: str | None = None,
+    platform: str | None = None,
+    cpuinfo: Path = CPUINFO,
+    feature_query: Callable[[], Callable[[int], object]] = kernel32_feature_query,
+    numpy_query: Callable[[], frozenset[str] | None] = numpy_features,
+) -> str:
+    """Return the module stem of the build to load on this processor.
+
+    Parameters
+    ----------
+    package_dir
+        The installed package directory.
+    requested
+        A baseline to run instead, which must be listed and no better than the one
+        chosen; the default reads ``SOLPROP_NATIVE_CPU_VARIANT``.
+    platform
+        ``sys.platform`` (the default), or a stand-in for tests.
+    cpuinfo
+        The processor description read on Linux.
+    feature_query
+        Returns Windows's ``IsProcessorFeaturePresent``; a stand-in for tests.
+    numpy_query
+        Returns NumPy's view of the features; a stand-in for tests.
+
+    Returns
+    -------
+    str
+        The stem; ``"_core"`` for a package with one extension.
+
+    Raises
+    ------
+    ValueError
+        If ``requested`` names no listed build, or one better than this processor runs.
+    CpuFeaturesUnknownError
+        If nothing could establish the processor's features and no build is named.
+    """
+    variants = read_variants(package_dir)
+    request = os.environ.get(VARIANT_SETTING, "") if requested is None else requested
+    request = request.strip()
+    if not variants:
+        if request:
+            raise ValueError(
+                f"{VARIANT_SETTING}={request!r}: this build holds one extension"
+            )
+        return "_core"
+    names = [baseline for baseline, _ in variants]
+    if request and request not in names:
+        raise ValueError(
+            f"{VARIANT_SETTING}={request!r}: this wheel holds {', '.join(names)}"
+        )
+    system = sys.platform if platform is None else platform
+    best = len(variants) - 1
+    out_of_reach: list[tuple[str, list[str]]] = []
+    for index, (baseline, _) in enumerate(variants):
+        flags = _processor_features(
+            baseline, system, cpuinfo, feature_query, numpy_query
+        )
+        if flags is None:
+            if request:
+                return variants[names.index(request)][1]
+            raise CpuFeaturesUnknownError(baseline, names)
+        missing = missing_features(baseline, flags)
+        if not missing:
+            best = index
+            break
+        out_of_reach.append((baseline, missing))
+    if not request:
+        for baseline, missing in out_of_reach[:best]:
+            _LOGGER.info(
+                "loading the %s build, which runs longer: this processor reports "
+                "no %s, which the %s build needs",
+                names[best],
+                ", ".join(missing),
+                baseline,
+            )
+        return variants[best][1]
+    chosen = names.index(request)
+    if chosen < best:
+        raise ValueError(
+            f"{VARIANT_SETTING}={request!r}: this processor runs only "
+            f"{', '.join(names[best:])}"
+        )
+    return variants[chosen][1]

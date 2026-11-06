@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Measure the period-one statistics channel inside propagation."""
+"""Measure the periodic statistics channel inside propagation."""
 
 from __future__ import annotations
 
@@ -58,10 +58,17 @@ def _case_tables() -> tuple[CaseTable, FamilyTable]:
     )
 
 
-def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> None:
+def _worker(
+    backend_name: str,
+    case_name: str,
+    target: float,
+    repeats: int,
+    modes: int | None,
+    period: int,
+) -> None:
     blas_backend = "not applicable"
     blas_threads: int | str = "not applicable"
-    fftw_threads = int(os.environ.get("SOLPROP_FFTW_THREADS", "1"))
+    fftw_threads = 1
     native_threads = int(os.environ.get("SOLPROP_NATIVE_THREADS", "1"))
     if backend_name == "native":
         import solprop_native
@@ -101,7 +108,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
                 trange=case["trange"],
                 fwhm=family["tau_fwhm"],
                 energy=family["energy"],
-                modes=case["modes"],
+                modes=case["modes"] if modes is None else modes,
                 loss=family["loss"],
                 n_save=case["n_save"],
                 rtol=1e-6,
@@ -119,7 +126,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
     )
     watched = replace(
         plain,
-        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=1),
+        stats_spec=StatsSpec(names=PERIODIC, periodic=PERIODIC, period=period),
     )
 
     def run(problem: Any) -> Arm:
@@ -136,7 +143,9 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
             summary = backend.propagate_to(target)
             seconds = time.perf_counter() - started
             rows = backend.observe().step_stats.n_rows
-            return {"seconds": seconds, "steps": summary.n_steps, "rows": rows}
+            # A row follows each accepted step's period; n_steps counts rejections too.
+            steps = summary.n_steps - summary.n_rejected
+            return {"seconds": seconds, "steps": steps, "rows": rows}
         finally:
             backend.close()
 
@@ -162,8 +171,8 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
         raise RuntimeError("the statistics channel changed the step count")
     if best["plain"]["steps"] != best["stashed"]["steps"]:
         raise RuntimeError("the plasma stash changed the step count")
-    if best["watched"]["rows"] != best["watched"]["steps"]:
-        raise RuntimeError("period-one statistics did not produce one row per step")
+    if best["watched"]["rows"] != best["watched"]["steps"] // period:
+        raise RuntimeError("the statistics did not produce one row per period")
     ratio = best["watched"]["seconds"] / best["plain"]["seconds"] - 1.0
     collection_ratio = best["watched"]["seconds"] / best["stashed"]["seconds"] - 1.0
     step_seconds = best["plain"]["seconds"] / best["plain"]["steps"]
@@ -180,6 +189,7 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
                 "collection_percent": 100.0 * collection_ratio,
                 "fftw_threads": fftw_threads,
                 "native_threads": native_threads,
+                "period": period,
                 "load": os.getloadavg()[0],
                 "milliseconds_per_row": 1000.0
                 * (best["watched"]["seconds"] - best["plain"]["seconds"])
@@ -200,18 +210,31 @@ def _worker(backend_name: str, case_name: str, target: float, repeats: int) -> N
 def main() -> None:
     """Run an isolated channel-cost measurement."""
     parser = argparse.ArgumentParser()
-    parser.add_argument("--backend", choices=("numba_cpu", "native"), default="native")
+    parser.add_argument("--backend", choices=("numpy_ref", "native"), default="native")
     parser.add_argument(
         "--case", choices=("m2_reduced", "ctc_reduced"), default="m2_reduced"
     )
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--target", type=float, default=0.2)
+    parser.add_argument(
+        "--modes", type=int, help="m2_reduced's mode count, in place of its table's"
+    )
+    parser.add_argument("--period", type=int, default=1, help="steps between rows")
     arguments = parser.parse_args()
-    if arguments.repeats < 1 or arguments.target <= 0.0:
-        parser.error("repeats and target must be positive")
+    if arguments.repeats < 1 or arguments.target <= 0.0 or arguments.period < 1:
+        parser.error("repeats, target and period must be positive")
     if arguments.case == "ctc_reduced" and arguments.target > 0.1:
         parser.error("the reduced CtC target cannot exceed its 0.1 m length")
-    _worker(arguments.backend, arguments.case, arguments.target, arguments.repeats)
+    if arguments.modes is not None and arguments.case != "m2_reduced":
+        parser.error("--modes applies to m2_reduced only")
+    _worker(
+        arguments.backend,
+        arguments.case,
+        arguments.target,
+        arguments.repeats,
+        arguments.modes,
+        arguments.period,
+    )
 
 
 if __name__ == "__main__":

@@ -8,8 +8,7 @@ SEP 16 section 7.1: moments and complete weights checked against augmented matri
 exponentials and against quadrature of their defining integrals, at zero, on both sides
 of the evaluator's join and of its halving count's steps, at large imaginary arguments,
 under strong damping, at resonance (``exp(x) = 1``), on unequal nodes and on
-ill-conditioned histories, on numpy_ref and numba_cpu; and the ordinary Adams weights
-recovered at ``x = 0``.
+ill-conditioned histories; and the ordinary Adams weights recovered at ``x = 0``.
 """
 
 import math
@@ -26,7 +25,6 @@ from solprop.backends.exponential import (
     phi_functions,
 )
 from solprop.backends.multistep import ExponentialKernels
-from solprop.backends.numba_cpu.multistep import NumbaExponentialKernels
 from solprop.exceptions import StepperError
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
 
@@ -146,22 +144,15 @@ def test_phi_functions_agree_with_the_augmented_exponential(x):
 
 
 @pytest.mark.parametrize(
-    "kernels",
-    [ExponentialKernels, NumbaExponentialKernels],
-    ids=["numpy_ref", "numba_cpu"],
-)
-@pytest.mark.parametrize(
     "x",
     [*ARGUMENTS, *SQUARING_EDGES],
     ids=[f"{one:.17g}" for one in [*ARGUMENTS, *SQUARING_EDGES]],
 )
-def test_kernel_moments_agree_with_the_augmented_exponential(kernels, x):
-    # The moments k! phi_{k+1}(x) each backend's trial takes: numba_cpu's compiled
-    # evaluator (a series stopped once a term is below a quarter ulp of its sum, and
-    # reciprocals multiplied in place of divisions) holds the reference's bound.
+def test_kernel_moments_agree_with_the_augmented_exponential(x):
+    # The moments k! phi_{k+1}(x) the reference's trial takes.
     count = MAX_PHI_ORDER
     exponent = np.full((1, 1, 1, 1), x, dtype=np.complex128)
-    moments = kernels().moments(exponent, count)[:, 0, 0, 0, 0]
+    moments = ExponentialKernels().moments(exponent, count)[:, 0, 0, 0, 0]
     reference = augmented_phi(complex(x), count)
     for k in range(count):
         scale = math.factorial(k)

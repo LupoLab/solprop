@@ -13,10 +13,17 @@ import pytest
 from runtime_types import unchecked
 from solprop import fourier
 from solprop.constants import EPS0, HBAR, C
-from solprop.exceptions import GridError, MaterialError, PulseError, TranslationError
-from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid, RadialGrid
+from solprop.exceptions import (
+    GridError,
+    MaterialError,
+    ProcessingError,
+    PulseError,
+    TranslationError,
+)
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.noise import spatial_noise
+from solprop.processing.fields import time_axis
 from solprop.pulses import GaussianPulse, PlanarPulse, PulseSum, SpatialPulse
 from solprop.spatial import (
     FluxSide,
@@ -25,10 +32,12 @@ from solprop.spatial import (
     beam_radius,
     critical_power,
     on_axis_spectrum,
+    on_axis_trace,
     planar_fluence,
     planar_mode_energy,
     plane_sample,
     spatial_energy,
+    spatial_energy_spectrum,
     spatial_fluence,
     spatial_intensity,
     spatial_power,
@@ -99,6 +108,67 @@ def test_energy_fluence_and_power_agree() -> None:
     assert grid.dt * np.sum(intensity, axis=-1) == pytest.approx(fluence, rel=1e-10)
     axis = np.sum(on_axis_spectrum(spectrum, flux)) * grid.d_omega
     assert axis == pytest.approx(fluence[0], rel=1e-3)  # first node off axis
+
+
+def test_oversampled_power_and_intensity_lie_on_the_fine_time_axis() -> None:
+    """Zero-padding adds samples between the grid's and keeps the energy."""
+    grid = _envelope()
+    space = RadialGrid(1e-3, 32)
+    spectrum = _gaussian(grid, space)
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=2.0))
+    coarse = spatial_power(spectrum, flux)
+    fine = spatial_power(spectrum, flux, oversampling=4)
+    t = time_axis(grid, 4)
+    assert fine.shape == t.shape == (4 * grid.n_t,)
+    # The fine samples pass through the coarse ones, and integrate to the same energy.
+    assert fine[::4] == pytest.approx(coarse, rel=1e-9, abs=1e-12 * coarse.max())
+    assert np.sum(fine) * (t[1] - t[0]) == pytest.approx(np.sum(coarse) * grid.dt)
+    intensity = spatial_intensity(spectrum, flux, oversampling=4)
+    assert intensity.shape == (space.n_r, 4 * grid.n_t)
+    on_axis = on_axis_trace(spectrum, flux, oversampling=2)
+    assert on_axis.shape == (2 * grid.n_t,)
+    with pytest.raises(GridError, match="oversampling must be at least 1"):
+        spatial_power(spectrum, flux, oversampling=0)
+    with pytest.raises(ProcessingError, match="oversampling must be at least 1"):
+        time_axis(grid, 0)
+
+
+@pytest.mark.parametrize(
+    "space",
+    [
+        RadialGrid(1.5e-3, 64),
+        FreeGrid(radius_x=1.5e-3, n_x=32, radius_y=1.5e-3, n_y=32),
+        LineGrid(1.5e-3, 32, collar_fraction=0.0),
+    ],
+    ids=["radial", "cartesian", "line"],
+)
+def test_energy_spectrum_sums_to_the_energy(space: RadialGrid | FreeGrid) -> None:
+    """The per-bin energies split the plane's energy and sum back to it."""
+    grid = _envelope()
+    medium = SpatialMedium("Ar", pressure=2.0)
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    flux = SpatialFlux.resolve(grid, space, medium)
+    per_bin = spatial_energy_spectrum(spectrum, flux)
+    assert per_bin.shape == (grid.n_omega,)
+    assert np.all(per_bin >= 0)
+    # SEP 31 checked this bound: both sums add the same n_columns * n_omega terms,
+    # the total in one pass and the bins one at a time, so they differ by rounding.
+    assert np.sum(per_bin) == pytest.approx(spatial_energy(spectrum, flux), rel=1e-13)
+
+
+def test_energy_spectrum_refuses_an_invalid_spectrum() -> None:
+    """A spectrum of the wrong shape, or not finite, is refused before any sum."""
+    grid, space = _envelope(), RadialGrid(1.5e-3, 16)
+    medium = SpatialMedium("Ar", pressure=1.0)
+    flux = SpatialFlux.resolve(grid, space, medium)
+    pulse = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-6)
+    spectrum = SpatialPulse(pulse, 0.3e-3).build(grid, space, medium=medium)
+    with pytest.raises(GridError, match="must be finite with shape"):
+        spatial_energy_spectrum(spectrum[:, :, :-1], flux)
+    spectrum[0, 0, grid.n_omega // 2] = np.nan
+    with pytest.raises(GridError, match="must be finite with shape"):
+        spatial_energy_spectrum(spectrum, flux)
 
 
 def test_field_grid_endpoints_use_constant_admittance_identity() -> None:

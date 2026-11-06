@@ -99,7 +99,9 @@ elseif(NOT SOLPROP_NATIVE_ENABLE_CUDA AND
   message(FATAL_ERROR
     "Linux CPU builds require GCC 14 or newer; found ${CMAKE_CXX_COMPILER_VERSION}. "
     "On Ubuntu 24.04 or Debian, install it with 'sudo apt install g++-14' and build "
-    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed).")
+    "with CXX=g++-14 (a CMake cache that recorded another compiler must be removed). "
+    "In a checkout, a contributor with no compiler can run "
+    "'uv run --no-project tools/setup_light.py' instead.")
 endif()
 
 if(NOT APPLE AND NOT SOLPROP_NATIVE_ENABLE_CUDA AND
@@ -182,7 +184,7 @@ endif()
 
 include(FetchContent)
 
-find_package(Python 3.14 EXACT REQUIRED COMPONENTS Interpreter Development.Module)
+find_package(Python 3.14 REQUIRED COMPONENTS Interpreter Development.Module Development.SABIModule)
 
 # Query the nanobind package installed in the active uv environment. This is
 # reliable for both scikit-build-core and direct CMake invocations.
@@ -218,9 +220,9 @@ if(SOLPROP_NATIVE_TREE_DIRTY)
 endif()
 # solprop and solprop-native are released together from one repository at one
 # version, so the solprop version this build belongs to is its own. The record is
-# provenance: check_build() compares the kernel-contract schema and looks the driver
-# members it relies on up by name, which still catches mismatched halves (an editable
-# checkout beside a stale extension, a local device build).
+# provenance: check_build() compares an editable checkout's sources by digest and looks
+# the driver members it relies on up by name, which catches mismatched halves (an
+# editable checkout beside a stale extension, a local device build).
 if(DEFINED SKBUILD_PROJECT_VERSION_FULL)
   set(SOLPROP_NATIVE_SOLPROP_BUILT_AGAINST "${SKBUILD_PROJECT_VERSION_FULL}")
 else()
@@ -279,8 +281,10 @@ option(SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION
        "Assert independent Kokkos loop iterations to the vectorizer" ON)
 option(SOLPROP_NATIVE_ENABLE_IPO
        "Enable checked interprocedural/link-time optimization for CPU builds" ON)
+# A build with its tests is development, and CI, and stops on a warning. A user's build
+# from source isn't: one warning from a newer compiler shouldn't stop it.
 option(SOLPROP_NATIVE_WARNINGS_AS_ERRORS
-       "Treat diagnostics in project-owned C++ sources as errors" ON)
+       "Treat diagnostics in project-owned C++ sources as errors" ${BUILD_TESTING})
 option(SOLPROP_NATIVE_ENABLE_CLANG_TIDY
        "Run clang-tidy while compiling project-owned C++ sources" OFF)
 option(SOLPROP_NATIVE_ENABLE_SANITIZERS
@@ -724,6 +728,7 @@ FetchContent_Declare(
   GIT_TAG 5.2.0
   GIT_SHALLOW TRUE
   GIT_PROGRESS TRUE
+  PATCH_COMMAND "${CMAKE_COMMAND}" -P "${PROJECT_SOURCE_DIR}/cmake/KokkosKernelsWindowsArm.cmake"
 )
 FetchContent_MakeAvailable(kokkoskernels)
 set_property(DIRECTORY "${kokkoskernels_SOURCE_DIR}" PROPERTY EXCLUDE_FROM_ALL TRUE)
@@ -842,7 +847,7 @@ if(SOLPROP_NATIVE_ENABLE_COVERAGE)
   install(TARGETS solprop_native_labels LIBRARY DESTINATION solprop_native)
 endif()
 
-add_library(solprop_native_core STATIC src/core.cpp src/general.cpp
+add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general.cpp
   src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
   src/adams_march.cpp)
 # solprop SEP 39: the Adams march's decisions round as solprop's Python does, so their
@@ -901,8 +906,26 @@ solprop_native_link_vector_math(solprop_native_core)
 solprop_native_mark_dependency_headers_system(solprop_native_core)
 solprop_native_configure_project_target(solprop_native_core)
 
-nanobind_add_module(_core NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
-  src/helpers.cpp)
+# What the extension is compiled from: this file and the sources the digest's patterns
+# match (cmake/SourceDigest.cmake says why a custom command and not a configure step).
+include(cmake/SourceDigest.cmake)
+list(TRANSFORM SOLPROP_NATIVE_DIGEST_GLOBS PREPEND "${PROJECT_SOURCE_DIR}/"
+     OUTPUT_VARIABLE _source_digest_globs)
+file(GLOB_RECURSE _source_digest_inputs CONFIGURE_DEPENDS ${_source_digest_globs})
+set(SOLPROP_NATIVE_SOURCE_DIGEST_CPP "${CMAKE_CURRENT_BINARY_DIR}/source_digest.cpp")
+add_custom_command(
+  OUTPUT "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}"
+  COMMAND "${CMAKE_COMMAND}" "-DSOURCE_ROOT=${PROJECT_SOURCE_DIR}"
+          "-DOUTPUT=${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}"
+          -P "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake"
+  DEPENDS "${PROJECT_SOURCE_DIR}/CMakeLists.txt"
+          "${PROJECT_SOURCE_DIR}/cmake/SourceDigest.cmake" ${_source_digest_inputs}
+  COMMENT "Hashing the native sources"
+  VERBATIM
+)
+
+nanobind_add_module(_core STABLE_ABI NOMINSIZE NB_SUPPRESS_WARNINGS src/bindings.cpp
+  src/helpers.cpp "${SOLPROP_NATIVE_SOURCE_DIGEST_CPP}")
 target_link_libraries(_core PRIVATE solprop_native_core ${CMAKE_DL_LIBS})
 solprop_native_mark_dependency_headers_system(_core)
 solprop_native_configure_project_target(_core)
@@ -973,6 +996,7 @@ if(BUILD_TESTING)
     tests/native/test_adams_march.cpp
     tests/native/test_adams_phi.cpp
     tests/native/test_core.cpp
+    tests/native/test_crossing.cpp
     tests/native/test_envelope_plasma.cpp
     tests/native/test_fft.cpp
     tests/native/test_fp.cpp

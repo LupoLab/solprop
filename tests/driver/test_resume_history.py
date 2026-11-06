@@ -18,10 +18,9 @@ being taken up rather than set aside.
 """
 
 import dataclasses
-import inspect
 import logging
 import math
-from types import SimpleNamespace
+from typing import Any, cast
 
 import h5py
 import numpy as np
@@ -34,9 +33,9 @@ from flow_parity import LENGTH as FLOW_LENGTH
 from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.driver import Simulation
+from solprop.backends.registry import select
 from solprop.exceptions import OutputError, SolpropWarning
 from solprop.log import NullReporter
 from solprop.output import HDF5Output
@@ -138,15 +137,17 @@ CASES = {
     "soliton-numpy_ref": lambda build, rtol=RTOL: soliton(
         build, "numpy_ref", rtol=rtol
     ),
-    "soliton-numba_cpu": lambda build, rtol=RTOL: soliton(
-        build, "numba_cpu", rtol=rtol
+    "soliton-native": lambda build, rtol=RTOL: soliton(build, "native", rtol=rtol),
+    "interaction-numpy_ref": lambda build, rtol=RTOL: soliton(
+        build, "numpy_ref", integrator=INTERACTION, rtol=rtol
     ),
-    "interaction-numba_cpu": lambda build, rtol=RTOL: soliton(
-        build, "numba_cpu", integrator=INTERACTION, rtol=rtol
+    "interaction-native": lambda build, rtol=RTOL: soliton(
+        build, "native", integrator=INTERACTION, rtol=rtol
     ),
     "varying-numpy_ref": lambda _, rtol=RTOL: varying("numpy_ref", rtol),
-    "varying-numba_cpu": lambda _, rtol=RTOL: varying("numba_cpu", rtol),
+    "varying-native": lambda _, rtol=RTOL: varying("native", rtol),
     "coupled-numpy_ref": lambda _, rtol=RTOL: coupled("numpy_ref", rtol),
+    "coupled-native": lambda _, rtol=RTOL: coupled("native", rtol),
 }
 
 
@@ -159,6 +160,8 @@ CASES = {
 def test_a_resumed_run_is_the_uninterrupted_one(
     build_simulation, tmp_path, case, caplog
 ):
+    if case.endswith("-native"):
+        pytest.importorskip("solprop_native")
     build = CASES[case](build_simulation)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")
@@ -177,21 +180,20 @@ def test_a_resumed_run_is_the_uninterrupted_one(
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend_class", [NumpyRefBackend, NumbaCpuBackend])
 def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
-    build_simulation, tmp_path, monkeypatch, backend_class, caplog
+    build_simulation, tmp_path, monkeypatch, caplog
 ):
     # A failing source evaluation -- a TDSE provider gone, a budget spent -- stops the
     # march at its last accepted step, between save planes; the run writes a terminal
     # checkpoint there and the march's state beside it.
-    name = "numpy_ref" if backend_class is NumpyRefBackend else "numba_cpu"
-    build = soliton(build_simulation, name)
+    build = soliton(build_simulation, "numpy_ref")
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")
     reference = tight_run(
-        soliton(build_simulation, name, rtol=RTOL / TIGHTER), tmp_path / "tight.h5"
+        soliton(build_simulation, "numpy_ref", rtol=RTOL / TIGHTER),
+        tmp_path / "tight.h5",
     )
-    original = backend_class._adams_lab_source
+    original = NumpyRefBackend._adams_lab_source
     planes = [0.0, *build().settings.save_planes.tolist()]
     positions = []
 
@@ -205,7 +207,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
         return original(self, field, position, *args, **keywords)
 
     with monkeypatch.context() as patch:
-        patch.setattr(backend_class, "_adams_lab_source", failing)
+        patch.setattr(NumpyRefBackend, "_adams_lab_source", failing)
         with pytest.raises(CrashError):
             build().run(part, progress="none")
     state = resume(part)
@@ -254,6 +256,56 @@ def test_a_snapshot_over_the_default_size_is_kept_only_on_request(
         asked, progress="none"
     )
     assert resume(asked).march is not None
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_snapshot_over_the_default_size_is_never_copied(
+    build_simulation, tmp_path, monkeypatch, backend
+):
+    # The state and the whole history on the host, to learn a size that needs no copy.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    monkeypatch.setattr(run_module, "MARCH_SNAPSHOT_AUTO_BYTES", 1)
+
+    def refuse(self):
+        pytest.fail("a snapshot over the limit was taken")
+
+    monkeypatch.setattr(StepDriver, "march_snapshot", refuse)
+    path = tmp_path / "run.h5"
+    soliton(build_simulation, backend)().run(path, progress="none")
+    assert resume(path).march is None
+
+
+@pytest.mark.parametrize(
+    "integrator", [Multistep(), INTERACTION], ids=["exponential", "interaction"]
+)
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_snapshot_s_size_is_known_without_it(build_simulation, backend, integrator):
+    # Exact: both count the same arrays' bytes.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    simulation = soliton(build_simulation, backend, integrator=integrator)()
+    problem = simulation.translate()
+    engine = cast(
+        "Any",
+        select(
+            backend,
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        assert engine.march_snapshot_nbytes(0.0) is None
+        engine.propagate_to(0.5 * LENGTH)
+        snapshot = engine.march_snapshot()
+        assert snapshot is not None
+        assert engine.march_snapshot_nbytes(snapshot.z) == snapshot.nbytes
+        assert engine.march_snapshot_nbytes(0.5 * snapshot.z) is None
+    finally:
+        engine.close()
 
 
 @pytest.mark.medium
@@ -553,15 +605,3 @@ def test_the_general_path_refuses_a_snapshot_it_cannot_install(build_simulation)
     finally:
         for backend in backends:
             backend.close()
-
-
-def test_a_backend_without_a_march_resumes_without_one(build_simulation, recwarn):
-    # The driver continues a history only on a backend that offers the hooks; one
-    # without them (any `Backend`, not only a step driver) simply loads the plane.
-    simulation = build_simulation(
-        length=LENGTH, n_save=N_SAVE, backend="numpy_ref", integrator=Multistep()
-    )
-    # Unwrapped: the runtime type check would refuse a stand-in for either argument.
-    continue_march = inspect.unwrap(Simulation._continue_march)
-    continue_march(simulation, SimpleNamespace(), SimpleNamespace(march=march()))
-    assert not recwarn.list

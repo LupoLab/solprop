@@ -71,9 +71,7 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--production", type=int, help="production width; default: physical cores"
     )
-    parser.add_argument(
-        "--backend", choices=("numpy_ref", "numba_cpu", "native"), default="native"
-    )
+    parser.add_argument("--backend", choices=("numpy_ref", "native"), default="native")
     parser.add_argument(
         "--device",
         action="store_true",
@@ -273,6 +271,13 @@ def refuse_partial(
         raise SuiteError("the history records the whole default plan only")
     if args.repeats < 3:
         raise SuiteError("the history records runs of at least three repeats")
+    if os.environ.get("SOLPROP_FFTW_PLAN"):
+        # A row does not record it, and measured planning multiplies construction: ctc
+        # takes 15 s with it and 5 s without, on the same code (issue #453).
+        raise SuiteError(
+            "the history records the library's own FFT planning: unset "
+            "SOLPROP_FFTW_PLAN"
+        )
 
 
 def admissible(results: list[Record]) -> str | None:

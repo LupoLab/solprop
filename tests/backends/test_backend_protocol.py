@@ -2,15 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
+from solprop import _process
 from solprop.backends import (
     Backend,
     BackendHistory,
     Observation,
     StepStats,
     StepSummary,
+    protocol,
 )
 from solprop.exceptions import BackendError
 from solprop.log import NullReporter
@@ -149,6 +153,31 @@ def test_a_diverged_field_is_refused_rather_than_observed():
     spoiled[0, 0, 0, 2] = np.nan
     with pytest.raises(BackendError, match="a diverged run must raise"):
         Observation(0.1, spoiled, None, history(1), 1, 0)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [np.nan, np.inf, -np.inf, complex(0.0, np.inf), complex(np.nan, 1.0)],
+    ids=["nan", "inf", "minus-inf", "imaginary-inf", "real-nan"],
+)
+@pytest.mark.parametrize("threaded", [False, True], ids=["one-call", "threads"])
+def test_any_non_finite_entry_in_any_row_is_found(bad, threaded, monkeypatch):
+    if threaded:
+        monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
+        monkeypatch.setattr(
+            _process, "thread_budget", lambda: SimpleNamespace(threads=3)
+        )
+    spoiled = np.ones((1, 8, 1, 4), complex)
+    spoiled[0, 7, 0, 3] = bad
+    with pytest.raises(BackendError, match="1 of 32 entries"):
+        Observation(0.1, spoiled, None, history(1), 1, 0)
+
+
+def test_finite_entries_too_large_to_add_are_still_finite():
+    # Their sum overflows, which alone doesn't make an entry infinite.
+    huge = np.full((1, 2, 1, 4), 1e308 + 0j)
+    plane = Observation(0.1, huge, None, history(1), 1, 0)
+    assert plane.require_field().shape == huge.shape
 
 
 def test_a_noise_phase_that_does_not_match_the_field_is_refused():
@@ -291,6 +320,9 @@ class Stub:
 
     name = "stub"
     max_batch = 1
+    reads_transverse_edge = False
+    in_flight = None
+    closed = False
 
     def set_initial(self, field, noise):
         self.field = field
@@ -300,6 +332,30 @@ class Stub:
 
     def set_progress(self, reporter):
         self.reporter = reporter
+
+    def set_stop(self, flag):
+        return None
+
+    def edge_memory(self, space):
+        return 0
+
+    def attach_monitor(self, monitor):
+        return None
+
+    def march_snapshot(self):
+        return None
+
+    def march_snapshot_nbytes(self, z):
+        return None
+
+    def march_export_refusal(self):
+        return None
+
+    def restore_march(self, snapshot):
+        return None
+
+    def timed_step(self):
+        return lambda: None
 
     def propagate_to(self, z):
         return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
@@ -347,3 +403,8 @@ def test_an_object_missing_a_method_is_not_a_backend():
             return None
 
     assert not isinstance(Partial(), Backend)
+
+
+@pytest.mark.parametrize("shape", [(0, 4), (2, 0)])
+def test_an_empty_state_is_finite(shape: tuple[int, int]) -> None:
+    assert protocol._all_finite(np.empty(shape, dtype=np.complex128))

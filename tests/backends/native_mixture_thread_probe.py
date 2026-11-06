@@ -61,6 +61,9 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
     problem, grid = problem_and_grid()
     backend = solprop_native.NativeBackend(problem, grid=grid)

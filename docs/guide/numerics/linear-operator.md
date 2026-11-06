@@ -142,6 +142,15 @@ $\beta_0$ on an envelope grid therefore always measures its delay from zero
 writes the envelope form for both grids, which is the right formula in the case it is
 usually read for. {meth}`solprop.linear.Frame.comoving` picks the rule from the grid.
 
+"A third-harmonic term" means an electronic response that radiates it: a `KerrResponse`
+or a `DispersiveKerrResponse` with `thg=True`. A Raman response's `thg` is ignored on an
+envelope grid, whose quadratic drive cannot carry the harmonic, so it does not keep
+$\beta_0$. Every route decides the frame by this one rule,
+{func}`solprop.translate.responses.declares_harmonic_carrier`, before anything compiles,
+and translation checks it against the compiled harmonic carrier. A frame you pass
+yourself with `subtract_beta0=True` beside a third-harmonic term on an envelope grid is
+refused with a `TranslationError`; pass `subtract_beta0=False`, or leave `frame=None`.
+
 Either way, a single reference frequency is used for $\beta_0$, $\beta_1$ and the
 $(\omega - \omega_\text{ref})$ offset; two different references would be consistent only
 up to a constant phase.

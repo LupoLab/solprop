@@ -216,16 +216,58 @@ class FixedSchedule:  # numpydoc ignore=PR02
         h: Float[np.ndarray, " n_attempts"] | Sequence[float],
         accepted: Sequence[bool] | np.ndarray | None = None,
     ) -> "FixedSchedule":  # noqa: UP037 - bound after the class body
-        """Return the accepted steps of a run's step history, to replay them exactly.
+        """Return the accepted steps of a run's step history, as a schedule to replay.
 
         A run's history records every attempt, rejected ones too: its start ``z``, its
         length ``h`` and whether it was accepted (``output["step_history/z"]`` and the
         like, the whole run concatenated). The accepted attempts are the steps the
-        run took, so replaying them (``schedule=`` on the settings, with the same save
-        planes) repeats the run's discretisation without its controller. Replayed in
-        another precision or on another backend, that isolates rounding from
-        truncation: the two runs make the same truncation errors, so their difference
-        is the arithmetic's alone.
+        run took; the rejected ones are dropped. Replaying the rest (``schedule=`` on
+        the settings, with the same save planes) repeats the run's step positions
+        without its controller. :func:`solprop.stepper.schedule.discover` builds the
+        same schedule from a list of accepted step lengths; this reads the history a
+        run writes.
+
+        **What a replay repeats.** Under ``RungeKutta()`` a step is fixed by its
+        length, so a replay takes the adaptive run's discretisation. The default
+        ``Multistep()`` chooses its next order after each accepted step from the
+        neighbouring orders' defect estimates, with a hysteresis margin, and a replay
+        makes that choice afresh. Where the adaptive run rejected a step it waits a
+        step before raising the order, which a replay never has to, so a replay can
+        differ from the adaptive run there. In another precision or on another
+        backend, rounding decides a choice whose estimates lie near the margin, so
+        two replays can take different orders, and so make different truncation
+        errors; two replays in one precision on one backend are identical. To
+        compare the arithmetic alone, replay with fixed orders, ``RungeKutta()`` or
+        ``Multistep(variable_order=False)``, whose order rises from one to ``order``
+        as its history accrues, reading no estimate: two such replays of one
+        schedule differ by rounding alone. Single precision refuses ``Multistep()``,
+        so a comparison across precisions is a Runge-Kutta one. Recording the order
+        sequence in the schedule would also fix a variable-order replay's orders;
+        that would extend the saved schedule and is not done, since a fixed order
+        gives the comparison without it.
+
+        **Limits.**
+
+        - *The collars.* A replayed step may be no longer than the temporal collar's
+          stable step under the default ``absorber_scheme="nonlinear"``, nor, on a
+          spatial route, than a requested spatial collar's stable step or its
+          fixed-schedule crossing and damping bounds; translation refuses a schedule
+          that breaks one, printing the limit rounded down. An adaptive run is not
+          held to these limits (an empty collar produces no error, and a spatial
+          collar holds an adaptive step only to its looser crossing limit), so a
+          run's own history can be refused. Holding the discovery run to ``dz_max``
+          at or under the printed limit clears that refusal; for the temporal collar
+          alone, ``absorber_scheme="split_step"`` in both runs does too. A stability
+          limit is the integrator's, so run the discovery with the replay's
+          integrator (``docs/guide/numerics/fixed-schedules.md``).
+        - *Save planes.* A replay lands on its save planes, so
+          ``interpolate_planes=True`` is refused beside a schedule; and a discovery
+          run with ``interpolate_planes=True`` steps past its planes, so its history
+          does not contain them and is refused as a schedule for the same planes.
+        - *One run's steps.* The accepted steps must follow each other. A resumed
+          run's history does when the resumed part continues from where the history
+          ends, as it does after a stop at a save plane; a history that does not, such
+          as two runs' joined, is refused.
 
         Parameters
         ----------
@@ -482,7 +524,9 @@ def discover(
 
     This is the first step, discovery. The driver collects the length of every accepted
     step; this turns that record into a schedule, which :func:`calibrate` then measures
-    and :func:`replay` rescales.
+    and :func:`replay` rescales. To read the steps from a run's output instead,
+    :meth:`FixedSchedule.from_history` takes its ``step_history`` and drops the rejected
+    attempts.
 
     Parameters
     ----------

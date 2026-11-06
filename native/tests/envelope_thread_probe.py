@@ -8,7 +8,7 @@ Four routes of a two-component envelope mixture, eight prescribed steps each. Us
 ``envelope_thread_probe.py <out.npz>``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -25,6 +25,7 @@ from test_envelope_plasma import NAMES, ROUTES, envelope_case
 
 arrays: dict[str, np.ndarray] = {}
 steps: list[int] = []
+sizings: list[object] = []
 for route in ROUTES:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -41,6 +42,7 @@ for route in ROUTES:
         for name in problem.stats_spec.periodic:
             arrays[f"{route}_rows_{name}"] = observation.step_stats.values[name]
         steps.append(summary.n_steps)
+        sizings.append(owner.metadata()["execution_sizing"])
     finally:
         owner.close()
 np.savez(sys.argv[1], allow_pickle=False, **arrays)
@@ -50,6 +52,7 @@ print(
         {
             "threads": solprop_native.build_info().thread_count,
             "steps": steps,
+            "sizing": sizings,
         }
     )
 )

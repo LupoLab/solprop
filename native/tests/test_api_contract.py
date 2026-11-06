@@ -8,12 +8,15 @@ from __future__ import annotations
 
 import dataclasses
 import gc
+import hashlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor
 from importlib.metadata import version
 from pathlib import Path
@@ -23,7 +26,9 @@ import numpy as np
 import pytest
 from bounds import assert_within, step_bound
 from conftest import ComplexArray, PhaseACase
+from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule
+from thread_sizing import Sizing, assert_threaded
 
 import solprop_native as native
 from solprop_native import _bind, _core  # pyright: ignore[reportPrivateUsage]
@@ -43,6 +48,7 @@ class ThreadRecord(TypedDict):
     samples: int
     steps: int
     rejected: int
+    execution_sizing: Sizing
 
 
 class PhaseBThreadRecord(ThreadRecord):
@@ -86,7 +92,7 @@ def test_build_info_is_frozen_and_complete() -> None:
     assert dataclasses.is_dataclass(info)
     with pytest.raises(dataclasses.FrozenInstanceError):
         info.thread_count = 99  # type: ignore[misc]
-    assert info.schema_version == 40
+    assert len(info.source_digest) == 64
     assert info.response_full_thread_columns > 0
     assert (
         info.response_full_thread_columns
@@ -232,6 +238,140 @@ def test_build_info_is_frozen_and_complete() -> None:
     }
 
 
+def _digest_of(root: Path, names: list[str]) -> str:
+    """The digest's definition, spelled out with ``hashlib``."""
+    record = "".join(
+        f"{name}:{hashlib.sha256((root / name).read_bytes()).hexdigest()}\n"
+        for name in names
+    )
+    return hashlib.sha256(record.encode()).hexdigest()
+
+
+@pytest.fixture
+def source_tree(tmp_path: Path) -> tuple[Path, list[str]]:
+    """A small ``native`` tree, and the files the digest reads in the order it reads."""
+    for name, text in {
+        "CMakeLists.txt": "project(p)\n",
+        "README.md": "not compiled",
+        "build/generated.cpp": "not a source: outside src and include",
+        "include/solprop_native/deep.h": "// h\n",
+        "include/solprop_native/kept.txt": "not a source",
+        "src/B.cpp": "// sorts before a lower-case name, bytewise\n",
+        "src/a.hpp": "// \u00e9 and CRLF\r\n",
+        "src/solprop_native/module.py": "not a source",
+    }.items():
+        path = tmp_path / name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(text.encode())
+    return tmp_path, [
+        "CMakeLists.txt",
+        "include/solprop_native/deep.h",
+        "src/B.cpp",
+        "src/a.hpp",
+    ]
+
+
+def test_the_digest_is_the_sorted_record_of_the_compiled_sources(
+    source_tree: tuple[Path, list[str]],
+) -> None:
+    root, names = source_tree
+    digest = native._source_digest(root)  # pyright: ignore[reportPrivateUsage]
+    assert digest == _digest_of(root, names)
+    (root / "src/B.cpp").write_bytes(b"// one byte more\n ")
+    assert native._source_digest(root) != digest  # pyright: ignore[reportPrivateUsage]
+
+
+def test_the_build_script_and_python_agree_on_the_digest(
+    source_tree: tuple[Path, list[str]], tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    cmake = shutil.which("cmake")
+    if cmake is None:
+        pytest.skip("no CMake here to run the build's script")
+    root, names = source_tree
+    output = tmp_path_factory.mktemp("generated") / "source_digest.cpp"
+    script = Path(__file__).parents[1] / "cmake" / "SourceDigest.cmake"
+    subprocess.run(
+        [cmake, f"-DSOURCE_ROOT={root}", f"-DOUTPUT={output}", "-P", str(script)],
+        check=True,
+        capture_output=True,
+    )
+    assert f'"{_digest_of(root, names)}"' in output.read_text(encoding="utf-8")
+
+
+def _editable_root() -> Path:
+    """The checkout's ``native``, skipping a test that needs one under a wheel."""
+    root = Path(native.__file__).parents[2]
+    if not (root / "CMakeLists.txt").is_file():
+        pytest.skip("an installed wheel has no sources to compare")
+    return root
+
+
+@pytest.fixture
+def fresh_checkout_digest() -> Iterator[None]:
+    """Read the checkout's digest afresh, and leave no patched value in the cache."""
+    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    yield
+    native._checkout_digest.cache_clear()  # pyright: ignore[reportPrivateUsage]
+
+
+@pytest.mark.usefixtures("fresh_checkout_digest")
+def test_an_editable_build_records_its_checkouts_digest() -> None:
+    root = _editable_root()
+    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+    assert native.build_info().source_digest == source_digest(root)
+    assert native.check_build() is None
+
+
+@pytest.mark.usefixtures("fresh_checkout_digest")
+def test_an_extension_built_from_other_sources_is_refused_naming_uv_sync(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _editable_root()
+
+    def other(root: Path) -> str:
+        return f"not {root}'s"
+
+    monkeypatch.setattr(native, "_source_digest", other)
+    with pytest.raises(BackendError, match=r"other sources.*`uv sync "):
+        native.check_build()
+
+
+@pytest.mark.usefixtures("fresh_checkout_digest")
+def test_the_digest_is_computed_once_per_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _editable_root()
+    calls: list[Path] = []
+    source_digest = native._source_digest  # pyright: ignore[reportPrivateUsage]
+
+    def counted(where: Path) -> str:
+        calls.append(where)
+        return source_digest(where)
+
+    monkeypatch.setattr(native, "_source_digest", counted)
+    native.check_build()
+    native.check_build()
+    assert calls == [root]
+
+
+@pytest.mark.usefixtures("fresh_checkout_digest")
+def test_a_wheel_layout_skips_the_comparison(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A wheel has no ``CMakeLists.txt`` two levels up: nothing is read or compared."""
+    installed = tmp_path / "site-packages" / "solprop_native" / "__init__.py"
+    monkeypatch.setattr(native, "__file__", str(installed))
+
+    def refuse(root: Path) -> str:
+        raise AssertionError(f"a wheel has no sources to hash, asked for {root}")
+
+    monkeypatch.setattr(native, "_source_digest", refuse)
+    info = dataclasses.replace(native.build_info(), source_digest="a wheel's own")
+    monkeypatch.setattr(native, "build_info", lambda: info)
+    assert native._checkout_digest() is None  # pyright: ignore[reportPrivateUsage]
+    assert native.check_build() is None
+
+
 def test_module_entry_point_prints_one_json_record() -> None:
     completed = subprocess.run(
         [sys.executable, "-m", "solprop_native"],
@@ -243,7 +383,7 @@ def test_module_entry_point_prints_one_json_record() -> None:
     assert completed.returncode == 0, completed.stderr
     lines = completed.stdout.splitlines()
     assert len(lines) == 1
-    assert json.loads(lines[0])["schema_version"] == 40
+    assert len(json.loads(lines[0])["source_digest"]) == 64
 
 
 @pytest.mark.parametrize(
@@ -512,8 +652,12 @@ def test_initial_array_contract(
             )
         with pytest.raises(ValueError, match="rank 4"):
             backend.set_initial(writable_initial.reshape(-1), None)
-        with pytest.raises(ValueError, match="C-contiguous"):
-            backend.set_initial(writable_initial[..., ::-1], None)
+        # Any strides load as their contiguous copy, bit for bit: the load copies.
+        strided = writable_initial[..., ::-1]
+        backend.set_initial(strided, None)
+        loaded = backend.observe().require_field()
+        backend.set_initial(np.ascontiguousarray(strided), None)
+        np.testing.assert_array_equal(loaded, backend.observe().require_field())
         read_only = writable_initial.copy()
         read_only.setflags(write=False)
         backend.set_initial(read_only, None)
@@ -659,13 +803,13 @@ def test_import_and_shutdown_in_a_fresh_process() -> None:
 
 
 def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
-    """Finalising the runtime does not destroy FFTW state that pyFFTW still uses.
+    """Finalising the runtime does not destroy FFTW state another user still holds.
 
     Kokkos-FFT cleans up FFTW's process-wide planner when Kokkos finalises. Finalised
-    from a Python exit handler, that ran before the interpreter released the Numba
-    backend's pyFFTW plans, whose destruction then crashed the process. The probe
-    also holds a plan on this build's own FFTW library, so the test applies whatever
-    pyFFTW was built against.
+    from a Python exit handler, that ran before the interpreter released other users'
+    plans on the same library, whose destruction then crashed the process. The probe
+    holds such a plan on this build's own FFTW library, and runs the reference backend
+    beside the native one.
     """
     script = Path(__file__).with_name("teardown_probe.py")
     completed = subprocess.run(
@@ -676,13 +820,18 @@ def test_a_process_that_ran_both_backends_exits_cleanly() -> None:
         env={**os.environ, "OMP_PROC_BIND": "false"},
     )
     assert completed.returncode == 0, completed.stderr
-    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numba_cpu"]
+    assert json.loads(completed.stdout.splitlines()[-1]) == ["native", "numpy_ref"]
 
 
 @pytest.mark.skipif(sys.platform != "darwin", reason="macOS OpenMP-runtime guard")
 def test_pyfftw_first_is_refused_before_openmp_initialization() -> None:
+    # solprop does not depend on pyFFTW, so the test stands in a module of that name.
+    script = (
+        "import sys, types; sys.modules['pyfftw'] = types.ModuleType('pyfftw'); "
+        "import solprop_native"
+    )
     completed = subprocess.run(
-        [sys.executable, "-c", "import pyfftw; import solprop_native"],
+        [sys.executable, "-c", script],
         capture_output=True,
         text=True,
         check=False,
@@ -735,6 +884,13 @@ def test_one_and_eight_threads_agree_to_rounding_in_fresh_processes(
         records.append(cast(ThreadRecord, record))
         fields.append(cast(ComplexArray, np.load(out)))
     assert [record["threads"] for record in records] == [1, 8]
+    assert_threaded(
+        [records[1]["execution_sizing"]],
+        8,
+        "kernels.stage",
+        "kernels.response",
+        "fft.fft",
+    )
     assert [record["steps"] for record in records] == [10, 10]
     assert [record["rejected"] for record in records] == [0, 0]
     assert_within(
@@ -781,8 +937,9 @@ def test_forced_fft_widths_agree_across_threads_to_rounding(
             },
         )
         assert completed.returncode == 0, completed.stderr
-        record = cast(dict[str, int], json.loads(completed.stdout.splitlines()[-1]))
+        record = cast(ThreadRecord, json.loads(completed.stdout.splitlines()[-1]))
         assert record["threads"] == count
+        assert_threaded([record["execution_sizing"]], count, "fft.fft", "kernels.stage")
         assert record["steps"] == 10
         samples = record["samples"]
         fields.append(cast(ComplexArray, np.load(out)))
@@ -828,6 +985,13 @@ def test_phase_b_field_and_statistics_agree_across_threads_to_rounding(
         with np.load(out) as stored:
             arrays.append({name: stored[name] for name in stored.files})
     assert [record["threads"] for record in records] == [1, 8]
+    assert_threaded(
+        [records[1]["execution_sizing"]],
+        8,
+        "kernels.stage",
+        "kernels.response",
+        "fft.fft",
+    )
     assert [record["steps"] for record in records] == [40, 40]
     assert [record["rejected"] for record in records] == [0, 0]
     assert [record["rows"] for record in records] == [40, 40]

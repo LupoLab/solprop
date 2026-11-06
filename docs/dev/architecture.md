@@ -35,7 +35,7 @@ precision. Single precision is an explicit per-run choice, `precision="single"`,
 SEP 33's contract (ADR-054): the state, stages, transforms and responses in binary32,
 the controller, host scalars and propagator exponents in binary64, every narrowed table
 with its own power-of-two exponent and the state at an exact scale. `numpy_ref`'s
-single-precision path is its oracle; `numba_cpu` and `native` compute in binary64 only.
+single-precision path is its oracle; `native` computes in binary64 only.
 
 ## 2. The model
 
@@ -69,7 +69,7 @@ full-spectrum state, c2c transforms, optional oversampling for third-harmonic te
 first class, with parity tests for shared physics on narrowband pulses. Supported
 combinations are explicit: plasma supports scalar and Cartesian vector fields on
 both grids, using a separately derived cycle-averaged envelope model. Explicitly
-declared tensor Raman supports both grids on NumPy, Numba CPU and native;
+declared tensor Raman supports both grids on NumPy and native;
 unlabelled custom kernels and the default silica model remain scalar-only.
 Envelope plasma with THG is refused. The native CPU/CUDA/HIP paths
 have their own qualification. The [running guide](../guide/setup/running.md)
@@ -80,7 +80,7 @@ A scalar helium `TDSEGasResponse` owns
 the gas nonlinearity. Its immutable specification becomes a `TDSEDescriptor`;
 the driver lazily owns native plans and stable radial chunks and passes a narrow
 host binding explicitly to NumPy. The optical march uses Adams. Atomic device
-execution is independent of the optical backend. Numba and the native backend refuse this
+execution is independent of the optical backend. The native backend refuses this
 response by name. The kernel schema includes separate polarisation and current
 factors: current enters with `-1/(2 epsilon_0 c Re(n_eff))`, without division by
 frequency. The provider's raw discrete shadows are subtracted before density
@@ -138,7 +138,7 @@ kernel layout carries the transverse columns in its mode axis (see §12).
 |---|---|---|---|
 | **P** physics / convenience | grids, materials, modes, profiles, pulses, noise, linear-operator assembly, response *definitions*, ionisation and Raman models, boundaries, normalisation, tools | numpy, scipy, standard library, other P modules | none: clarity first; never in a hot loop |
 | **T** translation | turns P objects into validated kernel-ready arrays and the `KernelProblem` contract | P, numpy, scipy | may be expensive once per problem; results cached and validated |
-| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy, numba, pyfftw; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
+| **B** backends | state buffers, transform plans, kernels, the inner z-loop, statistics kernels | numpy; the native package in `native/` (Kokkos, Kokkos-FFT and nanobind); from P only the types and constants the seam names — never a physics object | all hot-path rules of [backends.md](backends.md); in-place and `out=` allowed here only |
 | **D** driver | `Simulation`, run loop over save planes, batch runners, `prop_capillary`/`prop_gnlse`, output handlers, statistics specs | P, T, B (through the seam only), h5py | none |
 | **X** processing / plotting | analysis of outputs, standard plots, design tools | numpy, scipy, matplotlib, D (outputs), T (reference tables and their identities, for `processing.modal`; the recorded plane measure, for `processing.mixtures` and `processing.planes`) — never B | none; may call backend statistics kernels through the D layer when a computation belongs on the device |
 
@@ -149,6 +149,20 @@ process and the Golub–Welsch eigenvalue method, certified on construction -- o
 problem, and caches them. It is the one numerical construction kept in P: it yields
 nodes and weights for T to fold into the transform, and no compiled code, per-stage
 evaluation or hot loop enters P with it.
+
+**Construction's host resources.** The private process policy in `_process` holds
+NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THREADS`
+under ADR-052) around guide construction, standalone graded-index solves, translation
+and coupling. These coarse scopes change no physical algorithm. They restore the
+previous limits after the last nested or overlapping scope exits, since the limits
+are process-wide. Construction and the Numba and native adapters share one private
+lease coordinator: each library takes the smallest active request, even when owners
+start and finish in different orders, and only the last release restores its original
+width. Native's adapter supplies the lease hook explicitly; the standalone native
+package keeps its local hold and imports no solprop code. Construction excludes the
+native backend's own BLAS and does not import a backend; an already loaded native
+package supplies its library identity through `build_info`. See the
+[BLAS guide](../guide/performance/tuning.md#blas-and-vendor-libraries).
 
 **The X → T edges.** `solprop.processing.modal` imports
 `solprop.translate.modal_tables.ModalTransformTables` and
@@ -205,15 +219,20 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
 | `translate/` | Validated `KernelProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
-| `backends/numpy_ref/`, `backends/numba_cpu/` | Reference and compiled CPU execution | B |
+| `backends/numpy_ref/` | Reference execution | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
-| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane (`processing/planes.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
+| `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version and installed through the `native` extra. It depends
 on the versioned seam; solprop does not depend on its native build.
+
+`solprop-gui`, the desktop front end, is the third, built from `gui/` at solprop's
+version and installed through the `gui` extra ([its design](gui/design.md)). It sits
+above every layer here and uses only solprop's public interface, running it in child
+processes; nothing in solprop imports it.
 
 `driver/scaffold.py` is an independent fixed-step IP-RK4 reference used by tests and
 its tutorial; it is not the production stepper. It propagates a `GnlseProblem`
@@ -221,9 +240,7 @@ directly, without a contract, a backend or an output handler, which is what make
 cross-check of the reference backend. `processing/windows.py` is a candidate
 module, drawn dashed in figure 1, to be written only for an agreed use case.
 `_display.py` is private: the formatter behind every class's printed block, imported by
-any layer and importing none. `_numba_cache.py` is private in the same way: numba's
-`njit` with a disk cache that concurrent processes cannot cross-wire, through which
-every kernel in **T**, **D** and **B** compiles ([backends.md §3.2](backends.md)).
+any layer and importing none.
 
 The layout does not mirror Luna's module tree: what `NonlinearRHS.jl` does spans
 response normalisation, translation and backend passes; `Maths.jl` mostly becomes SciPy
@@ -238,12 +255,12 @@ user script / prop_capillary(...)                                  (D)
    │  Boundaries, StepperSettings, Output
    ▼
 Simulation(...)                                                    (D)
-   │  .translate() → KernelProblem  (validated arrays, schema_version)   (T)
+   │  .translate() → KernelProblem  (validated arrays)                   (T)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)
    │  backend.set_initial(field)                                    host → device once
-   │  for z_save in planes: backend.propagate_to(z_save)            shared step loop
+   │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
    │                        stats = backend.stats(spec)             one fused pass
    │                        output.save(z_save, obs, stats)
@@ -252,8 +269,7 @@ MemoryOutput / HDF5Output  ──►  processing / plotting               (X)
 ```
 
 The inner loop (many adaptive or scheduled steps between two save planes) is the
-shared Python `StepDriver`. NumPy evaluates reference passes, Numba launches compiled
-kernels and library transforms, and the native backend executes each trial through one native
+shared Python `StepDriver`. NumPy evaluates reference passes, and the native backend executes each trial through one native
 call. The outer driver visits save planes. Device arrays never cross the seam;
 `observe()` returns host arrays of the field at the plane
 and the step history; `stats()` returns a small dictionary of host scalars/vectors.
@@ -529,7 +545,7 @@ class Backend(Protocol):
 
     def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
     def set_progress(self, reporter) -> None: ...  # an observer, never an input
-    def propagate_to(self, z: float) -> StepSummary: ...  # shared step loop
+    def propagate_to(self, z: float) -> StepSummary: ...  # the driver's way in
     def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only
     def stats(self, spec) -> dict[str, np.ndarray]: ...  # one fused pass
     def metadata(self) -> dict[str, object]: ...  # what the execution was
@@ -537,21 +553,13 @@ class Backend(Protocol):
     def available_device_memory(self) -> int | None: ...
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
+
+    # And what the run layer asks beside them: the stop flag, the held plane, the boundary
+    # monitor, the march's snapshot and an estimate's step (backends.md section 1).
 ```
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
   tricks, one function per pass. Every other backend is validated against it.
-- `numba_cpu`: fused stage kernels (`@njit(cache=True, nogil=True)` through
-  `solprop._numba_cache.njit`), pyfftw plans executed in place on preallocated aligned
-  buffers (`FFTW_MEASURE` + wisdom on a quiet machine), node-parallel kernels and controlled
-  FFTW/BLAS threads, with two-stage reductions and the shared Python step loop. Its
-  floating-point licence is [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s:
-  contraction by default, strict opt-outs for the protected helpers (stable increments,
-  small-argument functions, defects, compensated sums), reassociation only on the loops
-  of a kernel that asks for it, and no other fast-math flag
-  ([backends.md §3.2](backends.md)), applied by the `njit` wrapper. Fixed fibre batches have a compiled accept
-  update over members; other numerical work remains member-owned. An all-compiled march
-  is a deferred experiment, subject to a measured dispatch-cost case.
 - `native` (the `solprop-native` distribution, `native/`): C++20/Kokkos kernels and persistent Kokkos-FFT plans
   behind nanobind. It runs mode-averaged and multimode scalar/two-component problems,
   Kerr, plasma and declared tensor Raman, weighted control, embedded quadrature and
@@ -564,7 +572,11 @@ class Backend(Protocol):
   data-centre NVIDIA GPUs; the HIP build is qualified on AMD Instinct GPUs, with the HIP
   sanitizer run still outstanding. Fixed-schedule fibre batching is implemented through
   `select_batch`. The private state is exposed to the shared driver only through its
-  protected state type and the `_observed_field` host-copy hook.
+  protected state type and the `_observed_field` host-copy hook. Its floating-point licence is
+  [SEP 25](seps/archive/sep-0025-rounding-level-reproducibility.md)'s: contraction by default,
+  strict opt-outs for the protected helpers (stable increments, small-argument functions,
+  defects, compensated sums), reassociation only on the loops of a kernel that asks for it,
+  and no other fast-math flag ([backends.md §3.2](backends.md)).
 - JAX: evaluated in a measured comparison (ADR-002); not a planned backend unless the
   data reverse the decision.
 
@@ -587,6 +599,11 @@ save and on resume); processing accessors squeeze trivial axes and accept `conve
 A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
+
+`CallbackOutput` (`output/callback.py`) stores nothing: it implements `Output` and
+`RetainingOutput` and hands each plane to a callable, unconverted. It is deliberately not a
+`PlaneStore`, whose save path converts the field into a new volume, and not a
+`CheckpointOutput`, which promises a state a resume can continue.
 
 `output/snapshots.py` coordinates optional immutable disk snapshots at the existing
 accepted-step commit boundary. It persists retained march state and execution facts,
@@ -663,7 +680,7 @@ to 256 teams of at least 1,024 bins, reduced on the host. Response teams are 256
 at and above it; deterministic reduction blocks are 512. Fixed batches are
 implemented; their measured crossover depends on workload
 ([backends.md](backends.md)). Public selection prefers the installed native backend,
-otherwise Numba CPU (ADR-029); the installed native build determines its execution space.
+otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native build determines its execution space.
 
 ## 13. Memory discipline
 
@@ -676,7 +693,7 @@ otherwise Numba CPU (ADR-029); the installed native build determines its executi
   does).
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
-  planes, grows by doubling past them, and is charged by the memory admission.
+  planes and grows by doubling past them.
 - A run keeps its fields on every plane, the named planes or none
   (`FieldRetention`,
   [SEP 22](seps/archive/sep-0022-memory-lean-spatial-execution.md)): a plane without its field is not copied, converted or
@@ -685,15 +702,17 @@ otherwise Numba CPU (ADR-029); the installed native build determines its executi
   the kept planes: `StepDriver.observe(field=False)` transfers nothing from a device,
   scans nothing for finiteness, skips the collar diagnostic (counted in the execution
   record) and forms no noise-phase volume, so a field-free plane costs its statistics
-  alone. Under the low-storage march a field-free plane holds one state volume so that a
-  run stopped in flight can resume (`held_plane`, in the ledger and as its own admission
-  group; on the native backend in the memory space).
+  alone. Under the low-storage march a step abandoned in flight after such a plane leaves
+  no checkpoint there (ADR-067).
 - The Cartesian and planar collar diagnostic reconstructs the physical field by block of
   frequency, at most a node chunk's worth of samples at a time, never the whole volume.
 - A `SimulationRunner` keeps one backend's buffers and plans across many inputs, and is
   admitted once; `StepDriver.set_initial` restores everything a march reads, so a reused
   backend repeats a fresh one's run. An input array of more than 2²⁰ elements is
-  recorded by its SHA-256 digest, not inline, so the run record stays small.
+  recorded by its SHA-256 digest, not inline, so the run record stays small; the runner
+  reads such an array in place and marches on a problem without it, so no input outlives
+  its load. A caller that identifies its input states that instead (`StatedInput`), and
+  nothing digests it.
 - Φ tables are shared where possible; the constant-D fast path stores one array.
 - Fine-grid buffers use the smallest `ffac` the declared responses need.
 
@@ -720,7 +739,10 @@ kernel -- the default is instead a `BarReporter`: a `LogReporter` whose
 periodic event redraws a `tqdm` bar carrying the same content and the same measured ETA,
 with the plane line demoted to `DEBUG`; redirected or captured output always gets the
 lines. A reporter that implements `interrupted` (`InterruptibleReporter`) is told when
-the loop raises, before the error propagates, so a bar can give the terminal back. A bar
+the loop raises, before the error propagates, so a bar can give the terminal back. One
+that implements `observe_plane` (`PlaneObserver`, SEP 41) is shown each committed plane
+as a lazy view, and is detached if it fails; a scan reports to a `ScanReporter`, whose
+`point_reporter` may watch each point's run, relayed from a pool's workers. A bar
 writes the summary and the closing line to its stream unless a console handler would
 print them, because without a handler a record reaches nobody.
 
@@ -773,8 +795,8 @@ section of the operator table's breakpoints, in one of three ways:
   ([stepper.md](stepper.md) §2); admitted on `numpy_ref` only and never selected by
   default.
 
-The coupled flow runs on `numpy_ref`, `numba_cpu` and the native CPU build, which form
-the per-bin flow actions in their own kernels and agree with the reference to a derived
+The coupled flow runs on `numpy_ref` and the native CPU build, which forms
+the per-bin flow actions in its own kernels and agrees with the reference to a derived
 rounding bound; a certificate records each flow's conditioning. A multimode capillary
 taper carries the taper coupling by default; `taper_coupling=False` is the explicit
 opt-out to the adiabatic route

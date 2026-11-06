@@ -43,3 +43,10 @@ _solprop_native_patch(core/src/Threads/Kokkos_Threads_Spinwait.cpp
 "#if !defined(_WIN32)  // Windows rounds a sub-millisecond sleep up to the timer resolution.
       std::this_thread::sleep_for(std::chrono::microseconds(c));
 #endif")
+
+# Kokkos gives every Clang on Windows -mcx16, an x86 option that Clang refuses for Arm.
+_solprop_native_patch(cmake/kokkos_arch.cmake
+"if(CMAKE_CXX_COMPILER_ID STREQUAL Clang AND WIN32)
+  compiler_specific_options(Clang -mcx16)"
+"if(CMAKE_CXX_COMPILER_ID STREQUAL Clang AND WIN32 AND NOT CMAKE_SYSTEM_PROCESSOR MATCHES \"^(ARM64|aarch64)$\")
+  compiler_specific_options(Clang -mcx16)")

@@ -94,7 +94,6 @@ simulation = Simulation.from_waveguide(
     dz_max=0.01,
     dz_init=0.01,
     schedule=FixedSchedule(np.full(10, 0.01)),
-    backend="numpy_ref",
     noise=None,
 )
 # The driver places a pulse in the first mode; the projected launch is the same
@@ -106,7 +105,7 @@ print(output.metadata.transverse_measure)
 plot_stats(output, marker="o", markersize=3)
 
 # %%
-print(f"ran in {perf_counter() - started:.1f} s on numpy_ref")
+print(f"ran in {perf_counter() - started:.1f} s")
 
 # %%
 # Related reading

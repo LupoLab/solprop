@@ -17,7 +17,7 @@ integrand, per evaluation of an explicit seven-stage step. The tests marked ``gp
 the device qualification's.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -29,13 +29,14 @@ import subprocess
 import sys
 import warnings
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import solprop_native
 
 import numpy as np
 import numpy.typing as npt
 import pytest
+from thread_sizing import assert_threaded
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, MaterialRangeWarning, TranslationError
@@ -198,9 +199,9 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
         LENGTH, 800e-9, (600e-9, 1.2e-6), 200e-15, **LEGACY_GRID
     )
     space = (
-        RadialGrid(6e-4, 16, window_factor=0.0)
+        RadialGrid(6e-4, 16, collar_fraction=0.0)
         if kind == "radial"
-        else FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+        else FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7),
@@ -355,7 +356,7 @@ def test_overlapping_stencil_windows_refuse_uncertified_collar(
     grid = FieldGrid.from_limits(
         LENGTH, 800e-9, (600e-9, 1.2e-6), trange, ffac=ffac, **LEGACY_GRID
     )
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=2e-15, energy=1e-8),
         80e-6,
@@ -719,7 +720,7 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
     """
     script = Path(__file__).with_name("band_thread_probe.py")
     runs: list[dict[str, np.ndarray]] = []
-    threads_seen: list[object] = []
+    records: list[dict[str, Any]] = []
     for threads in (1, 4):
         out = tmp_path / f"band-{threads}.npz"
         completed = subprocess.run(
@@ -737,10 +738,11 @@ def test_the_band_column_agrees_across_thread_counts(tmp_path: Path) -> None:
             },
         )
         assert completed.returncode == 0, completed.stderr
-        threads_seen.append(json.loads(completed.stdout.splitlines()[-1])["threads"])
+        records.append(json.loads(completed.stdout.splitlines()[-1]))
         with np.load(out) as stored:
             runs.append({name: stored[name] for name in stored.files})
-    assert threads_seen == [1, 4]
+    assert [record["threads"] for record in records] == [1, 4]
+    assert_threaded(records[1]["sizing"], 4, "kernels.stage", "kernels.response")
     one, four = runs
     from test_band_stress import case
 

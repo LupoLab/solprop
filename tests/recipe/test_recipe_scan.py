@@ -1,0 +1,179 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""A recipe's [scan] table, run through run_scan (SEP 41, S1)."""
+
+import pickle
+
+import numpy as np
+import pytest
+
+from solprop.driver.scan import Scan, run_scan
+from solprop.output.schema import RecipeRecord
+from solprop.recipe import Recipe, RecipeError
+from solprop.recipe.document import parse_text
+
+TEXT = """\
+[recipe]
+format = 1
+route = "gnlse"
+
+[build]
+gamma = 0.11
+length = "1 cm"
+betas = [0, 0, "-0.01183 ps^2/m"]
+wavelength = "835 nm"
+wavelength_limits = ["500 nm", "2 um"]
+trange = "4 ps"
+width = "100 fs"
+peak_power = "9.8 W"
+shape = "sech"
+n_save = 3
+backend = "numpy_ref"
+
+[execution]
+fields = "planes"
+field_planes = [-1]
+"""
+
+
+def _with_scan(table):
+    document = parse_text(TEXT)
+    document["scan"] = table
+    return Recipe.from_dict(document)
+
+
+@pytest.mark.parametrize(("key", "value"), [("resume_history", False)])
+def test_the_points_keep_the_execution_keys_the_scan_does_not_take(key, value):
+    document = parse_text(TEXT)
+    document["scan"] = {"name": "powers", "peak_power": ["5 W", 10]}
+    document["execution"][key] = value
+    scan = Recipe.from_dict(document).scan()
+    assert key not in scan.keywords
+    point = next(iter(scan.scan.points()))
+    assert getattr(scan.build(point).settings, key) is value
+    # What `run_scan` takes itself stays its own: a builder that set it is refused.
+    assert set(scan.keywords) >= {"fields", "field_planes"}
+    assert scan.build(point).settings.fields == "all"
+
+
+def test_the_scan_reads_each_axis_in_its_keyword_s_unit():
+    recipe = _with_scan(
+        {"name": "powers", "peak_power": ["5 W", 10], "width": ["50 fs", "0.1 ps"]}
+    )
+    scan = recipe.scan()
+    assert isinstance(scan.scan, Scan)
+    assert scan.scan.shape == (2, 2)
+    assert scan.scan.variables["peak_power"].tolist() == [5.0, 10.0]
+    assert scan.scan.variables["width"].tolist() == [50e-15, 100e-15]
+    assert {key: scan.keywords[key] for key in ("fields", "field_planes")} == {
+        "fields": "planes",
+        "field_planes": (-1,),
+    }
+    record = scan.keywords["recipe"]
+    assert isinstance(record, RecipeRecord)
+    assert record.authored == recipe.to_text()
+
+
+@pytest.mark.parametrize(
+    ("spacing", "expected"),
+    [("linear", [1.0, 5.5, 10.0]), ("log", [1.0, np.sqrt(10.0), 10.0])],
+)
+def test_a_range_is_spaced_as_asked(spacing, expected):
+    scan = _with_scan(
+        {
+            "name": "range",
+            "peak_power": {
+                "start": "1 W",
+                "stop": "10 W",
+                "num": 3,
+                "spacing": spacing,
+            },
+        }
+    ).scan()
+    assert np.allclose(scan.scan.variables["peak_power"], expected, rtol=1e-15)
+
+
+def test_a_scan_without_a_name_or_table_or_with_a_wrong_path_is_refused():
+    with pytest.raises(RecipeError, match="no \\[scan\\] table"):
+        Recipe.loads(TEXT).scan()
+    with pytest.raises(RecipeError, match="needs a name"):
+        _with_scan({"peak_power": [1.0]}).scan()
+    with pytest.raises(RecipeError, match="peak_powr"):
+        _with_scan({"name": "x", "peak_powr": [1.0]}).scan()
+    with pytest.raises(RecipeError, match="spacing"):
+        _with_scan(
+            {
+                "name": "x",
+                "peak_power": {"start": 1, "stop": 2, "num": 2, "spacing": "x"},
+            }
+        ).scan()
+    with pytest.raises(RecipeError, match="a list of values"):
+        _with_scan({"name": "x", "peak_power": 1.0}).scan()
+
+
+def test_the_builder_pickles_and_passes_the_point_s_seed():
+    recipe = _with_scan({"name": "noise", "peak_power": [5.0, 10.0], "base_seed": 7})
+    document = recipe.to_dict()
+    document["build"]["noise"] = "input"
+    scan = Recipe.from_dict(document).scan()
+    builder = pickle.loads(pickle.dumps(scan.build))
+    point = scan.scan.point(1)
+    simulation = builder(point)
+    assert simulation.noise is not None
+    assert simulation.noise.seed == point.seed
+    assert simulation.settings.fields == "all"  # run_scan takes [execution] itself
+
+
+def test_a_recipe_s_scan_runs(tmp_path):
+    scan = _with_scan({"name": "run", "peak_power": ["5 W", "10 W"]}).scan()
+    output = run_scan(
+        scan.scan,
+        scan.build,
+        output=tmp_path / "scan.h5",
+        progress="none",
+        **scan.keywords,  # type: ignore[arg-type]
+    )
+    assert [str(status) for status in output.status] == ["done", "done"]
+
+
+def test_a_recipe_s_scan_file_reopens_with_its_recipe(tmp_path):
+    recipe = _with_scan({"name": "kept", "peak_power": ["5 W"]})
+    scan = recipe.scan()
+    path = tmp_path / "scan.h5"
+    run_scan(scan.scan, scan.build, output=path, progress="none", **scan.keywords)  # type: ignore[arg-type]
+    assert Recipe.from_output(path) == recipe
+
+
+def test_a_scan_from_a_script_records_no_recipe(tmp_path):
+    scan = _with_scan({"name": "script", "peak_power": ["5 W"]}).scan()
+    path = tmp_path / "scan.h5"
+    run_scan(scan.scan, scan.build, output=path, progress="none")
+    with pytest.raises(RecipeError, match="written from a script"):
+        Recipe.from_output(path)
+
+
+def test_a_seed_axis_seeds_each_point_s_noise():
+    document = _with_scan({"name": "seeds", "seed": [11, 12]}).to_dict()
+    document["build"]["noise"] = "input"
+    scan = Recipe.from_dict(document).scan()
+    point = scan.scan.point(1)
+    assert point.seed == 12
+    simulation = scan.build(point)
+    assert simulation.noise is not None
+    assert simulation.noise.seed == 12
+
+
+def test_an_axis_on_a_list_element_takes_its_values_in_si():
+    recipe = _with_scan({"name": "limits", "wavelength_limits[1]": [2e-6, 3e-6]})
+    recipe.set("noise", "none")  # the point's seed would draw noise the build does not
+    scan = recipe.scan()
+    assert scan.scan.variables["wavelength_limits[1]"].tolist() == [2e-6, 3e-6]
+    expected = Recipe.loads(TEXT)
+    expected.set("noise", "none")
+    expected.set("wavelength_limits[1]", "3 um")
+    simulation = scan.build(scan.scan.point(1))
+    assert simulation.metadata().configuration_hash() == (
+        expected.build().metadata().configuration_hash()
+    )

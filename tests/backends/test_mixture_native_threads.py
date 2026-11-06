@@ -10,6 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
+from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from backends.native_mixture_thread_probe import NAMES, STEPS, problem_and_grid
 from bounds import assert_within, device_backend
@@ -39,6 +40,9 @@ def test_two_channels_are_repeatable_and_thread_invariant(tmp_path):
     runs = [
         native_thread_fields(PROBE, threads, names, tmp_path) for threads in (1, 1, 4)
     ]
+    assert_threaded(
+        runs[2]["sizing"], 4, "kernels.stage", "kernels.response", "fft.fft"
+    )
     # The work done is accounting, exact: a prescribed schedule runs its steps.
     assert [int(run["threads"]) for run in runs] == [1, 1, 4]
     assert all(int(run["steps"]) == int(run["rows"]) == STEPS for run in runs)

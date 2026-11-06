@@ -92,8 +92,7 @@ before they kill a job. During a run it raises
 without its result, or, if a step's state, a plane or the march's snapshot is being
 written, as soon as that commit is complete; `Ctrl-C` is held the same way. The run then
 writes its terminal checkpoint and the march's state, as for any failure, and
-`resume=True` continues it -- on `numpy_ref` and `numba_cpu` from the march's own
-state -- so a job
+`resume=True` continues it from the march's own state, so a job
 killed at its limit loses only the step it was taking, not the steps since the last
 plane. `RunTerminated` is a `SystemExit` with status 143, so an uncaught one ends the
 script as a terminated process. The handlers are installed for the run alone, from the
@@ -110,13 +109,10 @@ output = prop_gnlse(..., output="run.h5", resume=True)
 ```
 
 The file is checked before anything is written:
-{py:func}`~solprop.output.hdf5.check_cache` compares the record of the run about to
-start with the one the file carries, path by path. A file written with a different
-layout, physics, guide or materials is refused by what changed; a changed tolerance or
-integrator continues while there is work left, with a warning, and provenance such as
-the optmat version is ignored; `resume="force"` continues across a changed physics in
-the same file ([what a resume compares](resuming.md#what-a-resume-compares)). When it
-continues, the
+{py:func}`~solprop.output.hdf5.check_cache` compares the configuration hash of the run
+about to start with the one the file carries. A file written with different physics,
+numerics, a different guide or other materials is refused by what changed
+([what a resume compares](resuming.md#what-a-resume-compares)). When it continues, the
 terminal checkpoint, or the last regular plane when no checkpoint exists, is read
 back, converted to the internal convention and loaded at its actual absolute
 position. The next scheduled plane is found from that position. Call ledgers are
@@ -131,8 +127,8 @@ the same reason, so that a resume survives an unrelated commit or a NumPy upgrad
 
 What *did* execute the run is recorded beside the digest rather than inside it, in the
 `backend` group of {py:class}`~solprop.output.schema.RunMetadata`: the backend's name,
-the propagator mode it resolved, and whatever else it reports — for `numba_cpu` the
-threading regime, the four pool counts, the plan flag and the FFTW wisdom digest. The
+the propagator mode it resolved, and whatever else it reports — for `native` the
+thread counts, the sizes chosen per operation, the build record and the FFTW wisdom digest. The
 thread configuration alone has been measured to change the time of one step by a factor
 of nine, so a result that does not say how it was executed is not reproducible even when
 it is correct. The backend's name is also a root attribute
@@ -142,13 +138,13 @@ opened with, so the backend it names is the one that *started* the run.
 Two things follow from how the stepper is restarted. A run replaying a fixed schedule
 ([fixed schedules](../numerics/fixed-schedules.md#fixed-schedules-discover-calibrate-replay)) takes the same
 steps whatever it is resumed from, and agrees with the uninterrupted run to round-off
-(`numba_cpu` and `native` reuse a step's last stage as the next one's first and have none
+(`native` reuses a step's last stage as the next one's first and have none
 to reuse after a resume). An adaptive Runge–Kutta run does
 not: the controller starts again from `dz_init` rather than from the step it was on, so a
 resumed run agrees with an uninterrupted one to the tolerance it was asked for, not to
 the last bit. An adaptive Adams run -- the default -- continues from the march's state
-the output keeps at each plane and checkpoint, and on `numpy_ref` and `numba_cpu`
-continues the uninterrupted run's computation, agreeing with it to rounding
+the output keeps at each plane and checkpoint, and on every backend
+continues the uninterrupted run's computation, agreeing with it to rounding while the steps are the same
 ([the Adams integrator](../numerics/adams.md)). No resume promises identical bits
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
 

@@ -63,7 +63,6 @@ for label, grid in (("Carrier resolved", field_grid), ("Envelope", envelope_grid
         loss=False,
         kerr=False,
         plasma=rate,
-        backend="numpy_ref",
         rtol=1e-6,
         atol=1e-14,
         save_planes=np.linspace(length / 4, length, 4),

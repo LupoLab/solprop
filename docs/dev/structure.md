@@ -91,7 +91,7 @@ Text: [architecture.md §8](architecture.md) for the passes,
 The seam at the top is the whole of what a backend is. Under it is the step loop no
 backend reimplements — the march, the replay, the landing, the controller, the history,
 the noise and the per-stage bundle all live in `backends/driver.py` — and under that the
-three implemented backends: NumPy reference, Numba CPU and native (built from `native/`). Each
+the implemented backends: NumPy reference and native (built from `native/`), with `mlx` experimental. Each
 supplies trial/state operations and the relevant hooks; the loop's
 statistics channel and progress reporter call back through the seam. Fixed fibre
 batches extend this interface with independent member observations and metadata

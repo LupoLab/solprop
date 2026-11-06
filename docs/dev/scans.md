@@ -4,7 +4,7 @@ Scans are implemented above the backend seam. A point has a permanent zero-based
 C order. Executors change where that point runs; they do not change its physics, seed,
 backend or place in the output. Seeds derive from a `base_seed`, retained fields are
 explicitly selected planes, and different output shapes have separate layouts. Lockstep
-batching is first class for `numpy_ref`, `numba_cpu` and `native`. Scans preserve the
+batching is first class for `numpy_ref` and `native`. Scans preserve the
 selected backend and reject unsupported contracts explicitly.
 
 The executors (`solprop.driver.executors`) are `Local` (sequentially, in the calling process), `Pool`

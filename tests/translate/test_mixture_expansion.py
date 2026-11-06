@@ -48,7 +48,7 @@ def optical_population():
 
 def test_independent_radial_profiles_use_the_general_table(optical_population):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     components = tuple(
         Component(
             optical_population,
@@ -170,7 +170,7 @@ def test_independent_radial_tables_refuse_either_unresolved_part(
     optical_population, monkeypatch, failed_build
 ):
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = RadialGrid(6e-4, 16, window_factor=0.0)
+    space = RadialGrid(6e-4, 16, collar_fraction=0.0)
     mixture = Mixture.of(
         *(
             Component(optical_population, Linear(1e24, 2e24, grid.length), str(i))

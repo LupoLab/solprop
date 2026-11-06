@@ -126,7 +126,14 @@ $$
 evaluated as written, without `hypot` or a fused multiply-add, so a hard edge decides
 identically on every backend. The weight $W_a=W(\rho_a)$ of
 {py:func}`~solprop.spatial.aperture_profile` is exactly zero at $\omega_k\le0$ and where
-$s_a|\mathbf k^{(s)}_c|\ge z_a$. Then
+$s_a|\mathbf k^{(s)}_c|\ge z_a$. Another [shape](statistics.md#aperture-shapes) is the
+same weight of its image's offsets $u=s_ak^{(s)}_{x,c}+X_a=X_a-x$ and
+$v=s_ak^{(s)}_{y,c}+Y_a=Y_a-y$, each a product and a sum rounded on their own, through
+{py:class}`~solprop.spatial.ApertureOutline`: an ellipse with semi-axes $a,b$ and
+$r_e=\sqrt{ab}$ is $W$ of $\sqrt{(ur_e/a)^2+(vr_e/b)^2}$ at half-width $r_e$; a rectangle
+is $W(|u|)W(|v|)$ at half-widths $a$ and $b$; and with $E(u)$ the edge of
+{py:func}`~solprop.spatial.edge_profile`, one for $u\le0$ when hard, $x\ge X_a$ is $E(u)$,
+$x<X_a$ is $1-E(u)$, and $y$ the same in $v$. Then
 
 $$
 \begin{aligned}
@@ -142,10 +149,12 @@ $$
 for `aperture_spectrum`, `aperture_on_axis_spectrum`, `region_spectrum` (a region
 $R_j$ is a half-open box of $\boldsymbol\kappa$), `beam_spectrum` and
 `absorbed_power`. In $P_j$, $\nu_k$ are the exact energy weights of
-{py:func}`~solprop.fourier.energy_weights` and the rates are the spectral absorber's
-$\alpha_{\rm abs}(\omega_k)$ on every bin, the transverse-wavevector rate (zero until the
-operator carries one), $2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active
-evanescent bins and $2\operatorname{Im}k_z$ on active propagating bins. With $W\equiv1$,
+{py:func}`~solprop.fourier.energy_weights` and the rates are the spectral collar's
+$\alpha_{\rm abs}(\omega_k)-\alpha_{\rm user}(\omega_k)$ on every bin, the
+transverse-wavevector rate (zero until the operator carries one),
+$2\min(|\operatorname{Im}k_z|,\alpha_{\rm ev})$ on active evanescent bins,
+$2\operatorname{Im}k_z$ on active propagating bins and the user's share
+$\alpha_{\rm user}(\omega_k)$ of the absorber's rate on every bin. With $W\equiv1$,
 $S_a$ is $S^{\rm beam}$ and $S^{\rm ax}_a$ is `on_axis_spectrum`; $\delta\omega
 \sum_kS^{\rm beam}_k$ is `energy` on every interior bin, and $-\sum_jP_j$ is the
 derivative of `energy` along $z$ under the linear flow.

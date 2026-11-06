@@ -5,44 +5,66 @@
 """The low-storage RK4IP march's resident engine on native CPU: SEP 24 7.2 and 7.3.
 
 Phase 3 runs the march in solprop-native: one native call a step, the four register
-passes in the route's own scratch, accepted in place. Its parity with ``numpy_ref`` and
-``numba_cpu`` runs on every case of ``test_numba_low_storage.py`` (its
-``compiled_backends``); this module holds what is the engine's own: the ledger and the
-estimate, which agree to the byte, the varying operator's flows, the field-free plane
-held in the native memory space and its resume, the in-flight guard, and the commit a
-signal waits for. No agreement here is bitwise (SEP 25): the resume meets the
-uninterrupted run within the parity bound.
+passes in the route's own scratch, accepted in place. Its parity with ``numpy_ref`` runs
+on every route the translation admits the march on, each case one schedule of at most
+ten steps within a rounding bound fixed before the comparison
+(:func:`low_storage_cases.parity_bound`). Then what is the engine's own: the ledger and
+the estimate, which agree to the byte, the varying operator's flows, the in-flight
+guard, and the commit a signal waits for. No agreement here is bitwise (SEP 25).
 """
 
+import dataclasses
+import functools
+import gc
 import math
 import signal
+import warnings
+import weakref
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from backends.matched import native_thread_fields
-from backends.test_low_storage import MARCH, cartesian_march
-from backends.test_numba_low_storage import (
+from backends.forced_threads import assert_threaded
+from backends.low_storage_cases import (
+    STEPS,
     parity_bound,
-    replay,
     uniform,
     varying_capillary,
     with_mode,
 )
+from backends.low_storage_cases import assert_compiled as compiled_against_reference
+from backends.low_storage_cases import assert_parity as parity_against_reference
+from backends.matched import native_thread_fields
+from backends.planar_cases import planar_case
+from backends.test_low_storage import MARCH, cartesian_march, marched
+from backends.test_radial_nonlinear import CHI3, QuadraticRate
+from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
+from backends.test_radial_nonlinear import make_problem as radial_problem
 from bounds import assert_within
+from general_parity import conditioning as general_conditioning
+from general_parity import nonlinear_scale, problem_for, scaled_case, source_bound
 from solprop._interrupts import handled
 from solprop.backends.memory import (
-    estimate_memory,
     low_storage_flows,
     low_storage_stage_register,
 )
-from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.exceptions import BackendError
-from solprop.grid import EnvelopeGrid, FreeGrid
-from solprop.noise import spatial_noise
+from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.boundaries import Absorber, absorber
+from solprop.constants import C
+from solprop.driver import Simulation
+from solprop.exceptions import BackendError, GeneralModalBasisWarning
+from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
+from solprop.noise import modified_noise, spatial_noise
+from solprop.nonlinear.gnlse import SpecifiedMode
+from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
+from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.output.memory import MemoryOutput
+from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialFlux, SpatialMedium
+from solprop.stepper import PIController
+from solprop.translate.ionisation import build_rate_table
+from solprop.translate.problem import assemble
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -51,6 +73,12 @@ pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarn
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
+
+assert_compiled = functools.partial(compiled_against_reference, NativeBackend)
+"""Replay on the reference and ``native``; assert it within the limit."""
+
+assert_parity = functools.partial(parity_against_reference, NativeBackend)
+"""Replay on both backends and assert the states within the parity bound."""
 
 MARCH_ROWS = (
     "state",
@@ -75,13 +103,452 @@ RUNGE_KUTTA_ROWS = (
 """The Runge-Kutta march's native views, none allocated under the low-storage one."""
 
 
+# --- the modal routes ---------------------------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
+@pytest.mark.parametrize("noisy", [False, True], ids=["plain", "modified noise"])
+def test_the_soliton_agrees_with_the_reference(
+    soliton_problem, narrow_grid, scales, mode, noisy
+):
+    """The mode-averaged soliton, the noise drawn at each pass's own position."""
+    length = scales.dispersion_length / 2
+    schedule = uniform(length)
+    noise = modified_noise(narrow_grid, np.random.default_rng(3)) if noisy else None
+    problem = soliton_problem(
+        narrow_grid,
+        3,
+        save_planes=[length],
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        schedule=schedule,
+        integrator=MARCH,
+        propagator_mode=mode,
+        noise=noise,
+    )
+    assert_parity(problem, narrow_grid, noise=noise)
+
+
+@pytest.mark.parametrize("collar", [False, True], ids=["linear", "in-stage collar"])
+def test_a_problem_without_a_response_agrees(linear_problem, narrow_grid, collar):
+    """No source at all, or the in-stage collar's term alone, on the modal route."""
+    extra = (
+        {"absorber": absorber(narrow_grid), "absorber_scheme": "nonlinear"}
+        if collar
+        else {}
+    )
+    length = 0.05
+    schedule = uniform(length)
+    problem = linear_problem(
+        narrow_grid,
+        save_planes=[length],
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        schedule=schedule,
+        integrator=MARCH,
+        **extra,
+    )
+    assert_parity(problem, narrow_grid, growth=1.0)
+
+
+@pytest.mark.medium
+@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
+def test_a_varying_capillary_with_raman_and_plasma_agrees(mode):
+    simulation = varying_capillary()
+    problem = with_mode(simulation.translate(), mode)
+    assert not problem.flags.constant_linop
+    assert problem.flags.has_raman and problem.flags.has_plasma
+    assert_parity(
+        problem, simulation.grid, modes=simulation.modes, depth=problem.grids.n_to
+    )
+
+
+@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
+def test_a_z_table_operator_agrees(mode):
+    """A dispersion declared along z takes the operator's z table, and its flows.
+
+    The modal flows are then exponentiated from the table's held difference rather
+    than from the terms of ``Phi``: on the native CPU build the difference of two
+    native slots (SEP 29 section 6.6).
+    """
+    length = 1e-3
+    grid = EnvelopeGrid.from_limits(length, 835e-9, (600e-9, 1300e-9), 2e-12)
+    beta0 = 1.45 * 2 * np.pi / 835e-9
+    beta1 = 1.47 / C
+    nodes = np.array([0.0, length])
+    # beta_1 rises by one per cent over the millimetre, the area by half.
+    fibre = SpecifiedMode.from_taylor_path(
+        [[beta0, beta1 * (1 + 0.01 * z / length)] for z in nodes],
+        nodes,
+        omega_ref=grid.omega0,
+        aeff=[1e-10, 1.5e-10],
+    )
+    simulation = Simulation.from_gnlse(
+        0.1,
+        length,
+        fibre=fibre,
+        shock=False,
+        n_save=2,
+        noise=None,
+        wavelength=835e-9,
+        wavelength_limits=(600e-9, 1300e-9),
+        trange=2e-12,
+        fwhm=200e-15,
+        energy=1e-9,
+        shape="gauss",
+        schedule=uniform(length),
+        dz_max=length / STEPS * 1.0000001,
+        dz_init=length / STEPS,
+        integrator=MARCH,
+        backend="numpy_ref",
+        # Ten replayed steps: no collar, as before the default one.
+        absorber=False,
+    )
+    problem = with_mode(simulation.translate(), mode)
+    assert problem.linear.phi_representation == "table"
+    assert_compiled(
+        problem, simulation.grid, parity_bound(problem), what=f"the z table, {mode}"
+    )
+
+
+@pytest.mark.parametrize("family", ["envelope", "field_analytic"])
+def test_the_radial_route_with_its_in_stage_collar_agrees(family):
+    """The radial Hankel route: the Kerr column and the composed spatial collar."""
+    limits = (RADIAL_LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    grid = (
+        EnvelopeGrid.from_limits(*limits, thg=False)
+        if family == "envelope"
+        else FieldGrid.from_limits(*limits)
+    )
+    space = RadialGrid(3e-4, 16, collar_fraction=0.5)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
+    )
+    problem = radial_problem(
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        [KerrResponse(CHI3, thg=False)],
+        steps=STEPS,
+    )
+    problem = marched(problem, problem.stepper.schedule)
+    assert problem.transform.geometry is not None
+    assert_parity(problem, grid)
+
+
+@pytest.mark.parametrize(
+    "name", ["pair", pytest.param("raman", marks=pytest.mark.medium)]
+)
+def test_the_general_modal_route_agrees(name):
+    """A general modal guide's coarse source, on its case's own ten-step bound."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", GeneralModalBasisWarning)
+        grid, guide, route, state = scaled_case(name)
+        length = 1e-3
+        schedule = uniform(length)
+        problem = problem_for(
+            grid,
+            guide,
+            route,
+            state,
+            save_planes=[length],
+            schedule=schedule,
+            dz_max=schedule.max_step,
+            dz_init=schedule.max_step,
+            integrator=MARCH,
+        )
+    maps = _general_maps(problem)
+    assert maps is not None
+    phi = nonlinear_scale(maps, state, grid)
+    source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
+    # The general route's ten-step bound with RK4's weights, which sum to one.
+    limit = math.exp(phi) * (phi * source + parity_bound(problem, growth=1.0))
+    assert_compiled(problem, grid, limit, what="general route")
+
+
+# --- the Cartesian, line and planar routes ------------------------------------------
+
+
+@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
+@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
+@pytest.mark.parametrize("noisy", [False, True], ids=["plain", "modified noise"])
+def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
+    """Every flow treatment, with the exchange of section 4.3 and the fused noise."""
+    noise = (
+        spatial_noise(
+            SpatialFlux.resolve(
+                EnvelopeGrid.from_limits(
+                    1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+                ),
+                # The collar's window factor, as `cartesian_march` builds its grid.
+                FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0),
+                SpatialMedium(),
+            ),
+            np.random.default_rng(7),
+            model="modified",
+        )
+        if noisy
+        else None
+    )
+    problem, grid, space = cartesian_march(mode, noise=noise, collar=collar)
+    if noisy:
+        # A beam beside the draw, so that the Kerr source carries it.
+        pulse = SpatialPulse(
+            GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
+        )
+        problem = dataclasses.replace(
+            problem,
+            initial=dataclasses.replace(
+                problem.initial,
+                field0=pulse.build(grid, space, medium=SpatialMedium())[None],
+            ),
+        )
+    assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
+
+
+def test_a_recomputed_flow_keeps_a_small_loss():
+    """Only an exact zero's magnitude is one: a real part past it takes its exponential.
+
+    A loss of a thousandth of a neper per metre puts about 6e-8 in each flow's exponent,
+    well above the parity bound and far below any bin a coarser test would notice.
+    """
+    length = 1e-3
+    grid = EnvelopeGrid.from_limits(
+        length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
+    )
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
+    )
+    schedule = uniform(length, 4)
+    problem = assemble(
+        grid,
+        None,
+        [KerrResponse(1e-22, thg=False)],
+        pulse.build(grid, space, medium=SpatialMedium()),
+        spatial_grid=space,
+        medium=SpatialMedium(),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[length],
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        schedule=schedule,
+        integrator=MARCH,
+        propagator_mode="recompute",
+        absorber=Absorber(
+            np.full(grid.n_omega, 1e-3),
+            np.zeros(grid.n_t),
+            np.zeros(grid.n_to),
+            grid.active_mask,
+            5 * length,
+        ),
+        absorber_scheme="nonlinear",
+    )
+    assert_parity(problem, grid, transverse=problem.transform.n_nodes)
+
+
+LINE_FAMILIES = ("field_kerr", "envelope_raman", "field_plasma", "field_kerr_collar")
+
+
+@pytest.mark.parametrize("family", LINE_FAMILIES)
+def test_a_line_beam_agrees(family):
+    """The line kind, ``n_y = 1``, through the Cartesian kernels."""
+    field = family.startswith("field")
+    # The held field-plasma source needs resolved collar samples; retain the
+    # shorter lattice for the unrelated envelope, Kerr and Raman controls.
+    window = 200e-15 if family == "field_plasma" else 150e-15
+    limits = (RADIAL_LENGTH, 800e-9, (600e-9, 1.2e-6), window)
+    grid = (
+        FieldGrid.from_limits(*limits)
+        if field
+        else EnvelopeGrid.from_limits(*limits, thg=False)
+    )
+    collar = family.endswith("collar")
+    space = LineGrid(
+        3e-4 if collar else 4e-4, 24, collar_fraction=0.3 if collar else 0.0
+    )
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3),
+        80e-6,
+        jones=(1,) if family.endswith("raman") else (1, 0.5j),
+    )
+    density, depth = 1.0, 0
+    if family.endswith("plasma"):
+        responses = [
+            PlasmaResponse("Ar", build_rate_table(QuadraticRate(), (1e3, 1e10)))
+        ]
+        density, depth = 1e22, grid.n_to
+    elif family.endswith("raman"):
+        responses = [
+            RamanResponse(
+                (DampedOscillator(1e-8, 2e14, undamped_dephasing()),), thg=False
+            )
+        ]
+    else:
+        responses = [KerrResponse(CHI3, thg=False)]
+    problem = radial_problem(
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        steps=STEPS,
+        density=density,
+    )
+    problem = marched(problem, problem.stepper.schedule)
+    if collar:
+        problem = dataclasses.replace(
+            problem,
+            responses=dataclasses.replace(
+                problem.responses, absorber_scheme="nonlinear"
+            ),
+        )
+    problem = dataclasses.replace(
+        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+    )
+    assert_parity(problem, grid, transverse=problem.transform.n_nodes, depth=depth)
+
+
+PLANAR = (
+    "kerr",
+    "kerr-collar",
+    "kerr-split",
+    "collar-only",
+    pytest.param("raman", marks=pytest.mark.medium),
+    pytest.param("field-plasma", marks=pytest.mark.medium),
+    pytest.param("envelope-plasma", marks=pytest.mark.medium),
+)
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings(
+    "ignore:the temporal absorber attenuates a packet walking off"
+    ":solprop.exceptions.SolpropWarning"
+)
+@pytest.mark.parametrize("name", PLANAR)
+def test_a_planar_beam_agrees(name):
+    """The hybrid planar kind: both halves of the column volume folded at once."""
+    grid, _, problem = planar_case(name, steps=STEPS, node_chunk=2)
+    problem = marched(problem, problem.stepper.schedule)
+    depth = grid.n_to if "plasma" in name else 0
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    n_y = geometry.shape[1]
+    assert_parity(problem, grid, transverse=n_y, depth=depth)
+
+
+# --- the remaining branches of each route -------------------------------------------
+
+
+def test_a_linear_cartesian_beam_agrees():
+    """No response and no collar: the pass is the fold alone, no transform."""
+    problem, grid, _ = cartesian_march("tabulate")
+    problem = dataclasses.replace(
+        problem,
+        # Without the Kerr coefficients too, which a compiled backend may read.
+        responses=dataclasses.replace(
+            problem.responses,
+            response_order=problem.responses.response_order[-1:],
+            kerr_coefficients=None,
+        ),
+    )
+    assert len(problem.responses.response_order) == 1
+    assert low_storage_stage_register(problem, "native")
+    assert_parity(problem, grid, growth=1.0)
+
+
+@pytest.mark.medium
+def test_the_dispersive_response_rides_the_cartesian_march():
+    """SEP 6's dispersive response, begun once per pass, on the elided route."""
+    from backends.dispersive_route_cases import (  # noqa: PLC0415
+        ARGON,
+        evaluation_bound,
+        free_grid,
+        free_problem,
+    )
+    from solprop.nonlinear.responses import DispersiveKerrResponse  # noqa: PLC0415
+
+    grid = free_grid("envelope", thg=False)
+    problem = free_problem(
+        [DispersiveKerrResponse(ARGON, "symmetric", thg=False)], grid, adams=False
+    )
+    problem = marched(problem, problem.stepper.schedule)
+    assert problem.responses.dispersive_kerr is not None
+    limit = 4 * STEPS * evaluation_bound(problem) + parity_bound(problem)
+    assert_compiled(problem, grid, limit, what="dispersive response")
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings(
+    "ignore:the temporal absorber attenuates a packet walking off"
+    ":solprop.exceptions.SolpropWarning"
+)
+def test_a_planar_beam_with_neither_term_is_the_flow():
+    """No response and no collar on the planar kind: the fold of a zero source."""
+    grid, _, problem = planar_case("kerr", steps=STEPS)
+    problem = marched(problem, problem.stepper.schedule)
+    problem = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            problem.responses,
+            response_order=problem.responses.response_order[-1:],
+            kerr_coefficients=None,
+            temporal_absorber=None,
+            temporal_absorber_fine=None,
+        ),
+    )
+    geometry = problem.transform.geometry
+    assert geometry is not None
+    n_y = geometry.shape[1]
+    assert_parity(problem, grid, transverse=n_y, growth=1.0)
+
+
+@pytest.mark.parametrize("variant", ["collar", "linear"])
+def test_the_general_route_s_collar_and_a_linear_guide_agree(variant):
+    """The general route's legacy transform for the collar, or no source at all."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", GeneralModalBasisWarning)
+        grid, guide, route, state = scaled_case("pair")
+        length = 2e-5
+        schedule = uniform(length)
+        extra = (
+            {"absorber": absorber(grid), "absorber_scheme": "nonlinear"}
+            if variant == "collar"
+            else {}
+        )
+        if variant == "linear":
+            route = dataclasses.replace(route, responses=None)
+        problem = problem_for(
+            grid,
+            guide,
+            route,
+            state,
+            save_planes=[length],
+            schedule=schedule,
+            dz_max=schedule.max_step,
+            dz_init=schedule.max_step,
+            integrator=MARCH,
+            **extra,
+        )
+    limit = parity_bound(problem, growth=1.0)
+    if variant == "collar":
+        maps = _general_maps(problem)
+        assert maps is not None
+        phi = nonlinear_scale(maps, state, grid)
+        source = source_bound(maps, grid.n_to, general_conditioning(maps, state, grid))
+        limit = math.exp(phi) * (phi * source + limit)
+    assert_compiled(problem, grid, limit, what=f"general route, {variant}")
+
+
+# --- the engine's own --------------------------------------------------------------
+
+
 @pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
 def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, collar):
     """Section 7.3 on Kokkos: three or four volumes beside the state, none of DOPRI5's.
 
-    The accumulator, the stage register under an in-stage collar only (Q4, as on
-    ``numba_cpu``), the table when tabulating, the state and the transverse scratch:
+    The accumulator, the stage register under an in-stage collar only (Q4), the table
+    when tabulating, the state and the transverse scratch:
     four volumes tabulated without a collar and three recomputed, five and four with
     one. The estimate is the ledger to the byte for these rows.
     """
@@ -102,10 +569,8 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert low_storage_stage_register(problem, "native") == collar
     assert low_storage_flows(problem, "native") == (mode == "tabulate")
     assert sum(volumes.values()) == field * (3 + int(collar) + (mode == "tabulate"))
-    for row in (*RUNGE_KUTTA_ROWS, "noise", "held_plane", "adams_history"):
+    for row in (*RUNGE_KUTTA_ROWS, "noise", "adams_history"):
         assert ledger[row] == 0, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["adams_history"] == 0
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
     assert engine.atomic and math.isnan(engine.stiffness)
@@ -115,39 +580,6 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     assert metadata["propagator_mode"] == mode
     assert metadata["source_evaluations"] == 4 * schedule.n_steps
     backend.close()
-
-
-@pytest.mark.parametrize("collar", [False, True], ids=["no collar", "in-stage collar"])
-@pytest.mark.parametrize("mode", ["tabulate", "recompute"])
-def test_the_estimate_is_the_ledger_to_the_byte(mode, collar):
-    """The march's field-sized rows of the estimate, row by row, as numpy_ref counts.
-
-    The estimate's base is the reference's rows less the elided register; its march
-    rows -- the state, the scratch, the registers and the flows -- are the native
-    ledger's own, to the byte.
-    """
-    from solprop.backends.memory import (  # noqa: PLC0415
-        reference_base_memory,
-    )
-
-    problem, grid, _ = cartesian_march(mode, collar=collar)
-    field = 16 * math.prod(problem.shape)
-    reference = reference_base_memory(
-        problem,
-        tabulating=mode == "tabulate",
-        embedded=False,
-        noise=False,
-        statistics_weight=0,
-        spatial_absorber=0,
-    )
-    backend = NativeBackend(problem, grid=grid)
-    ledger = backend.memory_ledger()
-    backend.close()
-    for row in MARCH_ROWS:
-        expected = 0 if row == "register_stage" and not collar else reference[row]
-        assert ledger[row] == expected, row
-    estimate = estimate_memory(problem, "native")
-    assert estimate.groups["base"] == sum(reference.values()) - (0 if collar else field)
 
 
 def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
@@ -170,81 +602,55 @@ def test_a_varying_operator_holds_its_pair_tabulated_and_none_recomputed():
         backend.close()
 
 
-def test_a_field_free_plane_is_held_natively_and_resumes_to_rounding():
-    """SEP 22's held plane in the native memory space: one volume, then one copy.
+@pytest.mark.parametrize("model", [None, "input"], ids=["no noise", "input noise"])
+def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
+    """The upload copies and fences, so a temporary dies with the load; no ledger row.
 
-    Nothing crosses at the field-free plane; the ledger names the held volume; a
-    resume from it meets the uninterrupted run within the parity bound (the table is
-    built again from the resumed run's own step, section 4.3).
+    A delay scan's input, the input noise model's sum and a resumed plane are all
+    temporaries: each would otherwise stay alive until the next load. The field is read
+    back to show that the load took.
     """
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
-    noise = spatial_noise(
-        SpatialFlux.resolve(grid, space, SpatialMedium()),
-        np.random.default_rng(7),
-        model="modified",
+    noise = (
+        None
+        if model is None
+        else spatial_noise(
+            SpatialFlux.resolve(
+                grid, FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0), SpatialMedium()
+            ),
+            np.random.default_rng(7),
+            model=model,
+        )
     )
     problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    field = 16 * math.prod(problem.shape)
-    end = float(problem.stepper.save_planes[-1])
-    schedule = problem.stepper.schedule
-    assert schedule is not None
-    middle = float(schedule.edges[2])
     backend = NativeBackend(problem, grid=grid)
-    backend.set_initial(problem.initial.field0, noise)
-    assert backend.memory_ledger()["noise"] == field
-    backend.propagate_to(middle)
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == 0
-    plane = backend.observe(field=False)
-    assert plane.field is None
-    assert backend.memory_ledger()["held_plane"] == field
-    held = backend.held_observation()
-    assert held is not None and held.noise_phase is not None and held.z == middle
-    assert held.field is not None and held.field.shape == problem.shape
-    backend.propagate_to(end)
-    uninterrupted = backend.observe().require_field().copy()
-    # A plane that keeps its field releases the hold; the volume stays charged.
-    assert backend.held_observation() is None
-    assert backend.memory_ledger()["held_plane"] == field
-    backend.close()
-    resumed = NativeBackend(problem, grid=grid)
-    resumed.set_initial(held.field, noise, z=held.z)
-    resumed.propagate_to(end)
-    got = resumed.observe().require_field()
-    resumed.close()
-    assert_within(got, uninterrupted, parity_bound(problem), what="resume")
+    loaded: list[weakref.ref[np.ndarray]] = []
+    apply_mask = backend._apply_mask
 
+    def watched(state: np.ndarray) -> object:
+        loaded.append(weakref.ref(state))
+        return apply_mask(state)
 
-def test_the_soliton_resumes_from_a_held_plane_on_its_reference(
-    soliton_problem, narrow_grid, scales
-):
-    """The modal route's held plane, and its resume against the reference's run."""
-    length = scales.dispersion_length
-    schedule = uniform(length, 20, save_planes=[length / 2, length])
-    problem = soliton_problem(
-        narrow_grid,
-        2,
-        save_planes=[length / 2, length],
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        schedule=schedule,
-        integrator=MARCH,
-    )
-    backend = NativeBackend(problem, grid=narrow_grid)
-    backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(length / 2)
-    backend.observe(field=False)
-    held = backend.held_observation()
+    monkeypatch.setattr(backend, "_apply_mask", watched)
+    temporary = np.full(problem.shape, 1.0 + 0.5j)
+    given = weakref.ref(temporary)
+    backend.set_initial(temporary, noise)
+    del temporary
+    # A second route to the upload, outside `set_initial`: the driver's own mask step.
+    loaded_again = np.full(problem.shape, 2.0 + 0.5j)
+    again = weakref.ref(loaded_again)
+    apply_mask(loaded_again)
+    observed = backend.observe().require_field()
+    del loaded_again
+    gc.collect()
+    assert given() is None
+    assert again() is None
+    assert len(loaded) == 1 and loaded[0]() is None
+    # Exact: the state crosses twice without arithmetic, and the mask keeps or zeroes.
+    mask = problem.grids.active_mask
+    assert np.all(observed[..., mask] == 2.0 + 0.5j)
+    assert np.all(observed[..., ~mask] == 0.0)
     backend.close()
-    assert held is not None and held.field is not None
-    resumed = NativeBackend(problem, grid=narrow_grid)
-    resumed.set_initial(held.field, None, z=held.z)
-    resumed.propagate_to(length)
-    got = resumed.observe().require_field()
-    resumed.close()
-    expected = replay(NumpyRefBackend, problem, narrow_grid)
-    assert_within(got, expected, parity_bound(problem), what="resume")
 
 
 def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
@@ -361,9 +767,22 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
     one = native_thread_fields(PROBE, 1, names, tmp_path)
     again = native_thread_fields(PROBE, 1, names, tmp_path)
     four = native_thread_fields(PROBE, 4, names, tmp_path)
+    assert_threaded(four["sizing"], 4, "kernels.stage", "fft.fft")
     for name in names:
         mode, collar = name.split("-")
         problem, _, _ = cartesian_march(mode, collar=collar == "collar")
         bound = parity_bound(problem, transverse=problem.transform.n_nodes)
         assert_within(again[name], one[name], bound, what=f"repeat, {name}")
         assert_within(four[name], one[name], bound, what=f"four threads, {name}")
+
+
+def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
+    # #492: this state allocates none of the views the trial step writes to.
+    problem, grid, _ = cartesian_march("tabulate")
+    backend = NativeBackend(problem, grid=grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):
+            backend._trial_step(0.0, problem.stepper.dz_init)
+    finally:
+        backend.close()

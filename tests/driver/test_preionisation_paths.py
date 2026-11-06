@@ -57,7 +57,7 @@ def keywords(**overrides):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_prop_capillary_runs_a_path_per_species_and_the_density_follows_it(
     backend, tmp_path
 ):

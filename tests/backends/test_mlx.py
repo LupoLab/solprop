@@ -6,10 +6,10 @@
 
 Class R throughout: both sides replay the same fixed schedule with the same method in
 binary32, and the bounds are the oracle tests' own formulas. On the Metal GPU every
-protected operation runs through its custom kernel; on MLX's CPU device, which
-continuous integration uses when the runner exposes no Metal device, the graph code
-runs and the kernels' tests are skipped. The local GPU lane is the whole module on the
-Metal device.
+protected operation runs through its custom kernel. Continuous integration's macOS
+default lane requires Metal and runs those kernels. On MLX's CPU device, available for
+local tests, the graph code runs and the kernels' tests are skipped. The local GPU lane
+is the whole module on the Metal device.
 """
 
 import dataclasses
@@ -30,6 +30,7 @@ import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 onl
 
 from backends.test_single_precision import (
     capillary,
+    check_a_whole_run,
     gnlse,
     overflowing_beam,
     plasma_beam,
@@ -37,7 +38,15 @@ from backends.test_single_precision import (
     spatial_kerr,
 )
 from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, fft_bound, higham_gamma
-from solprop.backends.memory import estimate_memory
+from monitor_cases import (
+    MARCHES,
+    ROUTE_NAMES,
+    SCHEMES,
+    probe,
+    reading,
+    record_after_march,
+    watched,
+)
 from solprop.backends.mlx_gpu.arithmetic import (
     DoubleFloatTerms,
     fft_probe,
@@ -67,6 +76,7 @@ from solprop.stepper import (
     RungeKutta,
 )
 from solprop.translate.precision import SINGLE, prefix_sum
+from solprop.translate.problem import KernelProblem
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -275,7 +285,7 @@ def test_a_gaussian_beam_diffracts_as_paraxial_optics_says():
     grid = EnvelopeGrid.from_limits(
         rayleigh, wavelength, (780e-9, 820e-9), 2e-12, thg=False
     )
-    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, window_factor=0)
+    space = FreeGrid(1.5e-3, 128, 1.5e-3, 128, collar_fraction=0)
     settings = SimulationSettings(
         controller=PIController(rtol=1e-6, atol=0.0),
         save_planes=[rayleigh],
@@ -373,6 +383,105 @@ def test_the_propagator_drift_stays_linear_on_the_device():
         exact = finish(gnlse("double", steps=steps, **linear))
         actual = finish(on("mlx", gnlse("single", steps=steps, **linear)))
         assert_within(actual, exact, steps * U32, what=f"{steps} steps")
+
+
+# The boundary monitor's reading on the device, against the oracle's on the host.
+
+SINGLE_ROUTES = tuple(
+    route
+    for route in ROUTE_NAMES
+    if route not in ("general guide (constant)", "planar")
+)
+"""The monitor probe's routes that single precision runs: it refuses the general
+modal route and the planar hybrid."""
+
+PROBE_STEPS = 8
+"""Fixed steps over the probe's fifth of a millimetre. The probes' spectral collar
+reaches ``|Re dPhi| = 150`` over the binary64 test's 50 um steps, past binary32's
+``exp(88.72)``; 25 um steps take it to 75, below the last tenth of the range, which
+is warned of."""
+
+
+def watched_probe(route: str, scheme: str, march: str | None = None) -> Simulation:
+    """Return the monitor test's probe in single precision; with a march, replayed."""
+    method = None if march is None else MARCHES[march]
+    simulation = probe(route, scheme, method, steps=PROBE_STEPS)
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
+    return simulation
+
+
+def reading_bound(problem: KernelProblem) -> float:
+    """Return the device reading's rounding bound, relative to what it reads.
+
+    The oracle reads the same binary32 state in binary64, so its own error is
+    negligible here. The device's inverse transform errs by at most the oracle tests'
+    ``d = 16 eps ceil(log2 n_t)`` of the state's norm, which moves an energy weighted
+    by at most ``w`` by ``(2 d + d**2) w E``. Each term's square, its narrowed weight
+    and column quadrature and their products round eight times at most, and the sums
+    -- over the columns, then over the samples -- add non-negative terms at a depth
+    below ``n_columns + n_t`` in whatever order the device takes: within ``gamma`` of
+    that depth of the sum itself (``tests/bounds.py``, ``higham_gamma``).
+    """
+    n_t = problem.grids.n_t
+    columns = math.prod(problem.shape[:-1])
+    transform = 16 * EPS_32 * math.ceil(math.log2(n_t))
+    return 2 * transform + transform**2 + higham_gamma(columns + n_t + 8, U32)
+
+
+@pytest.mark.parametrize("scheme", SCHEMES)
+@pytest.mark.parametrize("route", SINGLE_ROUTES)
+def test_a_check_on_the_device_reads_the_oracle_s_five_numbers(route, scheme):
+    # The energy and the four weighted energies of a launch that reaches every
+    # region, reduced on the device, against the oracle's host reading.
+    simulation = watched_probe(route, scheme)
+    problem = simulation.translate()
+    with ExitStack() as cleanup:
+        oracle = watched(simulation, "numpy_ref", problem)
+        cleanup.callback(oracle.close)
+        device = watched(simulation, "mlx", problem)
+        cleanup.callback(device.close)
+        theirs, ours = reading(oracle), reading(device)
+    monitor = simulation._boundary_monitor()
+    assert monitor is not None
+    largest = monitor.weights.max(axis=1)
+    weighted = largest > 0.0
+    assert np.all(theirs.regions[weighted] > 1e-6 * theirs.total)
+    bound = reading_bound(problem)
+    assert ours.total == pytest.approx(theirs.total, rel=bound)
+    # Each row's error is bounded by its largest weight times the energy.
+    np.testing.assert_array_less(
+        np.abs(ours.regions - theirs.regions)[weighted],
+        (bound * theirs.total * largest)[weighted],
+    )
+    assert np.all(ours.regions[~weighted] == 0.0)
+    assert ours.removed == theirs.removed == 0.0
+
+
+@pytest.mark.parametrize("march", ["low_storage", "runge_kutta"])
+@pytest.mark.parametrize("route", SINGLE_ROUTES)
+def test_the_device_s_split_removal_is_the_oracle_s(route, march):
+    """Every accepted step's removal, summed by each backend's own finish.
+
+    Each step's removal and each check's collar occupancy is a non-negative weighted
+    sum, within :func:`reading_bound` of itself, so the record is within the steps'
+    sum of them. This is a budget, not a proof, for the matched states the readings
+    are taken from: their class R departure, a few binary32 roundings a step, is
+    taken to stay below the bound's worst-case sum, ``gamma`` of hundreds of terms.
+    """
+    simulation = watched_probe(route, "split_step", march)
+    problem = simulation.translate()
+    theirs = record_after_march(simulation, "numpy_ref", problem)
+    ours = record_after_march(simulation, "mlx", problem)
+    assert theirs["raw_removed_fraction"] > 1e-6
+    bound = PROBE_STEPS * reading_bound(problem)
+    for name in ("raw_removed_fraction", "removed_fraction", "collar_max"):
+        assert ours[name] == pytest.approx(theirs[name], rel=bound), name
+    assert ours["steps"] == theirs["steps"] == PROBE_STEPS
+
+
+@pytest.mark.medium
+def test_a_whole_run_on_the_device_reports_what_it_ran():
+    check_a_whole_run("mlx")
 
 
 # The protected operations.
@@ -642,48 +751,74 @@ def test_the_state_stays_complex64_on_the_device():
         assert all(stage.dtype == mx.complex64 for stage in backend._last_stages)
 
 
-@pytest.mark.parametrize("modes", [1, 4])
-def test_the_memory_estimate_bounds_the_measured_peak(modes):
-    simulation = on("mlx", capillary("single", modes=modes, length=0.002, energy=20e-6))
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.002)
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
+def _split_walker(backend: str, scheme: str = "split_step", **settings) -> Simulation:
+    """Return the monitor tests' walking GNLSE pulse in binary32 on `backend`."""
+    from test_monitor import TRANGE, walker  # noqa: PLC0415 - the monitor's own case
+
+    simulation = walker(
+        1.2 * TRANGE if "schedule" not in settings else 0.65 * TRANGE,
+        backend=backend,
+        integrator=RungeKutta(),
+        absorber_scheme=scheme,
+        # Weak enough to leave the pulse linear, strong enough for binary32's range.
+        gamma=1e-6,
+        check=settings.pop("check", None),
+    )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, precision="single", **settings
+    )
+    return simulation
 
 
-@pytest.mark.parametrize("route", ["radial", "cartesian"])
-def test_the_memory_estimate_bounds_the_measured_peak_in_free_space(route):
-    """The transverse transforms' transients, with both collars in each stage."""
-    simulation = on("mlx", spatial_kerr(route, "single", absorbed=True))
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(simulation.settings.save_planes[-1]))
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
+def test_the_split_s_guard_reading_is_the_oracle_s():
+    # What each step's split found, reduced on the device, against the binary32
+    # oracle's host reduction over the same fixed schedule. Binary32 states over 100
+    # steps of 512-sample transforms: the readings agree to 5e-6 of themselves, held
+    # at 1e-4 (100 steps times log2(512) transform levels times the unit roundoff,
+    # 6e-8, is 5e-5).
+    import warnings  # noqa: PLC0415
+
+    from solprop.exceptions import BoundaryWarning  # noqa: PLC0415
+    from solprop.monitor import BoundaryCheck  # noqa: PLC0415
+    from test_monitor import record_of  # noqa: PLC0415
+
+    records = {}
+    for backend in ("numpy_ref", "mlx"):
+        simulation = _split_walker(
+            backend,
+            check=BoundaryCheck(budget=1.0, stop_factor=1.0),
+            schedule=FixedSchedule.uniform(0.0, 1.0, 1 / 100, save_planes=[0.5, 1.0]),
+        )
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", BoundaryWarning)
+            records[backend] = record_of(simulation.run(progress="none"))
+    assert records["numpy_ref"]["guard_high_max"] > 1e-6
+    for name in ("guard_high_max", "collar_max", "raw_removed_fraction"):
+        assert records["mlx"][name] == pytest.approx(
+            records["numpy_ref"][name], rel=1e-4
+        ), name
 
 
-@gpu_only
-def test_the_memory_estimate_bounds_the_measured_peak_with_envelope_plasma():
-    """The cycle kernel's outputs, the histories and the drive and loss per stage."""
-    simulation = on("mlx", envelope_plasma_case())
-    problem = simulation.translate()
-    estimate = estimate_memory(problem, "mlx")
-    mx.reset_peak_memory()
-    backend = select("mlx", problem, grid=simulation.grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(0.001)
-        assert mx.get_peak_memory() <= estimate.total
-    finally:
-        backend.close()
+def test_the_split_stops_a_walking_pulse_where_the_in_stage_scheme_does():
+    from test_monitor import STOP_AGREEMENT, _stopped_at  # noqa: PLC0415
+
+    reference = _stopped_at(_split_walker("mlx", "nonlinear"))
+    assert _stopped_at(_split_walker("mlx")) == pytest.approx(
+        reference, rel=STOP_AGREEMENT
+    )
+
+
+def test_the_split_s_crossing_cap_is_the_oracle_s():
+    # The state's energy per walk-off bucket, scattered on the device, against the
+    # binary32 oracle's host sum: the caps are buckets', equal unless a share sits on
+    # the 1e-6 threshold and tips into the next bucket, 10**(9/128) apart.
+    from monitor_cases import probe, record_after_march  # noqa: PLC0415
+
+    # Sixteen steps: binary32's range holds the collar's inverse propagator over
+    # steps below 2.7e-5 m.
+    simulation = probe("gnlse", "split_step", RungeKutta(), steps=16)
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
+    theirs = record_after_march(simulation, "numpy_ref")
+    ours = record_after_march(simulation, "mlx")
+    assert math.isfinite(theirs["step_cap"])
+    assert ours["step_cap"] == pytest.approx(theirs["step_cap"], rel=0.18)

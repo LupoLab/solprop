@@ -29,7 +29,13 @@ from solprop.translate.linop import LinearOperator
 from solprop.translate.planar import planar_kappa, square_residuals
 from solprop.translate.spatial import FluxPlan, SeparableOperator
 
-__all__ = ["flux_from_record", "flux_plan", "flux_record", "plane_coefficients"]
+__all__ = [
+    "admission_record",
+    "flux_from_record",
+    "flux_plan",
+    "flux_record",
+    "plane_coefficients",
+]
 
 
 def plane_coefficients(
@@ -174,6 +180,46 @@ def flux_plan(
     return FluxPlan(base, material, admission)
 
 
+def admission_record(admission: AdiabaticAdmission) -> dict[str, object]:
+    """Return a path certificate as plain values, for a record that outlives the run.
+
+    The certificate's scope is the linear background's forward coordinates, not the
+    nonlinear run or an omitted reflected field (SEP 34 section 4.5). Its path identity
+    is kept as text, and a certificate already read from a record keeps that text.
+
+    Parameters
+    ----------
+    admission : solprop.adiabatic.AdiabaticAdmission
+        The certificate.
+
+    Returns
+    -------
+    dict
+        The values :func:`flux_from_record` rebuilds it from.
+    """
+    identity = admission.identity
+    return {
+        "scope": "linear-background forward field",
+        "z_span": admission.z_span,
+        "field_error_budget": admission.accuracy.field_error,
+        "reflected_energy_budget": admission.accuracy.reflected_energy,
+        "variation": admission.variation,
+        "field_error": admission.field_error,
+        "reflection": admission.reflection,
+        "worst_kperp_sq": admission.worst_kperp_sq,
+        "worst_omega": admission.worst_omega,
+        "exact": admission.exact,
+        "jumps": admission.jumps,
+        "interpolation_envelope": admission.interpolation_envelope,
+        "identity": identity["recorded"]
+        if set(identity) == {"recorded"}
+        else repr(dict(identity)),
+        "omega": admission.omega,
+        "spectral_variation": admission.spectral_variation,
+        "support": admission.support,
+    }
+
+
 def flux_record(plan: FluxPlan | None) -> dict[str, object]:
     """Return a plane measure as plain arrays for the output's spatial record.
 
@@ -208,27 +254,7 @@ def flux_record(plan: FluxPlan | None) -> dict[str, object]:
         "admission": None,
     }
     if plan.admission is not None:
-        admission = plan.admission
-        # The certificate's scope: the linear background's forward coordinates,
-        # not the nonlinear run or an omitted reflected field (SEP 34 section 4.5).
-        record["admission"] = {
-            "scope": "linear-background forward field",
-            "z_span": admission.z_span,
-            "field_error_budget": admission.accuracy.field_error,
-            "reflected_energy_budget": admission.accuracy.reflected_energy,
-            "variation": admission.variation,
-            "field_error": admission.field_error,
-            "reflection": admission.reflection,
-            "worst_kperp_sq": admission.worst_kperp_sq,
-            "worst_omega": admission.worst_omega,
-            "exact": admission.exact,
-            "jumps": admission.jumps,
-            "interpolation_envelope": admission.interpolation_envelope,
-            "identity": repr(dict(admission.identity)),
-            "omega": admission.omega,
-            "spectral_variation": admission.spectral_variation,
-            "support": admission.support,
-        }
+        record["admission"] = admission_record(plan.admission)
     if plan.material is not None:
         table = plan.material
         record["material"] = {

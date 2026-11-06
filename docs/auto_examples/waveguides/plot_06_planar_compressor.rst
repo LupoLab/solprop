@@ -74,10 +74,10 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   :math:`e^B` of the fastest-growing ripple in the linear theory: the fluence averages
   over the pulse and the beam's wings, where the gain is lower, and white noise puts
   only a small part of its power near the fastest period. At the 21 cm exit they are
-  a few parts in :math:`10^4`. By 40 cm, at B of about 17, the rms ripple is 4 %;
+  a few parts in :math:`10^4`. By 40 cm, at B of about 17, the rms ripple is 5 %;
   beyond, the beam breaks up into filaments that self-focus, so the peak intensity,
-  and with it the B integral, runs away (B of about 33 at 45 cm and 58 at 50 cm)
-  and the ripple reaches 14 to 17 %. So at this seed the beam breaks up just beyond
+  and with it the B integral, runs away (B of about 35 at 45 cm and 62 at 50 cm)
+  and the ripple reaches 16 %. So at this seed the beam breaks up just beyond
   the limit Arnold place, :math:`B \approx 15.5`. (With solprop's former argon
   Kerr coefficient, 23 % lower, B reached 16 only at 50 cm, where the beam was
   just beginning to break up.)
@@ -91,8 +91,8 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   excites. TE7 carries 0.1 % at launch and is damped fifty times more than TE1.
   Arnold used ten.
 * The Kerr effect is the only nonlinearity. Plasma is left out: optmat's argon rate at
-  the peak intensity leaves about 5e14 electrons per cubic centimetre (Arnold: "well
-  below 1e15"), whose index change is about 3 % of the Kerr one (printed below).
+  the peak intensity leaves about 3.5e14 electrons per cubic centimetre (Arnold: "well
+  below 1e15"), whose index change is about 2 % of the Kerr one (printed below).
   That estimate uses the incident peak intensity, so it does not justify the omission
   after strong spatial contraction: the late, under-resolved breakup is qualitative
   and cannot predict a filament peak intensity. Argon has no Raman response.
@@ -128,7 +128,7 @@ propagates, the closed forms give the regime:
 * the B integral over the guide;
 * the whole-beam self-focusing length of Arnold's section 2.1.
 
-.. GENERATED FROM PYTHON SOURCE LINES 115-248
+.. GENERATED FROM PYTHON SOURCE LINES 115-247
 
 .. code-block:: Python
 
@@ -141,7 +141,6 @@ propagates, the closed forms give the regime:
     from scipy.integrate import cumulative_trapezoid
 
     from solprop import fourier
-    from solprop.backends.memory import estimate_memory
     from solprop.constants import BAR, CHARGE_MASS_RATIO, EPS0, STD_ATMOSPHERE, C
     from solprop.driver import Simulation, SimulationSettings
     from solprop.exceptions import MaterialRangeWarning
@@ -188,7 +187,7 @@ propagates, the closed forms give the regime:
     """The TE orders kept: the odd ones, which a centred beam excites."""
 
     RADIUS_Y = 18e-3
-    """Half-width of the y window, m, before its absorbing collar."""
+    """Half-width of the y window, m."""
 
     N_Y = 1024
     """Samples across y."""
@@ -285,7 +284,7 @@ propagates, the closed forms give the regime:
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 249-265
+.. GENERATED FROM PYTHON SOURCE LINES 248-264
 
 The grid and the launch
 -----------------------
@@ -295,7 +294,7 @@ The higher modes are slower: over 21 cm, TE3 falls 28 fs behind TE1 and TE7
 170 fs, and both stay inside the window. (Over the 50 cm of the second run below,
 TE7 falls 400 fs behind and runs into the collar, which absorbs it; by then it
 carries less than 1e-6 of the energy.) The y window holds the beam out to 2.5
-radii, where its intensity is 4e-6 of the peak, before the collar begins.
+radii, where its intensity is 4e-6 of the peak.
 
 :class:`~solprop.pulses.PlanarPulse` projects the Gaussian line focus onto the
 modes. Its energy is the incident beam's, so what falls on the plates is lost at the
@@ -304,7 +303,7 @@ entrance, as in the experiment.
 The statistics are recorded at every step as well as at the save planes: the
 energy for the transmission, and the peak intensity for the B integral.
 
-.. GENERATED FROM PYTHON SOURCE LINES 265-303
+.. GENERATED FROM PYTHON SOURCE LINES 264-294
 
 .. code-block:: Python
 
@@ -338,14 +337,6 @@ energy for the transmission, and the peak intensity for the B integral.
         grid, space, kerr, launch, settings=settings_for([LENGTH])
     )
 
-    # The persistent memory of the run, before anything is allocated:
-    # ``estimate_memory`` gives 1.95 GB at this size on the native backend, 1.28 GB of it
-    # the base group (the state, the stage buffers and the operator tables) and the rest
-    # the Adams history, for this run and for the seeded one below. The saved planes come
-    # on top, 38 MB each: two here, twelve there.
-    estimate = estimate_memory(clean.translate(), "auto")
-    print(f"estimated memory on {estimate.backend}: {estimate.total / 1e9:.2f} GB")
-
 
 
 
@@ -359,22 +350,21 @@ energy for the transmission, and the peak intensity for the B integral.
       gap:             127 um
       x nodes:         49 (slab rule)
       half-width in y: 18 mm, 1024 samples
-      spacing in y:    38.67 um
-      window factor:   0.1
+      spacing in y:    35.16 um
+      collar fraction: 0
       measure:         area: energy J, power W
-    estimated memory on native: 1.95 GB
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 304-308
+.. GENERATED FROM PYTHON SOURCE LINES 295-299
 
 The propagation
 ---------------
 Kerr only. The backend is the default, ``"auto"``, which is the native build where
 one is installed.
 
-.. GENERATED FROM PYTHON SOURCE LINES 308-341
+.. GENERATED FROM PYTHON SOURCE LINES 299-332
 
 .. code-block:: Python
 
@@ -427,13 +417,13 @@ one is installed.
                        peak_intensity
       between planes:  energy, on_axis_intensity, peak_intensity
       run:             RunMetadata(slab, envelope grid of 576, 0 modes, native,
-                       2026-10-31T16:02:14.626704+00:00)
+                       2026-11-04T09:24:30.738096+00:00)
     peak intensity in the guide at the entrance 3.25e+13 W/cm^2
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 342-349
+.. GENERATED FROM PYTHON SOURCE LINES 333-340
 
 The launch's modal shares
 -------------------------
@@ -443,7 +433,7 @@ against the Gaussian's projection. They agree to the quadrature of the x rule;
 Kerr effect moves a little energy between the modes while the loss damps the
 higher ones.
 
-.. GENERATED FROM PYTHON SOURCE LINES 349-358
+.. GENERATED FROM PYTHON SOURCE LINES 340-349
 
 .. code-block:: Python
 
@@ -472,7 +462,7 @@ higher ones.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 359-366
+.. GENERATED FROM PYTHON SOURCE LINES 350-357
 
 Transmission
 ------------
@@ -482,7 +472,7 @@ Arnold's closed form: each mode keeps its launched share and loses power at
 moves energy between modes, and because loss grows as :math:`\lambda^2` across the
 broadened spectrum.
 
-.. GENERATED FROM PYTHON SOURCE LINES 366-384
+.. GENERATED FROM PYTHON SOURCE LINES 357-375
 
 .. code-block:: Python
 
@@ -522,7 +512,7 @@ broadened spectrum.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 385-391
+.. GENERATED FROM PYTHON SOURCE LINES 376-382
 
 Spectral broadening
 -------------------
@@ -531,7 +521,7 @@ each against the entrance on its own decibel scale. The centre, where the intens
 is highest, broadens most; averaged over the beam, the wings add a narrower
 spectrum on top.
 
-.. GENERATED FROM PYTHON SOURCE LINES 391-419
+.. GENERATED FROM PYTHON SOURCE LINES 382-410
 
 .. code-block:: Python
 
@@ -575,7 +565,7 @@ spectrum on top.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 420-428
+.. GENERATED FROM PYTHON SOURCE LINES 411-419
 
 The compressed pulse
 --------------------
@@ -586,7 +576,7 @@ the highest peak power of the pulse at the beam centre, summed over the modes: t
 power per metre of y there. It returns the phase, the durations and the transform
 limit.
 
-.. GENERATED FROM PYTHON SOURCE LINES 428-471
+.. GENERATED FROM PYTHON SOURCE LINES 419-462
 
 .. code-block:: Python
 
@@ -651,13 +641,13 @@ limit.
       duration:   44.84 fs before, 9.185 fs after, 8.577 fs at the transform limit
       peak power: 18.89 TW before, 77.23 TW after, 90.72 TW at the limit
       quality:    0.8514 of the transform-limited peak power
-      search:     converged: Solution found. (88 evaluations)
+      search:     converged: Solution found. (78 evaluations)
     GDD -76 fs^2 compresses the centre from 44.8 fs to 9.2 fs (transform limit 8.6 fs; Akturk measured 13.6 fs with mirrors of about -300 fs^2)
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 472-485
+.. GENERATED FROM PYTHON SOURCE LINES 463-476
 
 Across the beam
 ---------------
@@ -673,7 +663,7 @@ see less self-phase modulation, so the centre's phase compresses them less. The
 share of the energy within 1.5 times the centre's duration is the number Arnold
 *et al.* (2010) give as 71 % (67.6 % measured).
 
-.. GENERATED FROM PYTHON SOURCE LINES 485-533
+.. GENERATED FROM PYTHON SOURCE LINES 476-524
 
 .. code-block:: Python
 
@@ -738,12 +728,12 @@ share of the energy within 1.5 times the centre's duration is the number Arnold
 
  .. code-block:: none
 
-    69.1% of the exit energy lies where the compressed pulse is shorter than 1.5 x 9.2 fs
+    69.4% of the exit energy lies where the compressed pulse is shorter than 1.5 x 9.2 fs
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 534-555
+.. GENERATED FROM PYTHON SOURCE LINES 525-549
 
 A beam that is not clean
 ------------------------
@@ -765,9 +755,12 @@ Near the end of this run its B integral runs away and the spectrum broadens, and
 light leaves the time window: the temporal collar takes 4.5e-6 of the launch energy
 with this 600 fs window, still 1.1e-6 with 800 fs, for half again the run time. The
 run accepts it explicitly: ``BoundaryCheck(budget=3e-3)`` lets the collar take up to
-9e-6 of the energy before the boundary monitor warns.
+9e-6 of the energy before the boundary monitor warns. The fine structure after
+break-up also reaches the y grid's outer wavenumbers, which the 1024 samples don't
+resolve: the safety ramp removes about 4e-5 of the launch energy, and the monitor
+says so below.
 
-.. GENERATED FROM PYTHON SOURCE LINES 555-584
+.. GENERATED FROM PYTHON SOURCE LINES 549-578
 
 .. code-block:: Python
 
@@ -804,10 +797,16 @@ run accepts it explicitly: ``BoundaryCheck(budget=3e-3)`` lets the collar take u
 
 
 
+.. rst-class:: sphx-glr-script-out
+
+ .. code-block:: none
+
+    BoundaryWarning: the safety ramp has removed 4.27e-05 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 585-590
+
+.. GENERATED FROM PYTHON SOURCE LINES 579-584
 
 The B integral of both runs along z: the model's own nonlinear phase at its peak,
 :math:`k_0 n_2 \int I_{\rm peak}\,dz`, with :math:`I_{\rm peak}` the largest
@@ -815,7 +814,7 @@ intensity anywhere in the beam at each step. The ripples are measured as the rms
 relative departure of the fluence from its own smooth part (wavenumbers below
 5e3 rad/m, periods above 1.3 mm) within one beam radius of the centre.
 
-.. GENERATED FROM PYTHON SOURCE LINES 590-643
+.. GENERATED FROM PYTHON SOURCE LINES 584-637
 
 .. code-block:: Python
 
@@ -885,32 +884,32 @@ relative departure of the fluence from its own smooth part (wavenumbers below
 
  .. code-block:: none
 
-    z =  0.0 cm: B =  0.00, fluence ripple 1.89e-05
-    z =  5.0 cm: B =  2.14, fluence ripple 1.47e-05
-    z = 10.0 cm: B =  4.24, fluence ripple 2.33e-05
-    z = 15.0 cm: B =  6.28, fluence ripple 6.76e-05
-    z = 20.0 cm: B =  8.29, fluence ripple 2.35e-04
-    z = 21.0 cm: B =  8.68, fluence ripple 3.03e-04
-    z = 25.0 cm: B = 10.24, fluence ripple 8.51e-04
-    z = 30.0 cm: B = 12.18, fluence ripple 3.13e-03
-    z = 35.0 cm: B = 14.22, fluence ripple 1.15e-02
-    z = 40.0 cm: B = 17.16, fluence ripple 4.31e-02
-    z = 45.0 cm: B = 33.33, fluence ripple 1.42e-01
-    z = 50.0 cm: B = 57.94, fluence ripple 1.74e-01
-    clean beam: B = 8.68 at the exit, ripple 1.7e-09
-    the ripple first exceeds 10 % at B = 33.3
+    z =  0.0 cm: B =  0.00, fluence ripple 1.90e-05
+    z =  5.0 cm: B =  2.14, fluence ripple 1.39e-05
+    z = 10.0 cm: B =  4.24, fluence ripple 2.14e-05
+    z = 15.0 cm: B =  6.28, fluence ripple 6.36e-05
+    z = 20.0 cm: B =  8.29, fluence ripple 2.29e-04
+    z = 21.0 cm: B =  8.68, fluence ripple 2.97e-04
+    z = 25.0 cm: B = 10.24, fluence ripple 8.59e-04
+    z = 30.0 cm: B = 12.18, fluence ripple 3.27e-03
+    z = 35.0 cm: B = 14.22, fluence ripple 1.25e-02
+    z = 40.0 cm: B = 17.18, fluence ripple 4.81e-02
+    z = 45.0 cm: B = 35.43, fluence ripple 1.60e-01
+    z = 50.0 cm: B = 62.10, fluence ripple 1.62e-01
+    clean beam: B = 8.68 at the exit, ripple 2.5e-08
+    the ripple first exceeds 10 % at B = 35.4
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 644-648
+.. GENERATED FROM PYTHON SOURCE LINES 638-642
 
 The seeded beam's fluence across y at every saved plane, and at the guide's own
 length and at 50 cm, beside the clean beam at 21 cm. The gain is largest where the
 intensity is, so the ripples should appear first at the centre of the beam, at
 about the MI period, and spread outwards as they deepen into filaments.
 
-.. GENERATED FROM PYTHON SOURCE LINES 648-667
+.. GENERATED FROM PYTHON SOURCE LINES 642-661
 
 .. code-block:: Python
 
@@ -945,14 +944,14 @@ about the MI period, and spread outwards as they deepen into filaments.
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 668-672
+.. GENERATED FROM PYTHON SOURCE LINES 662-666
 
 Runtime and reproducibility
 ---------------------------
 Two runs of four slab modes by 1024 samples in y by 576 in time: 21 cm with a clean
 beam and 50 cm with a seeded one.
 
-.. GENERATED FROM PYTHON SOURCE LINES 672-680
+.. GENERATED FROM PYTHON SOURCE LINES 666-674
 
 .. code-block:: Python
 
@@ -972,12 +971,12 @@ beam and 50 cm with a seeded one.
 
  .. code-block:: none
 
-    546 s; backend native, 18 threads
+    1293 s; backend native, 36 threads
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 681-687
+.. GENERATED FROM PYTHON SOURCE LINES 675-681
 
 Related reading
 ---------------
@@ -989,7 +988,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (9 minutes 5.933 seconds)
+   **Total running time of the script:** (21 minutes 33.146 seconds)
 
 
 .. _sphx_glr_download_auto_examples_waveguides_plot_06_planar_compressor.py:

@@ -1,0 +1,26 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# A self-phase-modulation supercontinuum in an argon gradient: the first shot (seed 0)
+# of the script's twenty-shot ensemble.
+# mirrors: docs/examples/supercontinuum/plot_01_spm_supercontinuum.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "SPM supercontinuum in argon"
+
+[build]
+radius = "225 um"
+length = "3 m"
+gas = "Ar"
+pressure = ["0 bar", "0.3 bar"]  # entrance to exit
+wavelength = "800 nm"
+fwhm = "40 fs"
+energy = "2000 uJ"
+trange = "1000 fs"
+wavelength_limits = ["160 nm", "4000 nm"]
+noise = "input"
+seed = 0
+n_save = 101

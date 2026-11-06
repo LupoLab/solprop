@@ -162,8 +162,9 @@ def _frame_term(
     (\omega-\omega_o)` of the gap's medium at the frame's reference frequency (its
     fixed values where it has them), the term a run's linear operator removes
     (:class:`solprop.linear.Frame`): :math:`\beta_0` only on an envelope grid that
-    subtracts it, and :math:`\omega_o` the reference frequency on an envelope grid,
-    zero on a field grid. In the reference this is the phase
+    subtracts it, and :math:`\omega_o` the reference frequency there and zero on
+    a field grid or on an envelope grid that keeps :math:`\beta_0`
+    (:func:`solprop.linear.frame_origin`). In the reference this is the phase
     :math:`(\beta_0-\omega_o\beta_1)L` and the delay :math:`\beta_1L`, as in
     :func:`solprop.coupling.plane.reference_at`. Without a frame only the delay
     :math:`\beta_1(\omega_0)L` at the grid's reference frequency is removed.

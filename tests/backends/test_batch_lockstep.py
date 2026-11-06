@@ -9,9 +9,10 @@ within a rounding budget (SEP 25), not to the bit.
 """
 
 import dataclasses
+import math
 from collections.abc import Sequence
 from contextlib import ExitStack
-from typing import cast
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -20,7 +21,6 @@ from bounds import assert_within, gamma, ladder_bound
 from solprop.backends import Backend, BatchBackend, select, select_batch
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.driver import StepDriver
-from solprop.backends.numba_cpu.batch import NumbaCpuBatchBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, BoundaryError
@@ -131,8 +131,8 @@ def statistics_bound(field, bound=FIELD_BOUND):
     [
         ("numpy_ref", LockstepRunner),
         ("numpy_ref", NumpyBatchBackend),
-        ("numba_cpu", LockstepRunner),
-        ("numba_cpu", NumbaCpuBatchBackend),
+        ("native", LockstepRunner),
+        ("native", select_batch),
     ],
 )
 @pytest.mark.parametrize("count", [1, 3])
@@ -141,6 +141,8 @@ def statistics_bound(field, bound=FIELD_BOUND):
 def test_lockstep_preserves_member_physics_noise_and_statistics(
     backend, runner_factory, count, noise, weighted
 ):
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         simulations = [simulation(index, backend, noise) for index in range(count)]
         if weighted:
@@ -203,7 +205,7 @@ def test_lockstep_interleaves_members_at_each_fixed_step(monkeypatch):
         assert len({(z, dz) for _, z, dz in visited[start : start + 3]}) == 1
 
 
-@pytest.mark.parametrize("backend", ["numba_cpu", "native"])
+@pytest.mark.parametrize("backend", ["native"])
 @pytest.mark.parametrize("noise", [None, "input", "modified"])
 def test_batch_agrees_with_numpy_oracle(backend, noise):
     if backend == "native":
@@ -241,9 +243,10 @@ def test_batch_agrees_with_numpy_oracle(backend, noise):
 
 
 def test_lockstep_refuses_mixed_backends():
+    pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         members = tuple(
-            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "numba_cpu")
+            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
         with pytest.raises(BackendError, match="mixed backends"):
             LockstepRunner(members)
@@ -268,6 +271,61 @@ def test_lockstep_refuses_shared_history_observation_and_closes_members():
         runner.close()
         with pytest.raises(BackendError, match="closed"):
             owner.observe()
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_field_free_observation_moves_no_field_and_keeps_each_member_s_record(
+    backend,
+):
+    # solprop #299: a scan that keeps no field of a plane asks for none. Each member's
+    # position, history and statistics are what the same march observes with its field.
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2)
+    with ExitStack() as cleanup:
+        kept = LockstepRunner(
+            tuple(loaded(simulation(i, backend), cleanup) for i in range(2))
+        )
+        cleanup.callback(kept.close)
+        free = LockstepRunner(
+            tuple(loaded(simulation(i, backend), cleanup) for i in range(2))
+        )
+        cleanup.callback(free.close)
+        kept.propagate_to(0.0005)
+        free.propagate_to(0.0005)
+        for theirs, ours in zip(
+            kept.observe_members(), free.observe_members(field=False), strict=True
+        ):
+            assert theirs.field is not None
+            assert ours.field is None
+            assert ours.noise_phase is None
+            assert ours.z == theirs.z
+            np.testing.assert_array_equal(ours.step_history.z, theirs.step_history.z)
+            np.testing.assert_array_equal(ours.step_history.dz, theirs.step_history.dz)
+            np.testing.assert_array_equal(
+                ours.step_history.error_norm, theirs.step_history.error_norm
+            )
+            np.testing.assert_array_equal(ours.step_stats.z, theirs.step_stats.z)
+            for name, row in theirs.step_stats.values.items():
+                np.testing.assert_array_equal(ours.step_stats.values[name], row)
+        statistics = free.stats(spec)
+        assert statistics.keys() == kept.stats(spec).keys()
+        for name, value in kept.stats(spec).items():
+            np.testing.assert_array_equal(statistics[name], value)
+        # A field after a field-free plane is the march's own, not a stale copy.
+        kept.propagate_to(0.001)
+        free.propagate_to(0.001)
+        last = free.observe_members()
+        for theirs, ours in zip(kept.observe_members(), last, strict=True):
+            np.testing.assert_array_equal(ours.field, theirs.field)
+        if backend == "native":
+            # One field to the host in that last observation, and none before it.
+            field = cast(np.ndarray, last[0].field)
+            for member in cast(Sequence[Any], free._members):
+                assert (
+                    member._native_state.crossed_bytes()[0]
+                    == math.prod(field.shape) * 16
+                )
 
 
 def test_lockstep_refuses_empty_members():
@@ -340,9 +398,10 @@ def test_lockstep_refuses_a_monitor_per_member_miscount():
 def test_batch_registry_refuses_empty_and_mixed_owners():
     with pytest.raises(BackendError, match="at least one"):
         select_batch([])
+    pytest.importorskip("solprop_native")
     with ExitStack() as cleanup:
         members = tuple(
-            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "numba_cpu")
+            loaded(simulation(0, name), cleanup) for name in ("numpy_ref", "native")
         )
         with pytest.raises(BackendError, match="mixed backends"):
             select_batch(cast(Sequence[Backend], members))

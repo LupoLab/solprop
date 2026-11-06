@@ -85,7 +85,7 @@ GRID = EnvelopeGrid.from_limits(LENGTH, 800e-9, (650e-9, 1000e-9), 1.2e-12)
 COLLAR = absorber(GRID, boundary_length=1.0e3)
 """A collar a million times weaker than the default, present but inert (ADR-025)."""
 
-BACKENDS = ["numpy_ref", "numba_cpu"]
+BACKENDS = ["numpy_ref"]
 if importlib.util.find_spec("solprop_native") is not None:
     BACKENDS.append("native")
 
@@ -144,7 +144,7 @@ def test_a_te_slab_run_accumulates_the_closed_form_b_integral():
     agreement is limited by what the closed form leaves out: the index factors
     n0/n_eff of the true-power amplitude and the prefactor (argon's n - 1 ~ 3e-4),
     and dispersion over L/L_D ~ 1e-3; the ten DOPRI5 steps add far less. Measured
-    1.2e-4; the bound is 2e-3.
+    8.5e-5; the bound is 2e-3.
     """
     mode = SlabMode(HALF_GAP, cladding=1.45)
     output = prop_waveguide(

@@ -36,8 +36,8 @@ from solprop.constants import EPS0, C
 from solprop.driver import tdse
 from solprop.exceptions import (
     BackendError,
+    DriverError,
     MaterialError,
-    MemoryBudgetError,
     TDSEDomainWarning,
     TDSEUnqualifiedModelWarning,
 )
@@ -208,7 +208,7 @@ def test_measured_memory_above_the_limit_is_refused_before_any_call(fake, which)
         fake.model_bytes = 10**9
     else:
         fake.plan_bytes = 10**9
-    with pytest.raises(MemoryBudgetError, match="combined persistent-data"):
+    with pytest.raises(DriverError, match="TDSE persistent data"):
         _bind(descriptor, TDSEExecution(memory_limit=estimate + 10**6), 3)
     assert fake.calls == []
     assert fake.events[-1] == "close-model"
@@ -947,7 +947,7 @@ def test_overlapping_plans_would_have_exceeded_that_limit(fake):
         descriptor, TDSEExecution(max_batch_rows=2, memory_limit=limit)
     )
     field, spacing = _protocol()
-    with pytest.raises(MemoryBudgetError):
+    with pytest.raises(DriverError):
         binding.diagnostic_currents(field, spacing)
     binding.close()
 
@@ -965,7 +965,7 @@ def test_a_failed_deferred_build_closes_every_resource(fake, failure):
         execution = TDSEExecution(max_batch_rows=2)
     binding: Any = _deferred(descriptor, execution)
     fake.failure, fake.fail_rows = failure, 1
-    expected = MemoryBudgetError if failure == "memory" else BackendError
+    expected = DriverError if failure == "memory" else BackendError
     with pytest.raises(expected):
         binding.build_plans()
     assert fake.events[-1] == "close-model"

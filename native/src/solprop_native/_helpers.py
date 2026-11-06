@@ -6,7 +6,7 @@
 
 solprop's driver, Adams march and engines take the stage tables' Chebyshev rows and
 the Adams basis from the backend that runs them (``StepDriver.helpers``, solprop
-SEP 29 section 6.6), so that a native run never reaches solprop's Numba dispatchers
+SEP 29 section 6.6), so that a native run never reaches solprop's Python forms
 and the NumPy reference never reaches this package. :data:`NATIVE` is this backend's
 record: the C++ transcriptions in ``include/solprop_native/chebyshev.hpp`` and
 ``lagrange_basis.hpp``, which perform solprop's operations in its order under strict

@@ -4,7 +4,9 @@ How solprop's performance is measured and judged, and what the measurements so f
 indicate. A performance claim names what it measured, the build, the machine and the
 result; the rules below say how to take it. The numbers in the indicative sections are
 indicative: each was measured once, on one machine, for one change. Re-measure before
-relying on any of them.
+relying on any of them. Rows naming `numba_cpu` record a backend that
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired; they can no longer be re-measured, and
+stay as what was measured.
 
 ## Where things are
 
@@ -40,7 +42,7 @@ relying on any of them.
   `(candidate median + 2 MAD) / (before median − 2 MAD)` below one, a non-positive
   denominator counting as unresolved. Small regressions on individual cases, or at one
   thread, are accepted when the aggregate improves; they stay visible in the table and
-  do not veto the change. Numerical bounds are never relaxed to make a change pass.
+  do not automatically veto the change. Numerical bounds are never relaxed to make a change pass.
   The A/A spread of the same comparison says how large a difference has to be to count
   ([comparing two builds](benchmarking.md#comparing-two-builds-while-iterating)).
 
@@ -81,12 +83,6 @@ baseline runs beside every ratio; a difference inside it is not a result.
 machine record, the per-case table with medians and spreads, the declared aggregate and
 its verdict, and any case that regressed. Concise evidence belongs in the change
 description; raw runs stay local.
-
-**Numba's on-disk cache.** Clear it
-(`find src -name '__pycache__' -type d -prune -exec rm -rf {} +`) before timing in a
-worktree that has run the suite many times: tens of thousands of cache files slow every
-tool that walks the tree. Numba's startup includes compilation or cache loading and is
-not a reproducible cold-compilation measurement.
 
 (benchmark-results)=
 ## Indicative results
@@ -149,6 +145,49 @@ the MKL build keeps the custom complex kernel, and level elsewhere.
 data-centre NVIDIA GPU and the HIP build on an AMD Instinct GPU ran 2.7 to 18 times faster
 than the Kokkos OpenMP build on all 18 cores of the server, the graded-index general route
 most. These grids are small for a device; the ratios say nothing about large grids.
+
+### The tracking set on the release wheel, without Numba
+
+[SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)'s final tree against the history's 0.1.0 rows:
+`python -m benchmarks track` with CI's `cp314-abi3` wheel at its x86-64-v3 build, three repeats,
+passive threading, an exclusively allocated AMD EPYC 7763 node at 1 and 16 threads. The rows
+aren't appended, because the history holds releases.
+
+| case | threads | now, s | 0.1.0 native, s | ratio | 0.1.0 `numba_cpu` over now |
+|---|---:|---:|---:|---:|---:|
+| `gnlse_raman_shock` | 1 | 43.57 | 44.16 | 0.987 | 1.24 |
+| `gnlse_soliton` | 1 | 0.583 | 0.578 | 1.009 | 1.60 |
+| `rdw` | 1 | 11.71 | 11.63 | 1.007 | 1.80 |
+| `he_rdw_averaged` | 1 | 1.075 | 1.058 | 1.016 | 2.63 |
+| `argon_blueshift` | 1 | 26.50 | 26.44 | 1.002 | 1.86 |
+| `argon_blueshift_averaged` | 1 | 3.941 | 3.920 | 1.005 | 2.79 |
+| `argon_blueshift_envelope` | 1 | 1.250 | 1.240 | 1.008 | 1.98 |
+| `h2_raman_averaged` | 1 | 6.101 | 6.119 | 0.997 | 2.40 |
+| `kerr_beam_192` | 1 | 13.34 | 12.07 | 1.105 | 1.45 |
+| `gnlse_raman_shock` | 16 | 39.05 | 37.84 | 1.032 | 1.37 |
+| `gnlse_soliton` | 16 | 0.587 | 0.582 | 1.007 | 1.62 |
+| `rdw` | 16 | 5.112 | 5.148 | 0.993 | 3.18 |
+| `he_rdw_averaged` | 16 | 0.770 | 0.785 | 0.980 | 3.70 |
+| `argon_blueshift` | 16 | 9.852 | 9.861 | 0.999 | 2.30 |
+| `argon_blueshift_averaged` | 16 | 3.271 | 3.261 | 1.003 | 3.37 |
+| `argon_blueshift_envelope` | 16 | 1.123 | 1.322 | 0.850 | 2.22 |
+| `h2_raman_averaged` | 16 | 5.163 | 5.250 | 0.983 | 2.82 |
+| `ctc` | 16 | 108.4 | 111.5 | 0.972 | 2.44 |
+| `grin_nonlinear` | 16 | 20.50 | 21.17 | 0.969 | 1.79 |
+| `kerr_beam_384` | 16 | 29.10 | 25.26 | 1.152 | 1.24 |
+
+The geometric mean is 1.002, with the same steps on all twenty, and Numba's rows are 2.08 times
+slower. These are runs on different days, so a few per cent is not a result. `radial_filament_256`
+is left out, since its guide changed at revision 2.
+
+- **`kerr_beam`:** the rise isn't the removal. The branch against the `main` it came from gave 0.9956
+  and 0.9994 on these rows, with identical fields. Its size matches
+  [the transverse edge's read cost](#the-transverse-edge-and-a-requested-collar), +10.5 % on the
+  Cartesian case there, though this comparison didn't bisect it.
+- **The same work on the Xeon Gold 6240:** at one thread, the same steps and ratios of 0.99 to 1.04
+  in two runs, apart from `kerr_beam_192` at 1.18 to 1.20 and `rdw` at 0.99 to 1.09. At 36 threads
+  the two runs of one wheel differ from each other by 0.84 to 1.57 per configuration, unpinned across two
+  sockets, so the 36-thread column gives no verdict.
 
 ### Kokkos CPU operation-size threading
 
@@ -568,6 +607,43 @@ as much as the `energy` statistic and is 30 to 37 times faster than the host pas
 replaced (which cost 77–84 % of a step). On Kokkos CPU it is compute-bound (square roots
 and saturated `tanh` weights), 15–16 times `energy`.
 
+The per-row profile and shape of kernel schema 45 (#446) left a set of circles' path alone.
+Measured on the pass alone, `NativeBackend.stats` of `aperture_spectrum` and `beam_spectrum`
+called seven times per process on a held 192 × 192 × 192-bin state of a Cartesian grid,
+interleaved old and new builds in four rounds, native CPU at 8 threads on an Intel Xeon Gold
+6240, GCC 16.2. The machine was shared and each round's numbers moved by up to 60 %
+between runs, so the fastest round of each arm is the figure (ms per call, before → after):
+three hard holes 31.75 → 32.16 (+1.3 %), three hard holes on one centre, with the radius
+shared, 32.26 → 32.69 (+1.3 %), three `tanh` holes 79.42 → 76.74 (−3.4 %), sixteen `rcos`
+holes 103.4 → 89.7 (−13 %). The results of both backends on these sets were identical to the
+bit. A shape other than a circle forms its offsets and takes one more branch per row and
+element. That comparison is indicative; the far-field pass runs at save planes and periodic
+rows only. The whole-run check is `python -m benchmarks ab --case rdw --case far_field_stats
+--threads 1,16 --length 0.1 --rounds 5 --repeats 1`, an exclusive AMD EPYC 7763 node, GCC 16.2,
+base f004a662: candidate/baseline `far_field_stats` 0.994 at one thread (21.48 → 21.38 s) and
+0.994 at 16 (4.699 → 4.696 s), `rdw` 0.997 at both, geometric mean 0.995, the fields agreeing
+to 6e-15 and the same work on every row. Those holes are circles; the new shapes were not timed
+there.
+
+On a device (#364): one `stats` call of `aperture_spectrum` on the marched field, `rcos` edges
+and quadrature weighting, the median of six in one process, against one low-storage RK4IP step
+of the same process. NVIDIA H200 with CUDA 13.1 and AMD Instinct MI325X with ROCm 10, 2026-11-04.
+
+| Grid | Holes | H200 call / ms | of a step | MI325X call / ms | of a step |
+|---|---:|---:|---:|---:|---:|
+| 384² × 600 | 4 circles | 6.2 | 11.6 % | 6.1 | 9.9 % |
+| 384² × 600 | 16 circles | 13.6 | 25.3 % | 14.6 | 23.9 % |
+| 768² × 600 | 4 circles | 15.4 | 6.5 % | 14.4 | 6.5 % |
+| 768² × 600 | 16 circles | 33.3 | 14.1 % | 33.8 | 15.2 % |
+| 768² × 600 | 4 mixed shapes | 16.0 | 6.7 % | 16.7 | 7.5 % |
+| 768² × 600 | 16 mixed shapes | 36.9 | 15.6 % | 44.7 | 20.0 % |
+
+A step takes 53.9 and 236 ms on the H200, 61.0 and 223 ms on the MI325X. So at a few steps per
+saved plane the pass is under 5 % of the plane, and SEP 23 §6's registers and groups have
+little left to win: the pass costs about 1.5 ms per hole on top of the 9 ms `beam_spectrum`
+takes, and even sixteen holes cost less than the 54 ms (H200) and 80 ms (MI325X) of `energy` on
+the same field.
+
 ### Raman kernel rebuild
 
 On a density gradient the Raman kernel is rebuilt at every stage, and its cost scales with
@@ -689,6 +765,331 @@ the spatial cases of 60 fixed steps: radial 256 1.36 → 1.01, Cartesian 64² 1.
 Cartesian 128² 1.28 → 1.06. The unmonitored path is unchanged:
 `python -m benchmarks ab` at one thread on the same node gives 1.000 (GNLSE soliton),
 1.005 (radial filament) and 1.005 (Kerr beam) for the three cases above.
+
+**What the split finds** (the guards judged on the power each step's split finds,
+halfway through its factor, and the split collar's crossing limit, #127 and #149). The
+finish's removal pass sums four more numbers of the samples it already holds, on every
+accepted step under the split scheme while a monitor is attached. Only a check reads
+them, but a saved plane is checked whatever the cadence said of its step, and the
+native marches decide their own steps; forming them only on the steps that end at a
+check would save a few multiply-adds per sample already in hand, at the cost of telling
+every march which steps those are. They are formed on every step. Measured on an Apple M5 Max (Homebrew Clang 23, NEON FFTW
+3.3.11, one thread, a shared machine: ratios only), a tenth of each guide, before the
+change (its parent on `main`) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after | `ab`, unmonitored |
+|---|---|---:|---:|---:|
+| radial filament 256 | native | 1.028 | 1.030 | 1.018 |
+| line | native | 1.666 | 1.660 | 1.001 |
+| planar | native | 1.469 | 1.470 | 1.001 |
+
+The first two columns are the same-process comparison above (shortest of five after a
+warm-up, alternated); the last is `python -m benchmarks ab --length 0.1 --rounds 3`,
+the median ratio of candidate to baseline over paired rounds. Within the machine's
+spread both ways; the line and planar cases' monitored cost is the transverse edge's
+reads (#396). The steps are the same: on these cases the crossing limit does not bind.
+
+**The crossing cap read at every check** (#440). Under the split scheme each check also
+sums the state's energy per walk-off bucket, one more pass over the state where it lives
+(a histogram of 128 buckets: NumPy's `bincount` on the host, a Kokkos `ScatterView` in
+native, a scatter-add on the `mlx` device). Measured as above, the same machine and
+window, before (the previous head of this branch) and after:
+
+| case, a tenth of the guide | backend | monitored / unmonitored, before | after |
+|---|---|---:|---:|
+| radial filament 256 | native | 1.031 | 1.039 |
+| line | native | 1.658 | 1.698 |
+| planar | native | 1.470 | 1.484 |
+
+One to two and a half per cent of the run on the shared machine, about a third of a check's own
+cost. The Cartesian filament 128² takes 1.158 monitored over unmonitored before; its
+after was not timed, at fifteen minutes a pair at one thread. The steps are unchanged
+on every case: the cap never fell below a step these runs took.
+
+### The transverse edge and a requested collar
+
+[SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md) puts a k⊥ safety ramp
+and reads of the transverse edge on every free-space run by default, and builds a real-space
+collar on request. The default's cost was measured as the monitor's was above, with each case
+built by the harness's builder and run four ways in the same process:
+
+- with neither the ramp nor reads;
+- with the ramp alone;
+- with reads alone;
+- with both.
+
+The four were interleaved, six rounds each. The setup: a Xeon Gold 6240, one socket,
+18 threads, GCC 16.
+
+| case | steps (no reads → reads) | both, native | both, `numba_cpu` |
+|---|---:|---:|---:|
+| line | 27 → 28 | +14.0 % | +6.4 % |
+| planar | 40 → 40 | 0.0 % | −1.1 % |
+| radial filament 256 | 127 → 127 | +2.2 % | −0.1 % |
+| Cartesian filament 128, half length (its light reaches the edge) | 40 → 41 | +10.5 % | +2.6 % |
+
+The ramp alone costs nothing measurable. Reading costs in two ways. The read ceiling,
+`min(L/16, 4g/v_q)`, adds a step on the line and Cartesian cases. Each read also has a
+host cost: about 1 ms on the line case's 0.2 s run, and about 180 ms on the native
+Cartesian filament. Both are open in [#396](https://github.com/LupoLab/solprop/issues/396);
+[the edge against 0.1.0](#the-transverse-edge-against-010) has the later measurements.
+
+A requested collar was measured on the suite's `spatial_absorber` case, a 0.9 P_cr argon
+beam over 8 cm with 64 samples across its 3e-4 m aperture. The table gives the field error
+on the aperture against a bare wall at 8 R:
+
+| transverse room | wall | error | translate | run, native | run, `numba_cpu` |
+|---|---|---:|---:|---:|---:|
+| 3 R | bare | 1.2e-7 | — | 0.22 s | 1.24 s |
+| 3.6 R | collar, f = 2.6 | 2.3e-6 | 6.4 s | 0.74 s | 2.27 s |
+| 4.5 R | collar, f = 3.5 | 5.0e-7 | 8.2 s | 1.08 s | 2.24 s |
+
+Most of a collar's cost is its design check at translation. That check also raised the
+process's peak memory from 0.45 to 0.68 GB. The SEP's phase 3 report has the full tables.
+
+### The native read of the transverse edge
+
+[SEP 44](seps/archive/sep-0044-native-edge-read.md) reads the edge on the state's own memory, with only numbers returning. Its Part II holds the measurements phase by phase, and [the next section](#the-native-read-on-the-data-centre-cards) those on an NVIDIA H200 and an AMD Instinct MI325X.
+
+Against itself, SEP 40's four-way control, `python -m benchmarks.edge_overhead`, native at 18 threads of an Intel Xeon Gold 6240, 5 rounds, default check against no ramp and no reads:
+
+| case | neither (s) | default (s) | added | reads |
+|---|---:|---:|---:|---:|
+| `line` | 0.227 | 0.263 | +15.8 % | 23 |
+| `planar` | 0.126 | 0.136 | +7.6 % | 23 |
+| `radial_filament_256` | 1.335 | 1.389 | +4.1 % | 21 |
+| `kerr_beam_192` | 1.837 | 1.989 | +8.3 % | 4 |
+
+`line` takes 224 calls where it took 196, which is the read ceiling on the step and not a read's cost. SEP 40 section 7.7's 2 % limit is retired: the cost is to be as small as possible, and reported.
+
+Against the code before it, `python -m benchmarks ab`, `e49925d1` to this stack, 3 rounds, passive threads, 18 cores available, the same work and fields within 4.2e-15:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `kerr_beam_192` | 0.903 | 0.483 |
+| `radial_filament_256` | 0.987 | 0.796 |
+| `line` | 0.996 | 0.938 |
+| `planar` | 0.994 | 0.835 |
+
+The geometric mean is 0.85. A requested collar's read, at 384 x 384 x 600 on those 18 cores, one state: the current at each commit 116 ms against the host's 7.36 s, and a read with its strip 0.94 s against 41.9 s, against a step of 2.97 s. On an NVIDIA A40 with 16 host threads, 36 ms against 1.54 s, and 204 ms against 7.98 s, against 0.70 s.
+
+### The native read on the data-centre cards
+
+An NVIDIA H200 (driver 580.196.07, `nvcc` 13.1, an Intel Xeon Platinum 8592+ host, 24 cores) and an AMD Instinct MI325X (ROCm 10.0.0, `gfx942`, an AMD EPYC 9575F host, 20 cores), one rented machine each. The H200's figures are at `8cd170e2`, on 2026-11-05. The MI325X's are at `9a5d2346`, which still took a device's split collar [a whole state at a time](#a-device-step-beyond-its-transforms): by that section's control the node chunk adds 2.2 % to its step, and it hasn't the threaded finiteness pass, which took 0.17 s of each point. "Start" is the same probe on [the default check's section](#the-default-check-on-a-device-reads-occupancy-and-sums)'s base, with no work from these changes.
+
+`python -m benchmarks.device_split`, field-free, a stated input identity, `held_plane=False`, the first of a runner's points set apart:
+
+| | H200, start | H200, now | MI325X, start | MI325X, now | Aim |
+|---|---:|---:|---:|---:|---|
+| 768 x 768 x 600, 8 steps, 4 planes: check on, s | 70 | 2.58 | 29 | 2.68 | under 8, under 6 |
+| The same, check off, s | 5.9 | 1.98 | 4.2 | 2.00 | |
+| On against off | x11.9 | x1.30 | x6.9 | x1.34 | under x2 |
+| 384 x 384 x 600, 51 steps, 17 planes: on against off | x12.6 | x1.23 | not run | x1.20 | under x1.25 |
+| State crossings of the 8-step point | 13 | 0 | 13 | 0 | 0 |
+| A step at 768, ms | 239 | 223 | 224 | 208 | |
+| An edge read, ms | about 4,300 | 25 | about 1,000 | 31 | under half a step |
+| The temporal monitor's sums, each step, ms | | 24 | | 32 | |
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 159 | 506 | 106 | under 300 |
+| `energy`, ms | 55 | 2.3 | 80 | 6.7 | under 10 |
+| `on_axis_intensity`, ms | | 11.7 | | 14.1 | |
+| `beam_radius`, `fwhm_r`, ms | about 1,000 | 43 | about 1,000 | 44 | |
+| `peak_intensity`, ms | 134 | 75 | 164 | 74 | |
+
+The crossings are native's own byte count in `tests/backends/test_native_edge_reading.py`, which ran on both cards, and the point's profile, which lists no crossing. No separate Kokkos trace was taken on these cards. At 51 steps the temporal monitor's sums take most of what the check still costs: on the H200 0.38 s of 0.58 s, and the edge's 18 reads 0.11 s.
+
+**At the head, on an AMD Instinct MI300X** ([#541](https://github.com/LupoLab/solprop/issues/541)). This ran the later commits the MI325X above did not: ROCm 10.0.0, `gfx942`, an Intel Xeon Platinum 8568Y+ host, 20 cores, at `c0bd23f2`, on 2026-11-06. `pytest -m gpu` passed over `tests`, 251 with 1 skipped, and over `native/tests`, 31. The modules of the edge, the collar, the split rows, the transverse backends, the scans, the runner and the stop passed too, 270 with 3 skipped. The same probe at 768 x 768 x 600, 8 steps, 4 planes, takes 2.87 s with the check on and 2.13 s with it off, x1.35. At 384 x 384 x 600, 51 steps, 17 planes, the check costs x1.19. At 768 a step takes 241 ms and an edge read 32 ms. `field_to_host` takes 168 ms, `energy` 6.7, `on_axis_intensity` 14.5, `beam_radius` and `fwhm_r` 48, and `peak_intensity` 78. Every aim holds. These figures are the MI300X's own, not the MI325X's at a later commit. A whole `Local` scan of 5 points through `with_input`, check on, ran two rounds each way, and every point finished. Keeping the backend took 768 x 768 x 600, 8 steps, from 37.4 and 36.2 s to 29.2 and 28.9 s, x0.79, and 384 x 384 x 600, 51 steps, from 27.7 and 27.0 s to 23.7 and 23.7 s, x0.87. With the far field's `clang fp contract(off)` removed, as on #497's base, 31 of the hard-edge fuzz's 120 cases fail (12 of the circle's 40 seeds, 19 of the ellipse's, none of the half-plane's), and so does the older hard-edge test. So the fuzz sees that bug on HIP too.
+
+`python -m benchmarks ab --device` against `main` at `8ed26dd7`, 3 rounds, the same work:
+
+| | H200 | Fields | MI325X | Fields |
+|---|---:|---:|---:|---:|
+| `kerr_beam_384` | 12.491 s to 0.640 s, x0.051 | 6.2e-16 | 5.101 s to 0.606 s, x0.117 | 6.1e-16 |
+| `kerr_beam_192` | 1.535 s to 0.219 s, x0.141 | 5.2e-16 | 0.807 s to 0.111 s, x0.138 | 5.8e-16 |
+
+A requested collar at 384 x 384 x 600, one state, field-free, native against the host's reduction of a host copy, with a step of 72 ms on both:
+
+| | Current, each commit | Read with its strip and regions |
+|---|---:|---:|
+| H200 | 4.5 ms against 2,719 ms | 18.7 ms against 12,936 ms |
+| MI325X | 3.9 ms against 1,218 ms | 14.1 ms against 6,205 ms |
+
+**On an AMD EPYC 7763,** 16 cores of an exclusive two-socket node, `SOLPROP_FFTW_PLAN=measure`, `--threading passive`, at `ccd701d5` against 0.1.0, interleaved over three rounds. Both arms used this branch's harness, with the local change [described below](#the-transverse-edge-against-010) giving 0.1.0 the same grids. Every row took the same steps. Medians of the per-round pairs:
+
+| Row | Threads | 0.1.0 (s) | This branch (s) | Ratio | Range | Final field |
+|---|---:|---:|---:|---:|---:|---:|
+| `kerr_beam_192` | 1 | 12.05 | 12.75 | 1.059 | 1.052–1.067 | 1.8e-7 |
+| `kerr_beam_192` | 16 | 3.19 | 2.88 | 0.902 | 0.899–0.911 | 1.8e-7 |
+| `kerr_beam_384` | 1 | 100.53 | 108.60 | 1.080 | 1.080–1.081 | 1.2e-15 |
+| `kerr_beam_384` | 16 | 25.35 | 23.79 | 0.941 | 0.938–0.943 | 1.2e-15 |
+
+The aim was under x1.08, from x1.07 to x1.18. Three rows meet it, and `kerr_beam_384` at one thread doesn't quite, at x1.0803, which the maintainer accepted. That's the row the removal of `READ_RESOLUTION` was expected to cost, and it was x1.067 with it, though these runs don't separate that from the branch's other changes. `kerr_beam_192`'s 1.8e-7 is SEP 40's safety ramp, which 0.1.0 doesn't have: at 16 threads, with `spatial_absorber=False`, this branch's final field is within 5.4e-16 of 0.1.0's, and with the ramp on it reproduces the 1.8e-7.
+
+**What a run holds.** After three runs at 768 x 768 x 600 the ledger totals 38.96 GiB on the H200 and 39.64 GiB on the MI325X, for a state of 5.27 GiB. FFT plans are the largest row, 21.09 GiB and 22.02 GiB. The state, the register and the scratch are 5.27 GiB each, and the ring 1.5 GiB and 1.25 GiB. Each plan's own work area is why ([#529](https://github.com/LupoLab/solprop/issues/529)).
+
+**What a march costs in Python** ([#110](https://github.com/LupoLab/solprop/issues/110)), the wall time outside native calls, on the same harness, 600 fixed calls at most:
+
+| Route, grid, march | H200 | MI325X |
+|---|---:|---:|
+| Cartesian 32, 64, 128, 256, low-storage | 26, 21, 6.8, 1.2 % | 13, 8.4, 4.0, 0.7 % |
+| Cartesian 32, 64, 128, Runge-Kutta | 21, 13, 4.8 % | 13, 7.9, 2.1 % |
+| Radial 64, 256, Runge-Kutta | 17, 11 % | 10, 2.4 % |
+| Cartesian 64, radial 64, native Adams | 0.6, 1.1 % | 0.6, 0.6 % |
+
+**A lockstep batch's observation** ([#299](https://github.com/LupoLab/solprop/issues/299)), `Batch(8)` of a fibre on native, 8 steps a plane: with a member's field an observation took 5.2 to 6.6 ms of a plane interval of 23 to 28 ms on the H200, 22 to 23 %, and 2.6 to 2.8 ms of 13 to 18 ms on the MI325X, 13 to 16 %, for `n_omega` from 768 to 32,768. On the CPU it was 1 to 4 %. A plane no one reads now takes 0.23 ms on the H200, about 1 %, and its interval falls to 18 to 21 ms. The statistics at each plane, 0.8 to 2.1 ms, are unchanged.
+
+**A scan worker's backend** ([#298](https://github.com/LupoLab/solprop/issues/298)), in a warm process on the H200, default check, the median of 3:
+
+| | Build the simulation | Translate | Point, new backend | Point, kept |
+|---|---:|---:|---:|---:|
+| 768 x 768 x 600, 8 steps, 4 planes | 4.80 s | 3.68 s | 4.69 s | 2.59 s |
+| 384 x 384 x 600, 51 steps, 17 planes | 1.39 s | 0.93 s | 4.24 s | 3.26 s |
+
+So a `Local` scan on a device now keeps the backend while each point is the last but for its input, which is what `Simulation.with_input` gives. On those two windows that saves 45 % and 23 % of a point's own time, and a builder that shares its base skips the first two columns too. A whole scan has only been timed on an NVIDIA A40, whose binary64 step is slow beside what it saves: 5 points through `with_input`, default check, 8 steps, two rounds of each, 37.3 s to 32.7 s at 384 x 384 x 600, x0.88, and 153.9 s to 141.7 s at 768 x 768 x 600, x0.92.
+
+**The transverse size** ([#529](https://github.com/LupoLab/solprop/issues/529)). Each plan takes a work area, one state's each for the rank-3 pair and, at some sizes only, for the rank-2 pair. So the plans hold two or four states, and the point's memory and its seconds per GiB depend on the size. On the H200, 8 steps, check off:
+
+| N x N x 600 | State, GiB | Plans, GiB | Total, GiB | Point, s | Seconds per GiB of state |
+|---:|---:|---:|---:|---:|---:|
+| 720 | 4.64 | 18.56 | 34.49 | 1.905 | 0.411 |
+| 750 | 5.03 | 10.06 | 27.18 | 1.774 | 0.353 |
+| 768 | 5.27 | 21.09 | 38.96 | 1.987 | 0.377 |
+| 800 | 5.72 | 11.45 | 30.67 | 2.078 | 0.363 |
+| 864 | 6.67 | 26.70 | 48.80 | 2.515 | 0.377 |
+| 900 | 7.24 | 14.48 | 38.30 | 2.373 | 0.328 |
+
+**One work area.** A device's plans of the scratch now share one, as cuFFT's guide allows for plans launched one after another, so the table's Plans column is what each size held before. On an NVIDIA A40, CUDA 12.8.1, 8 steps, check off, two interleaved rounds of three runs each, against the commit before:
+
+| N x N x 600 | Plans, GiB | Total, GiB | Point, s |
+|---:|---:|---:|---:|
+| 384 | 2.64 to 1.32 | 8.04 to 6.73 | 4.84, 4.94 to 4.86, 4.79 |
+| 750 | 10.06 to 5.03 | 26.68 to 21.66 | 20.24, 20.19 to 20.28, 20.10 |
+| 768 | 21.09 to 5.28 | 38.46 to 22.64 | 21.37, 21.41 to 21.37, 21.46 |
+| 900 | 14.48 to 7.24 | 37.80 to 30.56 | 28.74, 28.61 to 28.64, 28.50 |
+
+`python -m benchmarks ab --device --length 0.3`, 3 rounds, the same steps and final fields with no difference: `kerr_beam_384` x0.994 (0.984–1.048), `kerr_beam_192` x1.030 (1.001–1.035, a window of two steps). So a size no longer costs more memory for its rank-2 pair, and 768 x 768 x 600 now holds less than 900 x 900 x 600. The size still sets the seconds per GiB.
+
+rocFFT's plans share it as well. On an AMD Instinct MI300X (ROCm 10.0.0, `gfx942`) at `c0bd23f2`, 8 steps, check off, the plans grow by 1.35, 5.07, 5.76 and 7.28 GiB at 384, 750, 768 and 900 x 900 x 600, and a run holds 7.01, 21.95, 23.37 and 30.85 GiB. Asked of rocFFT directly, in place, Z2Z, a rank-3 plan with the frequency innermost (rocFFT lengths `{T, N, N}`, which rocFFT lists innermost first) has a work area of one state at every N from 320 to 1200 and every T from 512 to 1024. With x innermost, an AMD Instinct MI325X's plans need one state too, at N = 384, 750, 768, 800 and 900 with T = 600. A rank-2 plan batched over T takes one state at 192 and 384, none at 256 and 512, and 1.10, 1.08 and 1.06 states at 640, 768 and 1024. A rank-1 plan takes none. So at 768 x 768 x 600 four areas of their own would hold 22.0 GiB, as the MI325X's 22.02 GiB at `9a5d2346` did, and the shared one holds the largest of them.
+
+### The transverse edge against 0.1.0
+
+[#453](https://github.com/LupoLab/solprop/issues/453) found the tracking set's `kerr_beam`
+rows slower than at 0.1.0, and `ctc`'s construction three times longer. These runs compare
+0.1.0 with `main` at `00d83454` and with the changes this section describes.
+
+The setup: `python -m benchmarks ab` on 16 cores of one NUMA domain of an exclusively
+allocated two-socket AMD EPYC 7763, `SOLPROP_FFTW_PLAN=measure`, with `main`'s harness on
+both arms. A small local change to `benchmarks/builders.py`, not merged, gave 0.1.0 the same
+grids, because it calls `collar_fraction` `window_factor`. The builds are GCC 16.2 from
+source for every 0.1.0 and fix comparison; the first sweep used the published 0.1.0 wheel
+and CI's wheel, and agrees with them on the Kerr rows. Every row took the same steps in
+both arms and no sample was taken on a busy machine.
+
+**`ctc`'s construction is not a regression.** Both wheels take about 5.5 s without the
+planning flag and about 15.5 s with `SOLPROP_FFTW_PLAN=measure`, `construction_s` including
+the backend's construction, where FFTW plans. The 15.01 s #453 compared had the flag, and the
+5.21 s row in the history is close to a run without it, so the two differ in planning, not
+in code. In the first sweep, with the flag on both arms, the
+`ctc` window's ratio is 1.010. Limiting host BLAS during construction
+([#382](https://github.com/LupoLab/solprop/issues/382)) is not the cause:
+`SOLPROP_BLAS_THREADS=16` made no improvement. `--append-history` now refuses
+`SOLPROP_FFTW_PLAN`, so the history's rows stay comparable.
+
+**The Kerr rows' cost is the transverse edge, with a smaller part from the split collar's
+occupancy.** With the monitor off, a Kerr run takes the same time in both arms, so the
+kernels are unchanged. Two first-parent boundaries account for the rise, with threads
+bound (`--threading passive-bound`, below): SEP 40 (`05ee1f32` to `39ee3335`) is ×1.110
+on `kerr_beam_192` at one thread and ×1.406 on `kerr_beam_384` at 16;
+[#439](https://github.com/LupoLab/solprop/issues/439) (`6083d63a` to `3e13360e`) is ×1.060
+and ×1.015.
+
+Two changes reduce it, neither moving a field by more than rounding:
+
+- **A read leaves out what cannot reach its resolution** (`READ_RESOLUTION`,
+  `transverse_monitor.py`; removed by [SEP 44](seps/archive/sep-0044-native-edge-read.md), since a
+  read on the state's own memory has no copy to save). Each read synthesised every frequency plane, and a run's light
+  occupies from a fifth to a third of them at this level on the filaments and Kerr beams.
+  A read now leaves out the planes whose energy together is at most 1e-3 of the warning. By
+  Parseval a plane cannot put more on a face than it holds, so a face's share reads low by
+  at most 1e-9 of the launch energy at the default budget, against a warning at 1e-6.
+- **The occupancy takes its host scatter per row.** `scatter.access()` finds its thread's
+  copy, and it dominated the loop when taken per element.
+
+Complete runs, passive unbound threads as the history uses, three rounds, medians of the
+per-round pairs with the fix's range. Each ratio is from its own comparison; the 0.1.0 times
+shown are from the comparison with `main`, and the fix's comparison's were within 1 % of them.
+
+| row | threads | 0.1.0 (s) | `main` (s) | fix (s) | `main` / 0.1.0 | fix / 0.1.0 | range |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| `kerr_beam_192` | 1 | 12.05 | 14.24 | 13.02 | 1.182 | 1.080 | 1.078–1.090 |
+| `kerr_beam_192` | 16 | 3.17 | 3.75 | 3.75 | 1.185 | 1.184 | 1.179–1.184 |
+| `kerr_beam_384` | 1 | 101.13 | 117.06 | 106.48 | 1.157 | 1.067 | 1.060–1.067 |
+| `kerr_beam_384` | 16 | 25.33 | 29.91 | 28.83 | 1.180 | 1.136 | 1.129–1.140 |
+
+Against `main`, the free-space set with threads bound, three rounds, same steps, final fields
+equal to 2e-15 or better except the Cartesian filament's 8e-13 at 16 threads. Complete runs
+unless stated:
+
+| case | threads | `main` (s) | fix (s) | fix / `main` | range |
+|---|---:|---:|---:|---:|---:|
+| `kerr_beam_192` | 1 | 14.13 | 12.99 | 0.918 | 0.917–0.919 |
+| `kerr_beam_192` | 16 | 4.56 | 3.95 | 0.871 | 0.868–0.980 |
+| `kerr_beam_384` | 1 | 117.18 | 106.81 | 0.911 | 0.905–0.915 |
+| `kerr_beam_384` | 16 | 35.77 | 29.73 | 0.831 | 0.830–0.832 |
+| `radial_filament_256` | 1 | 6.85 | 6.78 | 0.990 | 0.979–0.992 |
+| `radial_filament_256` | 16 | 1.88 | 1.89 | 1.003 | 0.992–1.007 |
+| `line` | 1 | 0.905 | 0.889 | 0.982 | 0.978–1.000 |
+| `line` | 16 | 0.275 | 0.267 | 0.980 | 0.962–0.987 |
+| `planar` | 1 | 0.450 | 0.436 | 0.969 | 0.960–0.983 |
+| `planar` | 16 | 0.148 | 0.149 | 1.012 | 1.006–1.047 |
+| `cartesian_filament_128`, half length | 1 | 346.2 | 342.4 | 0.990 | 0.976–0.992 |
+| `cartesian_filament_128`, half length | 16 | 97.3 | 96.3 | 0.990 | 0.986–0.995 |
+
+Bound threads overstate the transverse edge. SciPy's transforms take a bound main thread's
+single core (0.48 s with 16 workers against 0.11 s unbound, on a 384² × 256 array), so
+`main`'s `kerr_beam_384` at 16 threads is ×1.425 against 0.1.0 when bound and ×1.180 unbound.
+#453 measured ×1.152 unbound, from runs on different days.
+
+**What remains, proposed as an accepted cost.** Each of these is a known part of the
+default's work, and reducing it further means moving work rather than removing it:
+
+- **`kerr_beam_192` at 16 threads does not improve.** The monitor takes 0.77 s of 3.70 s
+  against 0.20 s of 3.13 s at 0.1.0. Of the 0.57 s more, five reads are 0.31 s, of which the
+  plane scan is 0.21 s, about what the left-out planes save at this width; six more host
+  copies of the state are 0.12 s; the other 0.14 s, which includes the launch's transform, was
+  not broken down. Reducing the faces and the plane energies in native would remove most of
+  this, which is the seam change in [#396](https://github.com/LupoLab/solprop/issues/396).
+- **These rows read at every step.** A four-step run reads five times, its launch and each
+  step, because `L/16` is shorter than a step. `radial_filament_256` took 19 reads over
+  127 steps in #396. How far the share falls on a longer Kerr run has not been measured.
+- **Construction.** `kerr_beam_192` goes from 1.63 s to 1.95 s and `kerr_beam_384` from
+  11.25 s to 13.52 s, one-off work per translation. At 384² the launch's occupancy is about
+  1.0 s, the walk-off buckets 0.6 s and the edge's design 0.7 s.
+- **Memory.** Peak resident memory rises by about 1 %: 2.51 to 2.54 GiB and 15.60 to
+  15.81 GiB.
+- **`radial_filament_256`, 3 to 5 % against 0.1.0.** Five rounds, one and 16 threads:
+
+| boundary | t1 | t16 |
+|---|---:|---:|
+| 0.1.0 to SEP 40's parent | 0.992 | 0.997 |
+| SEP 40 | 1.016 | 1.035 |
+| SEP 40 to #439's parent | 1.002 | 1.002 |
+| #439 | 1.028 | 1.016 |
+| #439 to `main` | 1.003 | 1.006 |
+| `main` to the fix | 0.990 | 1.003 |
+| 0.1.0 to the fix | 1.030 (1.018–1.035) | 1.048 (1.019–1.070) |
+
+SEP 40 moves the final field by 1.2e-7 through its ramp. #439 takes no step more and leaves
+the field exact; its accepted steps now form five sums instead of one, so that the guards
+are judged on the symmetric splitting's state. That the sums are its whole cost is read
+from the code, not profiled.
+
+**The rest of the tracking set.** The 22 configurations, a quarter of each guide from the
+entrance, three rounds, 0.1.0 against the fix, threads bound: geometric mean 1.021. Apart from
+the Kerr and radial rows, the largest are `argon_blueshift_envelope` at 16 threads at 1.025
+(0.12 s; 1.006 and 1.010 for a complete run on `main`) and `grin_nonlinear` at 1.017, whose
+range (0.999–1.020) overlaps its A/A control's (0.979–1.015). The windows say nothing about
+what a run does past them. `rdw` at 16 threads, 1.048 in the first such window, was 1.001 at
+full length.
 
 ### Host vector maths
 
@@ -915,6 +1316,66 @@ to 70 kernels, most of it launch-bound
 (`h2_raman_averaged`) and 65 → 4.7 (`radial_filament_256`, 0.1); walls −15 %, −21 %, −4 %,
 −23 % and −3 %.
 
+
+### A native Adams call's return and the stop flag
+
+A native call returns at a host event or at its bound, 256 attempts or 0.1 s
+([SEP 39](seps/archive/sep-0039-native-adams-march.md), Q3), and a run's stop flag is polled
+before each call ([#519](https://github.com/LupoLab/solprop/issues/519)). That adds no
+return, only a Python call: 56 ns with no flag and 82 ns with a `threading.Event`
+(`timeit`). Everything here is on an Intel Xeon Gold 6240 pinned to CPUs of one socket on a
+shared machine, load average 4 to 16, GCC 16.2, `-march=cascadelake`, no wisdom file: read
+the ratios, not the times.
+
+**The poll.** Interleaved pairs in one process, 21 rounds, one thread, with a
+`threading.Event` as the flag, where returns are most frequent: an N = 8 soliton on 576
+bins, 1 m at `rtol = 1e-8`, whose busy monitor returns at 4780 of its 4783 attempts, 0.90 s.
+
+| | median | range |
+|---|---:|---:|
+| poll / no poll | 1.0027 | 0.983–1.058 |
+| no poll / no poll | 1.0010 | 0.990–1.020 |
+
+The difference is inside the control's range; 4780 polls at 82 ns are 0.04 % of the run.
+
+**Against the parent.** `benchmarks ab`, `--stepper multistep`, `--length 0.2`, nine logical
+CPUs, 3 rounds, the same steps and fields to rounding (at most 1.3e-13), median ratio and
+range, with an A/A control of the parent against itself:
+
+| threads | case | candidate / parent | A/A |
+|---|---|---:|---:|
+| 1 | `gnlse_soliton` | 0.997 [0.957, 1.031] | 1.022 [0.993, 1.025] |
+| | `he_rdw_averaged` | 1.025 [0.951, 1.087] | 0.994 [0.887, 1.098] |
+| | `argon_blueshift_averaged` | 0.992 [0.817, 1.004] | 1.006 [0.889, 1.011] |
+| | `rdw_one_mode` | 1.116 [0.981, 1.355] | 0.995 [0.978, 1.059] |
+| 8 | `gnlse_soliton` | 0.990 [0.930, 1.125] | 1.052 [0.885, 1.089] |
+| | `he_rdw_averaged` | 1.060 [0.998, 1.263] | 0.982 [0.818, 1.018] |
+| | `argon_blueshift_averaged` | 1.025 [1.021, 1.033] | 1.029 [0.995, 1.087] |
+| | `rdw_one_mode` | 0.995 [0.869, 1.315] | 1.032 [1.008, 1.065] |
+| | geometric mean | 1.024 | 1.014 |
+
+This machine could not resolve the change. Five rounds of the two highest rows read 0.966
+[0.732, 1.019] (`rdw_one_mode`, 1 thread) and 0.982 [0.820, 1.149] (`he_rdw_averaged`, 8
+threads).
+
+**What a return costs**, as it has since SEP 39: this change makes none of them. One plane
+and no boundary monitor, so nothing but the bound returns the march; a bound of none, the
+production bound and a bound of one attempt interleaved in one process, medians of 3 to 5
+rounds of the run's wall time, setup included. One return is the excess of the bound of one
+over none, per return:
+
+| case, threads | bins | attempts | wall, no bound | returns at the bound | one return | their share |
+|---|---:|---:|---:|---:|---:|---:|
+| N = 2 soliton, 0.3 m, 1 | 512 | 946 | 0.085 s | 4 | 44 µs | 0.21 % |
+| N = 8 soliton, 0.1 m, 1 | 576 | 974 | 0.105 s | 4 | 47 µs | 0.18 % |
+| the same, interaction form, 1 | 576 | 2046 | 0.186 s | 8 | 29 µs | 0.13 % |
+| `gnlse_soliton` (0.3), 1 | 3072 | 285 | 0.143 s | 2 | 63 µs | 0.09 % |
+| `he_rdw_averaged` (0.3), 1 | 2561 | 483 | 0.464 s | 4 | 62 µs | 0.05 % |
+| `he_rdw_averaged` (0.3), 8 | 2561 | 483 | 0.291 s | 3 | 91 µs | 0.09 % |
+
+The share is read from the return's cost: comparing the production bound with none directly
+reads −2.7 to +1.8 %, which is noise. Where 256 attempts take less than 0.1 s the share
+grows as an attempt gets cheaper, and it is above 0.1 % on the two smallest grids here.
 ### The Adams passes on x86-64 lanes
 
 The exponential Adams trial's predict and correct passes on a host block of 32 elements
@@ -1676,6 +2137,381 @@ For `kerr_beam_384`'s 1.77 GB field that is about 3 s per plane:
 
 A capillary or radial plane costs 7–25 ms.
 
+### The run record per plane
+
+[#427](https://github.com/LupoLab/solprop/pull/427) bounds the controller's norm history
+(a `deque` of the controller's lag plus two, on the per-step Runge–Kutta and batch path)
+and makes the per-plane run record incremental: one `RunOutcome` and one validation of
+its record per plane, `CallLedger.orders` run-length encoded as it grows, and
+`/meta/outcome` rewritten in place. Before: `main` at `76eb2e57`; after: the same with
+the pull request merged. One thread, `numba_cpu`, on an Apple M5 Max (18 cores, 128 GB,
+macOS 27.0.1, Python 3.14.5, NumPy 2.5.2, numba 0.67.0, h5py 3.16.0), a machine in
+ordinary use (load 4–10): a labelled A/B, to be read as ratios, not times.
+
+`python -m benchmarks ab --length 0.02 --rounds 4 --repeats 7` (the harness's
+`MemoryOutput`, its 11 planes inside the window, so a plane every one to four steps):
+
+| case | stepper | steps (rejected) | before → after | ratio | A/A |
+|---|---|---:|---:|---:|---:|
+| `gnlse_soliton` | `rk` | 12 (0) | 14 → 14 ms | 0.962 [0.906, 1.127] | 1.009 [0.994, 1.057] |
+| `gnlse_soliton` | `multistep` | 18 (1) | 16 → 15 ms | 0.955 [0.887, 0.987] | 0.991 [0.982, 1.034] |
+| `he_rdw_averaged` | `rk` | 12 (0) | 46 → 46 ms | 1.002 [0.992, 1.012] | 0.990 [0.924, 1.036] |
+| `he_rdw_averaged` | `multistep` | 37 (1) | 54 → 54 ms | 0.990 [0.882, 1.026] | 0.992 [0.986, 1.034] |
+
+Geometric mean 0.977 (A/A 0.996); the same steps and final fields in both builds. The
+harness writes no file, so the in-place `/meta/outcome` was timed by a hand script with
+the same alternation (fresh processes, four rounds of five repeats after a warm-up): the
+first centimetre of `gnlse_soliton`'s fibre (1536 bins) with 40 save planes, through
+`run_problem` into an `HDF5Output`:
+
+| stepper | steps | before → after | ratio | A/A | file |
+|---|---:|---:|---:|---:|---:|
+| `Multistep()` | 243 | 101.2 → 95.0 ms | 0.947 [0.930, 0.968] | 0.988 [0.837, 1.012] | 1.50 → 1.35 MB |
+| `RungeKutta()` | 48 | 48.6 → 48.2 ms | 0.987 [0.903, 1.001] | 0.955 [0.714, 1.025] | 1.21 → 1.13 MB |
+
+Nothing measured is slower. The Multistep file run, a plane every six steps, is 5 %
+faster, outside its A/A range; the others sit inside theirs. The record's old cost grew
+with the steps times the planes, so these windows show only its start.
+
+### A run's planes without a copy
+
+The fix of [#448](https://github.com/LupoLab/solprop/issues/448) hands an output each plane
+without copying its field, by adopting the observation's arrays, and adds one branch to
+`StepDriver.observe` for the held plane of
+[#345](https://github.com/LupoLab/solprop/issues/345). Before: `f004a662`; after:
+`643db910` on the pull request's branch. An exclusive node, AMD EPYC 7763, 16 cores in one
+NUMA domain, `--threading passive-bound`, `SOLPROP_FFTW_PLAN=measure`.
+
+`python -m benchmarks ab --length 0.1 --rounds 5 --repeats 1`, as the median of the
+per-round paired medians (after / before), with its range over the rounds:
+
+| case | threads | ratio | range |
+|---|---:|---:|---:|
+| `rdw` | 1 | 0.9911 | 0.980 to 0.998 |
+| `rdw` | 16 | 0.9982 | 0.990 to 1.007 |
+| `far_field_stats` | 1 | 1.0017 | 0.995 to 1.012 |
+| `far_field_stats` | 16 | 0.9980 | 0.544 to 0.999 |
+
+Geometric mean 0.9972, the fields within 3.6e-15 and the same work in both builds. The
+range of `far_field_stats` at 16 threads has one outlier round, in which the baseline took
+16.2 s. This shows **no regression**. It does not measure the saving at large fields: these
+cases save few planes at a field size where the copy is small.
+
+The saving is in memory, and is measured separately, on a loaded machine and so as field
+volumes rather than times. A delay scan through `SimulationRunner` with a handler that
+reduces each plane, against a hand loop over the backend protocol, on native CPU: a
+low-storage Kerr beam at 128 x 128 x 80 (20 MiB a volume), a window of 6 steps and 3 planes
+per input, the peak above the level before each input after a warm first one, on an Intel
+Xeon Gold 6240. The change is this fix together with
+[#435](https://github.com/LupoLab/solprop/issues/435) and
+[#447](https://github.com/LupoLab/solprop/issues/447), which release the input:
+
+| measure | hand loop | runner, before | runner, after |
+|---|---:|---:|---:|
+| peak by `tracemalloc`, volumes | 1.006 | 3.003 | 1.063 |
+| peak resident, volumes | 0.94 to 0.99 | 2.86 to 2.94 | 0.93 to 1.00 |
+
+`numpy_ref`, whose stages allocate per pass, went from 14.50 to 12.50 volumes by
+`tracemalloc`, the hand loop's figure. Not measured at full size, and not extrapolated to it.
+
+### Single-precision collar and batches
+
+[#428](https://github.com/LupoLab/solprop/pull/428) keeps the reference backend's split
+collar (`apply_temporal_rate`) in binary32 under single precision, as the correction
+`a + F(F^-1(a)(f - 1))`; before, the product promoted to binary64 and was narrowed. Its
+single-precision batches now run through the plain `LockstepRunner`, each member its own
+binary32 trial; before, `NumpyBatchBackend` computed them in binary64 and narrowed the
+result, so the before column is the wrong arithmetic's cost and the fields are not
+compared. `ab` selects neither a precision nor a batch, so both were timed by the hand
+script above, same machine and builds (`main` at `76eb2e57`, then #428 merged), one
+thread, `numpy_ref`, on the same soliton.
+
+**The collar**, 5 mm of `RungeKutta()` (43 accepted steps, one collar pass each),
+`absorber_scheme="split_step"`, four rounds of five repeats:
+
+| bins | before → after | ratio | A/A |
+|---:|---:|---:|---:|
+| 1536 | 34.0 → 34.0 ms | 1.003 [0.999, 1.169] | 0.993 [0.957, 1.003] |
+| 16384 (8 ps, 300 nm–4 µm) | 183.1 → 180.2 ms | 0.989 [0.971, 1.019] | 0.992 [0.960, 1.020] |
+
+The pass alone, same process (best of seven times 200 calls): 18.3 → 15.9 µs at 1536
+bins and 191 → 125 µs at 16384, 2–5 % of a step, which the runs do not resolve.
+
+**Batches**, ten fixed steps over 2 cm with no collar, members 1 % apart in peak power,
+the stepping alone timed (`propagate_to`; the members' construction is not):
+
+| bins | members | rounds | before → after | ratio | A/A |
+|---:|---:|---:|---:|---:|---:|
+| 1536 | 4 | 4 | 29.8 → 30.1 ms | 1.003 [0.963, 1.029] | 1.025 [1.011, 1.059] |
+| 1536 | 16 | 4 | 116.5 → 122.3 ms | 1.048 [1.036, 1.075] | 1.028 [0.958, 1.072] |
+| 1536 | 16 | 8 | 136.5 → 141.5 ms | 1.059 [0.984, 1.119] | 0.981 [0.930, 1.030] |
+| 16384 | 8 | 8 | 496.6 → 389.7 ms | 0.779 [0.676, 0.852] | 0.971 [0.890, 1.017] |
+
+On a small grid with many members the member-by-member trials cost 3–6 %, at the edge of
+the A/A spread; on a 16384-bin grid they are 22 % faster, binary32 transforms replacing
+the binary64 ones. What vectorising over the members is worth was read from the binary64
+batch, `NumpyBatchBackend` against `LockstepRunner` on the same members (unpaired medians
+of the same runs): 108.7 against 117.5 ms (16 members, 1536 bins) and 469 against 491 ms
+(8 members, 16384 bins), 4–8 %. A vectorised binary32 batch would recover at most that,
+so the reference keeps the plain runner.
+
+### A spectral walk-off absorber against the temporal collar
+
+What the [spectral walk-off absorber](../guide/numerics/boundaries.md#a-spectral-walk-off-absorber)
+saves is the temporal pass, which a zero temporal rate compiles away; this entry says what
+that is worth, in place of a figure measured on a backend since retired. A hand script, on the
+one grid, one backend and one build: a field grid over 40 µm of fused silica, 143 nm to 2 µm,
+`trange` 250 fs at the default `collar_fraction`, so a 326 fs window of 2048 samples; envelope
+Kerr, an 800 nm 30 fs launch; ten fixed `RungeKutta()` steps of 1 µm, each case translated once
+beforehand and the runs alone timed. The cases are the default collar under each scheme, and
+`custom_absorber(grid, rate, collar=absorber(grid, temporal=False))`. Native CPU, eight threads
+bound to eight cores of a dual Intel Xeon Gold 6240 (18 cores a socket), built for
+`-march=cascadelake`. The machine was shared and in use (load 16–58 of 72), so these are to be
+read as ratios of medians, and each is given over its separate sessions, cycling the three cases
+within a session:
+
+| grid | sessions (repeats) | spectral / `split_step` | spectral / in-stage |
+|---|---:|---:|---:|
+| line, 256 columns | 2 (5, 9) | 0.92, 0.90 | 0.58, 0.53 |
+| Cartesian, 64 × 64 | 2 (5, 5) | 0.91, 0.89 | 0.47, 0.53 |
+
+Single runs carried outliers of up to three times the median, which the median sets aside. The
+ratio against the split repeats to within 3 %; the one against the in-stage term less well,
+between 0.47 and 0.58. Over these ten steps the three runs' fields agree to 1e-15 of the on-axis
+column's norm inside the request, because no light has reached a collar: the entry times the pass
+and compares no absorption. It is a window, and the temporal pass's share of a step moves with
+the response's: a heavier response gives a smaller saving.
+
+### The default check on a device: reads, occupancy and sums
+
+A field-free point of a free-space Kerr beam at 768 x 768 x 600 (5.27 GiB), eight fixed low-storage
+RK4IP steps and four planes, with a stated input identity, took 12 to 7 times as long
+with the default `boundary_check` as without it. `python -m benchmarks.device_split 768`, the second point
+of one `SimulationRunner`, on an NVIDIA H200 (CUDA 13.1) and an AMD Instinct MI325X (ROCm 10). Before is
+`7a224ea5`, measured the same way that morning with the probe that became this module, on another machine
+of the same type; after is this entry's commit, both cards the same day:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| Point, `boundary_check=None`, s | 5.9 | 5.7 | 4.2 | 3.8 |
+| Point, default check, s | 70 | 51 | 29 | 14 |
+| State crossings in a point | 13 | 9 | 13 | 9 |
+| `monitor.occupancy`, one reading, ms | 184 | 10 | 1,240 | 13 |
+| `energy` statistic, ms | 55 | 2.3 | 80 | 6.6 |
+| `peak_intensity` statistic, ms | 134 | 77 | 164 | 86 |
+
+What changed: a saved plane that the step reaching it already read takes no second read, which was a whole
+state's copy thrown away; a replay decides its reads by its next step, not by `dz_init`; the occupancy is
+a reduction per column, without an atomic per element; `energy`, the peak and a low-storage step's norm are real
+reductions, not sums on one thread of a device; a runner's points share the occupancy's table; an
+Adams run past its snapshot limit takes no snapshot to learn its size.
+
+HIP's smallest block is 64 threads, and a reduction's value has to fit `(64 + 2) * sizeof(value)` of 64 KiB
+with the kernel's own static memory beside it, which Kokkos's check doesn't count. So a reading there holds 64
+buckets a pass and takes two passes of 6.4 ms, not one of 128: 124 passed Kokkos's check and the dispatch then faulted
+("Illegal opcode in command stream"). On a CPU, `python -m benchmarks ab` against `main` on an Intel Xeon Gold 6240
+at 1 and 16 threads, three rounds, on `kerr_beam_192`, `line` and `planar`: geometric mean 1.002, each case
+within 4 %, fields to 1.5e-15, the same work.
+
+The check still reads a host copy of the state, on the host, which is what is left of its cost above: the
+entries that follow take that.
+
+### The state's crossing: a ring of pinned chunks
+
+A state crossing to the host was slow for one reason: a fresh pageable buffer takes its first touch inside the
+driver's copy, 1.38 million page faults at 768 x 768 x 600. A bare copy of 5.27 GiB, in GiB/s:
+
+| | NVIDIA H200 | AMD Instinct MI325X |
+|---|---:|---:|
+| Fresh pageable buffer, as it was | 1.8 | 7.9 |
+| Reused pageable buffer | 16.5 | 52 |
+| Pinned, which is the link | 51.5 | 52.6 |
+| 64 MiB pinned ring, a worker per host thread, fresh huge-page destination | 33 | 50 |
+| The same ring, no huge pages | 25 | 33 |
+
+Every state-sized crossing now takes that ring, both ways. `python -m benchmarks.device_split`, against the previous
+entry's commit, the same day, on the same cards and window:
+
+| | H200, before | H200, after | MI325X, before | MI325X, after |
+|---|---:|---:|---:|---:|
+| `field_to_host`, 5.27 GiB, ms | 2,929 | 175 | 506 | 107 |
+| Its page faults | 1,382,401 | 2,758 | 1,382,401 | 2,755 |
+| The point's crossings together, s | 26.5 | 1.6 | 4.3 | 0.96 |
+| Point, default check, s | 51 | 25 | 14 | 9.7 |
+
+Against `main`, with the previous entry, `python -m benchmarks ab --device` on `kerr_beam_384`, three rounds of one repeat,
+which saves its fields: H200 13.451 → 4.672 s, ratio 0.347 (0.347–0.349); MI325X 5.700 → 2.033 s, ratio 0.359
+(0.338–0.362). Fields identical and the same work on both. On a longer window, 384 x 384 x 600 with 51 steps and 17 planes,
+the point with the check takes 14.2 s against 3.9 s without on the H200 (49.8 s before these two entries), and 7.1 s against 3.7 s on
+the MI325X. The NVIDIA A40 sees less (PCIe Gen 4): 183 → 147 ms at 384 x 384.
+
+A kept plane's conversion and its finiteness check take threads too, above `PARALLEL_BYTES`, and a plane converts straight
+into the store's block rather than through a copy. A state under `ring_threshold`, 256 MiB, takes no ring, and
+`memory_ledger`'s `host_crossing_ring` stays zero, which a device test holds. A larger state's load allocates it, even in a run
+that keeps no field: 64 MiB of pinned host memory per host thread, 1.5 GiB on 24.
+
+On a CPU a crossing is a plain copy and takes no ring. `python -m benchmarks ab` against `main`, with the previous entry, on an Intel
+Xeon Gold 6240 (18 cores of one socket, passive threads, three rounds of one repeat, a shared machine): `kerr_beam_192` 0.976
+at one thread and 0.882 at sixteen, `radial_filament_256` 0.999 and 0.994, `line` 0.983 and 0.990, `planar` 0.997 and 0.980; geometric
+mean 0.975, fields to 4.2e-15, the same work.
+
+### A plane's widths and its axis where the field lives
+
+`beam_radius` was the costliest statistic on a device by far: about 1.0 s a call on an NVIDIA H200 and 0.9 s on an
+AMD Instinct MI325X at 768 x 768 x 600 (`python -m benchmarks.device_split`), against 77 and 86 ms for `peak_intensity`
+and about 230 ms for a step. A width ran `peak_intensity`'s kernels and copied 9.4 MiB, so most of that second lay in what
+else it did, and it did two things:
+
+- **A sum per bin over every column.** A separable width formed the axis's fluence, which only a radial width reads,
+  through the kernel `on_axis_intensity` uses: for each of the 600 bins, twice, one work item walking all 589,824 columns
+  in turn. It has the shape of the `energy` kernel an earlier entry replaced, a single thread's walk across the plane.
+- **The azimuthal average in Python, on one host thread.** About 3.7 million bilinear samples, 0.23 s on an Intel Xeon
+  Gold 6240.
+
+On that CPU the two make up about 80 to 90 % of what a width took beyond `peak_intensity` (the table's "before" columns:
+the axis's row plus 64 or 240 ms). Both are gone. A width no longer forms the axis's fluence, and `on_axis_intensity`,
+which the default spec asks for, reads the same sums from the far-field pass's team-local bands, the slots
+`on_axis_spectrum` reads. A separable fluence takes no time transform: by Parseval's theorem it is a sum over the bins
+that the transverse volumes already hold. On a Cartesian plane the centroid, the second moment and the rings are
+kernels too, so that about 780 values cross at 768 x 768, not 1.18 million. The on-axis plasma statistics read their row
+natively, not a copy of the state, and `species_statistics` lost a Python loop over the nodes that took 0.2 s per
+species at 768 x 768, with its additions unchanged.
+
+**None of this is measured on a device.** That these two make up the devices' second is inferred from the CPU's split
+and the kernels' shape. `python -m benchmarks.device_split` now reports `on_axis_intensity`, `fwhm_r`, the default spec, a
+width's native moments and the same azimuthal average on the host, which will settle it.
+
+On a CPU: one call, the median of at least three after a warm one, of the launch of that module's Kerr beam, against
+`facf2b23`, on an Intel Xeon Gold 6240 shared with other work, in ms:
+
+| | 768 x 768 x 600, 9 threads, before | after | 384 x 384 x 600, 9 threads, before | after | 192 x 192 x 600, 1 thread, before | after |
+|---|---:|---:|---:|---:|---:|---:|
+| `energy` | 226 | 208 | 55 | 54 | 114 | 111 |
+| `beam_spectrum` | 657 | 600 | 162 | 150 | 307 | 315 |
+| `on_axis_spectrum` | 873 | 743 | 193 | 184 | 381 | 388 |
+| `absorbed_power` | 741 | 733 | 186 | 181 | 373 | 378 |
+| `on_axis_intensity` | 3,224 | 746 | 686 | 194 | 818 | 429 |
+| `peak_intensity` | 6,567 | 6,467 | 1,688 | 1,556 | 2,037 | 1,992 |
+| `beam_radius` | 10,863 | 3,507 | 2,528 | 788 | 2,861 | 804 |
+| `fwhm_r` | 11,119 | 3,532 | 2,501 | 784 | 2,858 | 803 |
+| The default spec | 11,341 | 8,437 | 2,606 | 2,061 | 3,448 | 3,040 |
+
+The two builds' widths of that state agree to 7e-15 at 768 x 768. A whole run moves little, since these take one plane.
+`python -m benchmarks ab` against `facf2b23` on the same machine, complete runs, passive threads, one repeat, median and
+range over the rounds, the same work and identical fields in every row:
+
+| case | 1 thread, three rounds | 9 threads |
+|---|---:|---:|
+| `kerr_beam_192` | 0.969 (0.891–0.988) | 1.004 (0.997–1.019), five rounds |
+| `kerr_beam_384` | | 1.015 (0.970–1.193), three rounds |
+| `line` | 0.913 (0.879–1.047) | 1.005 (0.948–1.065), five rounds |
+| `planar` | 1.022 (0.972–1.028) | 1.030 (0.833–1.084), three rounds |
+| `radial_filament_256` | 1.024 (1.000–1.041) | 1.056 (1.014–1.106), three rounds |
+
+Other work shared the machine during the three-round rows, which is their spread. The five-round rows repeat two of them
+when it was quieter, 1.076 and 1.077 before. `planar`'s and `radial_filament_256`'s statistics took only the small change
+to their packed output and fluence, and the same comparison before the on-axis change gave 1.003 and 0.999 at 9 threads.
+
+### A device step beyond its transforms
+
+A low-storage step of the Kerr beam of `python -m benchmarks.device_split` at 768 x 768 x 600 with no boundary check, as `LowStorageRungeKutta` runs it on the Cartesian
+route, was 239 ms on an NVIDIA H200 and 224 ms on an AMD Instinct MI325X, 112 to 144 ms of it in its eight rank-3 transforms. These changes take what lies beside them.
+**No data-centre card was run for this entry.** Its numbers are launch counts, which do not depend on the card, and times on an NVIDIA A40 (CUDA 12.8.1, `AMPERE86`, an
+AMD EPYC 7543 host, 16 threads), whose binary64 rate is a sixty-fourth of its binary32 rate, so its share of each kernel says little about an H200. They were taken at
+`cb2cb068` against the merge base `43ddefab`, by a Kokkos Tools trace of that one case with a fence around each kernel.
+
+| Per step, 768 x 768 x 600 | Before | Collar in place | A whole state, tried and dropped |
+|---|---:|---:|---:|
+| Kernels | 330 | 119 | 14 |
+| Transforms | 220 | 220 | 10 |
+
+| NVIDIA A40, ms per step | Before | After |
+|---|---:|---:|
+| Eight rank-3 transforms | 1,840 | 1,840 |
+| The collar's transforms | 142 | 136 |
+| The collar's copies in and out | 41.4 | none |
+| The collar's factor and band mask | 21.0 | 22.0 |
+| Fold, passes 1 to 4 | 134, 64, 129, 123 | 121, 62, 115, 109 |
+| Kerr | 118 | 118 |
+| Input | 42.5 | 24.9 |
+| Whole step, no fences | 2,660 | 2,557 |
+
+The whole step takes 0.961 of its time at 768 x 768 x 600 and 0.956 at 384 x 384 x 600 (589 to 563 ms): three interleaved rounds of fresh processes, whose medians spread by
+0.1 %. `python -m benchmarks ab --device --length 0.3` against the merge base, three rounds, the same steps: `kerr_beam_384` 0.974 (0.972–0.995), `kerr_beam_192` 1.030
+(0.954–1.036, a window of two steps, inside its spread), fields to 3.3e-16; `rdw` 1.000, `he_rdw_averaged` 1.002, `radial_filament_256` 1.000, fields bitwise.
+
+**The collar** depends on time alone, so its transform pair runs in place on the state's own rows, with the normalisation on the factor. Most of the A40's gain is the two
+copies gone at the node chunk: 2,578.6 ms a step, against 2,574.6 for a whole state on the same build. The "After" column and the `python -m benchmarks ab` figures above were
+taken with a whole state, which a device took by default until the cards were measured.
+
+**A whole state was dropped.** It saves launches, and #361 asks 10 % of a default-memory change. At 768 x 768 x 600, 8 steps, at `9a5d2346`, the median of three runs on one runner in one process, whole
+state first and not interleaved, against the node chunk: NVIDIA H200 2.661 s against 2.671 s, x0.996; AMD Instinct MI325X 2.023 s against 2.068 s, x0.978. So a device keeps the
+node chunk, and `Transform` needs no field to tell a stated budget from the default. It wouldn't have cost memory either: the plans' device growth was the same to 6 MiB on both
+cards, and cuFFT's work area is small (at 589,824 rows of 600 points each plan holds 9 MiB, in place or not, 0.1 MiB at the node chunk). A CPU keeps the
+chunk for its own reason: on an Intel Xeon Gold 6240, nine cores, at 384 x 384 x 600, FFTW's threaded plan of a whole state took 2.5 s a step in transforms against 1.5 s.
+
+**A whole state again.** #361's 10 % is asked of a change that costs default memory, and this one costs none, so the maintainer asked for it back if an interleaved run on an AMD card shows a consistent gain. A device now takes every row at once whatever the node budget, with no seam field: in place, the block's only memory is its plans' work area. On an NVIDIA A40, CUDA 12.8.1, `python -m benchmarks ab --device --length 0.3`, 3 rounds, against the same tree at the node chunk, the same steps and final fields with no difference: `kerr_beam_384` x0.989 (0.958–0.994), `kerr_beam_192` x0.971 (0.951–1.065), and every route without the collar between x0.998 and x1.004. On an AMD Instinct MI300X, ROCm 10.0.0, at `c0bd23f2` against the same tree at the node chunk: a field-free point of 8 steps with the check off, the median of a runner's second and third runs, three interleaved rounds of fresh processes. At 384 x 384 x 600 the rounds give x0.990, x0.988 and x0.990 (0.576 to 0.569 s), and at 768 x 768 x 600 x0.984, x0.983 and x0.986 (2.172 to 2.138 s), with the plans' memory the same. `ab --device --length 0.3`, 3 rounds, gives `kerr_beam_384` x0.952 (0.912–0.999), with the final fields identical. Every round gained, so it stays, though at about 1.5 % of a point it is far from #361's 10 %.
+
+**The fold.** A flow's magnitude on a lossless bin is `exp(+-0)`, exactly one, and took a binary64 `exp` per element: 13.4 ms a pass on the A40, whose reduced binary64 rate
+overstates it. Runge-Kutta's `stage_input` and `finish_transform` fall by 13 % the same way. The flowless pass forms no exponent (64.3 to 61.5 ms). The first input crosses the
+plane's stride through tiles of team scratch (42.5 to 24.9 ms). On a host the branch is out of line: inlined there, it took the tabulated fold's kernel past GCC's inlining limit,
+though a tabulated fold never takes it, every pass 40 % slower and `kerr_beam_384` 1.056.
+
+**Dropped, for no gain on the A40.** Pass 3's dead read of register A: the fourth pass took 13.5 ms less against 13.4 for the other flows' `exp`, so the read is worth 0.1 ms.
+Folding `finish` into the step: the mask it would fold is 1.5 ms of a step on the A40, and a collar's kernels cannot fold. A Kerr pass over a two-dimensional range instead of a division per element:
+117.9 ms either way. The modal routes' two accumulator stores in an Adams trial: 0.997 to 1.000, inside the spread. `weighted_error`'s mirrors: 0.114 to 0.099 ms a call at
+32 x 32 and 10.8 to 10.7 at 384 x 384, on the rare controller that has one.
+
+**The Adams trial.** A Cartesian route's source no longer accumulates its stage (3.4 of 199 ms a trial at 256 x 256 x 600, 186 ms with the collar and the flows), and the
+interaction formulation's fused trial swaps the state aside rather than copying it twice: `ab --device --stepper multistep-interaction`, three rounds, `rdw` 0.994 (0.979–0.994), `he_rdw_averaged` 0.988 (0.878–0.989),
+`argon_blueshift_averaged` 0.978 (0.975–0.979), `radial_filament_256` 0.993 (0.990–0.995), fields bitwise.
+
+**A Runge-Kutta trial.** The accept is one reduction on a device as on the host (26.4 to 23.4 µs a trial on `he_rdw_averaged`, 71.8 to 60.8 on `radial_filament_256`), and its
+partials cross through a persistent pinned mirror (16.8 to 8.8 µs a trial), the ledger's `trial_norms` row, 13.5 MiB at 768 x 768 on the host's pinned memory, outside a low-storage run. `ab --device --stepper rk`, five rounds,
+against the build before them: `he_rdw_averaged` 0.988 (0.986–1.007), `rdw` 0.996 (0.988–0.996), `radial_filament_256` 1.001 (0.999–1.036), fields bitwise.
+
+**The Adams read-back** (#362) is about 2.8 µs a trial from its last kernel's end to the host's return, by an `nsys` trace with graph nodes on the A40: 1.2 % of a 237 µs `he_rdw_averaged` trial, 0.5 % of
+`rdw`'s 586 µs, 0.1 % of `radial_filament_256`'s 3.3 ms, at most 14 µs at the 90th percentile. That is well below #362's 20 %.
+
+**Scratch-order registers on the volume route**, tried on the A40 and not adopted, take the fold from 407 to 387 ms and the step to 2,538 ms, with the fold's tile staging the state rather than the scratch. A layout change needs its own issue.
+
+**The scratch in the registers' order** ([#365](https://github.com/LupoLab/solprop/issues/365)), on a device. A stage of the volume route views the scratch as `(y, x, omega)`, the state's and the
+registers' order, so its rank-3 pair is cuFFT's frequency-fastest `{N,N,T}`, and its input and fold stream instead of crossing. A probe of the two orders on an NVIDIA H200, CUDA 13.1,
+T = 600, took `{N,N,T}` 2.49, 11.08, 14.71, 17.62 and 13.81 ms a transform at N = 384, 750, 768, 800 and 900, against 3.74, 14.97, 17.63, 17.97 and 18.96 ms for `{T,N,N}`, and `{N,N,T}`
+needs no work area at those sizes but 768. A step, from a field-free point with the check off, (24 steps - 8 steps) / 16, three interleaved rounds against the build before it
+(`c0bd23f2` against `8e9b4e76`):
+
+| N x N x 600, NVIDIA H200 | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 50.96–51.17 | 36.22–36.49 | 0.713 | 7.23 → 5.91 |
+| 768 | 225.21–225.78 | 203.88–204.13 | 0.905 | 23.14 → 23.14 |
+
+At 768 the transforms account for it: eight of them are 23.4 ms apart in the probe, and the step gains 21.6 ms. `python -m benchmarks ab --device --length 0.3`, 3 rounds:
+`kerr_beam_384` x0.971 (0.928–1.003), fields to 3.2e-17. On the NVIDIA A40, CUDA 12.8.1, where the orders are within 1 % at 768, two rounds against `29e9e156`, whose native code is
+the same: 2,535 and 2,578 ms a step before, 2,556 and 2,597 after, at 768; 559 and 560 ms before, 513 and 513 after, at 384; `ab --device` geometric mean 0.998, with `kerr_beam_384`
+x1.010 (0.997–1.042) and `kerr_beam_192` x0.977 (0.950–1.070). The device tests pass on both cards. With the stage's window read in the old order, nine of them fail across the three
+marches, and with the fold reading the old order, three low-storage ones do.
+
+**On HIP too.** On an AMD Instinct MI325X, ROCm 10.0.0, `gfx942`, rocFFT's two orders take the same time. In place, Z2Z, T = 600, frequency innermost (rocFFT lengths
+`{T,N,N}`, cuFFT's `{N,N,T}`) took 4.07, 15.66, 15.31, 16.72 and 20.94 ms a transform at N = 384, 750, 768, 800 and 900, against 4.10, 16.20, 15.31, 16.69 and 20.35 ms with x innermost. Both
+need one state of work area at every one of those sizes. The step gains all the same, from the input and fold that no longer cross layouts. Three interleaved rounds, the same method,
+against #542's head (`931ac0dc`):
+
+| N x N x 600, AMD Instinct MI325X | Before, ms | After, ms | Ratio | A run's memory, GiB |
+|---:|---:|---:|---:|---:|
+| 384 | 57.30–58.02 | 51.80–52.20 | 0.902 | 7.009 → 7.013 |
+| 768 | 210.00–211.22 | 198.87–199.73 | 0.946 | 23.37 → 23.37 |
+
+At 768 eight transforms are the same in the probe, so all of the step's 11.8 ms is in the passes beside them. `python -m benchmarks ab --device --length 0.3`, 3 rounds: `kerr_beam_384`
+x0.978 (0.974–0.982), fields to 1.8e-17. `pytest -m gpu` (251 passed, 1 skipped), the native device tests (31 passed) and the affected modules (172 passed, 3 skipped) pass on that
+card in the new order.
+
+On a CPU, `python -m benchmarks ab` against the merge base on an Intel Xeon Gold 6240 (nine cores of one socket, bound passive threads, on a machine others shared; three rounds, the same steps): `kerr_beam_192` 0.982 (0.978–0.996) at one thread and 0.974 (0.973–0.987) at nine; `kerr_beam_384` 0.981 (0.981–0.982) at nine, fields to 6.4e-16.
+`rdw` under `rk` and `multistep-interaction`, one and nine threads, without the host's fold fix, which they do not reach: 1.011, 0.974, 0.996 and 0.999.
+Before the fold's fix, `radial_filament_256` 0.993 and `planar` 0.980 at nine threads, five rounds, took neither path.
+
+The H200 has since measured the step in the scratch's order, above. An AMD Instinct MI300X has measured what rocFFT's plans hold and what a whole state's collar is worth, and an MI325X the step and the device tests with HIP in the scratch's new order, above.
+
 ## Reference tables
 
 These tables back the indicative results above.
@@ -1974,3 +2810,47 @@ for Intel's four-thread Raman tail). Mac responses were mixed, including opposit
 RDW and argon directions. No shared dimension threshold or pool policy is changed;
 explicit overrides and global caps retain their existing semantics. A 36-core
 sizing confirmation is unnecessary because no sizing change is retained.
+
+## The run record's cost
+
+[#309](https://github.com/LupoLab/solprop/issues/309) measured how a run's record grows with
+its grid. Moving the record's large arrays beside its text (`RECORD_ARRAY_LIMIT`) takes the
+hash from the record's text to its arrays' bytes.
+
+Measured on an Intel Xeon Gold 6240, pinned to one socket with 16 threads, on a shared
+machine with a load average of about 17, so treat small differences as noise. One run each,
+built and not stepped, on `numpy_ref`, with `#309`'s Cartesian problem of 96 frequency bins.
+The figures are for the record alone, not for a run.
+
+| Grid | | First hash, s | `to_json`, s | `HDF5Output.open`, s | Reading the file's record, s | Hashing a read record, s | JSON, MB | File, MB |
+|---|---|---:|---:|---:|---:|---:|---:|---:|
+| 256² | before | 0.442 | 0.163 | 0.171 | 0.177 | 0.174 | 5.61 | 5.62 |
+| | after | 0.010 | 0.001 | 0.006 | 0.021 | 0.001 | 0.03 | 3.19 |
+| 512² | before | 1.763 | 0.652 | 0.711 | 0.755 | 0.777 | 22.66 | 22.67 |
+| | after | 0.032 | 0.001 | 0.011 | 0.065 | 0.001 | 0.05 | 12.64 |
+| 768² | before | 4.250 | 1.588 | 1.711 | 2.155 | 1.735 | 55.59 | 55.60 |
+| | after | 0.075 | 0.002 | 0.017 | 0.144 | 0.002 | 0.07 | 28.40 |
+
+A default radial run of 256 nodes and 8192 frequency bins, which carries input noise, holds
+83.21 MB of JSON before and 0.04 MB after, and its first hash goes from 2.603 s to 0.077 s.
+A 64-node grid is about the same before and after, since its arrays sit close to the limit.
+A run into `MemoryOutput` computes no hash at all.
+
+## A free-space point's setup
+
+Building and translating a large free-space launch took longer than the steps of a short point:
+the passes over a beam's elements ran on one thread, its admittance ran twice, and the transverse
+residual took a Python `Fraction` per node.
+
+Measured on an Intel Xeon Gold 6240, one socket's 18 cores, 18 threads, on a shared machine, twice each, unprofiled:
+a 768 × 768 × 600 envelope launch through a Sellmeier glass with a Kerr response, `e49925d1` against `ece75dd7`.
+
+| | before (s) | after (s) |
+|---|---:|---:|
+| `Simulation.from_free` | 169, 179 | 14.9, 14.9 |
+| `translate` | 30.3, 27.5 | 7.2, 7.8 |
+| `runner` | 3.8, 3.0 | 3.5, 3.3 |
+
+A launch's bits don't change, which `tests/test_pulses.py` and `tests/test_cartesian_precision.py` hold across
+thread counts. The sum that scales the field stays one sum in one order for that reason, so it stays on one thread.
+

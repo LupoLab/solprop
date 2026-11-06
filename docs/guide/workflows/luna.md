@@ -64,6 +64,12 @@ Four conventions change what the numbers mean:
   Luna's energy and intensity for the same field; to start from the same field, scale the
   energy by $n_0$. Local intensities are signed fluxes, and the field that drives
   ionisation is reported separately. See [energy and flux in a medium](../free-space/flux.md).
+- **Free-space boundaries are watched, and absorbed only on request.** Luna.jl's
+  free-space routes apply no transverse absorber, so a radial run reflects from its outer
+  radius and a Cartesian one wraps. So does solprop by default, but it detects light
+  reaching the edge and stops the run, naming a size to try, carries a safety ramp at the
+  grid's highest transverse wavenumbers, and offers a designed real-space collar on
+  request ([transverse boundaries](../free-space/model.md#transverse-boundaries)).
 - **The unrotated `HE_1m` mode is polarised along x**; Luna's is polarised along y. The
   two are the two members of the degenerate pair, a quarter turn apart
   ($\phi_\text{solprop} = \pi/(2n) - \phi_\text{Luna}$ for a family of order $n$).
@@ -281,7 +287,7 @@ error.
   them, not at every accepted step (which costs Luna about a fifth of a step); each has
   one definition.
 - A file records the configuration, package versions and git commit, not a copy of the
-  source; a resume compares the whole recorded configuration path by path, and a
+  source; a resume needs the whole recorded configuration's hash to match, and a
   refused resume names what changed (Luna's key covers only the statistic names and the state shape).
   The step schedule and history are stored. The file is opened once and, as Luna's
   is, preallocated for the planned planes with an `n_saved` count; it also grows by
@@ -311,7 +317,7 @@ error.
 - Tabulated modes from any mode solver.
 - Planar guides, including a planar guide resolved across its width, and a line
   geometry of free space.
-- Gas mixtures and steady-flow fills.
+- Steady-flow gas fills.
 - Vector Raman responses.
 - A frequency-dependent electronic response (opt-in, on every backend): optmat's
   whole hyperpolarisability fit evaluated at every quartet's frequencies, where Luna
@@ -325,7 +331,6 @@ error.
 - Coupling one simulation's output field into another (a capillary, a fibre, a gas gap) through coherent field planes, with transport through free space, lenses, apertures, mirrors and spectral optics ([coupling simulations](coupling.md)).
 - Design tools with multi-soliton content, and the inverse design of a capillary's
   pressure and energy for a soliton order, count or largest eigenvalue.
-- Scans on process pools and Slurm clusters.
 - The native backend for multi-core CPUs and GPUs.
 
 ## Validation against Luna

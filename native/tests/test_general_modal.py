@@ -56,6 +56,7 @@ from solprop.stepper import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.problem import KernelProblem
+from thread_sizing import Sizing, assert_threaded
 
 from solprop_native import NativeBackend, NativeBatchBackend, build_info
 
@@ -504,6 +505,13 @@ def _agree_across_threads(
     """
     runs = [_probe(count, names, tmp_path / f"fields-{count}.npz") for count in counts]
     assert [record["threads"] for record, _ in runs] == list(counts)
+    assert_threaded(
+        cast("list[Sizing]", runs[1][0]["sizing"]),
+        counts[1],
+        "kernels.modal",
+        "kernels.stage",
+        "fft.fft",
+    )
     (_, one), (_, other) = runs
     for name in names:
         case = CASES[name]()

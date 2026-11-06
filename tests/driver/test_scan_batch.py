@@ -15,7 +15,8 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
-from solprop.backends.numba_cpu import NumbaCpuBackend
+from solprop.backends.batch import LockstepRunner
+from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver import Simulation, _scan_batch
@@ -60,7 +61,7 @@ def build(point, backend="numpy_ref"):
 # A native lockstep batch replays its Adams members on solprop's march, with the
 # warning native/tests/test_batch.py asserts (SEP 39).
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu", "native", "auto"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native", "auto"])
 @pytest.mark.parametrize("size", [1, 2, 3])
 def test_batch_scan_matches_local_with_partial_groups(tmp_path, backend, size):
     if backend == "native":
@@ -131,7 +132,7 @@ def test_batch_refuses_memory_before_backend_construction(tmp_path, monkeypatch)
 
 def test_batch_refuses_mixed_backend_scan(tmp_path):
     def mixed(point):
-        return build(point, "numpy_ref" if point.index == 0 else "numba_cpu")
+        return build(point, "numpy_ref" if point.index == 0 else "native")
 
     scan = Scan("batch", base_seed=772, power=[1.0, 2.0])
     with pytest.raises(DriverError, match="mixed backends"):
@@ -149,7 +150,7 @@ def test_batch_device_budget_refuses_or_splits_before_group_allocation(
     tmp_path, monkeypatch, free_fraction
 ):
     monkeypatch.setattr(
-        NumbaCpuBackend,
+        NumpyRefBackend,
         "available_device_memory",
         lambda self: free_fraction * sum(self.memory_ledger().values()),
     )
@@ -160,16 +161,83 @@ def test_batch_device_budget_refuses_or_splits_before_group_allocation(
         "executor": executor,
         "progress": "none",
     }
-    builder = partial(build, backend="numba_cpu")
     if free_fraction == 0:
         with pytest.raises(DriverError, match="cannot fit one member"):
-            run_scan(scan, builder, **options)
+            run_scan(scan, build, **options)
         assert executor.budgets[0]["admitted"] == 0
     else:
-        result = run_scan(scan, builder, **options)
+        result = run_scan(scan, build, **options)
         assert result.status.tolist() == ["done"] * 3
         assert executor.budgets[0]["admitted"] == 1
         assert executor.budgets[0]["host_admitted"] == 3
+
+
+def _total_energy(output):
+    return np.asarray(output["stats/energy"][-1].sum())
+
+
+# Three planes: the entrance and two more. A built-in reduction of a field reads its
+# target plane, and a custom one reads every plane unless it says it reads none.
+FIELDS_ASKED = {
+    "no field": ({"fields": "none"}, [False, False, False]),
+    "one plane": ({"fields": "planes", "field_planes": [-1]}, [False, False, True]),
+    "the entrance": ({"fields": "planes", "field_planes": [0]}, [True, False, False]),
+    "every plane": ({"fields": "all"}, [True, True, True]),
+    "a built-in's plane": (
+        {"fields": "none", "reductions": [scans.peak_power(plane=1)]},
+        [False, True, False],
+    ),
+    "a custom reduction": (
+        {
+            "fields": "none",
+            "reductions": [scans.custom("energy", _total_energy, (), "J")],
+        },
+        [True, True, True],
+    ),
+    "a statistics reduction": (
+        {
+            "fields": "none",
+            "reductions": [
+                scans.custom("energy", _total_energy, (), "J", reads_fields=False)
+            ],
+        },
+        [False, False, False],
+    ),
+}
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+@pytest.mark.parametrize(
+    ("options", "asked"), FIELDS_ASKED.values(), ids=FIELDS_ASKED.keys()
+)
+def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
+    tmp_path, monkeypatch, backend, options, asked
+):
+    # solprop #299: a plane no one reads moves no member's field, and what the scan
+    # stores is what the same points store run alone, under the same rule.
+    if backend == "native":
+        pytest.importorskip("solprop_native")
+    scan = Scan("field_free", base_seed=772, power=[1.0, 2.0, 3.0])
+    builder = partial(build, backend=backend)
+    keywords = {"progress": "none", **options}
+    reference = run_scan(
+        scan, builder, output=tmp_path / "local.h5", executor=Local(), **keywords
+    )
+    fields = []
+    original = LockstepRunner.observe_members
+
+    def spy(self, *, field=True):
+        fields.append(field)
+        return original(self, field=field)
+
+    monkeypatch.setattr(LockstepRunner, "observe_members", spy)
+    result = run_scan(
+        scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
+    )
+    assert result.status.tolist() == ["done"] * 3
+    assert fields == asked
+    assert_points_matched(result, reference, scan, builder, what="batch member")
 
 
 def test_batch_custom_reducer_failure_isolated_and_retryable(tmp_path):

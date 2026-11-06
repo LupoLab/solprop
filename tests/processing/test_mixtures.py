@@ -20,6 +20,7 @@ from solprop.output import HDF5Output, MemoryOutput, open_file
 from solprop.output.schema import SavedPlane
 from solprop.physdata import Mixture
 from solprop.processing._examples import example_output
+from solprop.processing.fields import _spectral_density
 from solprop.profiles import Constant, Linear
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
@@ -77,9 +78,9 @@ def case(request):
         )
     else:
         space = (
-            RadialGrid(6e-4, 32, window_factor=0.0)
+            RadialGrid(6e-4, 32, collar_fraction=0.0)
             if request.param == "radial"
-            else FreeGrid(3e-4, 4, 4e-4, 4, window_factor=0.0)
+            else FreeGrid(3e-4, 4, 4e-4, 4, collar_fraction=0.0)
         )
         if isinstance(space, RadialGrid):
             simulation = Simulation.from_radial(
@@ -131,7 +132,10 @@ def test_absorption_has_cross_section_density_energy_units(case, outputs):
     assert bound > 0
     memory, reloaded = outputs
     omega, measured = processing.absorbed_spectral_energy(memory)
-    _, spectral = processing.get_spectral_density(memory, axis="omega", band="active")
+    # Each column's own density: get_spectral_density refuses a spatial file, whose
+    # columns it would read as modes, and the weights below are what make them
+    # physical.
+    _, spectral = _spectral_density(memory, axis="omega", band="active")
     spectral = spectral.reshape(memory.n_saved, -1, omega.size)
     weights = simulation.metadata().configuration["mixture_processing"][
         "column_energy_weights"
@@ -273,6 +277,7 @@ def test_the_power_weight_is_modal_and_a_spatial_run_has_none(case):
         processing.get_power_weight(output)
 
 
+@pytest.mark.parametrize("case", ["modal"], indirect=True)
 @pytest.mark.parametrize("factor", [0.5, 2.0])
 def test_unrecorded_material_positions_are_refused(case, factor):
     simulation, problem = case
@@ -303,7 +308,7 @@ def test_a_spatial_record_without_its_plane_measure_is_refused(case):
 
 def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
     material, grid, _, _, original = mixture_case()
-    space = RadialGrid(6e-4, 8, window_factor=0.0)
+    space = RadialGrid(6e-4, 8, collar_fraction=0.0)
     simulation = Simulation.from_radial(
         grid,
         space,

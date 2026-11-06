@@ -167,7 +167,6 @@ run = Simulation.from_waveguide(
     fwhm=60e-15,
     energy=1e-12,
     save_planes=[1e-3],
-    backend="numpy_ref",
 ).run()
 ```
 
@@ -179,7 +178,9 @@ reproduces a **fresh** solve at the points the doubling adds to within `path_rto
 by default is the frequency interpolation's own measured profile error: sampling in z is
 then never the coarser of the two
 ({py:class}`~solprop.modes.guide.ModalPath`,
-{py:func}`~solprop.translate.modal_path.sample_modal_path`). On the graded-index taper
+{py:func}`~solprop.translate.modal_path.sample_modal_path`). A relative error $e$ in a
+propagation constant costs a phase of about $e|\beta|L$ over a length $L$, so a run that
+needs the phase along a long guide should tighten `path_rtol`. On the graded-index taper
 above the first degree, four, already reproduces the held-out solves to 7.6e-8 against a
 budget of 2.9e-6, and the whole sampling takes a few seconds; the doubling costs no repeated solve, because the Chebyshev-Lobatto points nest.
 
@@ -232,14 +233,13 @@ scalar areas' own departure.
 **What it costs.** The path's solves and the connection's at every sampled position:
 seconds on the graded-index sector and about twenty on a two-channel step-index fibre.
 The maps hold `sections x (degree + 1)` coefficients each rather than one, and a stage
-evaluates one of each, which {py:func}`~solprop.backends.memory.estimate_memory` counts
-to the byte.
+evaluates one of each.
 
 **Refused, by name**: a snapshot position other than the entrance, `sections=` or
 `path_rtol=` beside a guide whose geometry does not move, an entrance rule the provider
 would not build again, a run longer than the declared path, the `modified` noise model
 (the `input` draw is part of the launch and is admitted), a lockstep batch, a fixed
-schedule that straddles a kink, a CF4 flow or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref`, `numba_cpu` and `native` on
+schedule that straddles a kink, a CF4 flow or no flow at all beside moving maps. Every backend executes the moving maps — `numpy_ref` and `native` on
 the CPU and on a GPU. A declared circular basis is honoured: the metric then stays
 the identity, the basis being unitary and the measured Gram departure unitarily
 invariant.

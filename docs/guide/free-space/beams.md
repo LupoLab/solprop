@@ -258,6 +258,31 @@ power the beam keeps its $\operatorname{sech}^2$ profile over three diffraction 
 at half of it, the beam diffracts.
 ```
 
+### Displacing and tilting a beam
+
+On a Cartesian grid a beam can be launched off the axis and at an angle:
+`displacement=(d_x, d_y)` in metres and `tilt=(theta_x, theta_y)` in radians, as
+{class}`~solprop.coupling.elements.Alignment` defines them. The tilt is a phase screen
+$\exp[\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$, with $k(\omega)$
+the launch medium's wave number, so every frequency leaves at the same angle; both apply
+at the launch plane, after `propz`, and the energy is set after them:
+
+```python
+off_axis = SpatialPulse(
+    GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-9),
+    waist=40e-6,
+    displacement=(50e-6, 0.0),  # centred 50 um towards +x
+    tilt=(2e-3, 0.0),  # propagating 2 mrad towards +x
+)
+aimed = prop_free(grid, box, argon, [], off_axis, settings=settings, progress="none")
+```
+
+The launch is refused when the tilted beam's transverse wave numbers reach the grid's
+band, when the moved beam is not negligible at the window's edge, or when the tilt's
+pulse-front delay across the beam is more than half the time window. A radial grid has
+no direction to move along, a line grid has no y, and a planar beam has its own
+`offset_x`; to misalign a beam into a guide, use `Alignment`.
+
 ## Reading the output
 
 A free-space run writes the same output as any other, with the spatial axes, weights and
@@ -281,9 +306,22 @@ intensities, the beam radius, the full width and the on-axis spectrum
 [statistics catalogue](../results/statistics.md) defines each, and the model page
 [says how the widths are measured](model.md#spatial-collar-and-statistics).
 
+A radial file also answers for the beam itself, from the file alone:
+{py:func}`~solprop.processing.beams.fluence_along` gives the fluence across the beam at every
+plane, {py:func}`~solprop.processing.beams.radial_spectrum` and
+{py:func}`~solprop.processing.beams.radial_intensity` one plane across the beam,
+{py:func}`~solprop.processing.beams.on_axis_spectra`,
+{py:func}`~solprop.processing.beams.on_axis_power` and
+{py:func}`~solprop.processing.beams.on_axis_spectrogram` the light on the axis, and
+{py:func}`~solprop.processing.beams.far_field` its energy per solid angle against wavelength,
+where conical emission shows as rings. The angle is the one outside the medium. The
+[filament reader example](../../auto_tutorials/free_space/plot_11_radial_filament.rst) uses them,
+and {py:func}`~solprop.tools.beam_params` gives a beam's Rayleigh range, critical power and
+Marburger distance.
+
 ## Where it runs
 
-Radial, Cartesian and line runs execute on `numpy_ref`, `numba_cpu` and the native
+Radial, Cartesian and line runs execute on `numpy_ref` and the native
 backend's CPU build; its CUDA build runs them too. A Cartesian run's memory grows
 as $n_x n_y n_t$, and the [backends chapter](../performance/resources.md#memory) says how it is budgeted.
 The thread pools a free-space run uses, including its separate transverse FFT pool, are
@@ -306,3 +344,6 @@ on the model page under
 A saved plane of a free-space run is a coherent field plane that can be transported
 through lenses, apertures and free space or coupled into a capillary or fibre
 ([coupling simulations](../workflows/coupling.md)). The [crossing-beam lesson](../../introduction/lessons/plot_04_crossing_beams.rst) shows how to launch a custom coherent array. The [radial filament lesson](../../introduction/lessons/plot_03_filament.rst) connects fluence, peak intensity and plasma. Refine the spatial grid and temporal bandwidth independently before interpreting either example quantitatively.
+
+A beam's displacement and tilt were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

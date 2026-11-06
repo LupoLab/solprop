@@ -19,10 +19,9 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID
 from solprop.backends import available
-from solprop.backends.numba_cpu import NumbaCpuBackend
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation, _interpolated
-from solprop.exceptions import DriverError, TranslationError
+from solprop.exceptions import DriverError, OutputError, TranslationError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.noise import modified_noise
@@ -47,7 +46,7 @@ from solprop.stepper.tableau import (
 )
 from solprop.translate.coupled import constant_schur_flow
 
-COMPILED: list[type] = [NumbaCpuBackend]
+COMPILED: list[type] = []
 if "native" in available():
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 
@@ -154,10 +153,10 @@ def test_a_compiled_backend_interpolates_as_the_reference(
 ):
     # The conftest's narrow grid as runs are built today (768 bins), not this
     # module's former one: backend parity is held on the default geometry. Measured
-    # 2.3e-15 (numba_cpu) and 1.7e-15 (native) of the peak at the reference's 127
-    # attempts, as on the former grid (2.1e-15 and 3.0e-15 at 125); a launch changed
-    # by 1e-14 relative moves the reference's own fields by 4e-14 of the peak and none
-    # of its attempts, so no decision here is near a rounding fork.
+    # 1.7e-15 of the peak at the reference's 127 attempts, as on the former grid
+    # (3.0e-15 at 125); a launch changed by 1e-14 relative moves the reference's own
+    # fields by 4e-14 of the peak and none of its attempts, so no decision here is near
+    # a rounding fork.
     grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 1e-12)
     problem = soliton_problem(
         grid,
@@ -213,7 +212,7 @@ def test_statistics_at_interpolated_planes_match_the_reference(backend):
             scale = 1.0
         # Round-off can flip a step decision between backends and platforms, and the
         # interpolated planes then differ at the interpolant's error: 4.3e-7 of the
-        # electron density on Linux numba_cpu and on a CUDA build, 1e-9 on macOS. A
+        # electron density on a CUDA build, 1e-9 on macOS. A
         # statistic read off the march's state instead differs by percent.
         np.testing.assert_allclose(
             np.asarray(compiled[f"stats/{name}"]), expected, rtol=0, atol=1e-5 * scale
@@ -363,10 +362,9 @@ def test_an_interpolated_plane_is_resumed_only_on_request(tmp_path, dense):
     assert _interpolated(state)
     with pytest.raises(DriverError, match="resume='interpolated'"):
         capillary(backend="numpy_ref", **dense).run(path, resume=True)
-    # The file decides, not the request: a run resumed without interpolation would
-    # otherwise continue silently from a state the march never passed through.
+    # A run asking for no interpolation is another run, which the hash refuses.
     sparse = {**dense, "interpolate_planes": False}
-    with pytest.raises(DriverError, match="resume='interpolated'"):
+    with pytest.raises(OutputError, match=r"stepper\.limits\.interpolate_planes"):
         capillary(backend="numpy_ref", **sparse).run(path, resume=True)
     handler = capillary(backend="numpy_ref", **dense).run(
         path, resume="interpolated", progress="none"

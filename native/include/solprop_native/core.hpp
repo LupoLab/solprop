@@ -81,6 +81,80 @@ struct MonitorSums {
   }
 };
 
+/** A state's whole-state transfers, in bytes, each way (solprop SEP 44): what lets a
+   test hold a field-free run to no transfer at all, whichever path would have made one.
+ */
+struct CrossedBytes {
+  std::size_t to_host{};
+  std::size_t from_host{};
+};
+
+/** What the transverse edge reads of a state (solprop SEP 44): four numbers per weight
+    table, and each mode's energy. */
+struct EdgeNumbers {
+  std::vector<double> sums;
+  std::vector<double> columns;
+  /** A requested collar's `(inward, windowed)` per line. */
+  std::vector<double> strip;
+  /** A requested collar's rectified inward current. */
+  double current{};
+};
+
+/** A requested collar's lines, as Python describes them (solprop SEP 44): for each, its
+    axis (0 `r`, 1 `x`, 2 `y`), its count of strip nodes and those nodes, its window,
+   its inward bins `[first, last)`, the factor on its strip's sums and the measure on
+   its current, and its onset's node, before and after, with the distance between the
+    last two. An onset whose node is `no_onset` has no slope to read. */
+struct EdgeLines {
+  static constexpr std::size_t no_onset = static_cast<std::size_t>(-1);
+  std::vector<std::size_t> axes, counts, positions, inward, onsets;
+  std::vector<double> windows, factors, measures, steps, scale;
+  double k_min{};
+  /** The most one batch of a padded transform holds. */
+  std::size_t batch_bytes{};
+};
+
+/** What a split-step collar's finish reads of the power it finds (solprop SEP 21,
+    ADR-057), one reduction value: the energy it takes, then the energy, the low
+    guard's, the high guard's and the collar's, which the monitor judges the
+    occupancies on. */
+struct SplitSums {
+  Kokkos::Array<double, 5> values{};
+  KOKKOS_INLINE_FUNCTION SplitSums& operator+=(const SplitSums& other) {
+    for (std::size_t slot = 0; slot < 5; ++slot)
+      values[slot] += other.values[slot];
+    return *this;
+  }
+};
+
+/** The boundary monitor's occupancy of a state (solprop #440), one reduction value: its
+    energy per walk-off bucket. A device's reduction keeps one of these per thread in
+    team memory, with no atomics, so its size bounds the buckets (`SPLIT_RATE_BUCKETS`).
+ */
+inline constexpr std::size_t occupancy_bucket_limit = 128;
+// The buckets one reduction holds. A reduction's value has to fit the device's shared
+// memory per block, which on HIP's smallest block of 64 threads is `(64 + 2) *
+// sizeof(value)`, with the kernel's own static memory beside it within 64 KiB. Kokkos
+// checks only the first: a value that fills the block passes its check and the dispatch
+// then faults on an AMD Instinct MI325X ("Illegal opcode in command stream"). So a
+// reading there takes two passes, leaving half the block free.
+#if defined(KOKKOS_ENABLE_HIP)
+inline constexpr std::size_t occupancy_reduction_slots = 64;
+#else
+inline constexpr std::size_t occupancy_reduction_slots = occupancy_bucket_limit;
+#endif
+struct OccupancySums {
+  Kokkos::Array<double, occupancy_reduction_slots> values{};
+  KOKKOS_INLINE_FUNCTION OccupancySums& operator+=(const OccupancySums& other) {
+    for (std::size_t slot = 0; slot < occupancy_reduction_slots; ++slot)
+      values[slot] += other.values[slot];
+    return *this;
+  }
+};
+#if defined(KOKKOS_ENABLE_HIP)
+static_assert((64 + 2) * sizeof(OccupancySums) <= 48 * 1024);
+#endif
+
 using ComplexView = Kokkos::View<Complex*, Layout, MemorySpace>;
 using ConstComplexView = Kokkos::View<const Complex*, Layout, MemorySpace>;
 using RealView = Kokkos::View<double*, Layout, MemorySpace>;
@@ -370,6 +444,9 @@ struct Problem {
       spatial_clamped;
   std::vector<double> spatial_kperp_sq, spatial_kperp_sq_low, spatial_frame,
       spatial_spectral_rate;
+  // solprop kernel schema 45 (#231): the user's share of the spectral rate, read only
+  // by `absorbed_power`; the operator takes the total.
+  std::vector<double> spatial_user_rate;
   std::vector<double> spatial_absorber_rate;
   // solprop kernel schema 31 (SEP 22 phase 2): a transverse collar's power rate per
   // column, added to the field attenuation on active bins; zeros leave the operator.
@@ -422,6 +499,9 @@ struct Problem {
   bool low_storage{};
   bool low_storage_stage_register{true};
   std::size_t low_storage_flows{};
+  // Whether a separable route's first input crosses to the transverse scratch through
+  // tiles of team scratch, as a device's does.
+  bool low_storage_tiled_input{};
   std::size_t n_phi_terms{};
   std::size_t n_prefactor_terms{};
   // solprop SEP 29 G1: Phi or the prefactor is the general z table. Its terms are then
@@ -465,7 +545,6 @@ struct Problem {
   double self_factor{};
   double conjugate_factor{};
   double harmonic_factor{};
-  bool cubic_real{};
   bool take_real{};
   bool plasma{};
   bool envelope_plasma{};
@@ -477,7 +556,6 @@ struct Problem {
   bool raman_tensor_capable{};
   bool stash_plasma{};
   bool weighted_controller{};
-  bool phase_b_engine{};
   double dt_fine{};
   double dt{};
   std::size_t n_raman_terms{};
@@ -577,11 +655,6 @@ struct Problem {
   [[nodiscard]] std::size_t n_columns() const noexcept { return n_modes * n_pol_state; }
   [[nodiscard]] std::size_t effective_node_pol() const noexcept {
     return n_pol_transform * n_pol_state;
-  }
-  [[nodiscard]] bool needs_general_engine() const noexcept {
-    return phase_b_engine || general_modal || coupled_flow || n_columns() != 1 ||
-           n_nodes != 1 || n_pol_transform != 1 || plasma || raman ||
-           weighted_controller || dispersive || !projection_coarse_matrix.empty();
   }
   [[nodiscard]] std::size_t raman_drives() const noexcept {
     if (effective_node_pol() == 2)
@@ -694,57 +767,8 @@ enum class TableKind { phi, prefactor, rate, flux };
     general modal route, a coupled flow nor a separable geometry. */
 [[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
-/** Execution-space views, FFT plans, and scratch owned by one State. */
-class Workspace;
 class GeneralWorkspace;
 class GeneralBatchWorkspace;
-
-/** Persistent single-column execution-space state, plans, and scratch storage. */
-class State {
-public:
-  explicit State(Problem problem);
-  ~State();
-  State(const State&) = delete;
-  State& operator=(const State&) = delete;
-  State(State&&) = delete;
-  State& operator=(State&&) = delete;
-
-  /** Load the field and noise from host memory, one copy into the memory space. */
-  void set_initial(std::span<const Complex> field, std::span<const Complex> noise);
-  [[nodiscard]] std::array<double, 3> trial_step(double dz,
-                                                 const TrialScalars& scalars);
-  void finish(double dz);
-  void promote_fsal();
-  void clear_fsal();
-  void set_absorber_quiet(bool quiet);
-  /**
-   * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
-   * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
-   * here on each split-step finish adds what it takes to an accumulator, which
-   * `monitor_reading` drains.
-   */
-  void bind_monitor(const std::vector<double>& weights,
-                    const std::vector<double>& column_weights);
-  void unbind_monitor() noexcept;
-  /**
-   * The bound monitor's reading of the accepted state: `sum_t P`, the four weighted
-   * sums `sum_t w_k P`, and what the split collar took since the last reading.
-   */
-  [[nodiscard]] std::vector<double> monitor_reading();
-  [[nodiscard]] std::vector<Complex> field_to_host() const;
-  /** The field into `destination`, of the field's size: one copy from the space. */
-  void field_to_host(std::span<Complex> destination) const;
-  [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
-  [[nodiscard]] CpuSizing execution_sizing() const;
-  [[nodiscard]] double planning_seconds() const noexcept;
-  [[nodiscard]] bool fsal_ready() const noexcept;
-  [[nodiscard]] std::size_t rk_source_evaluations() const noexcept;
-  [[nodiscard]] bool closed() const noexcept;
-  void close() noexcept;
-
-private:
-  std::unique_ptr<Workspace> workspace_;
-};
 
 /** Multicolumn general state with batched FFTs and chunked node transforms. */
 class GeneralState {
@@ -775,10 +799,6 @@ public:
    */
   [[nodiscard]] double low_storage_step(double dz, const TrialScalars& scalars,
                                         bool rebuild_table);
-  /** Hold the accepted state at a field-free plane, in the memory space (SEP 22). */
-  void hold_plane();
-  /** The held plane's state on the host: the one copy a checkpoint takes. */
-  [[nodiscard]] std::vector<Complex> held_to_host() const;
   /** The resident Adams history (solprop SEP 16 phase 3b, solprop ADR-043). */
   void adams_allocate(std::size_t slots, bool compensated, bool interpolate = true);
   void adams_compensation_start(std::size_t slot, const std::vector<double>& rate);
@@ -854,11 +874,32 @@ public:
    * The spatial statistics of the accepted state at the plane `z`, measured by the
    * medium's axial flux (solprop SEP 34): flags 1 energy, 2 on-axis peak intensity, 4
    * peak intensity, 8 on-axis spectrum, 16 the widths' fluence block (the signed
-   * fluence at each node, the axis fluence, then each node's magnitude
-   * `dt sum |E| |G|`), packed in that order.
+   * fluence at each node, the axis fluence, which a separable route leaves NaN since
+   * only a radial width reads it, then the bound on the largest magnitude), 32 a
+   * Cartesian plane's fluence moments, which hold its scaled profile for
+   * `plane_fluence_trace` (the lowest value, its node, the bound on the largest
+   * magnitude, the largest value, the count of values that aren't finite, then the
+   * scaled sum and its x and y index moments), packed in that order.
    */
   [[nodiscard]] std::vector<double>
   spatial_statistics(std::uint64_t flags, double intensity_factor, double z);
+  /**
+   * The second moment and the azimuthal average of the plane's scaled fluence that a
+   * `spatial_statistics` call with flag 32 left, on rings solprop's own rule fixes,
+   * with the centre in metres from the axes' first samples. Returns the second-moment
+   * sum, then one average per ring. The profile itself stays in the execution space.
+   */
+  [[nodiscard]] std::vector<double>
+  plane_fluence_trace(double center_x, double center_y, double dx, double dy,
+                      double extent, double spacing, std::size_t n_radii,
+                      const std::vector<double>& cosines,
+                      const std::vector<double>& sines);
+  /**
+   * The modal state's spectrum at one physical point: `matrix`, one or two rows of
+   * `n_modes` columns, contracted with the modes, as `(n_rows * n_pol, n_omega)`
+   * samples. What an on-axis scan needs of the state.
+   */
+  [[nodiscard]] std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
   /**
    * solprop SEP 23's far-field statistics of the accepted state on a Cartesian or line
    * grid, one banded pass; see `FarFieldPass::run` (`far_field.hpp`) for the tables,
@@ -866,8 +907,8 @@ public:
    */
   [[nodiscard]] std::vector<double>
   aperture_statistics(std::uint64_t flags, const std::vector<double>& apertures,
-                      int profile_code, int exponent,
-                      const std::vector<double>& regions, double intensity_factor);
+                      int exponent, const std::vector<double>& regions,
+                      double intensity_factor);
   [[nodiscard]] std::vector<double>
   statistics(std::uint64_t flags, const std::vector<double>& windows,
              const std::vector<double>& on_axis, double density, double taper,
@@ -878,12 +919,28 @@ public:
   void promote_fsal();
   void clear_fsal();
   void set_absorber_quiet(bool quiet);
-  /** As `State::bind_monitor`; the columns' weights are by mode. */
+  /**
+   * Bind solprop's boundary monitor (SEP 21): its four time weights, row-major
+   * `(4, n_t)`, and its columns' quadrature by mode (empty for unit weights). From
+   * here on each split-step finish adds what it takes to an accumulator, which
+   * `monitor_reading` drains, and keeps the energies of the power it found.
+   */
   void bind_monitor(const std::vector<double>& weights,
                     const std::vector<double>& column_weights);
   void unbind_monitor() noexcept;
-  /** As `State::monitor_reading`, over every column of the state. */
+  /**
+   * The bound monitor's reading of the accepted state, over every column: `sum_t P`,
+   * the four weighted sums `sum_t w_k P`, what the split collar took since the last
+   * reading, and `sum_t P` and the two guards' and the collar's sums of the power the
+   * last step's split found (zeros before the first such step).
+   */
   [[nodiscard]] std::vector<double> monitor_reading();
+  /**
+   * Bind the split collar's walk-off bucket of each frequency bin, by mode
+   * `(n_modes, n_omega)`, `count` buckets (solprop #440): from here on
+   * `monitor_reading` also returns the state's energy per bucket, the fastest first.
+   */
+  void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   [[nodiscard]] double quadrature_error() const;
   [[nodiscard]] double quadrature_peak();
   [[nodiscard]] std::string synthesis_provider() const;
@@ -893,7 +950,21 @@ public:
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
+  /** What the transverse edge's reading sums with (solprop SEP 44). */
+  void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
+                 const std::vector<double>& totals,
+                 const std::vector<double>& synthesis, std::size_t first_row);
+  /** The bytes through this state's crossings since it was built, each way. */
+  [[nodiscard]] CrossedBytes crossed_bytes() const noexcept;
+  /** The edge's region sums and each mode's energy, where the state lives. */
+  /** A requested collar's lines, whose strip and current a reading then forms. */
+  void bind_edge_lines(const EdgeLines& lines);
+  EdgeNumbers edge_reading(bool faces, bool whole, bool totals, bool strip,
+                           bool current);
+  /** The threads a large crossing takes (`crossing.hpp`), from solprop's budget. */
+  void set_crossing_workers(std::size_t workers) noexcept;
   [[nodiscard]] std::vector<Complex> stage_to_host(std::size_t stage) const;
+  void stage_to_host(std::size_t stage, std::span<Complex> destination) const;
   /**
    * The last evaluation's projected polarisation spectrum on the fine rule, or on the
    * embedded one (finishing SEP 6's dispersive products there first), a diagnostic.
@@ -944,4 +1015,10 @@ void multiply_phase(const ExecutionSpace& execution_space, ConstComplexView valu
 
 template <> struct Kokkos::reduction_identity<solprop_native::MonitorSums> {
   KOKKOS_FUNCTION static solprop_native::MonitorSums sum() { return {}; }
+};
+template <> struct Kokkos::reduction_identity<solprop_native::OccupancySums> {
+  KOKKOS_FUNCTION static solprop_native::OccupancySums sum() { return {}; }
+};
+template <> struct Kokkos::reduction_identity<solprop_native::SplitSums> {
+  KOKKOS_FUNCTION static solprop_native::SplitSums sum() { return {}; }
 };

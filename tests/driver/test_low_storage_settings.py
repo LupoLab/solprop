@@ -30,7 +30,7 @@ def settings(**overrides):
 
 def test_auto_resolves_as_for_every_integrator():
     # Every registered backend executes the march (SEP 24 phase 3), so "auto" takes
-    # the registry's choice: ``native`` when it is installed, otherwise numba_cpu.
+    # the registry's choice: ``native`` when it is installed, otherwise numpy_ref.
     assert settings().backend == resolve_name("auto")
     for name in LOW_STORAGE_BACKENDS:
         assert settings(backend=name).backend == name

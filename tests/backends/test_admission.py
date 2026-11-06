@@ -69,9 +69,7 @@ def test_a_section_method_the_caller_has_not_built_is_refused_by_its_name(
             flow_methods=("constant_schur", "frozen_residual"),
         )
     # The full list refuses it the same way, flow first.
-    with pytest.raises(
-        BackendError, match="not yet implemented on the compiled backends"
-    ):
+    with pytest.raises(BackendError, match="not yet implemented on the native backend"):
         refuse_general_route(
             cf4_problem, backend="compiled", flow_methods=("frozen_residual",)
         )

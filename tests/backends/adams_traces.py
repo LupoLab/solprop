@@ -25,6 +25,7 @@ representation and reads it back bit for bit, so the comparison is exact.
 from __future__ import annotations
 
 import math
+from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -244,7 +245,11 @@ class _Namespace:
 
 
 class _Monitor:
-    """The boundary monitor's interval, the only part the march's caps read."""
+    """The boundary monitor's interval and crossing cap, the parts the march's caps
+    read; no split collar caps these scenarios, and no transverse edge is watched."""
+
+    step_cap = math.inf
+    transverse = None
 
     def __init__(self, interval: float) -> None:
         self.interval = interval
@@ -272,7 +277,7 @@ class _Harness(StepDriver):
             else _Monitor(scenario.quiet_interval)
         )
         self._schedule_index = 0
-        self._accepted_norms: list[float] = []
+        self._accepted_norms = deque(maxlen=3)
         self._state: object = "state"
         self.accepted = 0
         self.attempts = 0

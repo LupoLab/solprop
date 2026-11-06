@@ -267,11 +267,12 @@ across the seam to reconstruct them.
        potential against the electrons it freed, normalised by the most-ionised node.
        Second order in :math:`\delta t`; recorded, not acted on.
    * - ``absorbed_power``
-     - ``(4,)``
+     - ``(5,)``
      - J/m
      - yes
-     - The power the spectral, transverse, evanescent and material channels of the
-       linear operator remove, in that order, each weighted by the real axial
+     - The power the spectral collar, the transverse, evanescent and material channels
+       and a custom spectral rate of the linear operator remove, in that order, each
+       weighted by the real axial
        admittance as ``energy`` is: together the whole energy decrement
        of the linear flow on a Cartesian or line grid; on a line per metre of y, in J/m².
    * - ``plasma_boundary_level``
@@ -329,9 +330,8 @@ Gauss-Radau node is on the axis. They are opt-in and saved-plane only, and refus
 name on the spatial routes, a general modal guide, the mode-averaged route, a problem
 without plasma and the TDSE route (which never evaluates an atom for a statistic).
 Every backend uses the same host routine for an extra axis scan, or reuses a Radau
-axis row from its own node scan. CPU parity is qualified. On a GPU build of the native backend these
-statistics require a host copy of the field at each requested save plane; GPU
-qualification and a device-only axis scan remain follow-up work
+axis row from its own node scan. CPU parity is qualified. A GPU build of the native backend brings
+only that row's spectrum to the host; GPU qualification remains follow-up work
 ([SEP 19](../../dev/seps/archive/sep-0019-field-scale-quadrature.md)). A multimode
 field's largest density need not lie on the axis, so the node maxima keep their
 meaning beside them.

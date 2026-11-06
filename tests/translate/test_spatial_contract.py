@@ -62,6 +62,7 @@ def test_spatial_schema_fifteen_freezes_complete_field_names():
         "z_span",
         "kappa_sq",
         "kperp_rate",
+        "user_rate",
     )
 
 

@@ -26,6 +26,12 @@ RealView sized(const char* label, const std::size_t count) {
   return count == 0 ? RealView{} : RealView(label, count);
 }
 
+// Whether a table entry is an integer code from zero to `last`.
+bool is_code(const double value, const int last) {
+  return value >= 0.0 && value <= static_cast<double>(last) &&
+         value == std::trunc(value);
+}
+
 } // namespace
 
 FarFieldLayout far_field_layout(const std::uint64_t flags,
@@ -118,7 +124,7 @@ void FarFieldPass::close() noexcept {
 
 std::vector<double> FarFieldPass::run(const std::uint64_t flags,
                                       const std::vector<double>& apertures,
-                                      const int profile_code, const int exponent,
+                                      const int exponent,
                                       const std::vector<double>& regions,
                                       const double intensity_factor,
                                       const ComplexView2& field, const Inputs& inputs) {
@@ -126,12 +132,12 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
     throw std::invalid_argument("invalid far-field statistic flags");
   if (!std::isfinite(intensity_factor) || intensity_factor <= 0.0)
     throw std::invalid_argument("the far-field intensity factor must be positive");
-  if (profile_code < 0 || profile_code > 3 || (exponent != 1 && exponent != 2))
-    throw std::invalid_argument("invalid aperture profile code or exponent");
+  if (exponent != 1 && exponent != 2)
+    throw std::invalid_argument("invalid aperture weighting exponent");
   const std::size_t row = far_field_aperture_constants + n_omega_;
   if (apertures.size() % row != 0 || regions.size() % 4 != 0)
-    throw std::invalid_argument(
-        "aperture rows must hold 6 + n_omega values and region rows 4");
+    throw std::invalid_argument("aperture rows must hold their constants and n_omega "
+                                "values, and region rows 4");
   const std::size_t n_apertures = apertures.size() / row;
   const std::size_t n_regions = regions.size() / 4;
   if (n_apertures > max_rows || n_regions > max_rows)
@@ -144,13 +150,24 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
     if (!std::isfinite(value) || (scale && value < 0.0))
       throw std::invalid_argument("aperture tables must be finite, scales nonnegative");
   }
+  for (std::size_t index = 0; index < n_apertures; ++index) {
+    const double profile = apertures[index * row + far_field_profile];
+    const double shape = apertures[index * row + far_field_shape];
+    if (!is_code(profile, far_field_supergauss))
+      throw std::invalid_argument("invalid aperture profile code");
+    if (!is_code(shape, far_field_half_plane_y_lt))
+      throw std::invalid_argument("invalid aperture shape code");
+    if (static_cast<int>(shape) >= far_field_half_plane_x_ge &&
+        static_cast<int>(profile) == far_field_supergauss)
+      throw std::invalid_argument("a half-plane has no supergauss profile");
+  }
   for (const double value : regions)
     if (std::isnan(value))
       throw std::invalid_argument("region edges must not be NaN");
   if (field.extent(0) != n_x_ * n_y_ * n_pol_ || field.extent(1) != n_omega_ ||
       inputs.weights.extent(0) != n_x_ * n_y_ ||
       inputs.on_axis.extent(0) != n_x_ * n_y_ || inputs.omega.extent(0) != n_omega_ ||
-      inputs.active.extent(0) != n_omega_)
+      inputs.user_rate.extent(0) != n_omega_ || inputs.active.extent(0) != n_omega_)
     throw std::invalid_argument(
         "the far-field state or its inputs have the wrong shape");
   const auto layout = far_field_layout(flags, n_apertures, n_regions, n_pol_);
@@ -159,7 +176,7 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   const auto n_bands = far_field_band_count(n_x_, n_y_, layout.n_slots, n_omega_);
   const auto needed = n_bands * layout.n_slots * n_omega_;
   // Spectral rows (beam, regions, collected, the apertures' axes, the axis), then
-  // the four absorbed powers.
+  // the absorbed powers.
   std::size_t spectral =
       (layout.beam >= 0 ? 1U : 0U) + (layout.regions >= 0 ? n_regions : 0) +
       (layout.collected >= 0 ? n_apertures : 0) +
@@ -187,33 +204,60 @@ std::vector<double> FarFieldPass::run(const std::uint64_t flags,
   for (std::size_t index = 0; index < regions.size(); ++index)
     host_tables_(apertures.size() + index) = regions[index];
   // The image's distance from the origin is evaluated once per element when every
-  // aperture shares its distance and scale row, and the radius too when they also
-  // share a centre: the same strict expression on the same inputs, so every hard-edge
-  // decision is the general path's exactly.
+  // aperture shares its distance and scale row, and the radius too when they are all
+  // circles and share a centre: the same strict expression on the same inputs, so every
+  // hard-edge decision is the general path's exactly.
   bool one_distance = shared;
-  for (std::size_t index = 1; index < n_apertures; ++index) {
-    for (std::size_t column = far_field_aperture_constants - 1; column < row; ++column)
+  bool circles = true;
+  for (std::size_t index = 0; index < n_apertures; ++index) {
+    circles = circles && static_cast<int>(apertures[index * row + far_field_shape]) ==
+                             far_field_circle;
+    if (index == 0)
+      continue;
+    for (std::size_t column = far_field_distance; column < row; ++column)
       one_distance =
           one_distance && apertures[index * row + column] == apertures[column];
-    for (const std::size_t constant : {std::size_t{0}, std::size_t{1}})
+    for (const std::size_t constant : {far_field_centre_x, far_field_centre_y})
       shared = shared && apertures[index * row + constant] == apertures[constant];
   }
-  shared = shared && one_distance;
+  shared = shared && one_distance && circles;
   if (table_size != 0)
     Kokkos::deep_copy(execution_, tables_, host_tables_);
-  accumulate(layout, n_bands, n_apertures, n_regions, profile_code, exponent,
-             Sharing{shared, one_distance}, field, inputs);
+  accumulate(layout, n_bands, n_apertures, n_regions, exponent,
+             Sharing{shared, one_distance, circles}, field, inputs);
   finish(layout, n_bands, n_apertures, n_regions, intensity_factor, packed_size);
   Kokkos::deep_copy(execution_, host_packed_, packed_);
   execution_.fence("solprop_native far-field statistics boundary");
   return {host_packed_.data(), host_packed_.data() + packed_size};
 }
 
+void FarFieldPass::axis_spectrum(const bool closed, const ComplexView2& spectrum) {
+  const auto layout = far_field_layout(far_field_axis, 0, 0, n_pol_);
+  const auto n_bands = far_field_band_count(n_x_, n_y_, layout.n_slots, n_omega_);
+  const auto partials = partials_;
+  const auto n = n_omega_;
+  const auto slots = layout.n_slots;
+  const auto first = static_cast<std::size_t>(layout.axis) + (closed ? 2 * n_pol_ : 0);
+  const auto n_t = static_cast<double>(n_t_);
+  const bool envelope = envelope_;
+  launch::parallel_for(
+      "solprop_native.far_field.axis_spectrum", Range2(execution_, {0, 0}, {n_pol_, n}),
+      KOKKOS_LAMBDA(const std::size_t pol, const std::size_t bin) {
+        double real = 0.0, imag = 0.0;
+        for (std::size_t band = 0; band < n_bands; ++band) {
+          real += partials((band * slots + first + 2 * pol) * n + bin);
+          imag += partials((band * slots + first + 2 * pol + 1) * n + bin);
+        }
+        const double scale = (envelope || bin == 0 || bin + 1 == n ? 1.0 : 2.0) / n_t;
+        spectrum(pol, bin) = scale * Complex(real, imag);
+      });
+}
+
 void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_bands,
                               const std::size_t n_apertures,
-                              const std::size_t n_regions, const int profile_code,
-                              const int exponent, const Sharing sharing,
-                              const ComplexView2& field, const Inputs& inputs) {
+                              const std::size_t n_regions, const int exponent,
+                              const Sharing sharing, const ComplexView2& field,
+                              const Inputs& inputs) {
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   const auto partials = partials_;
@@ -234,6 +278,7 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
   const auto transverse = inputs.transverse;
   const auto transverse_low = inputs.transverse_low;
   const auto spectral_rate = inputs.spectral_rate;
+  const auto user_rate = inputs.user_rate;
   const auto transverse_rate = inputs.transverse_rate;
   const auto omega = inputs.omega;
   const auto active = inputs.active;
@@ -245,9 +290,10 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
   const auto apertures_used = layout.apertures >= 0 ? n_apertures : 0;
   const bool shared = sharing.centre;
   const bool one_distance = sharing.distance;
+  const bool circles = sharing.circles;
   // A host team is one thread, which then walks its band's columns with frequency
-  // innermost, as solprop's numba_cpu pass does; a device team's threads share the
-  // band's frequencies. Either way one thread owns each (band, bin).
+  // innermost; a device team's threads share the band's frequencies. Either way one
+  // thread owns each (band, bin).
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   const Policy policy(execution_, static_cast<int>(n_bands), Kokkos::AUTO());
 #else
@@ -299,7 +345,10 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                 if (layout.beam >= 0)
                   at(layout.beam) += weighted;
                 if (layout.absorbed >= 0) {
-                  at(layout.absorbed) += weighted * spectral_rate(bin);
+                  // The operator applies the total, the two parts' sum.
+                  at(layout.absorbed) +=
+                      weighted * (spectral_rate(bin) - user_rate(bin));
+                  at(layout.absorbed + 4) += weighted * user_rate(bin);
                   if (live) {
                     at(layout.absorbed + 1) += weighted * transverse_rate(column);
                     at(propagating ? layout.absorbed + 3 : layout.absorbed + 2) +=
@@ -329,21 +378,44 @@ void FarFieldPass::accumulate(const FarFieldLayout& layout, const std::size_t n_
                   const double reach = tables(far_field_aperture_constants + bin);
                   origin = far_field_radius(reach, kx, ky, 0.0, 0.0);
                   if (shared)
-                    radius = far_field_radius(reach, kx, ky, tables(0), tables(1));
+                    radius = far_field_radius(reach, kx, ky, tables(far_field_centre_x),
+                                              tables(far_field_centre_y));
                 }
                 for (std::size_t index = 0; index < apertures_used; ++index) {
                   const auto constants = index * row;
                   const double reach =
                       tables(constants + far_field_aperture_constants + bin);
-                  if (!shared)
-                    radius = far_field_radius(reach, kx, ky, tables(constants),
-                                              tables(constants + 1));
                   if (!one_distance)
                     origin = far_field_radius(reach, kx, ky, 0.0, 0.0);
-                  const double transmission =
-                      far_field_weight(radius, origin, reach, tables(constants + 2),
-                                       tables(constants + 3), tables(constants + 4),
-                                       tables(constants + 5), profile_code);
+                  const double centre_x = tables(constants + far_field_centre_x);
+                  const double centre_y = tables(constants + far_field_centre_y);
+                  const int code =
+                      static_cast<int>(tables(constants + far_field_profile));
+                  const int shape =
+                      circles ? int{far_field_circle}
+                              : static_cast<int>(tables(constants + far_field_shape));
+                  double transmission = 0.0;
+                  if (shape == far_field_circle) {
+                    if (!shared)
+                      radius = far_field_radius(reach, kx, ky, centre_x, centre_y);
+                    transmission = far_field_weight(
+                        radius, origin, reach, tables(constants + far_field_half_width),
+                        tables(constants + far_field_inverse_width),
+                        tables(constants + far_field_edge),
+                        tables(constants + far_field_distance), code);
+                  } else if (reach > 0.0 &&
+                             origin < tables(constants + far_field_distance)) {
+                    transmission = far_field_shaped_weight(
+                        far_field_offset(reach, kx, centre_x),
+                        far_field_offset(reach, ky, centre_y),
+                        FarFieldOutline{tables(constants + far_field_half_width),
+                                        tables(constants + far_field_half_height),
+                                        tables(constants + far_field_stretch_x),
+                                        tables(constants + far_field_stretch_y),
+                                        tables(constants + far_field_inverse_width),
+                                        tables(constants + far_field_edge)},
+                        shape, code);
+                  }
                   if (transmission == 0.0)
                     continue;
                   const long first_slot =

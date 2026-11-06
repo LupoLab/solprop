@@ -26,8 +26,8 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
+from backends.low_storage_cases import replay
 from backends.test_low_storage import cartesian_march
-from backends.test_numba_low_storage import replay
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the fields.
@@ -41,6 +41,9 @@ def _runtime_threads() -> np.ndarray:
 
 
 if __name__ == "__main__":
+    from backends.forced_threads import record_sizing
+
+    record_sizing(sys.argv[1])
     # The optional plugin is required only by this explicitly launched probe.
     from solprop_native import NativeBackend  # pyright: ignore[reportMissingImports]
 

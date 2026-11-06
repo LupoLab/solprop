@@ -22,8 +22,8 @@ one PEC stores in its place.
 The march is shared: a backend supplies two hooks of the step driver,
 ``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
 anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
-recording do the rest. ``numpy_ref`` evaluates through its reference passes and
-``numba_cpu`` through its fused stage kernels (SEP 14 phase 2).
+recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
+phase 2).
 
 Lifecycle, owned here and not by the shared driver's Runge-Kutta march (SEP 13
 section 6.1):
@@ -50,7 +50,7 @@ import numpy as np
 from jaxtyping import Complex
 from scipy.linalg import expm
 
-from solprop._helpers import NUMBA, Helpers
+from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
 from solprop.backends.driver import StepDriver
@@ -132,7 +132,9 @@ class CallLedger:
     dense_observations : int
         Save planes observed by interpolation instead of a landing; none costs a call.
     orders : list of int
-        The predictor order of every accepted step.
+        The predictor order of every accepted step. Its record
+        (:meth:`to_record`) run-length encodes it, as ``[order, count]`` pairs: a
+        run's order settles, and the record is rewritten at every saved plane.
     """
 
     startup: int = 0
@@ -146,6 +148,53 @@ class CallLedger:
     dense_observations: int = 0
     orders: list[int] = field(default_factory=list)
 
+    def __post_init__(self) -> None:
+        """Start the record's encoding of the orders empty."""
+        # The encoded runs of `orders[:_encoded]`, of the list `_source`: the record
+        # is rewritten at every saved plane, and re-encoding every step's order each
+        # time made a run saved step by step quadratic in its steps.
+        self._source: list[int] | None = None
+        self._runs: list[list[int]] = []
+        self._encoded = 0
+
+    def to_record(self) -> dict[str, object]:
+        """Return the ledger as its run record holds it, the orders run-length encoded.
+
+        The encoding is extended from the orders appended since the last record. A
+        list of orders that was replaced, or shortened, is encoded afresh.
+
+        Returns
+        -------
+        dict
+            Every counter by name, and ``orders`` as ``[order, count]`` pairs, in
+            step order, no two neighbours of the same order.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> CallLedger(accepted_steps=5, orders=[1, 2, 2, 3, 3]).to_record()["orders"]
+        [[1, 1], [2, 2], [3, 2]]
+        """
+        orders, runs = self.orders, self._runs
+        if (
+            orders is not self._source
+            or len(orders) < self._encoded
+            or (self._encoded and orders[self._encoded - 1] != runs[-1][0])
+        ):
+            self._source, runs, self._encoded = orders, [], 0
+            self._runs = runs
+        for order in orders[self._encoded :]:
+            if runs and runs[-1][0] == order:
+                runs[-1][1] += 1
+            else:
+                runs.append([order, 1])
+        self._encoded = len(orders)
+        record: dict[str, object] = {
+            name: getattr(self, name) for name in _LEDGER_FIELDS
+        }
+        record["orders"] = [list(run) for run in runs]
+        return record
+
     @classmethod
     def from_record(cls, record: Mapping[str, object]) -> "CallLedger":  # noqa: UP037 - runtime hook
         """Restore validated cumulative counts without restoring numerical history.
@@ -153,35 +202,38 @@ class CallLedger:
         Parameters
         ----------
         record : mapping
-            Persisted counter fields and accepted predictor orders.
+            Persisted counter fields and accepted predictor orders, as
+            :meth:`to_record` writes them.
 
         Returns
         -------
         CallLedger
-            Independently owned counters.
+            Independently owned counters, the orders decoded step by step.
 
         Raises
         ------
         BackendError
-            If a counter is absent, unknown, negative or not an integer.
+            If a counter is absent, unknown, negative or not an integer, an order run
+            is not a pair of positive integers, or the runs do not count one order
+            per accepted step.
+
+        Examples
+        --------
+        >>> from solprop.backends.multistep import CallLedger
+        >>> ledger = CallLedger(accepted_steps=3, orders=[1, 2, 2])
+        >>> CallLedger.from_record(ledger.to_record()) == ledger
+        True
         """
-        if set(record) != {one.name for one in fields(cls)}:
+        if set(record) != set(_LEDGER_FIELDS):
             raise BackendError("logical call ledger fields do not match this schema")
         ledger = cls()
         for name, value in record.items():
             if name == "orders":
-                if not isinstance(value, list) or not all(
-                    isinstance(one, int) and not isinstance(one, bool) and one > 0
-                    for one in value
-                ):
-                    raise BackendError(
-                        "logical call ledger orders must be positive integers"
-                    )
-                ledger.orders = list(value)
-            elif not isinstance(value, int) or isinstance(value, bool) or value < 0:
+                continue
+            if not isinstance(value, int) or isinstance(value, bool) or value < 0:
                 raise BackendError(f"invalid logical call counter {name}")
-            else:
-                setattr(ledger, name, value)
+            setattr(ledger, name, value)
+        ledger.orders = _decoded_orders(record["orders"], ledger.accepted_steps)
         return ledger
 
     @property
@@ -194,6 +246,68 @@ class CallLedger:
             Startup, predictor and corrected evaluations together.
         """
         return self.startup + self.predictor + self.corrected
+
+
+_LEDGER_FIELDS = tuple(one.name for one in fields(CallLedger))
+"""The counters and the orders a ledger's record holds, in field order."""
+
+
+def _decoded_orders(runs: object, steps: int) -> list[int]:
+    """Return the order of every accepted step from its run-length record.
+
+    Parameters
+    ----------
+    runs : object
+        The record's ``orders``: ``[order, count]`` pairs of positive integers.
+    steps : int
+        The record's accepted steps, each of which recorded one order.
+
+    Returns
+    -------
+    list of int
+        The orders, one per accepted step.
+
+    Raises
+    ------
+    BackendError
+        If ``runs`` is not a list of such pairs, naming the flat list of orders an
+        earlier development build wrote under the same output schema, or if its
+        counts do not add up to `steps`.
+    """
+    if (
+        isinstance(runs, list)
+        and runs
+        and all(isinstance(one, int) and not isinstance(one, bool) for one in runs)
+    ):
+        # Development builds between two releases share the output schema, and
+        # those before the encoding wrote one order per step (#80). Read as pairs,
+        # such a list would be refused for its shape alone; it is named instead.
+        raise BackendError(
+            "the record's predictor orders are in the flat form an earlier "
+            "development build wrote, one order per step, not the [order, count] "
+            "pairs this build reads: rerun the case, or read it with that build"
+        )
+    if not isinstance(runs, list) or not all(
+        isinstance(run, list)
+        and len(run) == 2
+        and all(
+            isinstance(one, int) and not isinstance(one, bool) and one > 0
+            for one in run
+        )
+        for run in runs
+    ):
+        raise BackendError(
+            "logical call ledger orders must be [order, count] pairs of positive "
+            "integers"
+        )
+    # Checked before the expansion, which the counts bound.
+    counted = sum(count for _, count in runs)
+    if counted != steps:
+        raise BackendError(
+            f"logical call ledger orders count {counted} steps, and the ledger "
+            f"{steps} accepted steps"
+        )
+    return [order for order, count in runs for _ in range(count)]
 
 
 @dataclass
@@ -261,18 +375,17 @@ class AdamsKernels:
     Three passes serve a step of the one-order-higher PEC family: the predictor's
     lab-frame field, the corrected field with the defects of the current and the
     neighbouring orders, and the history's transport to the new anchor. The history is
-    a store of rows, newest first by ``slots``. ``numba_cpu`` compiles each pass into
-    one traversal (:mod:`solprop.backends.numba_cpu.multistep`); this is the reference
-    the compiled form is checked against.
+    a store of rows, newest first by ``slots``. This is the reference a compiled form
+    is checked against.
 
     Parameters
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
@@ -719,7 +832,7 @@ class ExponentialKernels:
     and applies every formula it needs in the monomial basis of its interpolant,
     ``h sum_k M_k (sum_j c_jk F_j)`` (``solprop.backends.exponential``), so no
     per-node weight volume is formed. Accepting a step re-anchors nothing. The
-    compiled backends' kernels are checked against these passes.
+    native backend's kernels are checked against these passes.
 
     Under a carrier frame (SEP 35) the same passes take the moments at ``x - sigma``
     and rows rotated by ``exp(sigma (1 - theta_j))``; the caller forms both
@@ -729,10 +842,10 @@ class ExponentialKernels:
     ----------
     helpers : solprop._helpers.Helpers, optional
         The owning backend's implementation of the Adams basis (SEP 29 section 6.6);
-        the shared Numba one by default.
+        the plain Python forms by default.
     """
 
-    def __init__(self, *, helpers: Helpers = NUMBA) -> None:
+    def __init__(self, *, helpers: Helpers = PLAIN) -> None:
         """Hold the backend's basis implementation."""
         self._helpers = helpers
 
@@ -1676,6 +1789,10 @@ class AdamsEngine(Protocol):
     compensated: bool
     """Whether trials carry a varying operator's linear compensation (SEP 16 4.2)."""
 
+    carrier: CarrierReference | None
+    """The run's carrier frame (SEP 35), or ``None`` when off; an exponential trial
+    removes its phase from the samples it reads."""
+
     @property
     def n_slots(self) -> int:
         """The history store's rows."""
@@ -1842,6 +1959,16 @@ class AdamsEngine(Protocol):
         """
         ...
 
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
+
+        Returns
+        -------
+        int
+            The size of every row.
+        """
+        ...
+
     def load_rows(self, rows: Mapping[str, np.ndarray], shape: tuple[int, ...]) -> None:
         """Install rows :meth:`snapshot_rows` returned, refusing rows it does not keep.
 
@@ -1883,8 +2010,8 @@ class HostHistory:
     restarts, the budget and the ledger -- and hands every state-sized operation to an
     engine: the startup sample, a trial's predictor, source, corrector and defect
     norms, the adoption and transport of an accepted step, and dense observation. This
-    engine holds the history in a NumPy store and applies the given kernels (NumPy, or
-    ``numba_cpu``'s compiled passes); a backend may supply its own through
+    engine holds the history in a NumPy store and applies the given kernels; a backend
+    may supply its own through
     ``solprop.backends.driver.StepDriver._adams_engine``, as Kokkos does to keep
     the history resident in its engine. Between a trial and its acceptance the engine
     holds the trial; nothing else is carried across calls but the store and the last
@@ -2182,6 +2309,21 @@ class HostHistory:
         return self._store[slot]
 
     # --- persistence across a resume --------------------------------------------------
+
+    def snapshot_nbytes(self) -> int:
+        """Return the bytes :meth:`snapshot_rows` would copy, copying nothing.
+
+        Returns
+        -------
+        int
+            The size of every row.
+        """
+        assert self._store is not None
+        rows = [self._store, *self._weights]
+        if self.compensated:
+            assert self._states is not None and self._rates is not None
+            rows += [self._states, self._rates]
+        return sum(int(row.nbytes) for row in rows if row is not None)
 
     def snapshot_rows(self) -> dict[str, np.ndarray]:
         """Return copies of the rows a resume needs to continue the history.
@@ -2886,7 +3028,7 @@ class AdamsMarch:
         # section 4.2); the decisions are `adams_core`'s functions of it.
         settings = backend._problem.stepper
         linear = backend._problem.linear
-        carrier = getattr(self._engine, "carrier", None)
+        carrier = self._engine.carrier
         self._policy: MarchPolicy = march_policy(
             method,
             dz_min=settings.dz_min,
@@ -2961,6 +3103,26 @@ class AdamsMarch:
             collar_was_quiet=self._collar_was_quiet,
             history_key=self._method.history_key,
         )
+
+    def snapshot_nbytes(self) -> int | None:
+        """Return the bytes :meth:`snapshot` would copy, copying nothing.
+
+        Returns
+        -------
+        int or None
+            The state and every engine row, or ``None`` where :meth:`snapshot` returns
+            ``None``.
+        """
+        if (
+            self.export_refusal() is not None
+            or not self._history
+            or self._ahead is not None
+        ):
+            return None
+        state = (
+            math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
+        )
+        return state + self._engine.snapshot_nbytes()
 
     def export_refusal(self) -> str | None:
         """Return why this march cannot carry its history across a resume, or ``None``.
@@ -3044,8 +3206,7 @@ class AdamsMarch:
             return refusal
         checks = (
             (
-                # A snapshot naming no key was written before SEP 42: starting afresh
-                # is always safe.
+                # Starting afresh is always safe.
                 snapshot.history_key is None,
                 "the snapshot names no history key",
             ),
@@ -3140,12 +3301,17 @@ class AdamsMarch:
             return
         targets = adams_core.targets(self._policy, target)
         while not reached(backend._z, target):
+            backend._poll_stop()
             self._afford()
             try:
                 if not self._history:
                     self._start()
                 proposal = self._collar_reentry(
-                    self._quiet_capped(self._capped(backend._proposal))
+                    backend._split_capped(
+                        backend._transverse_capped(
+                            self._quiet_capped(self._capped(backend._proposal))
+                        )
+                    )
                 )
                 stop = landing(backend._z, proposal, targets)
                 dz, end, kink = adams_core.approach(
@@ -3201,6 +3367,7 @@ class AdamsMarch:
         while (
             backend._schedule_index < schedule.n_steps and backend._z < target - slack
         ):
+            backend._poll_stop()
             dz = float(schedule.steps[backend._schedule_index])
             end = float(edges[backend._schedule_index + 1])
             norm = self.replay_step(dz, end, slack)
@@ -3363,7 +3530,7 @@ class AdamsMarch:
         """
         if not self._policy.carrier:
             return proposal
-        carrier = cast("CarrierReference", getattr(self._engine, "carrier", None))
+        carrier = cast("CarrierReference", self._engine.carrier)
         return adams_core.carrier_capped(
             self._policy, self._backend._z, proposal, carrier.chord_phase
         )

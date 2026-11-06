@@ -47,10 +47,8 @@ from solprop_native.backend import (
 )
 
 
-def test_check_build_accepts_the_compiled_contract(phase_a_case: PhaseACase) -> None:
-    problem, _ = phase_a_case
+def test_check_build_accepts_the_compiled_contract() -> None:
     assert check_build() is None
-    assert check_build(problem) is None
 
 
 def test_rk_source_dispatch_counter_resets_and_excludes_fsal_reuse(
@@ -153,6 +151,17 @@ def test_a_solprop_without_a_driver_member_is_refused_by_name(
         check_build()
 
 
+def test_the_driver_surface_names_every_method_the_adapter_overrides() -> None:
+    overridden = {
+        name
+        for name, member in vars(NativeBackend).items()
+        if not name.startswith("__")
+        and callable(member)
+        and callable(getattr(StepDriver, name, None))
+    }
+    assert overridden <= set(solprop_native.DRIVER_SURFACE)
+
+
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
@@ -220,7 +229,7 @@ def test_the_solprop_version_is_recorded_and_never_compared(
     monkeypatch.setattr(
         solprop_native.backend, "_build_facts", functools.cache(facts.__wrapped__)
     )
-    assert check_build(problem) is None
+    assert check_build() is None
     backend = NativeBackend(problem, grid=grid)
     try:
         record = backend.metadata()
@@ -228,20 +237,6 @@ def test_the_solprop_version_is_recorded_and_never_compared(
         backend.close()
     assert record["solprop_version"] == "solprop-elsewhere"
     assert record["solprop_version_built_against"] != "solprop-elsewhere"
-
-
-@pytest.mark.parametrize(
-    "declared",
-    [2, 18, 19, 20, 21, 22, 23, 24, 26, 27, 28, 29, 30, 31, 32, 34, 35, 36, 37, 39],
-)
-def test_schema_mismatch_names_both_versions(
-    phase_a_case: PhaseACase, declared: int
-) -> None:
-    # The two independently qualified schema-18 branches are not the combined seam.
-    problem, _ = phase_a_case
-    spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 40.*version {declared}"):
-        check_build(spoiled)
 
 
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
@@ -278,6 +273,69 @@ def test_the_low_storage_march_steps_as_the_reference(
     swept = float(np.max(np.abs(delta_phi(marched.linear, 0.0, target))))
     bound = step_bound(grid.n_to, steps, stages=4) + 64 * EPS * swept
     assert_within(field, reference, bound, what=f"the low-storage march, {mode}")
+
+
+@pytest.mark.parametrize("asked", ["auto", "tabulate", "recompute"])
+def test_the_record_names_the_propagators_a_run_used(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    # #464: only the low-storage march holds flows. Under Runge-Kutta every request
+    # holds the one whole-step propagator, so the record says recompute for each.
+    problem, grid = phase_a_case
+    held = {}
+    for mode in ("recompute", asked):
+        stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
+        backend = NativeBackend(
+            dataclasses.replace(problem, stepper=stepper), grid=grid
+        )
+        try:
+            held[mode] = backend.memory_ledger()["propagators"]
+            assert backend.metadata()["propagator_mode"] == "recompute"
+        finally:
+            backend.close()
+    assert held[asked] == held["recompute"]
+
+
+@pytest.mark.parametrize("asked", ["tabulate", "recompute"])
+def test_the_record_names_the_low_storage_march_s_flows(
+    phase_a_case: PhaseACase, asked: str
+) -> None:
+    problem, grid = phase_a_case
+    target = float(problem.stepper.save_planes[-1])
+    stepper = dataclasses.replace(
+        problem.stepper,
+        integrator=LowStorageRungeKutta(),
+        schedule=FixedSchedule.uniform(0.0, target, target / 4),
+        propagator_mode=asked,
+    )
+    backend = NativeBackend(dataclasses.replace(problem, stepper=stepper), grid=grid)
+    try:
+        assert backend.metadata()["propagator_mode"] == asked
+    finally:
+        backend.close()
+
+
+def test_an_order_that_omits_a_held_response_is_refused(
+    phase_a_case: PhaseACase,
+) -> None:
+    # Native reads each response's own leaf, not the order, so the omitted Kerr term
+    # would still run. Removing the response as well is a consistent, linear problem.
+    problem, grid = phase_a_case
+    responses = problem.responses
+    accumulate_only = responses.response_order[-1:]
+    omitted = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(responses, response_order=accumulate_only),
+    )
+    with pytest.raises(BackendError, match="response_order omits kerr"):
+        NativeBackend(omitted, grid=grid)
+    linear = dataclasses.replace(
+        problem,
+        responses=dataclasses.replace(
+            responses, response_order=accumulate_only, kerr_coefficients=None
+        ),
+    )
+    NativeBackend(linear, grid=grid).close()
 
 
 def test_a_low_storage_table_never_built_is_refused(phase_a_case: PhaseACase) -> None:
@@ -398,9 +456,9 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
 
 @pytest.mark.parametrize(
     "member",
-    ["restore_call_ledgers", "_reserve_source_calls", "_release_source_calls"],
+    ["_adams_block", "_march_to", "_propagator_mode", "reads_transverse_edge"],
 )
-def test_schema_requires_the_inherited_response_accounting_hooks(
+def test_the_build_requires_each_kind_of_driver_member_the_adapter_uses(
     monkeypatch: pytest.MonkeyPatch, member: str
 ) -> None:
     monkeypatch.delattr(StepDriver, member)
@@ -527,7 +585,7 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
     its reference.
     """
     original, grid = phase_a_case
-    space = FreeGrid(1e-3, 4, 1.5e-3, 6, window_factor=0)
+    space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     response = DispersiveKerrResponse(
         OptmatKerr("Ar").dispersive_model(), evaluator, thg=False
     )
@@ -695,7 +753,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 40
+    assert metadata["source_digest"] == build_info().source_digest
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).
@@ -818,7 +876,7 @@ def test_temporal_statistics_are_refused_on_a_spatial_problem(
     space: RadialGrid | FreeGrid = (
         RadialGrid(1e-3, 8)
         if kind == "radial"
-        else FreeGrid(1e-3, 4, 1.5e-3, 6, window_factor=0)
+        else FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
     )
     problem = assemble(
         grid,
@@ -1030,7 +1088,7 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
     """The split-step absorber changes the field after the last stage.
 
     The last stage's input is then not the committed field, so the plasma statistics
-    are scanned afresh, as numba_cpu does (its stash needs a first-same-as-last step).
+    are scanned afresh (the stash needs a first-same-as-last step).
     """
     payloads = {}
     for scheme in ("nonlinear", "split_step"):

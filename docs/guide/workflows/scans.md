@@ -50,11 +50,9 @@ Five executors, all in `solprop.driver.executors`, run the points:
 | `Queue(path)` | a durable queue on a shared filesystem, drained by one or more controllers |
 | `Slurm(script, ...)` | prepares a queue and submits a Slurm array job that drains it |
 
-A builder's omitted `backend` resolves to the native backend when it is installed and otherwise,
-with a warning, to the slower `numba_cpu`, as described in
-[running a simulation](../performance/resources.md#backend-choice-and-scan-workers); every
-executor keeps that concrete choice, so name the backend in the builder when the workers
-may run on machines with different installations.
+A builder's omitted `backend` resolves to the native backend, as described in
+[running a simulation](../performance/resources.md#backend-choice-and-scan-workers), and
+every executor keeps that concrete choice.
 
 ## Reuse a translated simulation
 
@@ -93,7 +91,7 @@ def base():
         plasma=False,
         thg=False,
         n_save=3,
-        backend="numba_cpu",
+        backend="native",
     )
     simulation.translate()
     return simulation
@@ -127,7 +125,9 @@ and metadata while sharing propagation products, and validates only the replaced
 its `configuration=` records keys of your own, such as a point's parameters, in the
 derived run's record. Outside a scan, a
 [runner](../setup/running.md#many-inputs-one-backend-the-runner) also keeps one backend for
-many inputs; scan workers construct a backend per point. `noise="keep"` (the default) keeps the
+many inputs. A `Local` scan on a CUDA or HIP build does the same for you while each point is
+the last but for its input, which is what `with_input` gives, and any other scan or point
+constructs a backend. `noise="keep"` (the default) keeps the
 base noise, `noise=None` disables it, and a `NoiseRealisation` replaces it.
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` changes the fill
 ([running](../setup/running.md#a-capillary-end-to-end)); combine the two for material and input
@@ -150,7 +150,7 @@ need not have equal configuration hashes when their construction provenance diff
 ## Fixed-schedule batches
 
 `Batch(size)` advances up to `size` points in lockstep, on one fixed step schedule, inside
-one backend. It runs on `numpy_ref`, `numba_cpu` and `native` (CPU and GPU builds), and
+one backend. It runs on `numpy_ref` and `native` (CPU and GPU builds), and
 each backend is tested to give a batch member the output the same point gives run alone,
 to rounding: the same steps, with sums that may be ordered differently
 ([SEP 25](../../dev/seps/archive/sep-0025-rounding-level-reproducibility.md)).
@@ -160,7 +160,7 @@ from solprop.driver.executors import Batch
 from solprop.driver.scan import run_scan
 
 # The builder must return fibre simulations with an explicit fixed schedule.
-# It selects numpy_ref, numba_cpu or native as usual.
+# It selects its backend as usual.
 result = run_scan(
     scan,
     build_fixed_point,
@@ -181,12 +181,20 @@ planar grids. Adjacent points with matching grids, schedules, response layouts a
 statistics can share a group; layout changes and the final partial batch make smaller
 groups. Mixing backend names in a batch scan raises an error. Global point indices are
 unchanged. General modal runs may be batched under a narrower rule
-([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)).
+([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)). A member's field
+crosses to the host only at a plane the scan reads, as for a point run alone: under
+`fields="none"`, with reductions of statistics, none does.
 
 Each member watches its own time window, as the point would run alone
 ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
 a point whose light reaches an edge is stopped and recorded as failed with its
-`BoundaryError`, and the other members of its batch go on.
+`BoundaryError`, and the other members of its batch go on. Under an `"error"` warnings
+filter a `BoundaryWarning` fails its own point in the same way, and only that point.
+
+Every executor keeps each watched point's closing monitor record, done or failed, without
+its per-plane rows: `read_point(path, index)["boundary_monitor"]`. It is the record a run
+of the point alone would close with (the removed fraction, the guard maxima, where the run
+stopped), and the scan's schema is unchanged by it.
 
 Memory admission probes the selected backend and keeps 20 % host headroom. It
 records baseline and probe RSS, workspace and output estimates, shared table
@@ -201,8 +209,8 @@ reserves are excluded from free space. The recorded device bound may include hos
 buffers, so it can admit fewer members than a device-only ledger would.
 
 Each point records its actual batch size, execution strategy and resolved backend
-policies. `numba_cpu` and `native` fuse the accepted update across members (`native`
-combines the error partials of all members in the same native kernel), while each member
+policies. `native` fuses the accepted update across members, and
+combines the error partials of all members in the same native kernel, while each member
 keeps its own workspace; the response kernels and the FFT and BLAS plans stay per member. This partial fusion does not amortise the whole GPU launch
 sequence.
 
@@ -250,7 +258,85 @@ worker, so no translated native objects cross process boundaries.
 `python -m solprop.scan scan_script.py --local` sets the executor from the command line;
 an executor supplied explicitly by the script takes precedence. One outer progress bar is
 shown interactively (`progress=` of `run_scan`); otherwise progress is logged per point.
-Individual runs never draw their own bars.
+Individual runs never draw their own bars; a [scan reporter](#watching-and-stopping-a-scan)
+can watch them.
+
+## Watching and stopping a scan
+
+`progress=` of `run_scan` takes, beside `"auto"`, `"bar"`, `"log"` and `"none"`, a
+{py:class}`~solprop.log.ScanReporter`: an object with four methods, which replaces the
+bar and the per-point lines. `scan_started(n_points)` is called once with the number of
+selected points, `point_started(index, point)` and `point_finished(index, status, wall)`
+once for each point dispatched or collected, and `scan_finished()` once when the scan
+returns. The status is `"done"`, `"failed"`, `"skipped"` (complete in the file),
+`"conflict"` (complete, with a stored record that agrees but for rounding, and kept) or
+`"stopped"` (below); `wall` is the point's build and run time in seconds as its worker
+measured it. A reporter that also has `point_reporter(index)`
+({py:class}`~solprop.log.WatchingScanReporter`) is asked, before each point runs, for a
+{py:class}`~solprop.log.ProgressReporter` that receives that point's own run
+([writing your own](../performance/progress.md#writing-your-own)), or `None` for none.
+Subclass {py:class}`~solprop.log.NullScanReporter` and override what you need:
+
+```{code-block} python
+import threading
+
+from solprop.driver.executors import Pool
+from solprop.driver.scan import run_scan
+from solprop.log import NullReporter, NullScanReporter
+
+
+class Plane(NullReporter):
+    def __init__(self, index):
+        self.index = index
+
+    def plane(self, z, summary):
+        print(f"point {self.index}: z = {z:.4f} m, {summary.n_steps} steps")
+
+
+class Points(NullScanReporter):
+    def point_finished(self, index, status, wall):
+        print(f"point {index} {status} in {wall:.1f} s")
+
+    def point_reporter(self, index):
+        return Plane(index)
+
+
+stop = threading.Event()  # set from a button, another thread or a signal handler
+result = run_scan(
+    scan, build_point, output="scan.h5", executor=Pool(4), progress=Points(), stop=stop
+)
+```
+
+What an executor reports differs, because the points run in different places:
+
+| executor | `point_started` | the point's own run |
+|---|---|---|
+| `Local` | when the point is built, in this process | every call, `step` included, in this process |
+| `Pool` | when the point is sent to a worker | `summary`, `started`, `plane`, `finished` and `interrupted`, sent by the worker on its pipe and made in the controller as they arrive; each plane carries its position and the four scalars of its summary, never a field, and `step`, on the hot path, is not sent |
+| `Batch`, `Queue`, `Slurm` | when the point's result is collected, just before `point_finished` | none |
+
+All the calls are made in the process and thread that called `run_scan`.
+
+`stop=` takes the scan's stop flag: any object with an `is_set()` method, such as a
+{py:class}`threading.Event`, which a front end sets from any thread on any platform
+without signals. Once it is set no further point is dispatched, and a point already
+running stops as its executor allows:
+
+| executor | `stop=` |
+|---|---|
+| `Local` | the point in flight polls the flag as `Simulation.run(stop=...)` does: before every trial step, or on a native `Multistep()` march each time a native call returns, so it stops within one step or [that call's bound](../results/resuming.md#stopping-a-run) |
+| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls in the same way; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
+| `Batch` | between groups: a group that has started runs to its end, and the claimed points of a group not yet run are given back |
+| `Queue`, `Slurm` | refused, with an error naming the queue's own tools: the points run in other processes or on other machines, which a flag in this process cannot reach. Use `scancel` for a Slurm job, or stop a queue's controllers with SIGTERM |
+
+A stopped point is not committed: the file holds the points finished before the stop,
+the stopped point and those never dispatched are left as they were (`todo`, or `failed`
+for one being retried), and a rerun of the same call computes them, skipping the
+complete ones as usual. `run_scan` returns normally after a stop, logs at `INFO` that the
+caller's flag stopped it with the counts of collected and stopped points, and tells a
+scan reporter `"stopped"` for each stopped point; a watched point's reporter is told
+through `interrupted`, with a `StopRequested` error that carries the caller's flag. The design is [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md),
+S4 and S17.
 
 ## Noise and repeatability
 
@@ -332,18 +418,14 @@ keeping incomplete numerical arrays masked.
 
 One controller owns the collected HDF5 file. Each successful payload is validated,
 staged and flushed before the point is marked `done`. A rerun skips a completed point
-whose rebuilt record is its stored one, or differs from it only in rounding, a declared
-neutral value or provenance, as a resume compares them
-([what a resume compares](../results/resuming.md#what-a-resume-compares)); a worker
-whose digest differs hands its record back, and the controller compares the two.
-Unlike a resume, a scan holds the numerics to agreement too: a finished point has
-nothing left to continue, and tightening `rtol` is the commonest reason to rerun a
-scan, so a rerun with changed numerics or physics is refused, naming what changed,
-and is written to a new file. The record includes the point's material manifest: a
+whose rebuilt record has its stored configuration hash, as a resume does
+([what a resume compares](../results/resuming.md#what-a-resume-compares)). Any other
+record is refused, naming what changed, and is written to a new file: a tightened `rtol` is
+the commonest reason. The record includes the point's material manifest: a
 point resolves its materials, under its `materials=` selection or the default one, from
 its own objects, so its optmat models and policies are frozen for that run and do not
-depend on what another point resolved. A model whose numbers changed, or a changed
-policy, is refused by name; another optmat version alone is provenance
+depend on what another point resolved. A model whose numbers changed, a changed policy
+or another optmat version is refused by name
 ([output](../results/provenance.md#the-material-manifest)). Failed points require
 `retry_failed=True`. A stale `running` point becomes eligible after `stale_age` seconds
 (600 by default). Queue ownership protection uses the live-owner and refreshed-lease rules
@@ -416,8 +498,9 @@ a live lock file would create a second lock inode and defeat mutual exclusion.
 ```{note}
 Recovery has known limits. A live but wedged owner on the same host holds its point
 indefinitely, because the lease age is not consulted while its process is alive: stop
-that process to release the point. An interrupted `Local` or `Pool` scan skips its
-`running` points for `stale_age` seconds on restart. Container memory limits are read
+that process to release the point. A `Local` or `Pool` scan interrupted by a signal or a
+crash, rather than stopped by its `stop=` flag, skips its `running` points for
+`stale_age` seconds on restart. Container memory limits are read
 from the root cgroup rather than the process's own cgroup, so on a shared node under a
 cgroup manager without Slurm variables the workers can be given too much memory; a failing
 platform probe raises outside the {py:class}`~solprop.exceptions.SolpropError`
@@ -457,3 +540,6 @@ recursively. Without a durable mode, `--workers`, `--threads`, `--memory-limit` 
 `--fresh` select `Pool`; `--local` selects `Local` and rejects process resource controls.
 Slurm memory uses `--mem`, while a direct `Pool` or queue accepts `--memory-limit` in
 bytes.
+
+Scan progress, the stop flag and scans from a recipe were proposed and carried out by
+[SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

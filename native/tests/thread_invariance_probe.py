@@ -10,7 +10,7 @@ differ by rounding alone (solprop SEP 25). Usage:
 ``thread_invariance_probe.py <out.npz>``.
 """
 
-# ruff: noqa: I001 -- Kokkos must load before solprop imports pyFFTW on macOS.
+# ruff: noqa: I001 -- Kokkos loads first, before any other OpenMP runtime on macOS.
 
 from __future__ import annotations
 
@@ -109,6 +109,7 @@ print(
             "threads": solprop_native.build_info().thread_count,
             "synthesis_provider": metadata["synthesis_provider"],
             "projection_provider": metadata["projection_provider"],
+            "execution_sizing": metadata["execution_sizing"],
         },
         sort_keys=True,
     )

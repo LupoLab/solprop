@@ -71,6 +71,16 @@ sizes, spacings, band limits and collar edges, evaluated by the same expressions
 built them, so the arrays are equal bit for bit, and a test asserts that the metrics
 computed from a rebuilt grid are bit-identical to the ones computed from the original.
 
+A spatial run's transverse grid comes back the same way, from the record alone, so a
+file written by a script reads like one written from a recipe.
+{py:func}`~solprop.processing.axes.spatial_grid_of` returns the
+{py:class}`~solprop.grid.RadialGrid`, {py:class}`~solprop.grid.FreeGrid` or
+{py:class}`~solprop.grid.LineGrid`, and raises `ProcessingError` for a run without one.
+A hybrid planar file is refused by name, because its record holds the slab modes'
+serialised materials, not a grid that can be rebuilt. Its nodes are in
+`output.metadata.spatial["axes"]`, and a memory output keeps the live
+{py:class}`~solprop.modes.slab.PlanarGrid`.
+
 ## The accessors
 
 The field accessors of {py:mod}`solprop.processing.fields` take the same four
@@ -107,18 +117,66 @@ hollow planar run is **per unit width** in y, so its powers are in W/m and its e
 and densities per metre too; {py:func}`~solprop.processing.axes.transverse_units` reads
 which from the record, and the plots label accordingly.
 
-```{note}
-{py:func}`~solprop.processing.fields.get_power`,
-{py:func}`~solprop.processing.fields.get_spectral_density` and
-{py:func}`~solprop.processing.time.energy` read a radial, Cartesian or planar file as if it
-were modal instead of refusing it, and the numbers they give there are not energies or
-powers. Use the spatial functionals of
-[power and intensity](power-and-intensity.md#spatial-geometries) for those files; the
-scan reductions built on these accessors already refuse spatial runs by name.
+**A spatial file is refused by these readers.** A radial, Cartesian, line or planar
+file stores a field sample or a slab amplitude in each column, not a modal amplitude in
+the square root of watts, so {py:func}`~solprop.processing.fields.get_power`,
+{py:func}`~solprop.processing.fields.get_spectral_density`, the metrics below and the
+propagation plots refuse it by name, with an {py:class}`~solprop.exceptions.OutputError`
+that names the spatial functional to use instead
+([which names a basis admits](statistics.md#spatial-files-and-the-modal-readers)), as
+the scan reductions do. `get_spectrum`, `get_field` and `get_phase` return the stored
+columns and read every file. On such a file the beam's energy, power and spectrum come
+from a saved plane and its measure:
+
+```python
+import numpy as np
+
+from solprop.driver import Simulation, SimulationSettings
+from solprop.grid import FieldGrid, RadialGrid
+from solprop.pulses import GaussianPulse, SpatialPulse
+from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_power
+from solprop.stepper import PIController
+
+grid = FieldGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 400e-15)
+space = RadialGrid(6e-4, 16)
+medium = SpatialMedium("Ar", 1.0)
+pulse = SpatialPulse(GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9), 6e-5)
+settings = SimulationSettings(
+    controller=PIController(rtol=1e-8, atol=1e-14),
+    save_planes=[1e-3],
+    dz_init=5e-4,
+    dz_max=5e-4,
+    backend="numpy_ref",
+    spatial_absorber=False,
+)
+run = Simulation.from_radial(
+    grid, space, medium, [], pulse, settings=settings, noise=None
+).run(progress="none")
+plane = list(run.planes())[-1]
+flux = SpatialFlux.resolve(grid, space, medium, z=plane.z)
+print(f"{spatial_energy(plane.field, flux):.4e} J")
+print(f"{np.max(spatial_power(plane.field, flux)):.4e} W")
 ```
 
+A saved plane's fluence across the beam needs no live medium:
+{py:func}`~solprop.processing.planes.fluence_map` rebuilds the plane's measure from the
+record and reads only that plane. It measures the same signed axial flux as
+`spatial_fluence`, in J/m², laid out on the transverse axes:
+
+```{code-block} python
+from solprop.processing import fluence_map
+
+beam = fluence_map(output, z=0.25)  # or a plane index; the last plane by default
+beam.axis_names                     # ('r',), ('x',) or ('y', 'x')
+beam.fluence.shape                  # one axis per entry of beam.axes
+```
+
+`node_fluence(output)` ({py:mod}`solprop.processing.mixtures`) gives the same values at
+every plane, shape `(n_z, n_nodes)`, flattened in the nodes' own order.
+Both accept any bulk medium, and refuse a hybrid planar file as `spatial_grid_of` does.
+
 **Gas-mixture runs** additionally provide `species_ionisation`,
-`species_ionisation_energy`, `absorbed_spectral_energy` and `node_fluence`
+`species_ionisation_energy`, `absorbed_spectral_energy` and a modal run's `node_fluence`
 ({py:mod}`solprop.processing.mixtures`). Their species and node axes remain explicit,
 including length-one axes. The material absorption accessor returns active-band angular
 frequency and energy loss density in J/(m rad/s); node fluence is in J/m². The final

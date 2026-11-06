@@ -1,0 +1,35 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Cross-phase modulation of a weak ultraviolet seed by a delayed 800 nm pump in neon.
+# mirrors: docs/examples/processes/plot_04_cross_phase_modulation.py
+
+[recipe]
+format = 1
+route = "capillary"
+title = "Cross-phase modulation in neon"
+
+[build]
+radius = "125 um"
+length = "1 m"
+gas = "Ne"
+pressure = "1.5 bar"
+wavelength = "800 nm"
+trange = "800 fs"
+wavelength_limits = ["200 nm", "3000 nm"]
+n_save = 301
+seed = 20261027
+
+[[build.pulses]]
+type = "GaussianPulse"
+wavelength = "800 nm"
+fwhm = "42 fs"
+energy = "1000 uJ"
+t0 = "60 fs"
+
+[[build.pulses]]
+type = "GaussianPulse"
+wavelength = "267 nm"
+fwhm = "40 fs"
+energy = "200 uJ"

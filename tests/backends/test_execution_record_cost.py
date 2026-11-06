@@ -4,8 +4,7 @@
 
 """The execution record is read at every plane; its immutable facts are taken once."""
 
-from solprop.backends.numba_cpu import fft as numba_fft
-from solprop.backends.numba_cpu.backend import NumbaCpuBackend
+import pytest
 
 
 def test_the_wisdom_digest_is_exported_once_per_backend(
@@ -16,18 +15,18 @@ def test_the_wisdom_digest_is_exported_once_per_backend(
     Exporting FFTW's wisdom at every plane was most of the record's cost; the record
     the output keeps is unchanged.
     """
+    native = pytest.importorskip("solprop_native")
+    wisdom = pytest.importorskip("solprop_native._wisdom")
     calls = []
-    digest = numba_fft.wisdom_digest
+    digest = wisdom.digest
 
     def counted():
         calls.append(1)
         return digest()
 
-    monkeypatch.setattr(numba_fft, "wisdom_digest", counted)
+    monkeypatch.setattr(wisdom, "digest", counted)
     problem = soliton_problem(soliton_grid, 1, save_planes=[0.01])
-    backend = NumbaCpuBackend(
-        problem, grid=soliton_grid, threads=1, plan_flag="estimate"
-    )
+    backend = native.NativeBackend(problem, grid=soliton_grid)
     try:
         records = [backend.metadata() for _ in range(3)]
     finally:

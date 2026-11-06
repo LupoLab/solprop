@@ -33,9 +33,8 @@ per plane would come to 26 MB for 201 planes of four modes on 2049 bins.
 handler for fast, small problems and for the members of a scan, where a file per run
 costs more than the run. Its plane-indexed arrays are allocated once, for the planes the
 run will save, and grow by doubling only if it saves more, so a hundred planes cost one
-allocation rather than a hundred copies. That store is part of the run's memory: the
-[memory admission](../performance/resources.md#memory) charges it, at its planned size, as the group
-`output`, and charges a file output nothing.
+allocation rather than a hundred copies. That store is part of the
+[run's memory](../performance/resources.md#memory); a file output holds none of it.
 
 ```{note}
 For a run that records statistics between the save planes,
@@ -94,19 +93,29 @@ vocabulary {py:func}`~solprop.driver.scan.run_scan` already uses:
 A run is **homogeneous**: it keeps its fields by one rule, declared to the output before
 its first plane ({py:meth}`~solprop.output.schema.PlaneStore.retain`), and a plane that
 breaks it is refused by name. A plane without its field is not copied, converted or
-stored, and an in-memory output allocates no field block for it and is charged none of
-it by the [memory admission](../performance/resources.md#memory): a statistics-only run
-is charged its statistics. The march is unchanged — the statistics are computed from
+stored, and an in-memory output allocates no field block for it: a statistics-only run
+holds its statistics. The march is unchanged — the statistics are computed from
 the live state either way — so a statistics-only run's numbers are those of the same run
 keeping every field. A plane that keeps no field is observed without one: nothing
 crosses from the backend (on a device, no copy is made) and nothing scans the field for
 finiteness, so a diverged run is caught by the step loop and its statistics.
 `fields="planes"` is refused beside `step_planes`, whose plane count is not known in
-advance. Beside `LowStorageRungeKutta()`, which accepts each step in place and so has no
-state to checkpoint for a step abandoned in flight, the backend holds the state of the
-last field-free plane, one more copy of the state, charged at
-[admission](../performance/resources.md#memory) as `held_plane`: a run stopped in flight
-after such a plane writes its terminal checkpoint from it and resumes there.
+advance.
+
+`LowStorageRungeKutta()` accepts each step in place, so it has no state to checkpoint for a
+step abandoned in flight. That step leaves no checkpoint: the execution record
+says `failed` and why, and a file whose last plane kept no field cannot be resumed from
+there (`resume=True` refuses it by name), while one that kept its field resumes from that
+plane. A stop between steps checkpoints as ever. How a step comes to be abandoned depends
+on the backend:
+
+- On the native backend, only an exception inside the engine can do it, since a signal
+  waits for the step.
+- On `numpy_ref`, a Python interrupt can land inside a step as well.
+- A killed process writes nothing.
+
+To keep a resumable state, keep the field at some planes with `fields="planes"`.
+
 `fields` is outside the configuration hash, like
 `resume_history`: it changes what is kept, not what is computed, and it may be changed
 after the simulation is translated.
@@ -131,6 +140,37 @@ refused by name. {py:meth}`~solprop.output.memory.MemoryOutput.planes` returns
 `field=None` where no field was kept. A run that stops on an error or a signal still
 writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 
+A handler of your own takes field-free planes by declaring
+{py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
+{py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
+refuses a handler without it, by name. To reduce each plane and keep nothing, no class is
+needed: {py:class}`~solprop.output.callback.CallbackOutput` is built from a callable
+([a scan that reduces each plane](../setup/running.md#a-scan-that-reduces-each-plane)).
+
+```{code-block} python
+class Energies:
+    """Keep each plane's energy, for fields="none" and stats=StatsSpec(names=("energy",))."""
+
+    def retain(self, retention, field_shape):
+        # Once per run: after open (and reserve, if it has one), before any save, and
+        # for fields="all" too. Its rule is resolved against the run's planes.
+        if self.energies and retention != self.rule:
+            raise OutputError("these planes were saved under another field rule")
+        self.rule = retention
+
+    def save(self, plane):
+        # On a plane that keeps no field, plane.field and plane.noise_phase are None.
+        self.energies.append(plane.stats["energy"])
+
+    ...  # the rest of the Output protocol
+```
+
+`retain` is given a {py:class}`~solprop.output.schema.FieldRetention` whose indices are
+already counted from the entrance, and the shape `(n_modes, n_pol, n_omega)` of the state,
+known even when no plane will carry a field. A handler already holding planes
+under a different rule raises {py:class}`~solprop.exceptions.OutputError`, as a resumed
+store does.
+
 In this phase the backend still observes the field at every plane, and the driver drops
 it: the storage, the preallocation, the record copies and the conversion go, the
 device transfer and the collar diagnostic of a Cartesian run remain until the
@@ -143,6 +183,15 @@ A {py:class}`~solprop.output.schema.SavedPlane` is what a driver hands over: the
 (or `None` on a plane that keeps no field), the statistics evaluated at that plane, the
 step history since the previous plane, and the accumulated noise phase when a noise
 model is running and the plane keeps its field.
+
+A plane's arrays are read-only. A run gives its handler the backend's own observation
+rather than a copy of it, and nothing writes to that again, so a handler
+that reduces each plane to a few numbers and drops it costs one field volume on the host at
+that plane, the one the observation already crossed with, and a handler may equally keep
+`plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
+is given. On a free-space run the boundary check reads the transverse edge at that plane too:
+`native` does it where the state lives, and `numpy_ref` and `mlx` on their host copy, which
+[costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the plane does.
 
 The handler converts the field on the way out, because the file is where the internal
 FFT convention meets the user's optics convention: stored spectra go through
@@ -186,6 +235,7 @@ For a modal run:
                                configuration_hash, simulation_kind, grid_kind, created,
                                n_saved, fields, field_shape
 /meta/json              the whole RunMetadata as one UTF-8 JSON string
+/meta/arrays/<name>     each large array of the record, by digest, dtype and shape
 /meta/outcome           status, call ledgers, execution provenance, machine and resources (JSON)
 /meta/annotations/<name>  optional post-run annotations, one JSON string each
 /z                      (n_z,)                              plane positions, m
@@ -271,6 +321,58 @@ handler["step_stats/energy"]      # (n_rows, n_modes, n_pol); empty without a ch
 handler.fields(convention="fft")  # the internal arrays, exactly as they went in
 ```
 
+### The recipe a run was built from
+
+A run built from a [recipe](../setup/recipes.md) writes a top-level `recipe` group at
+its first start, once, and never rewrites it:
+
+```
+/recipe                 attrs: format, authored_sha256, resolved_sha256
+/recipe/authored        the recipe's text as loaded, or its canonical TOML if edited
+/recipe/resolved        the recipe that rebuilds the run (TOML)
+/recipe/files/<name>    each data file the recipe refers to, under a generated name,
+                        with its path and sha256 as attributes; embedded up to 16 MiB
+                        in all, empty beyond (path and hash only)
+```
+
+The **resolved** recipe is what rebuilds the run: the authored keys, the noise seed that
+was drawn, each keyword written back only where its value gives the same record (`rtol`,
+`atol`, `dz_max`, the integrator, the statistics, the save planes, the capillary's
+temperature, plasma, third harmonic and Raman switches, and the defaults of `loss` and
+`model`), and `[execution]` as the run started. The group is provenance outside the run
+record and its hash: a file without it is a file from a script, a reader that does not
+know it ignores it, and a later session of the file, from a script or from an edited
+recipe, leaves it as it is and is recorded in its own execution record.
+`handler.recipe` reads it (`RecipeRecord`).
+
+### What a file can give
+
+{py:func}`solprop.capabilities.output` says, for a path or an opened handler, what a
+reader may offer: the file's basis (`modal`, `general_modal` or `spatial`); whether its
+power, energy, spectral density and field are **physical fluxes** (an orthogonal modal
+basis) or **coordinate quantities** (a general modal basis, whose physical energy is
+`physical_energy`, and a spatial grid, per transverse column); which saved planes keep
+their field and which only their statistics; which of the basis-dependent accessors and
+compression its readers refuse, with the refusal they give, read from the same gates
+(a spatial file admits `energy`, whose statistic is the beam's physical energy); in
+`refused_readers`, which processing and plotting readers refuse it (on a spatial file
+every reader that would read its columns as modes, such as `get_power`);
+what a general modal reconstruction needs that the file only identifies (the guide and
+the reference tables); whether it records a recipe; and, for a path, its
+[resumability](resuming.md#what-a-file-allows).
+
+### The writer-lock sidecar
+
+Each HDF5 output keeps a file beside it, `run.h5.writer.lock` for `run.h5`, and so does a
+TDSE archive and a snapshot store. A writer holds an advisory lock on it while it owns
+the file: optical writes, the annotations written to a closed file, archive writes and
+snapshot publication all take it, and a second writer fails at once instead of
+interleaving with the first. The sidecar **persists by design**, after the run too:
+removing a lock file after releasing its lock races with a second writer that has just
+opened it, so it is never removed. Its existence alone does not mean a writer is running;
+the lock does. Do not delete these files to get past a refusal, and leave them out of
+what you copy or show: a front end hides them.
+
 ## Step history
 
 Every attempt the stepper made is recorded: its position, its length, its scaled error
@@ -342,22 +444,51 @@ How a run resumes from its last plane depends on what that plane is:
 
 **Every field is recorded.** A record holds every field of every dataclass it
 serialises, at its default too, so a change that adds a field to a recorded dataclass
-moves the configuration hash. A resume compares the records path by path, so the new
-field refuses a resume of an earlier file unless a release declares its neutral value,
-the value that reproduces the code before it existed
-([what a resume compares](resuming.md#what-a-resume-compares)). The test suite pins the
-records of a modal, a radial and two Cartesian runs, and of a custom absorber at its
-defaults, and keeps each release's whole records, so that such a change is deliberate.
+moves the configuration hash, and a file written before it can be read but not resumed
+([what a resume compares](resuming.md#what-a-resume-compares)).
 An array input of more than 2²⁰ elements is recorded by the SHA-256 of its bytes, with
-its dtype and shape (`ArrayDigest`), rather than inline.
+its dtype and shape (`ArrayDigest`), rather than inline; one whose caller states its
+identity by that string instead (`StatedInput`,
+[`input_identity`](../setup/running.md#many-inputs-one-backend-the-runner)).
+
+**Large arrays sit beside the text.** Any other numeric array of more than 4096 elements
+(`RECORD_ARRAY_LIMIT`), such as a per-node weight, a flux plan's coefficients or a noise
+realisation, appears in `/meta/json` as a reference,
+`{"__record_array__": <name>, "dtype": ..., "shape": ...}`, with its bytes in
+`/meta/arrays/<name>`. The name is the SHA-256 digest of the bytes followed by the dtype
+and shape, so arrays of equal bytes and different layouts are stored apart. This keeps the
+text under 1 MB at 512², and the hash takes the name, so a changed element, dtype or shape
+still changes the hash. Reading a file through
+{py:func}`~solprop.output.hdf5.open_file` puts each array back in the record, checking its
+name. A scan keeps its points' arrays in `/record_arrays/<name>`, shared between points; a point's `metadata` stays JSON and holds the references.
 
 **When the schema is bumped.** Only for a change an older reader would misread, or
 could not append to: a dataset renamed, re-laid or given new units; an attribute that
 changes meaning; anything added inside `stats`, `step_history` or `step_stats`; or
 anything grown per plane. A new field of the JSON run record, a new root attribute or a
 new top-level group written once does not bump it: readers already tolerate them, and a
-resume decides by comparing the records (ADR-063,
-[SEP 42](../../dev/seps/archive/sep-0042-tolerant-resume.md)).
+resume decides by the configuration hash (ADR-066).
+
+**How often.** At most once between two releases. The first such change after a
+release bumps the schema; every later one before the next release folds into that
+version, which the next release is the first to write. Development builds between two
+releases are therefore not compatible with one another: a file written by an earlier
+build of the same schema may be refused, by name where the difference is known (a
+Multistep run's predictor orders, which are now recorded as `[order, count]` pairs,
+were one integer per step before), and is read with the build that wrote it.
+
+**Four columns of `absorbed_power`.** The fifth column, `custom`, folded into schema 2 the
+same way, and the first column became the collar alone. A file from an earlier development
+build still **reads**, showing the four columns as they were written, in the same positions
+as the first four now, its first column holding the spectral collar and any custom rate
+together. It is not **continued**: an append, a resume, forced or not, a cache check and a
+scan writer each refuse it by name, from the stored column count, before anything is
+written, because five numbers do not fit four columns and nothing stored can split that
+sum. Start a new file, or launch a new segment from a saved plane.
+
+A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
+even a file with no `absorbed_power` is not continued: the comparison names that field as
+absent from the stored record. A run with no custom rate keeps its record.
 
 ## A worked example
 
@@ -402,7 +533,7 @@ history: explicit `resume_history=False` is refused, and a requested snapshot ke
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the
 history's rows to the host for the snapshot. Snapshots are qualified by fault
-injection and fresh-process resumes on NumPy and Numba, on native CPU Adams and
+injection and fresh-process resumes on NumPy, on native CPU Adams and
 Runge–Kutta runs and on short native TDSE windows; resuming a haCC snapshot in a fresh
 process has not been qualified.
 
@@ -431,7 +562,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    backend="numpy_ref",
     step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,
@@ -489,11 +619,9 @@ without a published manifest, including a hidden `.snapshot-*` directory, is
 incomplete. Never resume in a published directory: use
 {py:func}`~solprop.output.snapshots.restore_snapshot` to create writable working files.
 
-Optical writes, closed-file annotations, archive writes and snapshot-store ownership
-all use persistent `.writer.lock` sidecars. Competing writers fail immediately.
-The locks remain held while HDF5 handles are closed; sidecar existence by itself does
-not mean a writer is running. Do not remove these files to bypass ownership. Use a
-filesystem that supports advisory locking and atomic directory rename.
+The writers keep their [writer-lock sidecars](#the-writer-lock-sidecar) held across the
+pause, while the HDF5 handles are closed. Use a filesystem that supports advisory locking
+and atomic directory rename.
 
 ### Bounded external transport
 
@@ -545,3 +673,6 @@ A failed handle close retains writer ownership. Calling the writer's `close()`
 again retries cleanup, including after a failed post-run annotation. If archive
 creation fails before it can return a writer and its handle also cannot close,
 ownership remains held until process exit; the exception reports both failures.
+
+The recipe stored in a run's output and the result capabilities were proposed and
+carried out by [SEP 41](../../dev/seps/archive/sep-0041-recipes-and-front-ends.md).

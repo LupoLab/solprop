@@ -367,8 +367,7 @@ def test_an_accelerator_build_refuses_a_z_table_by_name(tabulated):
     )
     assert f"{size / 1e6:.3g} MB" in message
     assert "ParameterisedMode" in message
-    assert message.index("a CPU build of native") < message.index("numba_cpu")
-    assert 'backend="numpy_ref"' in message
+    assert message.index("a CPU build of native") < message.index('backend="numpy_ref"')
 
 
 @pytest.mark.parametrize("quantity", ["phi", "prefactor"])
@@ -424,7 +423,6 @@ def tabulated():
         prefactor_constant=None,
     )
     rebuilt = KernelProblem(
-        schema_version=problem.schema_version,
         grid_kind=problem.grid_kind,
         shape=problem.shape,
         flags=Flags.from_content(

@@ -13,31 +13,43 @@ import math
 import time
 import traceback
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from tempfile import TemporaryDirectory
-from typing import Literal
+from typing import cast
 
 import numpy as np
 
 from solprop.backends import select
+from solprop.backends.registry import _device_build
 from solprop.driver._scan_context import current_executor
 from solprop.driver._scan_model import Scan, ScanPoint, name_seed
 from solprop.driver.executors import Batch, Executor, Local
 from solprop.driver.executors._request import ScanRequest
-from solprop.driver.executors.pool import peak_rss
+from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
-from solprop.driver.memory import admit_memory
-from solprop.driver.simulation import Simulation
-from solprop.exceptions import DriverError, OutputError
+from solprop.driver.simulation import Simulation, SimulationRunner
+from solprop.exceptions import DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
-from solprop.log import BarReporter, is_interactive
-from solprop.output.hdf5 import HDF5Output, open_file
+from solprop.log import (
+    BarReporter,
+    InterruptibleReporter,
+    NullScanReporter,
+    ProgressChoice,
+    ProgressReporter,
+    ScanReporter,
+    StopFlag,
+    SummarisingReporter,
+    WatchingScanReporter,
+    is_interactive,
+)
+from solprop.output.hdf5 import HDF5Output, _dataset, open_file
 from solprop.output.memory import MemoryOutput
 from solprop.output.scan import PointResult, ScanWriter
 from solprop.output.schema import (
     FieldRetention,
+    RecipeRecord,
     RunMetadata,
     SavedPlane,
     field_retention_refusal,
@@ -45,6 +57,18 @@ from solprop.output.schema import (
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
 
 logger = logging.getLogger(__name__)
+
+STOPPED = "stopped by the caller's stop flag; not committed, so a rerun computes it"
+"""The error text of a point the scan's stop flag stopped (SEP 41, S17)."""
+
+_PROGRESS_CHOICES = ("auto", "bar", "log", "none")
+
+_DURABLE_STOP = (
+    "{name} refuses stop=: its points run in other processes or on other machines, "
+    "which a flag in this process cannot reach. Stop them with the queue's own tools: "
+    "scancel for a Slurm job, or SIGTERM to a queue's controller processes; a rerun "
+    "then claims what they left"
+)
 
 
 @dataclass(frozen=True)
@@ -161,38 +185,6 @@ class _Capture(MemoryOutput):
             if any(not isinstance(r, _Builtin) for r in options.reductions)
             else None
         )
-
-    def held_bytes(
-        self,
-        n_planes: int,
-        plane_bytes: int,
-        *,
-        kept: int | None = None,
-        field_bytes: int = 0,
-    ) -> int:
-        """Return nothing for the run's admission: the scan admits what it retains.
-
-        The capture never fills the store's own blocks; the arrays it keeps are
-        counted by the scan's own admission of its members.
-
-        Parameters
-        ----------
-        n_planes : int
-            The planes the run will save.
-        plane_bytes : int
-            The bytes of one plane.
-        kept : int or None, optional
-            The planes that keep their field.
-        field_bytes : int, optional
-            The bytes of one plane's field.
-
-        Returns
-        -------
-        int
-            Zero.
-        """
-        del n_planes, plane_bytes, kept, field_bytes
-        return 0
 
     def retain(self, retention: FieldRetention, field_shape: tuple[int, ...]) -> None:
         """Adopt the run's field retention, and hand it to the spool of a reduction.
@@ -347,13 +339,287 @@ class _Capture(MemoryOutput):
         return result
 
 
+class _Display(NullScanReporter):
+    """The outer display a named progress choice means: one bar, log lines, or nothing.
+
+    Parameters
+    ----------
+    choice : {'auto', 'bar', 'log', 'none'}
+        The named choice; ``"auto"`` draws a bar when the process is interactive.
+    """
+
+    def __init__(self, choice: ProgressChoice) -> None:
+        """Hold the choice, with no bar drawn."""
+        self.choice = choice
+        self.bar: BarReporter | None = None
+        self.started = time.perf_counter()
+
+    def scan_started(self, n_points: int) -> None:
+        """Draw the bar, when one is chosen.
+
+        Parameters
+        ----------
+        n_points : int
+            The selected points, the bar's extent.
+        """
+        self.started = time.perf_counter()
+        if self.choice == "bar" or (self.choice == "auto" and is_interactive()):
+            self.bar = BarReporter(position=0, leave=True, echo=False)
+            self.bar.started(0.0, float(max(1, n_points)), n_points)
+
+    def point_finished(self, index: int, status: str, wall: float) -> None:
+        """Log a point that did not fail, and advance the bar.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        status : str
+            Its status; a failure is logged with its traceback when it is collected.
+        wall : float
+            Its build and run time, s.
+        """
+        if status != "failed" and self.choice != "none":
+            logger.info("scan point %d: %s (%.3f s)", index, status, wall)
+        if self.bar is not None and self.bar.bar is not None:
+            self.bar.bar.update(1)
+
+    def close(self) -> None:
+        """Close the bar, if one was drawn."""
+        if self.bar is not None:
+            self.bar.finished(time.perf_counter() - self.started)
+            self.bar = None
+
+
+class _ScanEvents:
+    """Deliver a scan's point boundaries, and its points' runs, to a scan reporter.
+
+    Lives in the controlling process only. A point's start is reported when it is
+    dispatched (``Local``, ``Pool``) or, for an executor that reports none, just before
+    its result is collected.
+
+    Parameters
+    ----------
+    reporter : solprop.log.ScanReporter
+        Where the events go.
+    scan : Scan
+        The scan, which looks a collected point up by its global index.
+    """
+
+    def __init__(self, reporter: ScanReporter, scan: Scan) -> None:
+        """Hold the reporter, with no point started."""
+        self.reporter = reporter
+        self.scan = scan
+        self.started: set[int] = set()
+        self.watchers: dict[int, ProgressReporter] = {}
+
+    def begin(self, point: ScanPoint) -> ProgressReporter | None:
+        """Report a point's start and return the reporter for its run, if any.
+
+        Parameters
+        ----------
+        point : ScanPoint
+            The point dispatched.
+
+        Returns
+        -------
+        solprop.log.ProgressReporter or None
+            The reporter :meth:`solprop.log.WatchingScanReporter.point_reporter`
+            returned, or ``None``.
+        """
+        self.started.add(point.index)
+        self.reporter.point_started(point.index, point)
+        if not isinstance(self.reporter, WatchingScanReporter):
+            return None
+        watcher = self.reporter.point_reporter(point.index)
+        if watcher is not None:
+            self.watchers[point.index] = watcher
+        return watcher
+
+    def relay(
+        self,
+        index: int,
+        call: str,
+        args: tuple[object, ...],
+        stop: StopFlag | None,
+    ) -> None:
+        """Make a reporter call a pool worker sent for its point's run.
+
+        Parameters
+        ----------
+        index : int
+            The point's global index.
+        call : str
+            ``"summary"``, ``"started"``, ``"plane"``, ``"finished"`` or
+            ``"interrupted"``.
+        args : tuple
+            The call's arguments as :class:`~solprop.driver.executors.pool.Pool`'s
+            worker sends them.
+        stop : StopFlag or None
+            The caller's flag, which a worker's stop stands for.
+        """
+        watcher = self.watchers.get(index)
+        if watcher is None:
+            return
+        if call == "summary":
+            if isinstance(watcher, SummarisingReporter):
+                watcher.summary(cast(str, args[0]))
+        elif call == "started":
+            z_start, z_end, n_planes = cast(tuple[float, float, int], args)
+            watcher.started(z_start, z_end, n_planes)
+        elif call == "plane":
+            z, summary = cast(tuple[float, PlaneScalars], args)
+            watcher.plane(z, summary)
+        elif call == "finished":
+            watcher.finished(cast(float, args[0]))
+        elif call == "interrupted" and isinstance(watcher, InterruptibleReporter):
+            z, stopped, text = cast(tuple[float, bool, str], args)
+            error: BaseException = (
+                StopRequested(stop)
+                if stopped and stop is not None
+                else DriverError(f"scan point {index} was interrupted: {text}")
+            )
+            watcher.interrupted(z, error)
+
+    def finish(self, result: PointResult) -> None:
+        """Report a collected point, starting it first if nothing has.
+
+        Parameters
+        ----------
+        result : PointResult
+            The point's result.
+        """
+        if result.index not in self.started:
+            self.started.add(result.index)
+            self.reporter.point_started(result.index, self.scan.point(result.index))
+        self.started.discard(result.index)
+        self.watchers.pop(result.index, None)
+        self.reporter.point_finished(result.index, result.status, result.wall_time)
+
+
 @dataclass
 class _Work:
-    """Build and run independent simulations inside the chosen executor."""
+    """Build and run independent simulations inside the chosen executor.
+
+    ``stop`` and ``events`` belong to the controlling process and are not pickled: a
+    pool worker receives the work without them, and runs each point under a stop flag
+    and a reporter of its pipe's (``run_point``).
+    """
 
     build: Callable[[ScanPoint], Simulation]
     options: _Options
     scan_name: str
+    watched: bool = False
+    stop: StopFlag | None = None
+    events: _ScanEvents | None = None
+    keeps_backend: bool = False
+    _kept: SimulationRunner | None = field(default=None, init=False, repr=False)
+
+    def __getstate__(self) -> dict[str, object]:
+        """Drop the controller's flag and reporter, which stay in its process.
+
+        Returns
+        -------
+        dict
+            The fields a worker needs.
+        """
+        state: dict[str, object] = dict(self.__dict__)
+        return state | {"stop": None, "events": None, "_kept": None}
+
+    def close(self) -> None:
+        """Close the backend a point left, if one is kept."""
+        if self._kept is not None:
+            self._kept.close()
+            self._kept = None
+
+    def _run_point(
+        self,
+        simulation: Simulation,
+        capture: _Capture,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        stop: StopFlag | None,
+    ) -> None:
+        """Run a point, on the backend the last point left where it can be kept.
+
+        A device backend takes long to build beside a point's march (solprop #298), so
+        a scan in this process keeps it while each point is the last but for its input,
+        which a builder arranges with :meth:`Simulation.with_input`. A point that isn't
+        closes it first, so that two are never held, and one that raises takes it down.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The point, keeping the fields the scan reads.
+        capture : _Capture
+            Where its planes go.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        stop : object or None
+            The point's stop flag.
+        """
+        if (
+            not self.keeps_backend
+            or simulation.translate().tdse is not None
+            or not _device_build(simulation.settings.backend)
+        ):
+            self.close()
+            simulation.run(capture, progress=progress, stop=stop)
+            return
+        if self._kept is not None and not self._kept._takes(simulation):
+            self.close()
+        if self._kept is None:
+            self._kept = simulation.runner()
+        try:
+            self._kept._run_point(simulation, capture, progress=progress, stop=stop)
+        except BaseException:
+            self.close()
+            raise
+
+    def dispatched(self, job: _Job) -> None:
+        """Report that a pool sent a point to a worker.
+
+        Parameters
+        ----------
+        job : _Job
+            The point.
+        """
+        if self.events is not None:
+            self.events.begin(job.point)
+
+    def relay(self, job: _Job, call: str, args: tuple[object, ...]) -> None:
+        """Make a reporter call a pool worker sent for its point's run.
+
+        Parameters
+        ----------
+        job : _Job
+            The point the worker runs.
+        call : str
+            The reporter method.
+        args : tuple
+            Its arguments.
+        """
+        if self.events is not None:
+            self.events.relay(job.point.index, call, args, self.stop)
+
+    def stopped(self, job: _Job, wall_time: float = 0.0) -> PointResult:
+        """Return the result of a point the stop flag stopped, which is not committed.
+
+        Parameters
+        ----------
+        job : _Job
+            The point.
+        wall_time : float, optional
+            What it ran for before it stopped, s.
+
+        Returns
+        -------
+        PointResult
+            Its ``"stopped"`` result.
+        """
+        return PointResult(
+            job.point.index, "stopped", error=STOPPED, wall_time=wall_time
+        )
 
     def run_batch(self, jobs: Iterable[_Job], executor: Batch) -> Iterator[PointResult]:
         """Delegate compatible jobs to the common lockstep scan driver.
@@ -456,7 +722,6 @@ class _Work:
         """
         baseline = peak_rss()
         simulation = self.simulation(job)
-        admit_memory(simulation.translate(), simulation.settings.backend)
         backend = select(
             simulation.settings.backend,
             simulation.translate(),
@@ -568,7 +833,7 @@ class _Work:
         return field_bytes + stat_bytes + periodic_bytes + reduced_bytes + count * 8
 
     def __call__(self, job: _Job) -> PointResult:
-        """Execute the declared worker calculation.
+        """Run a point in this process, under the caller's flag and reporter.
 
         Parameters
         ----------
@@ -578,24 +843,52 @@ class _Work:
         Returns
         -------
         object
-            Completed calculation or captured point failure.
+            Completed calculation, captured point failure, or a stopped point.
+        """
+        reporter = None if self.events is None else self.events.begin(job.point)
+        return self.run_point(job, self.stop, reporter)
+
+    def run_point(
+        self, job: _Job, stop: StopFlag | None, reporter: ProgressReporter | None
+    ) -> PointResult:
+        """Execute the declared worker calculation.
+
+        Parameters
+        ----------
+        job : _Job
+            Global point and previously committed configuration digest.
+        stop : StopFlag or None
+            The flag the point's run polls; when it stops the run, the point is
+            ``"stopped"``, not done.
+        reporter : solprop.log.ProgressReporter or None
+            Where the point's run reports; ``None`` runs it silently.
+
+        Returns
+        -------
+        object
+            Completed calculation, captured point failure, or a stopped point.
         """
         started = time.perf_counter()
         metadata_json = digest = ""
+        metadata_arrays: Mapping[str, np.ndarray] = {}
         capture: _Capture | None = None
+        if stop is not None and stop.is_set():
+            return self.stopped(job)
         try:
             simulation = self.simulation(job)
             metadata = simulation.metadata()
             digest = metadata.configuration_hash()
             metadata_json = metadata.to_json()
+            metadata_arrays = metadata.record_arrays()
             if job.cached_hash:
                 if job.cached_hash != digest:
                     return PointResult(
                         job.point.index,
                         "conflict",
                         digest,
-                        metadata.to_json(),
+                        metadata_json,
                         error=f"point {job.point.index} has a different configuration",
+                        metadata_arrays=metadata_arrays,
                     )
                 return PointResult(
                     job.point.index, "skipped", configuration_hash=digest
@@ -607,10 +900,20 @@ class _Work:
                 prefix="solprop-scan-", ignore_cleanup_errors=True
             ) as scratch:
                 capture = _Capture(self.options, simulation, Path(scratch))
-                _retained(simulation, capture).run(capture, progress="none")
+                self._run_point(
+                    _retained(simulation, capture),
+                    capture,
+                    progress="none" if reporter is None else reporter,
+                    stop=stop,
+                )
+                outcome = capture.outcome
+                # The run returns normally only when complete or stopped by `stop`.
+                if outcome is not None and outcome.status != "complete":
+                    return self.stopped(job, time.perf_counter() - started)
                 arrays = capture.results()
                 if capture.metadata is not None:
                     metadata_json = capture.metadata.to_json()
+                    metadata_arrays = capture.metadata.record_arrays()
                 return PointResult(
                     job.point.index,
                     "done",
@@ -624,10 +927,13 @@ class _Work:
                     wall_time=time.perf_counter() - started,
                     n_steps=capture.steps,
                     n_rejected=capture.rejected,
+                    boundary_monitor=_closing_monitor(capture),
+                    metadata_arrays=metadata_arrays,
                 )
         except Exception:
             if capture is not None and capture.metadata is not None:
                 metadata_json = capture.metadata.to_json()
+                metadata_arrays = capture.metadata.record_arrays()
             return PointResult(
                 job.point.index,
                 "failed",
@@ -635,16 +941,70 @@ class _Work:
                 metadata_json,
                 error=traceback.format_exc(),
                 wall_time=time.perf_counter() - started,
+                boundary_monitor=_closing_monitor(capture),
+                metadata_arrays=metadata_arrays,
             )
+
+
+def _closing_monitor(capture: _Capture | None) -> Mapping[str, object] | None:
+    """Return a point's closing boundary-monitor record from its capture.
+
+    Parameters
+    ----------
+    capture : _Capture or None
+        The point's capture, once its run has recorded an outcome.
+
+    Returns
+    -------
+    collections.abc.Mapping or None
+        The record, or ``None`` when the point was not watched or never ran.
+    """
+    outcome = None if capture is None else capture.outcome
+    record = None if outcome is None else outcome.execution.get("boundary_monitor")
+    return cast("Mapping[str, object]", record) if isinstance(record, Mapping) else None
+
+
+def _field_retention(capture: _Capture) -> FieldRetention:
+    """Return which planes of a point keep the field, for what the scan reads of them.
+
+    The fields the scan retains, those its built-in reductions read at their target
+    planes, and, while a custom reduction that reads fields spools the run, every
+    field (SEP 22, Q3).
+
+    Parameters
+    ----------
+    capture : _Capture
+        The point's capture, which knows the selected and target planes.
+
+    Returns
+    -------
+    solprop.output.schema.FieldRetention
+        The rule, its plane indices resolved.
+    """
+    options = capture.options
+    spooled = any(
+        not isinstance(reduction, _Builtin) and getattr(reduction, "reads_fields", True)
+        for reduction in options.reductions
+    )
+    if options.fields == "all" or spooled:
+        return FieldRetention("all")
+    needed = set(capture.selected) | {
+        capture.targets[reduction.name]
+        for reduction in options.reductions
+        if isinstance(reduction, _Builtin) and reduction.reads_fields
+    }
+    return (
+        FieldRetention("planes", tuple(sorted(needed)))
+        if needed
+        else FieldRetention("none")
+    )
 
 
 def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
     """Return the point's simulation keeping only the fields the scan reads.
 
-    The fields the scan retains, those its built-in reductions read at their target
-    planes, and, while a custom reduction that reads fields spools the run, every
-    field (SEP 22, Q3). The builder's own simulation is left as it is: a builder may
-    return one object for every point.
+    The builder's own simulation is left as it is: a builder may return one object for
+    every point.
 
     Parameters
     ----------
@@ -658,28 +1018,26 @@ def _retained(simulation: Simulation, capture: _Capture) -> Simulation:
     Simulation
         A shallow copy sharing the translation, with the scan's field retention.
     """
-    options = capture.options
-    spooled = any(
-        not isinstance(reduction, _Builtin) and getattr(reduction, "reads_fields", True)
-        for reduction in options.reductions
-    )
-    if options.fields == "all" or spooled:
+    retention = _field_retention(capture)
+    if retention.fields == "all":
         return simulation
-    needed = set(capture.selected) | {
-        capture.targets[reduction.name]
-        for reduction in options.reductions
-        if isinstance(reduction, _Builtin) and reduction.reads_fields
-    }
     retained = copy.copy(simulation)
     retained.settings = dataclasses.replace(
         simulation.settings,
-        fields="planes" if needed else "none",
-        field_planes=tuple(sorted(needed)),
+        fields=retention.fields,
+        field_planes=retention.field_planes,
     )
     return retained
 
 
-def _jobs(scan: Scan, writer: ScanWriter, retry: bool, age: float) -> Iterator[_Job]:
+def _jobs(
+    scan: Scan,
+    writer: ScanWriter,
+    retry: bool,
+    age: float,
+    stop: StopFlag | None,
+    claims: dict[int, tuple[str, float]],
+) -> Iterator[_Job]:
     """Claim eligible points lazily as dispatch capacity becomes available.
 
     Parameters
@@ -692,6 +1050,11 @@ def _jobs(scan: Scan, writer: ScanWriter, retry: bool, age: float) -> Iterator[_
         Whether failed points are eligible.
     age : float
         Positive abandonment interval, s.
+    stop : StopFlag or None
+        Once set, no further point is claimed.
+    claims : dict
+        Filled with each claimed point's state and update time before the claim, so
+        that a stopped point is given back as it was (`_release`).
 
     Yields
     ------
@@ -699,14 +1062,38 @@ def _jobs(scan: Scan, writer: ScanWriter, retry: bool, age: float) -> Iterator[_
         Result of the declared operation.
     """
     for point in scan.points():
+        if stop is not None and stop.is_set():
+            return
         state, digest, updated = writer.state(point.index)
         if state == "failed" and not retry:
             continue
         if state == "running" and time.time() - updated < age:
             continue
         if state != "done":
+            claims[point.index] = state, updated
             writer.mark_running(point.index, time.time())
         yield _Job(point, digest if state == "done" else "")
+
+
+def _release(writer: ScanWriter, index: int, claim: tuple[str, float]) -> None:
+    """Give a stopped point back as it was before this scan claimed it.
+
+    A stopped point is not committed, so a rerun computes it again: left ``running``,
+    a rerun would skip it for ``stale_age``.
+
+    Parameters
+    ----------
+    writer : ScanWriter
+        Controller-owned scan file.
+    index : int
+        The point's global index.
+    claim : tuple
+        Its state and update time before the claim.
+    """
+    state, updated = claim
+    _dataset(writer.file, "points/status")[index] = state
+    _dataset(writer.file, "points/updated")[index] = updated
+    writer.file.flush()
 
 
 def execute_scan(  # noqa: PLR0913 - delegated public controls
@@ -721,7 +1108,9 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
     stats: str | Sequence[str],
     retry_failed: bool,
     stale_age: float,
-    progress: Literal["auto", "bar", "log", "none"],
+    progress: ProgressChoice | ScanReporter,
+    stop: StopFlag | None = None,
+    recipe: RecipeRecord | None = None,
 ) -> ScanOutput:
     """Validate, dispatch and commit a scan through one writer.
 
@@ -747,8 +1136,12 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         Whether to dispatch previously failed points.
     stale_age : float
         Positive abandonment interval, s.
-    progress : Literal['auto', 'bar', 'log', 'none']
-        Outer progress display: auto, bar, log or none.
+    progress : {'auto', 'bar', 'log', 'none'} or solprop.log.ScanReporter
+        Outer progress display, or a reporter that replaces it.
+    stop : StopFlag or None, optional
+        The scan's stop flag; refused by Queue and Slurm.
+    recipe : solprop.output.schema.RecipeRecord or None, optional
+        The recipe the scan was built from, recorded once in its file.
 
     Returns
     -------
@@ -756,15 +1149,39 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         Reader for the collected scan.
     """
     _validate_options(fields, field_planes, stats, stale_age, reductions)
+    if progress not in _PROGRESS_CHOICES and not isinstance(
+        progress, ScanReporter
+    ):  # pragma: no cover - refused by the annotation where it is checked
+        raise DriverError(
+            "progress must be 'auto', 'bar', 'log', 'none' or a ScanReporter, got "
+            f"{progress!r}"
+        )
     if executor is None:
         executor = current_executor() or Local()
+    if stop is not None and isinstance(executor, (Queue, Slurm)):
+        raise DriverError(_DURABLE_STOP.format(name=type(executor).__name__))
     options = _Options(
         tuple(reductions),
         fields,
         tuple(field_planes),
         stats if isinstance(stats, str) else tuple(stats),
     )
-    work = _Work(build, options, scan.name)
+    display: _Display | None = None
+    if isinstance(progress, str):
+        display = _Display(progress)
+        reporter: ScanReporter = display
+    else:
+        reporter = progress
+    events = _ScanEvents(reporter, scan)
+    work = _Work(
+        build,
+        options,
+        scan.name,
+        watched=display is None and isinstance(progress, WatchingScanReporter),
+        stop=stop,
+        events=events,
+        keeps_backend=isinstance(executor, Local),
+    )
     validate = getattr(executor, "validate", None)
     if callable(validate):
         validate(work)
@@ -775,53 +1192,77 @@ def execute_scan(  # noqa: PLR0913 - delegated public controls
         "reductions": {r.name: _provenance(r) for r in reductions},
     }
     writer = None
+    claims: dict[int, tuple[str, float]] = {}
     if isinstance(executor, (Queue, Slurm)):
         executor.prepare(ScanRequest(scan, settings, output, work, retry_failed))
         jobs = (_Job(point) for point in scan.points())
     else:
         writer = ScanWriter(output, scan, settings)
-        jobs = _jobs(scan, writer, retry_failed, stale_age)
-    bar = None
-    started = time.perf_counter()
+        writer.record_recipe(recipe)
+        jobs = _jobs(scan, writer, retry_failed, stale_age, stop, claims)
+    counts = dict.fromkeys(("finished", "stopped"), 0)
     try:
-        if progress == "bar" or (progress == "auto" and is_interactive()):
-            bar = BarReporter(position=0, leave=True, echo=False)
-            bar.started(0.0, float(max(1, len(scan))), len(scan))
+        events.reporter.scan_started(len(scan))
         for result in executor.run(jobs, work):
-            # Re-deriving a committed point can fail without that point being any
-            # less complete: an edited builder, a moved data file, a worker killed
-            # while it only rehashed. `ScanWriter.commit` refuses such a demotion
-            # outright, so the failure is reported and the remaining points run.
-            stale = (
-                result.status == "failed"
-                and writer is not None
-                and writer.state(result.index)[0] == "done"
+            _collect(result, writer, claims.pop(result.index, None))
+            counts["stopped" if result.status == "stopped" else "finished"] += 1
+            events.finish(result)
+        if stop is not None and stop.is_set():
+            logger.info(
+                "scan %r stopped by the caller's stop flag: %d points collected, %d "
+                "stopped and not committed; a rerun computes the stopped and the "
+                "undispatched points",
+                scan.name,
+                counts["finished"],
+                counts["stopped"],
             )
-            if writer is not None and not stale:
-                writer.commit(result)
-            if result.status == "failed":
-                logger.error(
-                    "scan point %d failed%s:\n%s",
-                    result.index,
-                    " while revisiting a completed point, which is kept as it is"
-                    if stale
-                    else "",
-                    result.error,
-                )
-            elif progress != "none":
-                logger.info(
-                    "scan point %d: %s (%.3f s)",
-                    result.index,
-                    result.status,
-                    result.wall_time,
-                )
-            if bar is not None and bar.bar is not None:
-                bar.bar.update(1)
+        events.reporter.scan_finished()
     finally:
-        if bar is not None:
-            bar.finished(time.perf_counter() - started)
+        work.close()
+        if display is not None:
+            display.close()
         _finish_execution(executor, build, writer, output)
     return ScanOutput(output)
+
+
+def _collect(
+    result: PointResult, writer: ScanWriter | None, claim: tuple[str, float] | None
+) -> None:
+    """Commit a collected point, or give a stopped one back, and log a failure.
+
+    Parameters
+    ----------
+    result : PointResult
+        The point's result.
+    writer : ScanWriter or None
+        Local controller writer, or None for a durable queue.
+    claim : tuple or None
+        The point's state and update time before this scan claimed it.
+    """
+    if result.status == "stopped":
+        if writer is not None and claim is not None:
+            _release(writer, result.index, claim)
+        return
+    # Re-deriving a committed point can fail without that point being any
+    # less complete: an edited builder, a moved data file, a worker killed
+    # while it only rehashed. `ScanWriter.commit` refuses such a demotion
+    # outright, so the failure is reported and the remaining points run.
+    stale = (
+        result.status == "failed"
+        and writer is not None
+        and writer.state(result.index)[0] == "done"
+    )
+    if writer is not None and not stale:
+        writer.commit(result)
+    if result.status == "failed":
+        logger.error(
+            "scan point %d failed%s:\n%s",
+            result.index,
+            " while revisiting a completed point, which is kept as it is"
+            if stale
+            else "",
+            result.error,
+        )
 
 
 def _finish_execution(

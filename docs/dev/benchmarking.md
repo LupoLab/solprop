@@ -15,7 +15,7 @@ uv run python -m benchmarks ab --case rdw --baseline-python OLD/bin/python
 ```
 
 Every command uses the native CPU backend unless `--backend` says otherwise, and needs
-it installed (`uv sync --extra native`). Run on a quiet machine: a dedicated
+it installed, as a plain `uv sync` does. Run on a quiet machine: a dedicated
 workstation, or an exclusive allocation on a cluster node.
 
 ## The tracking set
@@ -96,7 +96,9 @@ cluster, give it explicitly.
 to neighbouring cores), `default` (the runtime's own short
 spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
 neighbouring cores) or `bound-active`. The policy is recorded with each row, and rows
-compare only within one policy.
+compare only within one policy. Binding also confines SciPy's transforms on the host to the
+main thread's core, so a free-space row's edge reads cost more under a bound policy than
+under `passive` ([the edge against 0.1.0](benchmarks.md#the-transverse-edge-against-010)).
 
 ## On a GPU
 
@@ -130,20 +132,22 @@ bundle to a directory outside the repository.
 
 `--append-history` adds one row per configuration to
 `benchmarks/history/<hardware>.csv`, which is committed. Each row names its backend,
-and rows compare only with rows of the same backend, so a `--backend numba_cpu` run
-keeps its own series beside the native one. It records only the whole default plan
+and rows compare only with rows of the same backend, so the `numba_cpu` rows recorded at
+0.1.0, before [SEP 43](seps/archive/sep-0043-retire-numba-cpu.md) retired that backend, keep their own series beside the native one. It records only the whole default plan
 with at least three repeats, and only when:
 
 - every configuration finished, and its repeats took the same steps and reached the
   same final field to rounding, with the native backend running the threads it was
   given;
 - the workers imported solprop from this checkout's `src/` (run from the checkout's
-  own environment, `uv sync --extra native`, not an installed copy), with, for a
+  own environment, `uv sync`, not an installed copy), with, for a
   native run, a native build from a commit after which nothing under `native/`
   changed but its documentation and tests;
 - nothing under `src/`, `native/` or `benchmarks/` is uncommitted (the history files
   aside, so one checkout can record several runs), unless `--allow-dirty`, whose rows
-  are marked dirty.
+  are marked dirty;
+- `SOLPROP_FFTW_PLAN` is unset: a row does not record how it planned, and measured
+  planning changes its construction time and its median.
 
 The hardware name is the CPU model and the production width, plus the instance family
 on a cloud machine, for example `apple-m5-max-18c`, `amd-epyc-7763-16c` or
@@ -180,12 +184,13 @@ so that their rows stay one series:
 | `amd-mi325x-do` | cloud `gpu-mi325x1-256gb` instance, HIP build (`AMD_GFX942`) | device | `do` |
 
 - **CPU rows time the release's wheel.** A clean checkout of the release tag, its
-  environment made with `uv sync --python 3.14 --frozen` (no `native` extra), then
-  `uv pip install solprop-native==<version>` from PyPI, and every command run as
-  `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` removes the
-  wheel. The wheel records the tag's commit, so the history accepts it.
-- **numba rows** come from a second run in the same checkout with
-  `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763.
+  environment made with `uv sync --python 3.14 --frozen --no-install-package
+  solprop-native`, then `uv pip install solprop-native==<version>` from PyPI, and every
+  command run as `.venv/bin/python -m benchmarks …`: a later `uv sync` or `uv run` builds
+  native in the wheel's place. The wheel records the tag's commit, so the history accepts it.
+- **numba rows** exist only at 0.1.0: a second run in the same checkout with
+  `--backend numba_cpu`, on the Apple M5 Max, the Xeon Gold 6240 and the EPYC 7763. A later
+  release cannot add them.
 - **GPU rows build the tag's native backend** with the `cuda` or `hip` preset's
   options into a separate environment, out of tree (`uv build native --wheel
   --config-setting build-dir=…`), so that the checkout stays clean. ROCm 10 builds

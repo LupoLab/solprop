@@ -719,14 +719,16 @@ def test_the_legacy_gate_says_nothing_about_a_handler_with_no_record():
         legacy.energy(MemoryOutput(), plane=0)
 
 
-@pytest.mark.parametrize("backend", ["numpy_ref", "numba_cpu"])
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
     """The whitelist's backend door, on a run that carries no general identity.
 
     A caller may build a backend and ask it for statistics directly, without the
-    run loop's admission; both CPU backends check, and the message is the one the
+    run loop's admission; every CPU backend checks, and the message is the one the
     loop would have given.
     """
+    if backend == "native":
+        pytest.importorskip("solprop_native")
     simulation = Simulation.from_gnlse(
         0.11,
         1e-4,

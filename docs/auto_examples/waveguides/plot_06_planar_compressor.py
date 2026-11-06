@@ -59,10 +59,10 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   :math:`e^B` of the fastest-growing ripple in the linear theory: the fluence averages
   over the pulse and the beam's wings, where the gain is lower, and white noise puts
   only a small part of its power near the fastest period. At the 21 cm exit they are
-  a few parts in :math:`10^4`. By 40 cm, at B of about 17, the rms ripple is 4 %;
+  a few parts in :math:`10^4`. By 40 cm, at B of about 17, the rms ripple is 5 %;
   beyond, the beam breaks up into filaments that self-focus, so the peak intensity,
-  and with it the B integral, runs away (B of about 33 at 45 cm and 58 at 50 cm)
-  and the ripple reaches 14 to 17 %. So at this seed the beam breaks up just beyond
+  and with it the B integral, runs away (B of about 35 at 45 cm and 62 at 50 cm)
+  and the ripple reaches 16 %. So at this seed the beam breaks up just beyond
   the limit Arnold place, :math:`B \approx 15.5`. (With solprop's former argon
   Kerr coefficient, 23 % lower, B reached 16 only at 50 cm, where the beam was
   just beginning to break up.)
@@ -76,8 +76,8 @@ slightly noisy beam through a longer guide to show the break-up that sets the li
   excites. TE7 carries 0.1 % at launch and is damped fifty times more than TE1.
   Arnold used ten.
 * The Kerr effect is the only nonlinearity. Plasma is left out: optmat's argon rate at
-  the peak intensity leaves about 5e14 electrons per cubic centimetre (Arnold: "well
-  below 1e15"), whose index change is about 3 % of the Kerr one (printed below).
+  the peak intensity leaves about 3.5e14 electrons per cubic centimetre (Arnold: "well
+  below 1e15"), whose index change is about 2 % of the Kerr one (printed below).
   That estimate uses the incident peak intensity, so it does not justify the omission
   after strong spatial contraction: the late, under-resolved breakup is qualitative
   and cannot predict a filament peak intensity. Argon has no Raman response.
@@ -121,7 +121,6 @@ import numpy as np
 from scipy.integrate import cumulative_trapezoid
 
 from solprop import fourier
-from solprop.backends.memory import estimate_memory
 from solprop.constants import BAR, CHARGE_MASS_RATIO, EPS0, STD_ATMOSPHERE, C
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import MaterialRangeWarning
@@ -168,7 +167,7 @@ ORDERS = (1, 3, 5, 7)
 """The TE orders kept: the odd ones, which a centred beam excites."""
 
 RADIUS_Y = 18e-3
-"""Half-width of the y window, m, before its absorbing collar."""
+"""Half-width of the y window, m."""
 
 N_Y = 1024
 """Samples across y."""
@@ -254,7 +253,7 @@ print(
 # 170 fs, and both stay inside the window. (Over the 50 cm of the second run below,
 # TE7 falls 400 fs behind and runs into the collar, which absorbs it; by then it
 # carries less than 1e-6 of the energy.) The y window holds the beam out to 2.5
-# radii, where its intensity is 4e-6 of the peak, before the collar begins.
+# radii, where its intensity is 4e-6 of the peak.
 #
 # :class:`~solprop.pulses.PlanarPulse` projects the Gaussian line focus onto the
 # modes. Its energy is the incident beam's, so what falls on the plates is lost at the
@@ -291,14 +290,6 @@ print(space)
 clean = Simulation.from_planar(
     grid, space, kerr, launch, settings=settings_for([LENGTH])
 )
-
-# The persistent memory of the run, before anything is allocated:
-# ``estimate_memory`` gives 1.95 GB at this size on the native backend, 1.28 GB of it
-# the base group (the state, the stage buffers and the operator tables) and the rest
-# the Adams history, for this run and for the seeded one below. The saved planes come
-# on top, 38 MB each: two here, twelve there.
-estimate = estimate_memory(clean.translate(), "auto")
-print(f"estimated memory on {estimate.backend}: {estimate.total / 1e9:.2f} GB")
 
 # %%
 # The propagation
@@ -551,7 +542,10 @@ fig.tight_layout()
 # light leaves the time window: the temporal collar takes 4.5e-6 of the launch energy
 # with this 600 fs window, still 1.1e-6 with 800 fs, for half again the run time. The
 # run accepts it explicitly: ``BoundaryCheck(budget=3e-3)`` lets the collar take up to
-# 9e-6 of the energy before the boundary monitor warns.
+# 9e-6 of the energy before the boundary monitor warns. The fine structure after
+# break-up also reaches the y grid's outer wavenumbers, which the 1024 samples don't
+# resolve: the safety ramp removes about 4e-5 of the launch energy, and the monitor
+# says so below.
 
 rng = np.random.default_rng(49)
 noise = 1.0 + SEED * rng.standard_normal(space.n_y)

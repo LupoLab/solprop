@@ -254,3 +254,95 @@ def test_get_field_refuses_an_oversampling_below_one(output):
 def test_an_unopened_handler_has_no_grid():
     with pytest.raises(OutputError, match="no metadata"):
         fields.get_spectrum(MemoryOutput())
+
+
+# ------------------------------------------------------------------ the spectrogram
+
+
+def test_a_spectrogram_is_a_map_on_its_axis_at_the_pulse(output, synthetic):
+    t, f, values = fields.get_spectrogram(output, plane=0, positions=64)
+    assert values.shape == (f.size, t.size) and np.all(np.diff(f) > 0)
+    peak_f, peak_t = np.unravel_index(np.argmax(values), values.shape)
+    carrier = 299_792_458.0 / synthetic.wavelength
+    gate = 1.0 / (synthetic.trange / 20.0)  # the default gate's bandwidth, about
+    assert abs(f[peak_f] - carrier) < 2 * gate
+    assert abs(t[peak_t]) < synthetic.trange / 20.0  # the pulse is at t = 0
+
+
+def test_a_spectrogram_on_wavelength_is_a_density_per_metre(output):
+    _, f, per_hz = fields.get_spectrogram(output, plane=0, positions=16)
+    _, lam, per_m = fields.get_spectrogram(output, "wavelength", plane=0, positions=16)
+    _, omega, per_rad = fields.get_spectrogram(output, "omega", plane=0, positions=16)
+    assert np.all(np.diff(lam) > 0)
+    # The same light, whatever the axis: the integral over it agrees slice by slice.
+    by_f = np.trapezoid(per_hz, f, axis=0)
+    by_lam = np.trapezoid(per_m, lam, axis=0)
+    by_omega = np.trapezoid(per_rad, omega, axis=0)
+    bright = by_f > 1e-3 * by_f.max()
+    assert np.allclose(by_lam[bright], by_f[bright], rtol=2e-2)
+    assert np.allclose(by_omega, by_f, rtol=1e-9)
+
+
+def test_a_spectrogram_takes_a_time_range_a_gate_and_a_band(output):
+    t, _, values = fields.get_spectrogram(
+        output, plane=0, time_range=(1e-13, -1e-13), gate_fwhm=10e-15, positions=40
+    )
+    assert t.min() >= -1e-13 and t.max() <= 1e-13 and t.size >= 30
+    _, _, whole = fields.get_spectrogram(output, plane=0, positions=40)
+    _, _, outside = fields.get_spectrogram(
+        output, plane=0, positions=40, bandpass=(1.4e-6, 1.9e-6)
+    )
+    assert outside.max() < 1e-6 * whole.max()
+    assert values.max() > 0.0
+
+
+def test_a_spectrogram_refuses_what_it_cannot_draw(output, synthetic):
+    multimode = synthetic.build_run(n_modes=2)
+    with pytest.raises(ModeError, match="name a single mode"):
+        fields.get_spectrogram(multimode)
+    assert fields.get_spectrogram(multimode, modes=1, positions=8)[2].size > 0
+    with pytest.raises(ProcessingError, match="gate position"):
+        fields.get_spectrogram(output, positions=0)
+    with pytest.raises(ProcessingError, match="width"):
+        fields.get_spectrogram(output, gate_fwhm=0.0)
+    with pytest.raises(ProcessingError, match="within the time window"):
+        fields.get_spectrogram(output, gate_fwhm=1.0)
+    with pytest.raises(ProcessingError, match="holds no gate position"):
+        fields.get_spectrogram(output, time_range=(1.0, 2.0))
+    # Inside the window but between two gate positions: none to show.
+    t, _ = fields.get_field(output, kind="real", plane=-1)
+    step = float(t[1] - t[0])
+    # Far inside one step: an envelope grid's gate positions are oversampled.
+    between = (float(t[10]) + 1e-3 * step, float(t[10]) + 2e-3 * step)
+    with pytest.raises(ProcessingError, match="holds no gate position"):
+        fields.get_spectrogram(output, time_range=between)
+    # The last plane by default, or the one nearest a position.
+    last = fields.get_spectrogram(output, positions=8)[2]
+    nearest = fields.get_spectrogram(output, z=synthetic.length, positions=8)[2]
+    assert np.array_equal(last, nearest)
+
+
+def test_a_spectrogram_on_a_narrow_envelope_grid_has_its_carrier(tmp_path):
+    # The band's time step is coarser than the carrier's: the real field is oversampled,
+    # or an 800 nm pulse aliases to about 2.9 um.
+    from solprop.grid import EnvelopeGrid  # noqa: PLC0415 - only here
+    from solprop.output import open_file  # noqa: PLC0415 - only here
+    from solprop.processing import real_field_oversampling  # noqa: PLC0415 - only here
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    narrow = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1100e-9), 200e-15)
+    assert real_field_oversampling(narrow) > 1
+    text = (
+        Recipe.example("antiresonant_fibre")
+        .to_text()
+        .replace('length = "0.05 m"', 'length = "1 mm"')
+        .replace('["300 nm", "1600 nm"]', '["600 nm", "1100 nm"]')
+    )
+    path = tmp_path / "run.h5"
+    Recipe.loads(text).run(path)
+    with open_file(str(path)) as output:
+        _t, x, values = fields.get_spectrogram(
+            output, "wavelength", plane=0, positions=32
+        )
+    row = np.unravel_index(np.argmax(values), values.shape)[0]
+    assert x[row] == pytest.approx(800e-9, rel=0.05)

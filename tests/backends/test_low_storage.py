@@ -42,9 +42,9 @@ from bounds import (
     propagation_growth,
     step_budget,
 )
+from legacy_geometry import with_collar_rate
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
-from solprop.backends.memory import estimate_memory, ledger_groups
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
 from solprop.boundaries import absorber
@@ -214,7 +214,7 @@ def test_the_cartesian_diffraction_reproduces_its_width_and_gouy_phase(fraction)
     and its Fourier-series bounds are that test's own.
     """
     grid = EnvelopeGrid.from_limits(0.1, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False)
-    space = FreeGrid(6e-4, 48, 7.5e-4, 60, window_factor=0)
+    space = FreeGrid(6e-4, 48, 7.5e-4, 60, collar_fraction=0)
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     wave, waist = grid.omega[index] / C, 80e-6
     distance = fraction * wave * waist**2 / 2
@@ -436,7 +436,7 @@ def test_a_cartesian_kerr_beam_converges_at_order_four():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=2e-7), 80e-6
     )
@@ -887,13 +887,13 @@ def spatial_collar_problem(steps, integrator):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = FixedSchedule.uniform(0.0, length, length / steps)
     arguments = {} if integrator is None else {"integrator": integrator}
-    return assemble(
+    problem = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -908,7 +908,13 @@ def spatial_collar_problem(steps, integrator):
         absorber=absorber(grid),
         absorber_scheme="split_step",
         **arguments,
-    ), schedule
+    )
+    # A collar cannot be designed on this coarse box (SEP 40's floor); the subject is
+    # the stability check of an in-stage spatial rate, so the rate the old collar had,
+    # 12.6 (1 - W) / (L / 20), is put on directly and the problem validated again.
+    problem = with_collar_rate(problem, 12.6 / (length / 20))
+    problem.validate()
+    return problem, schedule
 
 
 def test_a_step_past_rk4_s_interval_beside_the_spatial_collar_is_refused():
@@ -934,35 +940,6 @@ def test_a_step_past_rk4_s_interval_beside_the_spatial_collar_is_refused():
     with pytest.raises(TranslationError, match="spatial collar stability limit"):
         spatial_collar_problem(first - 1, MARCH)
     spatial_collar_problem(first - 1, None)
-
-
-def test_numba_cpu_runs_the_march_with_no_runge_kutta_buffer(
-    soliton_problem, narrow_grid
-):
-    """A widened integrator never reads as none and runs DOPRI5 (section 6.4).
-
-    ``numba_cpu`` builds the march's resident engine (phase 2) and none of the
-    Runge-Kutta march's buffers, and its first-same-as-last switch stays off (Q13).
-    """
-    from solprop.backends.numba_cpu import NumbaCpuBackend  # noqa: PLC0415
-    from solprop.backends.numba_cpu.low_storage import NumbaLowStorage  # noqa: PLC0415
-
-    length = 0.1
-    problem = soliton_problem(
-        narrow_grid,
-        1,
-        save_planes=[length],
-        schedule=FixedSchedule.uniform(0.0, length, length / 10),
-        integrator=MARCH,
-    )
-    backend = NumbaCpuBackend(problem, grid=narrow_grid)
-    assert backend._low_storage is not None
-    assert isinstance(backend._low_storage.engine, NumbaLowStorage)
-    assert not backend._fsal
-    ledger = backend.memory_ledger()
-    for row in (*RUNGE_KUTTA_ROWS, "advanced", "exponent", "recycled_stage"):
-        assert ledger[row] == 0, row
-    backend.close()
 
 
 # --- the step in flight (section 6.2, Q6) -----------------------------------------
@@ -1206,155 +1183,6 @@ def test_the_run_writes_no_checkpoint_from_a_step_in_flight(tmp_path, caplog):
     assert np.linalg.norm(final - expected) <= bound * np.linalg.norm(expected)
 
 
-def held_soliton(fields="all"):
-    """The soliton of the test above on its schedule, keeping `fields`."""
-    from solprop.driver import Simulation  # noqa: PLC0415
-
-    length = 0.02
-    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
-    simulation = Simulation.from_gnlse(
-        0.11,
-        length,
-        [0.0, 0.0, -11.83e-27],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=9.8,
-        shape="sech",
-        save_planes=[length / 2, length],
-        schedule=schedule,
-        integrator=MARCH,
-        backend="numpy_ref",
-        dz_max=schedule.max_step,
-        dz_init=schedule.max_step,
-        # No collar: a few fixed steps are refused beside the default one.
-        absorber=False,
-        noise=None,
-    )
-    if fields != "all":
-        simulation.settings = dataclasses.replace(
-            simulation.settings, fields=fields, field_planes=(0, -1)
-        )
-    return simulation, schedule, length
-
-
-def test_the_held_plane_is_charged_at_admission_when_fields_are_dropped():
-    from solprop.driver.memory import admit_memory  # noqa: PLC0415
-    from solprop.output.schema import FieldRetention  # noqa: PLC0415
-
-    simulation, _, _ = held_soliton("planes")
-    problem = simulation.translate()
-    kept = FieldRetention("planes", (0, -1)).resolved(3)
-    admission = admit_memory(problem, "numpy_ref", "none", retention=kept)
-    assert admission.estimate.groups["held_plane"] == 16 * math.prod(problem.shape)
-    every = FieldRetention("all", ()).resolved(3)
-    groups = admit_memory(problem, "numpy_ref", "none", retention=every).estimate.groups
-    assert "held_plane" not in groups
-
-
-def test_a_field_free_plane_is_held_and_checkpointed_from_a_step_in_flight(tmp_path):
-    """SEP 22, Q14: the state of the last field-free plane is held, one volume.
-
-    A step abandoned in flight after a plane that kept no field leaves a terminal
-    checkpoint at that plane, taken from the held state, and the run resumes from it.
-    The ledger lists the held volume from the first field-free plane.
-    """
-    from solprop.output.hdf5 import open_file  # noqa: PLC0415
-
-    plain, schedule, length = held_soliton()
-    uninterrupted = plain.run(progress="none")
-    kept, _, _ = held_soliton("planes")
-    problem = kept.translate()
-    path = tmp_path / "run.h5"
-    original = NumpyRefBackend._adams_lab_source
-    original_observe = NumpyRefBackend.observe
-    count = [0]
-    ledgers = []
-
-    def observe(self, **keywords):
-        observation = original_observe(self, **keywords)
-        ledgers.append(self.memory_ledger()["held_plane"])
-        return observation
-
-    def evaluate(self, lab, position, **keywords):
-        count[0] += 1
-        if count[0] == 4 * 5 + 2:
-            raise AbandonedError
-        return original(self, lab, position, **keywords)
-
-    try:
-        NumpyRefBackend._adams_lab_source = evaluate
-        NumpyRefBackend.observe = observe
-        with pytest.raises(AbandonedError) as caught:
-            kept.run(path, progress="none")
-    finally:
-        NumpyRefBackend._adams_lab_source = original
-        NumpyRefBackend.observe = original_observe
-    # The entrance kept its field and held nothing; the half plane held one volume.
-    assert ledgers == [0, 16 * math.prod(problem.shape)]
-    assert not any("no terminal checkpoint" in note for note in caught.value.__notes__)
-    with open_file(path) as stored:
-        checkpoint = stored.terminal_checkpoint
-        assert checkpoint is not None and checkpoint.plane.field is not None
-        assert checkpoint.plane.z == length / 2
-        assert checkpoint.plane.step_history.n_steps == 0
-        assert stored["z"].tolist() == [0.0, length / 2]
-    kept.run(path, progress="none", resume=True)
-    with open_file(path) as stored:
-        assert stored["z"].tolist() == [0.0, length / 2, length]
-        final = stored.plane_field(2)
-    expected = uninterrupted["field"][-1]
-    # As the resume from a kept plane above: the held state is the plane's exactly,
-    # and the resumed half agrees within section 4.5's bound.
-    bins = populated([expected], 1e-3).reshape(-1)
-    bound = float(np.max(linear_bound(problem, schedule)[..., bins]))
-    assert np.linalg.norm(final - expected) <= bound * np.linalg.norm(expected)
-
-
-def test_a_held_plane_that_cannot_be_observed_keeps_the_original_failure(tmp_path):
-    """The failure path must not replace the original exception (SEP 22, Q14).
-
-    If the held state cannot be observed, the step in flight is recorded as abandoned,
-    with no checkpoint, and the reason is noted on the original exception.
-    """
-    from solprop.output.hdf5 import open_file  # noqa: PLC0415
-
-    kept, _, _ = held_soliton("planes")
-    path = tmp_path / "run.h5"
-    original = NumpyRefBackend._adams_lab_source
-    original_held = NumpyRefBackend.held_observation
-    count = [0]
-
-    def evaluate(self, lab, position, **keywords):
-        count[0] += 1
-        if count[0] == 4 * 5 + 2:
-            raise AbandonedError
-        return original(self, lab, position, **keywords)
-
-    def held(self):
-        raise FloatingPointError("held field is not finite")
-
-    try:
-        NumpyRefBackend._adams_lab_source = evaluate
-        NumpyRefBackend.held_observation = held
-        with pytest.raises(AbandonedError) as caught:
-            kept.run(path, progress="none")
-    finally:
-        NumpyRefBackend._adams_lab_source = original
-        NumpyRefBackend.held_observation = original_held
-    notes = caught.value.__notes__
-    assert any("held plane could not be observed" in note for note in notes)
-    with open_file(path) as stored:
-        assert stored.terminal_checkpoint is None
-
-
-# --- memory (section 7.3) ------------------------------------------------------------
-
-# The Runge-Kutta march's own field-sized rows, empty under the low-storage march.
-RUNGE_KUTTA_ROWS = ("stages", "accumulator_solution", "accumulator_error")
-
-# The rows that scale with the whole state, as section 6.8 counts them.
 FIELD_ROWS = (
     "state",
     "transverse_scratch",
@@ -1378,7 +1206,7 @@ def cartesian_march(mode, *, noise=None, collar=False):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0.25 if collar else 0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0.25 if collar else 0)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -1409,6 +1237,10 @@ def cartesian_march(mode, *, noise=None, collar=False):
     problem = dataclasses.replace(
         problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
     )
+    if collar:
+        # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
+        # is the march's ledger beside an in-stage term, so its rate is put on directly.
+        problem = with_collar_rate(problem, 12.6 / (length / 20))
     return problem, grid, space
 
 
@@ -1481,69 +1313,6 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
     assert sum(volumes.values()) == (5 if mode == "tabulate" else 4) * field
     # Every other row is a node chunk's, bounded by the chunk and not the state.
     assert all(size < field for row, size in ledger.items() if row not in FIELD_ROWS)
-    # The construction-free estimate is the ledger to the byte.
-    estimate = estimate_memory(problem, "numpy_ref")
-    assert estimate.groups == {
-        name: size for name, size in ledger_groups(ledger).items() if name != "measured"
-    }
-
-
-def test_the_noise_adds_one_volume_and_the_estimate_names_it():
-    noise = spatial_noise(
-        SpatialFlux.resolve(
-            EnvelopeGrid.from_limits(
-                1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
-            ),
-            FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0),
-            SpatialMedium(),
-        ),
-        np.random.default_rng(7),
-        model="modified",
-    )
-    problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    field = 16 * math.prod(problem.shape)
-    backend = NumpyRefBackend(problem, grid=grid)
-    backend.set_initial(problem.initial.field0, None)
-    ledger = backend.memory_ledger()
-    backend.close()
-    assert sum(ledger[row] for row in FIELD_ROWS) == 6 * field
-    estimate = estimate_memory(problem, "numpy_ref")
-    assert ledger_groups(ledger)["base"] == estimate.groups["base"] + field
-    assert any("noise field" in item for item in estimate.not_counted)
-
-
-def test_a_run_too_large_for_the_adams_history_fits_under_the_march(
-    soliton_problem, narrow_grid
-):
-    """``_admit_history`` refuses the default integrator and admits the march (7.3)."""
-    from solprop.driver.memory import MemoryLimit, _admit_history  # noqa: PLC0415
-    from solprop.exceptions import MemoryBudgetError  # noqa: PLC0415
-    from solprop.stepper import Multistep  # noqa: PLC0415
-
-    length = 0.1
-    schedule = FixedSchedule.uniform(0.0, length, length / 10)
-    adams = estimate_memory(
-        soliton_problem(
-            narrow_grid,
-            1,
-            save_planes=[length],
-            schedule=schedule,
-            integrator=Multistep(),
-        ),
-        "numpy_ref",
-    )
-    march = estimate_memory(
-        soliton_problem(
-            narrow_grid, 1, save_planes=[length], schedule=schedule, integrator=MARCH
-        ),
-        "numpy_ref",
-    )
-    assert march.groups["adams_history"] == 0
-    limit = MemoryLimit(adams.total - 1, "warn", "machine")
-    with pytest.raises(MemoryBudgetError, match="RungeKutta"):
-        _admit_history(adams, limit)
-    assert limit.limit is not None and march.total <= limit.limit
-    _admit_history(march, limit)
 
 
 # --- the noise (section 7.1, Q3) ----------------------------------------------------
@@ -1555,7 +1324,7 @@ def test_the_noise_draw_never_enters_the_propagating_field():
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(3),
@@ -1598,7 +1367,7 @@ def test_each_pass_carries_the_draw_at_its_own_position(monkeypatch):
     grid = EnvelopeGrid.from_limits(
         length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False
     )
-    space = FreeGrid(3e-4, 9, 4e-4, 12, window_factor=0)
+    space = FreeGrid(3e-4, 9, 4e-4, 12, collar_fraction=0)
     noise = spatial_noise(
         SpatialFlux.resolve(grid, space, SpatialMedium()),
         np.random.default_rng(94),
@@ -1975,23 +1744,3 @@ def test_a_failure_record_that_cannot_be_written_keeps_the_original_error(caplog
     assert any("no terminal checkpoint" in note for note in notes)
     assert any("manufactured record failure" in note for note in notes)
     assert "could not record the failure" in caplog.text
-
-
-def test_the_held_plane_reuses_its_buffer():
-    """A second field-free plane copies into the volume the first allocated."""
-    problem, grid, _ = cartesian_march("tabulate")
-    backend = NumpyRefBackend(problem, grid=grid)
-    try:
-        backend.set_initial(problem.initial.field0, None)
-        state = backend._state
-        assert state is not None
-        backend._hold(state)
-        first = backend._held
-        backend._hold(None)
-        backend._hold(2.0 * state)
-        assert backend._held is first
-        np.testing.assert_array_equal(
-            backend._held_field(), backend._observed_field(2.0 * state)
-        )
-    finally:
-        backend.close()

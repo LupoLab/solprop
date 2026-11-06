@@ -15,7 +15,7 @@ resume decision.
 **Resume.** Given a path, a run checks the file that is already there with
 :func:`solprop.output.hdf5.check_cache`: the digest covers the grid, the modes, the
 whole serialised configuration, the noise and the stepper settings, so a file written
-for different physics is refused by name rather than continued from someone else's
+for a different run is refused by name rather than continued from someone else's
 state. If it passes, the last plane comes back through
 :func:`solprop.output.hdf5.resume`, the backend is loaded at that plane's position, and
 the run carries on into the same file with ``HDF5Output(path, append=True)``.
@@ -25,6 +25,7 @@ translation, the backends and the output layer, and nothing imports it. The manu
 is ``docs/guide/setup/running.md``.
 """
 
+import contextlib
 import copy
 import dataclasses
 import functools
@@ -34,24 +35,24 @@ import math
 import threading
 import uuid
 import warnings
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Final, Literal, cast
+from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
 
 import numpy as np
-from jaxtyping import Complex, Float
+from jaxtyping import Complex, Float, Shaped
 from scipy.special import j0, jn_zeros
 
 import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
-    TransverseCollar,
+    SpatialAbsorber,
     no_absorber,
     temporal_collar_rate,
     warn_walkoff,
@@ -72,12 +73,35 @@ from solprop.coupling import (
     space_record,
 )
 from solprop.driver import tdse_consistency
+from solprop.driver._launch import launch_pulse, refuse_beside
+from solprop.driver.defaults import (
+    CAPILLARY_RTOL,
+    DEFAULT_ATOL,
+    DEFAULT_RTOL,
+    FREE_ATOL,
+    FREE_NOISE,
+    FREE_RTOL,
+    INTERIOR_LAUNCH_NOISE,
+    PLANAR_NOISE,
+    SINGLE_PRECISION_NOISE,
+    SLAB_NOISE,
+    SPATIAL_ATOL,
+    SPATIAL_RTOL,
+    TDSE_NOISE,
+    WAVEGUIDE_ATOL,
+    WAVEGUIDE_RTOL,
+    NoiseModel,
+    default_controller,
+    default_integrator,
+    default_rtol,
+    default_scheme,
+    resolve_noise,
+)
 from solprop.driver.material_output import (
     material_manifest,
     material_record,
     processing_record,
 )
-from solprop.driver.memory import MemoryAdmission, admit_guide_memory, admit_memory
 from solprop.driver.mixtures import (
     ResponseSelection,
     capillary_fill,
@@ -92,17 +116,19 @@ from solprop.driver.run import (
 )
 from solprop.exceptions import (
     AdiabaticTaperWarning,
+    BoundaryWarning,
     CouplingError,
     DriverError,
     GasFlowWarning,
     GrazingIncidenceWarning,
     GridError,
     MaterialRangeWarning,
-    MemoryBudgetError,
-    MemoryBudgetWarning,
-    OutputError,
+    MaterialStatusWarning,
+    ParameterPath,
     SampledPeakWarning,
+    SolpropError,
     SolpropWarning,
+    StopRequested,
     TDSEArchiveError,
     TDSECostWarning,
     TranslationError,
@@ -118,7 +144,12 @@ from solprop.grid import (
     TimeGrid,
 )
 from solprop.linear import Frame, frame_origin, frame_quantities
-from solprop.log import DEFAULT_PROGRESS_PERIOD, ProgressChoice, ProgressReporter
+from solprop.log import (
+    DEFAULT_PROGRESS_PERIOD,
+    ProgressChoice,
+    ProgressReporter,
+    StopFlag,
+)
 from solprop.modes.antiresonant import TubeLattice
 from solprop.modes.capillary import (
     CoherentWall,
@@ -183,14 +214,11 @@ from solprop.nonlinear.responses import (
     PlasmaResponse,
 )
 from solprop.nonlinear.tdse import TDSEAtomicWindow, TDSEExecution, TDSEGasResponse
-from solprop.output.compatibility import RecordComparison, dotted
 from solprop.output.hdf5 import (
     HDF5Output,
     ResumeState,
-    _compare_cache,
-    _resume_refusal,
     _stored_metadata,
-    _stored_stat_shapes,
+    check_cache,
 )
 from solprop.output.hdf5 import resume as resume_state
 from solprop.output.memory import MemoryOutput
@@ -198,6 +226,8 @@ from solprop.output.schema import (
     INTERPOLATED_RESUMES_ANNOTATION,
     PEAK_FIELDS_ANNOTATION,
     CheckpointOutput,
+    DefaultsResolution,
+    FieldRetention,
     FieldsChoice,
     GridRecord,
     ModeRecord,
@@ -205,9 +235,12 @@ from solprop.output.schema import (
     NoiseResolution,
     Output,
     PlaneStore,
+    RecipeRecord,
     RunMetadata,
+    StatedInput,
     StepLimits,
     StepperRecord,
+    _recorded_inline,
     field_retention_refusal,
     recorded_input,
     serialise,
@@ -246,7 +279,8 @@ from solprop.pulses import (
     SechPulse,
     SpatialPulse,
 )
-from solprop.spatial import SpatialFlux, SpatialMedium, peak_field
+from solprop.spatial import SpatialDispersion, SpatialFlux, SpatialMedium, peak_field
+from solprop.spatial_absorber import SpatialAbsorberDesign
 from solprop.stats import (
     PLASMA_INTEGRATION_STATISTICS,
     StatsSpec,
@@ -261,6 +295,7 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import DOPRI5
 from solprop.translate.coupled import (
     CF4_GROWTH_LIMIT,
+    metric_at,
     taper_identity,
     wall_identity,
 )
@@ -280,7 +315,6 @@ from solprop.translate.general import (
 )
 from solprop.translate.linop import power_weight_at
 from solprop.translate.masks import (
-    DEFAULT_ABSORBER_SCHEME,
     AbsorberScheme,
     noise_spectrum,
 )
@@ -290,8 +324,6 @@ from solprop.translate.plasma_integration import (
 )
 from solprop.translate.plasma_source import _BENCHMARK_GATED, plasma_source_record
 from solprop.translate.precision import (
-    SINGLE_RTOL_CAP,
-    SINGLE_RTOL_FLOOR,
     Precision,
     PrecisionName,
     admit_precision,
@@ -303,11 +335,21 @@ from solprop.translate.problem import (
     PropagatorMode,
     StepperSettings,
     TranslationReuse,
+    _held_block,
+    _held_state,
+    _hold,
+    _state,
     assemble,
 )
-from solprop.translate.responses import KerrForm
+from solprop.translate.responses import KerrForm, declares_harmonic_carrier
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
+from solprop.translate.transverse import (
+    band_wavenumbers,
+    checked_design,
+    resolve_transverse,
+)
+from solprop.transverse_monitor import TransverseEdge
 
 __all__ = [
     "BACKEND_STATISTICS",
@@ -331,8 +373,10 @@ __all__ = [
     "TDSE_NOISE",
     "WAVEGUIDE_ATOL",
     "WAVEGUIDE_RTOL",
+    "ModalLaunch",
     "NoiseModel",
     "NoiseSetting",
+    "RecipeSource",
     "Simulation",
     "SimulationRunner",
     "SimulationSettings",
@@ -345,11 +389,8 @@ __all__ = [
 
 logger = logging.getLogger(__name__)
 
-type _ResumeChoice = bool | Literal["interpolated", "force"]
-"""What ``resume`` takes: no, yes, from an interpolated plane, or across compared
-differences (SEP 42 section 5.5)."""
-
-_RESUME_CHOICES: Final = (False, True, "interpolated", "force")
+type _ResumeChoice = bool | Literal["interpolated"]
+"""What ``resume`` takes: no, yes, or from a plane interpolated inside a step."""
 
 
 LOOSE_ADAMS_RTOL = 5e-2
@@ -360,73 +401,9 @@ history, and its predictor-corrector estimate is unreliable there
 (``docs/guide/numerics/choosing-a-stepper.md``).
 """
 
-DEFAULT_RTOL = 1e-7
-"""Relative tolerance a GNLSE run asks for unless told otherwise.
-
-Set by SEP 37's convergence protocol on the supercontinuum of Dudley, Genty and Coen
-(the benchmark suite's ``gnlse_raman_shock``): the loosest of three levels a decade
-apart at which the ensemble-mean spectrum stays within 0.5 dB above -40 dB of its peak
-and the coherence within 0.02, over paired seeds, with the default ``RungeKutta()``.
-A noiseless soliton-recurrence study asks for its own, tighter value.
-"""
-
-DEFAULT_ATOL = 1e-14
-"""Absolute tolerance, in the square root of watts, of the same default."""
-
 DEFAULT_N_SAVE = 201
 """Planes a GNLSE run stores, counting the one at ``z = 0``."""
 
-CAPILLARY_RTOL = 1e-6
-"""Relative tolerance a capillary run asks for unless told otherwise.
-
-The default of :meth:`Simulation.from_capillary` and
-:func:`~solprop.driver.interface.prop_capillary` with their default ``Multistep()``.
-SEP 37's convergence protocol on the benchmark suite's ``rdw`` case passes it, and a
-noisy comb-to-continuum check needs it with this integrator (``1e-5`` fails the
-coherence budget there). It is a starting point, not a
-guarantee: a production run should calibrate it (``docs/dev/stepper.md`` section 3).
-"""
-
-WAVEGUIDE_RTOL = 1e-5
-"""Relative tolerance a modal waveguide run asks for unless told otherwise.
-
-The default of :meth:`Simulation.from_waveguide` and
-:func:`~solprop.driver.interface.prop_waveguide` with their default ``RungeKutta()``,
-set by SEP 37's convergence protocol on the benchmark suite's ``grin_nonlinear``
-window. A starting
-point, not a guarantee: a production run should calibrate it.
-"""
-
-SPATIAL_RTOL = 1e-5
-"""Relative tolerance of the controller a radial or planar run takes by default.
-
-Set by SEP 37's convergence protocol on the benchmark suite's ``radial_filament_256``
-and ``planar`` cases. It applies only where the caller's
-:class:`SimulationSettings` gives no controller.
-"""
-
-SPATIAL_ATOL = 0.0
-"""Absolute tolerance of the same default controller: none, as the suite runs it."""
-
-FREE_RTOL = 1e-4
-"""Relative tolerance of the controller a Cartesian or line run takes by default.
-
-With the default ``RungeKutta()`` (SEP 37): the Adams history's memory rules the
-multistep method out for a large transverse state. On a self-focusing Kerr beam the
-spectrum stays within 0.002 dB of a tight reference even at 1e-3; 1e-4 cuts the field
-error by 2.5 times for a sixth more steps. Applies only where the caller's
-:class:`SimulationSettings` gives no controller.
-"""
-
-FREE_ATOL = 0.0
-"""Absolute tolerance of the same default controller."""
-
-WAVEGUIDE_ATOL = 1e-10
-"""Absolute tolerance of a modal waveguide run, in sqrt(W).
-
-The companion of :data:`CAPILLARY_RTOL` and :data:`WAVEGUIDE_RTOL`. It was never
-binding in SEP 37's measurements.
-"""
 
 PLASMA_STATISTICS = ("electron_density", "peak_ionisation_rate")
 """Backend statistics that read the plasma the run compiled; refused without one."""
@@ -466,6 +443,10 @@ _FIELD_RANGE_ABOVE = 30.0
 _PRESSURE_FORM_ENTRIES = 2
 """Entries in either of the two pair forms of the ``pressure`` keyword."""
 
+_RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
+"""The settings a recipe's ``[execution]`` table holds: a change of any other one drops
+the recipe, which would no longer describe the run (SEP 41, S2)."""
+
 _EXECUTION_SETTINGS = (
     "backend",
     "resume_history",
@@ -476,12 +457,6 @@ _EXECUTION_SETTINGS = (
 )
 """The settings read when a run executes, not when it is translated."""
 
-NoiseModel = Literal["input", "modified"]
-"""Which shot-noise model a run carries; ``None`` carries none.
-
-The two models are described in ``docs/guide/media/noise.md``.
-"""
-
 NoiseSetting = Literal["default", "input", "modified"] | None
 """What a constructor's ``noise`` keyword takes (SEP 37).
 
@@ -490,42 +465,94 @@ resolves to ``"input"`` wherever the run can carry noise and to none where it ca
 recording which in the run's :class:`~solprop.output.schema.NoiseResolution`.
 """
 
-SINGLE_PRECISION_NOISE = (
-    "single precision carries no noise: binary32 rounding swamps a one-photon seed"
+ModalLaunch = (
+    Mapping[str | int, float | Mapping[str, float]]
+    | Sequence[Mapping[str | int, float | Mapping[str, float]]]
 )
-"""Why a default resolves to no noise under ``precision="single"`` (SEP 37)."""
+"""What a modal constructor's ``launch`` keyword takes (SEP 41, S5).
 
-PLANAR_NOISE = "the hybrid planar grid carries no noise: no photon measure is declared"
-"""Why a planar run carries no noise (SEP 37)."""
-
-SLAB_NOISE = (
-    "a slab mode set carries no noise: no photon measure is declared for its "
-    "amplitudes per unit width"
-)
-"""Why a waveguide run of slab modes carries no noise, as the planar grid does not.
-
-A slab amplitude is in sqrt(W/m), and the one-photon draw is defined per mode in
-sqrt(W); one photon per metre of width is a convention no derivation has fixed for
-these modes (the line grid declares its own), so a default resolves to none and an
-explicit model is refused.
+A mapping from a mode's display label or index to its share, or to
+``{"share": s, "phase": phi}`` with the phase in radians; or a list of such mappings,
+one for each input pulse (``docs/guide/setup/pulses.md``).
 """
 
-FREE_NOISE = (
-    "a Cartesian or line run carries no noise by default: it is slow, and rarely about "
-    "noise sensitivity"
-)
-"""Why a default resolves to no noise on the free-space interface (SEP 37)."""
 
-TDSE_NOISE = (
-    "a TDSE run carries no noise by default: it is expensive, rarely repeated as an "
-    "ensemble, and its checks are coherent"
-)
-"""Why a default resolves to no noise beside the TDSE response (SEP 37)."""
+class _Defaulted(str):
+    """A setting's value that a default rule chose rather than the caller.
 
-INTERIOR_LAUNCH_NOISE = (
-    "an interior launch takes its spectrum as given, which may already carry a draw"
-)
-"""Why a default noise is dropped at an interior launch (SEP 37)."""
+    A copy made with :func:`dataclasses.replace` carries the marker with the value, so
+    the copy resolves the rule again for its own route or planes (the collar scheme),
+    while a value the caller names, even an equal one, is a plain string and stays as
+    given.
+    """
+
+    __slots__ = ()
+
+
+class _AutoBackend(str):
+    """A backend name ``"auto"`` resolved to, with the precision it resolved under.
+
+    A copy keeps the concrete name, so a scan worker runs on the backend its parent
+    chose even where its own packages differ; only a copy in the other precision
+    resolves ``"auto"`` again, since binary64 and binary32 admit different backends.
+    """
+
+    precision: str
+
+    def __new__(cls, name: str, precision: str) -> "_AutoBackend":  # noqa: UP037 - beartype resolves it while the class body still runs
+        """Return the name, marked with the precision it was resolved under.
+
+        Parameters
+        ----------
+        name : str
+            The concrete backend name.
+        precision : {'double', 'single'}
+            The precision ``"auto"`` was resolved for.
+
+        Returns
+        -------
+        _AutoBackend
+            The marked name.
+        """
+        marked = super().__new__(cls, name)
+        marked.precision = precision
+        return marked
+
+    def __reduce__(self) -> tuple[object, tuple[str, str]]:
+        """Pickle the name with its precision, for a scan worker.
+
+        Returns
+        -------
+        tuple
+            The class and its arguments.
+        """
+        return (_AutoBackend, (str(self), self.precision))
+
+
+if TYPE_CHECKING:
+    from solprop.driver.estimate import RunEstimate
+
+
+class RecipeSource(Protocol):
+    """What built a simulation from a recipe: it writes the record its output keeps.
+
+    :class:`solprop.recipe.core.Recipe` is one (SEP 41, S2); the driver needs only this.
+    """
+
+    def record(self, simulation: "Simulation") -> RecipeRecord:  # noqa: UP037 - later
+        """Return the authored and resolved recipe of a run about to start.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The simulation, translated, with its settings at run start.
+
+        Returns
+        -------
+        solprop.output.schema.RecipeRecord
+            The record its output keeps.
+        """
+        ...
 
 
 @dataclass(frozen=True, eq=False)
@@ -541,13 +568,18 @@ class SimulationSettings(Displayed):
     controller : solprop.stepper.controller.PIController or None
         Tolerances, safety and gains; the tolerances and the norm choice live here and
         nowhere else (``docs/dev/kernel-contract.md`` section 7). ``None``, the default,
-        takes the interface's own (SEP 37): :data:`SPATIAL_RTOL` and
-        :data:`SPATIAL_ATOL` for :meth:`Simulation.from_radial` and
-        :meth:`Simulation.from_planar`, :data:`FREE_RTOL` and :data:`FREE_ATOL` for
-        :meth:`Simulation.from_free`; under single precision the tolerance is at least
+        takes the route's from :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` (SEP 37)
+        when an interface builds the run: the
+        :data:`~solprop.driver.defaults.SPATIAL_RTOL` and
+        :data:`~solprop.driver.defaults.SPATIAL_ATOL` of :meth:`Simulation.from_radial`
+        and :meth:`Simulation.from_planar`, the
+        :data:`~solprop.driver.defaults.FREE_RTOL` and
+        :data:`~solprop.driver.defaults.FREE_ATOL` of :meth:`Simulation.from_free`;
+        under single precision the tolerance is at least
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` and at most
         :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`. An explicit controller
-        always wins. The other fields are keyword-only.
+        always wins, and a default copied into the other precision takes that
+        precision's default. The other fields are keyword-only.
     save_planes : numpy.ndarray
         Positions to save at, m, increasing and positive, shape ``(n_z,)``. The plane at
         ``z = 0`` is saved as well and is not listed here. A sequence is adopted as a
@@ -592,7 +624,7 @@ class SimulationSettings(Displayed):
         until its single-precision survival is established (SEP 33, Q2); the stored
         value is the resolved method. ``Multistep()`` is the low-call exponential Adams
         method, which
-        ``numpy_ref``, ``numba_cpu`` and ``native`` execute for supported
+        ``numpy_ref`` and ``native`` execute for supported
         configurations;
         ``RungeKutta()`` is the interaction-picture DOPRI5 march, which every backend
         executes and which holds a third of the Adams history's memory.
@@ -660,11 +692,11 @@ class SimulationSettings(Displayed):
         acts either way (``docs/guide/numerics/boundaries.md``).
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
-        resolves to ``"native"`` when installed, otherwise, with a warning, to the
-        slower ``"numba_cpu"``, at settings construction; under single precision, to
+        resolves to ``"native"`` at settings construction, and refuses if it isn't
+        installed or this processor is below its baseline; under single precision, to
         ``"mlx"`` (`precision`).
-        The stored name is concrete, including in scan workers. An installed
-        backend's import or construction errors never trigger a fallback.
+        The stored name is concrete, including in scan workers. A backend's import or
+        construction errors never trigger a fallback.
     precision : {'double', 'single'}
         The arithmetic the run is held in (SEP 33,
         ``docs/guide/performance/single-precision.md``). ``"double"``, the default, is
@@ -675,7 +707,7 @@ class SimulationSettings(Displayed):
         ``backend="mlx"``; refuses an adaptive ``rtol`` below
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the Adams integrator
         and an explicit noise model (a default noise resolves to none); and is
-        refused by ``numba_cpu`` and ``native``. ``backend="auto"`` resolves to
+        refused by ``native``. ``backend="auto"`` resolves to
         ``"mlx"`` when MLX and a Metal GPU are present and is otherwise refused.
         Part of the hashed configuration; outputs are binary64 either way.
     resume_history : bool or None
@@ -691,15 +723,14 @@ class SimulationSettings(Displayed):
         Which saved planes keep their field (SEP 22): every one, the default; those
         of `field_planes`; or none, for a run wanted as statistics alone. A plane
         without its field stores no field and no noise phase, and an in-memory output
-        is charged and allocated for the kept fields only; the march is the same. A
+        is allocated for the kept fields only; the march is the same. A
         terminal checkpoint carries the field anyway, so a stopped run resumes, but a
         file whose last regular plane kept no field resumes only from one. Outside
         the resume key, like `resume_history`: it changes what is kept, not what is
         computed. In a scan, :func:`~solprop.driver.scan.run_scan`'s own `fields`
         decide, and a builder that sets this is refused. Beside
-        ``LowStorageRungeKutta()`` the backend holds the last field-free plane's
-        state, one more state volume charged at admission, so a step abandoned in
-        flight still leaves a resumable checkpoint (SEP 22, Q14).
+        ``LowStorageRungeKutta()``, a step abandoned in flight leaves no checkpoint, so
+        a file resumes from the last plane that kept its field.
     field_planes : sequence of int
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end; empty otherwise. Refused beside `step_planes`, whose plane count
@@ -711,12 +742,15 @@ class SimulationSettings(Displayed):
         :func:`solprop.spatial.physical_evanescent_rate` gives the rate at which the
         grid's non-propagating content decays physically. Refused without a spatial
         grid; a replayed step it would overflow is refused at translation.
-    transverse_absorber : solprop.boundaries.TransverseCollar or None
-        A transverse-wavevector safety ramp on a Cartesian or line grid (SEP 22
-        section 4.3), folded into the operator as an exact diagonal rate. ``None``,
-        the default, carries none. It damps content reaching the grid's outer
-        wavenumbers; it does not replace sizing the grid by the one-half rule.
-        Refused on the radial and hybrid planar kinds and on modal runs.
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None
+        The transverse boundary of a free-space run (SEP 40). ``None``, the default,
+        is ``SpatialAbsorber(real_space=False)``: a wall or a wrap at the grid's
+        outer size and a safety ramp on its outer wavenumbers, folded into the
+        operator as an exact diagonal rate. A
+        :class:`~solprop.boundaries.SpatialAbsorber` asks for a real-space collar
+        too, in the room the grid has outside its requested size
+        (``collar_fraction``). ``False`` carries no ramp either; the boundary
+        monitor still runs. A specification is refused on modal runs.
     adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None
         The forward-field and reflected-energy budgets a radial medium varying
         along z must meet (SEP 34 section 4.5). ``None``, the default, is
@@ -785,7 +819,7 @@ class SimulationSettings(Displayed):
     fields: FieldsChoice = "all"
     field_planes: Sequence[int] = ()
     evanescent_rate: float | None = None
-    transverse_absorber: TransverseCollar | None = None
+    spatial_absorber: SpatialAbsorber | Literal[False] | None = None
     adiabatic_accuracy: AdiabaticAccuracy | None = None
     boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK
     _default_integrator: Multistep | RungeKutta | None = dataclasses.field(
@@ -794,16 +828,21 @@ class SimulationSettings(Displayed):
     """The default the settings chose for an unnamed integrator. A copy made with
     :func:`dataclasses.replace` carries it with the integrator, so the copy still knows
     the caller named none; any other integrator counts as named."""
-    _route_integrator: RungeKutta | None = dataclasses.field(
+    _route: str | None = dataclasses.field(default=None, repr=False, compare=False)
+    """The row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` the interface that
+    built the settings reads, or ``None`` for settings built by hand. A copy made with
+    :func:`dataclasses.replace` carries it, so a copy in the other precision takes the
+    route's defaults again, and the route's choice never counts as named."""
+    _default_controller: PIController | None = dataclasses.field(
         default=None, repr=False, compare=False
     )
-    """The binary64 default of the interface that built the settings, where it is not
-    the settings' own ``Multistep()``: ``RungeKutta()`` for the GNLSE, waveguide and
-    free-space interfaces (SEP 37). A copy made with :func:`dataclasses.replace`
-    carries it, so a copy in the other precision takes the interface's default, not
-    the settings' own, and the interface's choice never counts as named."""
+    """The controller the settings took from the route's defaults. A copy carries it
+    with the controller, so the copy still knows the caller gave none; any other
+    controller counts as given."""
     # Whether the caller named the integrator, set per instance in __post_init__.
     integrator_named = False
+    # Whether the controller is the route's default, set per instance in __post_init__.
+    controller_defaulted = False
 
     def _planes_text(self) -> str:
         """Return the save planes summarised, for printing.
@@ -841,6 +880,24 @@ class SimulationSettings(Displayed):
             ],
         )
 
+    def _default_text(self, text: str) -> str:
+        """Mark the integrator's name when it is the route's default.
+
+        Parameters
+        ----------
+        text : str
+            The integrator's name.
+
+        Returns
+        -------
+        str
+            `text`, then ``"(default)"`` or ``"(gnlse default)"`` where no integrator
+            was named.
+        """
+        if self.integrator_named:
+            return text
+        return f"{text} ({'' if self._route is None else self._route + ' '}default)"
+
     def _describe(self) -> tuple[str, list[tuple[str, object]]]:
         """Return the title and rows of the printed block.
 
@@ -852,17 +909,28 @@ class SimulationSettings(Displayed):
         schedule = "adaptive" if self.schedule is None else type(self.schedule).__name__
         return "SimulationSettings", [
             ("save planes", self._planes_text()),
+            ("integrator", self._default_text(type(self.integrator).__name__)),
             (
                 "tolerances",
                 "the interface's default"
                 if self.controller is None
-                else f"rtol {self.controller.rtol:g}, atol {self.controller.atol:g}",
+                else f"rtol {self.controller.rtol:g}, atol {self.controller.atol:g}"
+                + (
+                    f" ({self._route} default)"
+                    if self.controller_defaulted and self._route is not None
+                    else ""
+                ),
             ),
             ("steps", f"{schedule}, dz_max {engineering(self.dz_max, 'm')}"),
             ("shock term", self.shock),
             (
                 "absorber",
-                f"{_scheme(self)}" if self.absorber is not None else "none",
+                (
+                    f"{_scheme(self)} scheme"
+                    + ("" if self.absorber_scheme_named else " (default)")
+                )
+                if self.absorber is not None
+                else "none",
             ),
             ("statistics", "none" if self.stats is None else type(self.stats).__name__),
             ("backend", self.backend),
@@ -887,30 +955,23 @@ class SimulationSettings(Displayed):
                 f"save_planes must be positive and increasing, got {planes}; the plane "
                 "at z = 0 is saved anyway and is not one of them"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter="save_planes")
         planes.setflags(write=False)
         object.__setattr__(self, "save_planes", planes)
         refusal = field_retention_refusal(self.fields, self.field_planes)
         if refusal is not None:
-            raise DriverError(refusal)
+            raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
         precision = _precision(self.precision)
-        carried = (
-            self.integrator is not None and self.integrator is self._default_integrator
+        self._resolve_defaults(precision)
+        # A backend "auto" chose is marked, so a copy in the other precision chooses
+        # again rather than keeping a binary64 name single precision refuses.
+        name = "single" if precision.single else "double"
+        auto = self.backend == "auto" or (
+            isinstance(self.backend, _AutoBackend) and self.backend.precision != name
         )
-        object.__setattr__(
-            self, "integrator_named", self.integrator is not None and not carried
-        )
-        if not self.integrator_named:
-            default = (
-                RungeKutta()
-                if precision.single
-                else self._route_integrator or Multistep()
-            )
-            if carried and type(self.integrator) is type(default):
-                default = self.integrator
-            object.__setattr__(self, "integrator", default)
-            object.__setattr__(self, "_default_integrator", default)
+        if auto:
+            object.__setattr__(self, "backend", "auto")
         if precision.single:
             object.__setattr__(self, "backend", _single_backend(self.backend))
         if self.fields == "planes" and self.step_planes:
@@ -919,7 +980,11 @@ class SimulationSettings(Displayed):
                 "the march's own steps as well, so the plane count is not known in "
                 "advance; keep fields='all' or 'none' beside step_planes"
             )
-            raise DriverError(msg)
+            raise DriverError(
+                msg,
+                parameter=("fields", "step_planes"),
+                rule="fields-planes-step-planes",
+            )
         if self.tdse_execution is not None:
             _admit_tdse_execution(self, precision)
         # The annotation refuses another integrator first wherever the annotations are
@@ -931,7 +996,7 @@ class SimulationSettings(Displayed):
                 "integrator must be Multistep(), RungeKutta() or "
                 f"LowStorageRungeKutta(), got {self.integrator!r}"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter="integrator")
         if isinstance(self.integrator, LowStorageRungeKutta):
             backend = _admit_low_storage(self.integrator, self.backend, self)
             object.__setattr__(self, "backend", backend)
@@ -939,7 +1004,10 @@ class SimulationSettings(Displayed):
         # backend steps the exponential formulation on every route, and the
         # interaction one on every route but a coupled flow, which it refuses by name
         # (SEP 16 phases 3 and 5).
-        object.__setattr__(self, "backend", resolve_name(self.backend))
+        backend = resolve_name(self.backend)
+        if auto:
+            backend = _AutoBackend(backend, name)
+        object.__setattr__(self, "backend", backend)
         # The precision's refusals come before the integrator's backend check, so a
         # single-precision run is told what single precision refuses -- the Adams
         # integrator -- rather than that a binary32 backend does not step it.
@@ -952,7 +1020,7 @@ class SimulationSettings(Displayed):
                 schedule=self.schedule is not None,
             )
         except TranslationError as error:
-            raise DriverError(str(error)) from error
+            raise DriverError(str(error), parameter="precision") from error
         if isinstance(self.integrator, Multistep):
             _admit_integrator(self.integrator, self.backend)
             rtol = getattr(self.controller, "rtol", None)
@@ -964,6 +1032,93 @@ class SimulationSettings(Displayed):
                     "integrator=RungeKutta() for a rough look"
                 )
                 warnings.warn(msg, SolpropWarning, stacklevel=3)
+
+    def _resolve_defaults(self, precision: Precision) -> None:
+        """Take the route's default for each of the stepping choices the caller left.
+
+        The integrator, the controller and the collar scheme each come from
+        :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` when not given. A default
+        carried by a copy is resolved again, so it follows the copy's precision,
+        route and planes; a value the caller gave is kept.
+
+        Parameters
+        ----------
+        precision : solprop.translate.precision.Precision
+            The settings' resolved precision.
+        """
+        name = "single" if precision.single else "double"
+        carried = (
+            self.integrator is not None and self.integrator is self._default_integrator
+        )
+        object.__setattr__(
+            self, "integrator_named", self.integrator is not None and not carried
+        )
+        if not self.integrator_named:
+            default = default_integrator(self._route, name)
+            if carried and type(self.integrator) is type(default):
+                default = self.integrator
+            object.__setattr__(self, "integrator", default)
+            object.__setattr__(self, "_default_integrator", default)
+        controller = self.controller
+        defaulted = controller is not None and controller is self._default_controller
+        if controller is None and self._route is not None:
+            controller = default_controller(self._route, name)
+            defaulted = True
+        elif defaulted and controller is not None:
+            # A default copied into another precision or route takes that one's
+            # tolerance, keeping the absolute tolerance the route's builder chose.
+            rtol = (
+                default_rtol(self._route, name)
+                if self._route is not None
+                else controller.rtol
+            )
+            if rtol != controller.rtol:
+                controller = dataclasses.replace(controller, rtol=rtol)
+        object.__setattr__(self, "controller", controller)
+        object.__setattr__(self, "controller_defaulted", defaulted)
+        if defaulted:
+            object.__setattr__(self, "_default_controller", controller)
+        if self.absorber_scheme is None or isinstance(self.absorber_scheme, _Defaulted):
+            scheme = default_scheme(
+                self._route, interpolate_planes=self.interpolate_planes
+            )
+            object.__setattr__(self, "absorber_scheme", _Defaulted(scheme))
+
+    @property
+    def absorber_scheme_named(self) -> bool:
+        """Whether the caller named the collar scheme, rather than taking the route's.
+
+        Returns
+        -------
+        bool
+            False when :attr:`absorber_scheme` is the route's default.
+        """
+        return not isinstance(self.absorber_scheme, _Defaulted)
+
+    def defaults_resolution(self) -> DefaultsResolution:
+        """Return which stepping choices took the route's default (#87, SEP 41).
+
+        Returns
+        -------
+        solprop.output.schema.DefaultsResolution
+            The route, and which of the integrator, the relative tolerance and the
+            collar scheme came from its row of the defaults table.
+
+        Examples
+        --------
+        >>> from solprop.driver import SimulationSettings
+        >>> settings = SimulationSettings(
+        ...     save_planes=[1.0], dz_max=0.1, dz_init=0.01, backend="numpy_ref"
+        ... )
+        >>> settings.defaults_resolution()
+        DefaultsResolution(route=None, defaulted=('integrator', 'absorber_scheme'))
+        """
+        defaulted = (
+            *(() if self.integrator_named else ("integrator",)),
+            *(("rtol",) if self.controller_defaulted else ()),
+            *(() if self.absorber_scheme_named else ("absorber_scheme",)),
+        )
+        return DefaultsResolution(self._route, defaulted)
 
 
 def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) -> None:
@@ -991,62 +1146,31 @@ def _admit_tdse_execution(settings: SimulationSettings, precision: Precision) ->
             "tdse_execution must be a TDSEExecution, got "
             f"{type(settings.tdse_execution).__name__}"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="tdse_execution")
     if precision.single:
         msg = (
             "precision='single' refuses a TDSE response: no backend runs it in "
             "binary32 (SEP 33 section 5.1); use precision='double'"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("tdse_execution", "precision"), rule="tdse-double-precision"
+        )
     if settings.backend != "numpy_ref":
         msg = (
             f"tdse_execution requires an explicit backend='numpy_ref', the one backend "
             f"that runs the TDSE response; got backend={settings.backend!r}"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("tdse_execution", "backend"), rule="tdse-numpy-ref"
+        )
     if not isinstance(settings.integrator, Multistep):
         msg = (
             "tdse_execution requires integrator=Multistep(), the Adams method the TDSE "
             f"response steps with; got {type(settings.integrator).__name__}()"
         )
-        raise DriverError(msg)
-
-
-def _default_rtol(default: float, precision: PrecisionName) -> float:
-    """Return an interface's default relative tolerance in the run's precision.
-
-    The one rule every interface's default follows, keyword and spatial alike. Binary64
-    takes the interface's own. Binary32 takes the larger of it and
-    :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, so it is never tighter than
-    its binary64 twin nor than binary32 rounding can serve, and at most
-    :data:`~solprop.translate.precision.SINGLE_RTOL_CAP`, the loosest value the
-    single-precision survival record measured (the maintainers' ruling of 2026-10-28).
-    Single precision so takes 1e-6 on the GNLSE and capillary interfaces, 1e-5 on the
-    waveguide, radial and planar ones, and 1e-5 in free space.
-
-    Parameters
-    ----------
-    default : float
-        The interface's binary64 default.
-    precision : {'double', 'single'}
-        The run's precision.
-
-    Returns
-    -------
-    float
-        The default relative tolerance.
-
-    Examples
-    --------
-    >>> from solprop.driver.simulation import _default_rtol
-    >>> [_default_rtol(rtol, "single") for rtol in (1e-7, 1e-6, 1e-5, 1e-4)]
-    [1e-06, 1e-06, 1e-05, 1e-05]
-    >>> _default_rtol(1e-7, "double")
-    1e-07
-    """
-    if precision != "single":
-        return default
-    return min(max(default, SINGLE_RTOL_FLOOR), SINGLE_RTOL_CAP)
+        raise DriverError(
+            msg, parameter=("tdse_execution", "integrator"), rule="tdse-multistep"
+        )
 
 
 def _quiet_collar(settings: SimulationSettings) -> bool:
@@ -1066,27 +1190,35 @@ def _quiet_collar(settings: SimulationSettings) -> bool:
     return check is not None and check.quiet_collar
 
 
-def _tolerance(rtol: float | None, precision: PrecisionName, default: float) -> float:
-    """Return a keyword interface's relative tolerance under its precision.
+def _keyword_controller(
+    route: str, rtol: float | None, atol: float, precision: PrecisionName
+) -> tuple[PIController, PIController | None]:
+    """Return a keyword interface's controller, and it again if its rtol is default.
 
     Parameters
     ----------
+    route : str
+        The row of :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` the interface
+        reads.
     rtol : float or None
-        The caller's tolerance; ``None`` takes the default.
+        The caller's relative tolerance, which is never raised silently; ``None``
+        takes the route's (:func:`~solprop.driver.defaults.default_rtol`).
+    atol : float
+        The caller's absolute tolerance.
     precision : {'double', 'single'}
         The run's precision.
-    default : float
-        The interface's binary64 default.
 
     Returns
     -------
-    float
-        `rtol` when given, which is never raised silently; otherwise the default
-        :func:`_default_rtol` gives `default` in this precision.
+    tuple
+        The controller, and the same object where `rtol` was the route's default so
+        that the settings record the default and a copy in the other precision
+        re-resolves it, else ``None``.
     """
     if rtol is not None:
-        return rtol
-    return _default_rtol(default, precision)
+        return PIController(rtol=rtol, atol=atol), None
+    controller = PIController(rtol=default_rtol(route, precision), atol=atol)
+    return controller, controller
 
 
 def _precision(name: PrecisionName) -> Precision:
@@ -1109,7 +1241,7 @@ def _precision(name: PrecisionName) -> Precision:
     """
     if name not in ("double", "single"):  # pragma: no cover - refused by its annotation
         msg = f"precision must be 'double' or 'single', got {name!r}"
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="precision")
     return precision_named(name)
 
 
@@ -1118,7 +1250,7 @@ def _single_backend(backend: str) -> str:
 
     ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
     otherwise is refused: it never resolves to a binary64 backend, and
-    never to ``numpy_ref``, the oracle, which is not a production backend. An explicit
+    never to ``numpy_ref``, which runs single precision when it is named. An explicit
     name passes through to :func:`~solprop.translate.precision.admit_precision`.
 
     Parameters
@@ -1143,10 +1275,10 @@ def _single_backend(backend: str) -> str:
     msg = (
         "precision='single' with backend='auto' resolves to the mlx backend, which "
         "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
-        "Metal GPU; pass backend='numpy_ref' for the single-precision reference (the "
-        "oracle, not a production backend) or use precision='double'"
+        "Metal GPU; elsewhere pass backend='numpy_ref', the reference, which runs "
+        "single precision unthreaded and far slower, or use precision='double'"
     )
-    raise DriverError(msg)
+    raise DriverError(msg, parameter=("precision", "backend"))
 
 
 def _stepper_record(settings: StepperSettings) -> StepperRecord:
@@ -1183,13 +1315,12 @@ def _stepper_record(settings: StepperSettings) -> StepperRecord:
     )
 
 
-LOW_STORAGE_BACKENDS = ("native", "numba_cpu", "numpy_ref")
+LOW_STORAGE_BACKENDS = ("native", "numpy_ref")
 """The backends that execute :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
 
-``numpy_ref`` from SEP 24's phase 1, ``numba_cpu`` from phase 2 and solprop-native from
-phase 3, on every route the translation admits the march on; ``backend="auto"``
-resolves as for every other integrator (:func:`solprop.backends.registry.resolve_name`:
-the native backend when it is installed, otherwise ``numba_cpu``).
+``numpy_ref`` from SEP 24's phase 1 and solprop-native from phase 3, on every route the
+translation admits the march on; ``backend="auto"`` resolves as for every other
+integrator (:func:`solprop.backends.registry.resolve_name`: the native backend).
 """
 
 
@@ -1228,13 +1359,19 @@ def _admit_low_storage(
             f"the {integrator.name} march replays a prescribed schedule; pass "
             "schedule=FixedSchedule.uniform(...), or step adaptively with RungeKutta()"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("integrator", "schedule"), rule="low-storage-needs-schedule"
+        )
     if settings.interpolate_planes:
         msg = (
             f"the {integrator.name} march lands on its schedule's edges and has no "
             "dense output; drop interpolate_planes"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg,
+            parameter=("integrator", "interpolate_planes"),
+            rule="low-storage-no-interpolation",
+        )
     return backend
 
 
@@ -1257,14 +1394,16 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "numba_cpu", "native"):
+    if backend not in ("auto", "numpy_ref", "native"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref, numba_cpu "
-            f"and native only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref and native "
+            f"only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("integrator", "backend"), rule="integrator-backends"
+        )
 
 
 def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
@@ -1279,6 +1418,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     quadrature: TransverseQuadrature | None = None,
     frame: Frame | None = None,
     noise_resolution: NoiseResolution | None = None,
+    defaults: DefaultsResolution | None = None,
 ) -> RunMetadata:
     """Build the record that says what produced a run, and whether it may be resumed.
 
@@ -1326,6 +1466,8 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         the plane-reference record (SEP 31), not the hash.
     noise_resolution : solprop.output.schema.NoiseResolution or None, optional
         How the noise model was chosen (SEP 37). Outside the hash.
+    defaults : solprop.output.schema.DefaultsResolution or None, optional
+        Which stepping choices took the route's default. Outside the hash.
 
     Returns
     -------
@@ -1391,8 +1533,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         )
     if problem.responses.plasma_integral.policy != "trapezoid":
         # The band rule's taps and policies (SEP 18, Q9): a resume that would
-        # integrate the plasma differently is refused through the hash. Written only
-        # for that rule, so that every trapezoid run keeps the digest it had.
+        # integrate the plasma differently is refused through the hash.
         record["plasma_integration"] = integration_record(
             problem.responses.plasma_integral
         )
@@ -1451,6 +1592,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
     tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
     return RunMetadata(
         reference=_plane_reference_record(problem, grid, record, frame, modes, modal),
+        transverse=None if problem.transverse is None else problem.transverse.record(),
         grid=GridRecord.from_grid(grid),
         modes=tuple(ModeRecord.from_mode(mode) for mode in modes),
         simulation_kind=(
@@ -1464,6 +1606,7 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         stepper=_stepper_record(settings),
         noise=None if noise is None else NoiseRecord.from_realisation(noise),
         noise_resolution=noise_resolution,
+        defaults=defaults,
         spatial=spatial_record,
         quadrature=None
         if quadrature is None or not modes
@@ -1472,6 +1615,36 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
         materials=MaterialManifest() if materials is None else materials,
         initial_z=problem.initial.z,
         tdse=tdse_record,
+    )
+
+
+def _frame_follows_the_electronic_rule(
+    responses: Sequence[object], grid: TimeGrid
+) -> bool:
+    """Return whether a run's co-moving frame changed when it stopped reading Raman.
+
+    Before the frame followed
+    :func:`solprop.translate.responses.declares_harmonic_carrier`, any response's
+    ``thg`` kept ``beta_0`` on an envelope grid. The two rules disagree exactly when a
+    response other than the electronic ones declares ``thg=True`` and no electronic one
+    does.
+
+    Parameters
+    ----------
+    responses : collections.abc.Sequence
+        The run's declared responses.
+    grid : solprop.grid.TimeGrid
+        Its temporal grid.
+
+    Returns
+    -------
+    bool
+        True when the earlier rule would have kept ``beta_0`` and this one removes it.
+    """
+    return (
+        grid.kind == "envelope"
+        and any(bool(getattr(one, "thg", False)) for one in responses)
+        and not declares_harmonic_carrier(responses, grid)
     )
 
 
@@ -1509,8 +1682,10 @@ def _plane_reference_record(
     """
     # The co-moving frame keeps the carrier phase exactly when a harmonic term is
     # present, and then measures its delay from zero frequency (`frame_origin`).
+    # `assemble` chose it from the declared responses and checked that choice against
+    # the compiled carrier, so reading the compiled one here records the same frame.
     if frame is None:
-        frame = Frame.comoving(grid, thg=problem.grids.carrier_2w0 is not None)
+        frame = Frame.comoving(grid, thg=problem.responses.harmonic_carrier)
     coupling = configuration.get("coupling")
     origin: object = PlaneReference().record()
     parent: object = None
@@ -1630,6 +1805,142 @@ def _one_material_context[**P, R](build: Callable[P, R]) -> Callable[P, R]:
     return inside
 
 
+@contextlib.contextmanager
+def _about(
+    parameter: ParameterPath | None = None,
+    renamed: Mapping[str, str] | None = None,
+) -> Iterator[None]:
+    """Name the keyword a refusal raised in the block concerns (SEP 41, S10).
+
+    An object built from a keyword's value refuses it by its own argument's name, or by
+    none; the interface knows which keyword it passed, so it names that one here. The
+    exception keeps its object, class, message and traceback.
+
+    Parameters
+    ----------
+    parameter : str or tuple of str or None, optional
+        The path given to a :class:`~solprop.exceptions.SolpropError` that names no
+        parameter; ``None`` leaves it unnamed.
+    renamed : mapping of str to str or None, optional
+        The inner call's argument names that differ from the keywords that supplied
+        them, each mapped to its keyword: a path the error names already is renamed
+        through it (each path of a conflict), and kept where it has no entry.
+
+    Yields
+    ------
+    None
+        Control, for the block.
+    """
+    try:
+        yield
+    except SolpropError as error:
+        if error.parameter is None:
+            error.parameter = parameter
+        elif renamed:
+            error.parameter = (
+                renamed.get(error.parameter, error.parameter)
+                if isinstance(error.parameter, str)
+                else tuple(renamed.get(path, path) for path in error.parameter)
+            )
+        raise
+
+
+_REISSUED: Final[dict[str | tuple[str, type[Warning], int], int]] = {}
+"""The registry of the warnings :func:`_warnings_about` issues again.
+
+It stands in for the issuing module's own, so that a ``"default"`` filter still shows
+a warning once per location and text rather than once per run.
+"""
+
+
+@contextlib.contextmanager
+def _warnings_about(
+    parameter: ParameterPath, categories: tuple[type[SolpropWarning], ...]
+) -> Iterator[None]:
+    """Name the keyword the value warnings issued in the block concern (SEP 41, S10).
+
+    A material model warns deep inside the physics, where the keyword that chose the
+    material is not known. The block's warnings are recorded and, when it ends, issued
+    again in order at their own locations and through the caller's filters, so that an
+    ``"error"`` filter still raises and an ``"ignore"`` one still hides them: a warning
+    of one of `categories` that names no parameter is given `parameter` first, and
+    every other warning is issued as it was.
+
+    Parameters
+    ----------
+    parameter : str or tuple of str
+        The keyword's path.
+    categories : tuple of type
+        The warning classes that concern the keyword's value.
+
+    Yields
+    ------
+    None
+        Control, for the block.
+    """
+    caught: list[warnings.WarningMessage] = []
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            yield
+    finally:
+        for record in caught:
+            # A recorded warning is an instance of its category, never a string.
+            message = cast("Warning", record.message)
+            if isinstance(message, categories) and message.parameter is None:
+                message.parameter = parameter
+            warnings.warn_explicit(
+                message,
+                record.category,
+                record.filename,
+                record.lineno,
+                registry=_REISSUED,
+                source=record.source,
+            )
+
+
+_MATERIAL_WARNINGS: Final = (MaterialRangeWarning, MaterialStatusWarning)
+"""The warnings a material model issues about the conditions it is evaluated at."""
+
+_GRID_KEYWORDS: Final[Mapping[str, str]] = {"reference_wavelength": "wavelength"}
+"""The grid constructors' argument names that a keyword route spells otherwise."""
+
+_PULSE_KEYWORDS: Final[Mapping[str, str]] = {"phase": "phases"}
+"""The pulse constructors' argument names that a keyword route spells otherwise."""
+
+
+def _path(*names: str) -> ParameterPath:
+    """Return the path of one keyword, or the tuple of several in conflict.
+
+    Parameters
+    ----------
+    *names : str
+        The keywords, at least one.
+
+    Returns
+    -------
+    str or tuple of str
+        The one name, or the names.
+    """
+    return names[0] if len(names) == 1 else names
+
+
+def _unset(**keywords: object) -> ParameterPath:
+    """Return the path of the keywords among `keywords` left unset.
+
+    Parameters
+    ----------
+    **keywords : object
+        The keywords a refusal needs, by name; at least one is ``None``.
+
+    Returns
+    -------
+    str or tuple of str
+        The unset one, or the unset ones.
+    """
+    return _path(*(name for name, value in keywords.items() if value is None))
+
+
 def _same_setting(old: object, new: object) -> bool:
     """Return whether two values of one settings field are the same setting.
 
@@ -1671,14 +1982,11 @@ class _AtomicContext:
         What a resumed file holds.
     metadata : RunMetadata
         The run's record.
-    admission : MemoryAdmission
-        The run's optical memory admission.
     """
 
     handler: Output
     state: ResumeState | None
     metadata: RunMetadata
-    admission: MemoryAdmission
 
 
 class Simulation(Displayed):
@@ -1704,7 +2012,14 @@ class Simulation(Displayed):
         method -- or an already-built spectrum of shape ``(n_modes, n_pol, n_omega)`` in
         the square root of watts and the internal convention. A pulse is the better
         choice: it is a small specification, while a built array is recorded in the
-        metadata as itself.
+        metadata as itself. An array is copied here, so that changing the caller's
+        array afterwards changes neither the run nor its record: once in complex128,
+        which runs, and, for another dtype, once more as given, which is recorded;
+        ``Simulation.initial`` is a read-only view of the copy as given. A broadcast
+        view (:func:`numpy.broadcast_to`) copies only the block it repeats. On a
+        free-space or spatial route the translated problem holds the same complex128
+        copy rather than another; on a modal route it holds the launch converted to
+        its internal amplitude beside the simulation's copy, two states in all.
     settings : SimulationSettings
         How to step it, what to record and which backend to use.
     initial_z : float, optional
@@ -1745,7 +2060,7 @@ class Simulation(Displayed):
         ``HE_1N`` block -- or, with ``impedance="te_tm"``, one azimuthal order -- on a
         constant or a varying guide, the cumulative operator carries the
         mode-independent carrier alone and the modal part of the flow becomes
-        ``linear.coupled_flow``, which all three backends execute (a
+        ``linear.coupled_flow``, which ``numpy_ref`` and ``native`` execute (a
         ``method="cf4"`` wall ``numpy_ref`` alone).
     taper_coupling : bool, optional
         Carry the **taper coupling** of a multimode capillary whose radius varies along
@@ -1795,6 +2110,9 @@ class Simulation(Displayed):
     # one: set per instance by `_redrawable` and carried to a run derived with its
     # noise kept (`_rebound_noise`), read by `_reseed`.
     _noise_redraw: Callable[[int | None], NoiseRealisation | None] | None = None
+    # The recipe the simulation was built from (SEP 41, S2), set by
+    # solprop.recipe.Recipe.build and dropped by every change it would not describe.
+    _recipe: RecipeSource | None = None
 
     def __init__(  # noqa: PLR0913 - the physics of a run, each a distinct object
         self,
@@ -1874,19 +2192,63 @@ class Simulation(Displayed):
         self._mixture_selection: ResponseSelection | None = None
         self._peak_fields: tuple[PeakFieldReport, ...] = ()
         self._reuse: TranslationReuse | None = None
-        if isinstance(initial, SpatialPulse):
-            if spatial_grid is None or medium is None:
-                msg = "a SpatialPulse requires spatial_grid and medium"
-                raise DriverError(msg)
-            if self.frame is None:
-                self.frame = Frame.comoving(
-                    grid, thg=any(bool(getattr(one, "thg", False)) for one in responses)
-                )
-            self._field0 = initial.build(
-                grid, spatial_grid, medium=medium, z=initial_z, frame=self.frame
+        self._input_identity: str | None = None
+        self._record_keys: set[str] | None = None
+        self._field0 = self._built_input(initial, grid, initial_z)
+        if isinstance(initial, np.ndarray):
+            # What was passed is what runs and what is recorded: a read-only view of
+            # the simulation's own copy, as the caller gave it (`_given_input`).
+            self.initial = _given_input(initial, self._field0)
+
+    def _built_input(
+        self,
+        initial: Pulse | SpatialPulse | np.ndarray,
+        grid: TimeGrid,
+        initial_z: float,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the input as the simulation holds it, building a pulse on its grids.
+
+        A spatial pulse is built on the spatial grid in the medium, in the simulation's
+        frame, which it sets to the comoving frame when none was given.
+
+        Parameters
+        ----------
+        initial : Pulse, SpatialPulse or numpy.ndarray
+            The constructor's input.
+        grid : solprop.grid.TimeGrid
+            The temporal grid.
+        initial_z : float
+            The launch position, m.
+
+        Returns
+        -------
+        numpy.ndarray
+            The spectrum, complex128, read-only and the simulation's own (`_built`).
+
+        Raises
+        ------
+        DriverError
+            If a spatial pulse comes without a spatial grid and a medium.
+        """
+        if not isinstance(initial, SpatialPulse):
+            return _built(initial, grid)
+        if self.spatial_grid is None or self.medium is None:
+            msg = "a SpatialPulse requires spatial_grid and medium"
+            raise DriverError(msg)
+        if self.frame is None:
+            self.frame = Frame.comoving(
+                grid, thg=declares_harmonic_carrier(self.responses, grid)
             )
-        else:
-            self._field0 = _built(initial, grid)
+        return _built_state(
+            initial,
+            initial.build(
+                grid,
+                self.spatial_grid,
+                medium=self.medium,
+                z=initial_z,
+                frame=self.frame,
+            ),
+        )
 
     @property
     def settings(self) -> SimulationSettings:
@@ -1941,6 +2303,18 @@ class Simulation(Displayed):
                     "translation)"
                 )
                 raise DriverError(msg)
+        if self._recipe is not None:
+            dropped = [
+                one.name
+                for one in dataclasses.fields(SimulationSettings)
+                if one.name not in _RECIPE_EXECUTION
+                and not one.name.startswith("_")
+                and not _same_setting(
+                    getattr(self._settings, one.name), getattr(settings, one.name)
+                )
+            ]
+            if dropped:
+                self._drop_recipe(f"its {', '.join(dropped)} changed")
         if hasattr(self, "noise"):
             _check_initial_position(self, settings)
             _check_tdse_execution(self, settings)
@@ -2017,7 +2391,11 @@ class Simulation(Displayed):
                 ("input", initial),
                 (
                     "noise",
-                    "none"
+                    (
+                        "none"
+                        if self.noise_resolution.reason is None
+                        else f"none ({self.noise_resolution.reason})"
+                    )
                     if self.noise is None
                     else f"{self.noise.model} model, seed {self.noise.seed}",
                 ),
@@ -2116,7 +2494,9 @@ class Simulation(Displayed):
                     taper_coupling=self.taper_coupling,
                     reuse=self._reuse,
                     evanescent_rate=settings.evanescent_rate,
-                    transverse_absorber=settings.transverse_absorber,
+                    spatial_absorber=_transverse_specification(
+                        settings.spatial_absorber, self.spatial_grid
+                    ),
                     adiabatic_accuracy=settings.adiabatic_accuracy,
                     precision=precision_named(settings.precision),
                 )
@@ -2202,6 +2582,7 @@ class Simulation(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
         configuration: Mapping[str, object] | None = None,
+        input_identity: str | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
         """Replace the input while sharing the translated propagation problem.
 
@@ -2212,7 +2593,8 @@ class Simulation(Displayed):
         stepper's checks: the launch before the first plane, and a replayed schedule
         containing every plane. An array input above
         :data:`~solprop.output.schema.INLINE_ARRAY_LIMIT` elements is recorded by its
-        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline.
+        digest (:class:`~solprop.output.schema.ArrayDigest`), not inline, unless its
+        identity is stated (`input_identity`).
 
         Parameters
         ----------
@@ -2220,6 +2602,8 @@ class Simulation(Displayed):
             Pulse or internal-convention spectrum on the existing grid. The built
             shape must match the original input, including modes and polarisation.
             Modal amplitudes are in sqrt(W); spatial units follow the spatial grid.
+            An array is copied when the derived simulation is built, as by the
+            constructor.
             A :class:`~solprop.coupling.port.CouplingLaunch` (SEP 31) must be bound to
             this simulation's :meth:`input_port` -- its route, lattice, basis,
             entrance and metric -- or it is refused whatever its shape; its
@@ -2240,6 +2624,14 @@ class Simulation(Displayed):
             Caller keys merged into the derived run's configuration record, and so
             into its configuration hash: the delay of a scan, the label of an input.
             A key the run already records is refused.
+        input_identity : str or None, optional
+            What an array input is, stated by the caller who already knows: the record
+            then holds this string, the dtype and the shape
+            (:class:`~solprop.output.schema.StatedInput`) in place of the array's own
+            record, and its bytes are not digested. **It is not checked**: two
+            different arrays stated alike have one configuration hash, so a resume or
+            a scan's cache accepts one for the other. ``None``, the default, records
+            the array as itself or by its digest. Refused for anything but an array.
 
         Returns
         -------
@@ -2254,8 +2646,9 @@ class Simulation(Displayed):
         ------
         DriverError
             If the new field or noise shape differs or any sample is not finite, a
-            `configuration` key is one the run records itself, or a launch is bound
-            to another port or given beside an `initial_z`.
+            `configuration` key is one the run records itself, a launch is bound
+            to another port or given beside an `initial_z`, or `input_identity` is
+            empty or names anything but an array input.
 
         Warns
         -----
@@ -2266,21 +2659,12 @@ class Simulation(Displayed):
         """
         if isinstance(noise, str) and noise != "keep":
             raise DriverError("noise must be keep, None, or a NoiseRealisation")
+        _check_input_identity(input_identity, initial)
         coupling = None
         if isinstance(initial, CouplingLaunch):
-            if initial_z is not None:
-                msg = "a launch carries its own entrance: give no initial_z beside it"
-                raise DriverError(msg)
-            entrance = initial.port.geometry.z
-            interior = None if entrance == self.initial_z else entrance
-            refusal = self.input_port(interior).accepts(initial.port)
-            if refusal is not None:
-                msg = f"this launch was computed for another input port: {refusal}"
-                raise DriverError(msg)
-            coupling = initial.record()
-            initial_z = interior
-            noise = None if isinstance(noise, str) else noise
-            initial = initial.internal()
+            launch = initial
+            initial, initial_z, noise = self._launched(launch, initial_z, noise)
+            coupling = launch.record()
         original = self.translate()
         launch_z = self.initial_z if initial_z is None else initial_z
         settings = self.settings
@@ -2295,7 +2679,7 @@ class Simulation(Displayed):
         replacement_noise = self.noise if isinstance(noise, str) else noise
         resolution = (
             self.noise_resolution
-            if isinstance(noise, str)
+            if isinstance(noise, str) or noise is self.noise
             else NoiseResolution(
                 None if noise is None else noise.model,
                 None if noise is None else noise.model,
@@ -2305,12 +2689,16 @@ class Simulation(Displayed):
             isinstance(noise, str)
             and launch_z > 0
             and self.noise_resolution.requested == "default"
+            and self.noise is not None
         ):
             # SEP 37: a default draw is not added at an interior launch, whose given
             # spectrum may already carry the realisation of an earlier run.
             replacement_noise = None
             resolution = NoiseResolution("default", None, INTERIOR_LAUNCH_NOISE)
-        recorded = self._derived_configuration(initial, configuration, coupling)
+        # An array is refused before the derived simulation copies it.
+        self._check_replaced_array(
+            initial, None if isinstance(noise, str) else replacement_noise
+        )
         updated = Simulation(
             self._base_grid,
             self.modes,
@@ -2321,7 +2709,6 @@ class Simulation(Displayed):
             noise=replacement_noise,
             noise_resolution=resolution,
             profiles=self.profiles,
-            configuration=recorded,
             spatial_grid=self.spatial_grid,
             medium=self.medium,
             frame=self.frame,
@@ -2331,26 +2718,27 @@ class Simulation(Displayed):
             taper_coupling=self.taper_coupling,
             materials=self.materials,
         )
+        # Recorded from what the derived run holds, not from the caller's input.
+        updated.configuration = self._derived_configuration(
+            updated.initial, configuration, coupling
+        )
+        updated._input_identity = input_identity
         # A derived run starts from what its parent's run has warned and recorded,
         # and keeps its own from here: its siblings never see each other's.
         updated._material_log = self._material_log.copy()
         if isinstance(noise, str) and replacement_noise is not None:
             updated._noise_redraw = self._noise_redraw
-        self._check_replaced_input(
-            updated._field0, None if isinstance(noise, str) else replacement_noise
-        )
+        if self._recipe is not None:
+            self._warn_recipe_dropped("with_input")
+        if not isinstance(initial, np.ndarray):
+            self._check_replaced_input(
+                updated._field0, None if isinstance(noise, str) else replacement_noise
+            )
         record = dataclasses.replace(
             original.initial,
             z=launch_z,
-            field0=np.asarray(updated._field0[np.newaxis], dtype=np.complex128),
+            field0=_replaced_launch(original, updated._field0, launch_z),
         )
-        if original.transform.geometry is None:
-            record = dataclasses.replace(
-                record,
-                field0=power_amplitude(
-                    record.field0, power_weight_at(original, launch_z), inverse=True
-                ),
-            )
         updated._problem = _with_noise(
             dataclasses.replace(
                 original,
@@ -2361,14 +2749,58 @@ class Simulation(Displayed):
             ),
             replacement_noise,
         )
+        updated._problem = dataclasses.replace(
+            updated._problem,
+            transverse=_rechecked(self, original, updated._problem),
+        )
         if initial_z is not None:
             # A new launch changes the save planes: the launch must precede them, and
             # a replayed schedule contain them (SEP 22 section 5.2).
             updated._problem.validate_launch()
         updated._mixture_selection = self._mixture_selection
         with _optmat.material_context(updated._material_log):
-            _check_rate_inputs(updated, initial)
+            _check_rate_inputs(updated, updated.initial)
         return updated
+
+    def _launched(
+        self,
+        launch: CouplingLaunch,
+        initial_z: float | None,
+        noise: NoiseRealisation | Literal["keep"] | None,
+    ) -> tuple[np.ndarray, float | None, NoiseRealisation | None]:
+        """Return what a coupling launch means for :meth:`with_input`, or refuse it.
+
+        Parameters
+        ----------
+        launch : solprop.coupling.CouplingLaunch
+            The launch.
+        initial_z : float or None
+            The position asked for beside it, which it refuses.
+        noise : NoiseRealisation, {'keep'} or None
+            The noise asked for: a launch carries its source's realised field, so
+            ``'keep'`` draws no second floor.
+
+        Returns
+        -------
+        tuple
+            The launch's spectrum, its interior position (``None`` at this run's own
+            entrance) and its noise.
+
+        Raises
+        ------
+        DriverError
+            If a position is given beside it, or it is bound to another port.
+        """
+        if initial_z is not None:
+            msg = "a launch carries its own entrance: give no initial_z beside it"
+            raise DriverError(msg)
+        entrance = launch.port.geometry.z
+        interior = None if entrance == self.initial_z else entrance
+        refusal = self.input_port(interior).accepts(launch.port)
+        if refusal is not None:
+            msg = f"this launch was computed for another input port: {refusal}"
+            raise DriverError(msg)
+        return launch.internal(), interior, None if isinstance(noise, str) else noise
 
     def _derived_configuration(
         self,
@@ -2402,6 +2834,9 @@ class Simulation(Displayed):
         # coupling that launched this run.
         recorded.pop("launch", None)
         recorded.pop("coupling", None)
+        # Nor does a modal launch describe a replacement input, which is placed as
+        # given.
+        recorded.pop("modal_launch", None)
         # A constructor's pulse recipe must never describe a replacement spectrum.
         # Arrays carry their exact input in metadata, without an inferred recipe.
         if "pulse" in recorded:
@@ -2409,9 +2844,7 @@ class Simulation(Displayed):
             if not isinstance(initial, np.ndarray):
                 recorded["pulse"] = initial
         if configuration:
-            clash = sorted(
-                set(configuration) & ({"coupling"} | set(self.metadata().configuration))
-            )
+            clash = sorted(set(configuration) & ({"coupling"} | self._recorded_keys()))
             if clash:
                 msg = (
                     f"configuration keys {clash} are recorded by the run itself; "
@@ -2423,9 +2856,31 @@ class Simulation(Displayed):
             recorded["coupling"] = dict(coupling)
         return recorded
 
+    def _check_replaced_array(
+        self,
+        initial: Pulse | SpatialPulse | np.ndarray,
+        noise: NoiseRealisation | None,
+    ) -> None:
+        """Validate a replaced array input before it is copied; a pulse is built first.
+
+        Parameters
+        ----------
+        initial : Pulse, SpatialPulse or numpy.ndarray
+            The replacement input.
+        noise : solprop.noise.NoiseRealisation or None
+            A replacement realisation, or ``None`` when the noise is kept or removed.
+
+        Raises
+        ------
+        DriverError
+            As :meth:`_check_replaced_input`, for an array.
+        """
+        if isinstance(initial, np.ndarray):
+            self._check_replaced_input(initial, noise)
+
     def _check_replaced_input(
         self,
-        field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        field0: Shaped[np.ndarray, "*shape"],
         noise: NoiseRealisation | None,
     ) -> None:
         """Validate a replaced input alone: its shape and one finiteness pass.
@@ -2448,26 +2903,21 @@ class Simulation(Displayed):
         """
         if field0.shape != self._field0.shape:
             raise DriverError("with_input requires the existing mode and grid shape")
-        if not np.all(np.isfinite(field0)):
+        if not _all_finite(field0):
             raise DriverError("with_input requires a finite initial field")
         if noise is None:
             return
         if noise.spectrum.shape != self._field0.shape:
             raise DriverError("replacement noise must match the input field shape")
-        if not np.all(np.isfinite(noise.spectrum)):
+        if not _all_finite(noise.spectrum):
             raise DriverError("with_input requires a finite noise realisation")
 
-    def runner(self, *, memory_budget: int | str | None = None) -> "SimulationRunner":  # noqa: UP037 - defined below
+    def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below
         """Return a runner that keeps this translation and one backend for many inputs.
 
-        Translates (or reuses the cached translation), admits memory and constructs
-        the backend once; each :meth:`SimulationRunner.run` then runs one input on it
-        (SEP 22 section 5.2). Close it, or use it in a ``with`` block.
-
-        Parameters
-        ----------
-        memory_budget : int or str or None, optional
-            The budget the backend is admitted against, as for :meth:`run`.
+        Translates (or reuses the cached translation) and constructs the backend once;
+        each :meth:`SimulationRunner.run` then runs one input on it (SEP 22 section
+        5.2). Close it, or use it in a ``with`` block.
 
         Returns
         -------
@@ -2478,10 +2928,49 @@ class Simulation(Displayed):
         ------
         DriverError
             If the run has a TDSE response.
-        MemoryBudgetError
-            If the backend does not fit its budget.
         """
-        return SimulationRunner(self, memory_budget=memory_budget)
+        return SimulationRunner(self)
+
+    def _drop_recipe(self, reason: str) -> None:
+        """Forget the recipe, which no longer describes this simulation, and warn.
+
+        Parameters
+        ----------
+        reason : str
+            What changed, for the warning.
+
+        Warns
+        -----
+        SolpropWarning
+            Saying the run will record no recipe.
+        """
+        self._recipe = None
+        msg = (
+            f"this Simulation was built from a recipe, but {reason}, which the recipe "
+            "does not describe: its output will record no recipe, and resuming it "
+            "needs this script"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=3)
+
+    def _warn_recipe_dropped(self, mutator: str) -> None:
+        """Warn that a derived simulation does not carry this one's recipe.
+
+        Parameters
+        ----------
+        mutator : str
+            The method that derived it.
+
+        Warns
+        -----
+        SolpropWarning
+            Saying the derived run will record no recipe.
+        """
+        msg = (
+            f"{mutator} derives a simulation the recipe this one was built from does "
+            "not describe: its output will record no recipe, and resuming it needs "
+            "the script"
+        )
+        warnings.warn(msg, SolpropWarning, stacklevel=3)
 
     def with_mixture(self, mixture: Mixture) -> "Simulation":  # noqa: UP037 - runtime hook evaluates the class body
         """Update material paths while preserving the run's geometry and input.
@@ -2588,7 +3077,10 @@ class Simulation(Displayed):
         updated._material_log = self._material_log.copy()
         with _optmat.material_context(updated._material_log):
             updated.noise, updated._noise_redraw = self._rebound_noise(updated.medium)
+        if self._recipe is not None:
+            self._warn_recipe_dropped("with_mixture")
         updated.initial = self.initial
+        updated._input_identity = self._input_identity
         updated._mixture_selection = self._mixture_selection
         updated._reuse = _mixture_reuse(self, updated, old, mixture, original)
         updated.translate()
@@ -2625,57 +3117,111 @@ class Simulation(Displayed):
         # the digest keys on the problem and the state alone. What executed the run
         # is recorded instead, outside the key, in `RunMetadata.backend`.
         if self._metadata is None:
-            configuration = dict(self.configuration)
-            configuration.update(
-                {
-                    "responses": list(self.responses),
-                    # A gigabyte array is recorded by its digest (SEP 22, Q4).
-                    "initial": recorded_input(self.initial),
-                    "profiles": dict(self.profiles),
-                    "density": self.settings.density,
-                    "shock": self.settings.shock,
-                    "prefactor_index": self.settings.prefactor_index,
-                    "absorber": self.settings.absorber,
-                    "absorber_scheme": _scheme(self.settings),
-                    "propagator_mode": self.settings.propagator_mode,
-                    # Every run records its precision, double included (SEP 33
-                    # section 5.3, ADR-051), so a resume in the other is refused.
-                    "precision": self.settings.precision,
-                }
-            )
-            if self.frame is not None:
-                configuration["frame"] = self.frame
-            # The operator settings of SEP 22 phase 2, recorded only where set, so
-            # every earlier run keeps its digest; a collar as its two numbers.
-            if self.settings.evanescent_rate is not None:
-                configuration["evanescent_rate"] = self.settings.evanescent_rate
-            if self.settings.transverse_absorber is not None:
-                configuration["transverse_absorber"] = self.settings.transverse_absorber
-            if self.settings.adiabatic_accuracy is not None:
-                configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
-            # A quiet collar changes what the stages compute (ADR-057), so the opt-in
-            # is part of the resume key, recorded only where taken; the rest of the
-            # check is the execution's, recorded in its record.
-            if _quiet_collar(self.settings):
-                configuration["quiet_collar"] = True
-            if self.spatial_grid is not None:
-                configuration.update(
-                    spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
-                )
-            with _optmat.material_context(self._material_log):
-                self._metadata = metadata_for(
-                    self.translate(),
-                    self.grid,
-                    modes=self.modes,
-                    configuration=configuration,
-                    noise=self.noise,
-                    modal=self._modal_identity(),
-                    materials=self.material_manifest(),
-                    quadrature=self.settings.quadrature,
-                    frame=self.frame,
-                    noise_resolution=self.noise_resolution,
-                )
+            self._metadata = self._record(self._recorded_input())
         return self._metadata
+
+    def _recorded_input(self) -> object:
+        """Return the input as this run's record holds it, digesting a large array.
+
+        Returns
+        -------
+        object
+            The caller's statement of it, or what
+            :func:`~solprop.output.schema.recorded_input` makes of it.
+        """
+        if self._input_identity is not None:
+            return StatedInput.of(
+                cast("np.ndarray", self.initial), self._input_identity
+            )
+        # A gigabyte array is recorded by its digest (SEP 22, Q4).
+        return recorded_input(self.initial)
+
+    def _recorded_keys(self) -> set[str]:
+        """Return the keys of this run's configuration record, digesting nothing.
+
+        What a derived run's caller keys are checked against, which a parent that is
+        only a placeholder for its inputs should not pay a digest of itself for.
+
+        Returns
+        -------
+        set of str
+            The keys.
+        """
+        if self._record_keys is None:
+            record = self._metadata or self._record(None)
+            self._record_keys = set(record.configuration)
+        return self._record_keys
+
+    def _record(self, initial: object) -> RunMetadata:
+        """Build this run's record around what it says of its input.
+
+        Parameters
+        ----------
+        initial : object
+            The input's entry in the configuration record.
+
+        Returns
+        -------
+        solprop.output.schema.RunMetadata
+            What produced the run, and the key a resume is checked against.
+        """
+        configuration = dict(self.configuration)
+        configuration.update(
+            {
+                "responses": list(self.responses),
+                "initial": initial,
+                "profiles": dict(self.profiles),
+                "density": self.settings.density,
+                "shock": self.settings.shock,
+                "prefactor_index": self.settings.prefactor_index,
+                "absorber": self.settings.absorber,
+                "absorber_scheme": _scheme(self.settings),
+                "propagator_mode": self.settings.propagator_mode,
+                # Every run records its precision, double included (SEP 33
+                # section 5.3, ADR-051), so a resume in the other is refused.
+                "precision": self.settings.precision,
+            }
+        )
+        if self.frame is not None:
+            configuration["frame"] = self.frame
+        elif _frame_follows_the_electronic_rule(self.responses, self.grid):
+            # A Raman thg flag kept beta_0 on an envelope grid before the frame
+            # followed the electronic responses alone (issue #77). Recording the
+            # co-moving frame here, and only here, refuses a resume of such an
+            # earlier run by name, which would otherwise continue under another
+            # frame with the same digest; every other run keeps its digest.
+            configuration["frame"] = Frame.comoving(self.grid)
+        # The operator settings of SEP 22 phase 2, recorded only where set, so
+        # every earlier run keeps its digest; a collar as its two numbers.
+        if self.settings.evanescent_rate is not None:
+            configuration["evanescent_rate"] = self.settings.evanescent_rate
+        if self.settings.spatial_absorber is not None:
+            configuration["spatial_absorber"] = self.settings.spatial_absorber
+        if self.settings.adiabatic_accuracy is not None:
+            configuration["adiabatic_accuracy"] = self.settings.adiabatic_accuracy
+        # A quiet collar changes what the stages compute (ADR-057), so the opt-in
+        # is part of the resume key, recorded only where taken; the rest of the
+        # check is the execution's, recorded in its record.
+        if _quiet_collar(self.settings):
+            configuration["quiet_collar"] = True
+        if self.spatial_grid is not None:
+            configuration.update(
+                spatial_grid=self.spatial_grid, medium=self.medium, frame=self.frame
+            )
+        with _optmat.material_context(self._material_log):
+            return metadata_for(
+                self.translate(),
+                self.grid,
+                modes=self.modes,
+                configuration=configuration,
+                noise=self.noise,
+                modal=self._modal_identity(),
+                materials=self.material_manifest(),
+                quadrature=self.settings.quadrature,
+                frame=self.frame,
+                noise_resolution=self.noise_resolution,
+                defaults=self.settings.defaults_resolution(),
+            )
 
     def material_manifest(self) -> MaterialManifest:
         """Collect the run's material manifest: what it took from optmat, and how.
@@ -2863,12 +3409,54 @@ class Simulation(Displayed):
             if isinstance(space, RadialGrid)
             else None
         )
-        return BoundaryMonitor.build(
+        monitor = BoundaryMonitor.build(
             self.grid,
             rate,
             check,
             columns=columns,
             split=rate is not None and _scheme(self.settings) == "split_step",
+        )
+        if isinstance(space, RadialGrid | FreeGrid | PlanarGrid) and (
+            self.medium is not None
+        ):
+            monitor.transverse = self._transverse_edge(check, space, self.medium)
+        return monitor
+
+    def _transverse_edge(
+        self,
+        check: BoundaryCheck,
+        space: RadialGrid | FreeGrid | PlanarGrid,
+        medium: SpatialMedium,
+    ) -> TransverseEdge:
+        """Return the transverse edge a free-space run's monitor reads (SEP 40 5.3).
+
+        Parameters
+        ----------
+        check : solprop.monitor.BoundaryCheck
+            The run's thresholds.
+        space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+            Its transverse grid.
+        medium : solprop.spatial.SpatialMedium
+            Its medium.
+
+        Returns
+        -------
+        solprop.transverse_monitor.TransverseEdge
+            The edge, with nothing recorded.
+        """
+        problem = self.translate()
+        length = float(np.max(problem.stepper.save_planes)) - float(problem.initial.z)
+        dispersion = SpatialDispersion(medium, self.grid, Frame.comoving(self.grid))
+        k, _ = band_wavenumbers(space, dispersion, max(length, 0.0))
+        grid = self.grid
+        return TransverseEdge(
+            space,
+            problem.transverse,
+            check.edge_budget,
+            check.stop_factor,
+            length,
+            np.nonzero(grid.inband_mask & grid.active_mask)[0],
+            float(np.min(k)),
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls
@@ -2878,9 +3466,9 @@ class Simulation(Displayed):
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
         resume: _ResumeChoice = False,
-        memory_budget: int | str | None = None,
         tdse_archive: TDSEArchive | None = None,
         snapshots: SnapshotController | None = None,
+        stop: StopFlag | None = None,
     ) -> Output:
         """Execute the run and return the handler it was written to.
 
@@ -2902,31 +3490,17 @@ class Simulation(Displayed):
             Seconds between the line reporter's periodic lines, s; ``0`` leaves only
             the plane and closing lines. A bar has its own redraw period and a given
             reporter its own business.
-        resume : bool or {'interpolated', 'force'}, optional
-            Continue the file at `output` instead of replacing it, when its record
-            and this run's agree on what matters to the run
-            (``docs/guide/results/resuming.md``, SEP 42): the layout and the physics
-            must agree, numbers to a rounding-level tolerance; a changed tolerance or
-            integrator continues while there is work left, with a warning, and is
-            recorded in the session's execution record; provenance is ignored. A
-            finished file is returned only when every session ran under this run's
-            numerics. Only a path can be resumed: the driver has to open the file in
-            append mode itself. Noise a constructor drew without a seed is drawn again
-            from the seed the file recorded, so re-running the same call continues its
-            file. A file whose last plane was interpolated inside a step is refused
+        resume : bool or {'interpolated'}, optional
+            Continue the file at `output` instead of replacing it, when its record and
+            this run's have one configuration hash (``docs/guide/results/resuming.md``,
+            ADR-066); otherwise it is refused, naming the fields that differ. A finished
+            file is returned. Only a path can be resumed: the driver has to open the
+            file in append mode itself. Noise a constructor drew without a seed is drawn
+            again from the seed the file recorded, so re-running the same call continues
+            its file. A file whose last plane was interpolated inside a step is refused
             unless this is ``"interpolated"``: it then continues afresh from the
             interpolated field, and the position is recorded in the annotation
             :data:`~solprop.output.schema.INTERPOLATED_RESUMES_ANNOTATION`.
-            ``"force"`` also continues across changed physics while the layout agrees,
-            the statistics fit and work is left, restarting the Adams history and
-            marking the file, past which its record no longer describes its planes; a
-            forced file then continues only under ``"force"``.
-        memory_budget : int or str or None, optional
-            The memory budget this run is admitted against before its backend
-            allocates: bytes, or a string such as ``"16 GiB"`` or ``"warn:16 GiB"``,
-            or ``"none"``; ``None`` takes ``SOLPROP_MEMORY_BUDGET`` and otherwise four
-            fifths of the machine's memory, which only warns
-            (:mod:`solprop.driver.memory`).
         tdse_archive : solprop.output.TDSEArchive or None, optional
             Archive every raw TDSE provider evaluation of a run with a TDSE
             response in this separate HDF5 file (SEP 20 section 5.8); ``None``
@@ -2939,38 +3513,40 @@ class Simulation(Displayed):
             atomic provider. Requires HDF5, ``step_planes=1``, ``fields='all'``
             and no interpolated output. Adams history cannot be explicitly disabled.
             A configured archive is copied together with the optical file.
+        stop : object or None, optional
+            This run's own stop flag: any object with an ``is_set()`` method, such as
+            a :class:`threading.Event` (SEP 41, S17). It is polled before the first
+            step and before every trial step, so the run answers within one step or
+            trial; on a native ``Multistep()`` march, whose trials run in native calls
+            that cannot read it, before every call, so the run answers within 256
+            attempts or 0.1 s and the attempt in flight, whichever comes first. When it
+            is set the run writes its state as for SIGTERM, tells the
+            reporter through ``interrupted``, and returns the handler: a requested
+            stop is not an error. The outcome's message says the caller's flag
+            stopped it, and ``resume=True`` continues the file. A front end sets it
+            from any thread on any platform, without signals; each run polls its own.
 
         Returns
         -------
         solprop.output.schema.Output
-            The handler the run was written to.
+            The handler the run was written to, complete or, after `stop` was set,
+            holding the state where it stopped.
 
         Raises
         ------
         ValueError
-            If `resume` is not one of its four values.
+            If `resume` is not one of its three values.
         DriverError
             If a resume is asked for and `output` is not a path, or the file's last
-            plane was interpolated and `resume` is neither ``"interpolated"`` nor
-            ``"force"``; or `tdse_archive` is given without a TDSE response or at the
+            plane was interpolated and `resume` is not ``"interpolated"``; or
+            `tdse_archive` is given without a TDSE response or at the
             path of the optical file.
         TDSEArchiveError
             If the archive's path holds another file, or a write to it fails; the
             run then stops at its last optical checkpoint.
-        MemoryBudgetError
-            If the run's estimated persistent memory exceeds its budget; nothing has
-            been allocated or written.
         OutputError
-            If a file is there and its layout or physics differ (unless forced), a
-            forced file is resumed without ``"force"``, a finished file was computed
-            under other numerics, or a forced run's statistics do not fit the file's;
-            the message names what changed.
-
-        Warns
-        -----
-        SolpropWarning
-            When a resume continues under changed numerics, is forced, or returns a
-            finished forced file.
+            If a file is there and its configuration hash differs; the message names
+            what changed.
 
         Examples
         --------
@@ -2984,42 +3560,81 @@ class Simulation(Displayed):
         >>> handler.n_saved, handler["z"].tolist()
         (3, [0.0, 0.005, 0.01])
         """
+        return self._run(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+        )
+
+    def _run(  # noqa: PLR0913 - run's controls, and the backend it may be handed
+        self,
+        output: Output | Path | str | None = None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None = None,
+        progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        resume: _ResumeChoice = False,
+        tdse_archive: TDSEArchive | None = None,
+        snapshots: SnapshotController | None = None,
+        stop: StopFlag | None = None,
+        kept: Backend | None = None,
+    ) -> Output:
+        """Execute the run, on a new backend or on one a caller keeps between runs.
+
+        Parameters
+        ----------
+        output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+            As for :meth:`run`.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
+            As for :meth:`run`.
+        progress_period : float, optional
+            As for :meth:`run`, s.
+        resume : bool or str, optional
+            As for :meth:`run`.
+        tdse_archive : object or None, optional
+            As for :meth:`run`.
+        snapshots : object or None, optional
+            As for :meth:`run`.
+        stop : object or None, optional
+            As for :meth:`run`.
+        kept : solprop.backends.protocol.Backend or None, optional
+            A backend built for this problem but for its input, which is loaded and
+            left open for the caller; ``None`` constructs one and closes it. It serves
+            a fresh run only, with no TDSE response.
+
+        Returns
+        -------
+        solprop.output.schema.Output
+            The handler the run was written to.
+        """
         _check_resume_choice(resume)
         with _optmat.material_context(self._material_log):
             if resume:
                 self._adopt_recorded_seed(output)
             problem = self.translate()
+            _refuse_pending_check(problem)
             metadata = self.metadata()
-            handler, state, comparison = _open_output(output, metadata, resume=resume)
-            continuation: _Continuation | None = None
-            if state is not None and comparison is not None:
+            handler, state = _open_output(output, metadata, resume=resume)
+            if state is not None:
                 next_plane = _validate_resume(
                     problem, state, self.settings.tdse_execution
                 )
-                continuation = _resume_decision(
+                if not _continues(
                     Path(cast("Path | str", output)),
                     problem,
                     state,
                     next_plane,
-                    comparison,
                     resume,
-                )
-                if continuation is None:
+                ):
                     handler.open(state.metadata)
                     handler.close()
                     return handler
             _warn_sampled_peak(self.settings.quadrature, problem.stats_spec)
-            # Admitted before the output is opened and the backend allocates, so
-            # that a refused run leaves nothing behind.
             retention = field_retention(
                 problem, self.settings.fields, self.settings.field_planes
-            )
-            admission = admit_memory(
-                problem,
-                self.settings.backend,
-                memory_budget,
-                output=handler,
-                retention=retention,
             )
             if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
                 raise DriverError(
@@ -3052,10 +3667,10 @@ class Simulation(Displayed):
                 if problem.tdse is not None:
                     binding, archive = self._prepare_atomic(
                         problem,
-                        _AtomicContext(handler, state, metadata, admission),
+                        _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
-                backend = select(
+                backend = kept or select(
                     self.settings.backend,
                     problem,
                     grid=self.grid,
@@ -3064,15 +3679,9 @@ class Simulation(Displayed):
                     tdse_binding=binding,
                 )
                 start_plane = self._prime(
-                    backend,
-                    problem,
-                    state,
-                    restart=continuation is not None and continuation.forced,
+                    backend, problem, state, kept=kept is not None
                 )
-                _confirm_continuation(continuation, backend, problem, output)
-                self._consistency_gate(
-                    binding, problem, handler, metadata, backend, admission
-                )
+                self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
                     backend,
@@ -3082,7 +3691,6 @@ class Simulation(Displayed):
                     progress=progress,
                     progress_period=progress_period,
                     start_plane=start_plane,
-                    memory=admission,
                     tdse_binding=binding,
                     resume_history=self.settings.resume_history,
                     fields=retention.fields,
@@ -3090,22 +3698,32 @@ class Simulation(Displayed):
                     snapshots=snapshots,
                     tdse_archive=archive,
                     boundary_monitor=self._boundary_monitor(),
-                    resume_record=None if continuation is None else continuation.entry,
+                    stop=stop,
+                    recipe=None if self._recipe is None else self._recipe.record(self),
                 )
+            except StopRequested as error:
+                failure = error
+                # A stop raised by another run's flag is that run's to catch.
+                if error.flag is not stop:
+                    raise
             except BaseException as error:
                 failure = error
                 raise
             finally:
-                _close_run(backend, binding, archive, handler, failure)
-            self._peak_fields = _peak_field_reports(
-                problem, handler, self.responses, _session_planes(state, continuation)
-            )
+                _close_run(
+                    None if kept is not None else backend,
+                    binding,
+                    archive,
+                    handler,
+                    failure,
+                )
+            self._peak_fields = _peak_field_reports(problem, handler, self.responses)
         if (
             state is not None
             and _interpolated(state)
             and isinstance(handler, PlaneStore)
         ):
-            # Allowed only by resume="interpolated" or "force"; the record says where.
+            # Allowed only by resume="interpolated"; the record says where.
             earlier = handler.annotations.get(INTERPOLATED_RESUMES_ANNOTATION, [])
             handler.annotate(
                 INTERPOLATED_RESUMES_ANNOTATION,
@@ -3120,20 +3738,60 @@ class Simulation(Displayed):
             )
         return handler
 
+    def estimate(self) -> "RunEstimate":  # noqa: UP037 - checked at run time
+        """Estimate what the run would cost, without running it (SEP 41, S11).
+
+        The grid, the persistent memory the constructed backend holds, the output's
+        size, the cost of one right-hand-side evaluation on the backend, timed after an
+        untimed warm-up that takes compilation and planning, and the integrator's calls
+        per step (:mod:`solprop.driver.estimate`). It constructs the backend, so a run
+        that doesn't fit in memory fails here as the run would.
+
+        Returns
+        -------
+        solprop.driver.estimate.RunEstimate
+            The estimate.
+        """
+        from solprop.driver.estimate import estimate  # noqa: PLC0415 - imports this
+
+        return estimate(self)
+
+    def output_bytes(self) -> int:
+        """Return the size of the run's output, without constructing a backend.
+
+        The cheap part of :meth:`estimate`, for asking as the setup changes: it times
+        nothing and allocates no run state.
+
+        Returns
+        -------
+        int
+            Bytes, as an in-memory store holds them (an HDF5 file adds little).
+
+        Examples
+        --------
+        >>> from solprop.recipe import Recipe
+        >>> simulation = Recipe.example("soliton").build()
+        >>> simulation.output_bytes() == simulation.estimate().output_bytes
+        True
+        """
+        from solprop.driver.estimate import output_bytes  # noqa: PLC0415 - imports this
+
+        return output_bytes(self)
+
     def _prepare_atomic(
         self,
         problem: KernelProblem,
         context: _AtomicContext,
         tdse_archive: TDSEArchive | None,
     ) -> tuple[TDSEBinding, TDSEArchiveWriter | None]:
-        """Admit a TDSE run's atomic memory, open its archive and prepare its binding.
+        """Open a TDSE run's archive and prepare its binding.
 
         Parameters
         ----------
         problem : KernelProblem
             The translated problem, with its TDSE descriptor.
         context : _AtomicContext
-            The optical output, resume state, record and memory admission.
+            The optical output, resume state and record.
         tdse_archive : TDSEArchive or None
             The archive request.
 
@@ -3149,12 +3807,6 @@ class Simulation(Displayed):
         execution = self.settings.tdse_execution
         if execution is None:
             raise DriverError("TDSE requires explicit tdse_execution settings")
-        execution = _tdse_memory_execution(
-            problem,
-            execution,
-            context.admission,
-            archive=None if tdse_archive is None else tdse_archive.outputs,
-        )
         # Opened and validated before any atomic work (SEP 20, 5.8).
         archive = _open_tdse_archive(
             tdse_archive,
@@ -3172,7 +3824,6 @@ class Simulation(Displayed):
                 descriptor,
                 execution,
                 problem.transform.n_nodes,
-                host_memory_bytes=context.admission.estimate.total,
                 defer_plans=descriptor.model == "hacc",
                 archive=archive,
             )
@@ -3188,7 +3839,6 @@ class Simulation(Displayed):
         handler: Output,
         metadata: RunMetadata,
         backend: Backend,
-        admission: MemoryAdmission,
     ) -> None:
         """Check a haCC run's weak-field linear response before propagating.
 
@@ -3211,8 +3861,6 @@ class Simulation(Displayed):
             The run's record.
         backend : Backend
             The prepared optical backend.
-        admission : MemoryAdmission
-            The run's memory admission.
         """
         descriptor = problem.tdse
         if binding is None or descriptor is None or descriptor.model != "hacc":
@@ -3238,7 +3886,7 @@ class Simulation(Displayed):
         binding.record_consistency(result.to_record())
         if result.outcome in ("refused", "invalid"):
             try:
-                open_run_record(handler, metadata, backend, binding, admission)
+                open_run_record(handler, metadata, backend, binding)
             except Exception:
                 logger.exception("could not record the refused consistency check")
         tdse_consistency.apply_outcome(result)
@@ -3371,7 +4019,7 @@ class Simulation(Displayed):
         problem: KernelProblem,
         state: ResumeState | None,
         *,
-        restart: bool = False,
+        kept: bool = False,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -3384,10 +4032,9 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
             entrance.
-        restart : bool, optional
-            Whether to start the Adams history afresh: a forced resume across
-            compared differences, whose stored history was stepped under the other
-            physics (SEP 42 section 5.5).
+        kept : bool, optional
+            Whether the backend was built for another input, so that the noise of
+            this one has to be handed to it.
 
         Returns
         -------
@@ -3395,7 +4042,11 @@ class Simulation(Displayed):
             Index of the first save plane still to propagate to.
         """
         if state is None:
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            backend.set_initial(
+                problem.initial.field0,
+                _realisation(problem) if kept else None,
+                z=problem.initial.z,
+            )
             return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
@@ -3416,15 +4067,9 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
-        if restart:
-            # The snapshot's state was weighted by the other physics, and its energy
-            # would jump at the join: restoring it measured an error of 1.3e-4
-            # against 4.9e-8 starting afresh, on a capillary forced from 1 to 2 bar.
-            logger.info("the Adams history starts afresh: a forced resume")
-        else:
-            self._continue_march(
-                backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
-            )
+        self._continue_march(
+            backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
+        )
         return next_plane
 
     def _continue_march(
@@ -3439,13 +4084,9 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState
             What the file holds.
         adams : bool, optional
-            Whether this run steps with an Adams method. A run continued under
-            another integrator keeps no history, by its own choice, which is
-            recorded as a numerics change and needs no warning (SEP 42 section 5.6).
+            Whether this run steps with an Adams method. Another integrator keeps no
+            history, by its own choice, which needs no warning.
         """
-        restore = getattr(backend, "restore_march", None)
-        if restore is None:
-            return
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
@@ -3453,13 +4094,8 @@ class Simulation(Displayed):
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
         if not adams:
-            if state.march is not None:
-                logger.info(
-                    "the Adams history is not continued: this run steps "
-                    "with another integrator"
-                )
             return
-        refusal = getattr(backend, "march_export_refusal", lambda: None)()
+        refusal = backend.march_export_refusal()
         if refusal is not None:
             warnings.warn(
                 f"the Adams history starts afresh: {refusal}",
@@ -3469,7 +4105,7 @@ class Simulation(Displayed):
             return
         if state.march is None:
             return
-        reason = restore(state.march)
+        reason = backend.restore_march(state.march)
         if reason is None:
             logger.info(
                 "continuing the Adams history at order %d, %d samples",
@@ -3504,6 +4140,7 @@ class Simulation(Displayed):
         absorber: Absorber | Literal[False] | None = None,
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a radial propagation using physical fields and the scalar QDHT.
 
@@ -3555,6 +4192,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3572,9 +4215,12 @@ class Simulation(Displayed):
             _selected_medium(medium, materials),
             responses,
             initial,
-            settings=_watched(
-                _with_boundary(settings, grid, absorber, absorber_scheme),
-                boundary_check,
+            settings=_bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
             ),
             frame=frame,
             noise=noise,
@@ -3600,6 +4246,7 @@ class Simulation(Displayed):
         absorber: Absorber | Literal[False] | None = None,
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a Cartesian propagation with constant media and transverse FFTs.
 
@@ -3629,8 +4276,8 @@ class Simulation(Displayed):
         noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
             ``"default"``, the default, resolves to no noise on a Cartesian or line
-            grid and records why (:data:`FREE_NOISE`, SEP 37); pass ``"input"`` or
-            ``"modified"`` for a noise model.
+            grid and records why (:data:`~solprop.driver.defaults.FREE_NOISE`, SEP
+            37); pass ``"input"`` or ``"modified"`` for a noise model.
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3657,6 +4304,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3681,9 +4334,12 @@ class Simulation(Displayed):
             medium,
             responses,
             initial,
-            settings=_watched(
-                _with_boundary(settings, grid, absorber, absorber_scheme),
-                boundary_check,
+            settings=_bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
             ),
             frame=frame,
             noise=noise,
@@ -3711,6 +4367,7 @@ class Simulation(Displayed):
         absorber: Absorber | Literal[False] | None = None,
         absorber_scheme: AbsorberScheme | None = None,
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
+        spatial_absorber: SpatialAbsorber | Literal[False] | None = None,
     ) -> "Simulation":  # noqa: UP037 - runtime hook evaluates while class is defined
         """Build a hybrid planar propagation: slab modes in x, an FFT in y.
 
@@ -3764,6 +4421,12 @@ class Simulation(Displayed):
             the shot-noise floor reaches them; ``None`` watches nothing. Refused
             beside settings that name another check.
 
+        spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None, optional
+            The transverse boundary (SEP 40), when `settings` declare none: ``None``
+            keeps the settings' own, by default the safety ramp alone; a
+            :class:`~solprop.boundaries.SpatialAbsorber` asks for a designed collar in
+            the grid's room outside its requested size; ``False`` carries no ramp.
+
         Returns
         -------
         Simulation
@@ -3788,15 +4451,18 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
+        if isinstance(initial, np.ndarray):
+            # Refused before the simulation copies it.
+            _check_planar_input(initial.shape, space.n_columns, grid.n_omega)
         settings = _spatial_default(
-            _watched(
-                _with_boundary(settings, grid, absorber, absorber_scheme),
-                boundary_check,
+            _bounded(
+                _watched(
+                    _with_boundary(settings, grid, absorber, absorber_scheme),
+                    boundary_check,
+                ),
+                spatial_absorber,
             ),
             grid,
         )
@@ -3813,13 +4479,7 @@ class Simulation(Displayed):
             frame=chosen_frame,
             materials=materials,
         )
-        field = simulation._field0
-        if field.shape != (space.n_columns, 1, grid.n_omega):
-            msg = (
-                "a planar input has shape (n_p*n_y, 1, n_omega) = "
-                f"{(space.n_columns, 1, grid.n_omega)}, got {field.shape}"
-            )
-            raise DriverError(msg)
+        _check_planar_input(simulation._field0.shape, space.n_columns, grid.n_omega)
         _bind_spatial_rates(simulation, initial)
         return simulation
 
@@ -3863,8 +4523,9 @@ class Simulation(Displayed):
         noise : {'default', None, 'input', 'modified'}, optional
             One photon per transverse column, polarisation and active bin.
             ``"default"``, the default, resolves to ``"input"`` on a radial grid and to
-            no noise on a Cartesian or line one (:data:`FREE_NOISE`), and records the
-            resolution (SEP 37).
+            no noise on a Cartesian or line one
+            (:data:`~solprop.driver.defaults.FREE_NOISE`), and records the resolution
+            (SEP 37).
         seed : int or None, optional
             Random generator seed; None draws and records system entropy.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -3883,10 +4544,7 @@ class Simulation(Displayed):
         chosen_frame = frame
         if chosen_frame is None:
             chosen_frame = Frame.comoving(
-                grid,
-                thg=any(
-                    bool(getattr(response, "thg", False)) for response in responses
-                ),
+                grid, thg=declares_harmonic_carrier(responses, grid)
             )
         if isinstance(medium.material, Mixture) and settings.stats is None:
             base = default_spec("radial" if isinstance(space, RadialGrid) else "free")
@@ -3905,6 +4563,9 @@ class Simulation(Displayed):
                 ),
             )
         settings = _spatial_default(settings, grid)
+        if isinstance(initial, np.ndarray):
+            # Refused before the simulation copies it.
+            _check_spatial_input(initial.shape, space.n_columns, grid.n_omega)
         simulation = cls(
             grid,
             (),
@@ -3921,19 +4582,12 @@ class Simulation(Displayed):
             frame=chosen_frame,
             materials=materials,
         )
-        field = simulation._field0
-        if (
-            field.ndim != 3
-            or field.shape[0] != space.n_columns
-            or field.shape[2] != grid.n_omega
-        ):
-            msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
-            raise DriverError(msg)
-        noise_model, resolution = _resolve_noise(
+        _check_spatial_input(simulation._field0.shape, space.n_columns, grid.n_omega)
+        noise_model, resolution = resolve_noise(
+            "radial" if isinstance(space, RadialGrid) else "free",
             noise,
             seed,
             settings.precision,
-            quiet=None if isinstance(space, RadialGrid) else FREE_NOISE,
         )
         simulation.noise_resolution = resolution
         if noise_model is not None:
@@ -3980,7 +4634,7 @@ class Simulation(Displayed):
         schedule: FixedSchedule | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
         interpolate_planes: bool = False,
-        step_planes: int = 0,
+        step_planes: int | None = None,
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
@@ -4105,10 +4759,10 @@ class Simulation(Displayed):
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
             continuous extension with ``RungeKutta()``. Default ``False``.
-        step_planes : int, optional
+        step_planes : int or None, optional
             Also save the end of every `step_planes`-th accepted step, the
             march's own positions, beside the requested planes (SEP 14);
-            ``0``, the default, saves the requested planes only.
+            ``None``, the default, and ``0`` save the requested planes only.
         save_planes : array_like, optional
             Positions to save at, m. Give this or `n_save`.
         n_save : int, optional
@@ -4133,8 +4787,9 @@ class Simulation(Displayed):
             then stops, when light above the shot-noise floor reaches them; ``None``
             watches nothing, for a window kept narrow on purpose.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -4208,10 +4863,11 @@ class Simulation(Displayed):
             pulses=pulses,
         )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
+        controller, default = _keyword_controller("gnlse", rtol, atol, precision)
         settings = SimulationSettings(
-            controller=PIController(
-                rtol=_tolerance(rtol, precision, DEFAULT_RTOL), atol=atol
-            ),
+            controller=controller,
+            _default_controller=default,
+            _route="gnlse",
             save_planes=_save_planes(length, save_planes, n_save),
             # Relative defaults, so that the first step and the cap scale with the
             # fibre.
@@ -4220,9 +4876,8 @@ class Simulation(Displayed):
             auto_init=dz_init is None,
             schedule=schedule,
             integrator=integrator,
-            _route_integrator=RungeKutta(),
             interpolate_planes=interpolate_planes,
-            step_planes=step_planes,
+            step_planes=0 if step_planes is None else step_planes,
             density=1.0,
             shock=shock,
             prefactor_index=mapping.prefactor_index,
@@ -4234,7 +4889,7 @@ class Simulation(Displayed):
             backend=backend,
             precision=precision,
         )
-        noise_model, resolution = _resolve_noise(noise, seed, precision)
+        noise_model, resolution = resolve_noise("gnlse", noise, seed, precision)
         draw = functools.partial(_shot_noise, noise_model, working)
         simulation = cls(
             working,
@@ -4275,6 +4930,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         modes: int | Sequence[Mode] = 1,
         mode_average: bool = False,
         lattice: TubeLattice | None = None,
@@ -4317,6 +4973,7 @@ class Simulation(Displayed):
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
@@ -4408,6 +5065,17 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            Launch the input into chosen modes (SEP 41, S5): a mapping from a mode's
+            display label or index to its share, or to ``{"share": s, "phase": phi}``
+            with the phase in radians (optics convention), as
+            ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1, "phase": 1.57}}``; or a list of
+            such mappings, one for each pulse in `pulses`. A label may leave out a
+            parity the set carries once (``"HE1,1"`` for ``"HE1,1:even"``). The shares
+            are energy fractions, normalised to one for each pulse, and the launch is
+            recorded as ``configuration["modal_launch"]``
+            (``docs/guide/setup/pulses.md``). ``None``, the default, puts the input in
+            the first mode.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
             for orthonormality. Supplied sets may include TabulatedHollowMode or
@@ -4435,7 +5103,7 @@ class Simulation(Displayed):
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
             varying guide, and a scalar run; it carries the default ``"input"`` noise
-            and refuses ``"modified"``. All three backends execute it (a
+            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it (a
             ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
             geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
@@ -4551,9 +5219,9 @@ class Simulation(Displayed):
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
-            Relative step tolerance; the default is :data:`CAPILLARY_RTOL`, the
-            capillary default. Calibrate it for a production run
-            (``docs/dev/stepper.md`` section 3).
+            Relative step tolerance; the default is
+            :data:`~solprop.driver.defaults.CAPILLARY_RTOL`, the capillary default.
+            Calibrate it for a production run (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
         dz_max : float or None, optional
@@ -4590,11 +5258,18 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation as well as
+            absorbing the field through the linear operator. Default ``False``: the
+            taper costs a systematic error of the size of the field's content in the
+            collar, and the rate absorber acts either way
+            (``docs/guide/numerics/boundaries.md``).
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
@@ -4672,6 +5347,7 @@ class Simulation(Displayed):
             peak_power=peak_power,
             phases=phases,
             pulses=pulses,
+            launch=launch,
             modes=modes,
             mode_average=mode_average,
             lattice=lattice,
@@ -4697,7 +5373,7 @@ class Simulation(Displayed):
             boundary_check=boundary_check,
             noise=noise,
             seed=seed,
-            rtol=_tolerance(rtol, precision, CAPILLARY_RTOL),
+            rtol=rtol,
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
@@ -4708,6 +5384,7 @@ class Simulation(Displayed):
             save_planes=save_planes,
             n_save=n_save,
             stats=stats,
+            polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
             precision=precision,
@@ -4747,6 +5424,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         susceptibility: GasSusceptibility | None = None,
         temperature: float | ZProfile | None = None,
         kerr: bool = True,
@@ -4777,15 +5455,17 @@ class Simulation(Displayed):
         dz_init: float | None = None,
         schedule: FixedSchedule | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+        interpolate_planes: bool = False,
+        step_planes: int | None = None,
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
         taper_coupling: bool = True,
-        memory_budget: int | str | None = None,
         materials: MaterialSelection | None = None,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a pulse simulation in a waveguide: a gas-filled mode set, or a guide.
@@ -4804,8 +5484,8 @@ class Simulation(Displayed):
         three-component
         E and H at quadrature nodes, whose material regions own their responses and
         whose channels are Poynting-normalised, so that a channel amplitude is a
-        true-power amplitude by construction. It is qualified on ``numpy_ref``,
-        ``numba_cpu`` and the native CPU backend, a declared split block's coupled
+        true-power amplitude by construction. It is qualified on ``numpy_ref`` and the
+        native CPU backend, a declared split block's coupled
         flow included, and propagates constant geometry on a **field** grid.
         Every gas keyword is refused by name beside a provider, because a guide's
         materials are its regions' and not a fill.
@@ -4950,6 +5630,21 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            Launch the input into chosen modes or channels (SEP 41, S5): a mapping
+            from a display label or index, resolved as `channel` resolves it, to a
+            share, or to ``{"share": s, "phase": phi}`` with the phase in radians
+            (optics convention), as ``{"HE1,1": 0.9, "HE1,2": {"share": 0.1,
+            "phase": 1.57}}``; or a list of such mappings, one for each pulse in
+            `pulses`. A label may leave out a parity the set carries once, and one
+            that leaves a parity open between two rows is refused. On a basis whose
+            flux metric is the identity the shares are energy fractions, normalised to
+            one for each pulse; on a guide that declares a change of basis they are
+            relative amplitudes squared, scaled so that the flux-metric energy is the
+            pulse's, a coordinate split. The launch is recorded as
+            ``configuration["modal_launch"]`` (``docs/guide/setup/pulses.md``).
+            Refused beside `channel`, `incident` and `coupling`. ``None``, the
+            default, puts the input in the first mode or in `channel`.
         susceptibility : GasSusceptibility or None, optional
             A gas susceptibility replacing the one `gas` selects, for a comparison
             against another code's refractive data. Refused for a fraction mapping
@@ -5053,9 +5748,10 @@ class Simulation(Displayed):
         seed : int or None, optional
             Entropy of the noise generator.
         rtol : float or None, optional
-            Relative step tolerance; the default is :data:`WAVEGUIDE_RTOL`, the modal
-            capillary default. Calibrate it for a production run
-            (``docs/dev/stepper.md`` section 3).
+            Relative step tolerance; the default is
+            :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL`, the modal capillary
+            default. Calibrate it for a production run (``docs/dev/stepper.md``
+            section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
         dz_max : float or None, optional
@@ -5070,6 +5766,14 @@ class Simulation(Displayed):
             ``None``, the default, takes ``RungeKutta()``, the interaction-picture
             DOPRI5 march (SEP 37). ``Multistep()`` is the low-call exponential Adams
             method. ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+        interpolate_planes : bool, optional
+            Observe the save planes inside accepted steps instead of landing on them
+            (SEP 14): through the Adams march's own polynomial, or DOPRI5's
+            continuous extension with ``RungeKutta()``. Default ``False``.
+        step_planes : int or None, optional
+            Also save the end of every `step_planes`-th accepted step, the
+            march's own positions, beside the requested planes (SEP 14); ``None``,
+            the default, and ``0`` save the requested planes only.
         save_planes : sequence of float or None, optional
             Positions to save at, m. Give this or `n_save`.
         n_save : int or None, optional
@@ -5079,14 +5783,22 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation as well as
+            absorbing the field through the linear operator. Default ``False``: the
+            taper costs a systematic error of the size of the field's content in the
+            collar, and the rate absorber acts either way
+            (``docs/guide/numerics/boundaries.md``).
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which keeps ``rtol`` at :data:`WAVEGUIDE_RTOL` by default
+            ``"single"``, which keeps ``rtol`` at
+            :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL` by default
             (``docs/guide/performance/single-precision.md``), takes ``RungeKutta()``,
             carries no noise, and resolves ``backend="auto"`` to the experimental
             ``mlx`` where MLX and a Metal GPU are present, with ``numpy_ref`` as the
@@ -5098,12 +5810,6 @@ class Simulation(Displayed):
             :meth:`from_capillary` does; ``False`` is the opt-out to the adiabatic
             route. Refused as ``False`` beside a `provider`, whose moving guide carries
             its own connection.
-        memory_budget : int or str or None, optional
-            The budget a guide's route is admitted against **before** its dense E/H
-            reference and maps are built, which happens here rather than when the run
-            starts (:func:`solprop.driver.memory.admit_guide_memory`): a declaration as
-            :meth:`run` takes it, and ``None`` takes ``SOLPROP_MEMORY_BUDGET`` or the
-            machine's memory, warned on. Requires `provider`.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take the fill from optmat under this selection: a gas or fraction mapping
             of built-in gases, ``"air"`` and ``Gas.Air`` resolve through
@@ -5125,9 +5831,6 @@ class Simulation(Displayed):
             If the modes cannot bind a gas mixture, a gas keyword is given beside a
             provider, a general-guide keyword is given without one, or any supplied
             setting is invalid.
-        MemoryBudgetError
-            If a guide's reference and maps exceed a budget declared to refuse;
-            nothing of them has been built.
         """
         if provider is not None:
             return cls._from_general(
@@ -5156,6 +5859,7 @@ class Simulation(Displayed):
                 peak_power=peak_power,
                 phases=phases,
                 pulses=pulses,
+                launch=launch,
                 susceptibility=susceptibility,
                 temperature=temperature,
                 kerr=kerr,
@@ -5180,19 +5884,20 @@ class Simulation(Displayed):
                 dz_init=dz_init,
                 schedule=schedule,
                 integrator=integrator,
+                interpolate_planes=interpolate_planes,
+                step_planes=step_planes,
                 save_planes=save_planes,
                 n_save=n_save,
                 stats=stats,
+                polarisation_taper=polarisation_taper,
                 node_budget=node_budget,
                 backend=backend,
                 precision=precision,
-                memory_budget=memory_budget,
                 polarisation=polarisation,
                 taper_coupling=taper_coupling,
                 materials=MaterialSelection() if materials is None else materials,
             )
         for name, value in (
-            ("memory_budget", memory_budget),
             ("channel", channel),
             ("incident", incident),
             ("coupling", coupling),
@@ -5236,6 +5941,7 @@ class Simulation(Displayed):
             peak_power=peak_power,
             phases=phases,
             pulses=pulses,
+            launch=launch,
             susceptibility=susceptibility,
             temperature=temperature,
             kerr=kerr,
@@ -5253,16 +5959,19 @@ class Simulation(Displayed):
             boundary_check=boundary_check,
             noise=noise,
             seed=seed,
-            rtol=_tolerance(rtol, precision, WAVEGUIDE_RTOL),
+            rtol=rtol,
             atol=atol,
             dz_max=dz_max,
             dz_init=dz_init,
             schedule=schedule,
             integrator=integrator,
-            route_integrator=RungeKutta(),
+            interpolate_planes=interpolate_planes,
+            step_planes=step_planes,
+            route="waveguide",
             save_planes=save_planes,
             n_save=n_save,
             stats=stats,
+            polarisation_taper=polarisation_taper,
             node_budget=node_budget,
             backend=backend,
             precision=precision,
@@ -5310,9 +6019,12 @@ class Simulation(Displayed):
         stats: StatsSpec | None,
         backend: str,
         precision: PrecisionName,
-        memory_budget: int | str | None,
         materials: MaterialSelection | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
+        launch: ModalLaunch | None = None,
+        interpolate_planes: bool = False,
+        step_planes: int | None = None,
+        polarisation_taper: bool = False,
         **refused: object,
     ) -> "Simulation":  # noqa: UP037 - beartype resolves it while the body still runs
         """Build a general modal run from a guide that solves its own fields.
@@ -5371,8 +6083,6 @@ class Simulation(Displayed):
         precision : {'double', 'single'}
             The arithmetic the run is held in; the general route is refused under
             single precision.
-        memory_budget : int or str or None
-            The budget the guide's route is admitted against before it is built.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             The run's material selection, recorded in its manifest. Under it a
             region's default :class:`~solprop.nonlinear.raman.SilicaTensorResponse`
@@ -5382,6 +6092,17 @@ class Simulation(Displayed):
         integrator : Multistep, RungeKutta or LowStorageRungeKutta, optional
             The method that steps the run; ``None`` takes ``Multistep()``, and
             ``LowStorageRungeKutta()`` replays `schedule` in three registers.
+        launch : mapping, sequence of mapping, or None, optional
+            The channels each pulse enters, with their shares and phases, as
+            :meth:`from_waveguide` documents it; refused beside `channel`,
+            `incident` and `coupling`.
+        interpolate_planes : bool, optional
+            Observe the save planes inside accepted steps instead of landing on them.
+        step_planes : int or None, optional
+            Also save the end of every `step_planes`-th accepted step; ``None`` is
+            ``0``.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation.
         **refused : object
             Every gas-filled keyword; each is refused by name when it is set.
 
@@ -5442,6 +6163,7 @@ class Simulation(Displayed):
             )
             raise DriverError(msg)
         planes = _save_planes(length, save_planes, n_save)
+        refuse_beside(launch, channel=channel, incident=incident, coupling=coupling)
         pulse = _general_pulse(
             incident,
             channel,
@@ -5454,17 +6176,6 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        if provider.sampling is not None:
-            # Before the route and not after it: the route builds the dense E/H
-            # reference and the maps, which on a large guide are nearly all of the
-            # run's memory, and admission after them could only say so.
-            admit_guide_memory(
-                provider,
-                working,
-                z_max=float(np.max(planes)),
-                backend=backend,
-                memory_budget=memory_budget,
-            )
         built = (pulse.temporal if isinstance(pulse, SpatialPulse) else pulse).build(
             working
         )
@@ -5499,26 +6210,41 @@ class Simulation(Displayed):
                 "neither"
             )
             raise DriverError(msg)
+        launched: dict[str, object] | None = None
         if beam is not None:
             # Checked before the port is built: a guide whose first region is off the
             # axis has no core for a beam to enter through.
             _core_index(provider.regions, working)
             # The launch is the coupling's, installed through `with_input` below.
             field0 = np.zeros((len(channels), 1, working.n_omega), dtype=np.complex128)
-        else:
+        elif launch is None:
             field0 = _in_channel(built, provider, channel)
+        else:
+            # A declared change of basis carries a dense flux metric, under which the
+            # shares are a coordinate split; in the provider's own coordinates the
+            # metric is the identity and they are energy fractions (SEP 41, S5).
+            field0, launched = launch_pulse(
+                # No beam, so the input is the shaped pulse.
+                cast("Pulse", pulse),
+                launch,
+                working,
+                provider.mode_collection.channel_labels,
+                metric=metric_at(route.metric_tables, 0.0),
+            )
         boundary, scheme = _boundary(absorber, absorber_scheme, working)
+        controller, default = _keyword_controller("waveguide", rtol, atol, precision)
         settings = SimulationSettings(
-            controller=PIController(
-                rtol=_tolerance(rtol, precision, WAVEGUIDE_RTOL), atol=atol
-            ),
+            controller=controller,
+            _default_controller=default,
+            _route="waveguide",
             save_planes=planes,
             dz_max=length / 2 if dz_max is None else dz_max,
             dz_init=length * 1e-4 if dz_init is None else dz_init,
             auto_init=dz_init is None,
             schedule=schedule,
             integrator=integrator,
-            _route_integrator=RungeKutta(),
+            interpolate_planes=interpolate_planes,
+            step_planes=0 if step_planes is None else step_planes,
             absorber=boundary,
             absorber_scheme=scheme,
             boundary_check=boundary_check,
@@ -5527,10 +6253,11 @@ class Simulation(Displayed):
             # selection, the density path and the index override are all refused
             # by the translation layer and are not settings of this run.
             stats=_general_stats() if stats is None else stats,
+            polarisation_taper=polarisation_taper,
             backend=backend,
             precision=precision,
         )
-        noise_model, resolution = _resolve_noise(noise, seed, precision)
+        noise_model, resolution = resolve_noise("waveguide", noise, seed, precision)
         draw = functools.partial(_general_noise, noise_model, working, guide=provider)
         simulation = cls(
             working,
@@ -5547,6 +6274,7 @@ class Simulation(Displayed):
                     "provider": dict(provider.identity),
                 },
                 **({} if beam is not None else {"pulse": pulse}),
+                **({} if launched is None else {"modal_launch": launched}),
             },
             general=route,
             guide=provider,
@@ -5580,6 +6308,7 @@ class Simulation(Displayed):
         peak_power: float | None = None,
         phases: Sequence[float] | np.ndarray = (),
         pulses: Sequence[Pulse] | None = None,
+        launch: ModalLaunch | None = None,
         modes: int | Sequence[Mode] = 1,
         mode_average: bool = False,
         lattice: TubeLattice | None = None,
@@ -5611,18 +6340,19 @@ class Simulation(Displayed):
         boundary_check: BoundaryCheck | None = DEFAULT_BOUNDARY_CHECK,
         noise: NoiseSetting = "default",
         seed: int | None = None,
-        rtol: float,
+        rtol: float | None = None,
         atol: float = WAVEGUIDE_ATOL,
         dz_max: float | None = None,
         dz_init: float | None = None,
         schedule: FixedSchedule | None = None,
         integrator: Multistep | RungeKutta | LowStorageRungeKutta | None = None,
-        route_integrator: RungeKutta | None = None,
+        route: Literal["capillary", "waveguide"] = "capillary",
         interpolate_planes: bool = False,
         step_planes: int | None = None,
         save_planes: Sequence[float] | np.ndarray | None = None,
         n_save: int | None = None,
         stats: StatsSpec | None = None,
+        polarisation_taper: bool = False,
         node_budget: int = DEFAULT_NODE_BUDGET,
         backend: str = "auto",
         precision: PrecisionName = "double",
@@ -5716,6 +6446,10 @@ class Simulation(Displayed):
             single-pulse keywords `fwhm`, `width`, `shape`, `energy`,
             `peak_power` and `phases`, which must then be left unset; `wavelength` still
             sets the grid's reference wavelength.
+        launch : mapping, sequence of mapping, or None, optional
+            The modes each pulse enters, with their shares and phases, as
+            :meth:`from_capillary` documents it; ``None`` puts the input in the
+            first mode.
         modes : int or sequence of Mode, optional
             How many HE_1m modes to propagate, or the mode set itself. A set is checked
             for orthonormality. The own HE_1m set is synthesised along x; a supplied set
@@ -5740,7 +6474,7 @@ class Simulation(Displayed):
             Marcatili attenuation. It needs the contiguous set ``HE_11`` to ``HE_1N`` --
             or, with ``impedance="te_tm"``, one azimuthal order -- on a constant or a
             varying guide, and a scalar run; it carries the default ``"input"`` noise
-            and refuses ``"modified"``. All three backends execute it (a
+            and refuses ``"modified"``. ``numpy_ref`` and ``native`` execute it (a
             ``method="cf4"`` wall ``numpy_ref`` alone); every other mode set or
             geometry is refused by name. ``None``, the default, carries no wall:
             the modes keep their own Marcatili loss, and a multimode taper its taper
@@ -5855,10 +6589,10 @@ class Simulation(Displayed):
             carry noise, and records the resolution (SEP 37).
         seed : int or None, optional
             Entropy of the noise generator.
-        rtol : float
-            Relative step tolerance, as the calling interface resolved it from its own
-            default (:func:`_tolerance`). Calibrate it for a production run
-            (``docs/dev/stepper.md`` section 3).
+        rtol : float or None, optional
+            Relative step tolerance; ``None`` takes the route's default
+            (:func:`~solprop.driver.defaults.default_rtol`). Calibrate it for a
+            production run (``docs/dev/stepper.md`` section 3).
         atol : float, optional
             Absolute step tolerance, in the square root of watts.
         dz_max : float or None, optional
@@ -5875,10 +6609,11 @@ class Simulation(Displayed):
             interaction-picture DOPRI5 march, for a cheap response or a state too
             large for the Adams history. ``LowStorageRungeKutta()`` replays
             `schedule` in three registers (SEP 24).
-        route_integrator : RungeKutta or None, optional
-            The interface's binary64 default where `integrator` is ``None``, if not
-            the settings' own ``Multistep()``: ``RungeKutta()`` for
-            :meth:`from_waveguide`, carried by its settings so that copies keep it.
+        route : {'capillary', 'waveguide'}, optional
+            The interface building the run, whose row of
+            :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` gives what the caller
+            left: ``"capillary"`` (its TDSE variant beside a TDSE response) or
+            ``"waveguide"`` (its slab variant for a slab mode set).
         interpolate_planes : bool, optional
             Observe the save planes inside accepted steps instead of landing on them
             (SEP 14): through the Adams march's own polynomial, or DOPRI5's
@@ -5895,11 +6630,14 @@ class Simulation(Displayed):
             :func:`solprop.stats.default_spec` for a multimode run with the profiles,
             or for a mode-averaged one under `mode_average`, plus every statistic
             only a backend can compute.
+        polarisation_taper : bool, optional
+            Whether the spectral collar tapers the nonlinear polarisation.
         node_budget : int, optional
             Bytes of node-chunk buffers the response pass may hold.
         backend : str, optional
-            Registry name, or ``"auto"`` (the default) to prefer ``native`` if installed
-            and otherwise use Numba CPU. Import or construction errors do not fall back.
+            Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
+            it isn't installed or this processor is below its baseline. There is no
+            fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``RungeKutta()``, carries no noise, and
@@ -5968,7 +6706,7 @@ class Simulation(Displayed):
                 "electronic one too, and on a field grid the drive form reaches the "
                 "kernel through the Kerr term (docs/guide/media/raman.md)"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter=("raman", "kerr"), rule="raman-needs-kerr")
         if polarisation is not None:
             msg = (
                 f"polarisation={polarisation!r}: this path is scalar and propagates "
@@ -5978,7 +6716,9 @@ class Simulation(Displayed):
                 "capillary run, a polarisation-resolved mode set, which is not "
                 "validated end to end yet"
             )
-            raise DriverError(msg)
+            raise DriverError(
+                msg, parameter="polarisation", rule="scalar-capillary-polarisation"
+            )
         _check_wall_declaration(
             wall,
             backend=backend,
@@ -6016,22 +6756,28 @@ class Simulation(Displayed):
             if waveguide
             else as_profile(cast("float | ZProfile", radius))
         )
-        mixture = capillary_fill(
-            gas,
-            pressure,
-            length=length,
-            temperature=temperature,
-            floor=pressure_floor,
-            susceptibility=susceptibility,
-            preionisation=preionisation,
-            radius=bore,
-            vacuum_end=vacuum_end,
-            selection=materials,
-        )
+        # The fill's own models warn about the conditions they are evaluated at,
+        # which the gas keyword chose.
+        with _warnings_about("gas", _MATERIAL_WARNINGS):
+            mixture = capillary_fill(
+                gas,
+                pressure,
+                length=length,
+                temperature=temperature,
+                floor=pressure_floor,
+                susceptibility=susceptibility,
+                preionisation=preionisation,
+                radius=bore,
+                vacuum_end=vacuum_end,
+                selection=materials,
+            )
         _warn_boreless_gradient(mixture, bore)
         if waveguide:
             if isinstance(modes, int):
-                raise DriverError("from_waveguide requires supplied gas-filled modes")
+                raise DriverError(
+                    "from_waveguide requires supplied gas-filled modes",
+                    parameter="modes",
+                )
             mode_set = _given_gas_modes(modes, mixture)
         else:
             mode_set = _capillary_modes(
@@ -6083,48 +6829,54 @@ class Simulation(Displayed):
         ):
             # The Raman response is optmat's, built from the fill (SEP 3); the other
             # responses keep this path.
-            responses = _capillary_responses(
-                gas,
-                mixture.components[0].species,
-                kerr=kerr,
-                plasma=plasma,
-                preionisation=0.0 if preionisation is None else preionisation,
-                integration=plasma_integration,
-                wavelength=wavelength,
-                envelope=envelope,
-                # The single gas's electronic response is optmat's, at the carrier
-                # or dispersive, as the selection's electronic policy says (SEP 6).
-                electronic=electronic_response(
+            with _warnings_about("gas", _MATERIAL_WARNINGS):
+                responses = _capillary_responses(
+                    gas,
                     mixture.components[0].species,
-                    selection=materials,
-                    wavelength=wavelength,
-                    thg=thg,
-                )
-                if kerr
-                else None,
-                selection=materials,
-            )
-            responses += (
-                _optmat_raman(gas, mixture, materials, thg, wavelength, length)
-                if raman
-                else []
-            )
-        else:
-            responses = list(
-                responses_for(
-                    mixture,
                     kerr=kerr,
-                    thg=thg,
                     plasma=plasma,
-                    raman=raman,
+                    preionisation=0.0 if preionisation is None else preionisation,
+                    integration=plasma_integration,
                     wavelength=wavelength,
                     envelope=envelope,
-                    length=length,
+                    # The single gas's electronic response is optmat's, at the
+                    # carrier or dispersive, as the selection's electronic policy
+                    # says (SEP 6).
+                    electronic=electronic_response(
+                        mixture.components[0].species,
+                        selection=materials,
+                        wavelength=wavelength,
+                        thg=thg,
+                    )
+                    if kerr
+                    else None,
                     selection=materials,
-                    plasma_integration=plasma_integration,
                 )
-            )
-        _refuse_idle_preionisation(mixture, responses)
+            # optmat's Raman response is the raman keyword's choice.
+            with _about("raman"), _warnings_about("raman", _MATERIAL_WARNINGS):
+                responses += (
+                    _optmat_raman(gas, mixture, materials, thg, wavelength, length)
+                    if raman
+                    else []
+                )
+        else:
+            with _warnings_about("gas", _MATERIAL_WARNINGS):
+                responses = list(
+                    responses_for(
+                        mixture,
+                        kerr=kerr,
+                        thg=thg,
+                        plasma=plasma,
+                        raman=raman,
+                        wavelength=wavelength,
+                        envelope=envelope,
+                        length=length,
+                        selection=materials,
+                        plasma_integration=plasma_integration,
+                    )
+                )
+        with _about(("preionisation", "plasma")):
+            _refuse_idle_preionisation(mixture, responses)
         pulse = _shaped_pulse(
             shape,
             wavelength=wavelength,
@@ -6135,7 +6887,7 @@ class Simulation(Displayed):
             phases=phases,
             pulses=pulses,
         )
-        field0 = _in_lowest_mode(pulse.build(working), len(mode_set))
+        field0, launched = _hollow_input(pulse, launch, working, mode_set.modes)
         ionising = any(
             isinstance(one, PlasmaResponse | EnvelopePlasmaResponse)
             for one in responses
@@ -6148,8 +6900,18 @@ class Simulation(Displayed):
             ionisation_field_range,
             _InputPeak(field0, mode_set, working, rule) if ionising else None,
         )
+        row = (
+            "waveguide slab"
+            if any(isinstance(mode, SlabMode) for mode in mode_set.modes)
+            else "capillary tdse"
+            if atomic is not None
+            else route
+        )
+        controller, default = _keyword_controller(row, rtol, atol, precision)
         settings = SimulationSettings(
-            controller=PIController(rtol=rtol, atol=atol),
+            controller=controller,
+            _default_controller=default,
+            _route=row,
             save_planes=_save_planes(length, save_planes, n_save),
             # Relative defaults, so that the first step and the cap scale with the
             # capillary.
@@ -6158,7 +6920,6 @@ class Simulation(Displayed):
             auto_init=dz_init is None,
             schedule=schedule,
             integrator=integrator,
-            _route_integrator=route_integrator,
             interpolate_planes=interpolate_planes,
             step_planes=step_planes,
             density=None,
@@ -6194,21 +6955,12 @@ class Simulation(Displayed):
                     with_plasma=False, mixture=mixture, averaged=rule is None
                 )
             ),
+            polarisation_taper=polarisation_taper,
             backend=backend,
             precision=precision,
             tdse_execution=None if atomic is None else atomic.execution,
         )
-        noise_model, resolution = _resolve_noise(
-            noise,
-            seed,
-            precision,
-            tdse=atomic is not None,
-            unmeasured=(
-                SLAB_NOISE
-                if any(isinstance(mode, SlabMode) for mode in mode_set.modes)
-                else None
-            ),
-        )
+        noise_model, resolution = resolve_noise(row, noise, seed, precision)
         draw = functools.partial(
             _shot_noise, noise_model, working, n_modes=len(mode_set)
         )
@@ -6244,6 +6996,7 @@ class Simulation(Displayed):
                     }
                 ),
                 "pulse": pulse,
+                **({} if launched is None else {"modal_launch": launched}),
                 **({} if atomic is None else {"tdse_entry": atomic.record}),
             },
         )
@@ -6269,11 +7022,39 @@ class Simulation(Displayed):
         return _redrawable(simulation, draw, seed)
 
 
+@dataclasses.dataclass(frozen=True)
+class _LoadedRun:
+    """What a runner's march needs once its input is in the backend, and nothing more.
+
+    Attributes
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, without its input (:func:`_without_input`).
+    handler : solprop.output.schema.Output
+        Where the planes go.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record.
+    retention : solprop.output.schema.FieldRetention
+        Which planes keep their field.
+    boundary_monitor : solprop.monitor.BoundaryMonitor or None
+        The run's monitor of the window's edges.
+    material_log : solprop.physdata.selection.MaterialLog
+        The derived run's material log, which the march goes on with.
+    """
+
+    problem: KernelProblem
+    handler: Output
+    metadata: RunMetadata
+    retention: FieldRetention
+    boundary_monitor: BoundaryMonitor | None
+    material_log: MaterialLog
+
+
 class SimulationRunner(Displayed):
     """One translated problem and one backend, run for many inputs (SEP 22 section 5.2).
 
     Built by :meth:`Simulation.runner`: the problem is translated (or the cached
-    translation reused), memory is admitted and one backend is constructed, once. Each
+    translation reused) and one backend is constructed, once. Each
     :meth:`run` then derives the input with :meth:`Simulation.with_input`, loads it
     into the same backend and runs the save-plane loop, returning that input's own
     handler. A large problem so pays its backend's allocation and transform planning
@@ -6294,18 +7075,12 @@ class SimulationRunner(Displayed):
     simulation : Simulation
         The run to repeat. Its settings, and the translation they fix, are used as
         they are; only the input changes from run to run.
-    memory_budget : int or str or None, optional
-        The budget the backend is admitted against
-        (:func:`solprop.driver.memory.admit_memory`); each run's in-memory output is
-        admitted against it again when the run starts.
 
     Raises
     ------
     DriverError
         If the simulation has a TDSE response, whose atomic binding has its own
         lifecycle and is never reused.
-    MemoryBudgetError
-        If the backend does not fit its budget; nothing has been allocated.
 
     Examples
     --------
@@ -6328,9 +7103,7 @@ class SimulationRunner(Displayed):
     ([3, 3], True)
     """
 
-    def __init__(
-        self, simulation: Simulation, *, memory_budget: int | str | None = None
-    ) -> None:
+    def __init__(self, simulation: Simulation) -> None:
         """Translate, admit and construct the backend, once."""
         problem = simulation.translate()
         if problem.tdse is not None:
@@ -6343,14 +7116,11 @@ class SimulationRunner(Displayed):
         settings = simulation.settings
         self._simulation = simulation
         self._problem = problem
-        self._memory_budget = memory_budget
         self._lock = threading.Lock()
         self._closed = False
         self.runs = 0
         with _optmat.material_context(simulation._material_log):
             _warn_sampled_peak(settings.quadrature, problem.stats_spec)
-            # Admitted before the backend allocates, so a refused runner holds nothing.
-            admit_memory(problem, settings.backend, memory_budget)
             self._backend = select(
                 settings.backend,
                 problem,
@@ -6448,7 +7218,7 @@ class SimulationRunner(Displayed):
         self._closed = True
         self._backend.close()
 
-    def run(
+    def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
@@ -6457,13 +7227,18 @@ class SimulationRunner(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         progress: ProgressReporter | ProgressChoice | None = None,
         progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        input_identity: str | None = None,
     ) -> Output:
         """Run one input on the runner's backend and return its handler.
 
         Parameters
         ----------
         initial : Pulse, SpatialPulse or numpy.ndarray
-            The input, as :meth:`Simulation.with_input` takes it.
+            The input, as :meth:`Simulation.with_input` takes it. An array the record
+            keeps by digest (:func:`~solprop.output.schema.recorded_input`) is not
+            copied: it is read while this call loads it, and the runner holds no
+            reference to it, nor to any copy, once it is loaded, so a caller that
+            keeps none itself has it freed before the first step.
         output : solprop.output.schema.Output or pathlib.Path or str or None, optional
             Where this input's planes go: a handler, a path for an HDF5 file, or
             ``None`` for a new :class:`~solprop.output.memory.MemoryOutput`.
@@ -6477,6 +7252,10 @@ class SimulationRunner(Displayed):
             Where progress goes (:func:`solprop.driver.run.run_problem`).
         progress_period : float, optional
             Seconds between the line reporter's periodic lines, s.
+        input_identity : str or None, optional
+            What an array input is, recorded in its place and not checked, so that its
+            bytes are not digested (:meth:`Simulation.with_input`, whose warning
+            applies: a wrong identity passes a resume and a scan's cache).
 
         Returns
         -------
@@ -6488,10 +7267,9 @@ class SimulationRunner(Displayed):
         DriverError
             If the runner is closed or already running an input; if the derived
             problem is not the runner's but for its input (a different launch
-            position, or a shared leaf replaced); or if the noise model differs from
-            the runner's, which the backend could not carry.
-        MemoryBudgetError
-            If this input's in-memory output does not fit beside the backend.
+            position, or a shared leaf replaced); if the noise model differs from
+            the runner's, which the backend could not carry; or if `input_identity`
+            is empty or names anything but an array input.
         """
         if not self._lock.acquire(blocking=False):
             msg = (
@@ -6503,33 +7281,90 @@ class SimulationRunner(Displayed):
             if self._closed:
                 msg = "this runner is closed; build another with simulation.runner()"
                 raise DriverError(msg)
-            return self._run(
+            loaded = self._load(
                 initial,
                 output=output,
                 configuration=configuration,
                 noise=noise,
-                progress=progress,
-                progress_period=progress_period,
+                input_identity=input_identity,
+            )
+            # The load is the last to read the input, and every frame that saw it has
+            # returned but this one: the march holds no volume for it (issue #447).
+            del initial
+            return self._march(
+                loaded, progress=progress, progress_period=progress_period
             )
         except BaseException:
             # A backend that closed itself cannot run another input.
-            if getattr(self._backend, "_closed", False):
+            if self._backend.closed:
                 self._close_held()
             raise
         finally:
             self._lock.release()
 
-    def _run(
+    def _takes(self, simulation: Simulation) -> bool:
+        """Return whether a simulation is this runner's but for its input.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            A simulation that may share this one's translation.
+
+        Returns
+        -------
+        bool
+            Whether its problem passes :func:`check_derived_problem`.
+        """
+        try:
+            check_derived_problem(self._problem, simulation.translate())
+        except DriverError as error:
+            logger.debug("a new backend for this run: %s", error)
+            return False
+        return True
+
+    def _run_point(
+        self,
+        simulation: Simulation,
+        output: Output,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        stop: StopFlag | None,
+    ) -> None:
+        """Run a simulation this runner :meth:`_takes`, as its own ``run`` would.
+
+        For a scan's worker, which has built the point's simulation and holds its
+        record already. Unlike :meth:`run` it honours `stop`, and the handler's record
+        is the simulation's own.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The point.
+        output : solprop.output.schema.Output
+            Where its planes go.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        stop : object or None
+            The point's stop flag.
+        """
+        with self._lock:
+            simulation._run(output, progress=progress, stop=stop, kept=self._backend)
+            self.runs += 1
+
+    def _load(
         self,
         initial: Pulse | SpatialPulse | np.ndarray,
         *,
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
         noise: NoiseRealisation | Literal["keep"] | None,
-        progress: ProgressReporter | ProgressChoice | None,
-        progress_period: float,
-    ) -> Output:
-        """Derive, load and run one input; :meth:`run` without its guards.
+        input_identity: str | None,
+    ) -> _LoadedRun:
+        """Derive one input's run, open its handler and load the input into the backend.
+
+        The derived simulation and its problem are this frame's alone: they, the
+        converted launch of a modal route and the view of the input all go when it
+        returns.
 
         Parameters
         ----------
@@ -6541,6 +7376,55 @@ class SimulationRunner(Displayed):
             Caller keys for its record.
         noise : NoiseRealisation, {'keep'} or None
             Its noise.
+        input_identity : str or None
+            What the caller states an array input to be.
+
+        Returns
+        -------
+        _LoadedRun
+            What the march needs, which holds no input.
+        """
+        derived = self._simulation.with_input(
+            _borrowed_input(initial, stated=input_identity is not None),
+            noise=noise,
+            configuration=configuration,
+            input_identity=input_identity,
+        )
+        problem = derived.translate()
+        check_derived_problem(self._problem, problem)
+        settings = self._simulation.settings
+        with _optmat.material_context(derived._material_log):
+            metadata = derived.metadata()
+            handler, _ = _open_output(output, metadata, resume=False)
+            retention = field_retention(problem, settings.fields, settings.field_planes)
+            monitor = derived._boundary_monitor()
+            self._backend.set_initial(
+                problem.initial.field0,
+                None if isinstance(noise, str) else _realisation(problem),
+                z=problem.initial.z,
+            )
+        return _LoadedRun(
+            _without_input(problem),
+            handler,
+            metadata,
+            retention,
+            monitor,
+            derived._material_log,
+        )
+
+    def _march(
+        self,
+        loaded: _LoadedRun,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        progress_period: float,
+    ) -> Output:
+        """Run the loaded input's save-plane loop and finish its handler.
+
+        Parameters
+        ----------
+        loaded : _LoadedRun
+            The run :meth:`_load` left ready.
         progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
             Where progress goes.
         progress_period : float
@@ -6551,55 +7435,88 @@ class SimulationRunner(Displayed):
         solprop.output.schema.Output
             The handler.
         """
-        derived = self._simulation.with_input(
-            initial, noise=noise, configuration=configuration
-        )
-        problem = derived.translate()
-        check_derived_problem(self._problem, problem)
         settings = self._simulation.settings
-        with _optmat.material_context(derived._material_log):
-            metadata = derived.metadata()
-            handler, _, _ = _open_output(output, metadata, resume=False)
-            retention = field_retention(problem, settings.fields, settings.field_planes)
-            admission = admit_memory(
-                problem,
-                settings.backend,
-                self._memory_budget,
-                output=handler,
-                retention=retention,
-            )
-            self._backend.set_initial(
-                problem.initial.field0,
-                None if isinstance(noise, str) else _realisation(problem),
-                z=problem.initial.z,
-            )
+        problem, handler = loaded.problem, loaded.handler
+        with _optmat.material_context(loaded.material_log):
             run_problem(
                 problem,
                 self._backend,
                 handler,
-                metadata=metadata,
+                metadata=loaded.metadata,
                 stats_spec=problem.stats_spec,
                 progress=progress,
                 progress_period=progress_period,
-                memory=admission,
                 resume_history=settings.resume_history,
-                fields=retention.fields,
-                field_planes=retention.field_planes,
-                boundary_monitor=derived._boundary_monitor(),
+                fields=loaded.retention.fields,
+                field_planes=loaded.retention.field_planes,
+                boundary_monitor=loaded.boundary_monitor,
             )
-            derived._peak_fields = _peak_field_reports(
-                problem, handler, derived.responses
-            )
-        if derived._peak_fields and isinstance(handler, PlaneStore):
+            reports = _peak_field_reports(problem, handler, self._simulation.responses)
+        if reports and isinstance(handler, PlaneStore):
             handler.annotate(
                 PEAK_FIELDS_ANNOTATION,
-                [
-                    cast("JsonValue", report.to_dict())
-                    for report in derived._peak_fields
-                ],
+                [cast("JsonValue", report.to_dict()) for report in reports],
             )
         self.runs += 1
         return handler
+
+
+def _borrowed_input(
+    initial: Pulse | SpatialPulse | np.ndarray, *, stated: bool
+) -> Pulse | SpatialPulse | np.ndarray:
+    """Return a runner's input as its private derived simulation may take it, uncopied.
+
+    A derived simulation copies an array so that its record and its run outlive the
+    caller's changes. A runner's lives only until the load, on the caller's thread and
+    inside the call, so an array needs no copy unless the record outlives it: one
+    recorded inline stays a copy, in the handler's record.
+
+    Parameters
+    ----------
+    initial : Pulse, SpatialPulse or numpy.ndarray
+        The runner's input.
+    stated : bool
+        Whether the caller states its identity, which is then all the record keeps.
+
+    Returns
+    -------
+    Pulse, SpatialPulse or numpy.ndarray
+        A read-only view of a complex128 array the record does not hold, marked as held
+        so that nothing copies it; `initial` itself otherwise. The caller's own flags
+        are not touched.
+    """
+    if (
+        isinstance(initial, np.ndarray)
+        and initial.dtype == np.complex128
+        and (stated or not _recorded_inline(initial))
+    ):
+        return _hold(np.asarray(initial).view())
+    return initial
+
+
+def _without_input(problem: KernelProblem) -> KernelProblem:
+    """Return a loaded problem without its input, for the march that follows the load.
+
+    The save-plane loop reads the launch position and never the launch, so the state
+    is replaced by a broadcast of one zero, which holds no volume (:class:`~solprop.
+    translate.problem.Initial`). The problem is good for the march alone.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The derived problem, whose input is already in the backend.
+
+    Returns
+    -------
+    solprop.translate.problem.KernelProblem
+        The problem, sharing every leaf but ``initial.field0``.
+    """
+    placeholder = np.broadcast_to(
+        np.zeros(1, dtype=np.complex128), problem.initial.field0.shape
+    )
+    return dataclasses.replace(
+        problem, initial=dataclasses.replace(problem.initial, field0=_hold(placeholder))
+    )
 
 
 def _realisation(problem: KernelProblem) -> NoiseRealisation | None:
@@ -6766,7 +7683,9 @@ def _refuse_plasma_settings(
     """
     if envelope and active and thg:
         msg = "envelope plasma cannot be combined with THG"
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("envelope", "plasma", "thg"), rule="envelope-plasma-no-thg"
+        )
     if integration is None:
         return
     if envelope:
@@ -6775,13 +7694,21 @@ def _refuse_plasma_settings(
             "column's running-integral rule; envelope plasma converts its currents "
             "with exact inverse-frequency factors and takes no such rule"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg,
+            parameter=("plasma_integration", "envelope"),
+            rule="plasma-integration-field-grid",
+        )
     if not active:
         msg = (
             f"plasma_integration={integration!r} is given but the plasma is off; "
             "turn it on (plasma=True) or drop plasma_integration"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg,
+            parameter=("plasma_integration", "plasma"),
+            rule="plasma-integration-needs-plasma",
+        )
 
 
 def _refuse_idle_preionisation(mixture: Mixture, responses: Sequence[object]) -> None:
@@ -6969,6 +7896,7 @@ def _mixture_reuse(
             source, updated, old, new, problem.responses.prefactor_expansion
         ),
         kernels,
+        problem.transverse,
     )
 
 
@@ -7000,7 +7928,7 @@ def _undamped_model_key(response: RamanResponse) -> object:
 _CF4_BACKEND: Final = "numpy_ref"
 """The one backend that executes a ``"cf4"`` section of the flow.
 
-CF4 is not yet implemented on the compiled backends, which refuse such a section.
+CF4 is not yet implemented on the native backend, which refuses such a section.
 """
 
 
@@ -7052,7 +7980,9 @@ def _check_wall_declaration(
             "Leave taper_coupling at its default with wall=, or pass wall=None for "
             "the adiabatic route"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("wall", "taper_coupling"), rule="wall-keeps-taper-coupling"
+        )
     resolved = resolve_name(backend)
     selected = f"{backend!r}" if backend == resolved else f"{backend!r} ({resolved})"
     if wall.method == "cf4" and resolved != _CF4_BACKEND:
@@ -7060,13 +7990,15 @@ def _check_wall_declaration(
             f"a coherent wall with method='cf4' integrates each section by the "
             f"commutator-free exponentials of its whole generator, which the "
             f"{_CF4_BACKEND} backend alone executes, and this run selects "
-            f"{selected}: numba_cpu and the native backend execute the default "
-            f"method='frozen_residual' and refuse a CF4 section by name: CF4 is not "
-            "yet implemented on the compiled backends. Pass "
+            f"{selected}: the native backend executes the default "
+            f"method='frozen_residual' and refuses a CF4 section by name: CF4 is not "
+            "yet implemented there. Pass "
             f"backend={_CF4_BACKEND!r} with method='cf4', or leave the method at its "
             "default"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("wall.method", "backend"), rule="wall-cf4-numpy-ref"
+        )
     if loss is not True:
         msg = (
             f"a coherent wall block is the loss model, and this run declares "
@@ -7075,7 +8007,7 @@ def _check_wall_declaration(
             "be discarded in silence. Pass loss=True with wall=, or leave wall=None "
             "and keep the uncoupled loss you asked for"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=("wall", "loss"), rule="wall-is-the-loss")
     if model != "full":
         msg = (
             f"a coherent wall block needs one capillary model, the full one, and "
@@ -7083,7 +8015,7 @@ def _check_wall_declaration(
             "model's transverse eigenvalue, and the reduced model's leading-order "
             "carrier beside it would be overridden rather than propagated"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=("wall", "model"), rule="wall-full-model")
     if lattice is not None:
         msg = (
             "a coherent wall block assumes one uniform dielectric wall at a single "
@@ -7092,7 +8024,7 @@ def _check_wall_declaration(
             "capillary. Leave wall=None and keep the Vincetti loss, or drop the "
             "lattice"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=("wall", "lattice"), rule="wall-no-lattice")
 
 
 # Positions along the capillary at which the modes' group delays are read.
@@ -7378,8 +8310,6 @@ def _validate_resume(
         raise DriverError("a TDSE resume requires persisted cumulative call ledgers")
     method = problem.stepper.integrator
     if outcome is not None and outcome.logical_calls and isinstance(method, Multistep):
-        # Under another integrator the charged ledger stays in the earlier execution
-        # records as provenance, and is not installed (SEP 42 section 5.6).
         calls = CallLedger.from_record(outcome.logical_calls)
         if method.max_calls is not None and calls.total > method.max_calls:
             raise DriverError("logical call budget is below previously charged work")
@@ -7395,65 +8325,6 @@ def _validate_resume(
         ):
             raise DriverError("atomic call budget is below previously attempted work")
     return next_plane
-
-
-def _tdse_memory_execution(
-    problem: KernelProblem,
-    execution: TDSEExecution,
-    admission: MemoryAdmission,
-    *,
-    archive: Literal["full", "required"] | None = None,
-) -> TDSEExecution:
-    """Apply the run's budget to combined optical and atomic persistent storage.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        Translated problem supplying the atomic descriptor and node count.
-    execution : TDSEExecution
-        Atomic device choices and memory cap in bytes.
-    admission : MemoryAdmission
-        Optical host estimate and declared run budget in bytes.
-    archive : {'full', 'required'} or None, optional
-        The raw archive's output selection, whose writer buffers and widened
-        provider histories are admitted too; None without an archive.
-
-    Returns
-    -------
-    TDSEExecution
-        Resource choices with the combined hard memory limit enforced.
-    """
-    descriptor = problem.tdse
-    if descriptor is None:
-        raise DriverError("atomic memory admission requires a TDSE descriptor")
-    budget = admission.budget
-    limits = [execution.memory_limit]
-    if budget.action == "refuse":
-        limits.append(budget.limit)
-    finite_limits = [value for value in limits if value is not None]
-    effective = dataclasses.replace(
-        execution, memory_limit=min(finite_limits) if finite_limits else None
-    )
-    atomic_bytes = sum(
-        tdse_runtime.estimate_binding_memory(
-            descriptor, effective, problem.transform.n_nodes, archive=archive
-        ).values()
-    )
-    combined = admission.estimate.total + atomic_bytes
-    if effective.memory_limit is not None and combined > effective.memory_limit:
-        raise MemoryBudgetError(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding {effective.memory_limit} bytes"
-        )
-    if budget.action == "warn" and budget.limit is not None and combined > budget.limit:
-        warnings.warn(
-            f"combined optical and TDSE estimate requires {combined} bytes, "
-            f"exceeding the advisory run budget of {budget.limit} bytes "
-            f"({budget.source})",
-            MemoryBudgetWarning,
-            stacklevel=3,
-        )
-    return effective
 
 
 def _check_tdse_archive(
@@ -7592,7 +8463,7 @@ def _open_tdse_archive(
         "execution": dataclasses.asdict(execution),
         "provider_pin": tdse_runtime.pinned_revision(),
         # The file's own record on a resume, which the session holds and a snapshot
-        # compares with (SEP 42 section 5.3).
+        # compares with.
         "optical_configuration_hash": (
             metadata if state is None else state.metadata
         ).configuration_hash(),
@@ -7816,6 +8687,145 @@ def _refined_tdse_collar(
     )
 
 
+def _replaced_launch(
+    original: KernelProblem,
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    launch_z: float,
+) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    """Return a replaced input as the derived problem's launch, without a further copy.
+
+    On a free-space or spatial route the launch is a view of the derived simulation's
+    own copy; on a modal route it is the power conversion of that copy, a second array
+    beside it.
+
+    Parameters
+    ----------
+    original : KernelProblem
+        The problem the input replaces the launch of.
+    field0 : numpy.ndarray
+        The replacement input, in true sqrt(W) on a modal route.
+    launch_z : float
+        Where it is launched, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The launch with its batch axis, which :class:`~solprop.translate.problem.
+        Initial` takes without a further copy.
+    """
+    if original.transform.geometry is not None:
+        return _state(field0, original.shape[-1])
+    # The conversion is a new array, held as it is rather than copied again.
+    converted = power_amplitude(
+        field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
+    )
+    return _hold(np.asarray(converted, dtype=np.complex128))
+
+
+def _check_input_identity(
+    identity: str | None, initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch
+) -> None:
+    """Refuse a stated identity that is empty, or of anything but an array input.
+
+    Parameters
+    ----------
+    identity : str or None
+        What the caller states the input to be.
+    initial : Pulse, SpatialPulse, numpy.ndarray or solprop.coupling.CouplingLaunch
+        The input.
+
+    Raises
+    ------
+    DriverError
+        Saying which.
+    """
+    if identity is None:
+        return
+    if not identity:
+        raise DriverError("input_identity must say what the input is: it is empty")
+    if not isinstance(initial, np.ndarray):
+        msg = (
+            "input_identity states an array input's identity; "
+            f"a {type(initial).__name__} is recorded as itself"
+        )
+        raise DriverError(msg)
+
+
+def _given_input(
+    given: np.ndarray, held: Complex[np.ndarray, "n_modes n_pol n_omega"]
+) -> np.ndarray:
+    """Return an array input as the caller gave it, for the record: a read-only view.
+
+    The record keeps the caller's dtype and values, so that a file written from such
+    an input before the simulation copied it still resumes; a view of a read-only owner
+    cannot be made writeable, so the record and the run cannot be changed through it.
+
+    Parameters
+    ----------
+    given : numpy.ndarray
+        The caller's array.
+    held : numpy.ndarray
+        The simulation's complex128 copy of it.
+
+    Returns
+    -------
+    numpy.ndarray
+        A read-only view of `held` when `given` is complex128, otherwise of a held copy
+        of `given` in its own dtype; :class:`~solprop.translate.problem.Initial` takes
+        either as held.
+    """
+    # The whole dtype, byte order included: the record serialises its exact string.
+    source = held if given.dtype == held.dtype else _held_block(given, given.dtype)
+    return _hold(source.view())
+
+
+def _check_planar_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
+    """Refuse a planar input whose shape is not ``(n_p*n_y, 1, n_omega)``.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        The input's shape.
+    n_columns : int
+        The planar grid's ``(p, k_y)`` columns.
+    n_omega : int
+        The grid's frequency bins.
+
+    Raises
+    ------
+    DriverError
+        Naming both shapes.
+    """
+    if shape != (n_columns, 1, n_omega):
+        msg = (
+            "a planar input has shape (n_p*n_y, 1, n_omega) = "
+            f"{(n_columns, 1, n_omega)}, got {shape}"
+        )
+        raise DriverError(msg)
+
+
+def _check_spatial_input(shape: tuple[int, ...], n_columns: int, n_omega: int) -> None:
+    """Refuse a spatial input whose shape is not ``(n_columns, n_pol, n_omega)``.
+
+    Parameters
+    ----------
+    shape : tuple of int
+        The input's shape.
+    n_columns : int
+        The spatial grid's columns.
+    n_omega : int
+        The grid's frequency bins.
+
+    Raises
+    ------
+    DriverError
+        Naming the shape it requires.
+    """
+    if len(shape) != 3 or shape[0] != n_columns or shape[2] != n_omega:
+        msg = "spatial input must have shape (n_columns, n_pol, n_omega)"
+        raise DriverError(msg)
+
+
 def _built(
     initial: Pulse | np.ndarray, grid: TimeGrid
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -7831,7 +8841,9 @@ def _built(
     Returns
     -------
     numpy.ndarray
-        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``.
+        The spectrum, complex128, shape ``(n_modes, n_pol, n_omega)``, read-only and
+        the simulation's own: a copy of an array (of its repeated block for a
+        broadcast), or a solprop pulse's new build.
 
     Raises
     ------
@@ -7839,7 +8851,10 @@ def _built(
         If `initial` is neither an array nor a pulse.
     """
     if isinstance(initial, np.ndarray):
-        return np.asarray(initial, dtype=np.complex128)
+        # Copied now, so that changing the caller's array later changes nothing, as
+        # the problem holds it: a broadcast copies its block alone, and an array a
+        # simulation already holds (its own, passed back) is taken as it is.
+        return _held_state(initial)
     # A runtime-checkable protocol is satisfied by the presence of `build`, not by its
     # being callable, so the guard below is still the one that names the mistake.
     build = getattr(initial, "build", None)
@@ -7849,7 +8864,40 @@ def _built(
             f"got {type(initial).__name__}"
         )
         raise DriverError(msg)
-    return np.asarray(build(grid), dtype=np.complex128)
+    return _built_state(initial, build(grid))
+
+
+def _built_state(
+    pulse: object, built: object
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return a pulse's built spectrum as the problem holds it, copied only if foreign.
+
+    A build of solprop's own pulse classes is a new array solprop made, so it is held
+    as it is; any other pulse's build may be an array the pulse keeps, and is copied
+    (:class:`~solprop.translate.problem.Initial`).
+
+    Parameters
+    ----------
+    pulse : object
+        The pulse that built it.
+    built : object
+        What its ``build`` returned.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectrum, complex128, read-only and held.
+    """
+    spectrum = np.asarray(built)
+    build = getattr(type(pulse), "build", None)
+    own = getattr(build, "__module__", None) == _PULSE_MODULE
+    if own and spectrum.dtype == np.complex128:
+        return _hold(spectrum)
+    return _held_state(spectrum)
+
+
+_PULSE_MODULE: Final = SpatialPulse.__module__
+"""The module of solprop's pulse classes, whose ``build`` always makes a new array."""
 
 
 def _interpolated(state: ResumeState) -> bool:
@@ -7868,14 +8916,7 @@ def _interpolated(state: ResumeState) -> bool:
     bool
         Whether the plane is not a state the march passed through.
     """
-    if state.checkpoint is not None:
-        return not state.checkpoint.landed
-    if state.n_saved <= 1:
-        return False
-    history = state.history
-    # The history records where each attempt started and how long it was.
-    ends = (history.z + history.h)[history.accepted]
-    return not bool(np.any(np.isclose(ends, state.plane.z, rtol=1e-12, atol=0.0)))
+    return state.interpolated
 
 
 def _open_output(
@@ -7883,13 +8924,11 @@ def _open_output(
     metadata: RunMetadata,
     *,
     resume: _ResumeChoice,
-) -> tuple[Output, ResumeState | None, RecordComparison | None]:
+) -> tuple[Output, ResumeState | None]:
     """Choose the handler a run writes to, and read what a resumed file holds.
 
-    The resume gate (SEP 42): the file's record and `metadata` are compared path by
-    path. A layout difference is refused, and a compared one unless the resume is
-    forced; numerics may differ. What depends on the file's state -- whether work is
-    left, whether a session forced it -- is decided by :func:`_resume_decision`.
+    The resume gate (ADR-066): the file's configuration hash must equal `metadata`'s.
+    Whether work is left is decided by :func:`_continues`.
 
     Parameters
     ----------
@@ -7897,101 +8936,40 @@ def _open_output(
         The caller's choice.
     metadata : solprop.output.schema.RunMetadata
         The record of the run about to start, which a file is compared with.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         Whether to continue an existing file; ``"interpolated"`` also from a plane
-        interpolated inside a step, and ``"force"`` across compared differences too.
+        interpolated inside a step.
 
     Returns
     -------
     tuple
-        The handler, the state to resume from or ``None``, and the comparison of the
-        two records or ``None``.
+        The handler, and the state to resume from or ``None``.
 
     Raises
     ------
     DriverError
         If a resume is asked for and `output` is not a path.
     OutputError
-        If the file exists and its layout differs, or a compared value differs and
-        the resume is not forced.
+        If the file exists and its hash differs; the message names what changed.
     """
     if resume and metadata.configuration.get("_benchmark_plasma_source"):
         raise DriverError("gated plasma benchmark output cannot be resumed")
     if isinstance(output, Path | str):
         path = Path(output)
-        found = _compare_cache(path, metadata) if resume else None
-        if found is not None:
-            stored, comparison = found
-            if comparison.layout or (comparison.refused and resume != "force"):
-                raise OutputError(_resume_refusal(path, stored, comparison))
-            state = resume_state(path)
-            return HDF5Output(path, append=True, gated=True), state, comparison
-        return HDF5Output(path), None, None
+        if resume and check_cache(path, metadata):
+            return HDF5Output(path, append=True), resume_state(path)
+        return HDF5Output(path), None
     if resume:
         msg = (
             "only a path can be resumed: the file has to be opened in append mode, "
             "which is the driver's to decide; pass output=<path> with resume=True"
         )
         raise DriverError(msg)
-    return (MemoryOutput() if output is None else output), None, None
-
-
-@dataclasses.dataclass(frozen=True)
-class _Continuation:
-    """How a resumed session continues its file (SEP 42 section 4).
-
-    Attributes
-    ----------
-    entry : dict or None
-        The ``resume`` entry its execution records carry, or ``None`` when nothing
-        but rounding separates the records.
-    forced : bool
-        Whether it continues across compared differences, under ``resume="force"``.
-    warning : str
-        What to warn once the session is sure to continue: after a forced one's
-        statistics are found to fit, so that a refusal is not preceded by it.
-    """
-
-    entry: dict[str, object] | None
-    forced: bool = False
-    warning: str = ""
-
-
-_FORCED_NOTE = (
-    "From here the file's record does not describe its planes: stats/* hold, and "
-    "anything rebuilt from the record does not."
-)
-
-
-def _session_planes(
-    state: ResumeState | None, continuation: _Continuation | None
-) -> int:
-    """Return the first plane a post-run report reads.
-
-    Parameters
-    ----------
-    state : ResumeState or None
-        What a resumed file held, or ``None`` for a fresh run.
-    continuation : _Continuation or None
-        How the session continued it.
-
-    Returns
-    -------
-    int
-        The first plane this session wrote when the file was forced, by this
-        session or an earlier one, since the planes before were computed under other
-        physics (SEP 42 section 5.5); otherwise 0, every plane.
-    """
-    if state is None:
-        return 0
-    forced = (continuation is not None and continuation.forced) or (
-        state.outcome is not None and bool(state.outcome.forced_positions)
-    )
-    return state.n_saved if forced else 0
+    return (MemoryOutput() if output is None else output), None
 
 
 def _check_resume_choice(resume: object) -> None:
-    """Refuse a ``resume`` value that is not one of its four.
+    """Refuse a ``resume`` value that is not one of its three.
 
     Parameters
     ----------
@@ -8001,12 +8979,12 @@ def _check_resume_choice(resume: object) -> None:
     Raises
     ------
     ValueError
-        If it is not ``False``, ``True``, ``"interpolated"`` or ``"force"``: a
-        mistyped word would otherwise read as ``True``.
+        If it is not ``False``, ``True`` or ``"interpolated"``: a mistyped word would
+        otherwise read as ``True``.
     """
-    if resume is True or resume is False or resume in _RESUME_CHOICES[2:]:
+    if resume is True or resume is False or resume == "interpolated":
         return
-    msg = f"resume must be False, True, 'interpolated' or 'force', got {resume!r}"
+    msg = f"resume must be False, True or 'interpolated', got {resume!r}"
     raise ValueError(msg)
 
 
@@ -8032,118 +9010,12 @@ def _work_left(problem: KernelProblem, state: ResumeState, next_plane: int) -> b
     return state.checkpoint is not None or next_plane < len(problem.stepper.save_planes)
 
 
-def _resume_entry(
-    state: ResumeState, comparison: RecordComparison, *, forced: bool
-) -> dict[str, object] | None:
-    """Return the ``resume`` entry of a session's execution records (SEP 42 §5.3).
-
-    Parameters
-    ----------
-    state : ResumeState
-        What the file holds.
-    comparison : RecordComparison
-        What separates the file's record from the requested one.
-    forced : bool
-        Whether the session continues across compared differences.
-
-    Returns
-    -------
-    dict or None
-        Where the session continues from, whether it was forced, the numerics it
-        changed, the compared values as a grouped text, and the paths read as
-        neutral; ``None`` when there is nothing to record.
-    """
-    if not (comparison.numerics or comparison.neutral or forced):
-        return None
-    return {
-        "from_z": float(state.plane.z),
-        "from_plane": state.n_saved - 1,
-        "forced": forced,
-        "numerics": comparison.numerics_record(),
-        # The grouped text, not every path: the record is rewritten at every plane.
-        "compared": comparison.compared_summary() if forced else "",
-        "neutral": [dotted(path) for path in comparison.neutral],
-    }
-
-
-def _confirm_continuation(
-    continuation: _Continuation | None,
-    backend: Backend,
-    problem: KernelProblem,
-    output: Output | Path | str | None,
-) -> None:
-    """Check a primed continuation can go ahead, then warn what it does.
-
-    Parameters
-    ----------
-    continuation : _Continuation or None
-        How the session continues its file, or ``None`` for a fresh run.
-    backend : Backend
-        The primed backend.
-    problem : KernelProblem
-        The translated problem.
-    output : pathlib.Path or str
-        The file.
-    """
-    if continuation is None:
-        return
-    if continuation.forced and problem.tdse is None:
-        _check_forced_shapes(backend, problem.stats_spec, output)
-    if continuation.warning:
-        warnings.warn(continuation.warning, SolpropWarning, stacklevel=3)
-
-
-def _check_forced_shapes(
-    backend: Backend, spec: StatsSpec, output: Output | Path | str | None
-) -> None:
-    """Refuse a forced resume whose statistics would not fit the file's arrays.
-
-    A statistic's names and shape follow the responses and the species, so a forced
-    change of the number of species, or of plasma on or off, would compute a whole
-    segment and then fail at its first save, leaving a checkpoint from the other
-    physics. Checked after the backend is primed, before any step or write
-    (SEP 42 section 5.5).
-
-    Parameters
-    ----------
-    backend : Backend
-        The primed backend.
-    spec : StatsSpec
-        The statistics the run collects.
-    output : pathlib.Path or str
-        The file being continued.
-
-    Raises
-    ------
-    OutputError
-        If a statistic is missing from either side or its shape differs.
-    """
-    path = Path(cast("Path | str", output))
-    stored = _stored_stat_shapes(path)
-    requested = {
-        name: tuple(np.shape(value)[1:]) for name, value in backend.stats(spec).items()
-    }
-    changed = sorted(
-        f"{name} (stored {stored.get(name)}, now {requested.get(name)})"
-        for name in set(stored) | set(requested)
-        if stored.get(name) != requested.get(name)
-    )
-    if changed:
-        msg = (
-            f"{path} cannot be continued with resume='force': its statistics do not "
-            f"fit this run's, which changes {', '.join(changed)}; nothing was "
-            "computed or written. Launch a new segment from a saved plane instead"
-        )
-        raise OutputError(msg)
-
-
 def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) -> None:
     """Refuse to continue from a plane interpolated inside a step, unless accepted.
 
     An interpolated plane is not a state the march passed through, so a run restarted
     there is not the run it continues (SEP 14 section 5); ``resume="interpolated"``
-    or ``"force"`` accepts that. Tested on the file, not on the requested settings,
-    since ``interpolate_planes`` may change on a resume (SEP 42 section 5.6).
+    accepts that.
 
     Parameters
     ----------
@@ -8151,7 +9023,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
         The file.
     state : ResumeState
         What it holds.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         The caller's request.
 
     Raises
@@ -8159,7 +9031,7 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
     DriverError
         If the file ends on an interpolated plane and the request does not accept it.
     """
-    if resume in ("interpolated", "force") or not _interpolated(state):
+    if resume == "interpolated" or not _interpolated(state):
         return
     msg = (
         f"{path} ends on a plane interpolated inside a step at z = "
@@ -8169,20 +9041,14 @@ def _refuse_interpolated(path: Path, state: ResumeState, resume: _ResumeChoice) 
     raise DriverError(msg)
 
 
-def _resume_decision(
+def _continues(
     path: Path,
     problem: KernelProblem,
     state: ResumeState,
     next_plane: int,
-    comparison: RecordComparison,
     resume: _ResumeChoice,
-) -> _Continuation | None:
-    """Decide what a resume of a file does, once the records' layouts agree.
-
-    The verdict of SEP 42 section 4: a file with work left continues, recording
-    changed numerics, and continues across compared differences only when forced; a
-    file with nothing left is returned unless the request's numerics differ from any
-    session's; a file a session forced continues only when forced again.
+) -> bool:
+    """Say whether a resume of a file computes anything, once its hash has passed.
 
     Parameters
     ----------
@@ -8194,91 +9060,24 @@ def _resume_decision(
         What the file holds.
     next_plane : int
         The next save plane beyond the file's position.
-    comparison : RecordComparison
-        What separates the file's record from the requested one.
-    resume : bool or {'interpolated', 'force'}
+    resume : bool or {'interpolated'}
         The caller's request.
 
     Returns
     -------
-    _Continuation or None
-        How the session continues, or ``None`` when there is nothing to do.
+    bool
+        ``True`` when work is left, and ``False`` for a finished file.
 
     Raises
     ------
-    OutputError
-        If a session forced the file and this one does not, while work is left; if
-        a forced resume has nothing to continue; or if a finished file was computed
-        under numerics other than the requested ones.
+    DriverError
+        If work is left from a plane interpolated inside a step and the request does
+        not accept that.
     """
-    work_left = _work_left(problem, state, next_plane)
-    outcome = state.outcome
-    forced_at = () if outcome is None else outcome.forced_positions
-    where = ", ".join(f"{z:.6g}" for z in forced_at)
-    if forced_at and resume != "force":
-        if not work_left:
-            warnings.warn(
-                f"{path} was continued with resume='force' at z = {where} m. "
-                + _FORCED_NOTE,
-                SolpropWarning,
-                stacklevel=3,
-            )
-            return None
-        msg = (
-            f"{path} was continued with resume='force' at z = {where} m, so its "
-            "record no longer describes the run it holds; continue it with "
-            "resume='force', or write a new file"
-        )
-        raise OutputError(msg)
-    if comparison.refused:
-        if not work_left:
-            msg = (
-                f"{path} holds a finished run, and resume='force' continues only a "
-                f"file with work left; {comparison.summary()}"
-            )
-            raise OutputError(msg)
-        launch = any(
-            change.path[:2]
-            in (("configuration", "pulse"), ("configuration", "initial"))
-            for change in comparison.refused
-        )
-        warning = (
-            f"forcing a resume of {path} at z = {state.plane.z:.6g} m; "
-            f"{comparison.summary()}\n"
-            + (
-                "The launch differs, which has no effect: the stored field continues.\n"
-                if launch
-                else ""
-            )
-            + "The Adams history starts afresh. "
-            + _FORCED_NOTE
-        )
-        return _Continuation(
-            _resume_entry(state, comparison, forced=True), forced=True, warning=warning
-        )
-    if not work_left:
-        earlier = () if outcome is None else outcome.resumes
-        if comparison.numerics or any(entry.get("numerics") for entry in earlier):
-            # A tightened tolerance must not hand back the loose result, and a file
-            # finished under other numerics than it started with matches neither.
-            changed = comparison.summary() or "an earlier session changed its numerics"
-            msg = (
-                f"{path} holds a finished run that was not computed throughout under "
-                f"the requested numerics, so nothing would be computed; {changed}. "
-                "Write a new file to compute it under these"
-            )
-            raise OutputError(msg)
-        return None
+    if not _work_left(problem, state, next_plane):
+        return False
     _refuse_interpolated(path, state, resume)
-    warning = (
-        f"resuming {path} at z = {state.plane.z:.6g} m with changed numerics; "
-        f"{comparison.summary()}"
-        if comparison.numerics
-        else ""
-    )
-    return _Continuation(
-        _resume_entry(state, comparison, forced=False), warning=warning
-    )
+    return True
 
 
 def _gnlse_grid(
@@ -8322,15 +9121,20 @@ def _gnlse_grid(
                 "prop_capillary's "
                 "path"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter="grid", rule="gnlse-envelope-grid")
         return grid
     if wavelength_limits is None or trange is None:
         msg = (
             "give wavelength_limits and trange so a grid can be built, or a grid of "
             "your own"
         )
-        raise DriverError(msg)
-    return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
+        raise DriverError(
+            msg,
+            parameter=_unset(wavelength_limits=wavelength_limits, trange=trange),
+            rule="grid-or-limits",
+        )
+    with _about(renamed=_GRID_KEYWORDS):
+        return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -8390,13 +9194,29 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
         If dispersion, nonlinearity, area, loss or z dependence is incompatible.
     """
     if sum(value is not None for value in (betas, beta, fibre)) != 1:
-        raise DriverError("give exactly one of betas, beta and fibre")
+        raise DriverError(
+            "give exactly one of betas, beta and fibre",
+            parameter=("betas", "beta", "fibre"),
+            rule="betas-beta-or-fibre",
+        )
     if (gamma is None) == (n2 is None):
-        raise DriverError("give exactly one of gamma and n2")
+        raise DriverError(
+            "give exactly one of gamma and n2",
+            parameter=("gamma", "n2"),
+            rule="gamma-or-n2",
+        )
     if n2 is not None and fibre is None:
-        raise DriverError("n2 requires fibre with an effective area")
+        raise DriverError(
+            "n2 requires fibre with an effective area",
+            parameter=("n2", "fibre"),
+            rule="n2-needs-fibre-area",
+        )
     if fibre is not None and loss is not None:
-        raise DriverError("the fibre carries its loss; scale it on the mode")
+        raise DriverError(
+            "the fibre carries its loss; scale it on the mode",
+            parameter=("fibre", "loss_db_per_m"),
+            rule="fibre-carries-loss",
+        )
     omega_ref = 2.0 * np.pi * C / wavelength
     mode = (
         None
@@ -8406,33 +9226,33 @@ def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
     area = 1.0 if mode is None else mode.aeff()
     # The GNLSE mapping of ADR-026 (docs/dev/decisions.md) is unchanged. An externally
     # specified fibre replaces the placeholder mode, so its dispersion never enters the
-    # unit prefactor.
-    mapping = problem_from(
-        np.asarray([0.0] if betas is None else betas, dtype=np.float64),
-        omega_ref=omega_ref,
-        gamma=gamma,
-        n2=n2,
-        aeff=area,
-        loss_db_per_m=0.0 if loss is None else loss,
-        shock=shock,
-        raman=raman,
-        raman_fraction=raman_fraction,
-        selection=selection,
-    )
+    # unit prefactor. Its own names are the keywords' but for the area, the fibre's.
+    with _about(renamed={"aeff": "fibre"}):
+        mapping = problem_from(
+            np.asarray([0.0] if betas is None else betas, dtype=np.float64),
+            omega_ref=omega_ref,
+            gamma=gamma,
+            n2=n2,
+            aeff=area,
+            loss_db_per_m=0.0 if loss is None else loss,
+            shock=shock,
+            raman=raman,
+            raman_fraction=raman_fraction,
+            selection=selection,
+        )
     if mode is not None:
         return dataclasses.replace(mapping, mode=mode)
     if betas is not None:
         return mapping
     nodes, values = _dispersion_table(beta, grid)
-    return dataclasses.replace(
-        mapping,
-        mode=SpecifiedMode.from_table(
+    with _about("beta"):
+        table = SpecifiedMode.from_table(
             nodes,
             values,
             loss=attenuation_from_db(0.0 if loss is None else loss),
             aeff=mapping.aeff,
-        ),
-    )
+        )
+    return dataclasses.replace(mapping, mode=table)
 
 
 def _gnlse_mode(
@@ -8463,7 +9283,11 @@ def _gnlse_mode(
     """
     if isinstance(fibre, IndexTable):
         if needs_area and fibre.area is None:
-            raise DriverError("n2 requires a fibre table with an effective-area column")
+            raise DriverError(
+                "n2 requires a fibre table with an effective-area column",
+                parameter=("n2", "fibre"),
+                rule="n2-needs-fibre-area",
+            )
         area = (
             1.0
             if fibre.area is None
@@ -8471,9 +9295,12 @@ def _gnlse_mode(
                 fibre.effective_area(np.array([2.0 * np.pi * C / wavelength]))[0]
             )
         )
-        return SpecifiedMode.from_index_table(fibre, aeff=area)
+        with _about("fibre"):
+            return SpecifiedMode.from_index_table(fibre, aeff=area)
     if not math.isfinite(fibre.aeff(0.0)) or fibre.aeff(0.0) <= 0:
-        raise DriverError("fibre effective area must be positive and finite")
+        raise DriverError(
+            "fibre effective area must be positive and finite", parameter="fibre"
+        )
     # aeff=None hands over the fibre's own declared area path when it has one and
     # samples the source's own area along z when its whole geometry moves; the
     # frozen callables forward the position, so the dispersion and the area move
@@ -8481,7 +9308,8 @@ def _gnlse_mode(
     # docs/dev/decisions.md). The wavelength is where a provider channel's area is
     # solved, as a table's is read at it above; every other mode's area is not a
     # function of frequency and ignores it.
-    return SpecifiedMode.from_mode(fibre, wavelength=wavelength)
+    with _about("fibre"):
+        return SpecifiedMode.from_mode(fibre, wavelength=wavelength)
 
 
 def _dispersion_table(
@@ -8524,7 +9352,7 @@ def _dispersion_table(
         f"beta must be a (omega, beta) pair of arrays or a callable of omega, got "
         f"{type(beta).__name__}"
     )
-    raise DriverError(msg)
+    raise DriverError(msg, parameter="beta")
 
 
 def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
@@ -8592,33 +9420,43 @@ def _shaped_pulse(  # noqa: PLR0913 - the pulse's keyword surface
                 f"{', '.join(given)}: give each pulse its own duration, energy and "
                 "phase, and leave the single-pulse keywords unset"
             )
-            raise DriverError(msg)
-        return PulseSum(tuple(pulses))
+            raise DriverError(
+                msg, parameter=("pulses", *given), rule="pulses-or-pulse-keywords"
+            )
+        with _about("pulses"):
+            return PulseSum(tuple(pulses))
     if shape == "sech":
-        return SechPulse(
-            wavelength=wavelength,
-            fwhm=fwhm,
-            width=width,
-            energy=energy,
-            peak_power=peak_power,
-            phase=phases,
-        )
+        # The pulse names its own arguments, which are the keywords but for phase.
+        with _about(renamed=_PULSE_KEYWORDS):
+            return SechPulse(
+                wavelength=wavelength,
+                fwhm=fwhm,
+                width=width,
+                energy=energy,
+                peak_power=peak_power,
+                phase=phases,
+            )
     if shape != "gauss":
         msg = f"shape must be 'gauss' or 'sech', got {shape!r}"
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="shape")
     if width is not None or fwhm is None:
         msg = (
             "a Gaussian input is specified by its intensity fwhm; give fwhm= rather "
             "than width=, which is the natural width of a sech**2 pulse"
         )
-        raise DriverError(msg)
-    return GaussianPulse(
-        wavelength=wavelength,
-        fwhm=fwhm,
-        energy=energy,
-        peak_power=peak_power,
-        phase=phases,
-    )
+        raise DriverError(
+            msg,
+            parameter="fwhm" if width is None else ("width", "shape"),
+            rule="gauss-fwhm",
+        )
+    with _about(renamed=_PULSE_KEYWORDS):
+        return GaussianPulse(
+            wavelength=wavelength,
+            fwhm=fwhm,
+            energy=energy,
+            peak_power=peak_power,
+            phase=phases,
+        )
 
 
 def _save_planes(
@@ -8650,7 +9488,9 @@ def _save_planes(
     if save_planes is not None:
         if n_save is not None:
             msg = "give save_planes or n_save, not both"
-            raise DriverError(msg)
+            raise DriverError(
+                msg, parameter=("save_planes", "n_save"), rule="save-planes-or-n-save"
+            )
         return np.ascontiguousarray(save_planes, dtype=np.float64).reshape(-1)
     count = DEFAULT_N_SAVE if n_save is None else n_save
     if count < 2:
@@ -8658,12 +9498,12 @@ def _save_planes(
             f"n_save counts the plane at z = 0, so it must be at least 2, got {count}; "
             "a run always stores the entrance"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="n_save")
     return np.linspace(0.0, length, count)[1:]
 
 
 def _scheme(settings: SimulationSettings) -> AbsorberScheme:
-    """Return the collar scheme the settings resolve to, ``"nonlinear"`` if unnamed.
+    """Return the collar scheme the settings resolve to.
 
     Parameters
     ----------
@@ -8673,17 +9513,13 @@ def _scheme(settings: SimulationSettings) -> AbsorberScheme:
     Returns
     -------
     {'nonlinear', 'split_step'}
-        The scheme.
+        The scheme, as a plain string: the named one or the route's default.
     """
-    return (
-        DEFAULT_ABSORBER_SCHEME
-        if settings.absorber_scheme is None
-        else settings.absorber_scheme
-    )
+    return cast("AbsorberScheme", str(settings.absorber_scheme))
 
 
 def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSettings:
-    """Fill an omitted controller with the spatial interface's default (SEP 37).
+    """Give a spatial run's settings the route's defaults (SEP 37, SEP 21).
 
     Parameters
     ----------
@@ -8695,29 +9531,19 @@ def _spatial_settings(settings: SimulationSettings, route: str) -> SimulationSet
     Returns
     -------
     SimulationSettings
-        `settings`, with the interface's default controller where it gave none
-        (:data:`SPATIAL_RTOL` for radial and planar runs, :data:`FREE_RTOL` for
-        Cartesian and line ones, each as :func:`_default_rtol` gives it in the run's
-        precision), for a free-space run that named no integrator,
-        ``RungeKutta()``, and, where no collar scheme is named, ``"split_step"``
-        unless planes are interpolated (SEP 21).
+        `settings`, reading the route's row of
+        :data:`~solprop.driver.defaults.ROUTE_DEFAULTS` for whatever the caller left:
+        the controller (:data:`~solprop.driver.defaults.SPATIAL_RTOL` for radial and
+        planar runs, :data:`~solprop.driver.defaults.FREE_RTOL` for Cartesian and line
+        ones, in the run's precision), the integrator (``RungeKutta()`` in free
+        space, whose Adams history would be too large) and the collar scheme
+        (``"split_step"`` unless planes are interpolated). Settings that already
+        belong to a route, this one or another (settings copied from a modal run, for
+        a comparison), keep what that route resolved and are returned as they are.
     """
-    if settings.absorber_scheme is None and not settings.interpolate_planes:
-        # The in-stage collar cost the spatial cases 1.2 to 4.6 times the steps of the
-        # split scheme, at equal or worse accuracy (SEP 21 Part II).
-        settings = dataclasses.replace(settings, absorber_scheme="split_step")
-    if route == "free" and settings._route_integrator is None:
-        # The Adams history's memory rules the multistep method out for a large
-        # transverse state: a free-space run takes the Runge-Kutta march (SEP 37), as
-        # its default, so a copy in either precision keeps it and a named one wins.
-        settings = dataclasses.replace(settings, _route_integrator=RungeKutta())
-    if settings.controller is not None:
+    if settings._route is not None:
         return settings
-    rtol, atol = (
-        (FREE_RTOL, FREE_ATOL) if route == "free" else (SPATIAL_RTOL, SPATIAL_ATOL)
-    )
-    controller = PIController(rtol=_default_rtol(rtol, settings.precision), atol=atol)
-    return dataclasses.replace(settings, controller=controller)
+    return dataclasses.replace(settings, _route=route)
 
 
 def _with_boundary(
@@ -8736,9 +9562,9 @@ def _with_boundary(
         The run's temporal grid.
     absorber : Absorber, False or None
         The collar given; ``False`` zeroes the temporal and spectral rates of the
-        settings' absorber and keeps its lengths, so that the real-space collar, which
-        reads them, is unchanged (without one it builds the hard mask alone, with the
-        real-space collar off, as before); ``None`` leaves the settings' own.
+        settings' absorber and keeps its lengths (without one it builds the hard mask
+        alone); ``None`` leaves the settings' own. The transverse boundary is
+        ``spatial_absorber``'s (SEP 40).
     scheme : {'nonlinear', 'split_step'} or None
         The temporal scheme given; ``None`` leaves the settings' own.
 
@@ -8763,11 +9589,12 @@ def _with_boundary(
             raise DriverError(msg)
         current = settings.absorber
         changes["absorber"] = (
-            dataclasses.replace(no_absorber(grid), spatial=False)
+            no_absorber(grid)
             if current is None
             else dataclasses.replace(
                 current,
                 spectral_rate=np.zeros_like(current.spectral_rate),
+                user_rate=None,
                 temporal_rate=np.zeros(grid.n_t),
                 temporal_rate_fine=np.zeros(grid.n_to),
                 temporal=False,
@@ -8782,7 +9609,7 @@ def _with_boundary(
             raise DriverError(msg)
         changes["absorber"] = absorber
     if scheme is not None:
-        if settings.absorber_scheme not in (None, scheme):
+        if settings.absorber_scheme_named and settings.absorber_scheme != scheme:
             msg = (
                 f"the settings already declare absorber_scheme="
                 f"{settings.absorber_scheme!r}; give it there or as the keyword"
@@ -8825,103 +9652,173 @@ def _watched(
     return dataclasses.replace(settings, boundary_check=check)
 
 
-def _resolve_noise(
-    noise: str | None,
-    seed: int | None,
-    precision: str,
-    *,
-    tdse: bool = False,
-    quiet: str | None = None,
-    unmeasured: str | None = None,
-) -> tuple[NoiseModel | None, NoiseResolution]:
-    """Resolve a constructor's ``noise`` keyword into the model a run carries (SEP 37).
+def _rechecked(
+    simulation: Simulation, original: KernelProblem, derived: KernelProblem
+) -> SpatialAbsorberDesign | None:
+    """Return a derived run's transverse design, its check rerun on the new launch.
 
-    ``"default"`` resolves to ``"input"``, the one-photon-per-mode seed added to the
-    input field, except under single precision, whose binary32 rounding swamps the seed:
-    there it resolves to none and says why. A seed beside a default that resolves to
-    none is refused rather than silently dropped, and so is a seed beside
-    ``noise=None``. Any other value is passed through, and an unknown one is refused
-    where it is drawn.
-
-    The arguments are plain strings rather than :data:`NoiseSetting` for the reason
-    :func:`_shot_noise` gives.
+    SEP 40 section 5.2: a derived run keeps its parent's design, which its shared
+    operator and transform were built with, but not its verdict, which belongs to a
+    launch. Only a scalar multiple of the checked launch reuses it, because the check
+    is linear and normalised by the launch's energy. A new launch whose rms
+    wavenumber lies above the one the band was derived from warns as well.
 
     Parameters
     ----------
-    noise : {'default', None, 'input', 'modified'}
-        The keyword as given.
-    seed : int or None
-        The keyword ``seed`` as given.
-    precision : {'double', 'single'}
-        The run's arithmetic.
-    tdse : bool, optional
-        Whether the run carries the TDSE response, which takes no noise by default
-        and warns when noise is asked for: its runs are expensive, rarely repeated as
-        ensembles, and checked coherently.
-    quiet : str or None, optional
-        Why this interface takes no noise by default, as the free-space one does:
-        ``"default"`` then resolves to none, recorded with this reason.
-    unmeasured : str or None, optional
-        Why this run can carry no noise at all, as a slab mode set cannot, whose
-        amplitudes have no declared photon measure: ``"default"`` resolves to none
-        with this reason, and an explicit model is refused.
+    simulation : Simulation
+        The parent, for its grids and medium.
+    original : solprop.translate.problem.KernelProblem
+        The parent's translated problem.
+    derived : solprop.translate.problem.KernelProblem
+        The derived problem, with the new launch.
 
     Returns
     -------
-    tuple
-        The model to draw, or ``None``, and the record of how it was chosen.
-
-    Warns
-    -----
-    SolpropWarning
-        When a TDSE run asks for a noise model explicitly.
+    solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The design with the new launch's check.
 
     Raises
     ------
     DriverError
-        If a seed is given and the run resolves to no noise, or a model is asked
-        for where `unmeasured` says none can be drawn.
-
-    Examples
-    --------
-    >>> from solprop.driver.simulation import _resolve_noise
-    >>> _resolve_noise("default", None, "double")
-    ('input', NoiseResolution(requested='default', resolved='input', reason=None))
-    >>> _resolve_noise("default", None, "single")[0] is None
-    True
+        If the check refuses the design for the new launch.
     """
-    if unmeasured is not None and noise not in ("default", None):
-        msg = f"noise={noise!r}: {unmeasured}; pass noise=None"
-        raise DriverError(msg)
-    if noise == "default":
-        fallback = (
-            SINGLE_PRECISION_NOISE
-            if precision == "single"
-            else TDSE_NOISE
-            if tdse
-            else unmeasured or quiet
+    design = original.transverse
+    if design is None or not design.has_collar:
+        return design
+    space = simulation.spatial_grid
+    medium = simulation.medium
+    assert isinstance(space, RadialGrid | FreeGrid | PlanarGrid)
+    assert medium is not None
+    old = np.asarray(original.initial.field0[:1])
+    new = np.asarray(derived.initial.field0[:1])
+    reference = float(np.vdot(old, old).real)
+    if reference > 0.0:
+        scale = np.vdot(old, new) / reference
+        residual = float(np.linalg.norm(new - scale * old))
+        if residual <= 1e-12 * float(np.linalg.norm(new)):
+            return design
+    planes = derived.stepper.save_planes
+    length = float(np.max(planes)) - float(derived.initial.z)
+    dispersion = SpatialDispersion(
+        medium, simulation.grid, Frame.comoving(simulation.grid)
+    )
+    if design.specification.band_source == "launch":
+        before = resolve_transverse(
+            design.specification, space, dispersion, old, length
         )
-        if fallback is not None:
-            if seed is not None:
-                msg = (
-                    f"a noise seed was given, but this run takes no noise by default "
-                    f"({fallback}): pass a noise model with the seed, or drop the seed"
-                )
-                raise DriverError(msg)
-            return None, NoiseResolution("default", None, fallback)
-        return "input", NoiseResolution("default", "input")
-    if noise is None and seed is not None:
-        msg = "a noise seed requires a noise model"
-        raise DriverError(msg)
-    if tdse and noise is not None:
+        after_kappa = _launch_band(design.specification, space, dispersion, new, length)
+        if after_kappa is not None and after_kappa > max(before.kappa_p) * (1 + 1e-9):
+            warnings.warn(
+                "the new launch spreads beyond the band its run's collar was designed "
+                f"for ({after_kappa:.3g} > {max(before.kappa_p):.3g} rad/m): what it "
+                "carries above that band is absorbed only partly; translate afresh",
+                BoundaryWarning,
+                stacklevel=3,
+            )
+    try:
+        return checked_design(
+            dataclasses.replace(design, check={}), space, dispersion, new, length
+        )
+    except TranslationError as error:
         msg = (
-            f"noise={noise!r} beside the TDSE response: the atomic source is expensive "
-            "and a TDSE run is rarely repeated as a noise ensemble; pass noise=None "
-            "unless the noise is what this run is about"
+            f"{error}. The grid is shared with the parent run, so translate a new "
+            "simulation with that collar_fraction for this launch"
         )
-        warnings.warn(msg, SolpropWarning, stacklevel=4)
-    # An unknown model passes through to be refused where it is drawn.
-    return cast("NoiseModel | None", noise), NoiseResolution(noise, noise)
+        raise DriverError(msg) from error
+
+
+def _launch_band(
+    specification: SpatialAbsorber,
+    space: RadialGrid | FreeGrid | PlanarGrid,
+    dispersion: SpatialDispersion,
+    launch: np.ndarray,
+    length: float,
+) -> float | None:
+    """Return the widest protected band a launch would derive, or ``None``.
+
+    Parameters
+    ----------
+    specification : solprop.boundaries.SpatialAbsorber
+        A launch-derived specification.
+    space : solprop.grid.RadialGrid, solprop.grid.FreeGrid or PlanarGrid
+        The grid.
+    dispersion : solprop.spatial.SpatialDispersion
+        The medium and the temporal grid.
+    launch : numpy.ndarray
+        The launch, canonical layout.
+    length : float
+        The run's length, m.
+
+    Returns
+    -------
+    float or None
+        The widest axis's band edge, rad/m; ``None`` when it cannot be resolved.
+    """
+    try:
+        return max(
+            resolve_transverse(specification, space, dispersion, launch, length).kappa_p
+        )
+    except TranslationError:
+        return None
+
+
+def _refuse_pending_check(problem: KernelProblem) -> None:
+    """Refuse to start a run whose collar's design check never saw a launch.
+
+    A coupled child is translated before its launch exists; its check runs when
+    :meth:`Simulation.with_input` gives it one (SEP 40 section 5.2).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The run's problem.
+
+    Raises
+    ------
+    DriverError
+        If its transverse design's check is pending.
+    """
+    design = problem.transverse
+    if design is not None and design.check.get("status") == "pending":
+        msg = (
+            "this run's collar has not been checked against a launch: give it one "
+            "with with_input before running it (SEP 40 section 5.2)"
+        )
+        raise DriverError(msg)
+
+
+def _bounded(
+    settings: SimulationSettings,
+    spatial_absorber: SpatialAbsorber | Literal[False] | None,
+) -> SimulationSettings:
+    """Apply a spatial constructor's ``spatial_absorber`` keyword to its settings.
+
+    Parameters
+    ----------
+    settings : SimulationSettings
+        The caller's settings.
+    spatial_absorber : solprop.boundaries.SpatialAbsorber, False or None
+        The keyword's value; ``None`` leaves the settings' own.
+
+    Returns
+    -------
+    SimulationSettings
+        `settings`, with the transverse boundary the keyword asks for.
+
+    Raises
+    ------
+    DriverError
+        If the keyword and the settings name two different boundaries.
+    """
+    if spatial_absorber is None or spatial_absorber == settings.spatial_absorber:
+        return settings
+    if settings.spatial_absorber is not None:
+        msg = (
+            "the settings already declare a spatial_absorber; give it there or as "
+            "the spatial_absorber keyword, not both"
+        )
+        raise DriverError(msg)
+    return dataclasses.replace(settings, spatial_absorber=spatial_absorber)
 
 
 def _shot_noise(
@@ -8960,7 +9857,7 @@ def _shot_noise(
         return None
     if noise not in ("input", "modified"):
         msg = f"noise must be 'default', None, 'input' or 'modified', got {noise!r}"
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="noise")
     generator = np.random.default_rng(seed)
     draw = input_noise if noise == "input" else modified_noise
     return draw(grid, generator, n_modes=n_modes)
@@ -9268,19 +10165,32 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
                 "give a grid or the wavelength_limits and trange to build one, not "
                 "both: the keywords would be ignored"
             )
-            raise DriverError(msg)
+            given = {"wavelength_limits": wavelength_limits, "trange": trange}
+            raise DriverError(
+                msg,
+                parameter=(
+                    "grid",
+                    *(name for name, value in given.items() if value is not None),
+                ),
+                rule="grid-or-limits",
+            )
         return grid
     if wavelength_limits is None or trange is None:
         msg = (
             "a capillary run needs wavelength_limits and trange to build its grid, "
             "or a grid of your own"
         )
-        raise DriverError(msg)
-    if envelope:
-        return EnvelopeGrid.from_limits(
-            length, wavelength, wavelength_limits, trange, thg=thg
+        raise DriverError(
+            msg,
+            parameter=_unset(wavelength_limits=wavelength_limits, trange=trange),
+            rule="grid-or-limits",
         )
-    return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
+    with _about(renamed=_GRID_KEYWORDS):
+        if envelope:
+            return EnvelopeGrid.from_limits(
+                length, wavelength, wavelength_limits, trange, thg=thg
+            )
+        return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords
@@ -9328,14 +10238,23 @@ def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keyword
         cladding, or a lattice is given beside supplied modes or the reduced model.
     """
     if isinstance(modes, int) and modes < 1:
-        raise DriverError(f"a capillary mode set needs at least one mode, got {modes}")
+        raise DriverError(
+            f"a capillary mode set needs at least one mode, got {modes}",
+            parameter="modes",
+        )
     if lattice is not None:
         if not isinstance(modes, int):
             raise DriverError(
-                "lattice is refused: the given modes carry their own geometry"
+                "lattice is refused: the given modes carry their own geometry",
+                parameter=("lattice", "modes"),
+                rule="lattice-builds-modes",
             )
         if model == "reduced":
-            raise DriverError('lattice is incompatible with model="reduced"')
+            raise DriverError(
+                'lattice is incompatible with model="reduced"',
+                parameter=("lattice", "model"),
+                rule="lattice-full-model",
+            )
         return ModeCollection.vincetti(
             radius,
             count=modes,
@@ -9361,7 +10280,9 @@ def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keyword
     if not modes:
         # The capillary wording, which the int branch above already uses: the
         # waveguide entry has its own.
-        raise DriverError("a capillary mode set needs at least one mode")
+        raise DriverError(
+            "a capillary mode set needs at least one mode", parameter="modes"
+        )
     given = _given_gas_modes(modes, mixture)
     _refuse_ignored_geometry(
         given, radius, length=length, model=model, loss=loss, cladding=cladding
@@ -9426,7 +10347,7 @@ def _refuse_ignored_geometry(
                 "it with, so the radius would be ignored: propagate a mode set that "
                 "is not a capillary's with from_waveguide or prop_waveguide"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter=("radius", f"modes[{index}]"))
         if not _same_radius(declared, own, length):
             msg = (
                 f"from_capillary's radius disagrees with supplied mode {index} "
@@ -9435,7 +10356,7 @@ def _refuse_ignored_geometry(
                 "would be ignored. Declare the modes' own radius (the same number or "
                 "profile) or build the modes on the radius wanted"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter=("radius", f"modes[{index}]"))
         _refuse_ignored_setting(index, mode, "model", model, default="full")
         _refuse_ignored_setting(index, mode, "loss", loss, default=True)
         _refuse_ignored_setting(index, mode, "cladding", cladding, default=None)
@@ -9478,7 +10399,7 @@ def _refuse_ignored_setting(
             f"own {name}, so the declaration would be ignored. Declare it on the "
             f"modes, or leave {name} at its default beside them"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=(name, f"modes[{index}]"))
 
 
 def _same_radius(declared: ZProfile, own: ZProfile, length: float) -> bool:
@@ -9530,8 +10451,14 @@ def _given_gas_modes(modes: Sequence[Mode], mixture: Mixture) -> ModeCollection:
         Rebound orthonormal modes.
     """
     if not modes:
-        raise DriverError("a waveguide mode set needs at least one mode")
-    given = ModeCollection(tuple(_rebind_mode(mode, mixture) for mode in modes))
+        raise DriverError(
+            "a waveguide mode set needs at least one mode", parameter="modes"
+        )
+    rebound: list[Mode] = []
+    for index, mode in enumerate(modes):
+        with _about(f"modes[{index}]"):
+            rebound.append(_rebind_mode(mode, mixture))
+    given = ModeCollection(tuple(rebound))
     if len(given) > 1:
         overlaps = given.orthonormality()
         worst = float(np.max(np.abs(overlaps - np.eye(len(given)))))
@@ -9540,7 +10467,8 @@ def _given_gas_modes(modes: Sequence[Mode], mixture: Mixture) -> ModeCollection:
                 f"the given modes are not an orthonormal set: the largest deviation "
                 f"of the overlap matrix from the identity is {worst:.3e}, above "
                 f"{ORTHONORMALITY_TOLERANCE:.0e}. One synthesis matrix and its dual "
-                "represent an orthonormal basis and nothing else"
+                "represent an orthonormal basis and nothing else",
+                parameter="modes",
             )
     return given
 
@@ -9640,7 +10568,7 @@ def _capillary_quadrature(
                 "uniform in y, so its rule has one y node of unit width and n_r "
                 "alone is the x node count"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter="n_theta")
         # The measured bound of the x rule's quartic products is the Cartesian
         # per-axis one; the default takes whichever is larger.
         needed = cartesian_nodes(max(mode.azimuthal_order for mode in modes.modes))
@@ -9652,7 +10580,7 @@ def _capillary_quadrature(
             "order zero: |J_0(u r/a)| does not depend on the angle, so the rule is "
             "radial and every azimuthal node is a copy of the same integrand"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter="n_theta")
     order = default_radial_order(len(modes)) if n_r is None else n_r
     if modes.modes[0].dimlimits(0.0)[0] == "cartesian":
         # For a Cartesian set n_r and n_theta are the x and y node counts, so
@@ -9708,7 +10636,9 @@ def _no_quadrature(
             "energy moving between modes is what a mode-averaged run cannot carry "
             "(docs/guide/waveguides/mode-averaging.md)"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("mode_average", "modes"), rule="mode-average-one-mode"
+        )
     given = [
         name
         for name, value, unset in (
@@ -9724,7 +10654,9 @@ def _no_quadrature(
             "transverse rule, and a mode-averaged run has none, its mode being a "
             "uniform disc of the effective area"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("mode_average", *given), rule="mode-average-no-quadrature"
+        )
 
 
 def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one each
@@ -9807,7 +10739,9 @@ def _capillary_responses(  # noqa: PLR0913 - the switches of the responses, one 
             "a capillary run with neither kerr nor plasma has no nonlinearity; use "
             "the linear propagator instead of a solver"
         )
-        raise DriverError(msg)
+        raise DriverError(
+            msg, parameter=("kerr", "plasma"), rule="capillary-needs-nonlinearity"
+        )
     return responses
 
 
@@ -9851,11 +10785,13 @@ def _default_raman(mixture: Mixture, *, provisional: bool = False) -> bool:
             on = True
         elif status == "provisional":
             warnings.warn(
-                f"{component.label} ({material.name}) is a molecule whose Raman "
-                "response optmat has only provisionally, so it is off; pass "
-                "raman=False to say so, or MaterialSelection(raman='provisional') "
-                "to admit it",
-                SolpropWarning,
+                SolpropWarning(
+                    f"{component.label} ({material.name}) is a molecule whose Raman "
+                    "response optmat has only provisionally, so it is off; pass "
+                    "raman=False to say so, or MaterialSelection(raman='provisional') "
+                    "to admit it",
+                    parameter="raman",
+                ),
                 stacklevel=3,
             )
     return on
@@ -10058,10 +10994,14 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     """
     if tdse is None:
         if execution is not None:
-            raise DriverError("tdse_execution requires a TDSEGasResponse")
+            raise DriverError(
+                "tdse_execution requires a TDSEGasResponse",
+                parameter=("tdse_execution", "tdse"),
+                rule="tdse-execution-needs-tdse",
+            )
         return None
     if not isinstance(tdse, TDSEGasResponse):
-        raise DriverError("tdse must be a TDSEGasResponse")
+        raise DriverError("tdse must be a TDSEGasResponse", parameter="tdse")
     given = [name for name, value in unset.items() if value is not None]
     if not kerr:
         given.append("kerr=False")
@@ -10070,7 +11010,9 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
     if given:
         raise DriverError(
             f"the TDSE response owns the electronic response; leave "
-            f"{', '.join(given)} unset beside tdse="
+            f"{', '.join(given)} unset beside tdse=",
+            parameter=("tdse", *(name.removesuffix("=False") for name in given)),
+            rule="tdse-owns-electronic",
         )
     response = tdse
     window = tdse.atomic_window
@@ -10081,7 +11023,8 @@ def _tdse_entry(  # noqa: PLR0913 - the entry point's TDSE keywords together
             if trange is None:
                 raise DriverError(
                     "the atomic window's duration is unresolved: give trange or "
-                    "TDSEAtomicWindow(duration=...)"
+                    "TDSEAtomicWindow(duration=...)",
+                    parameter=("tdse", "trange"),
                 )
             response = dataclasses.replace(
                 tdse, atomic_window=dataclasses.replace(window, duration=trange)
@@ -10701,6 +11644,41 @@ def _incident_launch(
     return launched
 
 
+def _hollow_input(
+    pulse: Pulse,
+    launch: ModalLaunch | None,
+    grid: TimeGrid,
+    modes: Sequence[Mode],
+) -> tuple[Complex[np.ndarray, "n_modes n_pol n_omega"], dict[str, object] | None]:
+    """Return a hollow guide's initial state, and its launch record if it has one.
+
+    Parameters
+    ----------
+    pulse : solprop.pulses.Pulse
+        The input.
+    launch : mapping, sequence of mapping, or None
+        The ``launch`` keyword; ``None`` puts the input in the first mode.
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+    modes : sequence of solprop.modes.protocol.Mode
+        The mode set, in row order.
+
+    Returns
+    -------
+    numpy.ndarray
+        The state, shape ``(n_modes, n_pol, n_omega)``.
+    dict or None
+        ``configuration["modal_launch"]``, or ``None`` without a launch.
+    """
+    if launch is None:
+        return _in_lowest_mode(pulse.build(grid), len(modes)), None
+    # A hollow guide's modes are orthonormal in true power, so the shares are energy
+    # fractions (SEP 41, S5).
+    return launch_pulse(
+        pulse, launch, grid, tuple(mode.channel_label for mode in modes)
+    )
+
+
 def _in_lowest_mode(
     built: Complex[np.ndarray, "n_modes_in n_pol n_omega"], n_modes: int
 ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -10731,7 +11709,7 @@ def _in_lowest_mode(
             f"the input carries {built.shape[0]} modes and the set has {n_modes}; a "
             "pulse cannot be placed in a mode that is not propagated"
         )
-        raise DriverError(msg)
+        raise DriverError(msg, parameter=("pulses", "modes"))
     if built.shape[0] == n_modes:
         return built
     state = np.zeros((n_modes, *built.shape[1:]), dtype=np.complex128)
@@ -10899,7 +11877,6 @@ def _peak_field_reports(
     problem: KernelProblem,
     output: Output,
     responses: Sequence[object],
-    first_plane: int = 0,
 ) -> tuple[PeakFieldReport, ...]:
     """Report the largest field each optmat-rate population saw, after a run.
 
@@ -10916,10 +11893,6 @@ def _peak_field_reports(
         The handler the run wrote; a closed file is reopened for reading.
     responses : sequence of object
         The run's responses.
-    first_plane : int, optional
-        The first plane to read: a session that continued a file across a forced
-        resume reports only the planes it wrote, since the earlier ones were
-        computed under other physics (SEP 42 section 5.5).
 
     Returns
     -------
@@ -10947,14 +11920,13 @@ def _peak_field_reports(
     if not rates:
         return ()
     if isinstance(output, HDF5Output) and output.closed:
-        # An internal reader: not the public open_file, which warns of a forced file.
         with HDF5Output(output.path, readonly=True) as reader:
-            return _peak_field_reports(problem, reader, responses, first_plane)
+            return _peak_field_reports(problem, reader, responses)
     if "species_peak_ionisation_rate" in output.stat_names:
-        rows = np.asarray(output["stats/species_peak_ionisation_rate"])[first_plane:]
+        rows = np.asarray(output["stats/species_peak_ionisation_rate"])
         peaks = np.max(rows, axis=0)
     elif "peak_ionisation_rate" in output.stat_names and len(labels) == 1:
-        rows = np.asarray(output["stats/peak_ionisation_rate"])[first_plane:]
+        rows = np.asarray(output["stats/peak_ionisation_rate"])
         peaks = np.array([np.max(rows)])
     else:
         logger.info(
@@ -11299,7 +12271,7 @@ def _refuse_dispersive_policy(materials: MaterialSelection | None, route: str) -
         f"dispersive hyperpolarizability model, and {route} is a constant coefficient "
         "this route keeps: select 'carrier-kerr' (or 'recommended') here"
     )
-    raise DriverError(msg)
+    raise DriverError(msg, parameter="materials.electronic", rule="gnlse-carrier-kerr")
 
 
 def _check_electronic_policy(
@@ -11360,9 +12332,14 @@ def _check_selection_carrier(
     """
     if materials is None:
         return
-    for name, value in (
-        ("the selection's carrier_wavelength", materials.carrier_wavelength),
-        ("wavelength", wavelength),
+    # Without the driver's wavelength the reference is a grid given whole.
+    carrier = (
+        "materials.carrier_wavelength",
+        "grid" if wavelength is None else "wavelength",
+    )
+    for name, value, parameter in (
+        ("the selection's carrier_wavelength", materials.carrier_wavelength, carrier),
+        ("wavelength", wavelength, ("wavelength", "grid")),
     ):
         if value is not None and not carriers_agree(float(value), reference):
             msg = (
@@ -11372,7 +12349,7 @@ def _check_selection_carrier(
                 "it is the grid's. Build the grid at that wavelength, or leave the "
                 "selection's carrier_wavelength unset"
             )
-            raise DriverError(msg)
+            raise DriverError(msg, parameter=parameter)
 
 
 def _default_cladding(cladding: GlassIndex | complex | None) -> GlassIndex | complex:
@@ -11604,7 +12581,7 @@ def _boundary(
     grid: TimeGrid,
     *,
     default: Callable[[TimeGrid], Absorber] | None = None,
-) -> tuple[Absorber | None, AbsorberScheme]:
+) -> tuple[Absorber | None, AbsorberScheme | None]:
     """Resolve a builder's absorber keywords (SEP 21 section 5).
 
     Parameters
@@ -11623,7 +12600,8 @@ def _boundary(
     Returns
     -------
     tuple
-        The absorber (``None`` for none) and the scheme.
+        The absorber (``None`` for none) and the scheme, ``None`` where the settings
+        are to take the route's default.
 
     Raises
     ------
@@ -11637,11 +12615,15 @@ def _boundary(
                 "absorber=False switches the temporal collar off, so there is nothing "
                 f"for absorber_scheme={scheme!r} to apply; give one or the other"
             )
-            raise DriverError(msg)
-        return no_absorber(grid), DEFAULT_ABSORBER_SCHEME
+            raise DriverError(
+                msg,
+                parameter=("absorber", "absorber_scheme"),
+                rule="absorber-scheme-needs-absorber",
+            )
+        return no_absorber(grid), None
     if absorber is None:
         absorber = default_collar(grid) if default is None else default(grid)
-    return absorber, DEFAULT_ABSORBER_SCHEME if scheme is None else scheme
+    return absorber, scheme
 
 
 def default_collar(grid: TimeGrid) -> Absorber:
@@ -11682,7 +12664,7 @@ def _spatial_default(
     """Give a spatial run whose settings declare no absorber the default collar.
 
     The temporal and spectral collars become the routes' default (SEP 21, D6); the
-    real-space collar stays off, as it was without an absorber (D9).
+    transverse boundary is the settings' ``spatial_absorber`` (SEP 40).
 
     Parameters
     ----------
@@ -11698,5 +12680,40 @@ def _spatial_default(
     """
     if settings.absorber is not None:
         return settings
-    boundary = dataclasses.replace(default_collar(grid), spatial=False)
-    return dataclasses.replace(settings, absorber=boundary)
+    return dataclasses.replace(settings, absorber=default_collar(grid))
+
+
+def _transverse_specification(
+    setting: SpatialAbsorber | Literal[False] | None,
+    spatial_grid: object,
+) -> SpatialAbsorber | None:
+    """Return the transverse boundary a run's translation resolves (SEP 40).
+
+    Parameters
+    ----------
+    setting : solprop.boundaries.SpatialAbsorber, False or None
+        :attr:`SimulationSettings.spatial_absorber`.
+    spatial_grid : object
+        The run's transverse grid, ``None`` for a modal run.
+
+    Returns
+    -------
+    solprop.boundaries.SpatialAbsorber or None
+        The specification; ``None`` for no ramp and no collar.
+
+    Raises
+    ------
+    DriverError
+        If a modal run is given a specification.
+    """
+    if spatial_grid is None:
+        if isinstance(setting, SpatialAbsorber):
+            msg = (
+                "spatial_absorber sets a free-space run's transverse boundary; a "
+                "modal route has no transverse window"
+            )
+            raise DriverError(msg)
+        return None
+    if setting is False:
+        return None
+    return SpatialAbsorber(real_space=False) if setting is None else setting

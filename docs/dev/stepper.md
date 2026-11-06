@@ -58,7 +58,7 @@ own error.
 
 **Eight passes is how the equation is written, not how it is executed.** The reference
 backend performs each as its own traversal, which is what makes it the oracle: every
-intermediate is an array you can look at. `numba_cpu` does the same arithmetic in the same
+intermediate is an array you can look at. The native backend does the same arithmetic in the same
 order with those arrays never formed — passes 1 and 2's scatter in one traversal, the whole
 of 4 in one traversal of `t` per node, and 6 and 7 with both accumulations in one more. It
 agrees with the reference to about 1e-15 rather than to the last bit, for an arithmetic
@@ -185,7 +185,7 @@ argument requires the in-stage absorber's own term to be masked to the active ba
 unmasked it writes outside the band, the accept pass's mask removes it, and the identity
 fails at 7.4e-7 rather than 1.8e-16.
 
-`numba_cpu` takes the saving — 9.2 to 9.5 % of a step, four modes and one, with the
+The native backend takes the saving — measured on the since-retired `numba_cpu` at 9.2 to 9.5 % of a step, four modes and one, with the
 answers agreeing to 3e-16 and 6e-16 over 400 fixed steps — and keeps the recycled stage
 across save planes (ADR-039), so a resumed replay, which has no stage to recycle,
 agrees with the uninterrupted one to round-off. The reference backend evaluates all seven
@@ -223,11 +223,11 @@ actions depend on `z`). In rounding the rebased stage differs from a fresh one b
 round trip `U_h U_h⁻¹`, a few `C u` with `C` the declared conditioning.
 
 It is not taken. One stage evaluation on the coherent-wall cases (scalar wall, TE/TM
-wall, taper; one thread) costs 0.09 to 0.57 ms on `numba_cpu` and 0.18 to 1.39 ms on
-native CPU; ten fixed steps could recycle nine stages on a constant section and six on
+wall, taper; one thread) costs 0.18 to 1.39 ms on
+native CPU (0.09 to 0.57 ms on the since-retired `numba_cpu`, which the percentage below spans); ten fixed steps could recycle nine stages on a constant section and six on
 a taper whose steps cross three section edges, **4 to 13 % of a ten-step window**. But
 the reference recycles nothing on any route, so giving it FSAL beside a flow would move
-its recorded coherent-wall states; and on the compiled backends alone
+its recorded coherent-wall states; and on the native backend alone
 it would turn their flow parity from a per-stage into a per-step rounding statement,
 which can fork an adaptive trajectory at that level. Whether to take it is an open
 question (§9).
@@ -288,22 +288,13 @@ stiffness indicator `h rho = 2 ||F3 - F2|| / ||F2 - g1||` (exactly `|h lambda|` 
 `u' = lambda u`) is kept by the host engine and logged when it passes RK4's negative-real
 interval 2.785: measured, it passed it on the step before an ionising replay diverged,
 and read 0.17 to 0.65 of an in-stage collar's `h alpha_max / 2` as the collar held less
-or more of the field; `numba_cpu`'s resident engine reports NaN. The **flow
+or more of the field; the native backend's resident engine does not form it. The **flow
 table** (`"tabulate"`, the default for a constant operator) holds `exp(h_t D / 2)`, built
 from its key alone (from the operator's origin, so no position's rounding enters it):
 the key is the mean step of the step's run of equal steps (`table_steps`), so
 a uniform segment builds one table and the phase it applies over the run telescopes to
-the run's own; a varying operator's `P` and `Q` are formed per step. **On `numba_cpu`**
-(`backends/numba_cpu/low_storage.py`) the engine is resident: each pass is a
-register input kernel (the draw's phase formed per element on the separable kinds), the
-route's own core shared with the Runge–Kutta march (`_free_pass`, `_slab_pass`, the
-modal and general pipelines), and one fused finish that forms the source and folds it
-(`low_storage_fold` in `backends/bodies.py`); a Cartesian or line pass under an in-stage
-absorber folds the material source and re-forms the input in the transverse scratch in
-one traversal (the exchange of SEP 24's register design) before the absorber's evaluation. The
-step's three positions are each read as their own anchor by the hooks, so the engine
-takes their bundles together (`_stage_bundles` keeps several anchors until the next
-hoist). The march refuses a coupled flow, the TDSE response, interpolated planes and a
+the run's own; a varying operator's `P` and `Q` are formed per step. **On the native backend** the engine is resident: a step is one native call making the
+four passes in the backend's own memory. The march refuses a coupled flow, the TDSE response, interpolated planes and a
 step past 2.785 beside an in-stage collar. Its order is four in the asymptotic range,
 `|Im D| h / 2 <= 1` in the populated bins (measured 3.96 to 3.98 on the soliton, P2 and
 a Cartesian Kerr beam, `tests/backends/test_low_storage.py`).
@@ -329,11 +320,7 @@ explicit Adams–Bashforth, matched pairs) for the benchmarks.
 The march (`backends/multistep.py`) is shared: a backend supplies the step driver's two
 hooks `_adams_source`, one source evaluation at a lab-frame field returned in the step's
 anchor frame, and `_adams_propagator`, and takes the march as its `_march_to` when the
-problem carries an integrator. `numpy_ref` evaluates through its reference passes;
-`numba_cpu` through its stage kernels -- the modal route's fused source for the
-interaction formulation, and for every other route and the exponential formulation a
-zero-length first stage of the route's own pipeline, whose propagator is exactly one --
-refusing only a coupled flow. `native` keeps
+problem carries an integrator. `numpy_ref` evaluates through its reference passes. `native` keeps
 its state natively, so it also supplies `_adams_state` and `_adams_adopt`, a host copy of
 the accepted state and the native finish; its source is stage zero of a trial whose
 every stage row is the evaluation position's (`State.adams_source`), on every route
@@ -343,10 +330,7 @@ observation, which loads the interpolated field natively, `_adams_restore` reloa
 march's own state. The selected family, one-order-higher PEC, takes a **fused**
 path: the history is a store of rows, and a step is three passes of `AdamsKernels` --
 the predictor's lab-frame field, the corrected field with the defects of the step's own
-and the neighbouring orders, and the transport -- which `numba_cpu` compiles
-(`backends/numba_cpu/multistep.py`), with the rows of a large problem's state in a
-`prange` (the exponential formulation's moments, predictor, corrector and compensation
-likewise). Dense observation of save planes is ADR-036's; on the
+and the neighbouring orders, and the transport -- which the native engine runs in its kernels. Dense observation of save planes is ADR-036's; on the
 fused path the step's slopes are copied before the in-place transport.
 **The exponential formulation** (ADR-041) shares the march. Its samples are
 untransported: the source comes from the hook `_adams_lab_source`, the lab-frame
@@ -363,10 +347,9 @@ step factor is capped at `COLLAR_STABILITY` times PEC's negative-real interval o
 `h max(α) / 2`, the step itself left to the chosen order's defect. **Beside a coupled flow** (ADR-044) the backend's hook `_adams_block` returns the frozen block of the step's
 section (`CoupledBlock`); `coupled_moments` forms the trial's flow and moments as
 matrix functions of `(ΔΦ/h) I + G_s` on the block's bins, `CoupledExponentialKernels`
-applies them -- on `numba_cpu` `NumbaCoupledExponentialKernels`, whose compiled passes
+applies them -- on the native backend in its kernels, which
 take the matrix functions from the flow actions' eigenbasis (`CoupledBlock.basis`;
-`numpy_ref` keeps the augmented exponential as the reference), reached through
-`ExponentialKernels.coupled()` -- and a frozen-residual section's residual joins the
+`numpy_ref` keeps the augmented exponential as the reference) -- and a frozen-residual section's residual joins the
 compensation below,
 formed from each sample's flow weights against the step's own section. The lab-frame
 source runs without the flow's pipeline on every backend. The interaction formulation
@@ -383,9 +366,7 @@ is inactive). Each trial reads
 -- and, for the rows it reads, `factors=exp(sigma (1 - theta_j))`
 (`_carrier_factors`), which the predictor and corrector multiply in as they read each
 row: the store keeps the untransported samples, so a rejection, a resume or the next
-step's shift reads them unchanged. `numba_cpu` fuses both into its compiled passes (the
-moments pass's `shifts` per row; the predict and correct passes' `factors` per slot and
-row); its coupled passes rotate their few rows beforehand (`_rotated_rows`). Beside a
+step's shift reads them unchanged. The native engine fuses both into its kernels. Beside a
 coupled flow `coupled_moments(..., carrier=sigma)` forms the shifted block's moments and
 the flow `exp(sigma)` times its `phi_0`; the transported compensation is unchanged and
 the untransported witness's terms are rotated as the samples (`_Compensation.rotate`).
@@ -399,7 +380,7 @@ it with the factors in `ExponentialWeights` (`shifted`, `shift`, `factor_re`,
 `factor_im`); its kernels read rows through `adams_history` and form moments through
 `adams_moment_phi`, and dense observation takes the accepted step's carrier frame. An
 inert or `"off"` run takes the unshifted arithmetic exactly. `"scalar"` runs on
-`numpy_ref`, `numba_cpu` and native CPU builds; a native device build and the
+`numpy_ref` and native CPU builds; a native device build and the
 free-space routes refuse it by name
 (`backends.exponential.refuse_carrier_frame`).
 
@@ -437,7 +418,9 @@ replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop, a monitor check), the call's bound, the
-budget, the floor or a native error. The driver books the call's attempts through
+budget, the floor or a native error. The run's stop flag is polled before each call
+and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
+what either waits for. The driver books the call's attempts through
 `_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
 and steps every configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or

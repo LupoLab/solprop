@@ -2,12 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Record a ten-step M2 identity from either the schema-10 or schema-11 source.
+"""Record a ten-step M2 identity.
 
 Run in separate processes with PYTHONPATH selecting each solprop source and the
-matching Kokkos wheel, plus this checkout's tests directory for power_identity.
-The baseline receives the independently pre-divided launch in its assembled
-contract, retaining the same response tables. Compare the resulting NPZ arrays
+matching wheel, plus this checkout's tests directory for power_identity. Compare the
+resulting NPZ arrays
 with ``tests/bounds.py``'s ``assert_within`` at a rounding bound fixed from the ten
 fixed steps (``step_budget``); they are evidence, not a portable golden result.
 
@@ -19,10 +18,9 @@ for its doctests.
 import argparse
 import json
 import warnings
-from dataclasses import replace
 from pathlib import Path
 
-# Initialise Kokkos before importing the wheel-private pyFFTW OpenMP runtime.
+# Import the optional native package first, as a run would.
 # The base-pair doctest collector also imports this measurement script.
 try:
     # The optional package is out of tree and deliberately absent from the
@@ -37,7 +35,6 @@ import solprop
 from power_identity import constant_fill_m2
 from solprop.backends.registry import select
 from solprop.exceptions import MaterialRangeWarning
-from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 
 
 def main():
@@ -49,23 +46,6 @@ def main():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         simulation = constant_fill_m2()
         problem = simulation.translate()
-        root_weight = np.ones(problem.shape)
-        for mode_index, mode in enumerate(simulation.modes):
-            active = simulation.grid.active_mask
-            root_weight[0, mode_index, 0, active] = np.sqrt(
-                np.real(mode.neff(simulation.grid.omega[active], 0.0))
-            )
-    assert KERNEL_SCHEMA_VERSION in (10, 11, 12, 13)
-    if KERNEL_SCHEMA_VERSION == 10:
-        assert problem.initial.noise0 is not None
-        problem = replace(
-            problem,
-            initial=replace(
-                problem.initial,
-                field0=problem.initial.field0 / root_weight,
-                noise0=problem.initial.noise0 / root_weight,
-            ),
-        )
     owner = select(
         arguments.backend, problem, grid=simulation.grid, modes=simulation.modes
     )
@@ -91,7 +71,6 @@ def main():
     arguments.output.with_suffix(".json").write_text(
         json.dumps(
             {
-                "schema": KERNEL_SCHEMA_VERSION,
                 "backend": arguments.backend,
                 "solprop_source": solprop.__file__,
                 "native_source": None if native is None else native.__file__,

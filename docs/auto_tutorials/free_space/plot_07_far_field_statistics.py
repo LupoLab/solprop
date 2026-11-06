@@ -53,7 +53,7 @@ import numpy as np
 from matplotlib.patches import Circle
 from scipy import integrate
 
-from solprop.boundaries import TransverseCollar, absorber, custom_absorber
+from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_free
 from solprop.grid import EnvelopeGrid, FreeGrid
@@ -82,7 +82,7 @@ FWHM = 50e-15
 ANGLE = 0.010
 K0 = 2 * np.pi * INDEX / WAVELENGTH * np.sin(ANGLE)
 grid = EnvelopeGrid.from_limits(LENGTH, WAVELENGTH, (740e-9, 870e-9), 300e-15)
-space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, window_factor=0.0)
+space = FreeGrid(0.4e-3, 224, 0.4e-3, 64, collar_fraction=0.0)
 k_max = float(np.max(np.abs(space.k_x)))
 print(f"K0/k_max = {K0 / k_max:.2f}; grid {space.n_x} x {space.n_y} x {grid.n_omega}")
 
@@ -196,7 +196,7 @@ settings = SimulationSettings(
         period=1,
     ),
     absorber=band,
-    transverse_absorber=TransverseCollar(2e4),
+    spatial_absorber=SpatialAbsorber(real_space=False),
     fields="planes",
     field_planes=(-1,),
 )
@@ -493,17 +493,17 @@ print(
 # %%
 # The absorbed power
 # ------------------
-# ``absorbed_power`` gives four powers in J/m, the spectral, transverse, evanescent and
-# material channels; sampled at every step, their integral along z is the energy the
-# absorbers took. The Kerr response moves energy between frequencies but adds none, so
-# that integral matches the drop of ``energy`` from the entrance, to the trapezoid
-# rule's error over eight steps. The spectral channel, the absorption band, carries
-# almost all of it; the transverse collar's channel rises from nothing as the
-# nonlinear halo creeps towards the grid's edge, still more than four decades below;
-# the evanescent and material channels are exactly zero.
+# ``absorbed_power`` gives five powers in J/m, the spectral collar, transverse,
+# evanescent, material and custom channels; sampled at every step, their integral along
+# z is the energy the absorbers took. The Kerr response moves energy between frequencies
+# but adds none, so that integral matches the drop of ``energy`` from the entrance, to
+# the trapezoid rule's error over eight steps. The spectral channel, the absorption
+# band, carries almost all of it; the transverse collar's channel rises from nothing as
+# the nonlinear halo creeps towards the grid's edge, still more than four decades below;
+# the evanescent, material and custom channels are exactly zero.
 
 rows_z = np.asarray(output["step_stats/z"])
-rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 4)
+rows = np.asarray(output["step_stats/absorbed_power"])  # (n_rows, 5)
 at_entrance = np.asarray(output["stats/absorbed_power"])[0]
 samples_z = np.concatenate([[0.0], rows_z])
 samples = np.concatenate([at_entrance[None], rows])
@@ -516,7 +516,8 @@ for channel, label in enumerate(("spectral", "transverse")):
 axis.set(xlabel="z (mm)", ylabel="absorbed power (J/m)")
 axis.legend()
 print(
-    f"evanescent and material channels: {np.max(np.abs(samples[:, 2:])):.1f} J/m; "
+    "evanescent, material and custom channels: "
+    f"{np.max(np.abs(samples[:, 2:])):.1f} J/m; "
     f"transverse at the exit {samples[-1, 1]:.1e} J/m"
 )
 print(f"tutorial run time: {time.perf_counter() - started:.1f} s")
