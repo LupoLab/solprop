@@ -198,7 +198,7 @@ wall resonances can produce several roots; phase matching does not ensure low lo
 
  .. code-block:: none
 
-    2026-10-31 16:37:19,455 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
+    2026-11-06 16:13:03,321 WARNING solprop.modes.antiresonant: Vincetti geometry outside published validation ranges: wall_thickness/tube_radius=0.0243902 outside [0.05, 0.2]
     Vincetti RDW roots (nm): [636.0, 688.2]
 
 
@@ -225,7 +225,7 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
         trange=600e-15,
         fwhm=pulse["fwhm"],
         energy=pulse["energy"],
-        n_save=41,
+        n_save=201,
         progress="none",
         seed=20261027,
     )
@@ -241,7 +241,7 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
 
     MemoryOutput
       state:           closed
-      planes:          41, 0 m to 1 m
+      planes:          201, 0 m to 1 m
       field per plane: 1 x 1 x 865 (modes x components x omega)
       statistics:      core_radius, density, electron_density, energy, fwhm_t, fwhm_t_outer,
                        omega0, peak_intensity, peak_ionisation_rate, peak_power,
@@ -249,7 +249,7 @@ One call. The pulse is a Gaussian, the default; the run takes a second or two.
                        plasma_work_defect, pressure, quadrature_error, species_density, ...
       between planes:  none
       run:             RunMetadata(multimode, field grid of 1728, 1 modes, native,
-                       2026-10-31T16:37:20.004228+00:00)
+                       2026-11-06T16:13:03.569961+00:00)
 
 
 
@@ -350,7 +350,7 @@ best it can do is *remove* glass that is not there.
       duration:   41.92 fs before, 4.944 fs after, 4.21 fs at the transform limit
       peak power: 2.113 GW before, 13.34 GW after, 17.44 GW at the limit
       quality:    0.765 of the transform-limited peak power
-      search:     converged: Solution found. (80 evaluations)
+      search:     converged: Solution found. (77 evaluations)
 
 
 
@@ -388,7 +388,7 @@ and tunes the insertion for each.
       duration:   41.92 fs before, 4.96 fs after, 4.21 fs at the transform limit
       peak power: 2.113 GW before, 13.13 GW after, 17.44 GW at the limit
       quality:    0.7533 of the transform-limited peak power
-      search:     converged: Solution found. (626 evaluations)
+      search:     converged: Solution found. (625 evaluations)
       per count:  0: quality 0.1212, 0 m
                   1: quality 0.7533, 128.3 um
                   2: quality 0.7391, 1.338 mm
@@ -526,7 +526,7 @@ For a paced propagation lesson, return to
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 4.242 seconds)
+   **Total running time of the script:** (0 minutes 2.687 seconds)
 
 
 .. _sphx_glr_download_auto_tutorials_basics_plot_04_interactive_session.py:

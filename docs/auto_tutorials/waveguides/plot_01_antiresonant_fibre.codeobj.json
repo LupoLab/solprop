@@ -812,6 +812,15 @@
    "name": "beta2"
   }
  ],
+ "broad": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
+  }
+ ],
  "capillary": [
   {
    "is_class": false,
@@ -966,6 +975,15 @@
    "module": "solprop",
    "module_short": "solprop",
    "name": "TubeLattice"
+  }
+ ],
+ "loss": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "numpy",
+   "module_short": "numpy",
+   "name": "ndarray"
   }
  ],
  "loss_axis": [
