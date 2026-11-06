@@ -15,14 +15,16 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QCheckBox,
     QFileDialog,
     QFrame,
     QHBoxLayout,
+    QLabel,
     QMenu,
+    QProgressBar,
     QPushButton,
     QScrollArea,
     QSlider,
@@ -39,9 +41,17 @@ from solprop_gui.registry.units import si
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.analysis_pages import AlongPage, OverviewPage, PageView
 from solprop_gui.ui.run_panel import RunPanel
-from solprop_gui.ui.theme import clear_layout, named_label, repolish
+from solprop_gui.ui.theme import (
+    ACCENT,
+    FONT,
+    GREY,
+    INK,
+    clear_layout,
+    named_label,
+    repolish,
+)
 
-__all__ = ["AnalyseStage", "ZScrubber"]
+__all__ = ["AnalyseStage", "StartingCover", "ZScrubber"]
 
 _PANEL_WIDTH = 232
 """The width of the controls beside a page's plots, in pixels."""
@@ -156,6 +166,115 @@ class ZScrubber(QFrame):
         )
 
 
+_COVER_STYLE = f"""
+QFrame#starting-cover {{ background: rgba(244, 246, 248, 246); }}
+QLabel#starting-title {{ font-family: "{FONT}"; font-size: 26px; font-weight: 600;
+    color: {INK}; }}
+QLabel#starting-detail {{ font-family: "{FONT}"; font-size: 13px; color: {GREY}; }}
+QLabel#starting-clock {{ font-family: "{FONT}"; font-size: 13px; color: {GREY}; }}
+QProgressBar#starting-bar {{ border: 0; background: #dde2e7; border-radius: 3px;
+    max-height: 6px; min-height: 6px; }}
+QProgressBar#starting-bar::chunk {{ background: {ACCENT}; border-radius: 3px; }}
+"""
+"""The cover's look: the page dimmed, and a large title over it."""
+
+
+class StartingCover(QFrame):
+    """A veil over a run's page, from pressing Run until its first plane arrives.
+
+    solprop builds the model before it takes a step (the modes, their tables, the
+    first plane's plan), which takes from a moment to a minute; the cover says so, with
+    a moving bar and the seconds gone, instead of empty plots.
+
+    Parameters
+    ----------
+    over : PySide6.QtWidgets.QWidget
+        What it covers; it follows that widget's size.
+
+    Attributes
+    ----------
+    clock : PySide6.QtWidgets.QLabel
+        The seconds since the run was started.
+    """
+
+    def __init__(self, over: QWidget) -> None:
+        """Make the cover, hidden."""
+        super().__init__(over)
+        self.setObjectName("starting-cover")
+        self.setStyleSheet(_COVER_STYLE)
+        self._started = 0.0
+        title = QLabel("Starting the simulation")
+        title.setObjectName("starting-title")
+        detail = QLabel(
+            "solprop is building the model and taking its first steps. "
+            "The plots appear with the first plane."
+        )
+        detail.setObjectName("starting-detail")
+        detail.setWordWrap(True)
+        detail.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # A fixed width: a wrapped label in a centred layout is given one line's height.
+        detail.setFixedWidth(440)
+        detail.setMinimumHeight(detail.heightForWidth(440))
+        bar = QProgressBar()
+        bar.setObjectName("starting-bar")
+        bar.setRange(0, 0)  # busy: no fraction is known yet
+        bar.setTextVisible(False)
+        bar.setFixedWidth(260)
+        self.clock = QLabel("")
+        self.clock.setObjectName("starting-clock")
+        column = QVBoxLayout(self)
+        column.addStretch(1)
+        for widget in (title, detail, bar, self.clock):
+            column.addWidget(widget, 0, Qt.AlignmentFlag.AlignHCenter)
+        column.setSpacing(12)
+        column.addStretch(2)
+        self._timer = QTimer(self)
+        self._timer.setInterval(1000)
+        self._timer.timeout.connect(self._tick)
+        over.installEventFilter(self)
+        self.hide()
+
+    def eventFilter(self, watched: QObject, event: QEvent) -> bool:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Keep the size of what it covers.
+
+        Parameters
+        ----------
+        watched : PySide6.QtCore.QObject
+            What it covers.
+        event : PySide6.QtCore.QEvent
+            The event.
+
+        Returns
+        -------
+        bool
+            False: the event goes on.
+        """
+        if event.type() == QEvent.Type.Resize and isinstance(watched, QWidget):
+            self.setGeometry(watched.rect())
+        return False
+
+    def begin(self) -> None:
+        """Cover the page, and start the clock."""
+        self._started = time.monotonic()
+        self._tick()
+        parent = self.parentWidget()
+        if parent is not None:
+            self.setGeometry(parent.rect())
+        self.show()
+        self.raise_()
+        self._timer.start()
+
+    def end(self) -> None:
+        """Take the cover away."""
+        self._timer.stop()
+        self.hide()
+
+    def _tick(self) -> None:
+        """Say how long the run has been starting."""
+        seconds = int(time.monotonic() - self._started)
+        self.clock.setText(f"{seconds} s" if seconds else "")
+
+
 class AnalyseStage(QWidget):
     """A progress strip or a rail, one page large, its controls, and one z scrubber.
 
@@ -221,6 +340,8 @@ class AnalyseStage(QWidget):
             strip.addWidget(panel.sparkline)
             strip.addWidget(panel.lamp)
             panel.bar.valueChanged.connect(self._progressed)
+            # A run that ends before its first plane (stopped, failed) uncovers too.
+            panel.ended.connect(lambda _path: self.starting.end())
         self.strip.hide()
         self.advice = QFrame()
         self.advice.setObjectName("advice")
@@ -253,6 +374,7 @@ class AnalyseStage(QWidget):
         self.unbuilt = named_label("", "note")
         self.unbuilt.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.stack.addWidget(self.unbuilt)
+        self.starting = StartingCover(self.stack)
         head = QHBoxLayout()
         head.addWidget(self.title)
         head.addWidget(self.said, 1)
@@ -466,14 +588,17 @@ class AnalyseStage(QWidget):
         if running and self.overview is not None:
             self.stack.setCurrentWidget(self.overview)
             self._show_controls(self.overview)
-        elif not running and self.current is not None:
-            self.show_page(self.current)
+        elif not running:
+            self.starting.end()
+            if self.current is not None:
+                self.show_page(self.current)
 
     def run_started(self) -> None:
         """Start the clock of a new run, and take any advice away."""
         self._started = time.monotonic()
         self.eta.clear()
         self.advice.hide()
+        self.starting.begin()
         self.scrubber.set_positions([])
         self.scrubber.follow.setChecked(True)
 
@@ -500,6 +625,8 @@ class AnalyseStage(QWidget):
         positions : Sequence of float
             Where its planes are, m.
         """
+        if positions:
+            self.starting.end()
         following = self.scrubber.follow.isChecked()
         self.scrubber.set_positions(positions, keep=not following)
 
@@ -527,6 +654,7 @@ class AnalyseStage(QWidget):
         message : str
             What to try.
         """
+        self.starting.end()
         self.advice_title.setText(title)
         self.advice_text.setText(message)
         self.advice.show()

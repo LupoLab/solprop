@@ -11,7 +11,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from PySide6.QtCore import QSettings, QStandardPaths, Qt
+from PySide6.QtCore import QEvent, QSettings, QStandardPaths, Qt
 from PySide6.QtGui import QFontDatabase
 from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
@@ -595,6 +595,31 @@ def test_a_failed_run_stays_with_its_advice(
     assert window.has_results  # the planes reached stay open for analysis
     window._run_state("starting")
     assert window.analyse.advice.isHidden()
+    # A new run is covered until its first plane, with a clock that counts.
+    stage = window.analyse
+    cover = stage.starting
+    assert not cover.isHidden()
+    cover._started -= 5.0
+    cover._tick()
+    assert cover.clock.text() == "5 s"
+    stage.stack.resize(500, 300)
+    cover.eventFilter(stage.stack, QEvent(QEvent.Type.Resize))
+    assert cover.geometry() == stage.stack.rect()
+    stage._rows_grew([])
+    assert not cover.isHidden()
+    stage._rows_grew([0.0])
+    assert cover.isHidden()
+    # A run that fails, or ends, before its first plane uncovers too.
+    cover.begin()
+    window._report_failure("It failed again", "Still too small.", "")
+    assert cover.isHidden()
+    cover.begin()
+    window._leaving_run = True  # a run stopped to open something else
+    window.run_panel.ended.emit("")
+    assert cover.isHidden()
+    cover.begin()
+    stage.show_running(False)
+    assert cover.isHidden()
 
 
 def test_a_page_that_a_file_cannot_show_says_why(

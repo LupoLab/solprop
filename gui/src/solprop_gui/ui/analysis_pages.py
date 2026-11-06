@@ -395,7 +395,7 @@ class OverviewPage(PageView):
         self._live = True
         self._db = np.zeros((0, 0))
         for plot in (self.spectrum_map, self.power_map):
-            plot.say("Waiting for the first plane…")
+            plot.say("")  # the stage covers them while the run starts
         for line in (self.spectrum_line, self.power_line):
             line.set_data(np.zeros(0), [np.zeros(0)])
 
@@ -2041,7 +2041,7 @@ class BeamOverviewPage(OverviewPage):
         self._live = True
         self._flu = np.zeros((0, 0))
         for plot in (self.fluence_map, self.spectrum_map, self.across_map):
-            plot.say("Waiting for the first plane…")
+            plot.say("")  # the stage covers them while the run starts
         self.profile.set_data(np.zeros(0), [np.zeros(0)])
 
     def refresh(self) -> None:

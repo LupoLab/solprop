@@ -56,7 +56,10 @@ recipe's `[pins]` table, so a script that loads the setup solves them in the sam
 
 ## Run it
 
-Click **Run**. The Run stage shows the run as it goes: a strip with its progress, an
+Click **Run**. solprop first builds the model and takes its first steps, which can take
+from a moment to a minute; until the first plane arrives the plots are covered by
+*Starting the simulation*, with a clock. The Run stage then shows the run as it goes:
+a strip with its progress, an
 estimate of the time left, how far along z it is with its steps (and how many were
 rejected), a line of the step size along z, and the state of the time window's edges.
 The spectrum and the pulse grow along z beneath it, each plane drawn as solprop saves
