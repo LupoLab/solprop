@@ -80,12 +80,6 @@ mixture gives `"constant"`; the two agree to the expansion's tolerance, not bitw
 Open: whether an update to a constant fill should always rebuild the constant operator,
 trading the reuse for bitwise agreement with a fresh build.
 
-**`floor=` beside a constant or profile pressure.**
-{meth}`Mixture.fill <solprop.physdata.mixtures.Mixture.fill>` documents `floor` as the
-pressure-gradient floor in bar. Beside a scalar pressure or a supplied `ZProfile` it is
-accepted and ignored (`_pressure_path` in `solprop/physdata/mixtures.py`). Open: refuse
-it by name there, or apply it to a supplied profile.
-
 **A reserved electrons-per-event weight.** The compiled plasma channels
 (`PlasmaChannel` in `solprop/translate/responses.py`, `EnvelopePlasmaChannel` in
 `solprop/translate/envelope_plasma.py`) carry `electrons_per_event`, and the reference
