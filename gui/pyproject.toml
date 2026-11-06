@@ -57,6 +57,9 @@ scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "-
 
 [tool.hatch.metadata.hooks.custom]
 
+# Carries the user guide's chapter on the window (hatch_build.py).
+[tool.hatch.build.hooks.custom]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/solprop_gui"]
 

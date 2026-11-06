@@ -67,7 +67,9 @@ The button at the right of the bar does the stage's main thing: **Run** on a set
 **Simulate this** when designing a waveguide. The **⋯** menu beside it saves the setup,
 shows it as a recipe, or shows it as the Python that builds it. **File** and **Edit**
 hold the same with their usual shortcuts; every change to a setup is one step of
-**Undo**.
+**Undo**. **Help → User guide** (F1 on Windows and Linux) opens this chapter in a window of
+its own; it comes with the front end, so it reads offline. **Help → About solprop** gives
+the versions running and the project's links.
 
 A run goes into a folder of its own, `<date>-<title>`, holding its results file
 `run.h5`, the recipe it ran (`recipe.toml`) and its log (`run.log`). The folders are made

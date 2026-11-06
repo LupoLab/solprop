@@ -1452,3 +1452,15 @@ def test_home_is_a_stage_button_and_a_page_saves_as_drawn(
     analyse.save_page_image(str(tmp_path / "page.png"))
     assert (tmp_path / "page.png").stat().st_size > 0
     assert analyse.said.text() == "Wrote page.png"
+
+
+def test_help_opens_the_guide_and_about(window: WorkflowWindow, qtbot: QtBot) -> None:
+    menus = [action.text() for action in window.menuBar().actions()]
+    assert menus[-1] == "&Help"
+    guide = window.show_guide()
+    assert guide.isVisible() and guide.current == "index"
+    assert window.show_guide() is guide  # one guide window, raised again
+    about = window.show_about()
+    assert about.isVisible() and "solprop-gui" in about.versions.text()
+    about.close()
+    guide.close()

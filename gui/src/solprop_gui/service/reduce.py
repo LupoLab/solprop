@@ -247,7 +247,7 @@ class Reducer:
     ...            "f": (np.array([2e14]), np.ones(1))}
     >>> density, power = reducer.reduce(spectra, t, np.ones(2))
     >>> sorted(density), power.shape
-    (['f', 'wavelength'], (512,))
+    (['f', 'wavelength'], (2048,))
     >>> [round(float(v) / 1e12, 1) for v in reducer.axes()["f"]]
     [249.9]
     """

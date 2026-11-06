@@ -39,13 +39,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     # loading it.
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415 - see above
 
+    from solprop_gui.ui.identity import (  # noqa: PLC0415 - see above
+        apply_identity,
+        set_windows_app_id,
+    )
     from solprop_gui.ui.workflow_window import (  # noqa: PLC0415 - see above
         WorkflowWindow,
     )
 
+    # Before the first window, so that Windows shows this application's taskbar button.
+    set_windows_app_id()
     application = QApplication.instance() or QApplication(sys.argv[:1])
-    application.setApplicationName("solprop")
-    application.setApplicationVersion(__version__)
+    apply_identity(application)  # pyright: ignore[reportArgumentType]
     del options
     window = WorkflowWindow()
     window.show()

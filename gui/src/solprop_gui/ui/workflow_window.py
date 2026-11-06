@@ -13,8 +13,8 @@ window, which stays runnable until every route has moved here.
 from collections.abc import Mapping, Sequence
 from pathlib import Path
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QAction, QCloseEvent, QKeySequence
+from PySide6.QtCore import Qt, QUrl
+from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
     QFrame,
@@ -53,7 +53,9 @@ from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.design_stage import DesignStage
 from solprop_gui.ui.document import Confirm, SetupDocument
+from solprop_gui.ui.help_window import HelpWindow
 from solprop_gui.ui.home import HomePage
+from solprop_gui.ui.identity import LINKS, AboutDialog
 from solprop_gui.ui.run_panel import RunPanel
 from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
@@ -360,6 +362,55 @@ class WorkflowWindow(QMainWindow):
         redo = self.document.undo.createRedoAction(self, "&Redo")
         redo.setShortcut(QKeySequence.StandardKey.Redo)
         edit_menu.addAction(redo)
+        help_menu = self.menuBar().addMenu("&Help")
+        guide = QAction("User guide", self)
+        guide.setShortcut(QKeySequence.StandardKey.HelpContents)
+        guide.triggered.connect(self.show_guide)
+        help_menu.addAction(guide)
+        for text, key in (
+            ("The solprop manual, online", "manual"),
+            ("Report an issue…", "issues"),
+        ):
+            action = QAction(text, self)
+            action.triggered.connect(
+                lambda _on=False, k=key: QDesktopServices.openUrl(QUrl(LINKS[k]))
+            )
+            help_menu.addAction(action)
+        help_menu.addSeparator()
+        about = QAction("About solprop", self)
+        # macOS puts it in the application menu, where an About belongs.
+        about.setMenuRole(QAction.MenuRole.AboutRole)
+        about.triggered.connect(self.show_about)
+        help_menu.addAction(about)
+        self.help_window: HelpWindow | None = None
+
+    def show_guide(self) -> HelpWindow:
+        """Open the user guide's chapter on this window, in a window of its own.
+
+        Returns
+        -------
+        solprop_gui.ui.help_window.HelpWindow
+            The guide's window, made the first time.
+        """
+        if self.help_window is None:
+            self.help_window = HelpWindow()
+        self.help_window.show()
+        self.help_window.raise_()
+        self.help_window.activateWindow()
+        return self.help_window
+
+    def show_about(self) -> AboutDialog:
+        """Say who made solprop, which versions run, and where it lives.
+
+        Returns
+        -------
+        solprop_gui.ui.identity.AboutDialog
+            The dialog, shown.
+        """
+        dialog = AboutDialog(self)
+        dialog.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+        dialog.open()
+        return dialog
 
     def progress(self) -> Progress:
         """Return how far the simulation has got.
