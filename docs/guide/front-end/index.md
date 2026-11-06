@@ -6,6 +6,10 @@ experiment they want to model: a setup is described in physics terms (a capillar
 core radius, a gas and its pressure, a pulse's wavelength, duration and energy), and
 solprop's own keyword names stay behind an **Advanced** section.
 
+**The front end is experimental.** Its window, its workflow and the files it writes for
+itself may change between releases before 1.0; the recipes and results files it makes
+are solprop's own, and keep solprop's guarantees.
+
 The window holds no physics of its own. Every number it shows, from a soliton order on
 the setup sheet to a pulse's width on a results page, is computed by solprop; every
 setup it writes is a solprop [recipe](../setup/recipes.md), which `solprop run` and

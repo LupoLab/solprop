@@ -1,5 +1,7 @@
-The desktop front end, `solprop-gui` (`solprop[gui]`), for setting up, running and
-reading simulations without a script, with a chapter of its own in the user guide:
+The desktop front end, `solprop-gui`, **experimental** in this release: its window, its
+workflow and its files may change without notice before 1.0. Install it with
+`pip install "solprop[gui]"` and start it with `solprop-gui`. It sets up, runs and reads
+simulations without a script, and has a chapter of its own in the user guide:
 - Home offers a problem class for each common geometry (capillary, antiresonant fibre,
   radial filament, Cartesian and line beams, GNLSE, step-index and graded-index fibres),
   every other route on a form built from solprop's parameter metadata, and a waveguide
