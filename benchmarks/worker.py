@@ -226,13 +226,17 @@ def timed_run(
 
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     output = MemoryOutput()
+    # The run's record before the clock starts: its first evaluation builds the planes'
+    # bases (about 0.18 s on rdw), which every arm's first repeat would otherwise pay
+    # inside its window.
+    metadata = simulation.metadata()
     before = source_calls(engine)
     started = time.perf_counter_ns()
     run_problem(
         problem,
         engine,
         output,
-        metadata=simulation.metadata(),
+        metadata=metadata,
         stats_spec=problem.stats_spec,
         progress="none",
         resume_history=simulation.settings.resume_history,
