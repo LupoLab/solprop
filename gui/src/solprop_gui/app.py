@@ -37,6 +37,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     # Qt is imported here, after the arguments: `--version` and `--help` answer without
     # loading it.
+    from pyqtgraph.util.garbage_collector import (  # noqa: PLC0415 - see above
+        GarbageCollector,
+    )
     from PySide6.QtWidgets import QApplication  # noqa: PLC0415 - see above
 
     from solprop_gui.ui.identity import (  # noqa: PLC0415 - see above
@@ -52,6 +55,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     application = QApplication.instance() or QApplication(sys.argv[:1])
     apply_identity(application)  # pyright: ignore[reportArgumentType]
     del options
+    # Garbage is collected on a timer, between events, never by Python in the middle of
+    # one: a plot dropped while its scene still had an event queued was otherwise freed
+    # inside that event's handler, deleting the scene under Qt's feet.
+    collector = GarbageCollector(interval=1.0)
     window = WorkflowWindow()
     window.show()
-    return application.exec()
+    try:
+        return application.exec()
+    finally:
+        collector.timer.stop()
