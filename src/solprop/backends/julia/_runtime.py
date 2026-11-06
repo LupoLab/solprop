@@ -110,6 +110,13 @@ def runtime() -> Any:
             "julia requires a source checkout with a prepared Julia 1.13 runtime; "
             "follow julia/README.md"
         )
+    device = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
+    if device not in {"cpu", "cuda"}:
+        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu or cuda")
+    # A GPU run's environment adds CUDA.jl to the engine's, resolved with it, so
+    # that a CPU run never resolves or loads the GPU packages.
+    if device == "cuda":
+        project = project / "cuda"
     settings = {
         "PYTHON_JULIACALL_EXE": str(executable),
         "PYTHON_JULIACALL_PROJECT": str(project),
@@ -121,14 +128,7 @@ def runtime() -> Any:
         ),
         "JULIA_CONDAPKG_BACKEND": "Null",
     }
-    device = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
-    if device not in {"cpu", "cuda"}:
-        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu or cuda")
-    # The CUDA packages live in a second environment stacked on the project's, so a
-    # CPU run never resolves or loads them.
-    settings["JULIA_LOAD_PATH"] = (
-        f"@:{project / 'cuda'}:@stdlib" if device == "cuda" else "@:@stdlib"
-    )
+    settings["JULIA_LOAD_PATH"] = "@:@stdlib"
     # The experiment deliberately owns one Julia runtime per Python process.
     for name, value in settings.items():
         if name in os.environ and os.environ[name] != value:
@@ -164,6 +164,8 @@ def source_digest() -> str:
             *(root / "julia/ext").rglob("*.jl"),
             root / "julia/Project.toml",
             root / "julia/Manifest.toml",
+            root / "julia/cuda/Project.toml",
+            root / "julia/cuda/Manifest.toml",
             *Path(__file__).parent.glob("*.py"),
         ]
     )

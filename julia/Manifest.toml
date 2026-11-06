@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "fa29c7ab8044951428f5c6a1cb0f867920a4aac6"
+project_hash = "6fe1a72221429eac96c1944ecdaeb78d27aa4d11"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -707,6 +707,12 @@ deps = ["AcceleratedKernels", "FFTW", "KernelAbstractions", "LinearAlgebra", "Po
 path = "."
 uuid = "bc9db228-6fd1-46b1-b175-748485922872"
 version = "0.0.0"
+
+    [deps.SolpropJulia.extensions]
+    SolpropJuliaCUDAExt = "CUDA"
+
+    [deps.SolpropJulia.weakdeps]
+    CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
 
 [[deps.Static]]
 deps = ["CommonWorldInvalidations", "IfElse", "PrecompileTools", "SciMLPublic"]

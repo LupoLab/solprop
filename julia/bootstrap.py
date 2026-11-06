@@ -75,17 +75,20 @@ def main() -> None:
         "JULIA_CONDAPKG_BACKEND": "Null",
         "JULIA_PYTHONCALL_EXE": sys.executable,
     }
-    subprocess.run(
-        [
-            str(executable()),
-            "--startup-file=no",
-            f"--project={ROOT / 'julia'}",
-            "-e",
-            "using Pkg; Pkg.instantiate(); Pkg.precompile()",
-        ],
-        env=env,
-        check=True,
-    )
+    # --cuda also prepares the GPU environment, which adds CUDA.jl to the engine's.
+    projects = ["julia", "julia/cuda"] if "--cuda" in sys.argv[1:] else ["julia"]
+    for project in projects:
+        subprocess.run(
+            [
+                str(executable()),
+                "--startup-file=no",
+                f"--project={ROOT / project}",
+                "-e",
+                "using Pkg; Pkg.instantiate(); Pkg.precompile()",
+            ],
+            env=env,
+            check=True,
+        )
     sys.stdout.write(f"Prepared Julia and julia/Manifest.toml\n")
 
 

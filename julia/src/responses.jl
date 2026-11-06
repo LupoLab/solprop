@@ -375,14 +375,18 @@ end
 function raman_products!(r, modal, c)
     nt, modes = size(modal)
     (; drive, first, second) = r
-    thg = r.thg
-    values = thg ? modal : r.signal
-    thg || analytic_signal!(r.signal, modal, r.signal_forward, r.signal_inverse, c, modes)
-    each!(c, 2nt, size(drive, 2)) do t, p
-        @inbounds begin
-            a, b = values[t, first[p]], values[t, second[p]]
-            drive[t, p] = t > nt ? zero(eltype(drive)) : thg ? real(a) * real(b) :
-                          (real(a) * real(b) + imag(a) * imag(b)) / 2
+    if r.thg
+        each!(c, 2nt, size(drive, 2)) do t, p
+            @inbounds drive[t, p] = t > nt ? zero(eltype(drive)) : modal[t, first[p]] * modal[t, second[p]]
+        end
+    else
+        signal = r.signal
+        analytic_signal!(signal, modal, r.signal_forward, r.signal_inverse, c, modes)
+        each!(c, 2nt, size(drive, 2)) do t, p
+            @inbounds begin
+                a, b = signal[t, first[p]], signal[t, second[p]]
+                drive[t, p] = t > nt ? zero(eltype(drive)) : (real(a) * real(b) + imag(a) * imag(b)) / 2
+            end
         end
     end
     convolve!(r, c)
