@@ -7,7 +7,7 @@ import numpy as np
 import pytest
 from matplotlib.collections import QuadMesh
 
-from solprop.exceptions import ModeError
+from solprop.exceptions import ModeError, ProcessingError
 from solprop.plotting.spectrograms import spectrogram
 
 
@@ -35,6 +35,12 @@ def test_a_spectrogram_draws_each_spectral_axis(single, axis, label):
 def test_a_spectrogram_takes_a_frequency_range_in_hertz(single):
     figure = spectrogram(single, 0.0, "f", spec_range=(0.0, 1e15))
     assert figure.axes[0].get_ylim() == pytest.approx((0.0, 1.0))
+
+
+def test_a_spectrogram_refuses_a_range_that_misses_the_data(single):
+    # A range in metres on the frequency axis selects nothing.
+    with pytest.raises(ProcessingError, match="spec_range"):
+        spectrogram(single, 0.0, "f", spec_range=(600e-9, 1.1e-6))
 
 
 def test_a_spectrogram_puts_the_pulse_at_the_carrier(single):
