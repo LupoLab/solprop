@@ -9,7 +9,9 @@ front end from plain data, so a run's spec carries them: the energy and the peak
 within a wavelength band, and the spectrum or the pulse at a distance. Each is read at
 the saved plane nearest the distance, the last without one. A spectrum or a pulse is
 held on an axis fixed by the recipe, the same at every point, so a scan's points line
-up; :func:`reduction_axis` rebuilds it from the recipe the scan records.
+up; :func:`reduction_axis` rebuilds it from the recipe the scan records. The readers
+are of a guided run's field: a beam's scan records its statistics only, and is refused
+these (:data:`~solprop_gui.model.recipe.BEAM_ROUTES`).
 """
 
 from collections.abc import Callable, Mapping, Sequence
@@ -22,6 +24,7 @@ from solprop.processing import get_power, get_spectral_density
 from solprop.processing.scans import Reduction, custom
 from solprop.recipe import Recipe
 
+from solprop_gui.model.recipe import BEAM_ROUTES
 from solprop_gui.service.reduce import TIME_OVERSAMPLING
 
 __all__ = [
@@ -236,7 +239,19 @@ def reductions(specs: Sequence[Spec], recipe: Recipe) -> list[Reduction]:
     -------
     list of solprop.processing.scans.Reduction
         The reductions, each named by its kind.
+
+    Raises
+    ------
+    ValueError
+        For a beam's scan given any, before a point runs: each point's reading would
+        fail.
     """
+    if specs and recipe.route in BEAM_ROUTES:
+        msg = (
+            f"a scan of a {recipe.route} beam records its statistics only: the band, "
+            "spectrum and pulse readers are of a guided run"
+        )
+        raise ValueError(msg)
     declared: list[Reduction] = []
     for spec in specs:
         kind = str(spec["kind"])

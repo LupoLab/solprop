@@ -15,7 +15,7 @@ and nothing of the window: no Qt, no open files, no threads.
 import itertools
 import multiprocessing
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from multiprocessing.connection import Connection
 from typing import Any
 
@@ -101,6 +101,9 @@ class KernelClient:
     target : callable, optional
         The child's entry point, called with its end of the pipe; the kernel's
         :func:`~solprop_gui.service.kernel.serve` by default.
+    ids : iterator of int or None, optional
+        Where request ids come from; a count of its own by default. A window that may
+        change transport shares one, so a request keeps its id across the change.
     """
 
     def __init__(
@@ -109,6 +112,7 @@ class KernelClient:
         *,
         on_lost: Callable[[], None] | None = None,
         target: Callable[[Connection], None] = kernel.serve,
+        ids: Iterator[int] | None = None,
     ) -> None:
         """Start the kernel and its reader thread."""
         context = multiprocessing.get_context("spawn")
@@ -120,7 +124,7 @@ class KernelClient:
         child.close()
         self._on_reply = on_reply
         self._on_lost = on_lost
-        self._ids = itertools.count(1)
+        self._ids = itertools.count(1) if ids is None else ids
         self._send_lock = threading.Lock()
         self._closing = False
         self.filter = ReplyFilter()
@@ -186,13 +190,29 @@ class KernelClient:
         int
             The request's id.
         """
-        request = Request(
-            kind,
-            dict(payload or {}),
-            request_id=next(self._ids),
-            revision=revision,
-            key=key,
+        return self.submit(
+            Request(
+                kind,
+                dict(payload or {}),
+                request_id=next(self._ids),
+                revision=revision,
+                key=key,
+            )
         )
+
+    def submit(self, request: Request) -> int:
+        """Send a request already made, keeping its id.
+
+        Parameters
+        ----------
+        request : Request
+            The request; one another transport took and could not send.
+
+        Returns
+        -------
+        int
+            Its id.
+        """
         self.filter.sent(request)
         with self._send_lock:
             self._connection.send(request)

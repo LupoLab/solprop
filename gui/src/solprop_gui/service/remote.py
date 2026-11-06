@@ -6,25 +6,26 @@
 
 :class:`ServiceConnection` finds this user's service (:func:`.server.read_state`), or
 starts one in a process of its own that outlives the window, and speaks the
-service's :class:`~.server.Envelope` messages over its socket. It offers what the
+service's :class:`~.messages.Envelope` messages over its socket. It offers what the
 in-window clients of option B offer, the same calls with the same callbacks, so the
 bridge chooses one or the other and the window does not know which: requests with
 latest-wins and revision filtering, runs started and controlled through
 :class:`RemoteRun` handles, and in addition the service's runs listed and attached to.
 """
 
+import contextlib
 import itertools
 import subprocess
 import sys
 import threading
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
 from multiprocessing.connection import Client
 from pathlib import Path
 
 from solprop_gui.service.client import ReplyFilter
-from solprop_gui.service.messages import Control, Event, Reply, Request
-from solprop_gui.service.server import Envelope, hang_up, read_state, state_file
+from solprop_gui.service.messages import Control, Envelope, Event, Reply, Request
+from solprop_gui.service.server import hang_up, read_state, state_file
 from solprop_gui.service.worker import RunSpec
 
 __all__ = ["START_SECONDS", "RemoteRun", "ServiceConnection", "start_service"]
@@ -135,6 +136,11 @@ class RemoteRun:
 class ServiceConnection:
     """A window's connection to the service, started if none is running.
 
+    It connects on its reader thread, never the window's: finding the service, or
+    starting one and waiting up to :data:`START_SECONDS` for it, would freeze the
+    window. What the window sends meanwhile is held, and sent once connected; if no
+    service can be reached, ``on_failed`` is given back what was held.
+
     Parameters
     ----------
     on_reply : callable
@@ -147,14 +153,14 @@ class ServiceConnection:
         Called once if the connection drops while the window is open.
     state : pathlib.Path or None, optional
         The service's state file; :func:`.server.state_file` by default.
-
-    Raises
-    ------
-    ConnectionError
-        If no service can be reached or started.
+    on_failed : callable or None, optional
+        Called once, from the reader thread, if no service can be reached: with the
+        reason, the requests held and the runs started while connecting, none sent.
+    ids : iterator of int or None, optional
+        Where request ids come from; a count of its own by default.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - the window's callbacks, its state file and ids
         self,
         on_reply: Callable[[Reply], None],
         on_event: Callable[[Event], None],
@@ -162,21 +168,50 @@ class ServiceConnection:
         on_runs: Callable[[list[dict[str, object]]], None] | None = None,
         on_lost: Callable[[], None] | None = None,
         state: Path | None = None,
+        on_failed: Callable[[str, list[Request], list[RunSpec]], None] | None = None,
+        ids: Iterator[int] | None = None,
     ) -> None:
-        """Connect, starting the service if none answers."""
+        """Start connecting, on the reader thread."""
         self._state = state or state_file()
-        self._connection = self._connect()
+        self._connection: object | None = None
+        self._held: list[Envelope] = []
+        self._failed = False
         self._on_reply = on_reply
         self._on_event = on_event
         self._on_runs = on_runs
         self._on_lost = on_lost
-        self._ids = itertools.count(1)
+        self._on_failed = on_failed
+        self._ids = itertools.count(1) if ids is None else ids
         self._lock = threading.Lock()
         self._closing = False
         self.filter = ReplyFilter()
         self.runs: dict[str, RemoteRun] = {}
-        self._reader = threading.Thread(target=self._read, daemon=True)
+        self._reader = threading.Thread(target=self._run, daemon=True)
         self._reader.start()
+
+    def _run(self) -> None:
+        """Connect, send what was held, and deliver the service's messages."""
+        try:
+            connection = self._connect()
+        except ConnectionError as error:
+            with self._lock:
+                self._failed = True
+                held, self._held = self._held, []
+            if not self._closing and self._on_failed is not None:
+                requests = [e.body for e in held if isinstance(e.body, Request)]
+                runs = [e.body for e in held if isinstance(e.body, RunSpec)]
+                self._on_failed(str(error), requests, runs)
+            return
+        with self._lock:
+            if self._closing:
+                hang_up(connection)
+                return
+            self._connection = connection
+            held, self._held = self._held, []
+            for envelope in held:
+                with contextlib.suppress(BrokenPipeError, EOFError, OSError):
+                    connection.send(envelope)  # pyright: ignore[reportAttributeAccessIssue]
+        self._read()
 
     def _try(self) -> object | None:
         """Connect to the recorded service, if it answers.
@@ -272,6 +307,11 @@ class ServiceConnection:
         """
         try:
             with self._lock:
+                if self._connection is None:
+                    # Still connecting: held, and sent once connected.
+                    if not self._failed:
+                        self._held.append(envelope)
+                    return not self._failed
                 self._connection.send(envelope)  # pyright: ignore[reportAttributeAccessIssue]
         except BrokenPipeError, EOFError, OSError:
             return False
@@ -381,7 +421,7 @@ class ServiceConnection:
         """Deliver the service's messages until the connection closes."""
         while True:
             try:
-                envelope = self._connection.recv()  # pyright: ignore[reportAttributeAccessIssue]
+                envelope = self._connection.recv()  # pyright: ignore[reportAttributeAccessIssue, reportOptionalMemberAccess]
             except EOFError, OSError, TypeError:
                 break
             if self._closing:
@@ -421,6 +461,9 @@ class ServiceConnection:
             Seconds to wait for the reader to finish.
         """
         self._closing = True
-        hang_up(self._connection)
+        with self._lock:
+            connection = self._connection
+        if connection is not None:
+            hang_up(connection)
         if self._reader is not threading.current_thread():
             self._reader.join(timeout)

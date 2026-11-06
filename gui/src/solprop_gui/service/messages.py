@@ -22,6 +22,7 @@ __all__ = [
     "REPLACEABLE",
     "TERMINAL",
     "Control",
+    "Envelope",
     "Event",
     "Reply",
     "Request",
@@ -186,3 +187,24 @@ class Control:
 
     kind: Literal["stop", "subscribe"]
     from_plane: int = 0
+
+
+@dataclass(frozen=True)
+class Envelope:
+    """One message between a window and the solprop service, over its socket.
+
+    It lives here, in a module only ever imported, and not in the service's own
+    module: the service runs as ``python -m solprop_gui.service.server``, where that
+    module is ``__main__``, and a class defined there would not be the class a window
+    pickles, so every message would fail the service's ``isinstance`` check.
+
+    Attributes
+    ----------
+    kind : str
+        What it is (:mod:`solprop_gui.service.server` lists the kinds).
+    body : object
+        Its content.
+    """
+
+    kind: str
+    body: object = None

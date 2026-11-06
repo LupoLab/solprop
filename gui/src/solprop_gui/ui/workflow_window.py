@@ -40,7 +40,7 @@ from solprop_gui.classes.catalog import (
 )
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.model.recipe import MISSING, RecipeModel, without_table
+from solprop_gui.model.recipe import BEAM_ROUTES, MISSING, RecipeModel, without_table
 from solprop_gui.model.scans import profile_points
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.pages import label
@@ -978,6 +978,8 @@ class WorkflowWindow(QMainWindow):
         model = self.document.model
         build = {} if model is None else model.document.get("build", {})
         self.scans.set_paths([*self._scan_paths, *profile_points(build)])
+        if model is not None:
+            self.scans.record.allow_route(guided=model.route not in BEAM_ROUTES)
 
     def _described(self, route: str) -> None:
         """Build the sheet when the open setup's route has been described.

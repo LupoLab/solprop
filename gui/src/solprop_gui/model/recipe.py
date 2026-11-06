@@ -31,7 +31,7 @@ from solprop.recipe.paths import (
     set_path,
 )
 
-__all__ = ["MISSING", "RecipeModel", "path_text", "without_table"]
+__all__ = ["BEAM_ROUTES", "MISSING", "RecipeModel", "path_text", "without_table"]
 
 
 class _Missing:
@@ -49,6 +49,10 @@ class _Missing:
 
 
 MISSING: Final = _Missing()
+
+BEAM_ROUTES: Final = frozenset({"radial", "free", "planar"})
+"""The routes of a beam in free space, whose files solprop reads by its spatial readers
+alone: the spectral and power readers of a guided run's field refuse them."""
 """What :meth:`RecipeModel.get` returns for a value the recipe does not set."""
 
 

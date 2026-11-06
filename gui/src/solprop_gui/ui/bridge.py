@@ -15,12 +15,14 @@ that keeps runs going when the window closes, and lists them for a window to att
 to (:mod:`solprop_gui.service.remote`).
 """
 
+import itertools
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from PySide6.QtCore import QObject, Signal
 
 from solprop_gui.service.client import KernelClient, RunClient
+from solprop_gui.service.messages import Event, Request
 from solprop_gui.service.remote import RemoteRun, ServiceConnection
 from solprop_gui.service.worker import RunSpec
 
@@ -61,6 +63,7 @@ class ServiceBridge(QObject):
     kernel_lost = Signal()
     runs_listed = Signal(object)
     service_failed = Signal(str)
+    _unreachable = Signal(str, object, object)
 
     def __init__(
         self, parent: QObject | None = None, *, service: bool | None = None
@@ -73,7 +76,11 @@ class ServiceBridge(QObject):
         self._kernel: KernelClient | ServiceConnection | None = None
         self._revision = 0
         self._closed = False
+        # One source of request ids for both transports: a request held while the
+        # service was sought keeps its id when the window's own kernel takes it.
+        self._ids = itertools.count(1)
         self.runs: dict[str, RunClient | RemoteRun] = {}
+        self._unreachable.connect(self._fall_back)
 
     def _client(self) -> KernelClient | ServiceConnection:
         """Return the kernel's client (or the service's), starting it if need be.
@@ -87,23 +94,50 @@ class ServiceBridge(QObject):
             if self._kernel is not None:
                 self._kernel.close(timeout=0.5)
             if self.service:
-                try:
-                    self._kernel = ServiceConnection(
-                        self.replied.emit,
-                        self.run_event.emit,
-                        on_runs=self.runs_listed.emit,
-                        on_lost=self.kernel_lost.emit,
-                    )
-                except ConnectionError as error:
-                    self.service = False
-                    self.service_failed.emit(str(error))
-                    return self._client()
+                # Connects on its own thread: the window never waits for it.
+                self._kernel = ServiceConnection(
+                    self.replied.emit,
+                    self.run_event.emit,
+                    on_runs=self.runs_listed.emit,
+                    on_lost=self.kernel_lost.emit,
+                    on_failed=self._unreachable.emit,
+                    ids=self._ids,
+                )
             else:
                 self._kernel = KernelClient(
-                    self.replied.emit, on_lost=self.kernel_lost.emit
+                    self.replied.emit, on_lost=self.kernel_lost.emit, ids=self._ids
                 )
             self._kernel.revision = self._revision
         return self._kernel
+
+    def _fall_back(
+        self, reason: str, requests: Sequence[Request], runs: Sequence[RunSpec]
+    ) -> None:
+        """Go on without the service: the window's own kernel takes what it held.
+
+        Queued to the window's thread from the connection's.
+
+        Parameters
+        ----------
+        reason : str
+            Why the service could not be reached.
+        requests : Sequence of Request
+            The requests held while it was sought, sent again with their ids.
+        runs : Sequence of RunSpec
+            The runs started meanwhile, which never reached a worker: said lost.
+        """
+        if self._closed:
+            return
+        self.service = False
+        if isinstance(self._kernel, ServiceConnection):
+            self._kernel.close(timeout=0.5)
+            self._kernel = None
+        self.service_failed.emit(reason)
+        client = self._client()
+        for request in requests:
+            client.submit(request)  # pyright: ignore[reportAttributeAccessIssue]
+        for spec in runs:
+            self.run_event.emit(Event(spec.run_id, "lost", {"exitcode": None}))
 
     def set_revision(self, revision: int) -> None:
         """Set the recipe revision whose replies are wanted.

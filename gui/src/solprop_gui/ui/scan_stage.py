@@ -238,6 +238,8 @@ class ScanRecord(QWidget):
         form.addRow(self.spectrum)
         form.addRow(self.pulse)
         form.addRow("At z", self.at)
+        self._one = True
+        self._guided = True
         self.allow_curves(one=True)
 
     def allow_curves(self, *, one: bool) -> None:
@@ -248,12 +250,36 @@ class ScanRecord(QWidget):
         one : bool
             Whether the scan has one variable.
         """
-        for box in (self.spectrum, self.pulse):
-            box.setEnabled(one)
-            box.setToolTip(
-                "" if one else "A spectrum or a pulse is drawn over one variable."
+        self._one = one
+        self._offer()
+
+    def allow_route(self, *, guided: bool) -> None:
+        """Offer the readers only for a guided run: a beam's scan has its statistics.
+
+        Parameters
+        ----------
+        guided : bool
+            Whether the setup is a guided run, not a beam in free space.
+        """
+        self._guided = guided
+        self._offer()
+
+    def _offer(self) -> None:
+        """Enable what the scan can record, and clear what it cannot."""
+        beam = "A beam's scan records its statistics only."
+        for box, allowed, why in (
+            (self.band, self._guided, beam),
+            (self.spectrum, self._guided and self._one, ""),
+            (self.pulse, self._guided and self._one, ""),
+        ):
+            reason = why or (
+                beam
+                if not self._guided
+                else "A spectrum or a pulse is drawn over one variable."
             )
-            if not one:
+            box.setEnabled(allowed)
+            box.setToolTip("" if allowed else reason)
+            if not allowed:
                 box.setChecked(False)
 
     def specs(self) -> list[dict[str, object]]:
@@ -270,7 +296,12 @@ class ScanRecord(QWidget):
             where["z"] = float(parse_quantity(z, Unit("m"), path="z"))
         chosen: list[dict[str, object]] = []
         low, high = self.low.read(), self.high.read()
-        if self.band.isChecked() and low is not None and high is not None:
+        if (
+            self.band.isChecked()
+            and self.band.isEnabled()
+            and low is not None
+            and high is not None
+        ):
             band = [
                 float(parse_quantity(value, Unit("m"), path="band"))
                 for value in (low, high)

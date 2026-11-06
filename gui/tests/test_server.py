@@ -6,6 +6,7 @@
 
 import contextlib
 import json
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterator
@@ -17,7 +18,7 @@ import pytest
 
 from conftest import TINY
 from solprop_gui.service import remote, server
-from solprop_gui.service.messages import Event, Reply
+from solprop_gui.service.messages import Envelope, Event, Reply, Request
 from solprop_gui.service.worker import RunSpec
 
 WAIT = 60.0
@@ -59,6 +60,7 @@ class Window:
         self.events: list[Event] = []
         self.runs: list[list[dict[str, object]]] = []
         self.lost = threading.Event()
+        self.failed: list[tuple[str, list[Request], list[RunSpec]]] = []
 
     def connect(self, state: Path) -> remote.ServiceConnection:
         return remote.ServiceConnection(
@@ -67,6 +69,9 @@ class Window:
             on_runs=self.runs.append,
             on_lost=self.lost.set,
             state=state,
+            on_failed=lambda reason, requests, runs: self.failed.append(
+                (reason, requests, runs)
+            ),
         )
 
     def kinds(self, run_id: str) -> list[str]:
@@ -181,6 +186,34 @@ def test_a_hang_up_wakes_its_reader_and_an_acceptor_ends_with_its_listener():
     server._accept(Gone(), server.Service(), closing)  # pyright: ignore[reportArgumentType]
 
 
+def test_a_service_in_its_own_process_answers(tmp_path: Path, monkeypatch):
+    # Service mode runs `python -m solprop_gui.service.server`, where that module is
+    # __main__: a message class defined there was not the one a window pickles, and
+    # every message was ignored. The thread-run services above could not show it.
+    started: list[subprocess.Popen[str]] = []
+    real = remote.subprocess.Popen
+
+    def keep(*arguments, **keywords):
+        started.append(real(*arguments, **keywords))
+        return started[-1]
+
+    monkeypatch.setattr(remote.subprocess, "Popen", keep)
+    state = tmp_path / "state" / "service.json"
+    window = Window()
+    connection = window.connect(state)  # none recorded: one is started
+    try:
+        connection.list_runs()
+        wait_for(lambda: bool(window.runs))
+        assert window.runs[-1] == []
+        asked = connection.request("examples")
+        wait_for(lambda: any(r.request_id == asked for r in window.replies))
+    finally:
+        connection.close()
+        for process in started:
+            process.terminate()
+            process.wait(WAIT)
+
+
 def test_the_state_file_and_starting_a_service(tmp_path: Path, monkeypatch):
     missing = tmp_path / "none" / "service.json"
     assert server.read_state(missing) is None
@@ -210,8 +243,83 @@ def test_the_state_file_and_starting_a_service(tmp_path: Path, monkeypatch):
         encoding="utf-8",
     )
     monkeypatch.setattr(remote, "START_SECONDS", 0.3)
-    with pytest.raises(ConnectionError, match="did not start"):
-        Window().connect(dead)
+    window = Window()
+    window.connect(dead)  # sought on its own thread: the window goes on
+    wait_for(lambda: bool(window.failed))
+    assert "did not start" in window.failed[0][0]
+
+
+def test_what_a_window_sends_while_connecting_is_held_then_sent(
+    tmp_path: Path, monkeypatch
+):
+    near, far = Pipe()
+    gate = threading.Event()
+
+    def connect(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT)
+        return near
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", connect)
+    window = Window()
+    connection = window.connect(tmp_path / "service.json")
+    assert connection.alive  # still connecting
+    asked = connection.request("examples")
+    assert connection.list_runs()
+    gate.set()  # connected: the held messages go, in order
+    first, second = far.recv(), far.recv()
+    assert first.kind == "request" and first.body.request_id == asked
+    assert second.kind == "list_runs"
+    connection.close()
+
+
+def test_a_service_out_of_reach_gives_back_what_it_held(tmp_path: Path, monkeypatch):
+    gate = threading.Event()
+
+    def refuse(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT)
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
+    window = Window()
+    connection = window.connect(tmp_path / "service.json")
+    asked = connection.request("examples")
+    connection.start_run(RunSpec("r9", str(tmp_path / "r9"), recipe=TINY))
+    gate.set()
+    wait_for(lambda: bool(window.failed))
+    reason, requests, runs = window.failed[0]
+    assert "did not start" in reason
+    assert [r.request_id for r in requests] == [asked]
+    assert [spec.run_id for spec in runs] == ["r9"]
+    assert not connection._send(Envelope("list_runs"))  # refused: nothing is held
+    connection.close()
+    # A window that went before the refusal hears nothing of it.
+    gate.clear()
+    gone = Window()
+    closed = gone.connect(tmp_path / "service.json")
+    closed.close(timeout=0.1)
+    gate.set()
+    closed._reader.join(WAIT)
+    assert gone.failed == []
+
+
+def test_a_connection_closed_while_connecting_hangs_up_when_it_connects(
+    tmp_path: Path, monkeypatch
+):
+    near, far = Pipe()
+    gate = threading.Event()
+
+    def connect(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT)
+        return near
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", connect)
+    connection = Window().connect(tmp_path / "service.json")
+    connection.close(timeout=0.1)  # the window went before the service answered
+    gate.set()
+    connection._reader.join(WAIT)
+    with pytest.raises(EOFError):
+        far.recv()  # hung up, unused
 
 
 def test_a_dropped_connection_and_a_closed_session(tmp_path: Path, monkeypatch):
@@ -252,8 +360,9 @@ def test_a_started_service_is_found_and_a_missing_one_refused(
     monkeypatch.setattr(server, "IDLE_SECONDS", 0.5)
     monkeypatch.setattr(remote, "START_SECONDS", 0.5)
     monkeypatch.setattr(remote, "start_service", lambda _state: None)
-    with pytest.raises(ConnectionError):
-        Window().connect(tmp_path / "nothing" / "service.json")  # none recorded
+    refused = Window()
+    refused.connect(tmp_path / "nothing" / "service.json")  # none recorded
+    wait_for(lambda: bool(refused.failed))
     path = tmp_path / "late" / "service.json"
     threads: list[threading.Thread] = []
 

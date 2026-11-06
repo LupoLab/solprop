@@ -275,3 +275,22 @@ def test_a_pulse_map_and_the_curves_need_one_variable(qtbot: QtBot) -> None:
     )
     stage.bars.point({"index": 0, "values": {}, "status": None, "place": [5]})
     assert stage.bars.bars[0].format() == "%v of %m: "
+
+
+def test_a_beam_s_scan_offers_none_of_the_readers(qtbot: QtBot) -> None:
+    from solprop_gui.ui.scan_stage import ScanRecord  # noqa: PLC0415 - only here
+
+    record = ScanRecord()
+    qtbot.addWidget(record)
+    record.band.setChecked(True)
+    record.spectrum.setChecked(True)
+    record.allow_route(guided=False)
+    for box in (record.band, record.spectrum, record.pulse):
+        assert not box.isEnabled() and not box.isChecked()
+        assert "statistics only" in box.toolTip()
+    assert record.specs() == []
+    record.allow_route(guided=True)
+    assert record.band.isEnabled() and record.spectrum.isEnabled()
+    record.allow_curves(one=False)
+    assert record.band.isEnabled() and not record.spectrum.isEnabled()
+    assert "one variable" in record.spectrum.toolTip()

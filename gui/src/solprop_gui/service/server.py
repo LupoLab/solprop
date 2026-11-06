@@ -35,7 +35,6 @@ import sys
 import tempfile
 import threading
 import time
-from dataclasses import dataclass
 from multiprocessing.connection import Client, Connection, Listener
 from typing import TYPE_CHECKING
 
@@ -44,7 +43,7 @@ if TYPE_CHECKING:
 from pathlib import Path
 
 from solprop_gui.service.client import KernelClient, ReplyFilter, RunClient
-from solprop_gui.service.messages import Control, Event, Reply, Request
+from solprop_gui.service.messages import Control, Envelope, Event, Reply, Request
 
 __all__ = [
     "IDLE_SECONDS",
@@ -57,22 +56,6 @@ __all__ = [
 
 IDLE_SECONDS = 600.0
 """How long the service waits with no window and no run before it ends, s."""
-
-
-@dataclass(frozen=True)
-class Envelope:
-    """One message between a window and the service.
-
-    Attributes
-    ----------
-    kind : str
-        What it is (see the module's description).
-    body : object
-        Its content.
-    """
-
-    kind: str
-    body: object = None
 
 
 def state_file() -> Path:

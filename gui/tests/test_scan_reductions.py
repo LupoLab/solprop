@@ -116,3 +116,11 @@ def test_a_range_is_written_as_numbers_and_reductions_reach_the_worker(
     started = next(e.data for e in collector.events if e.kind == "scan_started")
     assert started["values"] == [["5e-05", "0.0001"]]
     assert _plain("x") == "x"
+
+
+def test_a_beam_s_scan_is_refused_the_readers_of_a_guided_run() -> None:
+    beam = Recipe.example("filament")
+    band = {"kind": "energy_in_band", "band": [600e-9, 900e-9]}
+    with pytest.raises(ValueError, match="statistics only"):
+        reductions([band], beam)
+    assert reductions([], beam) == []  # its statistics alone are fine
