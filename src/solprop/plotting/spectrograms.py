@@ -30,6 +30,7 @@ from solprop.plotting.style import (
 from solprop.processing.axes import ModeSelection, SpectralAxis
 from solprop.processing.fields import (
     DEFAULT_GATE_POSITIONS,
+    _check_spec_range,
     get_spectrogram,
     nearest_plane,
 )
@@ -102,6 +103,8 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
     ------
     solprop.exceptions.ModeError
         If a multimode run does not name a single mode.
+    solprop.exceptions.ProcessingError
+        If ``spec_range`` selects no sample of the spectral axis.
 
     Examples
     --------
@@ -127,6 +130,9 @@ def spectrogram(  # noqa: PLR0913 - a plane, a mode, two axes and the colour sca
         transfer=transfer,
     )
     values, ordinate = _ordinate(axis, frequency, intensity)
+    if spec_range is not None:
+        # The range is in SI units; the ordinate is in display units.
+        _check_spec_range(ordinate / spectral_display(axis)[0], spec_range, axis)
     import matplotlib.pyplot as plt  # noqa: PLC0415 - pyplot loads on first plot
 
     ax = plt.subplots(figsize=(8.0, 5.0))[1] if ax is None else ax

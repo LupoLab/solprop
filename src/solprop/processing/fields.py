@@ -51,7 +51,6 @@ from solprop import fourier
 from solprop.exceptions import ModeError, ProcessingError
 from solprop.grid import TimeGrid
 from solprop.optics import TransferFunction, stored_factor
-from solprop.output.capability import capability_of
 from solprop.output.schema import Convention, Output
 from solprop.processing import spectra
 from solprop.processing.axes import (
@@ -145,7 +144,7 @@ def nearest_plane(output: Output, z: float) -> int:
     return _nearest_plane(output, z)
 
 
-def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, a floor
+def get_spectrum(
     output: Output,
     *,
     plane: int | None = None,
@@ -153,7 +152,6 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
     modes: ModeSelection = None,
     band: Band = "active",
     convention: Convention = "optics",
-    noise_floor: NoiseFloor = "keep",
 ) -> tuple[Float[np.ndarray, " n_x"], Complex[np.ndarray, "*shape n_x"]]:
     """Return the complex spectrum of one plane, or of every plane.
 
@@ -180,13 +178,6 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
         Which part of the stored axis to return.
     convention : {'optics', 'fft'}
         Sign convention of the returned spectrum.
-    noise_floor : {'keep'}
-        Only ``'keep'``. The noise floor is a power, one photon per bin, and an
-        amplitude has no part that is that power: the saved amplitude is the pulse and
-        the seed added coherently, and their interference is as large as the seed
-        itself, so no amplitude has the floor-subtracted density as its modulus
-        squared, which can be negative. ``'subtract'`` is refused and named;
-        :func:`get_spectral_density` subtracts it.
 
     Returns
     -------
@@ -200,8 +191,6 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
     ------
     solprop.exceptions.ModeError
         If ``modes='sum'``.
-    solprop.exceptions.ProcessingError
-        If ``noise_floor`` is not ``'keep'``.
 
     Examples
     --------
@@ -212,24 +201,6 @@ def get_spectrum(  # noqa: PLR0913 - a plane, a mode set, a band, a convention, 
     >>> spectrum.shape == omega.shape
     True
     """
-    _check_choice(noise_floor, NOISE_FLOORS, "noise_floor")
-    if noise_floor != "keep":
-        metadata = output.metadata
-        spatial = metadata is not None and capability_of(metadata) == "spatial"
-        # get_spectral_density refuses a spatial file's columns, so it is no way
-        # forward there.
-        forward = (
-            "a spatial file has no reader of the floor-subtracted density, because "
-            "get_spectral_density would read its columns as modes"
-            if spatial
-            else "ask get_spectral_density for the floor-subtracted density"
-        )
-        msg = (
-            "noise_floor='subtract' removes a power, one photon per bin, and a "
-            f"spectrum is an amplitude, whose modulus squared cannot be negative; "
-            f"{forward}"
-        )
-        raise ProcessingError(msg)
     grid = grid_of(output)
     values = _plane_field(output, plane, z, convention=convention)
     values = values * _fft_norm(grid)

@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from bounds import gamma
-from solprop.exceptions import OutputError
+from solprop.exceptions import OutputError, ProcessingError
 from solprop.processing import coherence
 
 IDENTITY = gamma(64)
@@ -124,6 +124,19 @@ def test_the_bands_split_the_occupied_span_equally():
     assert coherence.spectral_bands(np.zeros(4)) == []
 
 
+@pytest.mark.parametrize("n_bands", [0, -1])
+def test_n_bands_must_be_at_least_one(n_bands):
+    weights = np.ones(8)
+    with pytest.raises(ProcessingError, match="n_bands must be at least 1"):
+        coherence.spectral_bands(weights, n_bands)
+    # An all-zero spectrum does not excuse the argument.
+    with pytest.raises(ProcessingError, match="n_bands must be at least 1"):
+        coherence.spectral_bands(np.zeros(8), n_bands)
+    spectra = np.ones((3, 8), dtype=complex)
+    with pytest.raises(ProcessingError, match="n_bands must be at least 1"):
+        coherence.band_coherence(spectra, spectra, n_bands=n_bands)
+
+
 def test_band_coherence_weights_each_bin_by_the_reference_spectrum():
     rng = np.random.default_rng(1)
     n_x = 64
@@ -151,6 +164,17 @@ def test_band_coherence_scores_only_bands_above_the_floor():
     # A shape mismatch is refused, by the annotation's checker where it runs.
     with pytest.raises(Exception, match=r"shape|n_x"):
         coherence.band_coherence(reference, reference[:, :32])
+
+
+def test_a_band_with_no_coherent_bin_is_nan_without_a_warning(recwarn):
+    """A band whose spectra are all zero stays nan, without a warning."""
+    reference = np.ones((3, 64), dtype=complex)
+    spectra = np.ones((3, 64), dtype=complex)
+    spectra[:, :2] = 0.0
+    values, _ = coherence.band_coherence(spectra, reference)
+    assert not [item for item in recwarn if issubclass(item.category, RuntimeWarning)]
+    assert np.isnan(values[0])
+    assert np.all(np.isfinite(values[1:]))
 
 
 def test_band_coherence_of_an_empty_reference_scores_no_band():
