@@ -47,7 +47,7 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 
 
 def variant(configuration: Record) -> Record:
-    """Return the keywords that turn a case into its precision, noise and grid variant.
+    """Return the keywords that turn a case into its backend, precision, noise and grid.
 
     ``precision`` is ``"single"`` on ``mlx`` and ``"double"`` elsewhere unless the
     configuration names it. A single-precision run, or one asked for ``noise="none"``,
@@ -62,7 +62,12 @@ def variant(configuration: Record) -> Record:
     fft_size = configuration.get("fft_size") or "case"
     if fft_size not in ("case", "pow2"):
         raise SuiteError(f"unknown fft_size {fft_size}")
-    return {"precision": precision, "noiseless": noiseless, "fft_size": fft_size}
+    return {
+        "precision": precision,
+        "noiseless": noiseless,
+        "fft_size": fft_size,
+        "backend": configuration["backend"],
+    }
 
 
 def _launch(options: Record) -> dict[str, Any]:
@@ -116,6 +121,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=4 if name == "rdw" else 1,
             mode_average=averaged,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 1.5, 800e-9, (90e-9, 4e-6), 400e-15),
             **_launch(options),
         )
@@ -131,6 +137,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=3,
             loss=0.0,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 0.13, 515e-9, (220e-9, 4e-6), 2e-12),
             **_launch(options),
         )
@@ -150,6 +157,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             raman=True,
             temperature=294.0,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 0.1, 515e-9, (250e-9, 2e-6), 2e-12),
             **_launch(options),
         )
@@ -167,6 +175,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             envelope=name == "argon_blueshift_envelope",
             mode_average=averaged,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(
                 options,
                 0.2,
@@ -191,6 +200,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=1,
             mode_average=True,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 0.4, 1030e-9, (200e-9, 4e-6), 800e-15),
             **_launch(options),
         )
@@ -209,6 +219,7 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
             modes=1,
             mode_average=averaged,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 2.0, 1030e-9, (400e-9, 4e-6), 6e-12),
             **_launch(options),
         )
@@ -245,6 +256,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
             # the steps with one).
             noise=None,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(
                 options,
                 math.pi / 2 * width**2 / abs(beta2),
@@ -279,6 +291,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
             raman=True,
             shock=True,
             precision=options["precision"],
+            backend=options["backend"],
             **_limits(options, 0.15, 835e-9, (400e-9, 2e-6), 12.5e-12, envelope=True),
             **_launch(options),
         )

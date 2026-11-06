@@ -30,8 +30,8 @@ from typing import Any, Literal, cast
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 from jaxtyping import Complex
-from solprop_native._helpers import NATIVE  # pyright: ignore[reportMissingImports]
 
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.memory import mlx_bounded, mlx_graph_bytes, mlx_stage_bytes
 from solprop.backends.mlx_gpu import passes as device
 from solprop.backends.mlx_gpu.arithmetic import (
@@ -115,6 +115,13 @@ except ``log1p``, whose compiled form is as accurate but not the same function.
 _TRANSPORT_REACH = 0.9 * math.log(float(np.finfo(np.float32).max))
 """The bound on a trial's ``|Re dPhi|`` past which its stages are combined in the lab
 frame (:meth:`MlxBackend._trial_graph`): nine tenths of binary32's ``log FLT_MAX``."""
+
+try:
+    from solprop_native._helpers import (  # pyright: ignore[reportMissingImports]
+        NATIVE as _HELPERS,
+    )
+except ImportError:  # the native package is optional: its forms are bitwise PLAIN's
+    _HELPERS: Helpers = PLAIN
 
 _HEAD = 5
 """The stage values before the channels': the taper and its inverse, Kerr's factor
@@ -330,8 +337,9 @@ class MlxBackend(NumpySingleBackend):
 
     # SEP 29 section 6.6: the stage tables' Chebyshev rows and the Adams basis from the
     # native package's compiled record, which performs the reference's operations in
-    # its order (bitwise its results); only numpy_ref must keep the Python forms.
-    helpers = NATIVE
+    # its order (bitwise its results); only numpy_ref must keep the Python forms. An
+    # install without the native package takes those forms, the same numbers slower.
+    helpers = _HELPERS
 
     _monitor_weights: mx.array | None = None
     """The boundary monitor's four weight rows on the device, each narrowed with its

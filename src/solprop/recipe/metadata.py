@@ -2158,6 +2158,12 @@ def _grid(*rows: Row) -> tuple[Parameter, ...]:
             "How the transform sizes are rounded up.",
         ),
         _keyword(
+            "transforms",
+            _choice("fftw", "mlx"),
+            "advanced",
+            "Whose transform cost the automatic sizes are chosen by.",
+        ),
+        _keyword(
             "collar_fraction",
             _number(minimum=0.0, maximum=0.5),
             "advanced",

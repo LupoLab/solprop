@@ -734,7 +734,7 @@ MODULES = {
         ),
         Module(
             "backends/mlx_gpu/",
-            ("backend", "batch", "passes", "arithmetic", "envelope"),
+            ("backend", "batch", "passes", "arithmetic", "envelope", "adams"),
         ),
     ),
     "D": (

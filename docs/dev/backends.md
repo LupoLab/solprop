@@ -180,7 +180,10 @@ its engines and the native backend's resident engine pass it down. `numpy_ref` t
 `PLAIN`, the uncompiled Python forms, so the oracle never runs the compiled code it
 checks; `native` takes its own
 `NATIVE`, C++ transcriptions (`native/include/solprop_native/chebyshev.hpp` and
-`lagrange_basis.hpp`). Both perform the same operations in the same order under
+`lagrange_basis.hpp`); `mlx` takes `NATIVE` too, as its stage tables are host work.
+Only where the native package is absent -- it is a runtime dependency, so the
+documentation build and the `no-native` lane -- does `mlx` import with `PLAIN`, the
+same rows more slowly. Both perform the same operations in the same order under
 strict arithmetic, so the rows a table keeps for its last positions are shared whichever
 filled them. A record may add a third operation, an exponential Adams trial's
 coefficient tables in one call (`Helpers.tables`, the composition of
