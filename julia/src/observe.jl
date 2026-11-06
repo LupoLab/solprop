@@ -125,35 +125,44 @@ function column_energy(engine)
     Vector{Float64}(Array(out))
 end
 
-"""Each physical node's energy: rows `rows` of the radial synthesis, or every node of
-a Cartesian grid through the transverse inverse transform; zero elsewhere."""
-function node_energy(engine, inverse, rows)
+"""Hold a radial read's synthesis rows (0-based `rows` of `inverse`) for `node_energy`."""
+function bind_edge!(engine, inverse, rows)
+    c, y = engine.config, engine.work.y
+    T = real_type(engine)
+    selected = Vector{Int}(rows) .+ 1
+    matrix = c.free ? nothing : upload(c, T.(permutedims(Matrix{Float64}(inverse)[selected, :])))
+    engine.work.edge[] = (selected=selected, matrix=matrix,
+                          synthesised=c.free ? nothing : dzeros(c, Complex{T}, size(y, 1), length(selected)),
+                          energy=dzeros(c, T, c.free ? size(y, 2) : length(selected)))
+    nothing
+end
+
+"""Each physical node's energy at the bound rows (`bind_edge!`), zero elsewhere: the
+radial synthesis's rows, or every node of a Cartesian grid through the transverse
+inverse transform."""
+function node_energy(engine)
     c, w = engine.config, engine.work
-    y = w.y
+    y, edge = w.y, w.edge[]
     T = real_type(engine)
     nodes = zeros(Float64, size(y, 2))
+    out = edge.energy
     if c.free
         physical = w.physical
         copyto!(physical, y)
         transverse!(physical, w.spatial_inverse, c)
         scale = inv(T(size(y, 2)))^2
-        out = dzeros(c, T, size(y, 2))
         colsum!(c, out, size(y)...) do f, m
             @inbounds abs2(physical[f, m]) * scale
         end
-        all = Vector{Float64}(Array(out))
-        selected = Vector{Int}(rows) .+ 1
-        nodes[selected] .= all[selected]
+        all = Array(out)
+        nodes[edge.selected] .= all[edge.selected]
         return nodes
     end
-    selected = Vector{Int}(rows) .+ 1
-    matrix = upload(c, T.(permutedims(Matrix{Float64}(inverse)[selected, :])))
-    synthesised = dzeros(c, Complex{T}, size(y, 1), length(selected))
-    mul!(synthesised, y, matrix)
-    out = dzeros(c, T, length(selected))
+    synthesised = edge.synthesised
+    mul!(synthesised, y, edge.matrix)
     colsum!(c, out, size(synthesised)...) do f, m
         @inbounds abs2(synthesised[f, m])
     end
-    nodes[selected] .= Array(out)
+    nodes[edge.selected] .= Array(out)
     nodes
 end

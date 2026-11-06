@@ -43,7 +43,7 @@ function create_free(c, host)
     coarse, coarse_spec = dzeros(c, R, nc, chunk), dzeros(c, C, nw, chunk)
     planes = (threads=c.transverse_fft_threads, batch=1)
     work = (
-        adams=nothing, path=nothing, raman=nothing, monitor=monitor_workspace(c, nw, nm, nc),
+        adams=nothing, path=nothing, raman=nothing, monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing),
         plasma=plasma_workspace(c, host, nt, chunk, chunk, nm),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),

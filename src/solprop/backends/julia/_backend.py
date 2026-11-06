@@ -457,6 +457,7 @@ class JuliaBackend(StepDriver[object]):
         self._alarm = math.nan
         self._alarm_reported = False
         self._host_blas = _hold_host_blas()
+        self._edge_key: tuple[int, bool] | None = None
         if isinstance(problem.stepper.integrator, LowStorageRungeKutta):
             from solprop.backends.low_storage import LowStorageMarch  # noqa: PLC0415
 
@@ -752,15 +753,17 @@ class JuliaBackend(StepDriver[object]):
         rows = np.arange(count) if full or self._problem.transform.kind == "free" else (
             np.asarray(tables.rows)
         )
-        inverse = reduction.synthesis()
-        nodes = np.asarray(
+        key = (id(reduction), bool(full))
+        if self._edge_key != key:
+            inverse = reduction.synthesis()
             call_julia(
-                self._jl.node_energy,
+                self._jl.bind_edge_b,
                 self._engine,
                 None if inverse is None else np.asarray(inverse),
                 np.asarray(rows, dtype=np.int64),
             )
-        )
+            self._edge_key = key
+        nodes = np.asarray(call_julia(self._jl.node_energy, self._engine))
         return _EdgeReading(
             faces=tables.faces @ nodes,
             clip=tables.clip @ nodes if full else None,

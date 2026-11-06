@@ -7,29 +7,44 @@
 
 const RECIP_FACTORIAL = ntuple(k -> 1.0 / factorial(k - 1), 10)
 
+const RECIP_INTEGER = ntuple(k -> 1.0 / k, 40)
+
 """`phi_0(x) .. phi_N(x)` by a shifted series and scaling and squaring.
 
 Evaluated in binary64 at either precision: the flow and its moments are rounded once
-to the state's precision (SEP 33).
+to the state's precision (SEP 33). Native's `adams_phi` (adams_phi.hpp) is the model:
+past |x| = 3 the recurrence from `exp(x)` with one reciprocal of x; below it the series
+of `phi_N(y)`, `y = x / 2^s` with |y| <= 1/2, multiplied by the divisors' reciprocals
+and stopped once a term is under a quarter ulp of the sum (each later one is smaller
+by |y| / (m + N) <= 1/2), then raised back by `s` squarings.
 """
 @inline function phi_values(x::ComplexF64, ::Val{N}) where {N}
-    if abs(x) > 3.0
-        out = ntuple(_ -> zero(ComplexF64), Val(N + 1))
+    magnitude = abs(x)
+    out = ntuple(_ -> zero(ComplexF64), Val(N + 1))
+    if magnitude > 3.0
+        inverse = inv(x)
         out = Base.setindex(out, exp(x), 1)
         for k in 1:N
-            out = Base.setindex(out, (out[k] - RECIP_FACTORIAL[k]) / x, k + 1)
+            out = Base.setindex(out, (out[k] - RECIP_FACTORIAL[k]) * inverse, k + 1)
         end
         return out
     end
-    levels = abs(x) <= 0.5 ? 0 : ceil(Int, log2(abs(x) / 0.5))
-    y = x / 2.0^levels
+    levels, scale = 0, 1.0
+    reduced = magnitude
+    while reduced > 0.5
+        levels += 1
+        scale *= 0.5
+        reduced *= 0.5
+    end
+    y = scale * x
     term = complex(RECIP_FACTORIAL[N+1])
     total = term
+    stop = (0.25 * eps(Float64))^2
     for m in 1:23
-        term = term * y / (m + N)
+        term = term * y * RECIP_INTEGER[m+N]
         total += term
+        abs2(term) <= stop * abs2(total) && break
     end
-    out = ntuple(_ -> zero(ComplexF64), Val(N + 1))
     out = Base.setindex(out, total, N + 1)
     for k in N-1:-1:1
         out = Base.setindex(out, RECIP_FACTORIAL[k+1] + y * out[k+2], k + 1)
@@ -43,7 +58,7 @@ to the state's precision (SEP 33).
             for j in 1:k
                 value += old[j+1] * RECIP_FACTORIAL[k-j+1]
             end
-            out = Base.setindex(out, value / 2.0^k, k + 1)
+            out = Base.setindex(out, value * 0.5^k, k + 1)
         end
     end
     out

@@ -58,7 +58,7 @@ function create_modal(c, host)
     band = dzeros(c, C, nw, nm)
     work = (
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        monitor=monitor_workspace(c, nw, nm, c.nc),
+        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing),
         raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
