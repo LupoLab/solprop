@@ -183,8 +183,9 @@ class SpatialPulse(Displayed):
     -----
     Displacement and tilt are those of
     :class:`solprop.coupling.elements.Alignment`, applied at the launch plane after
-    `propz`: the tilt multiplies the field by
-    ``exp(i k(omega) (x sin(theta_x) + y sin(theta_y)))``, ``k`` the launch medium's
+    `propz`: the tilt multiplies the field's samples, the inverse DFT of its
+    spectrum, by ``exp(-i k(omega) (x sin(theta_x) + y sin(theta_y)))``, ``k`` the
+    launch medium's
     real wave number, so every frequency leaves at the same angle, and the displacement
     shifts the field exactly in the periodic Cartesian representation. The energy or
     peak power is set after both. They are applied on a
@@ -841,8 +842,10 @@ class _Aligner:
             projection = space.x[None, :] * math.sin(self.tilt[0]) + space.y[
                 :, None
             ] * math.sin(self.tilt[1])
+            # On the samples of the inverse DFT, a beam travelling towards +x carries
+            # exp(-i k x sin(theta)): the sign Alignment's screen has on its synthesis.
             screen = np.exp(
-                1j * projection[:, :, None] * self.wavenumber[None, None, :]
+                -1j * projection[:, :, None] * self.wavenumber[None, None, :]
             )
             cube = np.fft.fft2(real * screen[:, :, None, :], axes=(0, 1))
         shift = np.exp(

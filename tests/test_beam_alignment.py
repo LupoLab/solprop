@@ -74,7 +74,8 @@ def test_every_frequency_of_a_tilted_beam_leaves_at_the_one_angle():
         np.real(medium.index(grid.omega[carried])) * grid.omega[carried] / 299_792_458.0
     )
     centroid = (space.k_x @ power[:, carried]) / np.sum(power[:, carried], axis=0)
-    angle = np.arcsin(centroid / wavenumber)
+    # Towards +x is the spectrum's -k_x side, as Alignment's tilt has it.
+    angle = np.arcsin(-centroid / wavenumber)
     assert np.allclose(angle, tilt, rtol=1e-3)
 
 
@@ -96,7 +97,7 @@ def test_a_tilt_matches_alignment_s_screen_on_the_same_beam():
     k = np.zeros(grid.n_omega)
     k[band] = np.real(medium.index(grid.omega[band])) * grid.omega[band] / 299_792_458.0
     real = np.fft.ifft2(_cube(centred, space), axes=(0, 1))
-    screen = np.exp(1j * space.x[None, :, None] * math.sin(0.01) * k[None, None, :])
+    screen = np.exp(-1j * space.x[None, :, None] * math.sin(0.01) * k[None, None, :])
     expected = np.fft.fft2(real * screen[:, :, None, :], axes=(0, 1)).reshape(
         centred.shape
     )
@@ -108,6 +109,44 @@ def test_a_tilt_matches_alignment_s_screen_on_the_same_beam():
     assert np.allclose(
         tilted, scale * expected, rtol=0, atol=1e-9 * np.max(np.abs(centred))
     )
+
+
+def test_a_tilted_beam_travels_the_way_alignment_tilts_it():
+    # A positive tilt sends the beam towards +x: the same beam, tilted by its own
+    # tilt or by Alignment's, then carried 16 cm, lands at +L tan(theta) either way.
+    from solprop.coupling.elements import (  # noqa: PLC0415 - only here
+        Alignment,
+        FreeSpace,
+        SpatialState,
+    )
+    from solprop.coupling.transport import _sequence  # noqa: PLC0415 - only here
+
+    grid, medium = _grid(), SpatialMedium()
+    space = FreeGrid(radius_x=2.6e-3, n_x=240, radius_y=0.8e-3, n_y=48)
+    tilt, distance = 5e-3, 0.16
+
+    def centre(spectrum):
+        samples = np.fft.ifft2(_cube(spectrum, space), axes=(0, 1))
+        across = np.sum(np.abs(samples) ** 2, axis=(0, 2, 3))
+        return float(space.x @ across / np.sum(across))
+
+    def carried(state):
+        return _sequence(state, [FreeSpace(distance, medium)])[0].spectrum
+
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY)
+    own = SpatialPulse(temporal, 150e-6, tilt=(tilt, 0.0)).build(
+        grid, space, medium=medium
+    )
+    plain = SpatialPulse(temporal, 150e-6).build(grid, space, medium=medium)
+    aligned = _sequence(
+        SpatialState(grid, space, plain, medium),
+        [Alignment(tilt=(tilt, 0.0), model_error=1e-3)],
+    )[0]
+    expected = distance * math.tan(tilt)
+    assert centre(carried(SpatialState(grid, space, own, medium))) == pytest.approx(
+        expected, rel=1e-3
+    )
+    assert centre(carried(aligned)) == pytest.approx(expected, rel=1e-3)
 
 
 def test_a_line_beam_moves_along_x():
