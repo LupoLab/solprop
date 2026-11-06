@@ -139,7 +139,8 @@ class ServiceConnection:
     It connects on its reader thread, never the window's: finding the service, or
     starting one and waiting up to :data:`START_SECONDS` for it, would freeze the
     window. What the window sends meanwhile is held, and sent once connected; if no
-    service can be reached, ``on_failed`` is given back what was held.
+    service can be reached, ``on_failed`` is given back what was held, and then any
+    request or run sent after the failure.
 
     Parameters
     ----------
@@ -154,8 +155,9 @@ class ServiceConnection:
     state : pathlib.Path or None, optional
         The service's state file; :func:`.server.state_file` by default.
     on_failed : callable or None, optional
-        Called once, from the reader thread, if no service can be reached: with the
-        reason, the requests held and the runs started while connecting, none sent.
+        Called from the reader thread if no service can be reached: with the reason,
+        the requests held and the runs started while connecting, none sent. Called
+        again, from the sender's thread, with each request or run sent after that.
     ids : iterator of int or None, optional
         Where request ids come from; a count of its own by default.
     """
@@ -176,6 +178,7 @@ class ServiceConnection:
         self._connection: object | None = None
         self._held: list[Envelope] = []
         self._failed = False
+        self._reason = ""
         self._on_reply = on_reply
         self._on_event = on_event
         self._on_runs = on_runs
@@ -196,11 +199,9 @@ class ServiceConnection:
         except ConnectionError as error:
             with self._lock:
                 self._failed = True
+                self._reason = str(error)
                 held, self._held = self._held, []
-            if not self._closing and self._on_failed is not None:
-                requests = [e.body for e in held if isinstance(e.body, Request)]
-                runs = [e.body for e in held if isinstance(e.body, RunSpec)]
-                self._on_failed(str(error), requests, runs)
+            self._give_back(held, news=True)
             return
         with self._lock:
             if self._closing:
@@ -319,15 +320,36 @@ class ServiceConnection:
         """
         try:
             with self._lock:
-                if self._connection is None:
+                if self._connection is None and not self._failed:
                     # Still connecting: held, and sent once connected.
-                    if not self._failed:
-                        self._held.append(envelope)
-                    return not self._failed
-                self._connection.send(envelope)  # pyright: ignore[reportAttributeAccessIssue]
+                    self._held.append(envelope)
+                    return True
+                if self._connection is not None:
+                    self._connection.send(envelope)  # pyright: ignore[reportAttributeAccessIssue]
+                    return True
         except BrokenPipeError, EOFError, OSError:
             return False
-        return True
+        # Connecting failed before this was sent, perhaps between the window's look at
+        # :attr:`failed` and now: given back like what was held, or it would be lost.
+        self._give_back([envelope], news=False)
+        return False
+
+    def _give_back(self, envelopes: list[Envelope], *, news: bool) -> None:
+        """Hand the window the requests and runs the service never took.
+
+        Parameters
+        ----------
+        envelopes : list of Envelope
+            What was held, or sent after connecting failed.
+        news : bool
+            Whether this is the failure itself, told even with nothing to give back.
+        """
+        requests = [e.body for e in envelopes if isinstance(e.body, Request)]
+        runs = [e.body for e in envelopes if isinstance(e.body, RunSpec)]
+        if self._closing or self._on_failed is None:
+            return
+        if news or requests or runs:
+            self._on_failed(self._reason, requests, runs)
 
     def request(
         self,

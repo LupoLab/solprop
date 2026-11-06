@@ -106,3 +106,33 @@ def test_a_request_between_a_failure_and_its_news_is_not_lost(
     qtbot.waitUntil(lambda: {held, later} <= set(replies), timeout=WAIT_MS)
     assert len(failed) == 1 and "did not start" in failed[0]
     bridge.close()
+
+
+def test_a_first_request_that_finds_the_connection_failed_is_not_lost(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The reader thread starts in the connection's constructor, and may fail before the
+    # window's first request reaches it (seen on macOS): that request is given back.
+    from solprop_gui.service import remote  # noqa: PLC0415 - only here
+
+    monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
+    monkeypatch.setattr(remote, "start_service", lambda _state: None)
+    monkeypatch.setattr(remote, "START_SECONDS", 0.0)  # refused at once
+    send = remote.ServiceConnection.request
+
+    def after_the_failure(self: remote.ServiceConnection, *args, **kwargs) -> int:
+        self._reader.join(WAIT_MS / 1000)
+        return send(self, *args, **kwargs)
+
+    monkeypatch.setattr(remote.ServiceConnection, "request", after_the_failure)
+    bridge = ServiceBridge(service=True)
+    failed: list[str] = []
+    replies: list[int] = []
+    bridge.service_failed.connect(failed.append)
+    bridge.replied.connect(lambda reply: replies.append(reply.request_id))
+    first = bridge.request("examples", key="first")
+    qtbot.waitUntil(lambda: first in replies, timeout=WAIT_MS)
+    qtbot.waitUntil(lambda: bool(failed), timeout=WAIT_MS)
+    assert len(failed) == 1 and "did not start" in failed[0]
+    assert not bridge.service
+    bridge.close()

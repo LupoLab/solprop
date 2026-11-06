@@ -303,6 +303,32 @@ def test_a_service_out_of_reach_gives_back_what_it_held(tmp_path: Path, monkeypa
     assert gone.failed == []
 
 
+def test_what_is_sent_after_a_refusal_is_given_back_too(tmp_path: Path, monkeypatch):
+    # The window's first request can reach the connection after its reader has failed:
+    # the reader thread starts in the constructor and may fail before it returns.
+    def refuse(_self: remote.ServiceConnection) -> object:
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
+    window = Window()
+    connection = window.connect(tmp_path / "service.json")
+    connection._reader.join(WAIT)
+    assert connection.failed and len(window.failed) == 1
+    assert window.failed[0][1:] == ([], [])
+    late = connection.request("examples")
+    connection.start_run(RunSpec("r9", str(tmp_path / "r9"), recipe=TINY))
+    assert not connection.list_runs()  # nothing to give back for this
+    reason, requests, _runs = window.failed[1]
+    assert "did not start" in reason
+    assert [r.request_id for r in requests] == [late]
+    assert window.failed[2][2][0].run_id == "r9"
+    assert len(window.failed) == 3
+    connection.close()
+    assert connection.request("examples") > late  # closed: nothing told
+    assert len(window.failed) == 3
+
+
 def test_a_connection_closed_while_connecting_hangs_up_when_it_connects(
     tmp_path: Path, monkeypatch
 ):
