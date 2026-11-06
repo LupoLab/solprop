@@ -48,7 +48,7 @@ from solprop_gui.model.display import light_range
 from solprop_gui.model.quantities import split
 from solprop_gui.model.recipe import without_table
 from solprop_gui.service.beam import beam_reading, beam_slice, profile_row
-from solprop_gui.service.reduce import even_rows
+from solprop_gui.service.reduce import TIME_OVERSAMPLING, even_rows
 from solprop_gui.service.scan_reductions import KINDS, reduction_axis
 
 __all__ = ["RESULTS_HANDLERS", "band_of", "spatial_plane"]
@@ -340,7 +340,13 @@ def plane(payload: Payload) -> dict[str, object]:
                 "fluence": _fluence(path, handler, index),
             }
         x, density = get_spectral_density(handler, axis, plane=index, modes=modes)  # pyright: ignore[reportArgumentType]
-        t, power = get_power(handler, plane=index, modes=modes, bandpass=band)
+        t, power = get_power(
+            handler,
+            plane=index,
+            modes=modes,
+            bandpass=band,
+            oversampling=TIME_OVERSAMPLING,
+        )
         phase: dict[str, object]
         try:
             omega, values = get_phase(
@@ -361,7 +367,9 @@ def plane(payload: Payload) -> dict[str, object]:
             "fwhm": float(fwhm_t(handler, plane=index, modes=modes, bandpass=band)),
         }
         if band is not None:
-            _t, full = get_power(handler, plane=index, modes=modes)
+            _t, full = get_power(
+                handler, plane=index, modes=modes, oversampling=TIME_OVERSAMPLING
+            )
             reply["full_power"] = np.asarray(full)
             reply["band_energy"] = float(
                 energy(handler, plane=index, modes=modes, bandpass=band)

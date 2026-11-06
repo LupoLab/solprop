@@ -22,6 +22,8 @@ from solprop.processing import get_power, get_spectral_density
 from solprop.processing.scans import Reduction, custom
 from solprop.recipe import Recipe
 
+from solprop_gui.service.reduce import TIME_OVERSAMPLING
+
 __all__ = [
     "AXIS_POINTS",
     "KINDS",
@@ -164,7 +166,13 @@ def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarra
         numpy.ndarray
             The peak power of the pulse filtered to the band.
         """
-        _t, power = get_power(output, modes="sum", bandpass=_band(spec), **where)  # pyright: ignore[reportArgumentType]
+        _t, power = get_power(
+            output,
+            modes="sum",
+            bandpass=_band(spec),
+            oversampling=TIME_OVERSAMPLING,
+            **where,  # pyright: ignore[reportArgumentType]
+        )  # pyright: ignore[reportArgumentType]
         return np.asarray(float(np.max(power)))
 
     def spectrum(output: Output) -> np.ndarray:
@@ -197,7 +205,12 @@ def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarra
         numpy.ndarray
             The power on the fixed axis.
         """
-        t, power = get_power(output, modes="sum", **where)  # pyright: ignore[reportArgumentType]
+        t, power = get_power(
+            output,
+            modes="sum",
+            oversampling=TIME_OVERSAMPLING,
+            **where,  # pyright: ignore[reportArgumentType]
+        )  # pyright: ignore[reportArgumentType]
         return np.interp(on, np.asarray(t), np.asarray(power), 0.0, 0.0)
 
     return {

@@ -35,7 +35,13 @@ from solprop.recipe import Recipe, resume_file
 from solprop_gui.service.beam import beam_reading, profile_row
 from solprop_gui.service.messages import Control, Event
 from solprop_gui.service.outbox import Outbox
-from solprop_gui.service.reduce import SPECTRAL_AXES, Display, Reducer, stats_row
+from solprop_gui.service.reduce import (
+    SPECTRAL_AXES,
+    TIME_OVERSAMPLING,
+    Display,
+    Reducer,
+    stats_row,
+)
 from solprop_gui.service.scan_reductions import reductions
 from solprop_gui.service.worker import LOG, OUTPUT, RECIPE, SCAN_OUTPUT, RunSpec
 
@@ -177,7 +183,9 @@ class LiveObserver(NullReporter):
                 axis: plane.spectral_density(axis=axis, modes="sum")  # pyright: ignore[reportAttributeAccessIssue]
                 for axis in SPECTRAL_AXES
             }
-            t, power = plane.power(modes="sum", bandpass=bandpass)  # pyright: ignore[reportAttributeAccessIssue]
+            t, power = plane.power(  # pyright: ignore[reportAttributeAccessIssue]
+                modes="sum", bandpass=bandpass, oversampling=TIME_OVERSAMPLING
+            )  # pyright: ignore[reportAttributeAccessIssue]
         reduced_density, reduced_power = self.reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]
         with self._lock:
             if self.axes is None:

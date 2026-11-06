@@ -151,3 +151,25 @@ def test_the_step_sparkline_draws_log_steps_and_starts_afresh(qtbot: QtBot) -> N
     flat.grab()
     line.start(2.0)
     assert line.points == []
+
+
+def test_a_map_reads_its_value_under_the_pointer(qtbot: QtBot) -> None:
+    plot = MapPlot(
+        xlabel="Time (fs)", ylabel="Wavelength (nm)", colours="viridis", unit="dB"
+    )
+    qtbot.addWidget(plot)
+    assert plot.read(0.0, 0.0) == ""  # nothing drawn yet
+    data = np.array([[-30.0, -10.0], [np.nan, 0.0]])
+    plot.show_map(
+        data, (-10.0, 500.0, 20.0, 200.0), ((-10.0, 10.0), (500.0, 700.0)), (-40.0, 0.0)
+    )
+    assert plot.read(5.0, 650.0) == "5 fs, 650 nm: 0 dB"
+    assert plot.read(-5.0, 550.0) == "-5 fs, 550 nm: -30 dB"
+    assert plot.read(-5.0, 650.0) == ""  # no value there
+    assert plot.read(15.0, 550.0) == ""  # off the image
+    bare = MapPlot(xlabel="x", ylabel="z", colours="viridis", unit="")
+    qtbot.addWidget(bare)
+    bare.show_map(
+        np.ones((1, 1)), (0.0, 0.0, 1.0, 1.0), ((0.0, 1.0), (0.0, 1.0)), (0.0, 1.0)
+    )
+    assert bare.read(0.5, 0.5) == "0.5, 0.5: 1"

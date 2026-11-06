@@ -13,9 +13,12 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 from solprop.exceptions import SolpropError
+from solprop.output import open_file
+from solprop.processing import get_power
 from solprop.recipe import Recipe
 
 from solprop_gui.service import handlers, results
+from solprop_gui.service.reduce import TIME_OVERSAMPLING
 from test_design import MULTIMODE
 
 STATS = '\nstats = { type = "StatsSpec", names = ["energy", "peak_power", "fwhm_t"] }\n'
@@ -271,6 +274,12 @@ def test_a_plane_gives_its_energy_and_a_band_its_share(finished_run: Path) -> No
     )
     assert 0 < band["band_energy"] <= band["energy"]
     assert np.asarray(band["full_power"]).size == np.asarray(band["power"]["y"]).size
+    # The pulse is drawn four times finer than the run's grid, over the same window.
+    with open_file(str(finished_run)) as handler:
+        t, _power = get_power(handler, plane=0, modes="sum")
+    drawn = np.asarray(whole["power"]["t"])
+    assert drawn.size == TIME_OVERSAMPLING * np.asarray(t).size
+    assert drawn[0] == pytest.approx(t[0]) and drawn[-1] >= t[-1]
 
 
 def test_run_health_says_how_the_run_went(finished_run: Path) -> None:

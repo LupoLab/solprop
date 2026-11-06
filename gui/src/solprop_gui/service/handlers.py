@@ -31,7 +31,14 @@ from solprop_gui.service.beams import BEAM_HANDLERS
 from solprop_gui.service.design import DESIGN_HANDLERS, pin_targets
 from solprop_gui.service.figures import FIGURE_HANDLERS
 from solprop_gui.service.postprocess import POSTPROCESS_HANDLERS
-from solprop_gui.service.reduce import SPECTRAL_AXES, C, Display, Reducer, stats_row
+from solprop_gui.service.reduce import (
+    SPECTRAL_AXES,
+    TIME_OVERSAMPLING,
+    C,
+    Display,
+    Reducer,
+    stats_row,
+)
 from solprop_gui.service.results import RESULTS_HANDLERS, band_of, spatial_plane
 from solprop_gui.service.sheet import SHEET_HANDLERS, design_numbers
 from solprop_gui.service.waveguide import WAVEGUIDE_HANDLERS
@@ -619,7 +626,11 @@ def overview(payload: Payload) -> dict[str, object]:
                     for axis in SPECTRAL_AXES
                 }
                 t, power = get_power(
-                    handler, plane=index, modes="sum", bandpass=display.bandpass
+                    handler,
+                    plane=index,
+                    modes="sum",
+                    bandpass=display.bandpass,
+                    oversampling=TIME_OVERSAMPLING,
                 )
                 extra = {}
             reduced_density, reduced_power = reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]

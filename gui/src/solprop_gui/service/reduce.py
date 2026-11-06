@@ -21,7 +21,23 @@ from typing import Any
 
 import numpy as np
 
-__all__ = ["SPECTRAL_AXES", "C", "Display", "Reducer", "bin_max", "stats_row"]
+__all__ = [
+    "SPECTRAL_AXES",
+    "TIME_OVERSAMPLING",
+    "C",
+    "Display",
+    "Reducer",
+    "bin_max",
+    "stats_row",
+]
+
+TIME_OVERSAMPLING = 4
+"""How much finer than the run's own grid a pulse is drawn in time.
+
+solprop's readers resample the time axis by zero-padding the spectrum, which adds
+no information but draws a short pulse smoothly and finds its true peak between
+samples; four is the factor solprop's own plots use, as Luna's do.
+"""
 
 C = 299_792_458.0
 """The speed of light in vacuum, m/s: to turn the wavelength window to frequency."""

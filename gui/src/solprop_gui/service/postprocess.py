@@ -52,6 +52,7 @@ from solprop.processing import (
 from solprop.processing.compression import Compression
 from solprop.processing.time import fwhm
 
+from solprop_gui.service.reduce import TIME_OVERSAMPLING
 from solprop_gui.service.results import band_of
 
 __all__ = ["POSTPROCESS_HANDLERS", "catalogue", "compress_chain"]
@@ -482,7 +483,12 @@ def _powers(
         ``t``, ``before``, ``after``, ``limit`` and ``pulses``.
     """
     modes = "sum" if selection is None else selection
-    common = {"plane": index, "modes": modes, "bandpass": band}
+    common = {
+        "plane": index,
+        "modes": modes,
+        "bandpass": band,
+        "oversampling": TIME_OVERSAMPLING,
+    }
     t, before = get_power(handler, **common)  # pyright: ignore[reportArgumentType]
     _, after = get_power(
         handler,

@@ -473,6 +473,45 @@ class MapPlot(Plot):
         self.marker.hide()
         self.message = pg.TextItem("", color=GREY, anchor=(0.5, 0.5))
         self.addItem(self.message, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
+        self.reader = self.read
+
+    def read(self, x: float, y: float) -> str:
+        """Say what the map holds at a point: its position and its value.
+
+        A page with more to say gives the map a reader of its own.
+
+        Parameters
+        ----------
+        x : float
+            The position across the map.
+        y : float
+            The position up it.
+
+        Returns
+        -------
+        str
+            The readout, in the axes' and the colour bar's units; nothing off the
+            image.
+        """
+        if not self.data.size:
+            return ""
+        x0, y0, width, height = self.map_rect
+        rows, columns = self.data.shape
+        column = int(np.floor((x - x0) / (width or 1.0) * columns))
+        row = int(np.floor((y - y0) / (height or 1.0) * rows))
+        if not (0 <= row < rows and 0 <= column < columns):
+            return ""
+        value = float(self.data[row, column])
+        if not np.isfinite(value):
+            return ""
+        xunit = _unit_of(str(self.item.getAxis("bottom").labelText))
+        yunit = _unit_of(str(self.item.getAxis("left").labelText))
+        unit = str(self.bar.axis.labelText)
+        return (
+            f"{x:.4g} {xunit}".rstrip()
+            + f", {y:.4g} {yunit}".rstrip()
+            + f": {value:.3g} {unit}".rstrip()
+        )
 
     def set_along(self, along: str | None) -> None:
         """Say which axis is z.
