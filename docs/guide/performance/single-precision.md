@@ -13,9 +13,8 @@ Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
 and radial and Cartesian free space. Its Metal kernels run in the macOS lane of
 continuous integration. `mlx` is **experimental** in this release: its coverage is not
 measured, the survival record below was measured on the reference implementation
-(on `mlx` for two cases only), and on the default grids it can be slower than binary64
-`native`; build single-precision grids
-with `fft_size="pow2"` ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
+(on `mlx` for two cases only), and the keyword interfaces size its grids for MLX's
+transforms ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
 every route below as the reference implementation, which defines the arithmetic and
 measures it but is not fast; away from Apple silicon it is the supported way to run single
 precision, by name, because `native` computes in binary64 only
@@ -51,26 +50,33 @@ interfaces. Under single precision:
   target below binary32's rounding per step buys steps without accuracy. A fixed
   schedule reads no tolerance.
 - **The default tolerance.** Each interface takes the larger of its binary64 default
-  and the floor, and no more than `1e-5`
+  and the floor, and no more than `1e-4`
   ({data}`~solprop.translate.precision.SINGLE_RTOL_CAP`), the loosest value the
   survival record below measured: `1e-6` on `prop_gnlse` (whose binary64 default is
   `1e-7`) and `prop_capillary`, `1e-5` on `prop_waveguide`, `prop_radial` and
-  `prop_planar`, and `1e-5` in free space, whose binary64 `1e-4` is not yet qualified in
-  binary32. A spatial interface applies it where its `SimulationSettings` give no
+  `prop_planar`, and `1e-4` in free space
+  ([its record](#free-space-at-its-binary64-tolerance)). A spatial interface applies it where its `SimulationSettings` give no
   controller; an explicit `rtol` or controller is the caller's.
 - **The step's exponent.** Binary32 represents ``exp(x)`` only up to $x \approx 88.7$
-  (binary64 to 709.8). The interaction picture multiplies by the linear propagator and
-  its inverse, so a replayed step (or an adaptive run's floor `dz_min`) over which a
-  strong collar or loss reaches that exponent is refused at translation, with the
-  shortest step that fits, and one within a tenth of it is warned of. A 1 mm capillary's
-  default collar on 0.25 mm steps is one such case.
-- **The integrator.** The default is `RungeKutta()` (DOPRI5) and the low-storage march is
-  admitted; the Adams integrator, `Multistep()`, is refused until its single-precision
-  accuracy is established. The binary64 default of `prop_capillary` and `prop_radial` is
-  `Multistep()` ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)), so on
-  those interfaces a default run changes method as well as arithmetic when it changes
-  precision: to compare the two precisions, pass `integrator=RungeKutta()` to both, as
-  the survival record below does.
+  (binary64 to 709.8). The Runge–Kutta interaction picture multiplies by the linear
+  propagator and its inverse, so under `RungeKutta()` a replayed step (or an adaptive
+  run's floor `dz_min`) over which a strong collar or loss reaches that exponent is
+  refused at translation, with the shortest step that fits, and one within a tenth of
+  it is warned of; a 1 mm capillary's default collar on 0.25 mm steps is one such case.
+  On `mlx` an adaptive `RungeKutta()` trial past that range is combined in the lab frame
+  instead, by forward flows only, so it is not rejected and shrunk for the inverse's
+  sake: a radial Kerr beam whose first trial reaches 459 takes its millimetre in one
+  step, as binary64 does. The low-storage march and the exponential Adams method apply forward flows only: a
+  damped bin's flow underflows harmlessly towards zero, so they are limited by growth
+  alone, which no passive medium has. The Kerr beams' 0.5 µm steps, whose spectral
+  collar reaches 150 to 180, run in binary32 with `LowStorageRungeKutta()` for this
+  reason.
+- **The integrator.** Each interface takes its binary64 default
+  ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` in
+  its exponential formulation on `prop_capillary`, `prop_radial` and `prop_planar`
+  ([the Adams record](#the-adams-integrator-in-binary32)), `RungeKutta()` (DOPRI5)
+  elsewhere; the low-storage march is admitted too. A run changes arithmetic, not
+  method, when it changes precision.
 - **Noise.** A default `noise` resolves to none, and the run records why; an explicit
   noise model is refused (below).
 - **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are
@@ -92,35 +98,39 @@ interfaces. Under single precision:
 | gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
 | Runge–Kutta, the low-storage march | yes | yes |
 | fixed-schedule batches through `Batch` | yes | refused |
-| the Adams integrator | refused, pending its accuracy record | refused |
+| the Adams integrator | the exponential formulation | the exponential formulation, its history on the GPU; on the Metal device only |
 | noise models | refused (a known limitation, below) | refused |
 | the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
 
 ## Grid sizes on `mlx`
 
 A grid's default sample count, `fft_size="auto"`, is the cheapest size with prime
-factors 2, 3 and 5 by a cost model fitted to FFTW's transforms on CPUs
-([grids](../setup/grids.md#coarse-and-fine-sampling)). MLX's GPU transform runs those
-sizes four to eight times slower than the next power of two. On an Apple M5 Max one real
-transform took:
+factors 2, 3 and 5 by a transform-cost model ([grids](../setup/grids.md#coarse-and-fine-sampling)).
+For FFTW on a CPU that is often a smooth size such as 10240. MLX's GPU transform runs
+any such size up to 4096 directly, but above 4096 only powers of two: every other
+length takes Bluestein's algorithm, six to twelve times slower than the next power of
+two. On an Apple M5 Max an rfft and irfft pair took:
 
 | samples | µs | next power of two | µs |
 |---|---|---|---|
-| 12288 | 902 | 16384 | 218 |
-| 98304 | 7629 | 131072 | 992 |
+| 5120 | 502 | 8192 | 78 |
+| 10240 | 715 | 16384 | 63 |
 
-So on a default grid a single-precision run on `mlx` can be slower than a binary64 run
-on `native`. For a single-precision run, build the grid with `fft_size="pow2"` and pass
-it as `grid=`; the keyword interfaces build `"auto"` grids:
+So `"auto"` minimises the cost of the transform library the run will use
+({py:func}`solprop.grid.fft_cost`). The keyword interfaces (`prop_capillary`,
+`prop_gnlse`, `prop_waveguide`) take MLX's costs when the run is single precision on
+`mlx` (or `backend="auto"`, which resolves to it), and so build a power of two past
+4096 samples; with `backend="numpy_ref"`, or in binary64, they keep FFTW's. A grid of
+your own, as the free-space interfaces take, chooses with `transforms=`:
 
 ```python
 from solprop.grid import FieldGrid
 
-grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, fft_size="pow2")
+grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, transforms="mlx")
 ```
 
-On the CPU backends `"auto"` stays the cheaper choice. Making powers of two the
-single-precision default is planned, with a re-timing of `mlx` on such grids.
+`fft_size="pow2"` gives the same sizes past 4096. A run on `mlx` with a smooth grid
+past 4096 samples, given explicitly, runs correctly but slowly.
 
 ## How the arithmetic is kept accurate
 
@@ -193,6 +203,51 @@ bands): both survive.
   measured on a capillary operator over $10^2$–$10^4$ steps (0.1–0.3 on a GNLSE one).
   The field envelope of $10^{-3}$ is reached after about $3\times10^4$ steps; a run
   that needs more takes binary64.
+
+### Free space at its binary64 tolerance
+
+Free space's binary64 default, `rtol = 1e-4`, was qualified in binary32 on 5 November
+2026 ([#85](https://github.com/LupoLab/solprop/issues/85)); until then a single-precision
+free-space run took `1e-5`. Each case ran with `RungeKutta()`, noise-free, on a
+power-of-two grid, in binary32 on `mlx` and binary64 on `native`, against a binary64 run
+at `rtol = 1e-6` (the field's relative difference):
+
+| case | binary64 at `1e-4` | binary32 at `1e-4` | binary64 at `1e-5` | binary32 at `1e-5` |
+|---|---|---|---|---|
+| radial filament in argon with plasma, 3 cm | 9.8e-5 | 2.0e-5 | 1.2e-5 | 1.0e-5 |
+| radial Kerr beam with its transverse collar, 8 cm | 2.5e-5 | 2.1e-5 | 1.7e-6 | 2.0e-6 |
+| Cartesian argon filament, 128 × 128, 1.5 cm | 6.9e-5 | 2.4e-5 | 6.2e-6 | 5.2e-6 |
+
+Binary32 at `1e-4` is as close to the reference as binary64 at `1e-4`, or closer: the
+tolerance, not the precision, sets the error. The Cartesian filament takes 48 steps at
+`1e-4` against 61 at `1e-5`.
+
+### The Adams integrator in binary32
+
+`Multistep()` was admitted on 5 November 2026 by the rule
+[#342](https://github.com/LupoLab/solprop/issues/342) proposed: binary32 Adams judged
+against binary64 Adams at the same tolerance, rather than against Runge–Kutta, whose
+difference from Adams is the methods' truncation. Each case ran its whole length,
+noise-free, on a power-of-two grid, at each interface's default tolerance, on `mlx`
+(binary32) and `native` (binary64). The table gives the relative difference of the
+final fields, and binary64 Runge–Kutta's from binary64 Adams as the scale of the
+methods' own truncation:
+
+| case | binary32 Adams against binary64 Adams | binary64 RK against binary64 Adams | binary32 RK against binary64 Adams |
+|---|---|---|---|
+| He capillary gradient, mode-averaged, 1.5 m (RDW) | 2.3e-6 | 3.6e-6 | 4.3e-5 |
+| the same, four modes | 4.3e-6 | 1.7e-6 | 1.3e-4 |
+| Ar capillary, field-grid plasma, 0.2 m | 1.3e-5 | 2.3e-5 | 4.9e-5 |
+| Ar capillary, envelope-grid plasma, 0.2 m | 8.2e-5 | 1.1e-4 | 1.2e-4 |
+| H₂ capillary, Raman, mode-averaged, 0.4 m | 8.0e-5 | 2.9e-5 | 1.0e-4 |
+| GNLSE, Raman and shock, 0.15 m | 2.2e-4 | 3.1e-5 | 9.4e-5 |
+| radial filament in argon with plasma, 3 cm | 6.8e-6 | 1.4e-5 | 1.1e-5 |
+| radial Kerr beam with its transverse collar, 8 cm | 5.0e-6 | 6.7e-6 | 7.7e-6 |
+
+Every case is far inside the field envelope of $10^{-3}$, and all but the GNLSE within a
+small multiple of the methods' own difference; the GNLSE runs at `1e-6` in binary32
+against binary64's `1e-7` (the floor), which accounts for its row. On the capillaries
+binary32 Adams is closer to the binary64 reference than binary32 Runge–Kutta is.
 
 ## Known limitations
 

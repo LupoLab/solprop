@@ -143,7 +143,7 @@ def test_the_settings_admit_the_compiled_backends():
         **common,
     )
     assert settings.backend == "native"
-    with pytest.raises(DriverError, match="numpy_ref and native only"):
+    with pytest.raises(DriverError, match="numpy_ref, native and mlx only"):
         SimulationSettings(
             control,
             backend="cuda",

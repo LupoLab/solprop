@@ -161,7 +161,9 @@ def _product(matrix: mx.array, values: mx.array) -> mx.array:
     return result.reshape(matrix.shape[0], *values.shape[1:])
 
 
-def synthesise(modal_t: mx.array, rows: mx.array, taper: float, n_pol: int) -> mx.array:
+def synthesise(
+    modal_t: mx.array, rows: mx.array, taper: float | mx.array, n_pol: int
+) -> mx.array:
     """Synthesise the field on a chunk of nodes, ``tau S a``.
 
     Parameters
@@ -170,7 +172,7 @@ def synthesise(modal_t: mx.array, rows: mx.array, taper: float, n_pol: int) -> m
         ``(n_modes, n_pol_state, n_to)``.
     rows : mlx.core.array
         The chunk's rows of the narrowed synthesis matrix.
-    taper : float
+    taper : float or mlx.core.array
         The taper scale at this position.
     n_pol : int
         Components the transform resolves at each node.
@@ -185,7 +187,9 @@ def synthesise(modal_t: mx.array, rows: mx.array, taper: float, n_pol: int) -> m
     return nodes.reshape(n_rows // n_pol, n_pol * n_pol_state, n_to)
 
 
-def project(values: mx.array, columns: mx.array, taper: float, n_pol: int) -> mx.array:
+def project(
+    values: mx.array, columns: mx.array, inverse: float | mx.array, n_pol: int
+) -> mx.array:
     """Project node values back onto the modes, ``P / tau``.
 
     Parameters
@@ -194,8 +198,8 @@ def project(values: mx.array, columns: mx.array, taper: float, n_pol: int) -> mx
         ``(n_nodes_chunk, n_pol_node, n_to)``.
     columns : mlx.core.array
         The chunk's columns of the narrowed projection matrix.
-    taper : float
-        The taper scale.
+    inverse : float or mlx.core.array
+        The inverse of the taper scale, ``1 / tau``, formed in binary64.
     n_pol : int
         Components the transform resolves at each node.
 
@@ -206,11 +210,11 @@ def project(values: mx.array, columns: mx.array, taper: float, n_pol: int) -> mx
     """
     n_chunk, n_pol_node, n_to = values.shape
     rows = values.reshape(n_chunk * n_pol, n_pol_node // n_pol, n_to)
-    return _product(columns * (1.0 / taper), rows)
+    return _product(columns * inverse, rows)
 
 
 def project_many(
-    values: list[mx.array], columns: mx.array, taper: float, n_pol: int
+    values: list[mx.array], columns: mx.array, inverse: float | mx.array, n_pol: int
 ) -> list[mx.array]:
     """Project several node arrays onto the modes in one matrix product.
 
@@ -225,8 +229,8 @@ def project_many(
         ``(n_nodes_chunk, n_pol_node, n_to)`` each, float32 or complex64.
     columns : mlx.core.array
         The chunk's columns of the narrowed projection matrix.
-    taper : float
-        The taper scale.
+    inverse : float or mlx.core.array
+        The inverse of the taper scale, ``1 / tau``, formed in binary64.
     n_pol : int
         Components the transform resolves at each node.
 
@@ -245,7 +249,7 @@ def project_many(
     rows = mx.concatenate(parts, axis=-1).reshape(
         n_chunk * n_pol, n_pol_node // n_pol, len(parts) * n_to
     )
-    product = _product(columns * (1.0 / taper), rows)
+    product = _product(columns * inverse, rows)
     pieces = list(cast(list[mx.array], mx.split(product, len(parts), axis=-1)))
     results = []
     for array in values:
@@ -284,8 +288,9 @@ def analytic(values: mx.array) -> mx.array:
 def kerr(
     field: mx.array,
     coefficients: KerrCoefficients,
-    factor: float,
+    factor: float | mx.array,
     carrier: mx.array | None,
+    harmonic: float | mx.array | None = None,
 ) -> mx.array:
     """Evaluate the Kerr polarisation, the oracle's ``kerr_single``.
 
@@ -295,10 +300,13 @@ def kerr(
         The scaled field at the nodes.
     coefficients : solprop.translate.responses.KerrCoefficients
         The compiled coefficients.
-    factor : float
+    factor : float or mlx.core.array
         ``coefficient * density * s**2``, rounded once.
     carrier : mlx.core.array or None
         The harmonic carrier on an envelope grid that radiates it.
+    harmonic : float or mlx.core.array or None, optional
+        ``factor * coefficients.harmonic_factor``, formed in binary64 and rounded
+        once; formed here from a host `factor` when not given.
 
     Returns
     -------
@@ -317,9 +325,10 @@ def kerr(
             + coefficients.conjugate_factor * squares * mx.conj(values)
         )
         if carrier is not None:
-            polarisation = polarisation + (
-                (factor * coefficients.harmonic_factor) * carrier * squares * values
-            )
+            if harmonic is None:
+                assert not isinstance(factor, mx.array)  # a compiled stage passes it
+                harmonic = factor * coefficients.harmonic_factor
+            polarisation = polarisation + harmonic * carrier * squares * values
     return mx.real(polarisation) if coefficients.take_real else polarisation
 
 
@@ -353,7 +362,7 @@ def _drive(column: mx.array, *, kind: GridKind, thg: bool) -> mx.array:
 def raman(
     field: mx.array,
     spectrum: mx.array,
-    factor: float,
+    factor: float | mx.array,
     *,
     kind: GridKind,
     thg: bool,
@@ -367,7 +376,7 @@ def raman(
     spectrum : mlx.core.array
         The narrowed kernel spectrum: ``(n_to + 1,)`` scalar, ``(1 | 2, n_to + 1)``
         tensor.
-    factor : float
+    factor : float or mlx.core.array
         The combined coefficient, rounded once.
     kind : {'field', 'envelope'}
         The spectral layout.
@@ -662,11 +671,28 @@ class DeviceRateTable:
         return mx.where(magnitude >= self.field_min, rate, 0.0)
 
 
+def _rounded(value: float | mx.array) -> float | mx.array:
+    """Return a host scalar rounded to binary32, or a device scalar as it is.
+
+    Parameters
+    ----------
+    value : float or mlx.core.array
+        A coefficient: a binary64 host value, or a float32 device scalar that a
+        compiled stage takes as an input (rounded once on the host).
+
+    Returns
+    -------
+    float or mlx.core.array
+        The same coefficient, as a multiplication rounds it.
+    """
+    return value if isinstance(value, mx.array) else float(np.float32(value))
+
+
 def plasma_current(  # noqa: PLR0913 - one array per channel input
     field: mx.array,
     tables: tuple[DeviceRateTable, ...],
-    constants: tuple[tuple[float, float], ...],
-    initials: tuple[float, ...],
+    constants: tuple[tuple[float | mx.array, float | mx.array], ...],
+    initials: tuple[float | mx.array, ...],
     dt: float,
     rule: RunningIntegral,
     *,
@@ -680,10 +706,12 @@ def plasma_current(  # noqa: PLR0913 - one array per channel input
         The physical field ``s E``, float32, ``(n_nodes, n_pol, n_to)``.
     tables : tuple of DeviceRateTable
         One per channel.
-    constants : tuple of tuple of float
-        Per channel, ``density (e^2/m) n_c`` and ``density I_p``.
-    initials : tuple of float
-        Per channel, the pre-ionised fraction.
+    constants : tuple of tuple of float or mlx.core.array
+        Per channel, ``density (e^2/m) n_c`` and ``density I_p``: host values, or
+        float32 device scalars rounded once on the host.
+    initials : tuple of float or mlx.core.array
+        Per channel, the pre-ionised fraction, or the population kernel's parameters
+        on the device (:func:`~solprop.backends.mlx_gpu.arithmetic.population`).
     dt : float
         The sample spacing, s.
     rule : solprop.nonlinear.ionisation.RunningIntegral
@@ -699,7 +727,10 @@ def plasma_current(  # noqa: PLR0913 - one array per channel input
     if field.shape[-2] == 1:
         magnitude = mx.abs(field[..., 0, :])
     else:
-        magnitude = mx.sqrt(field[..., 0, :] ** 2 + field[..., 1, :] ** 2)
+        x, y = field[..., 0, :], field[..., 1, :]
+        # Products, not powers: MLX's eager x**2 rounds through pow (1.4 ulp), which a
+        # compiled stage would not, while x * x is correctly rounded in both.
+        magnitude = mx.sqrt(x * x + y * y)
     weight = mx.zeros(magnitude.shape, dtype=mx.float32)
     work = mx.zeros(magnitude.shape, dtype=mx.float32)
     for table, (drude, potential), initial in zip(
@@ -710,8 +741,8 @@ def plasma_current(  # noqa: PLR0913 - one array per channel input
         if rule.policy != "trapezoid":
             exposure = mx.maximum(exposure, 0.0)
         fraction, survival = population(exposure, initial)
-        weight = weight + float(np.float32(drude)) * fraction
-        work = work + float(np.float32(potential)) * (rate * survival)
+        weight = weight + _rounded(drude) * fraction
+        work = work + _rounded(potential) * (rate * survival)
     free = running_integral(weight[..., None, :] * field, dt, rule, evaluate=evaluate)
     squared = magnitude * magnitude
     guard = mx.where(

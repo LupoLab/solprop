@@ -62,7 +62,6 @@ from solprop.nonlinear.ionisation import RunningIntegral
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
-from solprop.stepper.multistep import Multistep
 from solprop.translate.precision import (
     admit_precision,
     block_exponent,
@@ -160,7 +159,6 @@ class NumpySingleBackend(NumpyRefBackend):
             admit_precision(
                 problem.precision,
                 backend=self.name,
-                adams=isinstance(stepper.integrator, Multistep),
                 rtol=stepper.controller.rtol,
                 schedule=stepper.schedule is not None,
             )
@@ -519,9 +517,6 @@ class NumpySingleBackend(NumpyRefBackend):
     ) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
         """Adopt an Adams step's state, refusing one that left binary32.
 
-        The Adams integrator runs under single precision only inside the survival
-        study (SEP 33, Q2).
-
         Parameters
         ----------
         advanced : numpy.ndarray
@@ -536,6 +531,20 @@ class NumpySingleBackend(NumpyRefBackend):
         """
         _require_dtype(np.asarray(advanced), self._complex, "the Adams state")
         return super()._adams_adopt(advanced, dz)
+
+    def _adams_restore(
+        self, z: float, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> None:
+        """Restore an accepted Adams state, in binary32: a snapshot holds binary64.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        state : numpy.ndarray
+            The scaled state, as the march held or a snapshot read it.
+        """
+        super()._adams_restore(z, np.asarray(state).astype(self._complex, copy=False))
 
     def _trial_step(
         self, z: float, dz: float

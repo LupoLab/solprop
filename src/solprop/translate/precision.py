@@ -28,9 +28,6 @@ backend narrows them on upload.
 """
 
 import math
-from collections.abc import Iterator
-from contextlib import contextmanager
-from contextvars import ContextVar
 from dataclasses import dataclass
 from typing import Literal, get_args
 
@@ -60,7 +57,6 @@ __all__ = [
     "prefix_sum",
     "scaled_square_sum",
     "state_scale",
-    "study_admission",
 ]
 
 PrecisionName = Literal["double", "single"]
@@ -75,13 +71,15 @@ and an interface whose binary64 default is tighter takes the floor under single
 precision.
 """
 
-SINGLE_RTOL_CAP = 1e-5
+SINGLE_RTOL_CAP = 1e-4
 """The loosest default relative tolerance a single-precision run takes.
 
-The single-precision survival record measured 1e-6 and 1e-5 only, so an interface whose
-binary64 default is looser -- free space's 1e-4 -- takes this one under single
-precision until the looser value is qualified in binary32. An explicit tolerance above
-it is the caller's, and is admitted.
+The loosest the single-precision survival record has measured. It measured 1e-6 and
+1e-5 first; free space's binary64 default of 1e-4 was qualified in binary32 on 5
+November 2026 (#85): on a radial filament, a radial beam with its transverse collar and
+a Cartesian filament, binary32 at 1e-4 lies as close to a binary64 run at 1e-6 as
+binary64 at 1e-4 does, or closer. An explicit tolerance above it is the caller's, and
+is admitted.
 """
 
 SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
@@ -230,34 +228,10 @@ def precision_named(name: PrecisionName | Precision) -> Precision:
     return SINGLE
 
 
-_STUDY: ContextVar[bool] = ContextVar("solprop_precision_study", default=False)
-
-
-@contextmanager
-def study_admission() -> Iterator[None]:
-    """Admit, inside the block, what the survival study measures and the public refuses.
-
-    The private, test-only route of SEP 33 section 5.2: the study runs the Adams
-    integrator under single precision through it, to measure whether Adams can be
-    admitted (Q2). No public interface sets it.
-
-    Yields
-    ------
-    None
-        Nothing; the admission is relaxed until the block exits.
-    """
-    token = _STUDY.set(True)
-    try:
-        yield
-    finally:
-        _STUDY.reset(token)
-
-
 def admit_precision(
     precision: Precision,
     *,
     backend: str,
-    adams: bool,
     rtol: float | None,
     schedule: bool,
 ) -> None:
@@ -265,9 +239,10 @@ def admit_precision(
 
     SEP 33 section 5.2. A binary64 run passes unchanged. A single-precision run is
     refused on a backend that does not admit it (:data:`SINGLE_PRECISION_BACKENDS`),
-    with the Adams integrator until the survival study admits it, and with an adaptive
-    tolerance below :data:`SINGLE_RTOL_FLOOR`. The routes and responses no backend runs
-    in binary32 are refused by
+    and with an adaptive tolerance below :data:`SINGLE_RTOL_FLOOR`. The Adams
+    integrator is admitted: binary32 Adams agrees with binary64 Adams to the method's
+    own truncation on the survival cases (#342). The routes and responses no backend
+    runs in binary32 are refused by
     :meth:`~solprop.translate.problem.KernelProblem.validate`, where they are known.
 
     Parameters
@@ -276,8 +251,6 @@ def admit_precision(
         The run's precision.
     backend : str
         The concrete registry name the run executes on.
-    adams : bool
-        Whether the integrator is an Adams method.
     rtol : float or None
         The controller's relative tolerance, or ``None`` where the controller has none.
     schedule : bool
@@ -291,8 +264,7 @@ def admit_precision(
     Examples
     --------
     >>> from solprop.translate.precision import SINGLE, admit_precision
-    >>> admit_precision(SINGLE, backend="numpy_ref", adams=False, rtol=1e-6,
-    ...                 schedule=False) is None
+    >>> admit_precision(SINGLE, backend="numpy_ref", rtol=1e-6, schedule=False) is None
     True
     """
     if not precision.single:
@@ -302,13 +274,6 @@ def admit_precision(
             f"backend {backend!r} computes in binary64 only and refuses "
             f"precision='single'; the backends that admit it are "
             f"{', '.join(SINGLE_PRECISION_BACKENDS)} (SEP 33)"
-        )
-        raise TranslationError(msg)
-    if adams and not _STUDY.get():
-        msg = (
-            "the Adams integrator (Multistep) is not admitted under precision='single' "
-            "until its single-precision survival is established; use "
-            "integrator=RungeKutta(), the single-precision default"
         )
         raise TranslationError(msg)
     if not schedule and rtol is not None and rtol < SINGLE_RTOL_FLOOR:

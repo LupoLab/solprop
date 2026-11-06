@@ -22,14 +22,16 @@ their transverse collars, stepped by Runge-Kutta. Everything else is refused by 
 """
 
 import math
-from collections.abc import Mapping, Sequence
+import os
+from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass
-from typing import Any, cast
+from typing import Any, Literal, cast
 
 import mlx.core as mx  # pyright: ignore[reportMissingImports] - macOS arm64 only
 import numpy as np
 from jaxtyping import Complex
 
+from solprop._helpers import PLAIN, Helpers
 from solprop.backends.memory import mlx_bounded, mlx_graph_bytes, mlx_stage_bytes
 from solprop.backends.mlx_gpu import passes as device
 from solprop.backends.mlx_gpu.arithmetic import (
@@ -38,29 +40,33 @@ from solprop.backends.mlx_gpu.arithmetic import (
     gemm_probe,
     on_gpu,
     population,
+    population_parameters,
     prefix_scan,
 )
 from solprop.backends.mlx_gpu.envelope import DeviceCycle, envelope_cycle
+from solprop.backends.numpy_ref.backend import QUADRATURE_ALARM
+from solprop.backends.numpy_ref.backend import logger as oracle_logger
 from solprop.backends.numpy_ref.passes import _kerr as compiled_kerr
 from solprop.backends.numpy_ref.passes import _raman_thg as raman_thg
 from solprop.backends.numpy_ref.single import NumpySingleBackend
+from solprop.backends.populations import population_statistics
 from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError
-from solprop.grid import TimeGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.envelope_plasma import EnvelopePlasmaAssembly
-from solprop.translate.linop import _separable_phase
 from solprop.translate.precision import combine, narrow
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
-from solprop.translate.spatial import separable_values
+from solprop.translate.spatial import SeparableOperator, separable_values
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 __all__ = ["DeviceSources", "MlxBackend", "MlxLowStorage", "refuse_unsupported"]
 
@@ -94,6 +100,89 @@ class DeviceSources:
 
     polarisation: mx.array
     current: mx.array | None
+
+
+_FUSED = os.environ.get("SOLPROP_MLX_FUSED", "1") != "0"
+"""Whether a Metal run compiles each stage with ``mx.compile`` (the default).
+
+A compiled stage fuses the stage's element-wise passes into few kernels and replays
+its graph without rebuilding it in Python. MLX compiles every operation with the
+eager kernel's rounding (no contraction to fused multiply-adds, no reassociation),
+except ``log1p``, whose compiled form is as accurate but not the same function.
+``SOLPROP_MLX_FUSED=0`` evaluates operation by operation, for comparisons.
+"""
+
+_TRANSPORT_REACH = 0.9 * math.log(float(np.finfo(np.float32).max))
+"""The bound on a trial's ``|Re dPhi|`` past which its stages are combined in the lab
+frame (:meth:`MlxBackend._trial_graph`): nine tenths of binary32's ``log FLT_MAX``."""
+
+try:
+    from solprop_native._helpers import (  # pyright: ignore[reportMissingImports]
+        NATIVE as _HELPERS,
+    )
+except ImportError:  # the native package is optional: its forms are bitwise PLAIN's
+    _HELPERS: Helpers = PLAIN
+
+_HEAD = 5
+"""The stage values before the channels': the taper and its inverse, Kerr's factor
+and harmonic factor, and Raman's factor (:class:`_StageValues`)."""
+
+
+@dataclass(frozen=True)
+class _StageValues:
+    """A stage's position-dependent coefficients as one float32 device vector.
+
+    Each value is formed on the host in binary64 and rounded once, as the stage's
+    passes rounded the host scalars they were given, so that a compiled stage takes
+    them as inputs rather than as constants of its graph. The layout: the taper scale
+    and its inverse, Kerr's factor and its harmonic factor, Raman's factor, then four
+    values per field-grid plasma channel (the Drude and the ionisation-loss factors,
+    and the population's ``1 - p`` and ``p``) and four per envelope-plasma channel
+    (the drive's and the loss's factors, then ``1 - p`` and ``p``).
+
+    Attributes
+    ----------
+    vector : mlx.core.array
+        The float32 values.
+    plasma : int
+        Field-grid plasma channels.
+    """
+
+    vector: mx.array
+    plasma: int
+
+    def __getitem__(self, index: int) -> mx.array:
+        """Return one value, a float32 device scalar.
+
+        Parameters
+        ----------
+        index : int
+            Its position in the layout.
+
+        Returns
+        -------
+        mlx.core.array
+            The value.
+        """
+        return self.vector[index]
+
+    def channel(self, index: int, *, envelope: bool = False) -> mx.array:
+        """Return a channel's four values.
+
+        Parameters
+        ----------
+        index : int
+            The channel.
+        envelope : bool, optional
+            Whether it is an envelope-plasma channel.
+
+        Returns
+        -------
+        mlx.core.array
+            ``(4,)``: the two factors, then the population's parameters.
+        """
+        first = _HEAD + 4 * (index + (self.plasma if envelope else 0))
+        return self.vector[first : first + 4]
 
 
 def _summed(totals: list[mx.array], parts: list[mx.array]) -> list[mx.array]:
@@ -135,6 +224,43 @@ def _restored(value: float, power: float, exponent: int) -> float:
     return math.ldexp(value, 2 * int(power) + exponent)
 
 
+def _separable_tables(
+    separable: SeparableOperator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a separable operator at unit distance and its prefactor, in one pass.
+
+    ``translate.linop._separable_phase`` at unit distance and the prefactor of
+    :func:`~solprop.translate.spatial.separable_values`, bitwise, from one evaluation
+    of each bounded chunk of columns rather than one for each (seconds apiece on a
+    384^2 x 750 grid).
+
+    Parameters
+    ----------
+    separable : solprop.translate.spatial.SeparableOperator
+        The constant-medium coefficients.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The operator, of ``value_shape``, and the prefactor, without its leading
+        batch axis.
+    """
+    shape = separable.value_shape
+    operator = np.empty(shape, dtype=np.complex128)
+    prefactor: np.ndarray | None = None
+    # _separable_phase's 64 MiB workspace ceiling.
+    chunk = max(1, (64 << 20) // (8 * 16 * len(separable.k_squared)))
+    for first in range(0, shape[1], chunk):
+        rows = slice(first, first + chunk)
+        values, factor = separable_values(separable, rows)
+        operator[:, rows] = values
+        if prefactor is None:
+            prefactor = np.empty(shape[1:], dtype=factor.dtype)
+        prefactor[rows] = factor
+    assert prefactor is not None
+    return operator, prefactor
+
+
 def refuse_unsupported(problem: KernelProblem) -> None:
     """Refuse, by name, what the ``mlx`` backend does not run in this phase.
 
@@ -155,6 +281,8 @@ def refuse_unsupported(problem: KernelProblem) -> None:
             "binary64 backend (native, numpy_ref)"
         )
     stepper = problem.stepper
+    method = stepper.integrator
+    adams = isinstance(method, Multistep)
     refusals = [
         (
             not problem.device_ready,
@@ -163,8 +291,9 @@ def refuse_unsupported(problem: KernelProblem) -> None:
             "backend='numpy_ref'",
         ),
         (
-            isinstance(stepper.integrator, Multistep),
-            "the Adams integrator, which single precision does not admit",
+            adams and cast(Multistep, method).formulation != "exponential",
+            "the Adams integrator's interaction formulation; use the exponential "
+            "one, Multistep() by default",
         ),
         (
             stepper.interpolate_planes,
@@ -206,6 +335,12 @@ class MlxBackend(NumpySingleBackend):
 
     name = "mlx"
 
+    # SEP 29 section 6.6: the stage tables' Chebyshev rows and the Adams basis from the
+    # native package's compiled record, which performs the reference's operations in
+    # its order (bitwise its results); only numpy_ref must keep the Python forms. An
+    # install without the native package takes those forms, the same numbers slower.
+    helpers = _HELPERS
+
     _monitor_weights: mx.array | None = None
     """The boundary monitor's four weight rows on the device, each narrowed with its
     own exponent (:attr:`_monitor_exponents`), while a monitor is bound (SEP 21)."""
@@ -230,12 +365,16 @@ class MlxBackend(NumpySingleBackend):
     ``uint8`` as the problem holds it, while a monitor of a split run is bound; ``None``
     otherwise. A reading widens it to an index on the fly."""
 
+    _pending_alarm: tuple[mx.array, float] | None = None
+    """The last accepted step's quadrature alarm on the device and its position, not
+    yet read (:meth:`_update_alarm`)."""
+
     _pending_found: tuple[mx.array, ...] = ()
     """The energy and the guards' energies of what the last accepted step's split found,
     not yet read: device scalars with their rule-6 exponent (:meth:`_device_removal`),
     restored into :attr:`_split_found` at the next synchronisation."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0915 - one upload per table, each held for the run
         self,
         problem: KernelProblem,
         *,
@@ -295,6 +434,41 @@ class MlxBackend(NumpySingleBackend):
         self._upload_envelope(responses.envelope_plasma)
         self._raman_upload: tuple[object, mx.array] | None = None
         self._unit = mx.ones((1,), dtype=mx.complex64)
+        geometry = transform.geometry
+        # The Cartesian collar's per-column rate, narrowed once (it is the problem's).
+        self._free_rate = (
+            None
+            if geometry is None or self._free_prefactor is None
+            else mx.array(self._cast(geometry.absorber_rate))
+        )
+        # Each stage is one compiled graph on the Metal device (_FUSED); its inputs are
+        # the lab field, the inverse propagator, the prefactor, the Raman spectrum and
+        # the stage's values, and everything else it reads is the problem's, fixed
+        # for the backend's life. MLX's CPU device evaluates op by op: its population
+        # and envelope plasma run on the host.
+        self._fused = _FUSED and on_gpu()
+        # First-same-as-last (DOPRI5): the last stage of an accepted step is the next
+        # step's first, as native reuses it, unless the step's finish changes the state
+        # (the split-step collar). The reuse is exact: the last stage's input is the
+        # accepted state, and the first stage's propagators are exactly one.
+        tableau = problem.stepper.tableau
+        self._fsal = bool(
+            tableau is not None
+            and tableau.first_same_as_last
+            and problem.responses.absorber_scheme != "split_step"
+        )
+        self._first: tuple[float, Any, mx.array] | None = None
+        self._edge_matrix: mx.array | None = None
+        self._pending_first: tuple[float, mx.array] | None = None
+        self._last_source: mx.array | None = None
+        compiled = mx.compile if self._fused else (lambda function: function)
+        self._stage_function = compiled(self._stage_core)
+        self._stage_input = compiled(self._stage_input_core)
+        self._trial_end = compiled(self._trial_end_core)
+        self._norm_sums = compiled(self._norm_sums_core)
+        self._transported_input = compiled(self._transported_input_core)
+        self._transported_end = compiled(self._transported_end_core)
+        self._alarm_ratio = compiled(self._alarm_ratio_core)
         # Whether each stage is evaluated as it is formed, bounding the live graph to
         # one stage; a batch evaluates its members' steps together instead.
         self.evaluate_stages = mlx_bounded(
@@ -364,10 +538,8 @@ class MlxBackend(NumpySingleBackend):
         if separable is not None:
             # A separable operator is one term linear in the distance: the operator
             # at unit distance, weighted by the bundle's dz (translate.linop).
-            self._phi = DoubleFloatTerms.upload(
-                _separable_phase(separable, 1.0, imaginary=False)[None]
-            )
-            _, prefactor = separable_values(separable)
+            operator, prefactor = _separable_tables(separable)
+            self._phi = DoubleFloatTerms.upload(operator[None])
             self._free_prefactor = mx.array(self._cast(prefactor))
         elif self._terms.phi is None:
             raise BackendError("mlx needs the operator's device-ready terms")
@@ -406,6 +578,7 @@ class MlxBackend(NumpySingleBackend):
         """
         super().set_initial(field, noise, z=z, resume=resume)
         self._state = cast(Any, mx.array(np.asarray(self._require_state())))
+        self._first = self._pending_first = None
 
     def _observed_field(
         self, state: Any
@@ -467,6 +640,12 @@ class MlxBackend(NumpySingleBackend):
             If the state is not finite.
         """
         finished = state * self._active
+        if self._pending_first is not None:
+            # The accepted state is the last stage's input: masking leaves it as it is,
+            # its bins outside the band being zero, so that stage is the next first.
+            position, source = self._pending_first
+            self._first = (position, finished, source)
+            self._pending_first = None
         responses = self._problem.responses
         rate = responses.temporal_absorber
         if rate is not None and responses.absorber_scheme == "split_step":
@@ -595,8 +774,12 @@ class MlxBackend(NumpySingleBackend):
         """
         pending, self._pending_removal = self._pending_removal, ()
         found, self._pending_found = self._pending_found, ()
-        flat = [value.reshape(-1) for value in (*values, *found, *pending)]
+        alarm = () if self._pending_alarm is None else (self._pending_alarm[0],)
+        flat = [value.reshape(-1) for value in (*values, *found, *pending, *alarm)]
         read = np.array(mx.concatenate(flat), dtype=np.float64)
+        if alarm:
+            self._resolve_alarm(float(read[-1]))
+            read = read[:-1]
         count = sum(int(value.size) for value in values)
         removals = count
         if found:
@@ -769,19 +952,52 @@ class MlxBackend(NumpySingleBackend):
             z, [z + dz, *(z + float(node) * dz for node in tableau.nodes)]
         )
         step = self._stage_scalars(z, z + dz)
+        # dz as a float32 device scalar, as a product with the state rounds it.
+        length = mx.array(dz, dtype=mx.float32)
+        # One propagator pair per distinct stage fraction: DOPRI5 reaches the step's
+        # end three times (its last two stages and the step itself).
+        pairs: dict[bytes, tuple[mx.array, mx.array]] = {}
         stages: list[mx.array] = []
-        solution = mx.zeros_like(state)
-        error = mx.zeros_like(state)
-        for index, node in enumerate(tableau.nodes):
-            combination = mx.zeros_like(state)
-            for previous in range(index):
-                weight = float(tableau.matrix[index, previous])
-                if weight != 0.0:
-                    combination = combination + weight * stages[previous]
-            bundle = self._stage_scalars(z, z + float(node) * dz)
-            forward, back = self._propagators(bundle)
-            lab = forward * (state + dz * combination)
-            stage = self._device_nonlinear(lab, bundle, back)
+        last = len(tableau.nodes) - 1
+        bundles = [
+            self._stage_scalars(z, z + float(node) * dz) for node in tableau.nodes
+        ]
+        # Past binary32's range the inverse propagator overflows: the stages are then
+        # combined in the lab frame, each carried by exp(Phi(c_i) - Phi(c_j)), a forward
+        # flow since the nodes never decrease, and no inverse is formed.
+        transported = self._needs_transport([step, *bundles])
+        flows: dict[bytes, mx.array] = {}
+        for index, bundle in enumerate(bundles):
+            first = self._first
+            if index == 0 and first is not None and first[0] == z and first[1] is state:
+                # First-same-as-last: the stage is the source at the state itself,
+                # evaluated already -- as the last stage of the step that reached it,
+                # or as this anchor's first stage before a rejection.
+                stages.append(first[2])
+                continue
+            if transported:
+                forward = self._forward_flow(bundle.phi_delta, flows)
+                factors = [
+                    self._forward_flow(
+                        np.asarray(bundle.phi_delta) - np.asarray(earlier.phi_delta),
+                        flows,
+                    )
+                    for earlier in bundles[: len(stages)]
+                ]
+                lab = self._transported_input(state, stages, factors, forward, length)
+                # The source itself: a stage of this form is untransported.
+                stage = self._device_nonlinear(lab, bundle, self._unit)
+            else:
+                forward, back = self._propagator_pair(bundle, pairs)
+                lab = self._stage_input(state, stages, forward, length)
+                stage = self._device_nonlinear(lab, bundle, back)
+            if self._fsal and index == 0:
+                self._first = (z, state, stage)
+            elif self._fsal and index == last:
+                # Its input is the trial state itself: the next step's first stage,
+                # if this one is accepted with no change to the state (_finish).
+                assert self._last_source is not None  # set by the stage just formed
+                self._pending_first = (z + dz, self._last_source)
             # Evaluated at each stage boundary: the graph of one stage -- its node
             # chunks and the scans' levels -- is then the most that is ever live
             # (SEP 33 section 6.3), where a whole step's graph would hold seven.
@@ -789,13 +1005,147 @@ class MlxBackend(NumpySingleBackend):
                 # The previous split's pending removal with the first stage, which
                 # evaluates the state it was taken from: its time samples go then.
                 mx.eval(stage, *self._pending_removal)
+            elif self._fused:
+                # Started at once, so the device runs this stage while the host
+                # builds the next; the norm's read waits for all of them.
+                mx.async_eval(stage)
             stages.append(stage)
-            solution = solution + float(tableau.solution_weights[index]) * stage
-            error = error + float(tableau.error_weights[index]) * stage
-        propagator, _ = self._propagators(step)
-        advanced = propagator * (state + dz * solution)
+        if transported:
+            factors = [
+                self._forward_flow(
+                    np.asarray(step.phi_delta) - np.asarray(bundle.phi_delta), flows
+                )
+                for bundle in bundles
+            ]
+            flow = self._forward_flow(step.phi_delta, flows)
+            carried, advanced = self._transported_end(
+                state, stages, factors, flow, length
+            )
+        else:
+            propagator, _ = self._propagator_pair(step, pairs)
+            carried, advanced = self._trial_end(state, stages, propagator, length)
         self._last_stages = stages
-        return state, propagator * (dz * error), advanced
+        return state, carried, advanced
+
+    def _needs_transport(self, bundles: list[StageScalars]) -> bool:
+        """Return whether a trial's inverse propagators could overflow binary32.
+
+        Parameters
+        ----------
+        bundles : list of solprop.translate.stage.StageScalars
+            The step's and its stages' scalars.
+
+        Returns
+        -------
+        bool
+            Whether a bound on any ``|Re dPhi|`` passes nine tenths of ``log FLT_MAX``.
+        """
+        if not on_gpu():
+            return False
+        reach = max(
+            self._phi.real_reach(np.asarray(bundle.phi_delta)) for bundle in bundles
+        )
+        return reach > _TRANSPORT_REACH
+
+    def _forward_flow(self, weights: Any, flows: dict[bytes, mx.array]) -> mx.array:
+        """Return ``exp(sum_t w_t T_t)``, once per distinct weights in a trial.
+
+        Parameters
+        ----------
+        weights : numpy.ndarray
+            Binary64 weights over the operator's terms.
+        flows : dict
+            The trial's flows, by their weights' bytes.
+
+        Returns
+        -------
+        mlx.core.array
+            The flow; exactly one for zero weights.
+        """
+        w = np.asarray(weights, dtype=np.float64).reshape(-1)
+        if not np.any(w):
+            return self._unit
+        key = w.tobytes()
+        if key not in flows:
+            flows[key] = self._phi.pair(*self._phi.device_weights(w))[0]
+        return flows[key]
+
+    def _transported_input_core(
+        self,
+        state: mx.array,
+        sources: list[mx.array],
+        factors: list[mx.array],
+        forward: mx.array,
+        length: mx.array,
+    ) -> mx.array:
+        """Return a stage's input in the lab frame, carrying each earlier source.
+
+        ``exp(Phi_i) a + h sum_j a_ij exp(Phi_i - Phi_j) S_j``, the interaction
+        picture's input with its inverse propagators folded into forward flows.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        sources : list of mlx.core.array
+            The earlier stages' sources, untransported.
+        factors : list of mlx.core.array
+            ``exp(Phi_i - Phi_j)`` per earlier stage.
+        forward : mlx.core.array
+            ``exp(Phi_i)``.
+        length : mlx.core.array
+            The step, a float32 scalar.
+
+        Returns
+        -------
+        mlx.core.array
+            The stage's input.
+        """
+        matrix = self._problem.stepper.tableau.matrix
+        index = len(sources)
+        combination = mx.zeros_like(state)
+        for previous, (source, factor) in enumerate(zip(sources, factors, strict=True)):
+            weight = float(matrix[index, previous])
+            if weight != 0.0:
+                combination = combination + weight * (factor * source)
+        return forward * state + length * combination
+
+    def _transported_end_core(
+        self,
+        state: mx.array,
+        sources: list[mx.array],
+        factors: list[mx.array],
+        flow: mx.array,
+        length: mx.array,
+    ) -> tuple[mx.array, mx.array]:
+        """Return the embedded difference and the trial state, in the lab frame.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        sources : list of mlx.core.array
+            Every stage's source, untransported.
+        factors : list of mlx.core.array
+            ``exp(Phi(z + h) - Phi_j)`` per stage.
+        flow : mlx.core.array
+            ``exp(Phi(z + h) - Phi(z))``.
+        length : mlx.core.array
+            The step, a float32 scalar.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The embedded difference at the step's end, and the trial state.
+        """
+        tableau = self._problem.stepper.tableau
+        solution = mx.zeros_like(state)
+        error = mx.zeros_like(state)
+        for index, (source, factor) in enumerate(zip(sources, factors, strict=True)):
+            carried = factor * source
+            solution = solution + float(tableau.solution_weights[index]) * carried
+            error = error + float(tableau.error_weights[index]) * carried
+        return length * error, flow * state + length * solution
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, mx.array]:  # pyright: ignore[reportIncompatibleMethodOverride]
         """Take one interaction-picture DOPRI5 step on the device and score it.
@@ -814,6 +1164,103 @@ class MlxBackend(NumpySingleBackend):
         """
         state, error, advanced = self._trial_graph(z, dz)
         return self._device_norm(error, state, advanced), advanced
+
+    def _stage_input_core(
+        self,
+        state: mx.array,
+        stages: list[mx.array],
+        forward: mx.array,
+        length: mx.array,
+    ) -> mx.array:
+        """Return a stage's lab-frame input, ``exp(dPhi) (a + h sum_j a_ij k_j)``.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        stages : list of mlx.core.array
+            The step's earlier stages; their number is the stage's index.
+        forward : mlx.core.array
+            The stage's propagator.
+        length : mlx.core.array
+            The step's length, a float32 scalar.
+
+        Returns
+        -------
+        mlx.core.array
+            The stage's input.
+        """
+        matrix = self._problem.stepper.tableau.matrix
+        index = len(stages)
+        combination = mx.zeros_like(state)
+        for previous, stage in enumerate(stages):
+            weight = float(matrix[index, previous])
+            if weight != 0.0:
+                combination = combination + weight * stage
+        return forward * (state + length * combination)
+
+    def _trial_end_core(
+        self,
+        state: mx.array,
+        stages: list[mx.array],
+        propagator: mx.array,
+        length: mx.array,
+    ) -> tuple[mx.array, mx.array]:
+        """Return the trial's embedded difference and its state, at the step's end.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The state at the anchor.
+        stages : list of mlx.core.array
+            Every stage of the step.
+        propagator : mlx.core.array
+            ``exp(dPhi)`` over the step.
+        length : mlx.core.array
+            The step's length, a float32 scalar.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            The embedded difference carried to the step's end, and the trial state.
+        """
+        tableau = self._problem.stepper.tableau
+        solution = mx.zeros_like(state)
+        error = mx.zeros_like(state)
+        for index, stage in enumerate(stages):
+            solution = solution + float(tableau.solution_weights[index]) * stage
+            error = error + float(tableau.error_weights[index]) * stage
+        return propagator * (length * error), propagator * (state + length * solution)
+
+    def _propagator_pair(
+        self,
+        bundle: StageScalars,
+        pairs: dict[bytes, tuple[mx.array, mx.array]] | None = None,
+    ) -> tuple[mx.array, mx.array]:
+        """Return a stage's propagator and its inverse, once per distinct exponent.
+
+        Parameters
+        ----------
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+        pairs : dict or None, optional
+            The pairs this trial has formed, keyed by their weights' bytes.
+
+        Returns
+        -------
+        tuple of mlx.core.array
+            ``exp(dPhi)`` and ``exp(-dPhi)``.
+        """
+        assert bundle.phi_delta is not None  # device-ready, refused otherwise
+        if not on_gpu():
+            return self._propagators(bundle)
+        key = np.asarray(bundle.phi_delta, dtype=np.float64).tobytes()
+        if pairs is not None and key in pairs:
+            return pairs[key]
+        pair = self._phi.pair(*self._phi.device_weights(bundle.phi_delta))
+        if pairs is not None:
+            pairs[key] = pair
+        return pair
 
     def _propagators(self, bundle: StageScalars) -> tuple[mx.array, mx.array]:
         """Return ``exp(dPhi)`` and ``exp(-dPhi)`` of a stage, double-float accurate.
@@ -874,10 +1321,86 @@ class MlxBackend(NumpySingleBackend):
             self._raman_upload = (spectrum, mx.array(spectrum))
         return self._raman_upload[1]
 
-    def _device_nonlinear(  # noqa: PLR0915 - the oracle's modal stage, pass by pass
+    def _stage_values(self, bundle: StageScalars) -> _StageValues:
+        """Form a stage's position-dependent coefficients on the host and upload them.
+
+        Parameters
+        ----------
+        bundle : solprop.translate.stage.StageScalars
+            The stage's host scalars.
+
+        Returns
+        -------
+        _StageValues
+            The values, each rounded once from binary64.
+        """
+        responses = self._problem.responses
+        k = self._scale_exponent
+        taper = bundle.taper_scale
+        values = [taper, 1.0 / taper, 0.0, 0.0, 0.0]
+        if ResponseStage.KERR in responses.response_order:
+            kerr = compiled_kerr(responses)
+            factor = combine(
+                kerr.coefficient, bundle.kerr_density, exponent=2 * k
+            ).binary32()
+            values[2:4] = [factor, factor * kerr.harmonic_factor]
+        if ResponseStage.RAMAN_DRIVE in responses.response_order:
+            density = (
+                1.0
+                if len(responses.raman_terms) > 1
+                else bundle.raman_densities[0]
+                if bundle.raman_densities
+                else bundle.density
+            )
+            values[4] = combine(
+                EPS0, density, exponent=2 * k + self._raman_exponent
+            ).binary32()
+        channels = responses.plasma_channels
+        if channels:
+            if len(channels) > 1:
+                densities = bundle.plasma_densities
+                initials = bundle.plasma_preionisation
+            else:
+                densities = (
+                    bundle.plasma_densities[0]
+                    if bundle.plasma_densities
+                    else bundle.density,
+                )
+                initials = (bundle.preionisation,)
+            for channel, density, initial in zip(
+                channels, densities, initials, strict=True
+            ):
+                values += [
+                    density * channel.charge_mass_ratio * channel.electrons_per_event,
+                    density * channel.ionisation_potential,
+                    *population_parameters(initial).tolist(),
+                ]
+        envelope = responses.envelope_plasma
+        if envelope is not None:
+            for channel, density, initial in zip(
+                envelope.channels,
+                bundle.plasma_densities,
+                bundle.plasma_preionisation,
+                strict=True,
+            ):
+                values += [
+                    combine(channel.charge_mass_ratio, density).binary32(),
+                    combine(
+                        channel.ionisation_potential, density, exponent=-k
+                    ).binary32(),
+                    *population_parameters(initial).tolist(),
+                ]
+        return _StageValues(mx.array(np.array(values, dtype=np.float32)), len(channels))
+
+    def _device_nonlinear(
         self, lab: mx.array, bundle: StageScalars, back: mx.array
     ) -> mx.array:
         """Evaluate one stage derivative on the device.
+
+        The host forms the stage's prefactor, Raman spectrum and values, and
+        :meth:`_stage_core` evaluates the stage from them, compiled on the Metal
+        device; what it returns beside the derivative -- the projections the alarm
+        reads and the envelope plasma's failures -- is kept here.
 
         Parameters
         ----------
@@ -893,6 +1416,63 @@ class MlxBackend(NumpySingleBackend):
         mlx.core.array
             The stage derivative in the interaction variable.
         """
+        # The Raman spectrum first: forming it sets the block exponent that Raman's
+        # factor among the values carries.
+        raman = self._device_raman(bundle)
+        inputs = {
+            "lab": lab,
+            "back": back,
+            # The Cartesian route applies its own prefactor (_free_prefactor).
+            "prefactor": self._unit
+            if self._free_prefactor is not None
+            else self._device_prefactor(bundle),
+            "values": self._stage_values(bundle).vector,
+        }
+        if raman is not None:
+            inputs["raman"] = raman
+        if self._fused:
+            outputs = self._stage_function(inputs)
+        else:
+            outputs = self._stage_core(inputs, bundle)
+        self._envelope_failures += outputs.get("failures", [])
+        if "projected" in outputs:
+            plasma = outputs.get("plasma")
+            self._last_projected = outputs["projected"]  # pyright: ignore[reportAttributeAccessIssue]
+            self._last_coarse = outputs.get("coarse")  # pyright: ignore[reportAttributeAccessIssue]
+            self._last_plasma = None if plasma is None else tuple(plasma)  # pyright: ignore[reportAttributeAccessIssue]
+            envelope = outputs.get("envelope")
+            self._last_envelope = None if envelope is None else tuple(envelope)  # pyright: ignore[reportAttributeAccessIssue]
+            self._last_bundle = bundle
+        # The stage's source before its inverse propagator: the last stage's is the
+        # next step's first (first-same-as-last, _trial_graph).
+        self._last_source = outputs["source"]
+        return outputs["stage"]
+
+    def _stage_core(  # noqa: PLR0912, PLR0915 - the oracle's modal stage, pass by pass
+        self, inputs: dict[str, mx.array], bundle: StageScalars | None = None
+    ) -> dict[str, Any]:
+        """Evaluate one stage derivative from its device inputs alone.
+
+        Everything else it reads is the problem's and fixed, so that ``mx.compile``
+        may trace it once per input structure.
+
+        Parameters
+        ----------
+        inputs : dict of mlx.core.array
+            ``lab``, ``back`` (``exp(-dPhi)``), ``prefactor`` and ``values`` (the
+            stage's :class:`_StageValues` vector), and ``raman`` with Raman.
+        bundle : solprop.translate.stage.StageScalars or None, optional
+            The stage's host scalars, for the host evaluations of MLX's CPU device;
+            never given to a compiled stage.
+
+        Returns
+        -------
+        dict
+            ``stage``, the derivative, and ``source``, the same before the inverse
+            propagator; on the modal route without its radial plasma
+            also ``projected``, and ``coarse``, ``plasma`` and ``envelope`` where they
+            exist; ``failures``, the envelope plasma's, when it runs.
+        """
         problem = self._problem
         grids, responses, transform = (
             problem.grids,
@@ -900,19 +1480,25 @@ class MlxBackend(NumpySingleBackend):
             problem.transform,
         )
         kind = self._kind
+        lab, back = inputs["lab"], inputs["back"]
+        values = _StageValues(inputs["values"], len(responses.plasma_channels))
+        raman = inputs.get("raman")
+        failures: list[mx.array] = []
         if self._free_prefactor is not None:
-            return self._device_free(lab, bundle, back)
+            source = self._device_free(lab, values, raman, failures, bundle)
+            return {"stage": back * source, "source": source, "failures": failures}
         modal_t = device.to_time(lab[0], self._pad_crop, grids.n_to, kind=kind)
         absorber = self._device_absorber(modal_t)
         if self._radial_plasma:
-            spectrum = self._device_radial_plasma(modal_t, bundle)
-            return back * self._normalised(spectrum, bundle, absorber)[None]
+            spectrum = self._device_radial_plasma(modal_t, values, raman)
+            source = self._normalised(spectrum, inputs["prefactor"], absorber)[None]
+            return {"stage": back * source, "source": source}
         if len(responses.response_order) == 1:
             if absorber is None:
-                return mx.zeros_like(lab)
-            return back * absorber[None]
-        raman = self._device_raman(bundle)
-        taper = bundle.taper_scale
+                zero = mx.zeros_like(lab)
+                return {"stage": zero, "source": zero}
+            return {"stage": back * absorber[None], "source": absorber[None]}
+        taper, inverse = values[0], values[1]
         n_pol = transform.n_pol
         # Per stream (the polarisation, the plasma's gated and edge currents, the
         # envelope plasma's drive and loss), the projection on the fine quadrature
@@ -923,7 +1509,7 @@ class MlxBackend(NumpySingleBackend):
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
             field = device.synthesise(modal_t, self._synthesis[rows], taper, n_pol)
-            sources = self._device_sources(field, bundle, raman)
+            sources = self._device_sources(field, values, raman)
             streams = [sources.polarisation]
             if sources.current is not None:
                 plasma = True
@@ -933,42 +1519,43 @@ class MlxBackend(NumpySingleBackend):
                 ]
             if self._cycles:
                 envelope = True
-                streams += list(self._device_envelope(field, bundle))
+                streams += list(self._device_envelope(field, values, failures, bundle))
             parts = device.project_many(
-                streams, self._projection[:, rows], taper, n_pol
+                streams, self._projection[:, rows], inverse, n_pol
             )
             fine = parts if fine is None else _summed(fine, parts)
             if self._coarse is not None:
                 parts = device.project_many(
-                    streams, self._coarse[:, rows], taper, n_pol
+                    streams, self._coarse[:, rows], inverse, n_pol
                 )
                 embedded = parts if embedded is None else _summed(embedded, parts)
         assert fine is not None
         projected, *rest = fine
         coarse, *coarse_rest = [None] * len(fine) if embedded is None else embedded
+        # What the alarm reads (_update_alarm), returned beside the stage.
+        outputs: dict[str, Any] = {"projected": projected, "failures": failures}
+        if coarse is not None:
+            outputs["coarse"] = coarse
         gated = edge = None
         if plasma:
             gated, edge = rest[:2]
-            self._last_plasma = (gated, edge, *coarse_rest[:2])  # pyright: ignore[reportAttributeAccessIssue]
+            outputs["plasma"] = [gated, edge, *coarse_rest[:2]]
             rest, coarse_rest = rest[2:], coarse_rest[2:]
-        else:
-            self._last_plasma = None
         drives = rest if envelope else None
-        self._last_envelope = (  # pyright: ignore[reportAttributeAccessIssue]
-            (*rest, *coarse_rest) if envelope else None
-        )
-        self._last_projected = projected  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_coarse = coarse  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_bundle = bundle
+        if envelope:
+            outputs["envelope"] = [*rest, *coarse_rest]
         spectrum = device.to_frequency(projected, self._crop, kind=kind)
         if gated is not None and edge is not None:
             spectrum = spectrum + self._device_held(gated, edge)
         if drives is not None:
             spectrum = spectrum + self._envelope_spectrum(drives)
-        return back * self._normalised(spectrum, bundle, absorber)[None]
+        normalised = self._normalised(spectrum, inputs["prefactor"], absorber)
+        outputs["source"] = normalised[None]
+        outputs["stage"] = back * outputs["source"]
+        return outputs
 
     def _normalised(
-        self, spectrum: mx.array, bundle: StageScalars, absorber: mx.array | None
+        self, spectrum: mx.array, prefactor: mx.array, absorber: mx.array | None
     ) -> mx.array:
         """Apply the prefactor and window to a source spectrum and add the collar.
 
@@ -976,8 +1563,8 @@ class MlxBackend(NumpySingleBackend):
         ----------
         spectrum : mlx.core.array
             The coarse source spectrum.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
+        prefactor : mlx.core.array
+            The stage's prefactor (:meth:`_device_prefactor`).
         absorber : mlx.core.array or None
             The in-stage collar's term.
 
@@ -986,7 +1573,7 @@ class MlxBackend(NumpySingleBackend):
         mlx.core.array
             The stage derivative before the inverse propagator.
         """
-        normalised = self._device_prefactor(bundle) * self._omega_window * spectrum
+        normalised = prefactor * self._omega_window * spectrum
         return normalised if absorber is None else normalised + absorber
 
     def _device_held(self, gated: mx.array, edge: mx.array) -> mx.array:
@@ -1041,7 +1628,7 @@ class MlxBackend(NumpySingleBackend):
         return device.to_frequency(term, self._crop, kind=self._kind) * self._active
 
     def _device_radial_plasma(
-        self, modal_t: mx.array, bundle: StageScalars
+        self, modal_t: mx.array, values: _StageValues, raman: mx.array | None
     ) -> mx.array:
         """Return the radial route's plasma-bearing source spectrum.
 
@@ -1052,8 +1639,10 @@ class MlxBackend(NumpySingleBackend):
         ----------
         modal_t : mlx.core.array
             The modal field on the fine time grid.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
+        values : _StageValues
+            The stage's values.
+        raman : mlx.core.array or None
+            The narrowed Raman kernel spectrum.
 
         Returns
         -------
@@ -1061,15 +1650,12 @@ class MlxBackend(NumpySingleBackend):
             The coarse source spectrum before the prefactor.
         """
         transform = self._problem.transform
-        raman = self._device_raman(bundle)
         n_pol = transform.n_pol
         spectrum = None
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
-            field = device.synthesise(
-                modal_t, self._synthesis[rows], bundle.taper_scale, n_pol
-            )
-            sources = self._device_sources(field, bundle, raman)
+            field = device.synthesise(modal_t, self._synthesis[rows], values[0], n_pol)
+            sources = self._device_sources(field, values, raman)
             nodal = device.to_frequency(
                 sources.polarisation, self._crop, kind=self._kind
             )
@@ -1078,17 +1664,20 @@ class MlxBackend(NumpySingleBackend):
                 self._t_window * sources.current,
                 self._t_window_derivative * sources.current,
             )
-            part = device.project(
-                nodal, self._projection[:, rows], bundle.taper_scale, n_pol
-            )
+            part = device.project(nodal, self._projection[:, rows], values[1], n_pol)
             spectrum = part if spectrum is None else spectrum + part
         assert spectrum is not None
         return spectrum
 
     def _device_free(
-        self, lab: mx.array, bundle: StageScalars, back: mx.array
+        self,
+        lab: mx.array,
+        values: _StageValues,
+        raman: mx.array | None,
+        failures: list[mx.array],
+        bundle: StageScalars | None = None,
     ) -> mx.array:
-        """Evaluate a Cartesian (or line) stage derivative on the device.
+        """Evaluate a Cartesian (or line) stage's source on the device, untransported.
 
         The oracle's ``_nonlinear_free``: the transverse inverse transform, the
         responses per chunk of columns on the fine time grid, the forward transforms,
@@ -1098,15 +1687,19 @@ class MlxBackend(NumpySingleBackend):
         ----------
         lab : mlx.core.array
             The lab-frame stage input, ``(1, n_columns, n_pol, n_omega)``.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
-        back : mlx.core.array
-            ``exp(-dPhi)`` of the stage.
+        values : _StageValues
+            The stage's values.
+        raman : mlx.core.array or None
+            The narrowed Raman kernel spectrum.
+        failures : list of mlx.core.array
+            Receives the envelope plasma's failure counts.
+        bundle : solprop.translate.stage.StageScalars or None, optional
+            The host scalars, for MLX's CPU device's host envelope plasma.
 
         Returns
         -------
         mlx.core.array
-            The stage derivative in the interaction variable.
+            The stage's source before the inverse propagator.
         """
         problem = self._problem
         transform, grids, responses = (
@@ -1124,14 +1717,13 @@ class MlxBackend(NumpySingleBackend):
             physical = mx.fft.ifftn(lab[0].reshape(shape), axes=[0, 1]).reshape(
                 lab.shape[1:]
             )
-            raman = self._device_raman(bundle)
             parts = []
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = physical[first : first + transform.node_chunk]
                 field = grids.pad_scale * device.to_time(
                     rows, self._pad_crop, grids.n_to, kind=kind
                 )
-                sources = self._device_sources(field, bundle, raman)
+                sources = self._device_sources(field, values, raman)
                 part = device.to_frequency(sources.polarisation, self._crop, kind=kind)
                 if sources.current is not None:
                     part = part + self._device_held(
@@ -1140,7 +1732,7 @@ class MlxBackend(NumpySingleBackend):
                     )
                 if self._cycles:
                     part = part + self._envelope_spectrum(
-                        list(self._device_envelope(field, bundle))
+                        list(self._device_envelope(field, values, failures, bundle))
                     )
                 parts.append(part)
             spectrum = mx.concatenate(parts, axis=0) if len(parts) > 1 else parts[0]
@@ -1155,7 +1747,8 @@ class MlxBackend(NumpySingleBackend):
             temporal = self._temporal_rate
             if responses.absorber_scheme != "nonlinear":
                 temporal = None
-            spatial = mx.array(self._cast(geometry.absorber_rate))
+            spatial = self._free_rate
+            assert spatial is not None
             parts = []
             for first in range(0, transform.n_nodes, transform.node_chunk):
                 rows = slice(first, first + transform.node_chunk)
@@ -1173,10 +1766,10 @@ class MlxBackend(NumpySingleBackend):
                 lab.shape[1:]
             )
             result = result + self._active * collar
-        return back * result[None]
+        return result[None]
 
     def _device_sources(
-        self, field: mx.array, bundle: StageScalars, raman: mx.array | None
+        self, field: mx.array, values: _StageValues, raman: mx.array | None
     ) -> DeviceSources:
         """Evaluate the responses at a chunk of nodes, the oracle's ``single_sources``.
 
@@ -1184,8 +1777,8 @@ class MlxBackend(NumpySingleBackend):
         ----------
         field : mlx.core.array
             The scaled field at the nodes.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
+        values : _StageValues
+            The stage's values.
         raman : mlx.core.array or None
             The narrowed Raman kernel spectrum.
 
@@ -1205,56 +1798,34 @@ class MlxBackend(NumpySingleBackend):
         current = None
         for stage in responses.response_order:
             if stage is ResponseStage.KERR:
-                kerr = compiled_kerr(responses)
-                factor = combine(
-                    kerr.coefficient, bundle.kerr_density, exponent=2 * k
-                ).binary32()
-                total = total + device.kerr(field, kerr, factor, self._device_carrier)
+                total = total + device.kerr(
+                    field,
+                    compiled_kerr(responses),
+                    values[2],
+                    self._device_carrier,
+                    values[3],
+                )
             elif stage is ResponseStage.RAMAN_DRIVE:
                 assert raman is not None
-                density = (
-                    1.0
-                    if len(responses.raman_terms) > 1
-                    else bundle.raman_densities[0]
-                    if bundle.raman_densities
-                    else bundle.density
-                )
-                factor = combine(
-                    EPS0, density, exponent=2 * k + self._raman_exponent
-                ).binary32()
                 total = total + device.raman(
-                    field, raman, factor, kind=self._kind, thg=raman_thg(responses)
+                    field, raman, values[4], kind=self._kind, thg=raman_thg(responses)
                 )
             elif stage is ResponseStage.PLASMA_CURRENT:
-                channels = responses.plasma_channels
-                if len(channels) > 1:
-                    densities = bundle.plasma_densities
-                    initials = bundle.plasma_preionisation
-                else:
-                    densities = (
-                        bundle.plasma_densities[0]
-                        if bundle.plasma_densities
-                        else bundle.density,
-                    )
-                    initials = (bundle.preionisation,)
-                constants = tuple(
-                    (
-                        density
-                        * channel.charge_mass_ratio
-                        * channel.electrons_per_event,
-                        density * channel.ionisation_potential,
-                    )
-                    for channel, density in zip(channels, densities, strict=True)
-                )
+                channels = [
+                    values.channel(index)
+                    for index in range(len(responses.plasma_channels))
+                ]
                 physical = field * float(2.0**k)
                 current = device.plasma_current(
                     physical,
                     self._rate_tables,
-                    constants,
-                    tuple(initials),
+                    tuple((channel[0], channel[1]) for channel in channels),
+                    tuple(channel[2:] for channel in channels),
                     self._problem.grids.dt_fine,
                     responses.plasma_integral,
-                    evaluate=self.evaluate_stages,
+                    # A compiled stage is one graph; only an op-by-op stage is
+                    # evaluated in pieces.
+                    evaluate=self.evaluate_stages and not self._fused,
                 ) * float(2.0**-k)
             elif stage not in _SOURCE_STAGES:
                 msg = f"mlx does not run the {stage.name} stage"
@@ -1262,7 +1833,11 @@ class MlxBackend(NumpySingleBackend):
         return DeviceSources(total * self._t_window, current)
 
     def _device_envelope(
-        self, field: mx.array, bundle: StageScalars
+        self,
+        field: mx.array,
+        values: _StageValues,
+        failures: list[mx.array],
+        bundle: StageScalars | None = None,
     ) -> tuple[mx.array, mx.array]:
         """Return the envelope plasma's windowed drive and loss at a chunk of nodes.
 
@@ -1276,8 +1851,12 @@ class MlxBackend(NumpySingleBackend):
         ----------
         field : mlx.core.array
             The scaled envelope at the nodes, ``(n_nodes, n_pol, n_to)``.
-        bundle : solprop.translate.stage.StageScalars
-            The stage's host scalars.
+        values : _StageValues
+            The stage's values.
+        failures : list of mlx.core.array
+            Receives each channel's failure count.
+        bundle : solprop.translate.stage.StageScalars or None, optional
+            The stage's host scalars, which MLX's CPU device evaluates with.
 
         Returns
         -------
@@ -1285,31 +1864,22 @@ class MlxBackend(NumpySingleBackend):
             The drive and the loss, complex64.
         """
         if not on_gpu():
+            assert bundle is not None  # an op-by-op stage is given its scalars
             drive, loss = super()._envelope_sources(np.array(field), bundle)
             return mx.array(drive), mx.array(loss)
-        envelope = self._problem.responses.envelope_plasma
-        assert envelope is not None
         k = self._scale_exponent
         half_step = float(np.float32(0.5 * self._problem.grids.dt_fine))
         drive = mx.zeros_like(field)
         loss = mx.zeros_like(field)
-        for channel, cycle, density, initial in zip(
-            envelope.channels,
-            self._cycles,
-            bundle.plasma_densities,
-            bundle.plasma_preionisation,
-            strict=True,
-        ):
-            rate, current, failures = envelope_cycle(field, cycle, k)
-            self._envelope_failures.append(failures)
+        for index, cycle in enumerate(self._cycles):
+            rate, current, failed = envelope_cycle(field, cycle, k)
+            failures.append(failed)
             increments = (rate[..., :-1] + rate[..., 1:]) * half_step
             zero = mx.zeros((*rate.shape[:-1], 1), dtype=mx.float32)
             exposure = mx.concatenate([zero, prefix_scan(increments)], axis=-1)
-            fraction, survival = population(exposure, initial)
-            weight = combine(channel.charge_mass_ratio, density).binary32()
-            work = combine(
-                channel.ionisation_potential, density, exponent=-k
-            ).binary32()
+            channel = values.channel(index, envelope=True)
+            fraction, survival = population(exposure, channel[2:])
+            weight, work = channel[0], channel[1]
             drive = drive + (weight * fraction)[:, None, :] * field
             loss = loss + (work * survival)[:, None, :] * current
         return drive * self._t_window, loss * self._t_window
@@ -1364,6 +1934,122 @@ class MlxBackend(NumpySingleBackend):
             np.array(mx.stack(fractions), dtype=np.float64),
             np.array(mx.stack(peaks), dtype=np.float64),
         )
+
+    def _species_statistics(
+        self,
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        scans: dict[int, tuple[np.ndarray, np.ndarray]] | None = None,
+        member: int = 0,
+    ) -> dict[str, np.ndarray]:
+        """Evaluate the field-grid plasma's populations at every node on the device.
+
+        The oracle's statistics (:meth:`NumpyRefBackend._species_statistics`) with the
+        stage's own formulation, as :meth:`_envelope_populations` evaluates the
+        envelope grid's: the nodes formed from the plane's state on the device, each
+        channel's rate kernel, running integral and stable population, chunk by
+        chunk, and only the final fractions and peak rates read. On a Cartesian grid
+        the host's evaluation transformed every column in binary64, seconds a plane.
+        Elsewhere -- the envelope grid, no plasma, MLX's CPU device -- the oracle's.
+
+        Parameters
+        ----------
+        field : numpy.ndarray
+            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        scans : dict or None, optional
+            Where to leave this observation's channel fractions and peak rates at
+            every node, keyed by `member`, for the on-axis statistics to reuse.
+        member : int, optional
+            The batch member, the key into `scans`.
+
+        Returns
+        -------
+        dict
+            The five species statistics and the two total plasma statistics.
+        """
+        responses = self._problem.responses
+        transform = self._problem.transform
+        slab = transform.geometry is not None and transform.geometry.kind == "slab"
+        if (
+            not on_gpu()
+            or responses.envelope_plasma is not None
+            or not responses.plasma_channels
+            or slab
+        ):
+            return super()._species_statistics(field, scans, member)
+        initials = tuple(
+            float(channel.preionisation(self._z))
+            for channel in responses.population_channels
+        )
+        parameters = [mx.array(population_parameters(p)) for p in initials]
+        k = self._scale_exponent
+        # The state's own scale: the narrowed field is the propagation's.
+        state = mx.array((field * math.ldexp(1.0, -k)).astype(np.complex64))
+        grids = self._problem.grids
+        fractions: list[list[mx.array]] = [[] for _ in initials]
+        peaks: list[list[mx.array]] = [[] for _ in initials]
+        for nodes in self._device_nodes(state):
+            physical = nodes * float(2.0**k)
+            if physical.shape[-2] == 1:
+                magnitude = mx.abs(physical[..., 0, :])
+            else:
+                x, y = physical[..., 0, :], physical[..., 1, :]
+                magnitude = mx.sqrt(x * x + y * y)
+            for index, table in enumerate(self._rate_tables):
+                rate = table(magnitude)
+                exposure = device.running_integral(
+                    rate, grids.dt_fine, responses.plasma_integral
+                )[..., -1]
+                if responses.plasma_integral.policy != "trapezoid":
+                    exposure = mx.maximum(exposure, 0.0)
+                fraction, _ = population(exposure, parameters[index])
+                fractions[index].append(fraction)
+                peaks[index].append(mx.max(rate, axis=-1))
+        read = [mx.concatenate(rows) for rows in (*fractions, *peaks)]
+        values = np.array(mx.stack(read), dtype=np.float64)
+        found, highest = values[: len(initials)], values[len(initials) :]
+        if scans is not None:
+            scans[member] = (found, highest)
+        return population_statistics(self._problem, self._z, found, highest)
+
+    def _device_nodes(self, state: mx.array) -> Iterator[mx.array]:
+        """Yield a scaled state's field at the nodes on the fine time grid, by chunk.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            One member's scaled spectral columns, ``(n_modes, n_pol, n_omega)``.
+
+        Yields
+        ------
+        mlx.core.array
+            The scaled field at a chunk of nodes, ``(n_chunk, n_components, n_to)``.
+        """
+        problem = self._problem
+        grids, transform = problem.grids, problem.transform
+        kind = self._kind
+        if self._free_prefactor is not None:
+            geometry = transform.geometry
+            assert geometry is not None
+            nx, ny = geometry.shape
+            physical = mx.fft.ifftn(
+                state.reshape(ny, nx, *state.shape[1:]), axes=[0, 1]
+            ).reshape(state.shape)
+            for first in range(0, transform.n_nodes, transform.node_chunk):
+                rows = physical[first : first + transform.node_chunk]
+                yield grids.pad_scale * device.to_time(
+                    rows, self._pad_crop, grids.n_to, kind=kind
+                )
+            return
+        taper = (
+            1.0
+            if transform.taper_scale is None
+            else float(transform.taper_scale(self._z))
+        )
+        modal_t = device.to_time(state, self._pad_crop, grids.n_to, kind=kind)
+        n_pol = transform.n_pol
+        for first in range(0, transform.n_nodes, transform.node_chunk):
+            rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
+            yield device.synthesise(modal_t, self._synthesis[rows], taper, n_pol)
 
     def _envelope_spectrum(self, drives: list[mx.array]) -> mx.array:
         """Return the drive's and the loss's spectrum times their factors.
@@ -1436,24 +2122,7 @@ class MlxBackend(NumpySingleBackend):
         float
             The norm, binary64; infinite if any value is not finite.
         """
-        index = self._norm_index
-        residual = mx.take(error, index, axis=-1)
-        reductions = []
-        for array in (
-            residual,
-            mx.take(state, index, axis=-1),
-            mx.take(advanced, index, axis=-1),
-        ):
-            peak = mx.max(mx.abs(array))
-            # The power of two at or below the peak, so the squares cannot overflow
-            # (SEP 33 section 4.3, rule 6); the host restores it in binary64.
-            power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
-            scaled = array * mx.power(2.0, -power)
-            re, im = mx.real(scaled), mx.imag(scaled)
-            reductions += [power, mx.sum(re * re + im * im)]
-        # One synchronisation per trial: the three sums, their powers and whether the
-        # whole trial state is finite, which spares the finish a check of its own.
-        reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
+        residual, reductions = self._norm_sums(error, state, advanced)
         reductions.append(self._failure_count())
         values = self._synchronised(reductions)
         self._raise_on_failures(values[-1])
@@ -1472,30 +2141,158 @@ class MlxBackend(NumpySingleBackend):
             return math.sqrt(float(cast(float, mx.sum(re * re + im * im).item())))
         return math.sqrt(squares[0]) / scale
 
+    def _norm_sums_core(
+        self, error: mx.array, state: mx.array, advanced: mx.array
+    ) -> tuple[mx.array, list[mx.array]]:
+        """Return the norm's residual and its scaled sums of squares, on the device.
+
+        Parameters
+        ----------
+        error : mlx.core.array
+            The embedded difference carried to the end of the step.
+        state : mlx.core.array
+            The state at the anchor.
+        advanced : mlx.core.array
+            The trial state.
+
+        Returns
+        -------
+        tuple
+            The residual on the norm's bins, and for it, the anchor and the trial
+            state a power of two and a sum of squares each, then whether the trial
+            state is finite, as float32.
+        """
+        index = self._norm_index
+        residual = mx.take(error, index, axis=-1)
+        reductions = []
+        for array in (
+            residual,
+            mx.take(state, index, axis=-1),
+            mx.take(advanced, index, axis=-1),
+        ):
+            peak = mx.max(mx.abs(array))
+            # The power of two at or below the peak, so the squares cannot overflow
+            # (SEP 33 section 4.3, rule 6); the host restores it in binary64.
+            power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+            scaled = array * mx.power(2.0, -power)
+            re, im = mx.real(scaled), mx.imag(scaled)
+            reductions += [power, mx.sum(re * re + im * im)]
+        # One synchronisation per trial: the three sums, their powers and whether the
+        # whole trial state is finite, which spares the finish a check of its own.
+        reductions.append(mx.all(mx.isfinite(advanced)).astype(mx.float32))
+        return residual, reductions
+
     def _update_alarm(self) -> None:
-        """Evaluate the quadrature alarm on the host from the last stage's rows."""
-        held = (
-            self._last_projected,
-            self._last_coarse,
-            self._last_plasma,
-            self._last_envelope,
-        )
-        to_host = lambda value: None if value is None else np.array(value)  # noqa: E731
-        self._last_projected = to_host(held[0])  # pyright: ignore[reportAttributeAccessIssue]
-        self._last_coarse = to_host(held[1])  # pyright: ignore[reportAttributeAccessIssue]
-        if held[2] is not None:
-            self._last_plasma = tuple(to_host(part) for part in held[2])  # pyright: ignore[reportAttributeAccessIssue]
-        if held[3] is not None:
-            self._last_envelope = tuple(to_host(part) for part in held[3])  # pyright: ignore[reportAttributeAccessIssue]
-        try:
+        """Score the quadrature alarm on the device, read with the next synchronisation.
+
+        The oracle's measure (:meth:`NumpyRefBackend._update_alarm`), the relative
+        difference between the Kronrod and the embedded Gauss projections of the last
+        stage's sources, formed on the device in binary32 and scaled by a power of two
+        so that its sums cannot overflow; its one scalar is read with the next trial's
+        norm (:meth:`_synchronised`) or when a statistic asks for it, rather than
+        copying the stage's rows to the host at every accepted step.
+        """
+        # The stage left device arrays where the oracle's leaves host ones.
+        coarse = cast(Any, self._last_coarse)
+        projected = cast(Any, self._last_projected)
+        envelope = cast(Any, self._last_envelope)
+        plasma = cast(Any, self._last_plasma)
+        if coarse is None or projected is None or self._last_bundle is None:
+            self._pending_alarm = None
             super()._update_alarm()
-        finally:
-            (
-                self._last_projected,
-                self._last_coarse,
-                self._last_plasma,
-                self._last_envelope,
-            ) = held  # pyright: ignore[reportAttributeAccessIssue]
+            return
+        weight = self._device_prefactor(self._last_bundle) * self._omega_window
+        kind = self._kind
+        # The transforms are linear, so the difference is taken before them: two
+        # binary32 spectra transformed apart would differ by their rounding, near the
+        # alarm's own level.
+        fine = device.to_frequency(projected, self._crop, kind=kind)
+        gap = device.to_frequency(coarse - projected, self._crop, kind=kind)
+        if envelope is not None:
+            drive, loss, coarse_drive, coarse_loss = envelope
+            fine = fine + self._envelope_spectrum([drive, loss])
+            gap = gap + self._envelope_spectrum(
+                [coarse_drive - drive, coarse_loss - loss]
+            )
+        if plasma is not None:
+            gated, edge, coarse_gated, coarse_edge = plasma
+            fine = fine + self._device_held(gated, edge)
+            gap = gap + self._device_held(coarse_gated - gated, coarse_edge - edge)
+        self._pending_alarm = (
+            self._alarm_ratio(weight * fine, weight * gap),
+            self._last_bundle.z1,
+        )
+
+    def _alarm_ratio_core(self, fine: mx.array, gap: mx.array) -> mx.array:
+        """Return ``|gap| / |fine|``, NaN where ``fine`` vanishes.
+
+        Parameters
+        ----------
+        fine, gap : mlx.core.array
+            The Kronrod projection's weighted spectrum, and the embedded one's
+            difference from it.
+
+        Returns
+        -------
+        mlx.core.array
+            A float32 scalar.
+        """
+        peak = mx.max(mx.abs(fine))
+        power = mx.where(peak > 0, mx.floor(mx.log2(peak)), 0.0)
+        factor = mx.power(2.0, -power)
+        scaled, difference = fine * factor, gap * factor
+        total = mx.sum(mx.square(mx.real(scaled)) + mx.square(mx.imag(scaled)))
+        gap = mx.sum(mx.square(mx.real(difference)) + mx.square(mx.imag(difference)))
+        return mx.where(total > 0, mx.sqrt(gap / total), math.nan)
+
+    def _resolve_alarm(self, value: float | None = None) -> None:
+        """Turn a pending device alarm into the oracle's value and its warning.
+
+        Parameters
+        ----------
+        value : float or None, optional
+            The pending scalar, already read; read here when not given.
+        """
+        pending, self._pending_alarm = self._pending_alarm, None
+        if pending is None:
+            return
+        ratio, position = pending
+        self._alarm = float(cast(float, ratio.item())) if value is None else value
+        if self._alarm > QUADRATURE_ALARM and not self._alarm_reported:
+            self._alarm_reported = True
+            oracle_logger.warning(
+                "the transverse quadrature reproduces the nonlinear polarisation to "
+                "only %.2e at z = %.6g m, above the %.0e alarm; the integrand is not "
+                "resolved by this rule (a kinked ionisation rate, or too few nodes for "
+                "the mode set) and no step size can fix it",
+                self._alarm,
+                position,
+                QUADRATURE_ALARM,
+            )
+
+    def _begin_plane(self) -> None:
+        """Forget the last plane's quadrature alarm, pending or read."""
+        self._pending_alarm = None
+        super()._begin_plane()
+
+    def _backend_stat(self, name: str, state: Any) -> np.ndarray:  # pyright: ignore[reportIncompatibleMethodOverride]
+        """Return a backend statistic, reading a pending alarm first.
+
+        Parameters
+        ----------
+        name : str
+            The statistic.
+        state : numpy.ndarray
+            The state at this plane.
+
+        Returns
+        -------
+        numpy.ndarray
+            The value with a leading batch axis.
+        """
+        if name == "quadrature_error":
+            self._resolve_alarm()
+        return super()._backend_stat(name, state)
 
     # The low-storage march's hooks and engine.
 
@@ -1540,6 +2337,202 @@ class MlxBackend(NumpySingleBackend):
             The double-float accurate propagator, complex64.
         """
         return self._propagators(self._stage_scalars(anchor, position))[0]
+
+    def _edge_reading(
+        self,
+        state: Any,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> _EdgeReading:
+        """Read the transverse edge on the device, where no collar is requested.
+
+        The host reduction (``_HostEdgeReduction``) of the node and column energies,
+        formed on the device -- a Cartesian or line grid's transverse inverse
+        transform, a radial grid's synthesis -- with only the nodes' and columns'
+        sums read, where the default copied the whole state to the host and widened
+        it at every read. A requested collar's strip and current, a planar grid and
+        MLX's CPU device take the host reduction.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The scaled state.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the nodes, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, not only the rows a read uses.
+
+        Returns
+        -------
+        solprop.transverse_monitor._EdgeReading
+            The reading.
+        """
+        reduction = edge.reduction
+        space = reduction.space
+        if (
+            not on_gpu()
+            or current
+            or not faces
+            or reduction.lines
+            or not isinstance(space, (FreeGrid, LineGrid, RadialGrid))
+        ):
+            return super()._edge_reading(
+                state, edge, faces=faces, current=current, full=full
+            )
+        member = cast(mx.array, state)[0]
+        flat = member.reshape(member.shape[0], -1)
+        if isinstance(space, RadialGrid):
+            synthesis = self._edge_synthesis(reduction)
+            nodes = synthesis @ mx.real(flat), synthesis @ mx.imag(flat)
+            physical = nodes[0] + 1j * nodes[1]
+        else:
+            cube = flat.reshape(space.n_y, space.n_x, -1)
+            physical = mx.fft.ifftn(cube, axes=[0, 1]).reshape(
+                space.n_y * space.n_x, -1
+            )
+        energies = [
+            mx.sum(
+                mx.real(rows) * mx.real(rows) + mx.imag(rows) * mx.imag(rows), axis=1
+            )
+            for rows in (physical, flat)
+        ]
+        read = np.array(mx.concatenate(energies), dtype=np.float64) * self.scale**2
+        node_energy, columns = read[: physical.shape[0]], read[physical.shape[0] :]
+        tables = reduction.tables
+        if not full:
+            # The host reads only the rows a read's sums touch, the others zero.
+            node_energy = np.where(tables.rows, node_energy, 0.0)
+        return _EdgeReading(
+            faces=tables.faces @ node_energy,
+            clip=tables.clip @ node_energy if full else None,
+            totals=tables.totals @ node_energy if full else None,
+            columns=columns,
+        )
+
+    def _edge_synthesis(self, reduction: Any) -> mx.array:
+        """Return a radial grid's synthesis from columns to nodes on the device.
+
+        Parameters
+        ----------
+        reduction : solprop.transverse_monitor._HostEdgeReduction
+            The edge's host reduction, which holds the binary64 matrix.
+
+        Returns
+        -------
+        mlx.core.array
+            The matrix in binary32, uploaded once.
+        """
+        if self._edge_matrix is None:
+            synthesis = reduction.synthesis()
+            assert synthesis is not None  # a radial grid's
+            self._edge_matrix = mx.array(np.asarray(synthesis, dtype=np.float32))
+        return self._edge_matrix
+
+    def _collar_changed(self) -> None:
+        """Forget a reused first stage, evaluated under the other collar setting."""
+        self._first = self._pending_first = None
+
+    def _adams_engine(
+        self,
+        method: Multistep,
+        compensation: Literal["transported", "untransported"],
+    ) -> object:
+        """Return the device-resident exponential Adams history.
+
+        Parameters
+        ----------
+        method : solprop.stepper.multistep.Multistep
+            The method, in the exponential formulation (the other is refused).
+        compensation : {'transported', 'untransported'}
+            A varying operator's compensation; the untransported witness is refused.
+
+        Returns
+        -------
+        solprop.backends.mlx_gpu.adams.MlxAdams
+            The engine.
+
+        Raises
+        ------
+        BackendError
+            For the untransported compensation, a test witness of the reference.
+        """
+        from solprop.backends.mlx_gpu.adams import MlxAdams  # noqa: PLC0415 - cycle
+
+        if not on_gpu():
+            msg = "mlx runs the Adams integrator on the Metal device only"
+            raise BackendError(msg)
+        engine = MlxAdams(self, method)
+        if engine.compensated and compensation != "transported":
+            msg = "mlx does not run the untransported compensation, a witness"
+            raise BackendError(msg)
+        return engine
+
+    def _adams_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+        """Return a host copy of the scaled accepted state, as a snapshot keeps it.
+
+        Returns
+        -------
+        numpy.ndarray
+            The complex64 state ``a / s``.
+        """
+        return np.array(self._require_state())
+
+    def _adams_restore(
+        self, z: float, state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    ) -> None:
+        """Make an accepted state current at `z`, on the device in complex64.
+
+        Parameters
+        ----------
+        z : float
+            Its position, m.
+        state : numpy.ndarray or mlx.core.array
+            The scaled state, as :meth:`_adams_state` or the engine held it.
+        """
+        self._z = z
+        held = cast(Any, state)
+        self._state = cast(
+            Any,
+            held
+            if isinstance(held, mx.array)
+            else mx.array(np.asarray(held).astype(np.complex64)),
+        )
+
+    def _adams_adopt(  # pyright: ignore[reportIncompatibleMethodOverride]
+        self, advanced: mx.array, dz: float
+    ) -> mx.array:
+        """Adopt an accepted Adams step on the device: the finish, then the state.
+
+        Parameters
+        ----------
+        advanced : mlx.core.array
+            The step's end state, complex64.
+        dz : float
+            The step, m.
+
+        Returns
+        -------
+        mlx.core.array
+            The finished state.
+
+        Raises
+        ------
+        BackendError
+            If the state left binary32.
+        """
+        if advanced.dtype != mx.complex64:
+            msg = f"an Adams step left complex64 for {advanced.dtype}"
+            raise BackendError(msg)
+        finished = self._finish(advanced, dz)
+        self._state = cast(Any, finished)
+        return finished
 
     def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
         """Return the device engine of the low-storage march.
