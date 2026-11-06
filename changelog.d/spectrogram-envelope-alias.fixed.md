@@ -1,0 +1,1 @@
+`get_spectrogram`, and so `plotting.spectrogram`, no longer alias on a narrow envelope grid. The real field is now oversampled until it resolves the carrier: an 800 nm pulse on a 600 nm to 1100 nm band used to appear near 2.9 µm.

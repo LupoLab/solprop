@@ -13,10 +13,17 @@ import pytest
 from runtime_types import unchecked
 from solprop import fourier
 from solprop.constants import EPS0, HBAR, C
-from solprop.exceptions import GridError, MaterialError, PulseError, TranslationError
+from solprop.exceptions import (
+    GridError,
+    MaterialError,
+    ProcessingError,
+    PulseError,
+    TranslationError,
+)
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.noise import spatial_noise
+from solprop.processing.fields import time_axis
 from solprop.pulses import GaussianPulse, PlanarPulse, PulseSum, SpatialPulse
 from solprop.spatial import (
     FluxSide,
@@ -25,6 +32,7 @@ from solprop.spatial import (
     beam_radius,
     critical_power,
     on_axis_spectrum,
+    on_axis_trace,
     planar_fluence,
     planar_mode_energy,
     plane_sample,
@@ -100,6 +108,29 @@ def test_energy_fluence_and_power_agree() -> None:
     assert grid.dt * np.sum(intensity, axis=-1) == pytest.approx(fluence, rel=1e-10)
     axis = np.sum(on_axis_spectrum(spectrum, flux)) * grid.d_omega
     assert axis == pytest.approx(fluence[0], rel=1e-3)  # first node off axis
+
+
+def test_oversampled_power_and_intensity_lie_on_the_fine_time_axis() -> None:
+    """Zero-padding adds samples between the grid's and keeps the energy."""
+    grid = _envelope()
+    space = RadialGrid(1e-3, 32)
+    spectrum = _gaussian(grid, space)
+    flux = SpatialFlux.resolve(grid, space, SpatialMedium("Ar", pressure=2.0))
+    coarse = spatial_power(spectrum, flux)
+    fine = spatial_power(spectrum, flux, oversampling=4)
+    t = time_axis(grid, 4)
+    assert fine.shape == t.shape == (4 * grid.n_t,)
+    # The fine samples pass through the coarse ones, and integrate to the same energy.
+    assert fine[::4] == pytest.approx(coarse, rel=1e-9, abs=1e-12 * coarse.max())
+    assert np.sum(fine) * (t[1] - t[0]) == pytest.approx(np.sum(coarse) * grid.dt)
+    intensity = spatial_intensity(spectrum, flux, oversampling=4)
+    assert intensity.shape == (space.n_r, 4 * grid.n_t)
+    on_axis = on_axis_trace(spectrum, flux, oversampling=2)
+    assert on_axis.shape == (2 * grid.n_t,)
+    with pytest.raises(GridError, match="oversampling must be at least 1"):
+        spatial_power(spectrum, flux, oversampling=0)
+    with pytest.raises(ProcessingError, match="oversampling must be at least 1"):
+        time_axis(grid, 0)
 
 
 @pytest.mark.parametrize(

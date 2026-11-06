@@ -215,6 +215,23 @@ For the full filament and crossing-beam lessons, begin with the
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="A collimated 800 nm, 30 fs beam of 300 µm waist and 0.88 mJ in 1 bar of argon, about three times the critical power: it collapses, the plasma arrests the collapse, and a filament forms. The run is a plain prop_radial, every argument an object a recipe writes as a table, and it is the call the filament&#x27;s example recipe mirrors (``Recipe.example(&quot;filament&quot;)``). The lesson /introduction/lessons/plot_03_filament explains the physics; this page shows what a radial file can be asked for afterwards: the beam&#x27;s characteristic numbers, its spectrum across the beam and on the axis, and its far field. Each reader takes only the file.">
+
+.. only:: html
+
+  .. image:: /auto_tutorials/free_space/images/thumb/sphx_glr_plot_11_radial_filament_thumb.png
+    :alt:
+
+  :doc:`/auto_tutorials/free_space/plot_11_radial_filament`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Reading a radial filament from its file</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -236,4 +253,5 @@ For the full filament and crossing-beam lessons, begin with the
    /auto_tutorials/free_space/plot_09_transverse_window
    /auto_tutorials/free_space/plot_10_radial_kerr
    /auto_tutorials/free_space/plot_11_line_beam
+   /auto_tutorials/free_space/plot_11_radial_filament
 

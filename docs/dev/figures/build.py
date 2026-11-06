@@ -809,6 +809,7 @@ MODULES = {
         Module(
             "processing/",
             (
+                "beams",
                 "axes",
                 "fields",
                 "spectra",
