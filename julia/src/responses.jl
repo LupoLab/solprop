@@ -324,8 +324,55 @@ function add_plasma!(destination, p, plan, c; coarse=false, direct=false)
     end
 end
 
-"""Fresh accepted-field populations, for an observation: rates and exposure only."""
-function population_parts!(p, nodes, c, first, count)
+"""Fresh accepted-field populations, for an observation: rates and exposure only.
+
+Return the six diagnostics' maxima over the chunk (`plasma_integration_statistics`),
+and set its nodes' final fractions and peak rates. A GPU forms them a sample a thread,
+with the column diagnostics as array reductions, as it forms the current.
+"""
+population_parts!(p, nodes, c, first, count) =
+    oncpu(c) && !SAMPLE_PLASMA[] ? population_columns!(p, nodes, c, first, count) :
+    population_samples!(p, nodes, c, first, count)
+
+function population_samples!(p, nodes, c, first, count)
+    T = typeof(p.dt)
+    (; rate, fraction, integrand, current, gated, edge, taps, dt, fractions, peaks) = p
+    floor, args = p.floor, rate_arguments(p)
+    initial, none = T(p.parameters[9]), zero(T)
+    nt, reach = size(nodes, 1), 2 * (length(taps) - 1)
+    each!(c, nt, count) do t, n
+        @inbounds rate[t, n] = rate_value(nodes[t, n], args...)
+    end
+    integrate_samples!(fraction, rate, current, taps, dt, c, count)
+    columns = 1:count
+    # The exposure's steps, then its fractions, the depletion they pay and the integrand.
+    each!(c, nt, count) do t, n
+        @inbounds integrand[t, n] = t == 1 ? none : fraction[t, n] - fraction[t-1, n]
+    end
+    each!(c, nt, count) do t, n
+        @inbounds begin
+            exposure = fraction[t, n]
+            value = 1 - (1 - initial) * exp(-(floor ? max(exposure, none) : exposure))
+            fraction[t, n] = value
+            gated[t, n] = rate[t, n] * (1 - value)
+            current[t, n] = abs(value * nodes[t, n])
+        end
+    end
+    each!(c, nt, count) do t, n
+        @inbounds edge[t, n] = t == 1 ? none : dt * (gated[t, n] + gated[t-1, n]) / 2
+    end
+    steps = @view integrand[:, columns]
+    final, start = @view(fraction[nt, columns]), @view(fraction[1, columns])
+    copyto!(@view(fractions[first:first+count-1]), final)
+    copyto!(@view(peaks[first:first+count-1]), vec(maximum(@view(rate[:, columns]); dims=1)))
+    freed = Array(final) .- Array(start)
+    paid = vec(Array(sum(@view(edge[:, columns]); dims=1)))
+    Float64[max(0, maximum(-, steps)), max(0, maximum(steps)), maximum(abs.(paid .- freed)),
+            maximum(freed), maximum(@view(current[1:min(reach, nt), columns])),
+            maximum(@view(current[:, columns]))]
+end
+
+function population_columns!(p, nodes, c, first, count)
     T = typeof(p.dt)
     (; rate, fraction, taps, dt, fractions, peaks, parts) = p
     floor, args = p.floor, rate_arguments(p)
