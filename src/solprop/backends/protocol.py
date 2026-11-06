@@ -27,17 +27,19 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
 
+from solprop._process import parallel_rows
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
-from solprop.log import ProgressReporter
+from solprop.log import ProgressReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.noise import NoiseRealisation
+from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
 
 __all__ = [
@@ -316,6 +318,49 @@ class StepStats:
         return tuple(sorted(self.values))
 
 
+def _all_finite(state: Complex[np.ndarray, "*shape n_omega"]) -> bool:
+    """Return whether every entry of a complex state is finite, allocating no mask.
+
+    A sum holding a NaN or an infinity isn't finite, so a finite sum settles it in one
+    pass over the rows. Only a sum that overflows takes the second look, which allows
+    for finite entries too large to add.
+
+    Parameters
+    ----------
+    state : numpy.ndarray
+        A contiguous complex state.
+
+    Returns
+    -------
+    bool
+        True when no entry is a NaN or an infinity.
+    """
+    if state.size == 0:
+        return True
+    rows = state.reshape(-1, state.shape[-1])
+
+    def finite(selected: slice) -> bool:
+        """Return whether the selected rows are finite.
+
+        Parameters
+        ----------
+        selected : slice
+            The rows.
+
+        Returns
+        -------
+        bool
+            True when none holds a NaN or an infinity.
+        """
+        part = rows[selected]
+        # Per thread: a sum that overflows is what the second look is for.
+        with np.errstate(over="ignore", invalid="ignore"):
+            total = np.sum(part)
+        return bool(np.isfinite(total)) or bool(np.all(np.isfinite(part)))
+
+    return all(parallel_rows(rows.shape[0], state.nbytes, finite))
+
+
 @dataclass(frozen=True, eq=False)
 class Observation:
     """The state at a save plane, on the host.
@@ -394,7 +439,7 @@ class Observation:
         state = np.ascontiguousarray(self.field, dtype=np.complex128)
         state.setflags(write=False)
         object.__setattr__(self, "field", state)
-        if not np.all(np.isfinite(state)):
+        if not _all_finite(state):
             bad = int(np.sum(~np.isfinite(state)))
             msg = (
                 f"field has {bad} of {state.size} entries that are not finite at "
@@ -558,20 +603,29 @@ class Backend(Protocol):
     max_batch : int
         Largest batch axis this backend steps at once; 1 for a backend that steps one
         problem.
+    reads_transverse_edge : bool
+        Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
+        a run with a requested real-space collar needs.
 
     Examples
     --------
     >>> from solprop.backends.protocol import Backend
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][:4]
-    ['available_device_memory', 'close', 'memory_ledger', 'metadata']
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][4:7]
-    ['observe', 'propagate_to', 'restore_call_ledgers']
-    >>> [name for name in sorted(dir(Backend)) if not name.startswith("_")][7:]
-    ['set_initial', 'set_progress', 'stats']
+    >>> names = [name for name in sorted(dir(Backend)) if not name.startswith("_")]
+    >>> names[:4]
+    ['attach_monitor', 'available_device_memory', 'close', 'closed']
+    >>> names[4:8]
+    ['edge_memory', 'in_flight', 'march_export_refusal', 'march_snapshot']
+    >>> names[8:12]
+    ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
+    >>> names[12:16]
+    ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_initial']
+    >>> names[16:]
+    ['set_progress', 'set_stop', 'stats', 'timed_step']
     """
 
     name: str
     max_batch: int
+    reads_transverse_edge: bool
 
     def set_initial(
         self,
@@ -625,8 +679,29 @@ class Backend(Protocol):
         """
         ...
 
+    def set_stop(self, flag: StopFlag | None) -> None:
+        """Attach the flag the march polls, or detach it with ``None``.
+
+        Parameters
+        ----------
+        flag : solprop.log.StopFlag or None
+            Any object with an ``is_set()`` method, such as a
+            :class:`threading.Event`.
+        """
+        ...
+
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None:
+        """Watch the time window's edges from here on, starting with the current state.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The monitor, fed every committed step.
+        """
+        ...
+
     def propagate_to(self, z: float) -> StepSummary:
-        """Step the state to a position through the shared step loop.
+        """Step the state to a position through the shared driver's marches.
 
         Parameters
         ----------
@@ -658,6 +733,17 @@ class Backend(Protocol):
         -------
         Observation
             The field, the noise phase and the step history since the last call.
+        """
+        ...
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the low-storage step a failure abandoned in flight, or ``None``.
+
+        Returns
+        -------
+        tuple of float or None
+            The step's start and length, m, while the state is neither of its ends.
         """
         ...
 
@@ -709,6 +795,82 @@ class Backend(Protocol):
         """
         ...
 
+    def march_snapshot(self) -> MarchSnapshot | None:
+        """Return the Adams march's state at the accepted position, for a resume.
+
+        Returns
+        -------
+        solprop.output.schema.MarchSnapshot or None
+            The snapshot, or ``None`` wherever the march has nothing to continue.
+        """
+        ...
+
+    def march_snapshot_nbytes(self, z: float) -> int | None:
+        """Return the bytes :meth:`march_snapshot` would copy at `z`, copying nothing.
+
+        Parameters
+        ----------
+        z : float
+            The position the snapshot is wanted at, m.
+
+        Returns
+        -------
+        int or None
+            The size, or ``None`` where a snapshot would be ``None`` or stand elsewhere.
+        """
+        ...
+
+    def march_export_refusal(self) -> str | None:
+        """Return why this backend's Adams march cannot carry its history, or ``None``.
+
+        Returns
+        -------
+        str or None
+            The reason, or ``None`` when it can or when the march keeps none.
+        """
+        ...
+
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
+        """Continue the Adams march from a snapshot at the loaded position.
+
+        Parameters
+        ----------
+        snapshot : solprop.output.schema.MarchSnapshot
+            The snapshot a file holds.
+
+        Returns
+        -------
+        str or None
+            ``None`` when the history was continued, otherwise why it starts afresh.
+        """
+        ...
+
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the transverse edge holds in the state's memory space.
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            The bytes, from the grid alone; zero for a read on the host.
+        """
+        ...
+
+    def timed_step(self) -> Callable[[], object]:
+        """Return one step of this run's march, for an estimate to time.
+
+        Returns
+        -------
+        collections.abc.Callable
+            Takes one step from the loaded state. It may advance that state, so the
+            caller closes the backend afterwards.
+        """
+        ...
+
     def available_device_memory(self) -> int | None:
         """Return currently free device bytes, or None for a host backend.
 
@@ -735,6 +897,17 @@ class Backend(Protocol):
         """Release the buffers and plans. Idempotent."""
         ...
 
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            ``True`` when it can run no other input.
+        """
+        ...
+
 
 @runtime_checkable
 class BatchBackend(Backend, Protocol):
@@ -751,13 +924,20 @@ class BatchBackend(Backend, Protocol):
     The common maximum error norm is diagnostic and never changes a fixed schedule.
     """
 
-    def observe_members(self) -> tuple[Observation, ...]:
+    def observe_members(self, *, field: bool = True) -> tuple[Observation, ...]:
         """Drain independently owned host observations in member order.
+
+        Parameters
+        ----------
+        field : bool, optional
+            Whether each member's field and noise phase cross to the host, as for
+            :meth:`solprop.backends.protocol.Backend.observe`. Default ``True``.
 
         Returns
         -------
         tuple of Observation
-            Singleton field shapes and each member's own diagnostic history.
+            Singleton field shapes, or no field, and each member's own diagnostic
+            history.
         """
         ...
 

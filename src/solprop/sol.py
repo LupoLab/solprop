@@ -119,7 +119,13 @@ from solprop.optics import (
     chirped_mirrors,
     littrow_angle,
 )
-from solprop.output import HDF5Output, MemoryOutput, TDSEArchive, open_tdse_archive
+from solprop.output import (
+    CallbackOutput,
+    HDF5Output,
+    MemoryOutput,
+    TDSEArchive,
+    open_tdse_archive,
+)
 from solprop.output.hdf5 import open_file, resume
 from solprop.physdata import (
     Gas,
@@ -272,6 +278,7 @@ __all__ = [
     "Batch",
     "BeamParams",
     "CWPulse",
+    "CallbackOutput",
     "CepOptimum",
     "Chain",
     "ChirpedMirror",

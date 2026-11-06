@@ -1,0 +1,1 @@
+A lockstep `Batch` scan no longer moves a member's field to the host at a plane the scan doesn't read: `BatchBackend.observe_members` takes `field=`, as `observe` does, and a scan asks for what a lone point of the same scan keeps. On an NVIDIA H200 `Batch(8)` spent 22 % of a plane interval observing at 8 steps a plane, and on an AMD Instinct MI325X 13 to 16 %.

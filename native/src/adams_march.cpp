@@ -551,8 +551,13 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::reached;
         return result;
       }
+      // A replay's next step is its schedule's (`StepDriver._next_step`).
+      const double ahead =
+          !bounds.replay
+              ? state.proposal
+              : (state.cursor < n_steps ? schedule.steps[state.cursor] : 0.0);
       if ((bounds.host_step > 0 && accepted == bounds.host_step) ||
-          read_due(bounds, state.z, state.proposal)) {
+          read_due(bounds, state.z, ahead)) {
         result.reason = Reason::host_step;
         return result;
       }

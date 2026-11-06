@@ -28,8 +28,9 @@ import math
 import time
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, TypeVar, cast
+from collections.abc import Callable, Mapping, Sequence
+from functools import partial
+from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -76,6 +77,7 @@ from solprop.translate.stage import (
     terms,
 )
 from solprop.translate.tdse import TDSEPurpose
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 if TYPE_CHECKING:
     from solprop.backends.low_storage import LowStorageMarch
@@ -313,12 +315,18 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         march and engines pass down rather than choosing one (SEP 29 section 6.6).
         Each backend sets its own: ``PLAIN`` (the default) for the NumPy reference,
         the C++ bindings for the native backend.
+    far_field_statistics : frozenset of str
+        The far-field statistics a compiled backend declares it forms (SEP 23), which
+        the registry reads for the native backend alone
+        (:func:`solprop.backends.registry.statistics_refusal`): ``numpy_ref`` forms them
+        all and ``mlx`` refuses them in validation.
     """
 
     name: str = "driver"
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
+    far_field_statistics: ClassVar[frozenset[str]] = frozenset()
 
     def __init__(
         self,
@@ -358,6 +366,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._noise: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None = None
         self._z = 0.0
         self._proposal = problem.stepper.dz_init
+        self._clean_columns: Float[np.ndarray, " n_columns"] | None = None
         self._schedule_index = 0
         self._closed = False
         # The controller reads one norm a fixed lag back, and the one before it
@@ -378,7 +387,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
         self._progress_started = False
-        self._stop: StopFlag | None = None
         # The statistics channel between planes. The spec a row is evaluated with is
         # the periodic subset promoted to `names`, so the row goes through the very
         # same `stats` the save planes use and is bitwise what a plane would record.
@@ -908,6 +916,30 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             return self._low_storage.snapshot()
         return None if self._adams is None else self._adams.snapshot()
 
+    def march_snapshot_nbytes(self, z: float) -> int | None:
+        """Return the bytes :meth:`march_snapshot` would copy at `z`, copying nothing.
+
+        Parameters
+        ----------
+        z : float
+            The position the snapshot is wanted at, m.
+
+        Returns
+        -------
+        int or None
+            The state and every engine row, or ``None`` where a snapshot would be
+            ``None`` or stand somewhere other than `z`.
+
+        Raises
+        ------
+        BackendError
+            If a low-storage step was abandoned in flight.
+        """
+        self._refuse_in_flight()
+        if self._low_storage is not None or self._adams is None or self._z != z:
+            return None
+        return self._adams.snapshot_nbytes()
+
     def march_export_refusal(self) -> str | None:
         """Return why this backend's Adams march cannot carry its history, or ``None``.
 
@@ -1202,12 +1234,17 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
+        self._clean_columns = None
         if (
             model == "input"
             and drawn is not None
             and not resume
             and position == self._problem.initial.z
         ):
+            if self._problem.transverse is not None:
+                self._clean_columns = _clean_launch_columns(
+                    values[0], drawn[0], self._problem.grids.active_mask
+                )
             values = values + drawn
         self._state = self._apply_mask(values)
         self._noise = drawn if model == "modified" else None
@@ -1262,12 +1299,16 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._progress = reporter
         self._progress_started = False
 
+    _stop: StopFlag | None = None
+    """The flag the march polls (:meth:`set_stop`); ``None`` by default."""
+
     def set_stop(self, flag: StopFlag | None) -> None:
-        """Attach the flag every trial step polls, or detach it with ``None``.
+        """Attach the flag the march polls, or detach it with ``None``.
 
         A run polls its own flag before each trial (SEP 41, S17), where the state is
         the last accepted one, so a stop abandons nothing but the trial not yet taken.
-        Polling changes nothing the propagation computes.
+        A march that runs its trials in a native call polls before each call. Polling
+        changes nothing the propagation computes.
 
         Parameters
         ----------
@@ -1278,15 +1319,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._stop = flag
 
     def _poll_stop(self) -> None:
-        """Raise when the run's stop flag is set; called before every trial step.
+        """Raise when the run's stop flag is set; called before every trial or call.
 
         Raises
         ------
         solprop.exceptions.StopRequested
             If the flag is set.
         """
-        # A harness that builds a driver without __init__ has no flag.
-        poll(getattr(self, "_stop", None))
+        poll(self._stop)
 
     def propagate_to(self, z: float) -> StepSummary:
         """Step the state to a position, landing on it exactly.
@@ -1438,6 +1478,39 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._clock = time.perf_counter()
         return plane
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the low-storage step a failure abandoned in flight, or ``None``.
+
+        Returns
+        -------
+        tuple of float or None
+            The step's start and length, m, while the state is neither of its ends
+            (``solprop.backends.low_storage``).
+        """
+        return self._in_flight
+
+    def timed_step(self) -> Callable[[], object]:
+        """Return one step of this run's march, for an estimate to time.
+
+        A low-storage march times its own step, which accepts in place, so repeating it
+        advances the discarded state: the caller closes the backend afterwards. Every
+        other run times the Runge-Kutta trial step, which leaves the state alone. The
+        native low-storage state holds none of that trial's views.
+
+        Returns
+        -------
+        collections.abc.Callable
+            Takes one step, from the loaded state.
+        """
+        if self._low_storage is None:
+            z, dz = float(self._problem.initial.z), float(self._problem.stepper.dz_init)
+            return partial(self._trial_step, z, dz)
+        schedule = self._problem.stepper.schedule
+        assert schedule is not None  # the translation refuses the march without one
+        z, dz = float(schedule.edges[0]), float(schedule.steps[0])
+        return partial(self._low_storage.engine.step, z, dz)
 
     # --- the step loop -------------------------------------------------------------
 
@@ -1842,15 +1915,22 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._set_collar_quiet(monitor.collar_quiet)
         # A resumed fixed schedule is held to the state it resumes from at once.
         self._refuse_scheduled_crossing(monitor)
-        edge = getattr(monitor, "transverse", None)
+        edge = monitor.transverse
         if edge is not None:
-            state = self._observed_field(self._require_state())
             floor = self._input_floor
             schedule = self._problem.stepper.schedule
+            state = self._require_state()
             edge.launch(
-                np.asarray(state[0]),
+                self._edge_reading(
+                    state,
+                    edge,
+                    # A resumed launch reads no share, but continues the current.
+                    full=not edge.resumed,
+                    current=edge.every_step and edge.resumed,
+                ),
                 self._z,
                 noise=None if floor is None else np.asarray(floor[0]),
+                clean_columns=self._edge_clean_columns(edge),
                 steps=None if schedule is None else np.asarray(schedule.steps),
                 reads=self.reads_transverse_edge,
                 declared=_declared_discard(self._problem),
@@ -1866,19 +1946,131 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         plane : bool
             Whether a saved plane has just been reached, which is always read.
         """
-        edge = getattr(monitor, "transverse", None)
+        edge = monitor.transverse
         if edge is None:
             return
         # Read before the next step would carry past the read (`TransverseEdge.due`).
-        due = edge.due(self._z, self._proposal)
-        if not (plane or edge.every_step or due):
+        due = edge.due(self._z, self._next_step())
+        # A plane the step that reached it already read has nothing to add.
+        read = (plane or due) and edge.wants_read(self._z)
+        # A collar's inward current accumulates at every committed step.
+        accumulate = edge.every_step and not plane
+        if not (read or accumulate):
             return
+        reading = self._edge_reading(
+            self._require_state(), edge, faces=read, current=accumulate
+        )
+        if accumulate:
+            assert reading.current is not None
+            edge.step(reading.current, self._z)
+        if read:
+            edge.read(reading, self._z)
+
+    def edge_memory(self, space: object) -> int:
+        """Return what reading the edge holds in the state's memory space.
+
+        What :func:`solprop.driver.estimate.estimate` adds: it attaches no monitor.
+
+        Parameters
+        ----------
+        space : object
+            The run's transverse grid.
+
+        Returns
+        -------
+        int
+            Zero by default: a read on the host holds nothing beside the state there.
+        """
+        del space
+        return 0
+
+    def _edge_reading(
+        self,
+        state: _StateT,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> _EdgeReading:
+        """Return what the transverse edge asks of a state (SEP 44).
+
+        The default reduces a host copy of the field, the reference
+        (``_HostEdgeReduction``); a backend whose state
+        lives elsewhere reduces it there and returns the numbers, without a copy of it.
+
+        Parameters
+        ----------
+        state : object
+            The backend's protected state representation.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the nodes, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, not only the rows a read uses.
+
+        Returns
+        -------
+        solprop.transverse_monitor._EdgeReading
+            The reading.
+        """
+        return edge.reduction.reading(
+            np.asarray(self._observed_field(state)[0]),
+            faces=faces,
+            current=current,
+            full=full,
+        )
+
+    def _edge_clean_columns(
+        self, edge: TransverseEdge
+    ) -> Float[np.ndarray, " n_columns"] | None:
+        """Return each column's launched energy without the input noise, or ``None``.
+
+        What the safety ramp is judged on, so a run with no ramp needs none. It is
+        formed where the load has both parts, which needs no state on the host. Only a
+        resume that found no record of the monitor has none, and then the state has to
+        cross once.
+
+        Parameters
+        ----------
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The unweighted energies, or ``None`` with no noise, no ramp or on a resumed
+            launch.
+        """
+        floor = self._input_floor
+        if floor is None or edge.resumed or edge.design is None:
+            return None
+        if self._clean_columns is not None:
+            return self._clean_columns
         state = np.asarray(self._observed_field(self._require_state())[0])
-        if edge.every_step and not plane:
-            # A collar's inward current accumulates at every committed step.
-            edge.step(state, self._z)
-        if plane or due:
-            edge.read(state, self._z)
+        return edge.reduction.column_power(state - np.asarray(floor[0]))
+
+    def _next_step(self) -> float:
+        """Return the step the march takes next, m.
+
+        A replay takes its schedule's and never updates the proposal, which stays
+        ``dz_init``: read from that, an edge read comes early or late by the difference.
+
+        Returns
+        -------
+        float
+            The schedule's next step on a replay, zero past its end, and otherwise the
+            controller's proposal.
+        """
+        schedule = self._problem.stepper.schedule
+        if schedule is None:
+            return self._proposal
+        if self._schedule_index >= schedule.n_steps:
+            return 0.0
+        return float(schedule.steps[self._schedule_index])
 
     def _transverse_capped(self, proposal: float) -> float:
         """Return the proposal, held to the transverse edge's read spacing (SEP 40 5.3).
@@ -1898,7 +2090,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The proposal, or the read spacing, m.
         """
         monitor = self._monitor
-        edge = None if monitor is None else getattr(monitor, "transverse", None)
+        edge = None if monitor is None else monitor.transverse
         if edge is None:
             return proposal
         return min(proposal, edge.ceiling(self._z))
@@ -2312,7 +2504,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _axis_statistics(
         self,
-        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
         scan: tuple[np.ndarray, np.ndarray] | None,
     ) -> dict[str, np.ndarray]:
         """Return the four on-axis plasma statistics of one batch member (SEP 19).
@@ -2323,8 +2515,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Parameters
         ----------
-        field : numpy.ndarray
-            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        field : numpy.ndarray or None
+            One batch member at this plane, shape (n_modes, n_pol, n_omega), or ``None``
+            from a backend whose :meth:`_axis_row_populations` reads its own state.
         scan : tuple or None
             This observation's channel fractions and peak rates at every node, when
             the node statistics already scanned them.
@@ -2348,7 +2541,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             raise BackendError(msg)
         from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
             axis_node,
-            axis_populations,
             axis_statistics,
         )
 
@@ -2370,10 +2562,45 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 self._problem, self._z, fractions[:, node], peaks[:, node]
             )
         self.axis_scans += 1
-        fractions, peaks = axis_populations(
-            self._problem, field, self._z, self._on_axis_synthesis(self._modes)
+        fractions, peaks = self._axis_row_populations(
+            field, self._on_axis_synthesis(self._modes)
         )
         return axis_statistics(self._problem, self._z, fractions, peaks)
+
+    def _axis_row_populations(
+        self,
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None,
+        axis: Float[np.ndarray, "n_rows n_modes"],
+    ) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
+        """Scan this plane's axis row: one row, every channel.
+
+        A device backend overrides this hook to read only the row from its state.
+
+        Parameters
+        ----------
+        field : numpy.ndarray or None
+            One batch member at this plane, shape (n_modes, n_pol, n_omega).
+        axis : numpy.ndarray
+            The mode set's synthesis on the axis at this position
+            (:meth:`_on_axis_synthesis`).
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            The final ionised fraction and the largest rate on the axis, per channel.
+
+        Raises
+        ------
+        BackendError
+            If this backend needs the field and was not given it.
+        """
+        if field is None:
+            raise BackendError("the on-axis statistics scan needs the field")
+        from solprop.backends.populations import (  # noqa: PLC0415 - a cycle
+            axis_populations,
+        )
+
+        return axis_populations(self._problem, field, self._z, axis)
 
     def _on_axis_synthesis(
         self, modes: Sequence[Mode]
@@ -2474,6 +2701,17 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             "last saved plane) before observing or propagating again"
         )
         raise BackendError(msg)
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the backend has released its buffers, as a failure may.
+
+        Returns
+        -------
+        bool
+            ``True`` when it can run no other input.
+        """
+        return self._closed
 
     def _check_open(self) -> None:
         """Refuse a backend that has been closed.
@@ -2628,6 +2866,36 @@ def refuse_general_leaves(
                 "converge and be the wrong physics"
             )
             raise BackendError(msg)
+
+
+def _clean_launch_columns(
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    noise: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    active: np.ndarray,
+) -> Float[np.ndarray, " n_modes"]:
+    """Return each column's energy in a masked launch, less the input noise it carries.
+
+    That is ``mask(field + noise) - noise``: the launch on the active band, and the
+    noise alone off it, as a supplied realisation needn't be masked. Formed from the
+    parts, so that no state has to come back from where it lives to subtract the noise.
+
+    Parameters
+    ----------
+    field : numpy.ndarray
+        The launch before the noise is added.
+    noise : numpy.ndarray
+        The realisation added to it.
+    active : numpy.ndarray
+        The active band's mask, shape ``(n_omega,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The unweighted energies, shape ``(n_modes,)``.
+    """
+    inside = np.abs(field[..., active]) ** 2
+    outside = np.abs(noise[..., ~active]) ** 2
+    return np.sum(inside, axis=(1, 2)) + np.sum(outside, axis=(1, 2))
 
 
 def _declared_discard(problem: KernelProblem) -> bool:

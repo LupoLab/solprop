@@ -469,7 +469,10 @@ def _origin_shift(n_omega: int) -> Float[np.ndarray, " n_omega"]:
 
 
 def spectrum_to_optics(
-    x_omega: Num[np.ndarray, "*batch n_omega"], *, kind: GridKind
+    x_omega: Num[np.ndarray, "*batch n_omega"],
+    *,
+    kind: GridKind,
+    out: Num[np.ndarray, "*batch n_omega"] | None = None,
 ) -> Num[np.ndarray, "*batch n_omega"]:
     """Convert an internal spectrum to the optics convention about the window centre.
 
@@ -499,6 +502,9 @@ def spectrum_to_optics(
         Stored spectrum (raw forward DFT), shape ``(..., n_omega)``.
     kind : {'field', 'envelope'}
         Spectral layout of ``x_omega``.
+    out : numpy.ndarray or None, optional
+        Where to write the result, complex and the shape of `x_omega`; a new array by
+        default. For a store's room, or for rows converted separately.
 
     Returns
     -------
@@ -525,7 +531,16 @@ def spectrum_to_optics(
     """
     values = np.asarray(x_omega)
     _check_spectrum(values, kind)
-    return _origin_shift(values.shape[-1]) * to_optics(values)
+    shift = _origin_shift(values.shape[-1])
+    if out is not None:
+        # The ufunc's own conjugation (`to_optics`), writing where it's told.
+        np.conj(values, out=out)
+        return np.multiply(shift, out, out=out)
+    conjugated = to_optics(values)
+    if np.iscomplexobj(conjugated):
+        # One state-sized allocation rather than two.
+        return np.multiply(shift, conjugated, out=conjugated)
+    return shift * conjugated
 
 
 def spectrum_to_internal(

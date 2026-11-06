@@ -276,7 +276,7 @@ def test_archive_requests_the_run_cannot_honour_are_refused(fake, tmp_path):
     with pytest.raises(DriverError, match="must differ from the optical"):
         _run(natural_simulation(), optical, tdse_archive=TDSEArchive(optical))
     with pytest.raises(DriverError, match="TDSEArchive"):
-        inspect.unwrap(Simulation.run)(
+        inspect.unwrap(Simulation._run)(
             natural_simulation(), progress="none", tdse_archive="x.h5"
         )
     gnlse = Simulation.from_gnlse(

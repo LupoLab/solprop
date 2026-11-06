@@ -1,0 +1,1 @@
+A device run's `on_axis_*` plasma statistics no longer copy the state to the host at each save plane: only the axis row's spectrum crosses, and the host scans it as before (#359). `StepDriver` gains the `_axis_row_populations` hook, and `_axis_statistics` takes `None` for a backend that reads the row itself.

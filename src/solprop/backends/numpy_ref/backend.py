@@ -107,11 +107,7 @@ from solprop.translate.coupled import (
 from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.problem import (
-    KERNEL_SCHEMA_VERSION,
-    MAX_N_POL,
-    KernelProblem,
-)
+from solprop.translate.problem import MAX_N_POL, KernelProblem
 from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
@@ -149,11 +145,10 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     same pipeline and not a second code path.
 
     **Refusals.** A problem is refused by name, with
-    :class:`solprop.exceptions.BackendError`, when its ``schema_version`` is not the one
-    this backend knows, when its flags declare a spectral response, when a Raman kernel
-    meets two polarisation components, when the transform and the state would both carry
-    the transverse components, or when its batch axis is larger than one. A term
-    silently dropped would run, converge and be wrong.
+    :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
+    response, when a Raman kernel meets two polarisation components, when the transform
+    and the state would both carry the transverse components, or when its batch axis is
+    larger than one. A term silently dropped would run, converge and be wrong.
 
     **Convention.** Every array held or returned is in the FFT convention of
     ``docs/dev/conventions.md`` section 2; the backend never conjugates. The
@@ -2916,13 +2911,6 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
-    if problem.schema_version != KERNEL_SCHEMA_VERSION:
-        msg = (
-            "this backend implements kernel contract version "
-            f"{KERNEL_SCHEMA_VERSION} and the problem declares version "
-            f"{problem.schema_version}"
-        )
-        raise BackendError(msg)
     refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
     _refuse_adams(problem)
     # One list for every backend: the coupled flow first, then the

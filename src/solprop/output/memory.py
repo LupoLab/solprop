@@ -32,7 +32,7 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop.exceptions import OutputError
-from solprop.fourier import spectrum_to_internal
+from solprop.fourier import GridKind, spectrum_to_internal
 from solprop.output.schema import (
     HISTORY_FIELDS,
     STEP_STATS_INDEX,
@@ -41,6 +41,7 @@ from solprop.output.schema import (
     SavedPlane,
     StepHistory,
     StepStats,
+    stored_spectrum,
 )
 
 __all__ = ["INITIAL_BLOCK", "MemoryOutput"]
@@ -290,6 +291,46 @@ class MemoryOutput(PlaneStore):
         self._capacity *= 2
         logger.debug("memory output grew to room for %d planes", self._capacity)
 
+    def _make_room(self, plane: SavedPlane) -> None:
+        """Grow the blocks so that they have room for the next plane.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The next plane. The base class has checked it against the run's layout.
+        """
+        if self._capacity == 0:
+            self._allocate(plane, plane.field)
+        elif self._n_saved == self._capacity:
+            self._expand()
+        if (
+            plane.field is not None
+            and self._n_fields == 0
+            and not self._fields.shape[0]
+        ):
+            self._allocate_fields(plane, plane.field)
+
+    def _stored_field(
+        self, plane: SavedPlane, kind: GridKind
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Convert a plane's field straight into its room in the block.
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane, which carries a field.
+        kind : {'field', 'envelope'}
+            The grid's spectral layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            The block's row that now holds it.
+        """
+        assert plane.field is not None
+        self._make_room(plane)
+        return stored_spectrum(plane.field, kind, self._fields[self._n_fields])
+
     def _append(
         self,
         plane: SavedPlane,
@@ -302,20 +343,13 @@ class MemoryOutput(PlaneStore):
         plane : SavedPlane
             The plane, whose field is still in the internal convention.
         stored : numpy.ndarray or None
-            That field converted to the optics convention; ``None`` on a field-free
-            plane, which stores none.
+            That field converted to the optics convention, in its row of the block
+            (:meth:`_stored_field`); ``None`` on a field-free plane, which stores none.
         """
-        # The base class has already checked the plane against the run's layout.
-        if self._capacity == 0:
-            self._allocate(plane, stored)
-        elif self._n_saved == self._capacity:
-            self._expand()
+        self._make_room(plane)
         index = self._n_saved
         self._z[index] = plane.z
         if stored is not None:
-            if self._n_fields == 0 and self._fields.shape[0] == 0:
-                self._allocate_fields(plane, stored)
-            self._fields[self._n_fields] = stored
             if self._noise_phase is not None:
                 self._noise_phase[self._n_fields] = plane.noise_phase
             self._n_fields += 1

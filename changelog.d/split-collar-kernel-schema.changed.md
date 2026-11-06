@@ -3,5 +3,4 @@ returns the energy and the guards' and collar's energies of the power each step'
 found (`solprop.monitor.BoundaryEnergies.found`) and the state's energy per walk-off
 bucket (`BoundaryEnergies.occupancy`), from the problem's new `split_crossing`; the
 native reading grows from six numbers to ten plus the buckets, and the native Adams march
-takes the crossing cap per call. A solprop-native build of an earlier schema is refused
-at import; rebuild it from this tree.
+takes the crossing cap per call. Rebuild solprop-native from this tree.

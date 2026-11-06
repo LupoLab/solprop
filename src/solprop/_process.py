@@ -16,12 +16,14 @@ believed only when it is not that collapse.
 
 import contextlib
 import functools
+import itertools
 import os
 import platform
 import sys
 import threading
 import warnings
-from collections.abc import Iterator, Sequence
+from collections.abc import Callable, Iterator, Sequence
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -613,6 +615,38 @@ def thread_count(name: str) -> int | None:
         msg = f"{name} must be positive, and is {value!r}"
         raise ValueError(msg)
     return count
+
+
+PARALLEL_BYTES = 2**26
+"""The fewest bytes a host pass over a state threads (:func:`parallel_rows`)."""
+
+
+def parallel_rows[T](n_rows: int, nbytes: int, work: Callable[[slice], T]) -> list[T]:
+    """Run `work` over slices covering `n_rows` rows, in threads if it is worth it.
+
+    For a NumPy pass over a state too large for one thread's page faults and memory
+    bandwidth: ufuncs release the GIL, and a state's rows are independent.
+
+    Parameters
+    ----------
+    n_rows : int
+        The rows to cover; positive.
+    nbytes : int
+        The bytes the pass reads. Below :data:`PARALLEL_BYTES` one call takes every row.
+    work : callable
+        Called with each slice of rows; it must touch nothing the others do.
+
+    Returns
+    -------
+    list
+        Each call's result, in row order.
+    """
+    workers = min(thread_budget().threads, n_rows)
+    if nbytes < PARALLEL_BYTES or workers <= 1:
+        return [work(slice(0, n_rows))]
+    edges = [n_rows * index // workers for index in range(workers + 1)]
+    with ThreadPoolExecutor(workers) as pool:
+        return list(pool.map(work, (slice(a, b) for a, b in itertools.pairwise(edges))))
 
 
 def thread_budget() -> ThreadBudget:

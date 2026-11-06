@@ -125,7 +125,9 @@ and metadata while sharing propagation products, and validates only the replaced
 its `configuration=` records keys of your own, such as a point's parameters, in the
 derived run's record. Outside a scan, a
 [runner](../setup/running.md#many-inputs-one-backend-the-runner) also keeps one backend for
-many inputs; scan workers construct a backend per point. `noise="keep"` (the default) keeps the
+many inputs. A `Local` scan on a CUDA or HIP build does the same for you while each point is
+the last but for its input, which is what `with_input` gives, and any other scan or point
+constructs a backend. `noise="keep"` (the default) keeps the
 base noise, `noise=None` disables it, and a `NoiseRealisation` replaces it.
 {py:meth}`~solprop.driver.simulation.Simulation.with_mixture` changes the fill
 ([running](../setup/running.md#a-capillary-end-to-end)); combine the two for material and input
@@ -179,7 +181,9 @@ planar grids. Adjacent points with matching grids, schedules, response layouts a
 statistics can share a group; layout changes and the final partial batch make smaller
 groups. Mixing backend names in a batch scan raises an error. Global point indices are
 unchanged. General modal runs may be batched under a narrower rule
-([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)).
+([running](../waveguides/supplied-guides.md#a-guide-instead-of-a-fill)). A member's field
+crosses to the host only at a plane the scan reads, as for a point run alone: under
+`fields="none"`, with reductions of statistics, none does.
 
 Each member watches its own time window, as the point would run alone
 ([watching the window's edges](../numerics/boundaries.md#watching-the-windows-edges)):
@@ -320,8 +324,8 @@ running stops as its executor allows:
 
 | executor | `stop=` |
 |---|---|
-| `Local` | the point in flight polls the flag before every trial step, as `Simulation.run(stop=...)` does, and stops within one step |
-| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls before every trial step; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
+| `Local` | the point in flight polls the flag as `Simulation.run(stop=...)` does: before every trial step, or on a native `Multistep()` march each time a native call returns, so it stops within one step or [that call's bound](../results/resuming.md#stopping-a-run) |
+| `Pool` | the controller sends each busy worker a stop message on its pipe, which that worker's run polls in the same way; it then collects the workers' results and shuts them down. Terminating a worker that does not exit remains the last resort |
 | `Batch` | between groups: a group that has started runs to its end, and the claimed points of a group not yet run are given back |
 | `Queue`, `Slurm` | refused, with an error naming the queue's own tools: the points run in other processes or on other machines, which a flag in this process cannot reach. Use `scancel` for a Slurm job, or stop a queue's controllers with SIGTERM |
 
