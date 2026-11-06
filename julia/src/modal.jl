@@ -136,8 +136,15 @@ function source!(engine, lab; quadrature=false)
                 gemm!(w.projected_coarse, nodes, @view(c.projection_coarse[first:last, :]), true, true, c)
         end
     end
-    @section :forward_fft mul!(w.fine, w.forward_plan, w.projected)
-    w.plasma === nothing || @section :plasma_spectrum add_plasma!(w.fine, w.plasma, w.forward_plan, c)
+    if w.plasma === nothing
+        @section :forward_fft mul!(w.fine, w.forward_plan, w.projected)
+    else
+        # The source's and the currents' transforms as one pool's work.
+        p = w.plasma
+        @section :forward_fft transform_all!(w.forward_plan, (w.fine, p.spectrum, p.edge_spectrum),
+                                             (w.projected, p.projected, p.edge_projected))
+        @section :plasma_spectrum add_plasma_spectra!(w.fine, p, c)
+    end
     if c.in_stage
         absorber!(w.absorber, w.modal, c)
         isempty(c.spatial_absorber) || gemm!(w.absorber, w.modal, c.spatial_absorber, true, true, c)

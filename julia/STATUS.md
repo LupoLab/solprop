@@ -43,6 +43,7 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | Stage scalars read by the engine from its own tables (SEP 39's staged tables) | `rdw` stage preparation 17 ms -> 5 ms a window |
 | The Poynting statistics' transforms and the populations in the engine, without allocating | `rdw` statistics 55 ms -> 40 ms; collector pauses (13 to 83 ms) gone |
 | A plasma column's live samples gathered; vectorised `exp` and `log` (`src/vmath.jl`, 1 ulp) | argon's plasma on one thread 4.7 ms -> 2.9 ms a source |
+| A source's forward transforms, and the quadrature alarm's, as one pool's work | `rdw` on 16 threads: commits 12.3 ms -> 5.8 ms, the source's transforms 8.7 ms -> 3.8 ms |
 
 The vectorised functions paid only once the live samples were gathered and each pass
 was a function of its own: in the column's branchy loop, and inside its closure, LLVM
@@ -89,10 +90,6 @@ The AMD EPYC 7763 and binary32 rows are in the ledger.
   tables and stage scalars it needs are in the engine already.
 - **Host statistics per plane.** The spectra and the reductions over the engine's power
   are the shared host functions: about 1.4 ms a plane on `rdw`.
-- **The quadrature alarm.** Three forward transforms of the coarse quadrature per
-  accepted step, each over the modes alone (four columns for `rdw`, so four of 16
-  threads): 11 ms of `rdw`'s 0.19 s window. One batched transform of every forward
-  buffer would fill the pool.
 - **Small states on many threads.** With one mode and 1601 bins the passes are serial
   by size, and run 20 to 40 % slower with 16 cores busy than with one (the clock).
 - **Serial plasma integrals.** The two running integrals are sequential by design.

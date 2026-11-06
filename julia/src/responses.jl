@@ -371,6 +371,10 @@ end
 function add_plasma!(destination, p, plan, c; coarse=false, direct=false)
     mul!(p.spectrum, plan, direct ? p.gated : coarse ? p.coarse : p.projected)
     mul!(p.edge_spectrum, plan, direct ? p.edge : coarse ? p.coarse_edge : p.edge_projected)
+    add_plasma_spectra!(destination, p, c)
+end
+"""Add `-i J / omega + edge / omega^2` of the currents' spectra, already transformed."""
+function add_plasma_spectra!(destination, p, c)
     (; spectrum, edge_spectrum, inverse_omega) = p
     crop, mask = c.crop, c.mask
     each!(c, length(crop), size(destination, 2)) do f, m

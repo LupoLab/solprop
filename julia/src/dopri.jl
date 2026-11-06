@@ -161,8 +161,14 @@ end
 function quadrature_alarm(engine)
     c, w = engine.config, engine.work
     c.spectral && return band_alarm(engine)
-    mul!(w.coarse_spec, w.forward_plan, w.projected_coarse)
-    w.plasma === nothing || add_plasma!(w.coarse_spec, w.plasma, w.forward_plan, c; coarse=true)
+    if w.plasma === nothing
+        mul!(w.coarse_spec, w.forward_plan, w.projected_coarse)
+    else
+        p = w.plasma
+        transform_all!(w.forward_plan, (w.coarse_spec, p.spectrum, p.edge_spectrum),
+                       (w.projected_coarse, p.coarse, p.coarse_edge))
+        add_plasma_spectra!(w.coarse_spec, p, c)
+    end
     (; prefactor, omega_window, crop) = c
     fine, coarse = w.fine, w.coarse_spec
     T = real_type(engine)

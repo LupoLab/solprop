@@ -209,6 +209,21 @@ function LinearAlgebra.mul!(y, p::Blocked, x)
     end
     y
 end
+"""`mul!(outs[k], p, ins[k])` for each pair: on a CPU one pool task for each block of
+each, so that transforms over a few columns (a capillary's modes) fill the pool."""
+function transform_all!(p::Blocked, outs::Tuple, ins::Tuple)
+    blocks = length(p.plans)
+    @batch for k in 1:blocks*length(outs)
+        j, b = divrem(k - 1, blocks) .+ 1
+        transform_block!(p, outs, ins, j, b)
+    end
+end
+@inline function transform_block!(p, outs, ins, j, b)
+    # A tuple's elements by a run-time index: each pair's arrays share one type here.
+    r = p.ranges[b]
+    mul!(block_view(outs[j], p.batch, r), p.plans[b], block_view(ins[j], p.batch, r))
+end
+transform_all!(p, outs::Tuple, ins::Tuple) = (foreach((y, x) -> mul!(y, p, x), outs, ins); nothing)
 function Base.:*(p::Blocked, x)
     @batch for b in eachindex(p.plans)
         p.plans[b] * block_view(x, p.batch, p.ranges[b])
