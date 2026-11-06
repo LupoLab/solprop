@@ -2517,8 +2517,10 @@ column sets `mlx`'s DOPRI5 against `native`'s Adams. Whole runs, RK at `rtol = 1
 `radial_filament_256` 0.67 s on `mlx` against 2.07 s on `native`, `spatial_absorber`
 1.98 against 5.54. The short runs' ratios carry the planes' shared host statistics
 (12 planes) as a fixed cost. `kerr_beam_*` is refused on `mlx` past a tenth of its
-length: its 0.5–0.6 µm steps take the temporal collar's `|Re ΔΦ|` to 150–180, past
-binary32's 88.7.
+length: over its 0.5–0.6 µm steps the linear operator's own damping, the spectral
+collar's chiefly, reaches `|Re ΔΦ|` of 150–180, past binary32's 88.7 in the
+interaction picture's inverse propagator (its temporal collar is already the split
+step's, outside the operator).
 
 ## Reference tables
 
