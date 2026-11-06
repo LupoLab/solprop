@@ -140,12 +140,13 @@ class HomePage(QWidget):
         main.addWidget(named_label("What are you simulating?", "h1"))
         tiles = QGridLayout()
         tiles.setSpacing(12)
-        for index, problem in enumerate(CLASSES):
+        shown = [problem for problem in CLASSES if problem.home]
+        for index, problem in enumerate(shown):
             tile = _Clickable("tile", problem.title, problem.summary, art=problem.key)
             tile.clicked.connect(lambda key=problem.key: self.class_chosen.emit(key))
             self.tiles[problem.key] = tile
             tiles.addWidget(tile, index // 2, index % 2)
-        after = len(CLASSES)
+        after = len(shown)
         design = _Clickable(
             "tile",
             "Design a waveguide",

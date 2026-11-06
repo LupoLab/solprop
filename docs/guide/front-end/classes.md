@@ -46,9 +46,12 @@ and *Run health*.
 
 ![A radial filament's Overview: the fluence along z, the on-axis spectrum, and the beam at the plane](images/filament-overview.png)
 
-**Cartesian beam** is a beam on an x–y grid, for a shape of any symmetry. It has the
-filament's numbers, and its *Across the beam* page maps the fluence over x and y at the
-plane.
+**Cartesian beams** starts from two beams crossing at 10 mrad in argon, on an x–y grid:
+they interfere where they overlap, and the Kerr effect focuses the fringes. Each beam has
+its own energy, waist, offset and angle in x, and they share a wavelength and duration;
+the numbers (P / P_cr, critical power, peak power and Rayleigh range) are each beam's.
+*Across the beam* maps the fluence over x and y at the plane. A recipe or file of one
+beam on such a grid opens on a one-beam sheet with the filament's numbers.
 
 **Line beam** is a beam resolved in x alone, per metre of y: its energy and peak power
 are per metre, and *Across the beam* maps the fluence across x along z. It has no

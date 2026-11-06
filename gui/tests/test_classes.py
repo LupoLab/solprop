@@ -291,3 +291,14 @@ def test_each_class_lists_examples_of_its_own_starting_from_its_own() -> None:
             document = Recipe.example(name).to_dict()
             found = class_of(document["recipe"]["route"], document.get("build", {}))
             assert found is problem, (problem.key, name)
+
+
+def test_two_beams_are_the_cartesian_class_and_one_beam_its_own() -> None:
+    for name, key in (
+        ("crossing_beams", "cartesian"),
+        ("cartesian_beam", "cartesian-beam"),
+    ):
+        build = Recipe.example(name).to_dict()["build"]
+        found = class_of("free", build)
+        assert found is not None and found.key == key
+    assert [p.key for p in CLASSES if not p.home] == ["cartesian-beam"]

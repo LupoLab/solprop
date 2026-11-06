@@ -10,7 +10,7 @@ from copy import deepcopy
 from dataclasses import dataclass, field
 
 from solprop.recipe.errors import RecipeError
-from solprop.recipe.paths import Attribute, get_path, parse_path, set_path
+from solprop.recipe.paths import Attribute, Index, get_path, parse_path, set_path
 
 from solprop_gui.model.quantities import split
 from solprop_gui.model.recipe import MISSING
@@ -223,6 +223,9 @@ class ProblemClass:
         The solprop examples its sheet lists, the one it starts from first; empty lists
         that one alone. A chosen few: solprop's other examples of the route are the
         gallery's, for scripts.
+    home : bool
+        Whether Home offers it; a class off Home still opens the recipes and files it
+        fits.
     """
 
     key: str
@@ -240,6 +243,7 @@ class ProblemClass:
     curve: str | None = None
     lens: tuple[str, str, str] | None = None
     examples: tuple[str, ...] = ()
+    home: bool = True
 
 
 def derived_value(summary: Mapping[str, object] | None, key: str) -> float | None:
@@ -470,7 +474,10 @@ def field_meta(
     """Return the metadata of a path, following the registered types the recipe names.
 
     ``initial.temporal.fwhm`` is the ``fwhm`` of the type ``initial.temporal`` names in
-    this recipe, so a sheet's row is described by what the recipe holds.
+    this recipe, so a sheet's row is described by what the recipe holds. An index steps
+    into a list: into one of several objects, ``initial.beams[0].waist``, as into one
+    object; into a pair or array of numbers, ``displacement[0]``, to one number in the
+    pair's unit.
 
     Parameters
     ----------
@@ -498,6 +505,16 @@ def field_meta(
     ({'name': 'initial'}, None)
     >>> field_meta("initial.waist", described, {})
     >>> field_meta("initial[0]", described, {})
+    >>> described["types"]["Sum"] = [{"name": "beams"}]
+    >>> described["types"]["Beam"].append(
+    ...     {"name": "shift", "forms": [{"kind": "pair", "unit": "m"}]})
+    >>> held = {"initial": {"type": "Sum", "beams": [{"type": "Beam"}]}}
+    >>> field_meta("initial.beams[0].waist", described, held)
+    {'name': 'waist'}
+    >>> held["initial"]["beams"][0]["shift"] = [0.0, 0.0]
+    >>> field_meta("initial.beams[0].shift[1]", described, held)["forms"]
+    [{'kind': 'number', 'unit': 'm'}]
+    >>> field_meta("initial.beams[5].waist", described, held)
     """
     try:
         steps = parse_path(path)
@@ -508,6 +525,25 @@ def field_meta(
     holder: object = build
     meta: Mapping[str, object] | None = None
     for step in steps:
+        if isinstance(step, Index) and meta is not None and isinstance(holder, list):
+            if not 0 <= step.position < len(holder):
+                return None
+            holder = holder[step.position]
+            if isinstance(holder, Mapping):
+                entries = catalog.get(str(holder.get("type")), ())
+                continue
+            # One number of a pair or an array, in its unit.
+            forms: Sequence[Mapping[str, object]] = meta.get("forms") or ()  # pyright: ignore[reportAssignmentType]
+            meta = {
+                **meta,
+                "forms": [
+                    {"kind": "number", "unit": form.get("unit")}
+                    for form in forms
+                    if form.get("kind") in ("pair", "array")
+                ],
+            }
+            entries = ()
+            continue
         if not isinstance(step, Attribute) or not isinstance(holder, Mapping):
             return None
         meta = next((e for e in entries if e.get("name") == step.name), None)

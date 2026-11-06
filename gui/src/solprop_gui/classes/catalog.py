@@ -25,6 +25,7 @@ __all__ = [
     "ANTIRESONANT",
     "CAPILLARY",
     "CARTESIAN",
+    "CARTESIAN_BEAM",
     "CLASSES",
     "FILAMENT",
     "GENERIC_PAGES",
@@ -430,8 +431,106 @@ GRIN: Final = ProblemClass(
 
 CARTESIAN: Final = ProblemClass(
     key="cartesian",
+    title="Cartesian beams",
+    summary="Beams in free space on an x-y grid: two crossing at an angle.",
+    route="free",
+    example="crossing_beams",
+    marker=("space.type=FreeGrid", "initial.type=SpatialPulseSum"),
+    sections=(
+        Section(
+            "Medium",
+            (
+                Field(
+                    "medium.material",
+                    "Gas",
+                    choices="gases",
+                    also=("responses[*].chi3.gas",),
+                ),
+                Field("medium.pressure", "Pressure"),
+                Field("grid.length", "Propagate", moves_planes="settings.save_planes"),
+            ),
+        ),
+        Section(
+            "Beam 1",
+            (
+                Field("initial.beams[0].temporal.energy", "Energy"),
+                Field("initial.beams[0].waist", "Waist"),
+                Field("initial.beams[0].displacement[0]", "Offset in x"),
+                Field("initial.beams[0].tilt[0]", "Angle in x"),
+            ),
+        ),
+        Section(
+            "Beam 2",
+            (
+                Field("initial.beams[1].temporal.energy", "Energy"),
+                Field("initial.beams[1].waist", "Waist"),
+                Field("initial.beams[1].displacement[0]", "Offset in x"),
+                Field("initial.beams[1].tilt[0]", "Angle in x"),
+            ),
+        ),
+        Section(
+            "Pulse",
+            (
+                Field(
+                    "initial.beams[0].temporal.wavelength",
+                    "Wavelength",
+                    also=(
+                        "initial.beams[1].temporal.wavelength",
+                        "grid.reference_wavelength",
+                        "responses[*].chi3.wavelength",
+                    ),
+                ),
+                Field(
+                    "initial.beams[0].temporal.fwhm",
+                    "Duration",
+                    also=("initial.beams[1].temporal.fwhm",),
+                ),
+            ),
+        ),
+        Section(
+            "Physics",
+            (Field("responses", "Kerr", member="KerrResponse"),),
+        ),
+        Section(
+            "Grid",
+            (
+                Field("space.radius_x", "Half-width in x"),
+                Field("space.n_x", "Nodes in x"),
+                Field("space.radius_y", "Half-width in y"),
+                Field("space.n_y", "Nodes in y"),
+                Field("grid.wavelength_limits", "Wavelengths"),
+                Field("grid.trange", "Time window"),
+                Field(
+                    "settings.save_planes", "Saved planes", planes_over="grid.length"
+                ),
+            ),
+            folded=True,
+        ),
+    ),
+    derived=(
+        Derived("power_ratio", "P / P_cr, each beam", prefixed=False),
+        Derived("critical_power", "Critical power", "W"),
+        Derived("peak_power", "Peak power, each beam", "W"),
+        Derived("rayleigh_range", "Rayleigh range", "m"),
+    ),
+    numbers="beam_sheet",
+    curve="beam_curve",
+    preview="Linear radius of each beam along z",
+    pages=(
+        _OVERVIEW,
+        AnalysisPage("across", "Across the beam", ("fields",), view="fluence_xy"),
+        _PLANE,
+        _ALONG,
+        _HEALTH,
+    ),
+    statistics=("energy",),
+    examples=("crossing_beams",),
+)
+
+CARTESIAN_BEAM: Final = ProblemClass(
+    key="cartesian-beam",
     title="Cartesian beam",
-    summary="A beam in free space on an x-y grid: a shape of any symmetry.",
+    summary="One beam in free space on an x-y grid.",
     route="free",
     example="cartesian_beam",
     marker=("space.type=FreeGrid",),
@@ -507,6 +606,7 @@ CARTESIAN: Final = ProblemClass(
         _HEALTH,
     ),
     statistics=("energy",),
+    home=False,
 )
 
 LINE: Final = ProblemClass(
@@ -517,7 +617,7 @@ LINE: Final = ProblemClass(
     example="line_beam",
     marker=("space.type=LineGrid",),
     sections=(
-        CARTESIAN.sections[0],
+        CARTESIAN_BEAM.sections[0],
         Section(
             "Beam",
             (
@@ -525,8 +625,8 @@ LINE: Final = ProblemClass(
                 Field("initial.propz", "To focus", negated=True),
             ),
         ),
-        CARTESIAN.sections[2],
-        CARTESIAN.sections[3],
+        CARTESIAN_BEAM.sections[2],
+        CARTESIAN_BEAM.sections[3],
         Section(
             "Grid",
             (
@@ -561,12 +661,14 @@ CLASSES: Final = (
     ANTIRESONANT,
     FILAMENT,
     CARTESIAN,
+    CARTESIAN_BEAM,
     GNLSE,
     STEP_INDEX,
     GRIN,
     LINE,
 )
-"""The classes Home offers, in its order."""
+"""The classes, in Home's order; those off Home (``home`` false) still open their
+recipes. Of two that fit a recipe, the first wins: the two beams before the one."""
 
 GENERIC_PAGES: Final = (_OVERVIEW, _PLANE, _ALONG, _HEALTH)
 """The rail of a file whose route is no class's."""

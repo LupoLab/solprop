@@ -27,6 +27,7 @@ from solprop.grid import EnvelopeGrid
 from solprop.modes import base
 from solprop.physdata.gases import Gas
 from solprop.plotting.geometry import LIGHT, Disc, Ring, outline
+from solprop.pulses import SpatialPulseSum
 from solprop.recipe import Recipe
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.metadata import parameters
@@ -691,13 +692,20 @@ def beam_sheet(payload: Payload) -> dict[str, object]:
         (m), ``collapse_distance`` (m, or ``None``), ``waist``, ``focus`` and ``length``
         (m), ``pinned`` (empty: this route has no pins) and ``resolved``, the recipe's
         text. A medium that is no gas has only its ``peak_power``, with ``refusal``
-        saying why.
+        saying why. Of several beams launched together, the numbers are the first's.
     """
     recipe = _recipe(payload)
     keywords = recipe.keywords()
     beam = keywords["initial"]
     medium = keywords["medium"]
-    power = float(recipe.preview_input().peak_power)
+    if isinstance(beam, SpatialPulseSum):
+        # Several beams: the numbers are each beam's, the first launched alone.
+        beam = beam.beams[0]
+        alone = Recipe.loads(recipe.to_text())
+        alone.set("initial", recipe.get("initial.beams[0]"))
+        power = float(alone.preview_input().peak_power)
+    else:
+        power = float(recipe.preview_input().peak_power)
     reply: dict[str, object] = {
         "peak_power": power,
         "waist": float(beam.waist),  # pyright: ignore[reportAttributeAccessIssue]

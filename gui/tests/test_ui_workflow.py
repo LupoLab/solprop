@@ -112,7 +112,7 @@ def test_home_offers_each_class_and_asks_for_nothing_open(
 ) -> None:
     assert window.stage is Stage.HOME
     assert not window.top.isVisible()
-    assert {problem.key for problem in CLASSES} < set(window.home.tiles)
+    assert {problem.key for problem in CLASSES if problem.home} < set(window.home.tiles)
     assert window.home.tiles["design"].isEnabled()
     with qtbot.waitSignal(window.home.class_chosen) as chosen:
         window.home.tiles["capillary"].clicked.emit()
@@ -1332,9 +1332,10 @@ def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:
     assert {*(p.key for p in CLASSES), "design"} <= set(ART)
 
 
-def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(
+def test_crossing_beams_run_and_show_their_fluence_across_x_and_y(
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
+    assert "cartesian-beam" not in window.home.tiles  # one beam: opened, not offered
     window.begin_class("cartesian")
     sheet = window.sheet
     qtbot.waitUntil(
@@ -1344,6 +1345,7 @@ def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(
     qtbot.waitUntil(lambda: sheet.problem is window.problem, timeout=WAIT_MS)
     ratio = sheet.derived["power_ratio"]
     qtbot.waitUntil(lambda: ratio.text() not in ("…", ""), timeout=WAIT_MS)
+    assert ("initial.beams[1].tilt[0]", "build") in sheet.rows  # each beam's own rows
     qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
     window.primary.click()
     qtbot.waitUntil(lambda: window.stage is Stage.ANALYSE, timeout=WAIT_MS)
@@ -1352,7 +1354,7 @@ def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(
     analyse.show_page("across")
     across = window.page_views["fluence_xy"]
     qtbot.waitUntil(lambda: across.note.text().startswith("Energy"), timeout=WAIT_MS)
-    assert "1.5 nJ" in across.note.text()
+    assert "400 µJ" in across.note.text()  # the two beams
     found = across.data()
     assert found is not None
     assert found[0][0] == "y (mm)"
