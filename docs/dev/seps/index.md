@@ -33,7 +33,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [10](sep-0010-low-rank-raman.md) | Low-rank Raman kernels along density paths | Draft | Feature |
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
-| [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
@@ -58,6 +57,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [18](archive/sep-0018-band-exact-plasma-integrals.md) | Band-exact running integrals for the field-grid plasma | Final | Change |
 | [19](archive/sep-0019-field-scale-quadrature.md) | Field-scale radial quadrature for single-mode capillaries | Final | Feature |
 | [20](archive/sep-0020-hacc-helium-tdse.md) | haCC helium TDSE target | Final | Feature |
+| [21](archive/sep-0021-absorbing-boundaries.md) | Temporal boundaries: wider windows, absorption and the escaped field | Final | Change |
 | [22](archive/sep-0022-memory-lean-spatial-execution.md) | Memory-lean spatial execution: statistics-only planes, construct-once runs and operator settings | Final | Change |
 | [23](archive/sep-0023-far-field-aperture-spectra.md) | Far-field aperture and angular-region spectra for free-space runs | Final | Feature |
 | [24](archive/sep-0024-low-storage-interaction-picture-runge-kutta.md) | A low-storage interaction-picture Runge–Kutta march for memory-bound fixed-step runs | Final | Feature |
@@ -77,7 +77,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [39](archive/sep-0039-native-adams-march.md) | A native Adams march: the Multistep step loop in the compiled backend | Final | Change |
 | [40](archive/sep-0040-transverse-absorbing-boundaries.md) | Transverse absorbing boundaries for free-space propagation | Final | Change |
 | [41](archive/sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Final | Change |
-| [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Final | Change |
+| [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Superseded | Change |
 | [43](archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
 | [44](archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
 
