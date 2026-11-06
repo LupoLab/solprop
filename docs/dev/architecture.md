@@ -102,8 +102,8 @@ records the absolute launch, the TDSE identity, the outcome and any terminal che
 beside the step limits and the dense and step-plane policies. The full-band sensitivity to
 the window and the atomic cut error are unresolved
 ([TDSE accuracy and limitations](../guide/media/tdse.md#accuracy-and-limitations)). The
-kernel and saved-output schemas are versioned independently
-([kernel contract](kernel-contract.md)).
+saved output has a schema version and the kernel contract has none
+([kernel contract](kernel-contract.md), ADR-068).
 
 **haCC helium** ([SEP 20](seps/archive/sep-0020-hacc-helium-tdse.md)). The same route carries a second atomic model, the
 two-electron haCC atom (`TDSEGasResponse.model="hacc"` with a `HaccBasis`), at a
@@ -155,7 +155,7 @@ NumPy's and SciPy's controllable BLAS pools at one thread (or `SOLPROP_BLAS_THRE
 under ADR-052) around guide construction, standalone graded-index solves, translation
 and coupling. These coarse scopes change no physical algorithm. They restore the
 previous limits after the last nested or overlapping scope exits, since the limits
-are process-wide. Construction and the Numba and native adapters share one private
+are process-wide. Construction and the native adapter share one private
 lease coordinator: each library takes the smallest active request, even when owners
 start and finish in different orders, and only the last release restores its original
 width. Native's adapter supplies the lease hook explicitly; the standalone native
@@ -226,8 +226,9 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
-repository at solprop's own version and installed through the `native` extra. It depends
-on the versioned seam; solprop does not depend on its native build.
+repository at solprop's own version, and a required dependency of solprop pinned to that
+version ([SEP 43](seps/archive/sep-0043-retire-numba-cpu.md)). It depends on the seam,
+which has no version number: the pin and `check_build` guard it (ADR-068).
 
 `solprop-gui`, the desktop front end, is the third, built from `gui/` at solprop's
 version and installed through the `gui` extra ([its design](gui/design.md)). It sits
@@ -451,7 +452,7 @@ circular limits. Circular launch still uses the existing real modal basis.
 
 The translation layer produces the `KernelProblem` ([kernel-contract.md](kernel-contract.md)):
 plain arrays with fixed dtypes, shapes and axis names, validated (finite, contiguous, sizes
-consistent), immutable, versioned. What it computes, once per problem:
+consistent) and immutable, with no version number (ADR-068). What it computes, once per problem:
 
 | product | from | representation |
 |---|---|---|
@@ -612,7 +613,7 @@ remain held, copies and verifies the pair, publishes a manifest last, then reope
 the same writers. Backend and atomic resources are untouched; no additional observe,
 landing plane or response evaluation occurs. The store bounds completed and incomplete
 generations and leaves transport/retirement to an external controller. The manifest
-has its own version, outside the scientific configuration and kernel schema. See the
+has its own version, outside the scientific configuration and the kernel contract. See the
 [manual](../guide/results/output.md#periodic-snapshots-while-computing) for admission,
 restoration, ownership and interruption rules.
 

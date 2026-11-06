@@ -1742,7 +1742,7 @@ against 2.91 ms, `rdw` 7.76 against 4.76, `radial_filament_256` 14.1 against 6.8
 `spatial_absorber` 3.69 against 2.38, `kerr_beam_192` 246 against 131 and
 `cartesian_filament_128` 806 against 316 ms.
 
-**Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
+**Status: experimental.** The custom Metal kernels (`gpu_only` in
 `tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
 that the device is available. That lane runs without coverage or the runtime type
 checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve

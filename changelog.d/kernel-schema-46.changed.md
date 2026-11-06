@@ -1,1 +1,0 @@
-Kernel schema 46: `StepDriver` loses `set_held_plane`, `held_observation`, `_hold`, `_held_field` and `_drop_held`, and the native state `hold_plane`, `release_plane` and `held_to_host`. A solprop-native build of an earlier schema is refused at import; rebuild it from this tree.

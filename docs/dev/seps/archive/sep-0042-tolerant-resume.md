@@ -6,7 +6,7 @@
 | **Title** | Resuming by what matters to the run |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 |
-| **Status** | Final |
+| **Status** | Superseded |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); Opus 5.5 (AI) |
 | **Type** | Change |
@@ -14,7 +14,7 @@
 | **Resolution** | Accepted 2026-11-01 by John Travers, after the maintainer's human review, two AI reviews and the responses to them, and decisions Q1–Q7 (Part III) ([LupoLab/solprop#73](https://github.com/LupoLab/solprop/pull/73)). |
 | **Requires** | — |
 | **Supersedes** | — |
-| **Superseded-by** | — |
+| **Superseded-by** | [ADR-066](../../decisions.md) |
 | **Implementation** | Complete 2026-11-01: John Travers, with Opus 5.5, on `feature/sep-0042-tolerant-resume`; phases 1 and 2 (Part II) |
 | **Manual pages** | [Resuming a calculation and checking compatibility](../../../guide/results/resuming.md); [output: the schema version](../../../guide/results/output.md#the-schema-version); [scans](../../../guide/workflows/scans.md) |
 

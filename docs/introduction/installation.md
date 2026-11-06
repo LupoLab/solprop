@@ -85,10 +85,12 @@ ERROR: No matching distribution found for solprop-native==X.Y.Z
 
 and uv that `solprop-native==X.Y.Z has no wheels with a matching platform tag`. This is
 not a broken installation: it means that solprop does not support this platform, and none
-of solprop's code has run. An installer that cannot satisfy the newest release may also
-try older ones, and solprop 0.1.0 did not require the native backend, so if it starts
-building Numba or pyFFTW, ask for a current release (`pip install "solprop>=0.2"`) to see
-the error above.
+of solprop's code has run. An installer that cannot satisfy the newest release may try
+older ones instead, and solprop 0.1.0 did not require the native backend: on such a
+platform it may quietly install 0.1.0, or start building Numba or pyFFTW from source. Ask
+for a current release (`pip install "solprop>=0.2"`) to see the error above, and check the
+version an installation holds with the code in
+[Checking the installation](#checking-the-installation).
 
 To report the platform, [open an issue](https://github.com/LupoLab/solprop/issues) and
 include what this prints:
@@ -141,6 +143,8 @@ solprop-gui
 The front end is experimental. It needs more of Linux than solprop does: every Qt for
 Python (PySide6) release for CPython 3.14 wants glibc 2.34 or newer on x86-64 and 2.39
 on aarch64, so on an older glibc `solprop[gui]` does not install, though solprop does.
+There, as above, an installer may fall back to an older solprop without the front end;
+`pip install "solprop[gui]>=0.2"` shows the error instead.
 
 ## Checking the installation
 
