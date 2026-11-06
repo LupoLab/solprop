@@ -641,8 +641,12 @@ def parallel_rows[T](n_rows: int, nbytes: int, work: Callable[[slice], T]) -> li
     list
         Each call's result, in row order.
     """
+    # The size first: the budget reads the CPU topology from sysfs (a file per CPU),
+    # which a small pass at every saved plane would otherwise pay each time.
+    if nbytes < PARALLEL_BYTES:
+        return [work(slice(0, n_rows))]
     workers = min(thread_budget().threads, n_rows)
-    if nbytes < PARALLEL_BYTES or workers <= 1:
+    if workers <= 1:
         return [work(slice(0, n_rows))]
     edges = [n_rows * index // workers for index in range(workers + 1)]
     with ThreadPoolExecutor(workers) as pool:
