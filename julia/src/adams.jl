@@ -145,6 +145,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     mask = c.norm_mask
     # The predictor, the flow and its moments, and the state's norm for the scale.
     active = c.mask
+    none, nil, h = zero(T), zero(C), T(step)
     squared = @section :adams_predict reduce_each(+, zero(T), c, size(y)...; heavy=true) do f, m
         @inbounds begin
             # Outside the band the state, the history and the source are exactly zero,
@@ -152,7 +153,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
             if !active[f]
                 lab[f, m] = 0
                 compensated && (endpoint[f, m] = 0; error[f, m] = 0)
-                return zero(T)
+                return none
             end
             x = ComplexF64(step * linear[f, m])
             if phi !== nothing
@@ -163,12 +164,12 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
             end
             values = phi_values(x, Val(N))
             forward[f, m, 1] = values[1]
-            predicted = zero(C)
+            predicted = nil
             for k in 1:N
-                moment = C(values[k+1] / RECIP_FACTORIAL[k])
+                moment = oftype(nil, values[k+1] / RECIP_FACTORIAL[k])
                 moments[f, m, k] = moment
                 if k <= order
-                    weighted = zero(C)
+                    weighted = nil
                     for j in 1:order
                         weighted += predictor[j, k] * store[f, m, slots[j]]
                     end
@@ -176,20 +177,20 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                 end
             end
             if compensated
-                correction = zero(C)
+                correction = nil
                 for j in 1:N-1
                     slot = slots[j]
-                    value = C(exp(spans[j] * x)) * (rates[f, m, slot] - C(x / step)) * states[f, m, slot]
+                    value = oftype(nil, exp(spans[j] * x)) * (rates[f, m, slot] - oftype(nil, x / step)) * states[f, m, slot]
                     carried[f, m, j] = value
                     j <= order && (correction += cpredictor[j] * value)
                 end
                 predicted += correction
                 error[f, m] = adams_rate(linear, phi, weights, f, m)
             end
-            value = C(values[1]) * y[f, m] + T(step) * predicted
+            value = oftype(nil, values[1]) * y[f, m] + h * predicted
             lab[f, m] = value
-            compensated && (endpoint[f, m] = (error[f, m] - C(x / step)) * value)
-            mask[f] ? abs2(y[f, m]) : zero(T)
+            compensated && (endpoint[f, m] = (error[f, m] - oftype(nil, x / step)) * value)
+            mask[f] ? abs2(y[f, m]) : none
         end
     end
     w.path === nothing || material_stage!(engine, 7)
@@ -203,7 +204,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                 candidate[f, m] = 0
                 return zero3
             end
-            corrected = zero(C)
+            corrected = nil
             for k in 1:N
                 weighted = corrector[1, k] * source[f, m]
                 for j in 2:N
@@ -218,7 +219,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                 end
                 corrected += correction
             end
-            candidate[f, m] = forward[f, m, 1] * y[f, m] + T(step) * corrected
+            candidate[f, m] = forward[f, m, 1] * y[f, m] + h * corrected
             result = zero3
             if mask[f]
                 scale = relative * weight[f] + absolute
@@ -227,7 +228,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                     for j in 2:N
                         difference += defects[row, j] * store[f, m, slots[j-1]]
                     end
-                    polynomial = zero(C)
+                    polynomial = nil
                     for k in 1:N
                         polynomial += defects[row, N+k] * moments[f, m, k]
                     end
@@ -239,7 +240,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                         end
                         defect += correction
                     end
-                    defect *= T(step)
+                    defect *= h
                     score = scale == 0 && defect == 0 ? zero(T) : abs2(defect / scale)
                     result = Base.setindex(result, score, row)
                 end

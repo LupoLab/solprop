@@ -455,6 +455,7 @@ class JuliaBackend(StepDriver[object]):
         self._recycle = _responses_recycle(problem)
         self._alarm = math.nan
         self._alarm_reported = False
+        self._host_blas = _hold_host_blas()
         if isinstance(problem.stepper.integrator, LowStorageRungeKutta):
             from solprop.backends.low_storage import LowStorageMarch  # noqa: PLC0415
 
@@ -907,10 +908,36 @@ class JuliaBackend(StepDriver[object]):
 
     def close(self) -> None:
         """Release this engine's Julia references; repeated calls are harmless."""
+        if self._host_blas is not None:
+            self._host_blas.restore_original_limits()
+            self._host_blas = None
         self._state = None
         self._engine = None
         self._closed = True
         self._rows.clear()
+
+
+def _hold_host_blas() -> object | None:
+    """Hold every host BLAS pool to one thread while the engine lives, as native does.
+
+    NumPy's OpenBLAS spins after each small host product (the transverse edge's
+    tables, the planes' statistics) on the cores the engine's pool waits on: on eight
+    Xeon cores a radial filament's window took 4.26 s with its eight threads and 1.07 s
+    with one. The lease is solprop's (``acquire_host_blas``), shared with native's.
+
+    Returns
+    -------
+    object or None
+        The lease, or None when no controllable BLAS is loaded.
+    """
+    import threadpoolctl  # noqa: PLC0415 - loaded with the engine only
+
+    from solprop._process import acquire_host_blas  # noqa: PLC0415
+
+    libraries = threadpoolctl.ThreadpoolController().select(user_api="blas")
+    if not libraries.lib_controllers:
+        return None
+    return acquire_host_blas(libraries.lib_controllers, 1)
 
 
 def _splits(problem: KernelProblem) -> bool:

@@ -110,11 +110,12 @@ function weighted_norm(engine, error, magnitude)
     T = real_type(engine)
     (; weights, norm_mask) = c
     relative, absolute = T(c.rtol) * magnitude, T(c.atol)
-    residual = reduce_each(+, zero(T), c, size(error)...) do f, m
+    nothing_ = zero(T)
+    residual = reduce_each(+, nothing_, c, size(error)...) do f, m
         @inbounds begin
             scale = relative * weights[f] + absolute
             value = error[f, m]
-            norm_mask[f] && !(scale == 0 && value == 0) ? abs2(value / scale) : zero(T)
+            norm_mask[f] && !(scale == 0 && value == 0) ? abs2(value / scale) : nothing_
         end
     end
     Float64(sqrt(residual))

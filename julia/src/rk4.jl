@@ -12,6 +12,7 @@ function rk4!(engine, dz::Float64, key::Float64)
     mask = c.norm_mask
     h, half, third, sixth = T(dz), T(dz / 2), T(dz / 3), T(dz / 6)
     free_propagators!(engine, key / 2)
+    none = zero(T)
     source!(engine, y)
     each!(c, size(y)...) do f, m
         @inbounds begin
@@ -24,7 +25,7 @@ function rk4!(engine, dz::Float64, key::Float64)
         end
     end
     source!(engine, lab)
-    lower = reduce_each(+, zero(T), c, size(y)...) do f, m
+    lower = reduce_each(+, none, c, size(y)...) do f, m
         @inbounds begin
             slope = source[f, m]
             difference = slope - error[f, m]
@@ -32,26 +33,26 @@ function rk4!(engine, dz::Float64, key::Float64)
             error[f, m] = slope
             candidate[f, m] += third * slope
             lab[f, m] = y[f, m] + half * slope
-            mask[f] ? abs2(difference) : zero(T)
+            mask[f] ? abs2(difference) : none
         end
     end
     source!(engine, lab)
-    upper = reduce_each(+, zero(T), c, size(y)...) do f, m
+    upper = reduce_each(+, none, c, size(y)...) do f, m
         @inbounds begin
             slope = source[f, m]
             difference = slope - error[f, m]
             error[f, m] = difference
             candidate[f, m] += third * slope
             lab[f, m] = forward[f, m, 1] * (y[f, m] + h * slope)
-            mask[f] ? abs2(difference) : zero(T)
+            mask[f] ? abs2(difference) : none
         end
     end
     source!(engine, lab)
-    squared = reduce_each(+, zero(T), c, size(y)...) do f, m
+    squared = reduce_each(+, none, c, size(y)...) do f, m
         @inbounds begin
             new = forward[f, m, 1] * candidate[f, m] + sixth * source[f, m]
             candidate[f, m] = new
-            mask[f] ? abs2(new) : zero(T)
+            mask[f] ? abs2(new) : none
         end
     end
     (Float64(squared), lower > 0 ? 2sqrt(Float64(upper) / Float64(lower)) : NaN)

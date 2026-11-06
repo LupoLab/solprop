@@ -60,9 +60,9 @@ function analytic_signal!(analytic, nodes, forward, inverse, c, count)
     forward * analytic
     # The unnormalised inverse's 1/nt is folded into the one-sided spectral factor.
     T = real(eltype(analytic))
-    one, two, half = inv(T(nt)), 2 / T(nt), nt ÷ 2
+    one, two, half, none = inv(T(nt)), 2 / T(nt), nt ÷ 2, zero(T)
     each!(c, nt, chunk) do f, m
-        @inbounds analytic[f, m] *= (f == 1 || f == half + 1) ? one : f <= half ? two : zero(T)
+        @inbounds analytic[f, m] *= (f == 1 || f == half + 1) ? one : f <= half ? two : none
     end
     inverse * analytic
     nothing
@@ -198,6 +198,7 @@ function plasma_current!(p, nodes, c, count)
     charge, potential = T(p.parameters[6]), T(p.parameters[7])
     density, initial = T(p.parameters[8]), T(p.parameters[9])
     nt = size(nodes, 1)
+    none, nan = zero(T), T(NaN)
     each_column!(c, count) do node
         peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args)
         # With exactly zero rates and no initial electrons both currents vanish.
@@ -208,9 +209,9 @@ function plasma_current!(p, nodes, c, count)
             end
             return nothing
         end
-        previous, value = T(NaN), zero(T)
+        previous, value = nan, none
         @inbounds for t in 1:nt
-            exposure = floor ? max(fraction[t, node], zero(T)) : fraction[t, node]
+            exposure = floor ? max(fraction[t, node], none) : fraction[t, node]
             # An unchanged prefix gives the same fraction: the zero-rate head and the
             # constant tail cost no exponential. No threshold, no approximation.
             if exposure != previous
@@ -225,7 +226,7 @@ function plasma_current!(p, nodes, c, count)
             field = nodes[t, node]
             squared = field * field
             loss = rate[t, node] > 0 && squared > 0 ?
-                   (potential * rate[t, node] * (1 - fraction[t, node]) / squared) * field : zero(T)
+                   (potential * rate[t, node] * (1 - fraction[t, node]) / squared) * field : none
             total = density * (current[t, node] + loss)
             gated[t, node] = window[t] * total
             edge[t, node] = derivative[t] * total
@@ -269,10 +270,11 @@ function population_parts!(p, nodes, c, first, count)
     floor, args = p.floor, rate_arguments(p)
     initial = T(p.parameters[9])
     nt, reach = size(nodes, 1), 2 * (length(taps) - 1)
+    none = zero(T)
     each_column!(c, count) do node
         peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args)
-        dip = rise = paid = early = largest = zero(T)
-        before = product_before = start = zero(T)
+        dip = rise = paid = early = largest = none
+        before = product_before = start = none
         @inbounds for t in 1:nt
             exposure = fraction[t, node]
             if t > 1
@@ -280,7 +282,7 @@ function population_parts!(p, nodes, c, first, count)
                 rise = max(rise, exposure - before)
             end
             before = exposure
-            value = 1 - (1 - initial) * exp(-(floor ? max(exposure, zero(T)) : exposure))
+            value = 1 - (1 - initial) * exp(-(floor ? max(exposure, none) : exposure))
             fraction[t, node] = value
             product = rate[t, node] * (1 - value)
             if t == 1
