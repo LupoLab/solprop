@@ -73,7 +73,10 @@ end
 function plasma_workspace(c, host, nt, chunk, nm, nn)
     host.flag("plasma") || return nothing
     T = c.T
-    columns = c.free ? 0 : nm
+    # Columns: the chunk's where the streams are transformed node by node (free space,
+    # the spectral modal path), the modes' where they are projected first.
+    by_node = c.free || (haskey(c, :spectral) && c.spectral)
+    columns = by_node ? 0 : nm
     (
         coefficients=upload(c, host.array("plasma_coefficients", T)),
         # Field range, rate cap, log-table origin and step, charge-mass ratio and
@@ -88,8 +91,8 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
         gated=dzeros(c, T, nt, chunk), edge=dzeros(c, T, nt, chunk),
         projected=dzeros(c, T, nt, columns), edge_projected=dzeros(c, T, nt, columns),
         coarse=dzeros(c, T, nt, columns), coarse_edge=dzeros(c, T, nt, columns),
-        spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, c.free ? chunk : nm),
-        edge_spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, c.free ? chunk : nm),
+        spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, by_node ? chunk : nm),
+        edge_spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, by_node ? chunk : nm),
         fractions=dzeros(c, T, nn), peaks=dzeros(c, T, nn), parts=dzeros(c, T, 6, chunk),
     )
 end

@@ -216,8 +216,17 @@ function Base.:*(p::Blocked, x)
     x
 end
 
-"""`C = alpha A B + beta C`: on a CPU, blocks of rows of `C` and `A` as the pool's tasks."""
+"""`C = alpha A B + beta C`: on a CPU, blocks of rows of `C` and `A` as the pool's tasks.
+
+A complex `C` and `A` against a real `B` are their real views, of twice the rows: one
+real GEMM, BLAS's or cuBLAS's. Julia's own mixed-type product is generic, slow on a GPU,
+and in binary32 not safe to run from several tasks (a 1.5 relative error on the Xeon,
+LinearAlgebra in Julia 1.13.3).
+"""
 function gemm!(C, A, B, alpha, beta, c)
+    if eltype(C) <: Complex && eltype(A) <: Complex && eltype(B) <: Real
+        return gemm!(real_rows(C), real_rows(A), B, alpha, beta, c)
+    end
     blocks = oncpu(c) ? min(c.tasks, cld(length(C), PARALLEL_SAMPLES ÷ 4)) : 1
     blocks <= 1 && return mul!(C, A, B, alpha, beta)
     rows = cld(size(C, 1), blocks)
@@ -227,6 +236,9 @@ function gemm!(C, A, B, alpha, beta, c)
     end
     C
 end
+
+"""A column-contiguous complex matrix as the real one of its interleaved parts."""
+real_rows(X) = reshape(reinterpret(real(eltype(X)), X), 2size(X, 1), size(X, 2))
 
 # Section timers for development: SOLPROP_JULIA_TIMING=1 when the module loads. Off,
 # `@section` costs one branch.

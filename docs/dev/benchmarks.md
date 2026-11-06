@@ -2902,3 +2902,53 @@ a 768 × 768 × 600 envelope launch through a Sellmeier glass with a Kerr respon
 A launch's bits don't change, which `tests/test_pulses.py` and `tests/test_cartesian_precision.py` hold across
 thread counts. The sum that scales the field stays one sum in one order for that reason, so it stays on one thread.
 
+
+## Julia backend experiment
+
+The experimental `julia` backend (`julia/STATUS.md`) against `native`, both arms in one
+interpreter, `python -m benchmarks ab --baseline-backend native --candidate-backend julia
+--noise none --length 0.02 --stepper default`: 2 % of each case, so ten to two hundred
+steps and the cases' 4 to 12 saved planes; the ratio is `julia`/`native`, below one
+`julia` faster. Every row took the same steps on both arms, with fields equal to 1e-13
+or better, unless said. These are short windows: they carry the planes' host statistics
+and a first-run cost both arms pay (`simulation.metadata()` inside the timed window,
+about 0.18 s on `rdw`), and they are not whole runs.
+
+**Intel Xeon Gold 6240**, 16 cores of socket 1 with their 16 threads, passive-bound
+threading, a shared machine (load about 3), two rounds, commit `3e2290c0`:
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.586 | 0.902 | 1.54 | 0.314 | 0.421 | 1.34 |
+| `argon_blueshift` | 0.591 | 1.438 | 2.43 | 0.228 | 0.551 | 2.41 |
+| `h2_raman_6ps` | 3.512 | 4.179 | 1.19 | 2.039 | 2.194 | 1.08 |
+| `ctc_reduced` | 1.075 | 2.865 | 2.67 | 0.451 | 0.642 | 1.42 |
+| `radial_filament_256` | 2.158 | 3.471 | 1.61 | 0.385 | 1.182 | 3.07 |
+| `kerr_beam_192` | 5.135 | 6.751 | 1.31 | 0.843 | 2.697 | 3.20 |
+| `line` | 0.692 | 0.965 | 1.39 | 0.200 | 0.361 | 1.81 |
+
+The geometric mean was 2.30 at commit `8ab6c4b9`, before the transverse edge and the
+state copies moved into the engine and before the first window's compilation moved to
+construction, and 1.78 here. Later commits take a Cartesian 192² window from 1.72 to
+1.10 s and a radial one from 0.97 to 0.86 s (single runs, 16 threads, the same socket).
+
+**NVIDIA A40** (driver 595.71), native's CUDA build (AMPERE86) against `julia` with
+`SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, binary64:
+
+| case | native, s | julia, s at `aa6b9478` | ratio | julia, s at `90840a43` | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.187 | 0.585 | 3.13 | 0.356 | 1.84 |
+| `argon_blueshift` | 0.152 | 0.693 | 4.55 | 0.528 | 3.43 |
+| `h2_raman_6ps` | 1.127 | 1.501 | 1.33 | 1.515 | 1.33 |
+| `ctc_reduced` | 0.266 | | | 0.462 | 1.74 |
+| `radial_filament_256` | 0.188 | 0.872 | 4.64 | 0.799 | 4.35 |
+| `kerr_beam_192` | 0.203 | 1.513 | 7.47 | 0.662 | 3.62 |
+| `line` | 0.112 | 0.354 | 3.19 | 0.325 | 2.98 |
+
+Between them: the observation populations a sample a thread (they were 70 % of an
+`rdw` window's GPU time, one 20 ms kernel a column), the bridge's state copies and an
+empty statistics spec's copy. What remains on the A40, from Nsight Systems: binary64
+GEMMs are half of a radial window's device time, the synthesis and projections at
+the fine grid's 1728 real rows; FFTs a third of `argon_blueshift`'s, about eight a
+source; and host work per step and per plane, which the binary64 kernels do not
+explain (`rdw`: 0.14 s on the device in a 0.36 s window).

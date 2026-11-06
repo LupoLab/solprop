@@ -160,6 +160,7 @@ end
 """The embedded coarse quadrature's relative defect in the last stage's source."""
 function quadrature_alarm(engine)
     c, w = engine.config, engine.work
+    c.spectral && return band_alarm(engine)
     mul!(w.coarse_spec, w.forward_plan, w.projected_coarse)
     w.plasma === nothing || add_plasma!(w.coarse_spec, w.plasma, w.forward_plan, c; coarse=true)
     (; prefactor, omega_window, crop) = c
@@ -170,6 +171,21 @@ function quadrature_alarm(engine)
             weight = prefactor[f, m] * omega_window[f]
             exact = weight * fine[crop[f], m]
             (abs2(exact), abs2(weight * coarse[crop[f], m] - exact))
+        end
+    end
+    sums[1] == 0 ? NaN : Float64(sqrt(sums[2] / sums[1]))
+end
+
+function band_alarm(engine)
+    c, w = engine.config, engine.work
+    (; prefactor, omega_window) = c
+    exact, coarse = w.band_source, w.band_coarse
+    T = real_type(engine)
+    sums = reduce_each(.+, (zero(T), zero(T)), c, size(w.y)...) do f, m
+        @inbounds begin
+            weight = prefactor[f, m] * omega_window[f]
+            value = weight * exact[f, m]
+            (abs2(value), abs2(weight * coarse[f, m] - value))
         end
     end
     sums[1] == 0 ? NaN : Float64(sqrt(sums[2] / sums[1]))
