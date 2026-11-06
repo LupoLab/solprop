@@ -247,21 +247,9 @@ All notable changes to solprop are recorded here. The format follows
   amplitude −0.9, came out 85 % wrong with no warning. The class evaluates the record's
   transform exactly at the grid's frequencies, 3e-12 from the direct sum on that case,
   less its mean: a baseline is an offset of the instrument, not part of the field.
-- `get_spectrum` has no `noise_floor` keyword. Its annotation admitted "subtract",
-  which it always refused: an amplitude has no part that is the floor's power, so
-  only `get_spectral_density` subtracts it. Drop `noise_floor="keep"`, the default,
-  from a call that passes it; the result is unchanged.
 
 ### Fixed
 
-- Bad input to the processing and plotting helpers is refused by name, with its units,
-  instead of failing late or silently. `Passband` refuses other than two limits, or a
-  width that is not positive, when built; it raised `IndexError` on use, or kept two of
-  three limits. `wavelength_to_axis` refuses a wavelength limit that is not positive on
-  a frequency axis, where zero raised `ZeroDivisionError`. `spectral_bands` and
-  `band_coherence` refuse `n_bands` below one, and a band with nothing to average stays
-  `nan` without a `RuntimeWarning`. `spectrogram` refuses a `spec_range` that misses the
-  data, as `get_spectral_density` does, instead of drawing an empty view.
 - A gallery page re-run on its own keeps its `MaterialRangeWarning`: the docs build's
   import of `solprop.sol` silenced it for every script after.
 - A scan derived from one cached simulation, the scans guide's own recipe, now gives every
