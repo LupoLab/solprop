@@ -13,10 +13,10 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Complex
 
-from solprop._helpers import PLAIN
 from solprop._process import _BlasLease
 from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame
+from solprop.backends.julia._helpers import JULIA
 from solprop.backends.julia._runtime import (
     call_julia,
     runtime,
@@ -26,7 +26,7 @@ from solprop.backends.julia._runtime import (
 from solprop.backends.multistep import source_absent
 from solprop.backends.numpy_ref.passes import plasma_integration_statistics
 from solprop.backends.spatial import collect_spatial, radial_absorber_matrix
-from solprop.constants import C, EPS0
+from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
@@ -36,8 +36,8 @@ from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.stats import (
     _POYNTING_STATISTICS,
-    _power_half_width,
     StatsSpec,
+    _power_half_width,
     _poynting_statistics,
     collect,
     default_spec,
@@ -426,7 +426,7 @@ class JuliaBackend(StepDriver[object]):
     max_batch = 1
     # Shared scalar tables and bookkeeping remain plain Python. Numerical state
     # and complete propagation trials stay in Julia.
-    helpers = PLAIN
+    helpers = JULIA
     propagator_default = "tabulate"
     # The transverse edge (SEP 40/44) is read by the driver's host reduction.
     reads_transverse_edge = True
@@ -944,7 +944,7 @@ class JuliaBackend(StepDriver[object]):
         state: np.ndarray,
         axis: np.ndarray | None,
     ) -> dict[str, np.ndarray]:
-        """``stats._poynting_statistics`` with its analytic signals formed by the engine.
+        """``stats._poynting_statistics``, its analytic signals formed by the engine.
 
         The transforms and the on-axis product are the engine's (``poynting``), the
         reductions over their short results the reference's own. Windowed statistics
@@ -1004,7 +1004,9 @@ class JuliaBackend(StepDriver[object]):
                     )
             if wanted:
                 if axis is None:
-                    msg = "Poynting peak_intensity requires the on-axis synthesis matrix"
+                    msg = (
+                        "Poynting peak_intensity requires the on-axis synthesis matrix"
+                    )
                     raise BackendError(msg)
                 values["peak_intensity"] = np.asarray(
                     0.5 * EPS0 * C * np.max(np.asarray(flux))

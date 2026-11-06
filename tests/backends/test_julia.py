@@ -182,3 +182,94 @@ def test_julia_poynting_statistics_match_the_host(runtime):
         # signals' sums, far below the 1e-10 the fields are held to.
         np.testing.assert_allclose(ours[name], value, rtol=1e-11, atol=0, err_msg=name)
     engine.close()
+
+
+def test_julia_helpers_are_the_python_forms_bit_for_bit(runtime):
+    """The record's Chebyshev rows and Adams basis equal PLAIN's to the last bit."""
+    del runtime
+    from solprop._helpers import PLAIN  # noqa: PLC0415
+    from solprop.backends.julia._helpers import JULIA  # noqa: PLC0415
+
+    generator = np.random.default_rng(7)
+    edges = np.cumsum(generator.uniform(0.1, 1.0, 6))
+    lower, upper = edges[0] - 1e-12, edges[-1] + 1e-12
+    z = np.concatenate([edges, generator.uniform(edges[0], edges[-1], 9), [np.nan]])
+    for terms in (1, 2, 3, 17):
+        for dtype in (np.float64, np.complex128):
+            c = generator.standard_normal((5, terms, 4)).astype(dtype)
+            if dtype == np.complex128:
+                c += 1j * generator.standard_normal(c.shape)
+            ours, theirs = np.empty((z.size, 4), dtype), np.empty((z.size, 4), dtype)
+            assert JULIA.points(z, edges, lower, upper, c, ours) == PLAIN.points(
+                z, edges, lower, upper, c, theirs
+            )
+            np.testing.assert_array_equal(ours, theirs)
+    outside = np.array([edges[1], edges[-1] + 1.0])
+    out = np.empty((2, 4))
+    c = generator.standard_normal((5, 3, 4))
+    assert JULIA.points(outside, edges, lower, upper, c, out) == 1
+    nodes = np.array([0.0, -0.93, -1.81, -2.77, -3.6, -4.55, -5.4])
+    for count in range(1, nodes.size + 1):
+        for upper, integrate in ((1.0, False), (1.0, True), (0.37, True)):
+            ours = JULIA.basis(np.ascontiguousarray(nodes[:count]), upper, integrate)
+            theirs = PLAIN.basis(np.ascontiguousarray(nodes[:count]), upper, integrate)
+            np.testing.assert_array_equal(ours[0], theirs[0])
+            if integrate:
+                np.testing.assert_array_equal(ours[1], theirs[1])
+
+
+@pytest.mark.parametrize("compensated", [False, True])
+def test_julia_trial_tables_are_the_shared_ones_bit_for_bit(runtime, compensated):
+    """The engine's own trial tables equal backends.multistep.trial_tables'."""
+    from juliacall import Main  # noqa: PLC0415
+
+    from solprop._helpers import PLAIN  # noqa: PLC0415
+    from solprop.backends.multistep import trial_tables  # noqa: PLC0415
+
+    nodes = [0.0, -0.93, -1.81, -2.77, -3.6, -4.55]
+    host = Main.seval(
+        """(configure, nodes, order, orders, compensated) -> begin
+            sizes = [0, 0, 0]
+            h = (predictor=zeros(8, 8), corrector=zeros(8, 8), defects=zeros(8, 16),
+                 slots=zeros(Int, 8), spans=zeros(8), cpredictor=zeros(8),
+                 ccorrector=zeros(8), cdefects=zeros(8, 8), rate=zeros(1))
+            adams = (host=h, device=h, sizes=sizes, compensated=compensated)
+            engine = (work=(adams=adams,),)
+            configure(engine, nodes, order, orders, zeros(Int, 8), [0.5])
+            h
+        end"""
+    )
+    for order, orders in ((3, [3, 2, 4]), (4, [4, 3, 5]), (1, [1, 2])):
+        h = host(
+            runtime.configure_adams_nodes_b,
+            np.asarray(nodes),
+            order,
+            np.asarray(orders),
+            compensated,
+        )
+        shared = trial_tables(
+            nodes=nodes,
+            order=order,
+            orders=orders,
+            compensated=compensated,
+            helpers=PLAIN,
+        )
+        width, count = 1 + max(orders), len(orders)
+        np.testing.assert_array_equal(
+            np.asarray(h.predictor)[:order, :order], shared[0]
+        )
+        np.testing.assert_array_equal(
+            np.asarray(h.corrector)[:width, :width], shared[1]
+        )
+        np.testing.assert_array_equal(
+            np.asarray(h.defects)[:count, : 2 * width], shared[2]
+        )
+        if compensated:
+            np.testing.assert_array_equal(np.asarray(h.spans)[: width - 1], shared[3])
+            np.testing.assert_array_equal(np.asarray(h.cpredictor)[:order], shared[4])
+            np.testing.assert_array_equal(
+                np.asarray(h.ccorrector)[: order + 1], shared[5]
+            )
+            np.testing.assert_array_equal(
+                np.asarray(h.cdefects)[:count, :width], shared[6]
+            )

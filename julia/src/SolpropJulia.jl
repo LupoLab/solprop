@@ -41,6 +41,7 @@ include("free.jl")
 include("dopri.jl")
 include("rk4.jl")
 include("adams.jl")
+include("helpers.jl")
 include("stages.jl")
 include("observe.jl")
 

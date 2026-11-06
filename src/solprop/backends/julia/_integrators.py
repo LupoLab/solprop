@@ -8,11 +8,9 @@ from collections.abc import Mapping
 
 import numpy as np
 
-from solprop._helpers import PLAIN
 from solprop.backends.julia._backend import JuliaBackend
 from solprop.backends.julia._runtime import call_julia
 from solprop.backends.low_storage import schedule_key, table_steps
-from solprop.backends.multistep import compensation_tables, exponential_tables
 from solprop.exceptions import BackendError
 from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.translate.linop import rate_weights
@@ -83,7 +81,7 @@ class JuliaAdams:
             call_julia(
                 backend._jl.configure_adams_rate_b,
                 backend._engine,
-                rate_weights(backend._problem.linear, z, helpers=PLAIN),
+                rate_weights(backend._problem.linear, z, helpers=backend.helpers),
             )
         call_julia(backend._jl.adams_start_b, backend._engine, nogil=True)
 
@@ -133,28 +131,22 @@ class JuliaAdams:
         backend = self.backend
         if backend._varying:
             backend._prepare_stages(z, dz)
-        predictor, corrector, defects = exponential_tables(
-            nodes, order, orders, helpers=PLAIN
+        # The tables are formed in the engine (julia/src/helpers.jl), in the shared
+        # functions' operations and order (backends.multistep.trial_tables).
+        rate = (
+            rate_weights(
+                backend._problem.linear, z + dz, before=True, helpers=backend.helpers
+            )
+            if self.compensated
+            else np.empty(0)
         )
-        spans = carried = endpoint = corrections = rate = np.empty(0)
-        if self.compensated:
-            spans, carried, endpoint, corrections = compensation_tables(
-                nodes, order, orders, helpers=PLAIN
-            )
-            rate = rate_weights(
-                backend._problem.linear, z + dz, before=True, helpers=PLAIN
-            )
         call_julia(
-            backend._jl.configure_adams_b,
+            backend._jl.configure_adams_nodes_b,
             backend._engine,
-            predictor,
-            corrector,
-            defects,
-            slots[: corrector.shape[0] - 1],
-            spans,
-            carried,
-            endpoint,
-            corrections,
+            np.asarray(nodes, dtype=np.float64),
+            order,
+            np.asarray(orders, dtype=np.int64),
+            slots,
             rate,
         )
         result = call_julia(backend._jl.adams_trial_b, backend._engine, dz, nogil=True)
