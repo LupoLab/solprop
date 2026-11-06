@@ -319,3 +319,33 @@ def test_julia_stage_scalars_are_the_bundles_bit_for_bit(runtime):
         held = np.asarray(getattr(path, name))[:, :count]
         np.testing.assert_array_equal(held, value, err_msg=name)
     engine.close()
+
+
+def test_julia_vector_maths_is_within_an_ulp_or_two(runtime):
+    """vexp and vlog (julia/src/vmath.jl) against the C library's functions.
+
+    Each is within one ulp of the correctly rounded value (measured against
+    BigFloat when written); the C library's within one more, so two bound the gap.
+    """
+    from juliacall import Main  # noqa: PLC0415
+
+    apply = Main.seval("(f, x) -> f.(x)")
+    generator = np.random.default_rng(11)
+    x = np.concatenate(
+        [-745 + 1454 * generator.random(100_000), generator.standard_normal(10_000)]
+    )
+    ours = np.asarray(apply(runtime.vexp, x))
+    np.testing.assert_array_less(
+        np.abs(ours - np.exp(x)), 2 * np.spacing(np.exp(x)) + 1e-320
+    )
+    x = np.exp(-700 + 1400 * generator.random(100_000))
+    ours = np.asarray(apply(runtime.vlog, x))
+    np.testing.assert_array_less(
+        np.abs(ours - np.log(x)), 2 * np.abs(np.spacing(np.log(x)))
+    )
+    specials = np.asarray(
+        apply(runtime.vexp, np.array([np.nan, np.inf, -np.inf, 800.0]))
+    )
+    assert np.isnan(specials[0])
+    assert specials[1:].tolist() == [np.inf, 0.0, np.inf]
+    assert np.isnan(float(apply(runtime.vlog, np.array([np.nan]))[0]))

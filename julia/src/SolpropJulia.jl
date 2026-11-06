@@ -35,6 +35,7 @@ mutable struct Engine{C,W}
 end
 
 include("launch.jl")
+include("vmath.jl")
 include("responses.jl")
 include("modal.jl")
 include("free.jl")
