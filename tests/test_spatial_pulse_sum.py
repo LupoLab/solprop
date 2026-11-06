@@ -74,6 +74,17 @@ def test_a_sum_refuses_what_cannot_be_launched_together(beams, match):
         SpatialPulseSum(beams)
 
 
+def test_a_member_that_is_no_beam_is_refused():
+    # The tests' type checker refuses a wrong member at construction, before the sum's
+    # own check: a caller without it meets the check, run here directly.
+    total = SpatialPulseSum((_beam(),))
+    object.__setattr__(
+        total, "beams", (GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=ENERGY),)
+    )
+    with pytest.raises(PulseError, match="member 0 of the SpatialPulseSum"):
+        total.__post_init__()
+
+
 def test_a_sum_names_its_beams_and_their_polarisation():
     total = SpatialPulseSum((_beam(jones=(1, 1j)), _beam(jones=(2, 2j))))
     assert total.jones == (1, 1j)
