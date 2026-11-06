@@ -90,6 +90,12 @@ class ServiceBridge(QObject):
         KernelClient or ServiceConnection
             The client.
         """
+        if isinstance(self._kernel, ServiceConnection) and self._kernel.failed:
+            # No service could be reached, and the news is queued to this thread: go on
+            # with the window's own kernel now, rather than seeking the service again,
+            # whose connection the fallback would close with what it held.
+            self.service = False
+            self._kernel = None
         if self._kernel is None or not self._kernel.alive:
             if self._kernel is not None:
                 self._kernel.close(timeout=0.5)

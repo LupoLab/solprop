@@ -77,3 +77,32 @@ def test_a_service_out_of_reach_falls_back_to_the_window_s_own(
     # The window's own kernel answers instead.
     qtbot.waitUntil(lambda: bool(window.sheet._examples), timeout=WAIT_MS)
     window.close()
+
+
+def test_a_request_between_a_failure_and_its_news_is_not_lost(
+    qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    # The connection fails on its own thread and its news is queued to the window's.
+    # A request sent before the news arrives once opened another service connection,
+    # which the fallback then closed with the request held in it.
+    from solprop_gui.service import remote  # noqa: PLC0415 - only here
+    from solprop_gui.service.client import KernelClient  # noqa: PLC0415 - only here
+
+    monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
+    monkeypatch.setattr(remote, "start_service", lambda _state: None)
+    monkeypatch.setattr(remote, "START_SECONDS", 0.0)  # refused at once
+    bridge = ServiceBridge(service=True)
+    failed: list[str] = []
+    replies: list[int] = []
+    bridge.service_failed.connect(failed.append)
+    bridge.replied.connect(lambda reply: replies.append(reply.request_id))
+    held = bridge.request("examples", key="held")
+    connection = bridge._kernel
+    assert isinstance(connection, remote.ServiceConnection)
+    connection._reader.join(WAIT_MS / 1000)  # failed; the news not yet delivered
+    assert connection.failed and failed == []
+    later = bridge.request("examples", key="later")
+    assert isinstance(bridge._kernel, KernelClient)  # not the service again
+    qtbot.waitUntil(lambda: {held, later} <= set(replies), timeout=WAIT_MS)
+    assert len(failed) == 1 and "did not start" in failed[0]
+    bridge.close()

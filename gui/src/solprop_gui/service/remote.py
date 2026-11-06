@@ -282,6 +282,18 @@ class ServiceConnection:
         self.filter.revision = value
 
     @property
+    def failed(self) -> bool:
+        """Return whether no service could be reached.
+
+        Returns
+        -------
+        bool
+            True once connecting has failed; ``on_failed`` has then been given what
+            was held.
+        """
+        return self._failed
+
+    @property
     def alive(self) -> bool:
         """Return whether the connection is open.
 
