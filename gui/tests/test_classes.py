@@ -278,3 +278,16 @@ def test_other_geometry_s_form_comes_from_the_metadata() -> None:
     assert [page.key for page in made.pages] == ["overview", "plane", "along", "health"]
     assert class_of(described.route, described.to_dict()["build"]) is None
     assert other_class("free", "Free", {}).sections == ()
+
+
+def test_each_class_lists_examples_of_its_own_starting_from_its_own() -> None:
+    shipped = set(Recipe.examples())
+    for problem in CLASSES:
+        listed = problem.examples or (problem.example,)
+        assert listed[0] == problem.example, problem.key
+        assert len(set(listed)) == len(listed), problem.key
+        for name in listed:
+            assert name in shipped, name
+            document = Recipe.example(name).to_dict()
+            found = class_of(document["recipe"]["route"], document.get("build", {}))
+            assert found is problem, (problem.key, name)

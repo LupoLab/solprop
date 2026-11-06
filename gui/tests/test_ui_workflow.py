@@ -155,6 +155,9 @@ def test_each_class_opens_its_sheet_ready_to_run(
         assert (path, "build") in window.sheet.rows
     assert window.sheet.ready.text().startswith("Ready")
     assert window.sheet.examples.currentText() == model.title
+    listed = window.sheet.examples
+    names = [listed.itemData(i) for i in range(listed.count())]
+    assert names == list(problem.examples or (problem.example,))
     if problem.derived:
         first = problem.derived[0].key
         qtbot.waitUntil(
@@ -1157,17 +1160,13 @@ def test_a_design_with_no_recipe_yet_simulates_nothing(
     assert window.document.model is None
 
 
-def test_other_geometry_offers_every_other_route_on_the_generic_form(
+def test_a_recipe_of_another_route_opens_on_the_generic_form(
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
-    home = window.home
-    qtbot.waitUntil(lambda: bool(home.others.actions()), timeout=WAIT_MS)
-    titles = {action.text(): action for action in home.others.actions()}
-    assert "An argon-filled hollow rectangular waveguide" in titles
-    assert not any("capillary" in title.lower() for title in titles)
-    home._offer_others()
-    home.others.hide()
-    titles["An argon-filled hollow rectangular waveguide"].trigger()
+    # Home offers no tile for a route without a class; a recipe or file of one, made
+    # by a script, still opens, on the form solprop's metadata gives.
+    assert "other" not in window.home.tiles
+    window.document.open_example("hollow_rectangular")
     qtbot.waitUntil(lambda: window.stage is Stage.SETUP, timeout=WAIT_MS)
     sheet = window.sheet
     qtbot.waitUntil(lambda: bool(sheet.rows), timeout=WAIT_MS)
@@ -1181,9 +1180,7 @@ def test_other_geometry_offers_every_other_route_on_the_generic_form(
     )
     assert sheet.filler.isVisible()
     assert not sheet.preview.isVisible()
-    assert (
-        sheet.examples.currentText() == "An argon-filled hollow rectangular waveguide"
-    )
+    assert sheet.examples.count() == 0  # a route without a class lists none
     energy = sheet.derived["energy"]
     qtbot.waitUntil(lambda: energy.text() == "20 µJ", timeout=WAIT_MS)
     qtbot.waitUntil(lambda: window.progress().can_run, timeout=WAIT_MS)
@@ -1332,7 +1329,7 @@ def test_every_tile_has_its_drawing(qtbot: QtBot) -> None:
         assert drawn.pixelColor(44, 44).alpha() > 0 or name in ("filament", "design")
     home = HomePage()
     qtbot.addWidget(home)
-    assert {*(p.key for p in CLASSES), "other", "design"} <= set(ART)
+    assert {*(p.key for p in CLASSES), "design"} <= set(ART)
 
 
 def test_a_cartesian_beam_runs_and_shows_its_fluence_across_x_and_y(

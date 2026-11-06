@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (
 )
 from solprop.recipe.errors import RecipeError
 
-from solprop_gui.classes.catalog import OTHER_KEY, class_of
 from solprop_gui.classes.problem import (
     Derived,
     Field,
@@ -1024,18 +1023,14 @@ class SheetStage(QWidget):
         self.pins_changed.emit([(name, self._kept_value(name))], None)
 
     def _fill_examples(self) -> None:
-        """Offer the examples of the sheet's class."""
+        """Offer the examples the sheet's class lists, the one it starts from first."""
         self.examples.clear()
-        if self.problem is None:
+        if self.problem is None or not self.problem.example:
             return
-        for entry in self._examples:
-            build: Mapping[str, object] = entry["build"]  # pyright: ignore[reportAssignmentType]
-            found = class_of(str(entry["route"]), build)
-            other = found is None and self.problem.key == OTHER_KEY
-            if found is self.problem or (
-                other and entry["route"] == self.problem.route
-            ):
-                self.examples.addItem(str(entry["title"]), str(entry["name"]))
+        titles = {str(entry["name"]): str(entry["title"]) for entry in self._examples}
+        for name in self.problem.examples or (self.problem.example,):
+            if name in titles:
+                self.examples.addItem(titles[name], name)
         # A recipe from elsewhere is no example, and the list then shows none.
         self.examples.setCurrentIndex(self.examples.findText(self._title or ""))
 

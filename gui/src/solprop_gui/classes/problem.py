@@ -219,6 +219,10 @@ class ProblemClass:
     lens : tuple of str or None
         The waist, launch distance and wavelength paths a lens sets and reads, where the
         sheet offers one.
+    examples : tuple of str
+        The solprop examples its sheet lists, the one it starts from first; empty lists
+        that one alone. A chosen few: solprop's other examples of the route are the
+        gallery's, for scripts.
     """
 
     key: str
@@ -235,6 +239,7 @@ class ProblemClass:
     numbers: str = "summarise"
     curve: str | None = None
     lens: tuple[str, str, str] | None = None
+    examples: tuple[str, ...] = ()
 
 
 def derived_value(summary: Mapping[str, object] | None, key: str) -> float | None:

@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QHBoxLayout,
     QLabel,
-    QMenu,
     QPushButton,
     QScrollArea,
     QVBoxLayout,
@@ -107,8 +106,6 @@ class HomePage(QWidget):
     ----------
     class_chosen : Signal
         Emitted with a problem class's key.
-    example_chosen : Signal
-        Emitted with the name of an example picked under Other geometry.
     design_chosen : Signal
         Emitted when the person asks to design a waveguide.
     open_results_wanted : Signal
@@ -126,7 +123,6 @@ class HomePage(QWidget):
     """
 
     class_chosen = Signal(str)
-    example_chosen = Signal(str)
     design_chosen = Signal()
     open_results_wanted = Signal()
     open_setup_wanted = Signal()
@@ -149,19 +145,7 @@ class HomePage(QWidget):
             tile.clicked.connect(lambda key=problem.key: self.class_chosen.emit(key))
             self.tiles[problem.key] = tile
             tiles.addWidget(tile, index // 2, index % 2)
-        other = _Clickable(
-            "tile",
-            "Other geometry",
-            "Every other route, on the form solprop's metadata gives: rectangular "
-            "and planar guides, and general modes.",
-            art="other",
-        )
-        other.clicked.connect(self._offer_others)
-        self.others = QMenu(other)
-        self.others.setObjectName("others")
-        self.tiles["other"] = other
         after = len(CLASSES)
-        tiles.addWidget(other, after // 2, after % 2)
         design = _Clickable(
             "tile",
             "Design a waveguide",
@@ -170,7 +154,7 @@ class HomePage(QWidget):
         )
         design.clicked.connect(self.design_chosen)
         self.tiles["design"] = design
-        tiles.addWidget(design, (after + 1) // 2, (after + 1) % 2)
+        tiles.addWidget(design, after // 2, after % 2)
         main.addLayout(tiles)
         buttons = QHBoxLayout()
         buttons.setSpacing(8)
@@ -248,26 +232,6 @@ class HomePage(QWidget):
             box.addWidget(item)
         if not entries:
             box.addWidget(named_label(empty, "itemText"))
-
-    def set_other_examples(self, examples: Sequence[tuple[str, str]]) -> None:
-        """Take the examples Other geometry offers.
-
-        Parameters
-        ----------
-        examples : Sequence of tuple
-            Each example's name and title.
-        """
-        self.others.clear()
-        for name, title in examples:
-            action = self.others.addAction(title)
-            action.triggered.connect(
-                lambda _on=False, n=name: self.example_chosen.emit(n)
-            )
-
-    def _offer_others(self) -> None:
-        """Offer the examples of every other route, below the tile."""
-        tile = self.tiles["other"]
-        self.others.popup(tile.mapToGlobal(tile.rect().bottomLeft()))
 
     def show_workspace(self, folder: Path) -> None:
         """Say which folder the runs go in.

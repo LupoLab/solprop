@@ -17,7 +17,7 @@ setup it writes is a solprop [recipe](../setup/recipes.md), which `solprop run` 
 that the [processing functions](../results/processing.md) read. What you build in the
 window can be continued in a script, and a script's recipe can be opened in the window.
 
-![Home: the problem classes, Design a waveguide and Other geometry, with the recent runs and setups](images/home.png)
+![Home: the problem classes and Design a waveguide, with the recent runs and setups](images/home.png)
 
 ## Installing and starting it
 

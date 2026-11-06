@@ -100,6 +100,15 @@ CAPILLARY: Final = ProblemClass(
     summary="A gas-filled hollow capillary, mode-averaged or with several modes.",
     route="capillary",
     example="rdw",
+    examples=(
+        "rdw",
+        "soliton_self_compression",
+        "ionisation_blue_shift",
+        "raman_self_frequency_shift",
+        "four_wave_mixing",
+        "supercontinuum_raman_comb",
+        "spm_compressor",
+    ),
     sections=(
         Section(
             "Capillary",

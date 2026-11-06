@@ -192,7 +192,6 @@ class WorkflowWindow(QMainWindow):
         self._make_menus()
 
         self.home.class_chosen.connect(self.begin_class)
-        self.home.example_chosen.connect(self.document.open_example)
         self.home.design_chosen.connect(lambda: self.show_stage(Stage.DESIGN))
         self.home.open_results_wanted.connect(self.choose_results)
         self.home.open_setup_wanted.connect(self.choose_setup)
@@ -958,13 +957,6 @@ class WorkflowWindow(QMainWindow):
             The kernel's ``examples`` reply.
         """
         self.sheet.set_examples(examples)
-        self.home.set_other_examples(
-            [
-                (str(entry["name"]), str(entry["title"]))
-                for entry in examples
-                if class_of(str(entry["route"]), entry["build"]) is None  # pyright: ignore[reportArgumentType]
-            ]
-        )
         self._warm_up()
 
     def _warm_up(self) -> None:

@@ -107,7 +107,7 @@ solprop-gui
 
 - **Pick what you are simulating**: gas-filled capillaries, antiresonant fibres,
   GNLSE, step-index and graded-index fibres, radial filaments, and Cartesian and line
-  beams, with every other route on a form of its own.
+  beams, each starting from a few chosen examples.
 - **One setup sheet, in physics terms**: core radius, gas and pressure, pulse
   wavelength, duration and energy, checked as you type, with the numbers solprop
   computes for it (soliton order, zero-dispersion wavelength, fission length,

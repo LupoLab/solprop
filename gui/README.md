@@ -29,8 +29,8 @@ sudo apt install libegl1 libxkbcommon0 libxcb-cursor0
 
 - **Home** offers a problem class for each common geometry: gas-filled capillaries,
   antiresonant fibres, radial filaments, Cartesian and line beams, the GNLSE, and
-  step-index and graded-index fibres. Every other route is set up on a form built from
-  solprop's parameter metadata.
+  step-index and graded-index fibres. A recipe or results file of any other route,
+  made by a script, opens on a form built from solprop's parameter metadata.
 - **Setup** is one sheet per class, checked as you type, with the numbers solprop computes
   for it (a soliton order, a zero-dispersion wavelength) and a preview plot. A number can
   be typed as a target, and solprop solves for the input that gives it.

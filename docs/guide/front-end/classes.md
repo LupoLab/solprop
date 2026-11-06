@@ -3,7 +3,8 @@
 Each tile on Home is a **problem class**: a geometry the window sets up with its own
 sheet, computes its own numbers for, and reads with its own pages. A class starts from
 one of solprop's [example recipes](../setup/recipes.md#the-example-recipes), and
-**Start from** on its sheet offers the class's other examples. Whatever a class does not
+**Start from** on its sheet offers a few more chosen for it; solprop's other examples
+belong to the gallery's scripts. Whatever a class does not
 show on its sheet is under **Advanced**, so no keyword of the route is out of reach.
 
 Every class shares the stages, the z slider and the plot tools; what differs is listed
@@ -79,14 +80,12 @@ holds, with the index across the core as its preview. Its *Modes* page shows eac
 mode's spectrum, and gives no energy per mode: these modes are not orthogonal, so their
 energies do not add, and the run records only their total (on *Along z*).
 
-## Other geometry
+## Other routes
 
-**Other geometry** lists solprop's examples of every route with no class of its own:
-the hollow rectangular guide, planar guides and general modes among them. Choosing one
-opens a form built from solprop's own description of the route
-({py:func}`solprop.recipe.metadata.parameters`), its sections as solprop groups the
-keywords, with the energy and peak power of the launched pulse. Its pages are the ones
-its results file supports.
-
-A recipe or a results file of any route can be opened from Home: the window finds the
-class from the recipe, and falls back to Other geometry when none fits.
+solprop has routes with no class in the window: the hollow rectangular guide, planar
+guides and general modes among them. They are set up in scripts. A recipe or a results
+file of such a route, opened from Home, still opens: on a form built from solprop's own
+description of the route ({py:func}`solprop.recipe.metadata.parameters`), its sections
+as solprop groups the keywords, with the energy and peak power of the launched pulse,
+and with the pages its results file supports. The window finds a file's class from its
+recipe, and uses this form when none fits.

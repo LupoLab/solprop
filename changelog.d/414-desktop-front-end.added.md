@@ -4,8 +4,9 @@ workflow and its files may change without notice before 1.0. Install it with
 simulations without a script, and has a chapter of its own in the user guide:
 - Home offers a problem class for each common geometry (capillary, antiresonant fibre,
   radial filament, Cartesian and line beams, GNLSE, step-index and graded-index fibres),
-  every other route on a form built from solprop's parameter metadata, and a waveguide
-  designer that needs no pulse;
+  each starting from a few chosen examples, and a waveguide designer that needs no
+  pulse; a recipe or results file of another route opens on a form built from solprop's
+  parameter metadata;
 - each class has one setup sheet, checked as it is edited, with the numbers solprop
   computes for it and a preview plot; a number such as the soliton order can be typed as
   a target, which writes the recipe's `[pins]`;

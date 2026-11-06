@@ -103,13 +103,6 @@ ART: Final = {
         '<path d="M8 24 C 16 18, 32 18, 40 24 C 32 30, 16 30, 8 24 Z" '
         'fill="{accent}" opacity="0.7"/>'
     ),
-    "other": (
-        '<rect x="6" y="11" width="36" height="26" rx="2" fill="{tint}" '
-        'stroke="{accent}" stroke-width="2"/>'
-        '<rect x="12" y="17" width="24" height="14" fill="#fff" stroke="{accent}" '
-        'stroke-width="1.4"/>'
-        '<ellipse cx="24" cy="24" rx="7" ry="4" fill="{accent}" opacity="0.55"/>'
-    ),
     "design": (
         '<path d="M6 6 V 42 H 44" fill="none" stroke="{accent}" stroke-width="1.6" '
         'opacity="0.55"/>'
