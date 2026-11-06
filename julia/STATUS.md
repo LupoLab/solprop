@@ -1,222 +1,108 @@
-# Julia experiment: status and handoff
+# The Julia experiment: status
 
-**Draft experiment — do not merge. CPU only. No CI qualification.**
+An experiment. Draft PR, not for merge; no CI lane runs it. This page records what the
+engine is, how fast it is against native on a CPU and on an NVIDIA A40, what it does not
+do, and what is left. Measurements are short windows of the benchmark cases (`python -m
+benchmarks ab`, ten to two hundred steps); [the ledger](../docs/dev/benchmarks.md#julia-backend-experiment)
+has the full rows.
 
-This branch demonstrates that Julia can own solprop's numerical backend while the
-Python frontend, translation, shared controller and output system remain in use.
-It is useful for trying cases, reproducing short timings and continuing development.
-It is not ready for production integration or a claim of complete backend parity.
-The experiment started from `1df3e4117d7f`, with kernel schema 34. The native CPU
-optimisation branch at `75d4fe1` is now merged, including its schema-35 medium-flux
-dependency. The adapter passes the new flux plan to shared spatial statistics;
-Julia numerical kernels remain unchanged. Qualification of additional medium-flux
-capabilities beyond the existing constant-medium spatial cases remains future work.
+## What changed from PR #10
 
-Start with the [installation and runnable example](README.md#prepare-a-checkout),
-then the [small Julia/native comparison](README.md#start-a-small-julianative-comparison).
-The [manual](../docs/guide/performance/julia.md) describes the numerical and thread
-contracts. The [benchmark ledger](../docs/dev/benchmarks.md#experimental-julia-cpu-prototype)
-contains the measured windows, providers, spreads, correctness evidence and rejected
-optimizations, including the final Mac and Xeon comparisons.
+PR #10 was a CPU-only prototype written against kernel schema 35. This branch carries it
+to current main and rewrites the engine:
 
-## What works
+- **Main's seam.** No schema number (ADR-068): a digest of the Julia sources, the adapter
+  and the manifests, checked when the engine loads. `set_initial(resume=)`, the Adams
+  engine protocol's carrier, hold, restore, observe and snapshot size, stage scalars from
+  the driver's bundle cache, the general-leaf and carrier-frame refusals, SEP 21's split
+  collar and SEP 44's transverse edge read through the engine.
+- **One source for CPU and GPU, binary64 and binary32.** Every state-sized operation is a
+  scalar body run by the device layer (`src/launch.jl`); arrays are `Array`s or
+  `CuArray`s (the CUDA package extension) of `Float64` or `Float32`. The kernel bodies
+  capture only values and arrays, which `SOLPROP_JULIA_CHECK` enforces on a CPU.
+- **Julia 1.13.3**, CUDA.jl 6.5, FFTW.jl, Polyester, KernelAbstractions and
+  AcceleratedKernels; numba is gone from the tooling, which is now solprop's own harness.
 
-| Area | Implemented subset |
+## What made it fast
+
+Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless said.
+
+| Change | Effect |
 |---|---|
-| Capillaries | Resolved and mode-averaged scalar field grids, constant radius, separable longitudinal material profiles |
-| Mode-averaged envelopes | GNLSE Kerr, constant scalar Raman and translated self-steepening |
-| Radial free space | Scalar fields in a constant medium, Kerr and one plasma channel |
-| Cartesian and line free space | Scalar Kerr fields/envelopes and one field-plasma channel |
-| Responses | Kerr with/without THG on fields; one scalar plasma channel; one constant scalar Raman component on admitted modal/radial routes |
-| Integration | DOPRI5 with FSAL; resident exponential Adams on non-Cartesian routes; prescribed RK4IP on Cartesian/line routes |
-| Output | Normal save planes, hard masks, both temporal-absorber schemes, default modal/spatial and supported plasma statistics |
-| Platforms exercised | Apple Silicon macOS and Linux x86_64, private Julia 1.13.2, Python 3.14 |
+| Measure every FFTW plan | a threaded estimated c2r (73728 x 17) took 6.6 ms, measured 1.49 ms |
+| Raman: convolve the modal products, not the node drives, where fewer (as native does) | H2 Raman window 10.8 s -> 4.7 s |
+| One CPU pool: Polyester tasks for every pass, FFTs as blocks of single-threaded plans, GEMMs as blocks of rows | rdw on four threads 1.10 s -> 0.22 s; Julia's tasks cost 10 us a pass where Polyester's cost 2.2 us |
+| Contiguous column loops (`each!`), not a flat index | a flat index's divide made a Kerr pass ten times slower |
+| Hold host BLAS to one thread while the engine lives (as native does) | NumPy's spinning OpenBLAS made a radial window 4.3 s against 1.1 s |
+| Compile and run every path, and every bridge entry, at construction | 0.6-3.5 s of JIT left the timed window |
+| Monitor and edge sums, state copies, in the engine | a Cartesian window's host copies and reductions 1.7 s -> 1.1 s |
+| GPU: plasma and observation populations a sample a thread, scans column-wise | A40 rdw plasma 1.23 s -> 0.04 s, argon 4.9 s -> 0.14 s |
+| Native's phi-function evaluation (quarter-ulp stop, reciprocals) | radial Adams predictor 0.16 s -> 0.10 s |
 
-The admission checks explicitly refuse unsupported combinations. In particular:
-GPU execution, vector polarization, batching, noise, interpolated planes, tapered
-or general modal guides, Cartesian Raman/Adams, resolved/radial envelopes,
-envelope plasma/harmonics, multiple plasma/Raman components and advanced
-dispersive/regional responses remain outside the experiment. See the manual and
-`_refuse` in `src/solprop/backends/julia/_backend.py` for the detailed boundary.
-Automatic backend selection is unchanged: request `backend="julia"` explicitly.
+What did not pay: branch-free vectorised `exp` and `log` (1 ulp, and 2x faster than
+Base's in isolation) made the plasma's columns slower in place, where the table gather
+keeps the loops scalar and Base's cached exponential is cheaper.
 
-## Implementation size
+## Where it stands
 
-Physical source lines, including comments and blank lines, counted on 2026-10-24:
+Julia's window time over native's, 2 % of each case, both arms in one interpreter, the
+same steps and fields equal to rounding (1e-13 or better) unless said.
 
-| Implementation | Numerical code and bindings | Python adapter | Total |
-|---|---:|---:|---:|
-| Julia prototype | 1,395 | 1,322 | **2,717** |
-| Native backend | 24,537 | 4,523 | **29,060** |
+**Intel Xeon Gold 6240** (commit `3e2290c0`, socket 1, passive-bound threads):
 
-The prototype is approximately **10.7 times smaller by this measure** (90.7% fewer
-lines). Julia's numerical column is the six `julia/src/*.jl` files. Native's is all
-`.cpp`/`.hpp` under `native/src/` and `native/include/`, except `benchmark_gemm.cpp`
-and `coverage_labels.cpp`, plus the `_core.pyi` binding declaration. Python
-columns count `src/solprop/backends/julia/*.py` and
-`native/src/solprop_native/*.py`, respectively. Tests, documentation, build files,
-benchmarks and external dependencies are excluded from both totals.
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| rdw | 1.54 | 1.34 |
+| argon_blueshift | 2.43 | 2.41 |
+| h2_raman_6ps | 1.19 | 1.08 |
+| ctc_reduced | 2.67 | 1.42 |
+| radial_filament_256 | 1.61 | 3.07 |
+| kerr_beam_192 | 1.31 | 3.20 |
+| line | 1.39 | 1.81 |
 
-This is an implementation-footprint comparison, **not equivalent feature coverage**.
-Native has a much larger capability matrix and CPU/CUDA/HIP implementations. Julia
-also uses compact formatting, including multiple statements on some lines. Both
-reuse solprop's Python frontend and shared driver, and both rely on numerical
-libraries. A future matched-capability comparison and readability review would be
-more informative than treating this ratio as a language productivity benchmark.
+**NVIDIA A40** against native's CUDA build (commit `90840a43`, binary64):
 
-## Updated Mac comparison after native CPU optimisation
+| case | ratio |
+|---|---:|
+| rdw | 1.84 |
+| argon_blueshift | 3.43 |
+| h2_raman_6ps | 1.33 |
+| ctc_reduced | 1.74 |
+| radial_filament_256 | 4.35 |
+| kerr_beam_192 | 3.62 |
+| line | 2.98 |
 
-The native comparison now includes `75d4fe1`, its NEON FFTW build and the shared
-schema-35 frontend. Julia numerical kernels are unchanged. The default native LOCAL
-compiler policies are retained; library paths and per-operation thread counts were
-verified. Six warmed ten-step samples per cell, from three alternating rounds,
-give the following propagation medians in seconds:
+The AMD EPYC 7763 and binary32 rows are in the ledger.
 
-| Case | Native, 1 | Julia, 1 | Native, 18 | Julia, 18 |
-|---|---:|---:|---:|---:|
-| RDW | 0.114971 | 0.162999 | 0.062194 | 0.070273 |
-| CtC | 3.781297 | 5.625456 | 2.334840 | 2.201848 |
-| Radial filament, 256 nodes | 0.617973 | 0.824063 | 0.299448 | 0.928311 |
-| Averaged helium RDW | 0.009504 | 0.017540 | 0.009555 | 0.017701 |
-| Resolved argon blueshift | 0.054960 | 0.052243 | 0.020362 | 0.019921 |
-| Hydrogen Raman, 6 ps | 0.610981 | 1.105845 | 0.181659 | 0.446256 |
-| GNLSE soliton | 0.004863 | 0.006598 | 0.004938 | 0.006619 |
-| Averaged argon blueshift | 0.004750 | 0.005199 | 0.004775 | 0.005247 |
-| Cartesian 192² × 300 | 8.021165 | 16.110929 | 1.160111 | 2.001772 |
-| Cartesian 384² × 600 | 78.224075 | 78.842053 | 10.860181 | 12.629519 |
+## What is left, measured
 
-Native has taken the serial CtC and H₂ wins, and wins most of the measured cases.
-Julia retains the parallel CtC and modest resolved-argon leads. Serial 384² is
-effectively tied. Native's lower parallel 384² median has a wide paired range,
-including one round where Julia was slightly faster, so its advantage is unresolved
-at fine resolution. Host contention interrupted one large-case round; it was
-excluded and restarted. Residual host activity remains disclosed in the
-[updated ledger](../docs/dev/benchmarks.md#julianative-comparison-after-native-cpu-optimisation),
-along with provider/thread settings, spreads, the helper-library audit and separate
-setup/observation costs. No fresh Xeon comparison is claimed here.
+- **Host work per step.** The Adams march, its stage scalars and coefficient tables run in
+  Python: about 1.2 ms a step on the Xeon (rdw at 16 threads: 0.09 s of engine work in a
+  0.23 s window). Native runs the march compiled (SEP 39). A Julia march is the largest
+  remaining CPU and GPU item.
+- **Host statistics per plane.** The saved planes' statistics are the shared host
+  functions: about 4.6 ms a plane on rdw (12 planes in the window). Native forms them in
+  its own code.
+- **Serial plasma.** The column scans' rate (scalar `log` and `exp` behind an exact
+  zero-support test), fraction and two running integrals take 0.8 s of argon's 1.2 s
+  window on one thread; native's vectorised SLEEF calls do the same in less.
+- **Binary32 on x86.** It runs (fields 1e-6 from binary64), but slower than binary64:
+  the scaled field's tails are subnormal, and flush-to-zero is not allowed. GPUs handle
+  binary32 subnormals at full speed.
+- **The A40's binary64.** It runs at 1/64 of its binary32 rate; the A40 says little about
+  an H200 or an MI325X.
 
-## Historical performance before native CPU optimisation
+## Not run
 
+Vector polarisation, batches, noise, envelope plasma, several plasma channels or Raman
+terms, varying Raman, dispersive Kerr, TDSE, planar and general modal guides, tapers,
+coupled flows, the interaction Adams formulation, the carrier frame and interpolated
+planes are refused by name.
 
-Julia is competitive on several realistic CPU cases, but it is not universally
-faster than native. The earlier Mac round used an Apple M5 Max with 18 physical cores
-and 128 GiB, **native's default Mac build settings**, and Julia with Accelerate
-BLAS and FFTW. These are median seconds for ten prescribed steps, six warm samples
-per cell from three alternating rounds. Setup, compilation and final observations
-are outside these propagation timers; first-window/setup costs were recorded
-separately. DOPRI cases use 61 source evaluations; Cartesian RK4IP uses 40.
+## Findings for main
 
-| Case | Native 1 thread | Julia 1 thread | Native 18-thread budget | Julia 18-thread budget |
-|---|---:|---:|---:|---:|
-| RDW | 0.128269 | 0.157036 | 0.070999 | 0.068320 |
-| CtC | 6.288408 | 5.325555 | 2.685244 | 2.107181 |
-| Radial filament, 256 nodes | 0.649903 | 0.794537 | 0.288600 | 0.855188 |
-| Averaged helium RDW | 0.010500 | 0.017543 | 0.010590 | 0.017662 |
-| Resolved argon blueshift | 0.056584 | 0.050703 | 0.022913 | 0.019836 |
-| Hydrogen Raman, 6 ps | 1.194044 | 1.051791 | 0.243912 | 0.437328 |
-| GNLSE soliton | 0.005278 | 0.006534 | 0.005524 | 0.006570 |
-| Averaged argon blueshift | 0.005019 | 0.005053 | 0.005156 | 0.005084 |
-| Cartesian 192² × 300 | 9.334232 | 15.488092 | 1.217616 | 1.764022 |
-| Cartesian 384² × 600 | 89.175180 | 77.226190 | 10.626641 | 11.544229 |
-
-Julia is 1.27× faster for parallel CtC, 1.15× for parallel resolved argon, and
-1.15× for serial large Cartesian propagation. The large Cartesian parallel result
-is 8.6% slower than native. Native wins the radial and parallel long-pulse Raman
-cases by substantial margins. Radial parallel timings were noisy, but their
-ranges remain separated. The ledger records those ranges and the operation-level
-FFT/BLAS policies; an 18-thread budget does not force every operation to use 18
-threads. Large Cartesian FFT widths were explicitly set to 18/18.
-
-The Xeon Gold 6240 results are less favorable: native wins every measured core
-window, including the additional modal cases. The comparison explicitly included
-GCC 16.2/OpenBLAS and Intel C++/MKL native builds. Neither native bundle wins
-everything. On the large Cartesian cases, switching only Julia's FFT provider to
-MKL reduced time by roughly 17–19%, with BLAS held fixed, but native remained ahead.
-These are hardware/provider/configuration comparisons, not language-wide limits.
-
-The final Mac field differences were at most 1.65e-15 relative L2 for modal/radial
-cases and 8.69e-16 for the large Cartesian cases, with finite fields and matching
-work counts. These matched-window comparisons supplement the NumPy-oracle checks;
-they do not bound every adaptive propagation's global error. The 384² owned-buffer
-ledger is 11.762 GB for Julia versus 7.567 GB for native, excluding runtime, opaque
-FFT storage and export temporaries. Memory reduction remains worthwhile.
-
-## Qualification and publication status
-
-Development included focused NumPy-reference source/step/short-run comparisons,
-rejection/reset and observation-ownership checks, tighter adaptive references,
-interop checks and standalone Julia checks. The final combined plasma/absorber
-slice passed 57 focused checks on Linux. The schema-35 compatibility update passed
-29 focused checks on macOS, including spatial statistics against NumPy. The ledger records earlier stages and
-failed or rejected experiments; these counts are not a full-suite certificate.
-
-**The full Python/native gates, slow lanes and coverage qualification were not run
-for this experiment. No tests or gates were run during draft-PR preparation.**
-The new runnable example is the existing manual example factored into a script;
-the final handoff commands have not been rerun in a fresh clone. Raw runtime caches,
-large field witnesses and private campaign directories are not part of the PR.
-Public evidence is in the ledger; the committed runners generate new receipts.
-
-This draft intentionally has no CI qualification. Keep `[skip ci]` in every new
-head commit while this policy applies: GitHub uses that marker, not draft status,
-to [skip `push`/`pull_request` workflows](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/skip-workflow-runs).
-Required checks may remain pending. The
-branch's `.readthedocs.yaml` also cancels at checkout with exit code 183, before
-dependency installation or documentation generation, using
-[Read the Docs' cancellation mechanism](https://docs.readthedocs.com/platform/stable/guides/build/skip-or-cancel-builds.html).
-Remove that cancellation and
-the skip policy when proposing a reviewed integration. Repository-wide CI and
-other branches are unchanged.
-
-## Next work
-
-- [ ] **Independent review and integration.** Agree an accepted SEP, review the
-  protected arithmetic/normalization/ownership contracts, reconcile with current
-  main, qualify further SEP 34 medium-flux cases, and simplify/format the compact Julia code
-  for maintainability before any merge proposal.
-- [ ] **Reproducible qualification.** Exercise the documented fresh-clone setup on
-  macOS/Linux; expand NumPy-oracle, adaptive-convergence, state-lifetime and
-  thread-count checks. Re-enable CI and run the full gates only when integration
-  is proposed. Assess the shared benchmark-worker changes independently.
-- [ ] **NVIDIA GPU implementation and tests.** Add CuArray allocation, device FFTs,
-  contractions, reductions and synchronization; remove scalar host indexing and
-  audit transfers across the Python boundary. Start with a small scalar Kerr
-  capillary, then radial/Cartesian cases; check against NumPy and native before
-  timing warm device windows, transfers and memory. KernelAbstractions and
-  AcceleratedKernels dependencies alone do not make this a GPU backend.
-- [ ] **AMD GPU implementation and tests.** Add ROCArray/AMDGPU FFT and contraction
-  support, then repeat the same correctness and bounded performance qualification
-  on actual hardware. Preserve the common scalar operations where practical.
-- [ ] **Operation-sized CPU policies.** Profile radial high-thread regressions and
-  parallel Raman, including the native Accelerate path. Measure FFTW planning,
-  layout, task sizes and MKL/OpenBLAS/Accelerate separately. Retain baselines and
-  stop tuning when repeatable gains disappear; do not enable umbrella fast-math.
-- [ ] **Memory and startup.** Reduce large Cartesian resident volumes and copies;
-  measure allocations, peak RSS and host-statistics/export costs as well as warm
-  propagation. Investigate Julia precompilation/cache reuse and cold-start cost.
-- [ ] **Capability extensions.** Prioritize Cartesian Raman/Adams, resolved/radial
-  envelopes and envelope plasma, then mixtures/multiple responses, polarization,
-  batching, noise, tapered/general geometries and interpolated output as needed.
-  Add each capability with a small reference comparison and a ten-step A/B case.
-- [ ] **Distribution.** Design runtime discovery/installation, platform support and
-  packaging instead of relying on a source-tree-relative private Julia runtime.
-  Keep explicit failure for unsupported features and preserve automatic selection.
-- [ ] **Later precision work.** Establish Float32 error budgets before Metal or other
-  single-precision GPU work. CPU Float64 measurements do not qualify that path.
-
-## Code map
-
-| Path | Role |
-|---|---|
-| `julia/src/SolpropJulia.jl` | Typed engine, modal/radial pipeline, transforms, Kerr, DOPRI and state lifecycle |
-| `julia/src/responses.jl` | Translated plasma/Raman operations and population diagnostics |
-| `julia/src/stages.jl`, `adams.jl` | Stage expansions and resident exponential Adams |
-| `julia/src/free.jl`, `rk4.jl` | Cartesian/line transforms and prescribed RK4IP |
-| `src/solprop/backends/julia/` | Private runtime, schema admission, shared-driver hooks, memory and observations |
-| `julia/Project.toml`, `Manifest.toml`, `bootstrap.py` | Dependencies and checksummed private runtime setup |
-| `julia/core_compare.py`, `core_profile.py` | Lightweight standard-case comparisons and profiling |
-| `tests/backends/test_julia*.py`, `julia/test/` | Existing focused checks for future contributors to run |
-
-No native numerical source was changed by the experiment. CPU tuning retained
-measured improvements and rejected slower layout/fusion candidates rather than
-shipping them as defaults.
+- `parallel_rows` read the CPU topology from sysfs (a file per CPU) before deciding a
+  pass was too small to thread: 60 ms of a 0.36 s rdw window. Fixed on this branch.
+- `benchmarks.worker.timed_run` evaluates `simulation.metadata()` inside the timed
+  window, and its first evaluation costs about 0.18 s on rdw (the plane bases' modal
+  identity): the first timed repeat of every arm, native's included, pays it.

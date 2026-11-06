@@ -111,7 +111,7 @@ def test_julia_reports_its_engine(runtime):
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-@pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:3] + WINDOWS[4:6])
+@pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:6])
 def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fraction):
     """Binary32 (SEP 33) agrees with the binary32 reference on the same contract.
 

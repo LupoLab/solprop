@@ -439,7 +439,12 @@ function raman_workspace(c, host, nt, chunk; modes=0, nodes=0, synthesis=nothing
     end
     kernel .*= host.real("raman_fraction")
     # The inverse transform is unnormalised: its 1/(2 nt) is folded into the kernel.
+    # The spectrum is held as `spectrum * 2^-e`, its largest entry in [1, 2), and the
+    # response's factor takes 2^e (SEP 33, rule 1: a block exponent): in binary32 the
+    # kernel's small entries are otherwise subnormal, a 1.7 % error in an H2 window.
     spectrum = FFTW.rfft(kernel) .* (dt / (2nt))
+    e = exponent(maximum(abs, spectrum))
+    spectrum .*= exp2(-e)
     count = modes * (modes + 1) ÷ 2
     products = !c.envelope && synthesis !== nothing && nodes >= 2 && count < nodes && count <= chunk
     columns = products ? count : chunk
@@ -456,7 +461,7 @@ function raman_workspace(c, host, nt, chunk; modes=0, nodes=0, synthesis=nothing
                  signal_forward=thg ? nothing : plan(c, plan_fft!, signal, 1),
                  signal_inverse=thg ? nothing : plan(c, plan_bfft!, signal, 1))
     end
-    (kernel=upload(c, C.(spectrum)), factor=host.real("raman_factor"), thg=thg,
+    (kernel=upload(c, C.(spectrum)), factor=host.real("raman_factor") * exp2(e), thg=thg,
      products=products, drive=drive, frequency=frequency, extra...,
      forward=plan(c, plan_rfft, drive, 1; threads=c.raman_fft_threads),
      inverse=plan(c, plan_brfft, frequency, 2nt, 1; threads=c.raman_fft_threads))
