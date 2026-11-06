@@ -1,6 +1,6 @@
 # Releasing and the native wheels
 
-solprop is released as two distributions from one repository, at one version taken from
+solprop is released as three distributions from one repository, at one version taken from
 the `v*` git tag; no other tag affects it
 ([SEP 29](seps/archive/sep-0029-compiled-backend-distribution.md)):
 
@@ -10,10 +10,13 @@ the `v*` git tag; no other tag affects it
   matches, `pip install solprop` fails to resolve instead of starting a C++
   build; source builds are made from the repository
   ([Building the native backend](../guide/performance/building-native.md)).
+- **`solprop-gui`**, the desktop front end built from `gui/`, pure Python: a source
+  distribution and one universal wheel, installed as `solprop[gui]` and published only
+  once its publishing is set up (pre-flight step 5).
 
 Versions are 0.x for now: a minor release may break the API, the output schema or the
 resume key, and every break is listed under "Changed (breaking)" in the changelog
-(ADR-058 in [decisions](decisions.md)). The first release is 0.1.0.
+(ADR-058 in [decisions](decisions.md)). The first release was 0.1.0.
 
 The wheels are built, repaired, qualified and published by
 `.github/workflows/wheels.yml`. cibuildwheel's configuration is the
@@ -118,7 +121,9 @@ pyFFTW's macOS wheel carries its own `libomp`, which it initialises
 when it is imported. LLVM's OpenMP runtime refuses, or crashes on, a second initialised
 copy, so the native package raises at import when pyFFTW is already loaded
 ([OpenMP runtimes](../guide/performance/building-native.md#openmp-runtimes)), with a message
-that says what to do. No CI job exercises that guard on a real pyFFTW any longer.
+that says what to do. The test jobs' second coexistence check installs pyFFTW and Numba
+as outside packages and runs `native/ci/coexistence.py` among them, so that guard meets a
+real pyFFTW on every platform but Windows on Arm, which has no pyFFTW wheel.
 
 **solprop's distributions.** The `solprop-dist` job builds solprop's sdist and wheel and
 installs each from the file in a fresh environment, outside the checkout, beside this run's
@@ -160,13 +165,14 @@ fast-forward pushes. It never force-pushes, approves, merges, tags or publishes.
 branch edits stop the workflow without overwriting them. A closed PR or one marked
 ready pauses updates. If a draft was closed by mistake, reopen it to resume.
 
-**One-time setup:** under GitHub *Settings → Actions → General → Workflow permissions*,
+**One-time setup** (done): under GitHub *Settings → Actions → General → Workflow permissions*,
 enable *Allow GitHub Actions to create and approve pull requests*. Keep the default
 token permissions read-only; only this job requests `contents: write` and
 `pull-requests: write`. The workflow only runs from trusted `main`. No personal token
 or additional dependency is needed. The required checks and branch rules stay in force.
-GitHub may require a maintainer to approve CI runs created by `GITHUB_TOKEN`; use
-*Approve workflows to run* on the PR before merging. See
+A push made with `GITHUB_TOKEN` starts no workflow, so CI does not run on the updater's
+commits at all, and the draft shows no checks: they first run on a person's push to the
+branch, which at the freeze is the release commit (step 6). See
 [GitHub's token documentation](https://docs.github.com/en/actions/concepts/security/github_token).
 
 When ready to release, **mark the PR ready before editing it**. This freezes automatic
@@ -179,68 +185,82 @@ reaches `main`, the next pending fragment starts a new draft for the next cycle.
 ### Pre-flight checklist
 
 A release tag builds and tests everything but publishes nothing until a maintainer with
-admin rights on the repository and an account on PyPI has set up publishing. Once,
-before the first tag:
+admin rights on the repository and an account on PyPI has set up publishing. Steps 1 to
+4 were done once, before 0.1.0, for solprop and solprop-native; step 5 is done once, before
+the first release that publishes the front end.
 
-1. **On PyPI**, under *Your account → Publishing*, add a pending trusted publisher for
-   each project, both naming the owner `LupoLab`, the repository `solprop` and the
+1. **On PyPI** (done), under *Your account → Publishing*, add a pending trusted publisher
+   for each project, both naming the owner `LupoLab`, the repository `solprop` and the
    workflow `wheels.yml`:
    - the project `solprop` with the environment `pypi`;
-   - the project `solprop-native` with the environment `pypi-native`;
-   - the project `solprop-gui` with the environment `pypi-gui`, once the front end is
-     to be published (below).
+   - the project `solprop-native` with the environment `pypi-native`.
 
    PyPI ties a pending publisher to one project name per workflow and environment, hence
-   the two environments. The first upload through a pending publisher creates its
-   project.
-2. **On GitHub**, under *Settings → Environments*, give both `pypi` and `pypi-native` a
-   required reviewer, and restrict their deployments to *Selected branches and tags*
-   with the single tag rule `v*`. Without the reviewer, anyone with write access could
-   publish by pushing a tag.
-3. Under *Settings → Secrets and variables → Actions*, add the repository variable
-   `PUBLISH` with the value `true`. The publish jobs are skipped without it. The front
-   end, `solprop-gui`, is published only when `PUBLISH_GUI` is `true` as well, after
-   solprop itself, whose version it requires; until then each release builds it and
-   checks an install of `solprop[gui]` from the files, and the extra resolves only in the
-   repository's workspace.
-4. **On Zenodo**, signed in with GitHub, switch on `LupoLab/solprop` under *GitHub*
+   an environment for each distribution. The first upload through a pending publisher
+   creates its project.
+2. **On GitHub** (done), under *Settings → Environments*, give both `pypi` and
+   `pypi-native` a required reviewer, and restrict their deployments to *Selected branches
+   and tags* with the single tag rule `v*`. Without the reviewer, anyone with write access
+   could publish by pushing a tag.
+3. Under *Settings → Secrets and variables → Actions* (done), add the repository variable
+   `PUBLISH` with the value `true`. The publish jobs are skipped without it.
+4. **On Zenodo** (done), signed in with GitHub, switch on `LupoLab/solprop` under *GitHub*
    (the organisation must grant Zenodo's application access). Zenodo archives each
    GitHub release, not a tag, with the metadata of `.zenodo.json`, and gives it a DOI,
-   plus one concept DOI for every version.
+   plus one concept DOI for every version, which `CITATION.cff` and the README cite.
+5. **The front end, `solprop-gui`**, in this order:
+   1. On PyPI, add a pending trusted publisher for the project `solprop-gui`, naming the
+      owner `LupoLab`, the repository `solprop`, the workflow `wheels.yml` and the
+      environment `pypi-gui`.
+   2. On GitHub, create the environment `pypi-gui` with a required reviewer and the single
+      tag rule `v*`, as in step 2.
+   3. Only then add the repository variable `PUBLISH_GUI` with the value `true`. A job
+      that names an environment which doesn't exist makes GitHub create it with no
+      reviewer and no tag rule, so with the variable set first the next tag would publish
+      the front end unreviewed.
+
+   Until `PUBLISH_GUI` is `true`, each release builds the front end and checks an install
+   of `solprop[gui]` from the files, and the extra resolves only in the repository's
+   workspace.
 
 Then, for every release:
 
-5. In the rolling release PR, marked ready to freeze refreshes, check that every pending
+6. In the rolling release PR, marked ready to freeze refreshes, check that every pending
    fragment has been collected and the changelog's `Unreleased` section describes the
    release. Move it under the new version, `## [X.Y.Z] - YYYY-MM-DD`, retaining an empty
    `## Unreleased` section above it, and give
    `CITATION.cff` the same `version` and `date-released`
    (`tests/test_release_metadata.py` checks that they agree). The commit that does so
    is the release commit; it reaches `main` through this PR, after the required checks.
-6. Check that CI passed on the release commit. When it merged a pull request whose head
+7. Check that CI passed on the release commit. When it merged a pull request whose head
    has the same tree and passed CI, the push to `main` runs none of CI's lanes
    ([CI](tooling.md#ci)), and that pull request's run is the release commit's record.
-7. With the release commit at the head of `main`, run the wheels workflow on it,
+8. With the release commit at the head of `main`, run the wheels workflow on it,
    `gh workflow run wheels.yml --ref main`, and wait for it to pass. It is the only
    workflow that builds and tests the Linux aarch64 wheel, and on `main` it otherwise
    runs only weekly. On a branch the publish jobs are skipped, so this is a dry run of
    the release.
-8. Then tag that commit, as below.
+9. Then tag that commit, as below.
 
 ### Tagging and publishing
 
 1. Tag the release commit, `git tag -a vX.Y.Z COMMIT`, and push that tag on its own,
    `git push origin vX.Y.Z`: GitHub starts no workflow for a push of more than three
    tags at once. The tag starts the wheels workflow again, on the tagged commit (CI
-   does not run on tags): it builds and tests every wheel, and builds solprop's
-   distributions and checks an install of each. Both publish jobs wait for every
-   wheel's `test` job and for `solprop-dist`, so the run that publishes has itself
-   tested the release commit on every wheel platform, whichever lanes CI skipped on
-   the push to `main`.
+   does not run on tags): it builds and tests every wheel, and builds solprop's and the
+   front end's distributions and checks an install of each. On a tag, `solprop-dist`
+   first checks that `CITATION.cff`'s `version` is the tag's, so a tag on a commit that
+   still cites the last release fails there and publishes nothing. Every publish job
+   waits for `solprop-dist`, and solprop's two for every wheel's `test` job, so the run
+   that publishes has itself tested the release commit on every wheel platform,
+   whichever lanes CI skipped on the push to `main`.
 2. Publishing, through PyPI's trusted publishing, then waits for each environment's
    reviewer. `publish-native` uploads solprop-native's wheels from `pypi-native` first;
    `publish` uploads solprop's sdist and wheel from `pypi` only once every native wheel
-   is up, since solprop requires solprop-native at the same version. If an
+   is up, since solprop requires solprop-native at the same version. With
+   `PUBLISH_GUI` set, `publish-gui` then uploads the front end's sdist and wheel from
+   `pypi-gui`, once `publish` has succeeded, since solprop-gui requires solprop at the
+   same version; it waits for that environment's reviewer too. If an
    upload fails partway, re-run the failed jobs: they upload the same files, and PyPI
    accepts a file identical to one it holds. It refuses different files under a name it
    has seen, so a release that needs a change takes a new version.
@@ -258,17 +278,29 @@ Then, for every release:
    they appear; the check does not retry a failed resolution or hide its first result.
 4. Publish a GitHub release from the tag, with the version's changelog section as its
    notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
-   NOTES.md`. Zenodo archives it and gives it a DOI; on the first release, add the
-   concept DOI, which names every version, to `CITATION.cff` and the README.
+   NOTES.md`. Zenodo archives it and gives it a DOI; the concept DOI that `CITATION.cff`
+   and the README cite already names every version.
+5. On Read the Docs, check that the `vX.Y.Z` version built (activate it under
+   *Versions* if it did not), and that `/en/stable/` resolves to it.
+6. Link the run of the published-install check on the release's tracking issue, green on every
+   platform: the run that followed the publish jobs, or one dispatched as in
+   [Rechecking a published release](#rechecking-a-published-release).
+7. Yank an earlier release on PyPI if a platform without wheels would backtrack to it.
+   An installer that cannot satisfy the new release on such a platform tries older ones,
+   and 0.1.0, which did not require the native backend, installs there with no error
+   ([#463](https://github.com/LupoLab/solprop/issues/463)). A yanked version still
+   installs when it is asked for exactly (`solprop==0.1.0`).
+8. Once `stable` is the new release, move the user-facing documentation links from
+   `/en/latest/` to `/en/stable/`, in a pull request of its own.
 
 ### Rechecking a published release
 
 The **Published install** workflow can also be dispatched by hand with a required
-`version`, written as `X.Y.Z` or `vX.Y.Z`. It runs the same four-platform check without
+`version`, written as `X.Y.Z` or `vX.Y.Z`. It runs the same five-platform check without
 building or publishing anything:
 
 ```sh
-gh workflow run published-install.yml -f version=0.1.0
+gh workflow run published-install.yml -f version=X.Y.Z
 ```
 
 Its optional `readme_example=true` input additionally runs the first Python block of
@@ -276,26 +308,16 @@ that release's tagged README as a script, using Matplotlib's noninteractive `Agg
 backend. The source and output join the evidence artifact. This full-length example
 is a manual release qualification, requested explicitly; the automatic post-publish
 check only installs and checks the backend. It does not propagate a pulse. The manual
-example is available to complete the first release's outstanding platform checks
-([issue 74](https://github.com/LupoLab/solprop/issues/74)).
+example was added for 0.1.0's outstanding platform checks
+([issue 74](https://github.com/LupoLab/solprop/issues/74), closed).
 
 ```sh
-gh workflow run published-install.yml -f version=0.1.0 -f readme_example=true
+gh workflow run published-install.yml -f version=X.Y.Z -f readme_example=true
 ```
 
-Before the new workflow is on `main`, GitHub cannot dispatch it by name. The existing
-**Wheels** workflow also accepts `published_version`: with that input it skips the
-wheel builds and their dependent checks and runs only the published-install check.
-The publishing jobs remain dependent on the skipped builds, so this mode cannot
-publish. It has a separate concurrency group and does not cancel a wheel build on the
-same branch. Select the branch whose workflow is being qualified:
-
-```sh
-gh workflow run wheels.yml --ref fix/published-install-checks \
-  -f published_version=0.1.0 -f readme_example=true
-```
-
-Leaving `published_version` empty keeps the ordinary Wheels workflow unchanged.
+The **Wheels** workflow runs the same check, as its `qualify-published` job, when it is
+dispatched with `published_version` (and optionally `readme_example`): it then builds and
+publishes nothing.
 
 The actions in the workflows are pinned by commit; when updating one, take the commit of
 its release tag and keep the version in the trailing comment.

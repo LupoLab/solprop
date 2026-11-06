@@ -81,8 +81,8 @@ instead of a tier marker:
 ### The `mlx` omission
 
 The coverage lane's 100 % leaves out one package, `solprop/backends/mlx_gpu`
-(`omit` in `coverage-cpu.ini`). This is a decision for the first release, in which the
-`mlx` backend is experimental, and not an oversight:
+(`omit` in `coverage-cpu.ini`). This is a decision for while the `mlx` backend is
+experimental, and not an oversight:
 
 - the coverage lane runs on Linux, where MLX does not install (it installs on macOS on
   Apple silicon only), so the package cannot be imported there, let alone measured;

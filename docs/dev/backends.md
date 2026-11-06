@@ -1659,7 +1659,7 @@ gated and edge currents, the envelope plasma's drive and loss -- are projected i
 matrix product (`passes.project_many`), measured at 1.18 times faster on a one-mode
 plasma capillary, where launches bound the stage, and neutral on larger ones.
 
-**Status: experimental** in the first release. The custom Metal kernels (`gpu_only` in
+**Status: experimental.** The custom Metal kernels (`gpu_only` in
 `tests/backends/test_mlx.py`) run on Metal in CI's macOS default lane, which asserts
 that the device is available. That lane runs without coverage or the runtime type
 checks, no CI pass selects MLX's CPU device, basedpyright on Linux cannot resolve

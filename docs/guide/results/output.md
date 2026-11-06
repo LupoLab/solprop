@@ -438,7 +438,7 @@ How a run resumes from its last plane depends on what that plane is:
   passed through. A plane is interpolated when no accepted step of the run ends on it.
   When the file's last plane is one, `resume=True` is refused, with either stepper and
   whatever `interpolate_planes` the resuming run asks for;
-  `resume="interpolated"` (or `"force"`) continues afresh from it and
+  `resume="interpolated"` continues afresh from it and
   appends its position to the annotation `interpolated_resumes`
   (`INTERPOLATED_RESUMES_ANNOTATION`), outside the configuration hash.
 
@@ -481,10 +481,10 @@ were one integer per step before), and is read with the build that wrote it.
 same way, and the first column became the collar alone. A file from an earlier development
 build still **reads**, showing the four columns as they were written, in the same positions
 as the first four now, its first column holding the spectral collar and any custom rate
-together. It is not **continued**: an append, a resume, forced or not, a cache check and a
-scan writer each refuse it by name, from the stored column count, before anything is
-written, because five numbers do not fit four columns and nothing stored can split that
-sum. Start a new file, or launch a new segment from a saved plane.
+together. It is not **continued**: its run record differs from the one this build writes, so an
+append, a resume, a cache check and a scan writer each refuse it, as they refuse any
+changed record ([what a resume compares](resuming.md#what-a-resume-compares)). Start a
+new file, or launch a new segment from a saved plane.
 
 A run with a non-zero `custom_absorber` rate also records the new `absorber.user_rate`, so
 even a file with no `absorbed_power` is not continued: the comparison names that field as
