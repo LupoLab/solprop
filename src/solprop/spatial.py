@@ -723,7 +723,9 @@ def _check_field(
         raise GridError(msg)
 
 
-def _analytic(grid: TimeGrid, spectrum: np.ndarray) -> np.ndarray:
+def _analytic(
+    grid: TimeGrid, spectrum: np.ndarray, oversampling: int = 1
+) -> np.ndarray:
     """Reconstruct the analytic field with the common temporal FFT convention.
 
     Parameters
@@ -732,14 +734,39 @@ def _analytic(grid: TimeGrid, spectrum: np.ndarray) -> np.ndarray:
         Temporal transform layout and sampling.
     spectrum : numpy.ndarray
         Internal temporal spectrum with frequency on the final axis.
+    oversampling : int, optional
+        Factor by which to resample the time axis by zero-padding the spectrum, at
+        least 1; the samples then lie on
+        :func:`solprop.processing.fields.time_axis` of the grid.
 
     Returns
     -------
     numpy.ndarray
         Complex analytic samples with time on the final axis.
     """
+    _check_oversampling(oversampling)
+    if oversampling > 1:
+        spectrum = fourier.oversample(spectrum, oversampling * grid.n_t, kind=grid.kind)
     samples = fourier.inverse(spectrum, kind=grid.kind)
     return fourier.analytic_signal(samples) if grid.kind == "field" else samples
+
+
+def _check_oversampling(oversampling: int) -> None:
+    """Refuse an oversampling factor below one.
+
+    Parameters
+    ----------
+    oversampling : int
+        The factor.
+
+    Raises
+    ------
+    GridError
+        If it is below one.
+    """
+    if oversampling < 1:
+        msg = f"oversampling must be at least 1, got {oversampling}"
+        raise GridError(msg)
 
 
 FluxSide = Literal["before", "after"]
@@ -1148,6 +1175,8 @@ def power_trace(
     weights: Float[np.ndarray, " n_modes"],
     grid: TimeGrid,
     scale: float,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, " n_t"]:
     r"""Return the axial power through a plane in time from column spectra.
 
@@ -1168,20 +1197,26 @@ def power_trace(
         Temporal grid.
     scale : float
         ``eps0 c / 2`` for fields in V/m, one for slab amplitudes.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1.
 
     Returns
     -------
     numpy.ndarray
-        Power in W (W/m on a line), shape ``(n_t,)``, signed and not clipped.
+        Power in W (W/m on a line), shape ``(oversampling n_t,)``, signed and not
+        clipped.
     """
-    field = _analytic(grid, spectrum)
-    closure = _analytic(grid, np.conj(admittance)[:, None, :] * spectrum)
+    field = _analytic(grid, spectrum, oversampling)
+    closure = _analytic(grid, np.conj(admittance)[:, None, :] * spectrum, oversampling)
     product = np.real(field * np.conj(closure))
     return scale * np.einsum("j,jpt->t", weights, product)
 
 
 def spatial_power(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, " n_t"]:
     """Return the axial power crossing the plane at every time sample.
 
@@ -1192,20 +1227,28 @@ def spatial_power(
         amplitudes, shape ``(n_modes, n_pol, n_omega)``.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis by zero-padding the spectrum, at
+        least 1; the samples lie on
+        :func:`solprop.processing.fields.time_axis` ``(flux.grid, oversampling)``.
+        It adds no information, but draws a short pulse smoothly and finds its peak
+        between the grid's samples.
 
     Returns
     -------
     numpy.ndarray
-        Cycle-averaged power in W (W/m on a line), shape ``(n_t,)``. Its time
-        integral is :func:`spatial_energy`.
+        Cycle-averaged power in W (W/m on a line), shape ``(oversampling n_t,)``. Its
+        time integral is :func:`spatial_energy`.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid.
+        If the spectrum's shape or finiteness is invalid, or ``oversampling`` is
+        below one.
     """
     _check_flux(spectrum, flux)
-    total = np.zeros(flux.grid.n_t)
+    _check_oversampling(oversampling)
+    total = np.zeros(oversampling * flux.grid.n_t)
     for columns in flux.chunks():
         total += power_trace(
             spectrum[columns],
@@ -1213,6 +1256,7 @@ def spatial_power(
             flux.space.spectral_weights[columns],
             flux.grid,
             flux.energy_scale,
+            oversampling=oversampling,
         )
     return total
 
@@ -1366,7 +1410,10 @@ def spatial_fluence(
 
 
 def spatial_intensity(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, "n_nodes n_t"]:
     r"""Return the signed local axial flux at every spatial node and time sample.
 
@@ -1382,16 +1429,20 @@ def spatial_intensity(
         amplitudes, shape ``(n_modes, n_pol, n_omega)``.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1, as in
+        :func:`spatial_power`.
 
     Returns
     -------
     numpy.ndarray
-        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+        Flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
 
     Raises
     ------
     GridError
-        If the spectrum's shape or finiteness is invalid.
+        If the spectrum's shape or finiteness is invalid, or ``oversampling`` is
+        below one.
 
     Examples
     --------
@@ -1406,10 +1457,12 @@ def spatial_intensity(
     True
     """
     _check_flux(spectrum, flux, planar=False)
-    return _local_intensity(spectrum, flux)
+    return _local_intensity(spectrum, flux, oversampling)
 
 
-def _local_intensity(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
+def _local_intensity(
+    spectrum: np.ndarray, flux: SpatialFlux, oversampling: int = 1
+) -> np.ndarray:
     """Return the signed local axial flux at the nodes in time.
 
     Parameters
@@ -1418,15 +1471,19 @@ def _local_intensity(spectrum: np.ndarray, flux: SpatialFlux) -> np.ndarray:
         Internal spectrum, shape ``(n_modes, n_pol, n_omega)``, already validated.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1.
 
     Returns
     -------
     numpy.ndarray
-        Flux in W/m^2, shape ``(n_nodes, n_t)``.
+        Flux in W/m^2, shape ``(n_nodes, oversampling n_t)``.
     """
     field, closure = _local_pair(spectrum, flux)
     grid = flux.grid
-    product = _analytic(grid, field) * np.conj(_analytic(grid, closure))
+    product = _analytic(grid, field, oversampling) * np.conj(
+        _analytic(grid, closure, oversampling)
+    )
     return 0.5 * EPS0 * C * np.sum(np.real(product), axis=1)
 
 
@@ -1746,7 +1803,10 @@ def column_spectrum(
 
 
 def on_axis_trace(
-    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"], flux: SpatialFlux
+    spectrum: Complex[np.ndarray, "n_modes n_pol n_omega"],
+    flux: SpatialFlux,
+    *,
+    oversampling: int = 1,
 ) -> Float[np.ndarray, " n_t"]:
     """Return the signed axial flux on the beam axis at every time sample.
 
@@ -1757,21 +1817,28 @@ def on_axis_trace(
         shape ``(n_modes, n_pol, n_omega)``.
     flux : SpatialFlux
         The plane's measure.
+    oversampling : int, optional
+        Factor by which to resample the time axis, at least 1, as in
+        :func:`spatial_power`.
 
     Returns
     -------
     numpy.ndarray
-        The flux in W/m^2, summed over polarisation, on ``grid.t``. Its largest value
-        is :func:`on_axis_intensity`.
+        The flux in W/m^2, summed over polarisation, on ``grid.t``, or on
+        :func:`solprop.processing.fields.time_axis` when oversampled. Its largest
+        value without oversampling is :func:`on_axis_intensity`.
 
     Raises
     ------
     GridError
-        If the spectrum is invalid.
+        If the spectrum is invalid, or ``oversampling`` is below one.
     """
     field, closure = _on_axis_pair(spectrum, flux)
     grid = flux.grid
-    product = np.real(_analytic(grid, field) * np.conj(_analytic(grid, closure)))
+    product = np.real(
+        _analytic(grid, field, oversampling)
+        * np.conj(_analytic(grid, closure, oversampling))
+    )
     return 0.5 * EPS0 * C * np.sum(product, axis=0)
 
 

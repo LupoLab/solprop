@@ -110,6 +110,9 @@ def test_the_readers_agree_with_the_file_s_own_measure(radial_file: Path) -> Non
         t, power = on_axis_power(output)
         assert t.size == power.size
         assert power.max() > 0
+        fine_t, fine = on_axis_power(output, oversampling=4)
+        assert fine_t.size == fine.size == 4 * t.size
+        assert fine[::4] == pytest.approx(power, abs=1e-9 * power.max())
 
 
 def test_the_fluence_and_intensity_are_the_measures_of_the_plane(

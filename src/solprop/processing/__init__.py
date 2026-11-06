@@ -66,6 +66,7 @@ from solprop.processing.fields import (
     get_spectrum,
     nearest_plane,
     real_field_oversampling,
+    time_axis,
 )
 from solprop.processing.mixtures import (
     absorbed_spectral_energy,
@@ -205,6 +206,7 @@ __all__ = [
     "spectral_axis",
     "spectral_bands",
     "spectral_order",
+    "time_axis",
     "time_bandwidth",
     "transform_limit",
     "transverse_units",
