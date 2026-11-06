@@ -714,7 +714,13 @@ class WorkflowWindow(QMainWindow):
         if answer != "stop":
             return False
         self._leaving_run = True
-        self.run_panel.stop()
+        if self.overview.rows:
+            self.run_panel.stop()
+        else:
+            # Before its first plane a run has nothing to keep, and solprop's stop
+            # acts only at a step, which a run still building its model has not
+            # reached: end it at once, so what was asked for opens now.
+            self.run_panel.kill()
         return True
 
     def _backend_chosen(self, name: str) -> None:

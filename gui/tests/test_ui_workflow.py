@@ -1266,9 +1266,15 @@ def test_opening_something_else_mid_run_asks_and_stops_it(
     assert "run is going" in answers[-1]
     window.open_results("nothing.h5")
     assert window.stage is Stage.RUN
-    # Stopped: the new setup opens, and the run's end does not take the stage.
+    # Stopped: the new setup opens, and the run's end does not take the stage. A
+    # run with planes is stopped, keeping them; one before its first is ended.
     answers_given.append("stop")
+    ended: list[str] = []
+    real_kill, real_stop = window.run_panel.kill, window.run_panel.stop
+    window.run_panel.kill = lambda: (ended.append("kill"), real_kill())[1]  # pyright: ignore[reportAttributeAccessIssue]
+    window.run_panel.stop = lambda: (ended.append("stop"), real_stop())[1]  # pyright: ignore[reportAttributeAccessIssue]
     window.begin_class("capillary")
+    assert ended == (["stop"] if window.overview.rows else ["kill"])
     qtbot.waitUntil(lambda: not window.run_panel.active, timeout=WAIT_MS)
     qtbot.waitUntil(
         lambda: window.problem is not None and window.problem.key == "capillary",
