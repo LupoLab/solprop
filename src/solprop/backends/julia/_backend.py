@@ -6,6 +6,7 @@
 import dataclasses
 import logging
 import math
+import os
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
@@ -314,6 +315,7 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         "transverse_fft_threads": fft_threads,
         "blas_threads": thread_limit("SOLPROP_JULIA_BLAS_THREADS", blas_default),
         "chunk": transform.node_chunk,
+        "device": os.environ.get("SOLPROP_JULIA_DEVICE", "cpu"),
     }
 
     if _varying(problem):
@@ -447,7 +449,7 @@ class JuliaBackend(StepDriver[object]):
         self._varying = _varying(problem)
         if self._varying:
             self._prepare_stages(0.0, 0.0)
-        self._plan_flag = str(getattr(self._engine.config, "plan_flag", "estimate"))
+        self._plan_flag = os.environ.get("SOLPROP_FFTW_PLAN") or "native policy"
         self._weight = (
             np.empty(0)
             if problem.transform.geometry is not None

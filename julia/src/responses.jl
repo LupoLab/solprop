@@ -1,320 +1,346 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Numerical execution of the translated scalar response. Rate tables, constants,
-# FIR taps and temporal collar derivatives all come from schema 34 (SEP 18/27).
-function plasma_workspace(input, c, nt, chunk, nm, nn)
-    (haskey(input,"plasma") && Bool(input["plasma"])) || return nothing
-    # Cartesian columns already are physical nodes. Only their current chunk
-    # needs temporal current spectra; no modal projection buffers are required.
-    projected_rows, projected_columns = c.free ? (0,0) : (nt,nm)
+# The translated scalar responses: Kerr, one field-plasma channel and one Raman term.
+# Rate tables, constants, FIR taps and collar derivatives all come from the seam.
+
+@inline polarization(value::Real, factor, analytic_factor) = factor * (value * value) * value
+@inline polarization(value::Complex, factor, analytic_factor) =
+    factor * analytic_factor * abs2(value) * real(value)
+
+"""Write the Kerr and Raman polarisation of each node's field over it, windowed.
+
+`values` is what the Kerr term reads: the field, or its analytic signal. Raman, when
+present, multiplies the field by its convolved drive (`raman_drive!`).
+"""
+function nonlinear_nodes!(nodes, values, c, factor, raman, count)
+    window, a = c.window, c.analytic_factor
+    T = eltype(window)
+    f = T(factor)
+    if raman === nothing
+        each!(c, size(nodes, 1), count) do t, m
+            @inbounds nodes[t, m] = polarization(values[t, m], f, a) * window[t]
+        end
+    else
+        drive, r = raman.drive, T(raman.factor)
+        each!(c, size(nodes, 1), count) do t, m
+            @inbounds begin
+                v = nodes[t, m]
+                nodes[t, m] = (polarization(values[t, m], f, a) + r * v * drive[t, m]) * window[t]
+            end
+        end
+    end
+end
+
+function nonlinear_envelope!(nodes, c, factor, raman, count)
+    window = c.window
+    T = eltype(window)
+    f = T(factor) * c.analytic_factor
+    r = raman === nothing ? zero(T) : T(raman.factor)
+    drive = raman === nothing ? nodes : raman.drive
+    live = raman !== nothing
+    each!(c, size(nodes, 1), count) do t, m
+        @inbounds begin
+            v = nodes[t, m]
+            response = f * abs2(v) * v
+            if live
+                response += r * v * real(drive[t, m])
+            end
+            nodes[t, m] = response * window[t]
+        end
+    end
+end
+
+"""Replace `analytic` by the analytic signal of the real columns of `nodes`."""
+function analytic_signal!(analytic, nodes, w, c, count)
+    nt, chunk = size(analytic)
+    each!(c, nt, chunk) do t, m
+        @inbounds analytic[t, m] = m <= count ? nodes[t, m] : 0
+    end
+    w.analytic_forward * analytic
+    # The unnormalised inverse's 1/nt is folded into the one-sided spectral factor.
+    T = real(eltype(analytic))
+    one, two, half = inv(T(nt)), 2 / T(nt), nt ÷ 2
+    each!(c, nt, chunk) do f, m
+        @inbounds analytic[f, m] *= (f == 1 || f == half + 1) ? one : f <= half ? two : zero(T)
+    end
+    w.analytic_inverse * analytic
+    nothing
+end
+
+# --- plasma -------------------------------------------------------------------------
+
+function plasma_workspace(c, host, nt, chunk, nm, nn)
+    host.flag("plasma") || return nothing
+    T = c.T
+    columns = c.free ? 0 : nm
     (
-        coefficients=Matrix{Float64}(input["plasma_coefficients"]),
-        parameters=Vector{Float64}(input["plasma_parameters"]),
-        taps=Vector{Float64}(input["plasma_taps"]), floor=Bool(input["plasma_floor"]),
-        dt=Float64(input["dt"]), omega=Vector{Float64}(input["omega"]),
-        derivative=Vector{Float64}(input["window_derivative"]),
-        rate=zeros(nt,chunk), fraction=zeros(nt,chunk), integrand=zeros(nt,chunk),
-        current=zeros(nt,chunk), gated=zeros(nt,chunk), edge=zeros(nt,chunk),
-        projected=zeros(projected_rows,projected_columns), edge_projected=zeros(projected_rows,projected_columns),
-        coarse=zeros(projected_rows,projected_columns), coarse_edge=zeros(projected_rows,projected_columns),
-        spectrum=zeros(ComplexF64,nt÷2+1,nm), edge_spectrum=zeros(ComplexF64,nt÷2+1,nm),
-        fractions=zeros(nn), peaks=zeros(nn),
+        coefficients=upload(c, host.array("plasma_coefficients", T)),
+        # Field range, rate cap, log-table origin and step, charge-mass ratio and
+        # ionisation potential; density and preionisation are a stage's (stages.jl).
+        parameters=host.array("plasma_parameters", Float64),
+        taps=upload(c, host.array("plasma_taps", T)), floor=host.flag("plasma_floor"),
+        dt=T(host.real("dt")),
+        inverse_omega=upload(c, T.(inv.(host.array("omega", Float64)))),
+        derivative=upload(c, host.array("window_derivative", T)),
+        rate=dzeros(c, T, nt, chunk), fraction=dzeros(c, T, nt, chunk),
+        integrand=dzeros(c, T, nt, chunk), current=dzeros(c, T, nt, chunk),
+        gated=dzeros(c, T, nt, chunk), edge=dzeros(c, T, nt, chunk),
+        projected=dzeros(c, T, nt, columns), edge_projected=dzeros(c, T, nt, columns),
+        coarse=dzeros(c, T, nt, columns), coarse_edge=dzeros(c, T, nt, columns),
+        spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, c.free ? chunk : nm),
+        edge_spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, c.free ? chunk : nm),
+        fractions=dzeros(c, T, nn), peaks=dzeros(c, T, nn), parts=dzeros(c, T, 6, chunk),
     )
 end
 
-@inline function rate_value(value, p)
-    x=abs(value)
-    x < p.parameters[1] && return 0.0
-    x >= p.parameters[2] && return p.parameters[3]
-    logarithm=log(x)
-    delta=logarithm-p.parameters[4]
-    j=clamp(floor(Int,delta/p.parameters[5])+1,1,size(p.coefficients,2))
-    t=logarithm-(p.parameters[4]+(j-1)*p.parameters[5])
-    @inbounds value=((p.coefficients[1,j]*t+p.coefficients[2,j])*t+p.coefficients[3,j])*t+p.coefficients[4,j]
-    min(exp(value),p.parameters[3])
+"""The piecewise-cubic ionisation rate in log |E|, clamped to the table's range."""
+@inline function rate_value(value, table, lower, upper, cap, origin, step)
+    x = abs(value)
+    x < lower && return zero(cap)
+    x >= upper && return cap
+    logarithm = log(x)
+    j = clamp(unsafe_trunc(Int, floor((logarithm - origin) / step)) + 1, 1, size(table, 2))
+    s = logarithm - (origin + (j - 1) * step)
+    @inbounds value = ((table[1, j] * s + table[2, j]) * s + table[3, j]) * s + table[4, j]
+    min(exp(value), cap)
 end
+@inline rate_arguments(p) = (p.coefficients, ntuple(k -> typeof(p.dt)(p.parameters[k]), 5)...)
 
-# A symmetric FIR followed by a running trapezoid. Point reflection preserves
-# the endpoint convention of RunningIntegral; no reassociation of this scan.
-@inline function filtered(values,t,node,taps)
-    nt=size(values,1)
-    @inbounds value=taps[1]*values[t,node]
+# A symmetric FIR, reflected at the ends as RunningIntegral is, then a running
+# trapezoid. The scan's order is strict: no reassociation.
+@inline function filtered(values, t, node, taps)
+    nt = size(values, 1)
+    @inbounds value = taps[1] * values[t, node]
     @inbounds for k in 1:length(taps)-1
-        left=t-k < 1 ? 2*values[1,node]-values[1+k-t+1,node] : values[t-k,node]
-        right=t+k > nt ? 2*values[nt,node]-values[2nt-t-k,node] : values[t+k,node]
-        value += taps[k+1]*(left+right)
+        left = t - k < 1 ? 2 * values[1, node] - values[1+k-t+1, node] : values[t-k, node]
+        right = t + k > nt ? 2 * values[nt, node] - values[2nt-t-k, node] : values[t+k, node]
+        value += taps[k+1] * (left + right)
     end
     value
 end
-function integrate_column!(out,values,node,p)
-    previous=filtered(values,1,node,p.taps)
-    total=0.0
-    @inbounds out[1,node]=0.0
-    @inbounds for t in 2:size(values,1)
-        current=filtered(values,t,node,p.taps)
-        total += p.dt*(current+previous)/2
-        out[t,node]=total
-        previous=current
-    end
-end
 
-# On CPU, filter independent time samples before the dependent prefix. Keeping
-# the tap loop outside the interior time loop exposes SIMD without reordering
-# a sample's tap additions. The output itself is scratch until the strict scan,
-# so this traversal does not add a persistent buffer.
-# Exact zero support saves filter and prefix work outside the live interval.
-# Reflection cannot extend this interval beyond the filter radius: its endpoint
-# is already live whenever a reflected endpoint value is nonzero.
-function integrate_column!(out::StridedMatrix,values::StridedMatrix,node,p)
-    nt=size(values,1)
-    half=length(p.taps)-1
-    first=1
-    @inbounds while first <= nt && iszero(values[first,node])
+"""Integrate one column of `values` into `out`, sequentially down the column.
+
+Exact zero support is skipped: reflection cannot carry the live interval past the
+filter's radius, since its endpoint is then live already. Interior samples apply the
+taps one at a time over the whole interval, which a CPU vectorises without reordering
+any one sample's additions.
+"""
+@inline function integrate_column!(out, values, node, taps, dt)
+    nt = size(values, 1)
+    half = length(taps) - 1
+    first, last = 1, nt
+    @inbounds while first <= nt && iszero(values[first, node])
         first += 1
     end
-    fill!(@view(out[:,node]),0)
-    first > nt && return nothing
-    last=nt
-    @inbounds while iszero(values[last,node])
+    if first > nt
+        @inbounds for t in 1:nt
+            out[t, node] = 0
+        end
+        return nothing
+    end
+    @inbounds while iszero(values[last, node])
         last -= 1
     end
-    first=max(1,first-half)
-    last=min(nt,last+half)
-    if 2half >= nt
-        @inbounds for t in first:last
-            out[t,node]=filtered(values,t,node,p.taps)
-        end
-    else
-        @inbounds for t in first:min(half,last)
-            out[t,node]=filtered(values,t,node,p.taps)
-        end
-        @inbounds for t in max(nt-half+1,first):last
-            out[t,node]=filtered(values,t,node,p.taps)
-        end
-        interior_first=max(first,half+1)
-        interior_last=min(last,nt-half)
-        @inbounds @simd for t in interior_first:interior_last
-            out[t,node]=p.taps[1]*values[t,node]
-        end
-        @inbounds for k in 1:half
-            tap=p.taps[k+1]
-            @simd for t in interior_first:interior_last
-                out[t,node] += tap*(values[t-k,node]+values[t+k,node])
-            end
+    first, last = max(1, first - half), min(nt, last + half)
+    @inbounds for t in 1:first-1
+        out[t, node] = 0
+    end
+    interior_first, interior_last = max(first, half + 1), min(last, nt - half)
+    @inbounds for t in first:last
+        if t < interior_first || t > interior_last
+            out[t, node] = filtered(values, t, node, taps)
+        else
+            out[t, node] = taps[1] * values[t, node]
         end
     end
-    @inbounds previous=out[1,node]
-    total=0.0
-    @inbounds out[1,node]=0.0
-    stop=min(nt,last+1)
-    @inbounds for t in max(2,first):stop
-        current=out[t,node]
-        total += p.dt*(current+previous)/2
-        out[t,node]=total
-        previous=current
+    @inbounds for k in 1:half
+        tap = taps[k+1]
+        @simd for t in interior_first:interior_last
+            out[t, node] += tap * (values[t-k, node] + values[t+k, node])
+        end
+    end
+    @inbounds previous = out[1, node]
+    total = zero(dt)
+    @inbounds out[1, node] = 0
+    stop = min(nt, last + 1)
+    @inbounds for t in max(2, first):stop
+        current = out[t, node]
+        total += dt * (current + previous) / 2
+        out[t, node] = total
+        previous = current
     end
     @inbounds for t in stop+1:nt
-        out[t,node]=total
+        out[t, node] = total
     end
     nothing
 end
 
-function plasma_current!(p,nodes,c,first)
-    AK.foreachindex(axes(nodes,2);max_tasks=c.tasks,min_elems=1) do node
-        peak=exposure_column!(p,nodes,node)
-        # With exactly zero rates and no initial electrons, both current streams
-        # vanish. Clear their outputs even if this chunk ionised on a prior call.
-        # The unused integrand/current scratch is overwritten on every live call.
-        if c.skip_zero_plasma && iszero(peak) && iszero(p.parameters[9])
-            fill!(@view(p.gated[:,node]),0)
-            fill!(@view(p.edge[:,node]),0)
-            @inbounds p.fractions[first+node-1]=0.0
-            @inbounds p.peaks[first+node-1]=0.0
-            return
-        end
-        previous_exposure=NaN
-        fraction=0.0
-        @inbounds for t in axes(nodes,1)
-            exposure=p.floor ? max(p.fraction[t,node],0.0) : p.fraction[t,node]
-            # An unchanged prefix gives the same fraction, including the exact
-            # zero-rate head and constant tail. No threshold or approximation.
-            if exposure != previous_exposure
-                fraction=1-(1-p.parameters[9])*exp(-exposure)
-                previous_exposure=exposure
-            end
-            p.fraction[t,node]=fraction
-            p.integrand[t,node]=fraction*p.parameters[6]*nodes[t,node]
-        end
-        integrate_column!(p.current,p.integrand,node,p)
-        @inbounds for t in axes(nodes,1)
-            field=nodes[t,node]
-            squared=field*field
-            loss=p.rate[t,node] > 0 && squared > 0 ? (p.parameters[7]*p.rate[t,node]*(1-p.fraction[t,node])/squared)*field : 0.0
-            current=p.parameters[8]*(p.current[t,node]+loss)
-            p.gated[t,node]=c.window[t]*current
-            p.edge[t,node]=p.derivative[t]*current
-        end
-        @inbounds p.fractions[first+node-1]=p.fraction[size(nodes,1),node]
-        @inbounds p.peaks[first+node-1]=peak
+"""One column's rates and exposure; return the peak rate."""
+@inline function exposure_column!(rate, exposure, nodes, node, taps, dt, args)
+    peak = zero(dt)
+    @inbounds for t in axes(nodes, 1)
+        value = rate_value(nodes[t, node], args...)
+        rate[t, node] = value
+        peak = max(peak, value)
     end
-end
-function clear_plasma!(p)
-    isnothing(p) && return
-    for a in (p.projected,p.edge_projected,p.coarse,p.coarse_edge)
-        fill!(a,0)
-    end
-end
-function project_plasma!(p,c,first,last,quadrature)
-    count=last-first+1
-    for (values,full,coarse) in ((p.gated,p.projected,p.coarse),(p.edge,p.edge_projected,p.coarse_edge))
-        mul!(full,@view(values[:,1:count]),@view(c.projection[first:last,:]),1.0,1.0)
-        if quadrature && c.embedded
-            mul!(coarse,@view(values[:,1:count]),@view(c.projection_coarse[first:last,:]),1.0,1.0)
-        end
-    end
-end
-function add_plasma!(destination,p,plan,c;coarse=false,direct=false)
-    mul!(p.spectrum,plan,direct ? p.gated : coarse ? p.coarse : p.projected)
-    mul!(p.edge_spectrum,plan,direct ? p.edge : coarse ? p.coarse_edge : p.edge_projected)
-    foreach_sample(@view(destination[1:length(c.crop),:]),c.tasks) do f,m,i
-        @inbounds if c.mask[f]
-            k=c.crop[f]
-            inverse=1/p.omega[f]
-            destination[k,m] += -im*inverse*p.spectrum[k,m]+inverse^2*p.edge_spectrum[k,m]
-        end
-    end
-end
-# The source and observation share the translated rate and strict exposure scan.
-function exposure_column!(p,nodes,node)
-    peak=0.0
-    @inbounds for t in axes(nodes,1)
-        rate=rate_value(nodes[t,node],p)
-        p.rate[t,node]=rate
-        peak=max(peak,rate)
-    end
-    integrate_column!(p.fraction,p.rate,node,p)
+    integrate_column!(exposure, rate, node, taps, dt)
     peak
 end
 
-# Observation scans read the accepted field afresh. They need rates and exposure,
-# not the propagated current, Kerr/Raman response, projection or source FFTs.
-function population_column!(p,nodes,node,first,parts)
-    nt=size(nodes,1)
-    peak=exposure_column!(p,nodes,node)
-    dip=rise=paid=early=maximum_integrand=0.0
-    previous_exposure=0.0
-    previous_product=0.0
-    initial_fraction=0.0
-    reach=2(length(p.taps)-1)
-    @inbounds for t in 1:nt
-        exposure=p.fraction[t,node]
-        if t > 1
-            increment=exposure-previous_exposure
-            dip=max(dip,-increment)
-            rise=max(rise,increment)
+"""The plasma current of each node of a chunk, gated by the window and the collar."""
+function plasma_current!(p, nodes, c, count)
+    T = typeof(p.dt)
+    (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative) = p
+    window, floor = c.window, p.floor
+    args = rate_arguments(p)
+    charge, potential = T(p.parameters[6]), T(p.parameters[7])
+    density, initial = T(p.parameters[8]), T(p.parameters[9])
+    nt = size(nodes, 1)
+    each_column!(c, count) do node
+        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args)
+        # With exactly zero rates and no initial electrons both currents vanish.
+        if iszero(peak) && iszero(initial)
+            @inbounds for t in 1:nt
+                gated[t, node] = 0
+                edge[t, node] = 0
+            end
+            return nothing
         end
-        previous_exposure=exposure
-        fraction=1-(1-p.parameters[9])*exp(-(p.floor ? max(exposure,0.0) : exposure))
-        p.fraction[t,node]=fraction
-        product=p.rate[t,node]*(1-fraction)
-        if t == 1
-            initial_fraction=fraction
-        else
-            # Keep this diagnostic trapezoid ordered and strict, like the prefix.
-            paid += p.dt*(product+previous_product)/2
+        previous, value = T(NaN), zero(T)
+        @inbounds for t in 1:nt
+            exposure = floor ? max(fraction[t, node], zero(T)) : fraction[t, node]
+            # An unchanged prefix gives the same fraction: the zero-rate head and the
+            # constant tail cost no exponential. No threshold, no approximation.
+            if exposure != previous
+                value = 1 - (1 - initial) * exp(-exposure)
+                previous = exposure
+            end
+            fraction[t, node] = value
+            integrand[t, node] = value * charge * nodes[t, node]
         end
-        previous_product=product
-        integrand=abs(fraction*nodes[t,node])
-        maximum_integrand=max(maximum_integrand,integrand)
-        if t <= reach
-            early=max(early,integrand)
+        integrate_column!(current, integrand, node, taps, dt)
+        @inbounds for t in 1:nt
+            field = nodes[t, node]
+            squared = field * field
+            loss = rate[t, node] > 0 && squared > 0 ?
+                   (potential * rate[t, node] * (1 - fraction[t, node]) / squared) * field : zero(T)
+            total = density * (current[t, node] + loss)
+            gated[t, node] = window[t] * total
+            edge[t, node] = derivative[t] * total
         end
+        nothing
     end
-    @inbounds begin
-        freed=p.fraction[nt,node]-initial_fraction
-        p.fractions[first+node-1]=p.fraction[nt,node]
-        p.peaks[first+node-1]=peak
-        parts[1,node]=dip
-        parts[2,node]=rise
-        parts[3,node]=abs(paid-freed)
-        parts[4,node]=freed
-        parts[5,node]=early
-        parts[6,node]=maximum_integrand
-    end
-    nothing
-end
-function population_snapshot(engine,input)
-    engine.config.free && return population_free_snapshot(engine,input)
-    c,w=engine.config,engine.work
-    p=w.plasma
-    lab=Matrix{ComplexF64}(input)
-    fill!(w.fine,0)
-    foreach_sample(lab,c.tasks) do f,m,i
-        @inbounds w.fine[c.crop[f],m]=lab[i]
-    end
-    fft_apply!(w.modal,w.inverse_plan,w.fine,c)
-    chunk=size(w.nodes,2)
-    # Observation-only transient reductions are outside the owned march buffers.
-    parts=zeros(6,chunk)
-    maxima=zeros(6)
-    for first in 1:chunk:size(c.synthesis,2)
-        last=min(first+chunk-1,size(c.synthesis,2))
-        count=last-first+1
-        nodes=@view w.nodes[:,1:count]
-        mul!(nodes,w.modal,@view(c.synthesis[:,first:last]))
-        AK.foreachindex(1:count;max_tasks=c.tasks,min_elems=1) do node
-            population_column!(p,nodes,node,first,parts)
-        end
-        @inbounds for node in 1:count, i in 1:6
-            maxima[i]=max(maxima[i],parts[i,node])
-        end
-    end
-    (copy(p.fractions),copy(p.peaks),maxima)
 end
 
-function raman_workspace(input,c,nt,chunk)
-    (haskey(input,"raman") && Bool(input["raman"])) || return nothing
-    rows=Matrix{Float64}(input["raman_undamped"])
-    rates=Vector{Float64}(input["raman_rates"])
-    dt=Float64(input["dt"])
-    kernel=zeros(2nt,1)
-    for term in eachindex(rates), t in 1:2nt
-        @inbounds kernel[t] += rows[t,term]*exp(-rates[term]*(t-1)*dt)
-    end
-    kernel .*= Float64(input["raman_fraction"])
-    plan=plan_rfft(fft_storage(kernel),1;flags=c.fft_flags,num_threads=1)
-    # MEASURE may overwrite its planning input.
-    fill!(kernel,0)
-    for term in eachindex(rates), t in 1:2nt
-        @inbounds kernel[t] += rows[t,term]*exp(-rates[term]*(t-1)*dt)
-    end
-    kernel .*= Float64(input["raman_fraction"])
-    spectrum=vec(plan*kernel).*dt
-    drive=zeros(2nt,chunk)
-    frequency=zeros(ComplexF64,nt+1,chunk)
-    (kernel=spectrum,factor=Float64(input["raman_factor"]),thg=Bool(input["raman_thg"]),
-     drive=drive,frequency=frequency,result=zeros(c.envelope ? ComplexF64 : Float64,nt,chunk),
-     forward=plan_rfft(fft_storage(drive),1;flags=c.fft_flags,num_threads=c.raman_fft_threads),
-     inverse=plan_irfft(fft_storage(frequency),2nt,1;flags=c.fft_flags,num_threads=c.raman_fft_threads))
-end
-function raman_response!(r,nodes,analytic,c)
-    nt,count=size(nodes)
-    fill!(r.drive,0)
-    foreach_sample(nodes,c.tasks) do t,m,i
-        @inbounds r.drive[t,m]=r.thg ? abs2(nodes[i]) : 0.5*abs2(analytic[t,m])
-    end
-    mul!(r.frequency,r.forward,r.drive)
-    foreach_sample(r.frequency,c.tasks) do f,m,i
-        @inbounds r.frequency[i] *= r.kernel[f]
-    end
-    fft_apply!(r.drive,r.inverse,r.frequency,c)
-    foreach_sample(nodes,c.tasks) do t,m,i
-        @inbounds r.result[t,m]=r.factor*nodes[i]*r.drive[t,m]
+clear_plasma!(::Nothing) = nothing
+clear_plasma!(p) = foreach(a -> fill!(a, 0), (p.projected, p.edge_projected, p.coarse, p.coarse_edge))
+
+function project_plasma!(p, c, first, last, quadrature)
+    count = last - first + 1
+    for (values, full, coarse) in ((p.gated, p.projected, p.coarse), (p.edge, p.edge_projected, p.coarse_edge))
+        block = @view values[:, 1:count]
+        mul!(full, block, @view(c.projection[first:last, :]), true, true)
+        quadrature && c.embedded &&
+            mul!(coarse, block, @view(c.projection_coarse[first:last, :]), true, true)
     end
 end
-function add_raman!(r,nodes,c)
-    foreach_sample(nodes,c.tasks) do t,m,i
-        @inbounds nodes[i] += r.result[t,m]*c.window[t]
+
+"""Add `-i J / omega + edge / omega^2` of the projected currents to a spectrum."""
+function add_plasma!(destination, p, plan, c; coarse=false, direct=false)
+    mul!(p.spectrum, plan, direct ? p.gated : coarse ? p.coarse : p.projected)
+    mul!(p.edge_spectrum, plan, direct ? p.edge : coarse ? p.coarse_edge : p.edge_projected)
+    (; spectrum, edge_spectrum, inverse_omega) = p
+    crop, mask = c.crop, c.mask
+    each!(c, length(crop), size(destination, 2)) do f, m
+        @inbounds if mask[f]
+            k = crop[f]
+            inverse = inverse_omega[f]
+            destination[k, m] += -im * inverse * spectrum[k, m] + inverse^2 * edge_spectrum[k, m]
+        end
     end
+end
+
+"""Fresh accepted-field populations, for an observation: rates and exposure only."""
+function population_parts!(p, nodes, c, first, count)
+    T = typeof(p.dt)
+    (; rate, fraction, taps, dt, fractions, peaks, parts) = p
+    floor, args = p.floor, rate_arguments(p)
+    initial = T(p.parameters[9])
+    nt, reach = size(nodes, 1), 2 * (length(taps) - 1)
+    each_column!(c, count) do node
+        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args)
+        dip = rise = paid = early = largest = zero(T)
+        before = product_before = start = zero(T)
+        @inbounds for t in 1:nt
+            exposure = fraction[t, node]
+            if t > 1
+                dip = max(dip, before - exposure)
+                rise = max(rise, exposure - before)
+            end
+            before = exposure
+            value = 1 - (1 - initial) * exp(-(floor ? max(exposure, zero(T)) : exposure))
+            fraction[t, node] = value
+            product = rate[t, node] * (1 - value)
+            if t == 1
+                start = value
+            else
+                # The diagnostic's trapezoid is ordered and strict, like the prefix.
+                paid += dt * (product + product_before) / 2
+            end
+            product_before = product
+            integrand = abs(value * nodes[t, node])
+            largest = max(largest, integrand)
+            t <= reach && (early = max(early, integrand))
+        end
+        @inbounds begin
+            freed = fraction[nt, node] - start
+            fractions[first+node-1] = fraction[nt, node]
+            peaks[first+node-1] = peak
+            parts[1, node], parts[2, node], parts[3, node] = dip, rise, abs(paid - freed)
+            parts[4, node], parts[5, node], parts[6, node] = freed, early, largest
+        end
+        nothing
+    end
+    vec(maximum(Array(parts)[:, 1:count]; dims=2, init=zero(T)))
+end
+
+# --- Raman ----------------------------------------------------------------------------
+
+function raman_workspace(c, host, nt, chunk)
+    host.flag("raman") || return nothing
+    T = c.T
+    rows, rates = host.array("raman_undamped", Float64), host.array("raman_rates", Float64)
+    dt = host.real("dt")
+    kernel = zeros(2nt)
+    for term in eachindex(rates), t in 1:2nt
+        kernel[t] += rows[t, term] * exp(-rates[term] * (t - 1) * dt)
+    end
+    kernel .*= host.real("raman_fraction")
+    # The inverse transform is unnormalised: its 1/(2 nt) is folded into the kernel.
+    spectrum = FFTW.rfft(kernel) .* (dt / (2nt))
+    drive = dzeros(c, T, 2nt, chunk)
+    frequency = dzeros(c, Complex{T}, nt + 1, chunk)
+    (kernel=upload(c, Complex{T}.(spectrum)), factor=host.real("raman_factor"),
+     thg=host.flag("raman_thg"), drive=drive, frequency=frequency,
+     forward=plan(c, plan_rfft, drive, 1; threads=c.raman_fft_threads),
+     inverse=plan(c, plan_brfft, frequency, 2nt, 1; threads=c.raman_fft_threads))
+end
+
+"""Convolve each node's drive, `|E|^2` (or half the analytic signal's), with the kernel."""
+function raman_drive!(r, nodes, analytic, c, count)
+    nt = size(nodes, 1)
+    (; drive, frequency, kernel) = r
+    thg = r.thg
+    each!(c, 2nt, size(drive, 2)) do t, m
+        @inbounds drive[t, m] = t > nt || m > count ? zero(eltype(drive)) :
+                                thg ? abs2(nodes[t, m]) : abs2(analytic[t, m]) / 2
+    end
+    mul!(frequency, r.forward, drive)
+    each!(c, nt + 1, size(drive, 2)) do f, m
+        @inbounds frequency[f, m] *= kernel[f]
+    end
+    mul!(drive, r.inverse, frequency)
+    nothing
 end

@@ -1,267 +1,277 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Cartesian geometry keeps shared coefficient vectors and one current-stage flow.
-# FFT/array planning is CPU-specific; the scalar loops and Kerr body are shared.
-function create_free(common, input)
-    vector(name,T) = Vector{T}(input[name])
-    shape = Tuple(Int.(input["spatial_shape"]))
-    c = merge(common, (
-        parallel_copy=get(ENV,"SOLPROP_JULIA_PARALLEL_COPY","1")=="1",
-        spatial_shape=shape, pad_scale=Float64(input["pad_scale"]),
-        spatial_rate=vector("spatial_rate",Float64),
-        k_squared=vector("k_squared",ComplexF64), k_squared_low=vector("k_squared_low",ComplexF64),
-        kperp_sq=vector("kperp_sq",Float64), kperp_sq_low=vector("kperp_sq_low",Float64),
-        frame=vector("frame",Float64), spectral_rate=vector("spectral_rate",Float64),
-        prefactor_numerator=vector("prefactor_numerator",ComplexF64),
-        prefactor_clamped=vector("prefactor_clamped",ComplexF64), active=vector("active",Bool),
-        kperp_rate=vector("kperp_rate",Float64), evanescent_rate=Float64(input["evanescent_rate"]),
-    ))
-    # Only an exactly absent additive source can omit these transforms. The
-    # accepted-step temporal split and the diagonal spectral loss are separate.
-    active_absorber = any(!iszero,c.spatial_rate) || (!c.split && any(!iszero,c.rate))
-    c = merge(c, (in_stage_absorber=(
-        get(ENV,"SOLPROP_JULIA_SKIP_ZERO_ABSORBER","1") != "1" || active_absorber
-    ),))
-    nw, nm, nt = length(c.crop), prod(shape), length(c.window)
-    chunk = min(Int(input["chunk"]),nm)
-    nf, nc = c.envelope ? nt : nt÷2+1, length(c.coarse_rate)
-    T = c.envelope ? ComplexF64 : Float64
-    stages = c.low_storage ? 0 : length(c.c)
-    physical = zeros(ComplexF64,nw,nm)
-    spatial = view(reshape(physical,nw,shape...),:,:,:)
-    fine, modal = zeros(ComplexF64,nf,chunk), zeros(T,nt,chunk)
-    analytic = zeros(ComplexF64,nt,chunk)
-    coarse, coarse_spec = zeros(T,nc,chunk), zeros(ComplexF64,nw,chunk)
-    w = (
-        plasma=plasma_workspace(input,c,nt,chunk,chunk,nm),
-        y=zeros(ComplexF64,nw,nm), candidate=zeros(ComplexF64,nw,nm),
-        lab=zeros(ComplexF64,nw,nm), source=zeros(ComplexF64,nw,nm),
-        fsal=zeros(ComplexF64,c.low_storage ? 0 : nw,c.low_storage ? 0 : nm), error=zeros(ComplexF64,nw,nm),
-        stages=zeros(ComplexF64,nw,nm,stages),
-        forward=zeros(ComplexF64,nw,nm,1), inverse=zeros(ComplexF64,nw,nm,c.low_storage ? 0 : 1),
-        physical=physical, loss=zeros(ComplexF64,nw,nm),
-        fine=fine, modal=modal, projected=zeros(T,nt,chunk),
-        analytic=analytic, absorber=zeros(T,nt,chunk), absorber_spec=similar(fine),
-        coarse=coarse, coarse_spec=coarse_spec, partials=zeros(3,nm),
-        spatial_inverse=plan_ifft!(spatial,(2,3);flags=c.fft_flags,num_threads=c.transverse_fft_threads),
-        spatial_forward=plan_fft!(spatial,(2,3);flags=c.fft_flags,num_threads=c.transverse_fft_threads),
-        inverse_plan=c.envelope ? plan_ifft(fft_storage(fine),1;flags=c.fft_flags) : plan_irfft(fft_storage(fine),nt,1;flags=c.fft_flags),
-        forward_plan=c.envelope ? plan_fft(fft_storage(modal),1;flags=c.fft_flags) : plan_rfft(fft_storage(modal),1;flags=c.fft_flags),
-        analytic_forward=plan_fft!(fft_storage(analytic),1;flags=c.fft_flags),
-        analytic_inverse=plan_ifft!(fft_storage(analytic),1;flags=c.fft_flags),
-        coarse_inverse=c.envelope ? plan_ifft(fft_storage(coarse_spec),1;flags=c.fft_flags) : plan_irfft(fft_storage(coarse_spec),nc,1;flags=c.fft_flags),
-        coarse_forward=c.envelope ? plan_fft(fft_storage(coarse),1;flags=c.fft_flags) : plan_rfft(fft_storage(coarse),1;flags=c.fft_flags),
+# Cartesian and line free space: the state is (n_omega, n_x n_y) in the transverse
+# spectral basis; the response is evaluated in physical space, chunk by chunk of
+# columns, and the operator is formed per element from separable tables.
+
+function create_free(c, host)
+    c = common_tables(c, host)
+    T, C = c.T, Complex{c.T}
+    shape = Tuple(Int.(host.value("spatial_shape")))
+    nw, nm, nt, nf = length(host.array("crop", Int)), prod(shape), c.nt, c.nf
+    spatial_rate = host.array("spatial_rate", Float64)
+    # An exactly absent additive loss omits its transforms; the accepted-step split
+    # and the diagonal spectral loss are separate.
+    in_stage = any(!iszero, spatial_rate) || (!c.split && any(!iszero, c.rate))
+    nc = length(c.coarse_rate)
+    # Both inverse transforms are unnormalised; their 1/(nt n_x n_y) goes into the
+    # factor that forms the physical field from them.
+    scale = inv(T(nt) * T(nm))
+    op = (
+        k_squared=upload(c, host.array("k_squared", C)), k_squared_low=upload(c, host.array("k_squared_low", C)),
+        kperp_sq=upload(c, host.array("kperp_sq", T)), kperp_sq_low=upload(c, host.array("kperp_sq_low", T)),
+        frame=upload(c, host.array("frame", T)), spectral_rate=upload(c, host.array("spectral_rate", T)),
+        prefactor_numerator=upload(c, host.array("prefactor_numerator", C)),
+        prefactor_clamped=upload(c, host.array("prefactor_clamped", C)),
+        active=upload(c, host.array("active", Bool)), kperp_rate=upload(c, host.array("kperp_rate", T)),
+        evanescent_rate=T(host.real("evanescent_rate")),
     )
-    Engine(c,w,false,0,NaN,c.factor)
+    c = merge(c, (
+        spatial_shape=shape, op=op, field_scale=T(host.real("pad_scale")) * scale,
+        absorber_scale=T(-0.5) * scale, spatial_rate=upload(c, T.(spatial_rate)),
+        temporal_rate=upload(c, T.(c.split ? zero(c.rate) : c.rate)), in_stage=in_stage,
+        coarse_rate=upload(c, T.(c.coarse_rate)), nc=nc, embedded=false,
+    ))
+    chunk = min(host.int("chunk"), nm)
+    R = c.envelope ? C : T
+    stages = c.low_storage ? 0 : 7
+    physical = dzeros(c, C, nw, nm)
+    spatial = reshape(physical, nw, shape...)
+    fine, modal = dzeros(c, C, nf, chunk), dzeros(c, R, nt, chunk)
+    analytic = dzeros(c, C, nt, chunk)
+    coarse, coarse_spec = dzeros(c, R, nc, chunk), dzeros(c, C, nw, chunk)
+    planes = (threads=c.transverse_fft_threads, shape=:planes)
+    work = (
+        adams=nothing, path=nothing, raman=nothing,
+        plasma=plasma_workspace(c, host, nt, chunk, chunk, nm),
+        y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
+        source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
+        stages=dzeros(c, C, nw, nm, stages),
+        forward=dzeros(c, C, nw, nm, 1), inverse=dzeros(c, C, nw, nm, c.low_storage ? 0 : 1),
+        physical=physical, loss=dzeros(c, C, in_stage ? nw : 0, in_stage ? nm : 0),
+        fine=fine, modal=modal, projected=dzeros(c, R, nt, chunk), analytic=analytic,
+        absorber=dzeros(c, R, nt, chunk), absorber_spec=similar(fine), coarse=coarse, coarse_spec=coarse_spec,
+        spatial_inverse=plan(c, plan_bfft!, spatial, (2, 3); planes...),
+        spatial_forward=plan(c, plan_fft!, spatial, (2, 3); planes...),
+        inverse_plan=c.envelope ? plan(c, plan_bfft, fine, 1) : plan(c, plan_brfft, fine, nt, 1),
+        forward_plan=c.envelope ? plan(c, plan_fft, modal, 1) : plan(c, plan_rfft, modal, 1),
+        analytic_forward=plan(c, plan_fft!, analytic, 1), analytic_inverse=plan(c, plan_bfft!, analytic, 1),
+        coarse_inverse=c.envelope ? plan(c, plan_bfft, coarse_spec, 1) : plan(c, plan_brfft, coarse_spec, nc, 1),
+        coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
+    )
+    Engine(c, work, false, 0, NaN, c.factor)
 end
 
-# For an exactly real squared longitudinal wave number, the principal root is
-# sqrt(x) for x>0 and i*sqrt(-x) for x<0. Preserve the imaginary signed zero and
-# use the library complex root for lossy or nonfinite inputs. The compensated
-# subtraction that forms q remains untouched; no near-zero cutoff is introduced.
-@inline function free_root(q,specialize)
-    x,y=real(q),imag(q)
-    if specialize && iszero(y) && isfinite(x)
-        if x > 0
-            return complex(sqrt(x),y)
-        elseif x < 0
-            return complex(0.0,copysign(sqrt(-x),y))
-        else
-            return complex(0.0,y)
-        end
+# For an exactly real squared longitudinal wave number the principal root is sqrt(x)
+# for x > 0 and i sqrt(-x) for x < 0, keeping the imaginary signed zero; a lossy or
+# nonfinite input takes the library's complex root. No near-zero cutoff.
+@inline function free_root(q)
+    x, y = real(q), imag(q)
+    if iszero(y) && isfinite(x)
+        x > 0 && return complex(sqrt(x), y)
+        x < 0 && return complex(zero(x), copysign(sqrt(-x), y))
+        return complex(zero(x), y)
     end
     sqrt(q)
 end
 
-# Preserve the compensated subtraction order in translate.spatial.longitudinal_root.
-# No fast-math or reassociation: near grazing, the residual determines the branch.
-@inline function free_element(c,f,m)
+"""The element's linear rate and its prefactor, from the separable tables.
+
+The compensated subtraction that forms `q` keeps translate.spatial.longitudinal_root's
+order: near grazing the residual decides the branch, so no reassociation here.
+"""
+@inline function free_element(op, f, m)
     @inbounds begin
-        q = (c.k_squared[f]-c.kperp_sq[m]) + (c.k_squared_low[f]-c.kperp_sq_low[m])
-        root = free_root(q,c.real_root)
+        q = (op.k_squared[f] - op.kperp_sq[m]) + (op.k_squared_low[f] - op.kperp_sq_low[m])
+        root = free_root(q)
         propagating = real(q) > 0
-        attenuation = propagating ? imag(root) : min(abs(imag(root)),c.evanescent_rate)
-        rate = c.active[f] ? complex(-attenuation-0.5*c.kperp_rate[m],-(real(root)-c.frame[f])) : 0.0im
-        prefactor = propagating ? c.prefactor_numerator[f]/real(root) : c.prefactor_clamped[f]
-        return rate-0.5*c.spectral_rate[f], c.active[f] ? prefactor : 0.0im
+        attenuation = propagating ? imag(root) : min(abs(imag(root)), op.evanescent_rate)
+        live = op.active[f]
+        rate = live ? complex(-attenuation - op.kperp_rate[m] / 2, -(real(root) - op.frame[f])) :
+               zero(root)
+        prefactor = propagating ? op.prefactor_numerator[f] / real(root) : op.prefactor_clamped[f]
+        return rate - op.spectral_rate[f] / 2, live ? prefactor : zero(prefactor)
     end
 end
 
-function free_propagators!(engine,h)
-    engine.propagator_dz == h && return
-    c,w = engine.config,engine.work
-    # The zero-distance stage is exactly identity; the final two DOPRI stages
-    # share a distance and can reuse this one scratch pair without dense caches.
+"""Form the propagator pair of one distance in slot one; return the slot."""
+function free_propagators!(engine, h)
+    engine.propagator_dz == h && return 1
+    c, w = engine.config, engine.work
+    (; forward, inverse) = w
     if h == 0
-        fill!(w.forward,1)
-        fill!(w.inverse,1)
-        engine.propagator_dz = h
-        return
-    end
-    foreach_sample(w.y,c.tasks) do f,m,i
-        @inbounds begin
-            rate,_ = free_element(c,f,m)
-            exponent = h*rate
-            # Both signs share exact trigonometric inputs, as in the compiled seam.
-            scale = exp(real(exponent))
-            sine,cosine = sincos(imag(exponent))
-            w.forward[i] = scale*complex(cosine,sine)
-            if !c.low_storage
-                w.inverse[i] = complex(cosine,-sine)/scale
+        # The zero-distance stage is exactly the identity.
+        fill!(forward, 1)
+        fill!(inverse, 1)
+    else
+        op, both, distance = c.op, !c.low_storage, real_type(engine)(h)
+        each!(c, size(forward, 1), size(forward, 2)) do f, m
+            @inbounds begin
+                exponent = distance * first(free_element(op, f, m))
+                # Both signs share exact trigonometric inputs, as in the compiled seam.
+                scale = exp(real(exponent))
+                sine, cosine = sincos(imag(exponent))
+                forward[f, m, 1] = scale * complex(cosine, sine)
+                both && (inverse[f, m, 1] = complex(cosine, -sine) / scale)
             end
         end
     end
     engine.propagator_dz = h
-    nothing
+    1
 end
 
-# Large source-entry copies are bandwidth passes. Reuse the shared traversal
-# and its task threshold without changing element order or owned storage.
-function copy_volume!(destination,source,c)
-    if c.parallel_copy
-        foreach_sample(destination,c.tasks) do f,m,i
-            @inbounds destination[i]=source[i]
+transverse!(a, plan, c) = (plan * reshape(a, size(a, 1), c.spatial_shape...); nothing)
+
+"""Copy columns `first:first+count-1` of `physical` into the fine spectrum."""
+function scatter_columns!(fine, physical, first, count, c)
+    uncrop = c.uncrop
+    each!(c, size(fine)...) do k, m
+        @inbounds begin
+            f = uncrop[k]
+            fine[k, m] = f == 0 || m > count ? zero(eltype(fine)) : physical[f, first+m-1]
         end
-    else
-        copyto!(destination,source)
     end
-    nothing
 end
 
-function spatial_fft!(a,plan,c)
-    shaped = view(reshape(a,size(a,1),c.spatial_shape...),:,:,:)
-    fft_apply!(shaped,plan,shaped,c)
-    nothing
-end
-
-function source_free!(engine,lab)
-    c,w = engine.config,engine.work
-    nt,chunk = size(w.modal)
-    nw,nm = size(lab)
-    copy_volume!(w.physical,lab,c)
-    spatial_fft!(w.physical,w.spatial_inverse,c)
-    # Transverse inversion precedes real temporal synthesis: individual transverse
-    # spectral columns do not themselves represent real temporal fields.
+function source_free!(engine, lab)
+    c, w = engine.config, engine.work
+    (; physical, fine, modal, projected, analytic, loss) = w
+    nm = size(lab, 2)
+    chunk = size(modal, 2)
+    copyto!(physical, lab)
+    transverse!(physical, w.spatial_inverse, c)
+    # Transverse inversion first: a transverse spectral column alone is not the
+    # spectrum of a real temporal field.
+    scale, window, a = c.field_scale, c.window, c.analytic_factor
+    T = real_type(engine)
+    factor = T(c.factor)
     for first in 1:chunk:nm
-        count = min(chunk,nm-first+1)
-        fill!(w.fine,0)
-        foreach_sample(@view(w.physical[:,first:first+count-1]),c.tasks) do f,m,i
-            @inbounds w.fine[c.crop[f],m] = w.physical[f,first+m-1]
-        end
-        fft_apply!(w.modal,w.inverse_plan,w.fine,c)
-        if !isnothing(w.plasma)
-            # The temporal inverse is unscaled; plasma consumes SI nodal fields,
-            # with the same padding normalization as the Kerr response below.
-            foreach_sample(w.projected,c.tasks) do t,m,i
-                @inbounds w.projected[i]=c.pad_scale*w.modal[i]
+        count = min(chunk, nm - first + 1)
+        scatter_columns!(fine, physical, first, count, c)
+        mul!(modal, w.inverse_plan, fine)
+        if w.plasma !== nothing
+            each!(c, size(modal)...) do t, m
+                @inbounds projected[t, m] = scale * modal[t, m]
             end
-            plasma_current!(w.plasma,@view(w.projected[:,1:count]),c,first)
+            plasma_current!(w.plasma, projected, c, count)
         end
         if c.envelope
-            foreach_sample(w.projected,c.tasks) do t,m,i
+            each!(c, size(modal)...) do t, m
                 @inbounds begin
-                    value=c.pad_scale*w.modal[i]
-                    w.projected[i] = c.factor*c.analytic_factor*abs2(value)*value*c.window[t]
+                    v = scale * modal[t, m]
+                    projected[t, m] = factor * a * abs2(v) * v * window[t]
                 end
             end
         elseif c.analytic
-            foreach_sample(w.analytic,c.tasks) do t,m,i
-                @inbounds w.analytic[i] = c.pad_scale*w.modal[i]
+            each!(c, size(modal)...) do t, m
+                @inbounds projected[t, m] = scale * modal[t, m]
             end
-            w.analytic_forward*w.analytic
-            foreach_sample(w.analytic,c.tasks) do f,m,i
-                @inbounds w.analytic[i] *= (f == 1 || f == nt÷2+1) ? 1 : f <= nt÷2 ? 2 : 0
-            end
-            fft_apply!(w.analytic,w.analytic_inverse,w.analytic,c)
-            polarize!(w.projected,w.analytic,c)
+            analytic_signal!(analytic, projected, w, c, chunk)
+            nonlinear_nodes!(projected, analytic, c, factor, nothing, chunk)
         else
-            foreach_sample(w.projected,c.tasks) do t,m,i
-                @inbounds w.projected[i] = polarization(c.pad_scale*w.modal[i],c.factor,c.analytic_factor)*c.window[t]
+            each!(c, size(modal)...) do t, m
+                @inbounds projected[t, m] = polarization(scale * modal[t, m], factor, a) * window[t]
             end
         end
-        mul!(w.fine,w.forward_plan,w.projected)
-        # The held-current equivalent polarization combines before the spatial
-        # forward FFT, exactly as the reference Cartesian source does.
-        isnothing(w.plasma) || add_plasma!(w.fine,w.plasma,w.forward_plan,c;direct=true)
-        if c.in_stage_absorber
-            foreach_sample(w.absorber,c.tasks) do t,m,i
-                @inbounds begin
-                    rate = m <= count ? c.spatial_rate[first+m-1] : 0.0
-                    rate += c.split ? 0.0 : c.rate[t]
-                    w.absorber[i] = -0.5*rate*w.modal[i]
-                end
-            end
-            mul!(w.absorber_spec,w.forward_plan,w.absorber)
-        end
-        foreach_sample(@view(w.physical[:,first:first+count-1]),c.tasks) do f,m,i
-            @inbounds begin
-                w.physical[f,first+m-1] = w.fine[c.crop[f],m]
-                if c.in_stage_absorber
-                    w.loss[f,first+m-1] = w.absorber_spec[c.crop[f],m]
-                end
-            end
-        end
+        mul!(fine, w.forward_plan, projected)
+        # The held-current polarisation joins before the transverse forward transform,
+        # as the reference Cartesian source does.
+        w.plasma === nothing || add_plasma!(fine, w.plasma, w.forward_plan, c; direct=true)
+        c.in_stage && free_absorber!(w, c, first, count)
+        gather_columns!(physical, fine, c.in_stage ? loss : nothing, w.absorber_spec, first, count, c)
     end
-    spatial_fft!(w.physical,w.spatial_forward,c)
-    c.in_stage_absorber && spatial_fft!(w.loss,w.spatial_forward,c)
-    foreach_sample(w.source,c.tasks) do f,m,i
+    transverse!(physical, w.spatial_forward, c)
+    c.in_stage && transverse!(loss, w.spatial_forward, c)
+    (; source) = w
+    (; op, omega_window, mask) = c
+    live = c.in_stage
+    extra = live ? loss : physical
+    each!(c, size(source)...) do f, m
         @inbounds begin
-            _,prefactor = free_element(c,f,m)
-            w.source[i] = prefactor*c.omega_window[f]*w.physical[i] + (c.in_stage_absorber && c.mask[f] ? w.loss[i] : 0.0im)
+            value = last(free_element(op, f, m)) * omega_window[f] * physical[f, m]
+            if live && mask[f]
+                value += extra[f, m]
+            end
+            source[f, m] = value
         end
     end
     engine.calls += 1
     nothing
 end
 
-function split_free!(engine,dz)
-    c,w = engine.config,engine.work
-    copy_volume!(w.physical,w.candidate,c)
-    spatial_fft!(w.physical,w.spatial_inverse,c)
-    chunk = size(w.coarse,2)
-    for first in 1:chunk:size(w.candidate,2)
-        count = min(chunk,size(w.candidate,2)-first+1)
-        fill!(w.coarse_spec,0)
-        @views copyto!(w.coarse_spec[:,1:count],w.physical[:,first:first+count-1])
-        fft_apply!(w.coarse,w.coarse_inverse,w.coarse_spec,c)
-        foreach_sample(w.coarse,c.tasks) do t,m,i
-            @inbounds w.coarse[i] *= exp(-0.5*dz*c.coarse_rate[t])
+"""The in-stage loss of a chunk's columns: their spatial collar and, unsplit, time's."""
+function free_absorber!(w, c, first, count)
+    (; absorber, modal) = w
+    spatial, temporal, scale = c.spatial_rate, c.temporal_rate, c.absorber_scale
+    each!(c, size(absorber)...) do t, m
+        @inbounds begin
+            rate = (m <= count ? spatial[first+m-1] : zero(scale)) + temporal[t]
+            absorber[t, m] = scale * rate * modal[t, m]
         end
-        mul!(w.coarse_spec,w.coarse_forward,w.coarse)
-        @views copyto!(w.physical[:,first:first+count-1],w.coarse_spec[:,1:count])
     end
-    spatial_fft!(w.physical,w.spatial_forward,c)
-    copy_volume!(w.candidate,w.physical,c)
+    mul!(w.absorber_spec, w.forward_plan, absorber)
+end
+
+function gather_columns!(physical, fine, loss, absorber_spec, first, count, c)
+    crop = c.crop
+    live = loss !== nothing
+    target = live ? loss : physical
+    each!(c, size(physical, 1), count) do f, m
+        @inbounds begin
+            k = crop[f]
+            physical[f, first+m-1] = fine[k, m]
+            live && (target[f, first+m-1] = absorber_spec[k, m])
+        end
+    end
+end
+
+function split_free!(engine, dz)
+    c, w = engine.config, engine.work
+    (; physical, coarse, coarse_spec) = w
+    copyto!(physical, w.candidate)
+    transverse!(physical, w.spatial_inverse, c)
+    chunk, nm, nw = size(coarse, 2), size(physical, 2), size(physical, 1)
+    T = real_type(engine)
+    rate, half = c.coarse_rate, T(-0.5 * dz)
+    # Both unnormalised inverses' 1/(nc n_x n_y) is folded into the collar's factor.
+    inverse = inv(T(c.nc) * T(nm))
+    for first in 1:chunk:nm
+        count = min(chunk, nm - first + 1)
+        each!(c, size(coarse_spec)...) do f, m
+            @inbounds coarse_spec[f, m] = m <= count ? physical[f, first+m-1] : zero(eltype(coarse_spec))
+        end
+        mul!(coarse, w.coarse_inverse, coarse_spec)
+        each!(c, size(coarse)...) do t, m
+            @inbounds coarse[t, m] *= exp(half * rate[t]) * inverse
+        end
+        mul!(coarse_spec, w.coarse_forward, coarse)
+        each!(c, nw, count) do f, m
+            @inbounds physical[f, first+m-1] = coarse_spec[f, m]
+        end
+    end
+    transverse!(physical, w.spatial_forward, c)
+    copyto!(w.candidate, physical)
     nothing
 end
 
-# Reuse the accepted-field observation scan on bounded physical-space chunks.
-function population_free_snapshot(engine,input)
-    c,w=engine.config,engine.work
-    p=w.plasma
-    copyto!(w.physical,Matrix{ComplexF64}(input))
-    spatial_fft!(w.physical,w.spatial_inverse,c)
-    chunk=size(w.modal,2)
-    parts=zeros(6,chunk)
-    maxima=zeros(6)
-    for first in 1:chunk:size(w.physical,2)
-        count=min(chunk,size(w.physical,2)-first+1)
-        fill!(w.fine,0)
-        foreach_sample(@view(w.physical[:,first:first+count-1]),c.tasks) do f,m,i
-            @inbounds w.fine[c.crop[f],m]=w.physical[f,first+m-1]
+function population_free_snapshot(engine, input)
+    c, w = engine.config, engine.work
+    p = w.plasma
+    (; physical, fine, modal, projected) = w
+    copyto!(physical, device_matrix(engine, input))
+    transverse!(physical, w.spatial_inverse, c)
+    chunk, nm = size(modal, 2), size(physical, 2)
+    scale = c.field_scale
+    maxima = zeros(6)
+    for first in 1:chunk:nm
+        count = min(chunk, nm - first + 1)
+        scatter_columns!(fine, physical, first, count, c)
+        mul!(modal, w.inverse_plan, fine)
+        each!(c, size(modal)...) do t, m
+            @inbounds projected[t, m] = scale * modal[t, m]
         end
-        fft_apply!(w.modal,w.inverse_plan,w.fine,c)
-        foreach_sample(w.projected,c.tasks) do t,m,i
-            @inbounds w.projected[i]=c.pad_scale*w.modal[i]
-        end
-        nodes=@view(w.projected[:,1:count])
-        AK.foreachindex(1:count;max_tasks=c.tasks,min_elems=1) do node
-            population_column!(p,nodes,node,first,parts)
-        end
-        @inbounds for node in 1:count, i in 1:6
-            maxima[i]=max(maxima[i],parts[i,node])
-        end
+        maxima .= max.(maxima, population_parts!(p, projected, c, first, count))
     end
-    (copy(p.fractions),copy(p.peaks),maxima)
+    (Vector{Float64}(Array(p.fractions)), Vector{Float64}(Array(p.peaks)), maxima)
 end
