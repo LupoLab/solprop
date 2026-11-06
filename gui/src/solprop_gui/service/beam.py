@@ -25,6 +25,7 @@ from collections.abc import Mapping
 
 import numpy as np
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
+from solprop.processing.fields import time_axis
 from solprop.processing.spectra import bandpass as spectral_window
 from solprop.spatial import (
     SpatialFlux,
@@ -33,7 +34,7 @@ from solprop.spatial import (
     spatial_power,
 )
 
-from solprop_gui.service.reduce import C
+from solprop_gui.service.reduce import TIME_OVERSAMPLING, C
 
 __all__ = ["across", "beam_reading", "beam_slice", "profile_row"]
 
@@ -144,8 +145,10 @@ def beam_reading(  # noqa: PLR0913 - the run's grids, medium and the plane
             "wavelength": (C / frequency, per_bin),
             "f": (frequency, per_bin),
         },
-        "t": np.asarray(grid.t),
-        "power": np.asarray(spatial_power(windowed, flux)),
+        "t": time_axis(grid, TIME_OVERSAMPLING),
+        "power": np.asarray(
+            spatial_power(windowed, flux, oversampling=TIME_OVERSAMPLING)
+        ),
         "profile": {"axis": axis, "x": coordinates, "y": fluence},
     }
 
@@ -185,10 +188,14 @@ def beam_slice(
     """
     flux = _flux(grid, space, medium, z)
     windowed = stored if bandpass is None else stored * spectral_window(grid, bandpass)
-    axis, coordinates, values = across(
-        space, np.asarray(spatial_intensity(windowed, flux))
-    )
-    return {"t": np.asarray(grid.t), "x": coordinates, "axis": axis, "values": values}
+    intensity = spatial_intensity(windowed, flux, oversampling=TIME_OVERSAMPLING)
+    axis, coordinates, values = across(space, np.asarray(intensity))
+    return {
+        "t": time_axis(grid, TIME_OVERSAMPLING),
+        "x": coordinates,
+        "axis": axis,
+        "values": values,
+    }
 
 
 def profile_row(reading: Mapping[str, object]) -> dict[str, np.ndarray]:

@@ -18,6 +18,7 @@ from solprop.recipe import Recipe
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.service import handlers
+from solprop_gui.service.reduce import TIME_OVERSAMPLING
 from solprop_gui.service import run as worker
 from solprop_gui.service.beam import across
 from solprop_gui.service.outbox import Outbox
@@ -67,6 +68,12 @@ def test_a_beam_s_plane_its_profile_and_its_slice(beam: str, run: str):  # noqa:
     sliced = ask("beam", {"path": beam, "index": 1, "bandpass": [7e-7, 9e-7]})
     assert sliced["values"].shape == (sliced["x"].size, sliced["t"].size)
     assert sliced["values"].dtype == np.float32 and sliced["axis"] == "x"
+    # A beam's pulse is drawn as finely as a modal one: four samples per grid step.
+    pulse_t = np.asarray(found["power"]["t"])
+    assert pulse_t.size == np.asarray(found["power"]["y"]).size
+    step = float(pulse_t[1] - pulse_t[0])
+    assert float(sliced["t"][1] - sliced["t"][0]) == pytest.approx(step)
+    assert pulse_t.size % TIME_OVERSAMPLING == 0
     with pytest.raises(SolpropError, match="only a free-space run"):
         ask("beam", {"path": run, "index": 0})
 

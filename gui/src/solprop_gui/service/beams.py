@@ -19,7 +19,7 @@ from solprop.processing import (
     radial_spectrum,
 )
 
-from solprop_gui.service.reduce import even_rows
+from solprop_gui.service.reduce import TIME_OVERSAMPLING, even_rows
 from solprop_gui.service.results import _window
 
 __all__ = [
@@ -145,7 +145,7 @@ def beam_on_axis(payload: Payload) -> dict[str, object]:
     index = int(payload["index"])  # pyright: ignore[reportArgumentType]
     gate = payload.get("gate_fwhm")
     with open_file(path) as output:
-        t, power = on_axis_power(output, plane=index)
+        t, power = on_axis_power(output, plane=index, oversampling=TIME_OVERSAMPLING)
         kept = np.asarray(output["field_planes"])
         x, rows = on_axis_spectra(output, axis)  # pyright: ignore[reportArgumentType]
         spectrum = rows[int(np.flatnonzero(kept == index)[0])]

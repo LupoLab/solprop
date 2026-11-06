@@ -36,7 +36,11 @@ from solprop.processing import (
     physical_energy,
     transverse_units,
 )
-from solprop.processing.fields import DEFAULT_GATE_POSITIONS, get_spectrogram
+from solprop.processing.fields import (
+    DEFAULT_GATE_POSITIONS,
+    get_spectrogram,
+    time_axis,
+)
 from solprop.processing.scans import ScanOutput
 from solprop.processing.spectra import bandpass as spectral_window
 from solprop.processing.time import energy, fwhm_t
@@ -208,8 +212,10 @@ def spatial_plane(
         return {
             "spectrum": {"error": str(error)},
             "power": {
-                "t": np.asarray(simulation.grid.t),
-                "y": np.asarray(spatial_power(windowed, flux)),
+                "t": time_axis(simulation.grid, TIME_OVERSAMPLING),
+                "y": np.asarray(
+                    spatial_power(windowed, flux, oversampling=TIME_OVERSAMPLING)
+                ),
             },
         }
     reading = beam_reading(*space, z, stored, energy, bandpass=bandpass)
