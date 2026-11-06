@@ -419,6 +419,8 @@ class JuliaBackend(StepDriver[object]):
     # and complete propagation trials stay in Julia.
     helpers = PLAIN
     propagator_default = "tabulate"
+    # The transverse edge (SEP 40/44) is read by the driver's host reduction.
+    reads_transverse_edge = True
 
     def __init__(
         self,
@@ -638,6 +640,14 @@ class JuliaBackend(StepDriver[object]):
         object
             Opaque accepted state handle.
         """
+        if (monitor := self._split_monitor) is not None and _splits(self._problem):
+            # What the split collar takes and finds, from the masked state before
+            # it, as the reference's finish reads it (SEP 21).
+            values = np.asarray(call_julia(self._jl.candidate, self._engine))
+            masked = values.T[None, :, None, :] * self._problem.grids.active_mask
+            sums = monitor.split_sums(masked, dz)
+            self._split_removed += float(sums[0])
+            self._split_found = sums[1:]
         self._alarm = float(call_julia(self._jl.commit_b, self._engine, dz, nogil=True))
         if self._alarm > 1e-6 and not self._alarm_reported:
             self._alarm_reported = True
@@ -842,6 +852,14 @@ class JuliaBackend(StepDriver[object]):
         self._engine = None
         self._closed = True
         self._rows.clear()
+
+
+def _splits(problem: KernelProblem) -> bool:
+    """Return whether accepted steps apply the split-step temporal collar."""
+    response = problem.responses
+    return response.absorber_scheme == "split_step" and (
+        response.temporal_absorber is not None
+    )
 
 
 def _responses_recycle(problem: KernelProblem) -> bool:
