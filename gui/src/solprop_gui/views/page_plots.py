@@ -46,6 +46,9 @@ COLOURS = (
 
 _LABEL = {"color": GREY, "font-size": "11px", "font-family": FONT}
 
+SNAP_PIXELS = 14
+"""How near a line plot's data point the pointer must come, in pixels, to snap to it."""
+
 
 def _unit_of(label: str) -> str:
     """Return the unit an axis label gives in brackets.
@@ -180,10 +183,12 @@ class Plot(pg.PlotWidget):
         self.cross_y = pg.InfiniteLine(angle=0, pen=pg.mkPen((120, 130, 140, 190)))
         self.note = pg.TextItem("", color="#fff", fill=(27, 36, 48, 235), anchor=(0, 1))
         self.note.setFont(_small_font(12))
-        for extra in (self.cross_x, self.cross_y, self.note):
+        self.dot = pg.ScatterPlotItem(size=9, pen=pg.mkPen("w", width=1.5))
+        for extra in (self.cross_x, self.cross_y, self.note, self.dot):
             self.addItem(extra, ignoreBounds=True)  # pyright: ignore[reportCallIssue]
             extra.setZValue(50)
             extra.hide()
+        self.dot.setZValue(51)
         self.scene().sigMouseMoved.connect(self._hover)  # pyright: ignore[reportOptionalMemberAccess, reportAttributeAccessIssue]
 
     def set_xlabel(self, text: str) -> None:
@@ -223,8 +228,24 @@ class Plot(pg.PlotWidget):
             return None
         return self.box.mapSceneToView(position)
 
+    def snap(self, _x: float, _y: float) -> tuple[float, float, str] | None:
+        """Return the data point the crosshair jumps to near a position.
+
+        Parameters
+        ----------
+        _x, _y : float
+            The position, as drawn.
+
+        Returns
+        -------
+        tuple or None
+            The point, as drawn, and the colour of its dot; ``None`` here: a plot
+            snaps only where it has points to snap to.
+        """
+        return None
+
     def _hover(self, position: QPointF) -> None:
-        """Follow the pointer.
+        """Follow the pointer, onto a data point when it comes near one.
 
         Parameters
         ----------
@@ -237,10 +258,18 @@ class Plot(pg.PlotWidget):
             return
         if self._dragging:
             self.plane_at.emit(point.y() if self.along == "y" else point.x())
+        snapped = self.snap(point.x(), point.y())
+        if snapped is not None:
+            point = QPointF(snapped[0], snapped[1])
         text = self.reader(point.x(), point.y())
         if not text:
             self.clear_hover()
             return
+        if snapped is None:
+            self.dot.hide()
+        else:
+            self.dot.setData([point.x()], [point.y()], brush=pg.mkBrush(snapped[2]))
+            self.dot.show()
         self.cross_x.setPos(point.x())
         self.cross_y.setPos(point.y())
         self.cross_x.show()
@@ -379,7 +408,7 @@ class Plot(pg.PlotWidget):
 
     def clear_hover(self) -> None:
         """Take the crosshair away."""
-        for extra in (self.cross_x, self.cross_y, self.note):
+        for extra in (self.cross_x, self.cross_y, self.note, self.dot):
             extra.hide()
 
     def leaveEvent(self, event: object) -> None:  # noqa: N802  # pyright: ignore[reportIncompatibleMethodOverride]
@@ -818,6 +847,61 @@ class LinePlot(Plot):
         named = f"{name}: " if name and len(self.ys) > 1 else ""
         return f"{named}{self.xs[at]:.4g}, {value:.3g} {self.unit}".rstrip()
 
+    def snap(self, x: float, y: float) -> tuple[float, float, str] | None:
+        """Return the data point the crosshair jumps to near a position.
+
+        Parameters
+        ----------
+        x, y : float
+            The position, as drawn (a log axis's exponent).
+
+        Returns
+        -------
+        tuple or None
+            The nearest point of any curve, as drawn, and its curve's colour, when it
+            is within :data:`SNAP_PIXELS` of the position on the screen.
+        """
+        found = self.nearest_point(x, y)
+        if found is None or found[2] > SNAP_PIXELS:
+            return None
+        index, at, _gap = found
+        value = float(self.ys[index][at])
+        drawn = np.log10(value) if self.log else value
+        return float(self.xs[at]), float(drawn), COLOURS[index % len(COLOURS)]
+
+    def nearest_point(self, x: float, y: float) -> tuple[int, int, float] | None:
+        """Return the data point nearest a position on the screen.
+
+        Parameters
+        ----------
+        x : float
+            The position along the plot.
+        y : float
+            The position up it, as drawn (a log axis's exponent).
+
+        Returns
+        -------
+        tuple or None
+            The curve's index, the sample's, and how far it is, in pixels; ``None``
+            with no curve, or before the plot has a size.
+        """
+        width, height = self.box.viewPixelSize()
+        if not self.xs.size or not self.ys or not (width > 0 and height > 0):
+            return None
+        best: tuple[int, int, float] | None = None
+        for index, curve in enumerate(self.ys):
+            values = curve[: self.xs.size]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                drawn = np.log10(values) if self.log else values
+            gaps = np.hypot((self.xs[: values.size] - x) / width, (drawn - y) / height)
+            gaps[~np.isfinite(gaps)] = np.inf
+            if not gaps.size:
+                continue
+            at = int(np.argmin(gaps))
+            if best is None or gaps[at] < best[2]:
+                best = (index, at, float(gaps[at]))
+        return None if best is None or not np.isfinite(best[2]) else best
+
     def nearest_curve(self, x: float, y: float) -> tuple[int, int] | None:
         """Return the curve nearest a position, and its sample there.
 
@@ -835,7 +919,7 @@ class LinePlot(Plot):
         """
         if not self.xs.size or not self.ys:
             return None
-        at = int(np.clip(np.searchsorted(self.xs, x), 0, self.xs.size - 1))
+        at = int(np.argmin(np.abs(self.xs - x)))
         best, gap = None, np.inf
         for index, curve in enumerate(self.ys):
             if at >= curve.size or not np.isfinite(curve[at]):

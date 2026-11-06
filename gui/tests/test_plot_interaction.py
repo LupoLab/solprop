@@ -83,6 +83,40 @@ def test_a_plot_s_data_and_image_are_copied_and_saved(
     assert "<svg" in (tmp_path / "plot.svg").read_text()[:400]
 
 
+def test_the_crosshair_snaps_to_a_data_point_it_comes_near(qtbot: QtBot) -> None:
+    plot = LinePlot(xlabel="Pressure (bar)", ylabel="Energy (J)", names=["a", "b"])
+    qtbot.addWidget(plot)
+    plot.resize(400, 300)
+    plot.show()
+    plot.set_data(
+        np.array([0.0, 1.0, 2.0, 3.0]),
+        [np.array([0.0, 1.0, 4.0, 9.0]), np.array([5.0, 5.0, 5.0, np.nan])],
+    )
+    plot.set_view((0.0, 3.0), (0.0, 10.0))
+    width, height = plot.box.viewPixelSize()
+    # A few pixels off a point: the crosshair sits on it, with a dot.
+    near = (2.0 + 3 * width, 4.0 - 4 * height)
+    assert plot.snap(*near) == (2.0, 4.0, plot.curves[0].opts["pen"].color().name())
+    plot._hover(plot.box.mapViewToScene(QPointF(*near)))
+    assert plot.dot.isVisible() and plot.cross_x.value() == pytest.approx(2.0)
+    assert plot.note.textItem.toPlainText().strip() == "a: 2, 4"
+    # Between points, it follows the pointer and reads the nearest curve.
+    plot._hover(plot.box.mapViewToScene(QPointF(1.5, 6.0)))
+    assert not plot.dot.isVisible() and plot.cross_x.value() == pytest.approx(1.5)
+    assert plot.snap(1.5, 6.0) is None
+    # The second curve's missing sample is never snapped to.
+    found = plot.nearest_point(3.0, 5.0)
+    assert found is not None and found[:2] != (1, 3)
+    plot.set_log(True)
+    snapped = plot.snap(1.0, 0.0)
+    assert snapped is not None and snapped[:2] == (1.0, 0.0)  # 1 J: log axis at 0
+    plot.clear_hover()
+    assert not plot.dot.isVisible()
+    empty = LinePlot(xlabel="", ylabel="")
+    qtbot.addWidget(empty)
+    assert empty.snap(0.0, 0.0) is None
+
+
 def test_a_zoom_is_kept_through_redraws_until_reset(qtbot: QtBot) -> None:
     plot = two_pulses(qtbot)
     plot.box.scaleBy((0.5, 0.5))
