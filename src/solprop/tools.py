@@ -2561,7 +2561,9 @@ def lambda_rdw_all(  # noqa: PLR0913 - phase_mismatch's keywords and the search 
     tuple of float
         The roots in m, ascending; empty when there is none. The mismatch is sampled
         on 2048 frequencies across the window, each sign change is refined with
-        Brent's method, and roots closer than one sample are not separated.
+        Brent's method, and roots closer than one sample are not separated. A sign
+        change through a resonance of the guide, where the mismatch has a pole or is
+        not a number, is not a root and is skipped.
 
     Raises
     ------
@@ -2618,10 +2620,22 @@ def lambda_rdw_all(  # noqa: PLR0913 - phase_mismatch's keywords and the search 
             )
         signs = np.sign(sampled)
         found = [float(grid[i]) for i in np.flatnonzero(signs == 0.0)]
-        found.extend(
-            float(brentq(mismatch, float(grid[i]), float(grid[i + 1])))
-            for i in np.flatnonzero(signs[:-1] * signs[1:] < 0.0)
-        )
+        for i in np.flatnonzero(signs[:-1] * signs[1:] < 0.0):
+            try:
+                # The refinement may land on a resonance exactly, where a model may
+                # divide by zero: such a point is no root, and is told apart below.
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    root = float(brentq(mismatch, float(grid[i]), float(grid[i + 1])))
+            except ValueError:
+                # The index model is not a number inside the bracket: a resonance of
+                # the guide (an antiresonant fibre's), not a phase-matched wavelength.
+                continue
+            with np.errstate(divide="ignore", invalid="ignore"):
+                residual = mismatch(root)
+            if not abs(residual) <= min(abs(sampled[i]), abs(sampled[i + 1])):
+                # Refined onto a pole, through which the sign changed: no root.
+                continue
+            found.append(root)
     if found:
         # Outside the probing context, so a root beyond the index model's range warns.
         base.beta(mode, np.array(sorted(found)), z)

@@ -1,0 +1,324 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The window, its pages, docks and views, offscreen (smoke and screenshot tests)."""
+
+from collections.abc import Iterator
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PySide6.QtCore import QSettings, QStandardPaths
+from PySide6.QtWidgets import QLineEdit, QWidget
+from pytestqt.qtbot import QtBot
+
+from solprop_gui.model.plot_options import PlotOptions
+from solprop_gui.model.recipe import MISSING
+from solprop_gui.ui.fields import ParameterRow
+from solprop_gui.ui.icons import DRAWINGS, icon
+from solprop_gui.views.compare import CompareView
+from solprop_gui.views.live import OverviewView, decibels
+
+WAIT_MS = 120_000
+
+
+@pytest.fixture(autouse=True)
+def private_settings(tmp_path: Path) -> Iterator[None]:
+    """Keep the window's settings and recovery file out of the user's own."""
+    QStandardPaths.setTestModeEnabled(True)
+    QSettings.setDefaultFormat(QSettings.Format.IniFormat)
+    QSettings.setPath(
+        QSettings.Format.IniFormat,
+        QSettings.Scope.UserScope,
+        str(tmp_path / "settings"),
+    )
+    yield
+    QStandardPaths.setTestModeEnabled(False)
+
+
+def shot(widget: QWidget, folder: Path, name: str) -> Path:
+    """Render a widget offscreen and check the picture is not empty."""
+    path = folder / f"{name}.png"
+    image = widget.grab().toImage()
+    assert not image.isNull() and image.width() > 100 and image.height() > 100
+    assert image.save(str(path))
+    return path
+
+
+def row_data(index: int, scale: float = 1.0) -> dict[str, object]:
+    return {
+        "index": index,
+        "z": 0.01 * index,
+        "density": {
+            axis: scale * np.exp(-(np.linspace(-3, 3, 16) ** 2)).astype(np.float32)
+            for axis in ("wavelength", "f")
+        },
+        "power": scale * np.exp(-(np.linspace(-3, 3, 8) ** 2)).astype(np.float32) * 1e9,
+        "stats": {"energy": 1e-4 * scale},
+    }
+
+
+AXES = {
+    "wavelength": np.linspace(2e-7, 2e-6, 16),
+    "f": np.linspace(1.5e14, 1.5e15, 16),
+    "time": np.linspace(-1e-13, 1e-13, 8),
+    "bandpass": None,
+}
+
+
+# ---------------------------------------------------------------------- rows
+
+
+def meta(name: str, *forms: dict[str, object], **more: object) -> dict[str, object]:
+    return {
+        "name": name,
+        "forms": list(forms),
+        "summary": "S.",
+        "anchor": "guide/a.md",
+        "level": "basic",
+        **more,
+    }
+
+
+def leave(field: QLineEdit, text: str) -> None:
+    field.setText(text)
+    field.editingFinished.emit()
+
+
+def test_a_boolean_row_shows_solprops_default_selected(qtbot: QtBot):
+    row = ParameterRow(
+        meta("kerr", {"kind": "boolean"}, default="True", default_value=True)
+    )
+    qtbot.addWidget(row)
+    assert row.choice.currentText() == "on (default)"
+    seen = []
+    row.edited.connect(lambda *args: seen.append(args))
+    row.choice.setCurrentIndex(1)  # off
+    row.choice.setCurrentIndex(0)  # the default: unset
+    assert seen == [("kerr", "build", False), ("kerr", "build", MISSING)]
+    row.set_value(False)
+    assert row.choice.currentIndex() == 1 and row.is_set
+    row.reset.click()
+    assert seen[-1] == ("kerr", "build", MISSING)
+
+
+def test_a_choice_without_a_known_default_says_solprop_chooses(qtbot: QtBot):
+    row = ParameterRow(
+        meta("integrator", {"kind": "choice", "choices": ["rk", "adams"]})
+    )
+    qtbot.addWidget(row)
+    assert row.choice.currentText() == "automatic"
+    row.set_resolved(["adams", "the route's rule"])
+    assert row.choice.currentText() == "adams (default)"
+    row.set_resolved(["adams", "the route's rule"])  # unchanged: nothing redone
+    row.set_value("rk")
+    assert row.choice.currentText() == "rk"
+    row.set_resolved(["other", "a rule"])
+    assert row.choice.itemText(0) == "automatic (a rule)"
+    row.set_value("unknown")
+    assert row.choice.currentIndex() == 0
+
+
+def test_a_quantity_row_converts_between_units(qtbot: QtBot):
+    row = ParameterRow(
+        meta(
+            "radius",
+            {"kind": "number", "unit": "m"},
+            {"kind": "object", "recipe": True},
+            display="um",
+            required=True,
+        )
+    )
+    qtbot.addWidget(row)
+    assert row.mode.isVisibleTo(row) and row.modes == ["number", "text"]
+    assert row.number.number.placeholderText() == "required"
+    seen = []
+    row.edited.connect(lambda *args: seen.append(args[2]))
+    leave(row.number.number, "10 fs")
+    assert not row.issue.isHidden() and seen == []
+    leave(row.number.number, "125")
+    assert seen == ["125 um"] and row.issue.isHidden()
+    assert row.number.units is not None
+    row.number.units.setCurrentIndex(row.number.units.findData("mm"))
+    assert row.number.number.text() == "0.125" and seen[-1] == "0.125 mm"
+    leave(row.number.number, "0.2 m")  # a whole quantity in another unit
+    assert seen[-1] == "0.2 m" and row.number.units.currentData() == "m"
+    leave(row.number.number, "")
+    assert seen[-1] is MISSING
+    row.set_value({"type": "profile"})  # a table: shown as text
+    assert row.stack.currentWidget() is row.text
+    row.mode.setCurrentIndex(0)
+    assert row.stack.currentWidget() is row.number
+
+
+def test_a_range_row_is_two_numbers_with_one_unit(qtbot: QtBot):
+    row = ParameterRow(
+        meta(
+            "wavelength_limits",
+            {"kind": "pair", "unit": "m"},
+            display="nm",
+            default_value=None,
+        )
+    )
+    qtbot.addWidget(row)
+    seen = []
+    row.edited.connect(lambda *args: seen.append(args[2]))
+    row.set_value(["200 nm", "2 um"])
+    assert row.range.low.number.text() == "200"
+    assert row.range.high.number.text() == "2000"
+    leave(row.range.low.number, "")
+    assert "both ends" in row.issue.text()
+    leave(row.range.low.number, "100")
+    assert seen[-1] == ["100 nm", "2000 nm"]
+    row.range.units.setCurrentIndex(row.range.units.findData("um"))
+    assert seen[-1] == ["0.1 um", "2 um"]
+    leave(row.range.low.number, "")
+    leave(row.range.high.number, "")
+    assert seen[-1] is MISSING
+
+
+def test_numbers_without_units_and_text_rows(qtbot: QtBot):
+    rtol = ParameterRow(meta("rtol", {"kind": "number", "unit": None}, default=None))
+    qtbot.addWidget(rtol)
+    assert rtol.number.units is None
+    seen = []
+    rtol.edited.connect(lambda *args: seen.append(args[2]))
+    leave(rtol.number.number, "1e-6")
+    leave(rtol.number.number, "1 m")
+    assert seen == [1e-6] and "not a number" in rtol.issue.text()
+    count = ParameterRow(meta("n", {"kind": "integer"}, default="3", default_value=3))
+    qtbot.addWidget(count)
+    assert count.number.number.placeholderText() == "3"
+    count.edited.connect(lambda *args: seen.append(args[2]))
+    leave(count.number.number, "4")
+    leave(count.number.number, "4.5")
+    assert seen[-1] == 4 and "whole" in count.issue.text()
+    table = ParameterRow(meta("fill", {"kind": "mapping"}, required=True))
+    qtbot.addWidget(table)
+    assert table.text.placeholderText() == "required"
+    leave(table.text, "{ He = 1")
+    assert not table.issue.isHidden()
+    gas = ParameterRow(meta("gas", {"kind": "string"}, {"kind": "mapping"}))
+    qtbot.addWidget(gas)
+    gas.edited.connect(lambda *args: seen.append(args[2]))
+    leave(gas.text, "Ar")
+    leave(gas.text, "")
+    assert seen[-2:] == ["Ar", MISSING]
+    gas.set_resolved(["He", "a rule"])
+    assert "a rule" in gas.text.placeholderText()
+    gas.set_issue("solprop's word", "warning")
+    assert gas.issue.text() == "solprop's word"
+    plain = ParameterRow(meta("x", {"kind": "array"}, default="[1]"))
+    qtbot.addWidget(plain)
+    assert plain.text.placeholderText() == "default: [1]"
+    other = ParameterRow(meta("y", {"kind": "array"}))
+    qtbot.addWidget(other)
+    assert "automatic" in other.text.placeholderText()
+
+
+def test_a_number_box_steps_with_keys_and_wheel(
+    qtbot: QtBot, monkeypatch: pytest.MonkeyPatch
+):
+    from PySide6.QtCore import QPoint, QPointF, Qt  # noqa: PLC0415 - only here
+    from PySide6.QtGui import QWheelEvent  # noqa: PLC0415
+
+    from solprop_gui.ui.quantity import NumberEdit, step  # noqa: PLC0415
+
+    assert step("x", 1) is None and step("0", 1) == "0.1"
+    box = NumberEdit()
+    qtbot.addWidget(box)
+    box.setPlaceholderText("125")
+    qtbot.keyClick(box, Qt.Key.Key_Up)
+    assert box.text() == "135"  # a tenth of the leading digit's place
+    qtbot.keyClick(box, Qt.Key.Key_Down)
+    qtbot.keyClick(box, Qt.Key.Key_A)
+    assert box.text() == "125a"
+    wheel = QWheelEvent(
+        QPointF(5, 5),
+        QPointF(5, 5),
+        QPoint(0, 0),
+        QPoint(0, 120),
+        Qt.MouseButton.NoButton,
+        Qt.KeyboardModifier.NoModifier,
+        Qt.ScrollPhase.NoScrollPhase,
+        False,
+    )
+    box.setText("1")
+    box.wheelEvent(wheel)  # no focus: left to the page's scroll
+    assert box.text() == "1"
+    monkeypatch.setattr(box, "hasFocus", lambda: True)  # no window to focus offscreen
+    box.wheelEvent(wheel)
+    assert box.text() == "1.1"
+
+
+# ---------------------------------------------------------------------- views
+
+
+def test_the_overview_draws_rows_and_follows_the_newest(qtbot: QtBot, tmp_path: Path):
+    view = OverviewView()
+    qtbot.addWidget(view)
+    view.resize(900, 700)
+    view.show()  # the maps' z axes are linked on screen
+    qtbot.waitExposed(view)
+    view.add_row(row_data(0))  # no axes yet: kept, not drawn
+    view.set_axes(AXES)
+    for index in range(1, 4):
+        view.add_row(row_data(index, scale=1.0 - 0.1 * index))
+    view.add_row(row_data(2, scale=0.5))  # a replayed plane replaces its row
+    assert len(view.rows) == 4 and view.slider.value() == 3
+    view.slider.setValue(1)
+    assert not view.follow.isChecked() and "plane 1" in view.position.text()
+    view.set_extent(0.0, 1.0)  # a run's whole length: the rows fill it
+    box = view.spectrum_map.plot.getViewBox()
+    assert box.viewRange()[1] == pytest.approx([0.0, 1.0])
+    view.apply_options(PlotOptions(floor=-30.0, time_limits=(-2e-14, None)))
+    assert view.power_map.plot.getViewBox().viewRange()[0][0] == pytest.approx(-20)
+    assert box.viewRange()[1] == pytest.approx([0.0, 1.0])
+    shot(view, tmp_path, "overview")
+    # The frequency axis at once, from the rows' own; a new band waits for new rows.
+    view.apply_options(PlotOptions(axis="f", scale="linear", bandpass=(7e-7, 9e-7)))
+    assert view.spectrum_map.plot.getAxis("bottom").labelText == "Frequency (THz)"
+    assert view.spectrum_map.x[0] == pytest.approx(150.0)  # THz
+    assert "whole spectrum, until re-read" in view.spectrum_note.text()
+    view.set_axes({**AXES, "bandpass": (7e-7, 9e-7)})
+    assert view.spectrum_note.text() == "time domain within 700-900 nm"
+    view.apply_options(PlotOptions())
+    view.set_rows(AXES, [])
+    assert view.rows == []
+    view.set_rows(AXES, [row_data(1), row_data(0)])
+    assert [r["index"] for r in view.rows] == [0, 1]
+    view._show_plane(0)
+    view.clear()
+    view._show_plane(0)
+
+
+def test_decibels_are_relative_to_the_reference():
+    assert decibels(np.array([1.0, 0.1]), 1.0).tolist() == pytest.approx([0.0, -10.0])
+    assert decibels(np.array([0.0]), 0.0)[0] == pytest.approx(-300.0)
+
+
+def test_compare_shares_one_reference(qtbot: QtBot, tmp_path: Path):
+    view = CompareView()
+    qtbot.addWidget(view)
+    view.add_run("a", AXES, [row_data(1, 0.5), row_data(0, 2.0)])
+    view.add_run("b", AXES, [row_data(0, 1.0)])
+    view.add_run("empty", AXES, [])
+    assert list(view.runs) == ["a", "b"]
+    peak = float(np.max(np.asarray(row_data(0, 2.0)["density"]["wavelength"])))  # pyright: ignore[reportIndexIssue]
+    assert view.reference() == pytest.approx(peak)  # the highest first plane
+    shot(view, tmp_path, "compare")
+    view.clear()
+    assert view.reference() == 0.0
+
+
+def test_every_drawing_makes_an_icon_with_each_badge(qtbot: QtBot):
+    from PySide6.QtGui import QColor  # noqa: PLC0415 - only here
+
+    for name in DRAWINGS:
+        for verdict in (None, "accepted", "warning", "error"):
+            made = icon(name, QColor("black"), verdict, size=32)
+            assert not made.pixmap(32, 32).toImage().isNull()
+
+
+# ---------------------------------------------------------------------- the window

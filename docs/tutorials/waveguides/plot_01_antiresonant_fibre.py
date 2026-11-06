@@ -15,12 +15,15 @@ Pressure tuning uses a second geometry: 15 um core radius, 160 nm walls, 6 um
 outer tube radius and eight tubes, with argon at 0, 10, 20, 30, 40 and 50 bar.
 All materials use their solprop defaults and the gas is at 293.15 K.
 
-Finally a 2 uJ, 30 fs intensity-FWHM pulse at 800 nm propagates for 5 cm in
-1 bar argon in the first fibre. The single-mode envelope grid spans 300-1600 nm
-and 200 fs, with eight radial nodes and eleven save planes. Kerr is enabled;
-plasma, Raman and third-harmonic generation are disabled. The relative stepping
-tolerance is 1e-5. This reduced calculation illustrates the interface and the
-transmission window; it is not a converged broadband propagation prediction.
+Finally a 1 uJ, 30 fs intensity-FWHM pulse at 800 nm propagates for 20 cm in
+5 bar argon in the first fibre, where it self-compresses and emits a resonant
+dispersive wave near 200 nm, beyond the first wall resonance. The single-mode field
+grid spans 150-1600 nm and 1 ps, with eight radial nodes and 201 save planes. Kerr and
+photoionisation are enabled; Raman and third-harmonic generation are disabled. The
+relative stepping tolerance is 1e-5. Light near the wall resonance has a group delay
+that no modest window holds, so the temporal collar removes about 2e-5 of the launch
+energy and warns; the fibre's loss takes 14 %. This single-mode calculation shows the
+emission and the transmission window; it is not a converged broadband prediction.
 
 Both geometries extrapolate the published t/r validation range (0.05-0.2), so
 construction logs a warning. On a fibre of this wall ratio the model's first-band
@@ -92,23 +95,23 @@ figure.tight_layout()
 # per wavelength includes the omega-to-wavelength Jacobian before normalisation.
 output = prop_capillary(
     15e-6,
-    0.05,
+    0.2,
     "Ar",
-    1.0,
+    5.0,
     lattice=lattice,
     wavelength=800e-9,
-    wavelength_limits=(300e-9, 1600e-9),
-    trange=200e-15,
+    wavelength_limits=(150e-9, 1600e-9),
+    trange=1e-12,
     fwhm=30e-15,
-    energy=2e-6,
-    envelope=True,
+    energy=1e-6,
+    envelope=False,
     modes=1,
     kerr=True,
-    plasma=False,
+    plasma=True,
     raman=False,
     thg=False,
     n_r=8,
-    n_save=11,
+    n_save=201,
     rtol=1e-5,
     progress=NullReporter(),
     seed=20261027,
@@ -121,18 +124,20 @@ spectra = abs(output["field"][[0, -1], 0, 0, :][:, active]) ** 2
 spectra = spectra * (2 * np.pi * C / spectral_wavelength**2)[None, :]
 spectra = spectra / np.max(spectra[0])
 figure, axis = plt.subplots(figsize=(8, 3.8))
-for spectrum, label in zip(spectra, ("Input", "After 5 cm"), strict=True):
+for spectrum, label in zip(spectra, ("Input", "After 20 cm"), strict=True):
     axis.semilogy(spectral_wavelength[order] * 1e9, spectrum[order], label=label)
 axis.axvspan(350, 400, color="0.7", alpha=0.3)
 axis.set(
     xlabel="Wavelength (nm)",
     ylabel="Spectral energy / input peak",
-    xlim=(300, 1200),
+    xlim=(150, 1200),
     ylim=(1e-8, 2),
 )
 axis.legend(loc="upper right")
 loss_axis = axis.twinx()
-loss_axis.semilogy(wavelength * 1e9, db_per_m(tube, omega), "k:", label="Vacuum loss")
+broad = np.linspace(150e-9, 1200e-9, 900)
+loss = db_per_m(tube, 2 * np.pi * C / broad)
+loss_axis.semilogy(broad * 1e9, loss, "k:", label="Vacuum loss")
 loss_axis.set_ylabel("Vacuum confinement loss (dB/m)")
 loss_axis.legend(loc="upper left")
 figure.tight_layout()

@@ -21,7 +21,7 @@ fwhm = "100 fs"
 energy = "100 nJ"
 shape = "sech"
 launch = { "LP0,1" = 0.5, "LP0,2" = 0.5 }
-n_save = 81
+n_save = 201
 rtol = 1e-5
 noise = "none"
 absorber = false

@@ -37,6 +37,14 @@ precedence = "override"
 SPDX-FileCopyrightText = "2021 Chris Brahms and John Travers"
 SPDX-License-Identifier = "MIT"
 
+# IBM Plex Sans, from IBM's release @ibm/plex-sans@1.1.0, unmodified (see the licence
+# beside it).
+[[annotations]]
+path = "gui/src/solprop_gui/ui/assets/fonts/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2017 IBM Corp."
+SPDX-License-Identifier = "OFL-1.1"
+
 # Intersphinx inventories vendored from each project's documentation (docs/conf.py).
 [[annotations]]
 path = "docs/_inventories/python.inv"

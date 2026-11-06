@@ -20,5 +20,5 @@ wavelength_limits = ["400 nm", "1600 nm"]
 trange = "600 fs"
 fwhm = "30 fs"
 energy = "100 uJ"
-n_save = 41
+n_save = 201
 seed = 20261027

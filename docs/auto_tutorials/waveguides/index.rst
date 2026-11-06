@@ -59,7 +59,7 @@ graded-index fibre.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="The first chart resolves the six lowest vector branches of a weakly guiding fibre: a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact equation; 2.405 and 3.832 are weak-guidance limits. The silica strand has a 1.25 um radius and its transverse profile is frozen at 835 nm. A 568 pJ, 50 fs sech pulse propagates for 15 cm with Kerr and silica Raman. The time window is reduced to 1 ps, and no shot noise is added. This is an example of mode-averaged propagation, not a converged supercontinuum prediction.">
+    <div class="sphx-glr-thumbcontainer" tooltip="The first chart resolves the six lowest vector branches of a weakly guiding fibre: a 2 um core radius, core index 1.47 in a 1.45 cladding. Hybrid cutoffs use the exact equation; 2.405 and 3.832 are weak-guidance limits. The silica strand has a 1.25 um radius and its transverse profile is frozen at 835 nm. A 568 pJ, 50 fs sech pulse propagates for 5 cm with Kerr and silica Raman, saved at 201 planes. The 2 ps window holds the Raman-shifted solitons, so the boundary monitor stays on, and no shot noise is added. This is an example of mode-averaged propagation, not a converged supercontinuum prediction.">
 
 .. only:: html
 

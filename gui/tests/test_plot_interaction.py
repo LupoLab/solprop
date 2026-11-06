@@ -1,0 +1,209 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""What a plot does under the mouse: zoom, readouts, widths, peaks and saving."""
+
+from pathlib import Path
+
+import numpy as np
+import pytest
+from PySide6.QtCore import QPoint, QPointF, Qt
+from PySide6.QtWidgets import QApplication
+from pytestqt.qtbot import QtBot
+
+from solprop_gui.views.page_plots import LinePlot, MapPlot
+from solprop_gui.views.sparkline import StepSparkline
+
+
+def two_pulses(qtbot: QtBot) -> LinePlot:
+    plot = LinePlot(xlabel="Time (fs)", ylabel="Power (W)", names=["a", "b"], unit="W")
+    qtbot.addWidget(plot)
+    plot.resize(400, 300)
+    t = np.linspace(-100.0, 100.0, 2001)
+    plot.set_data(t, [np.exp(-4 * np.log(2) * (t / 20.0) ** 2), 0.2 + 0 * t])
+    plot.set_view((-100.0, 100.0), (0.0, 1.1))
+    return plot
+
+
+def test_the_readout_is_the_nearest_curve_s(qtbot: QtBot) -> None:
+    plot = two_pulses(qtbot)
+    assert plot.read(0.0, 0.95).startswith("a: 0, 1 W")
+    assert plot.read(0.0, 0.25).startswith("b: 0, 0.2 W")
+    plot.set_log(True)
+    plot.set_data(plot.xs, plot.ys)
+    assert plot.read(0.0, np.log10(0.21)).startswith("b:")
+    empty = LinePlot(xlabel="", ylabel="")
+    qtbot.addWidget(empty)
+    assert empty.read(0.0, 0.0) == ""
+
+
+def test_a_width_at_half_maximum_is_marked_and_cleared(qtbot: QtBot) -> None:
+    plot = two_pulses(qtbot)
+    assert plot.measure_width(5.0, 0.9) == "FWHM 20 fs"
+    assert len(plot.measures) == 2
+    # A flat curve has no half maximum to find.
+    assert plot.measure_width(0.0, 0.2).startswith("No half maximum")
+    labels = [text for text, _action in plot.menu_actions(QPointF(0.0, 0.9))]
+    assert labels == [
+        "Width at half maximum here",
+        "Copy the data as CSV",
+        "Clear the widths",
+    ]
+    plot.clear_measures()
+    assert plot.measures == []
+    # New data take the old marks away.
+    plot.measure_width(5.0, 0.9)
+    plot.set_data(plot.xs, plot.ys)
+    assert plot.measures == []
+
+
+def test_a_width_in_decibels_is_three_below_the_peak(qtbot: QtBot) -> None:
+    plot = LinePlot(xlabel="Wavelength (nm)", ylabel="dB", unit="dB")
+    qtbot.addWidget(plot)
+    x = np.linspace(700.0, 900.0, 2001)
+    gaussian = np.exp(-4 * np.log(2) * ((x - 800.0) / 10.0) ** 2)
+    plot.set_data(x, [10 * np.log10(gaussian)])
+    assert plot.measure_width(800.0, 0.0) == "FWHM 10 nm"
+
+
+def test_a_plot_s_data_and_image_are_copied_and_saved(
+    qtbot: QtBot, tmp_path: Path
+) -> None:
+    plot = two_pulses(qtbot)
+    plot.copy_data()
+    lines = QApplication.clipboard().text().splitlines()
+    assert lines[0] == "x,a,b"
+    assert len(lines) == 2002
+    plot.copy_image()
+    assert not QApplication.clipboard().pixmap().isNull()
+    plot.save(str(tmp_path / "plot.png"))
+    plot.save(str(tmp_path / "plot.svg"))
+    assert (tmp_path / "plot.png").stat().st_size > 0
+    assert "<svg" in (tmp_path / "plot.svg").read_text()[:400]
+
+
+def test_the_crosshair_snaps_to_a_data_point_it_comes_near(qtbot: QtBot) -> None:
+    plot = LinePlot(xlabel="Pressure (bar)", ylabel="Energy (J)", names=["a", "b"])
+    qtbot.addWidget(plot)
+    plot.resize(400, 300)
+    plot.show()
+    plot.set_data(
+        np.array([0.0, 1.0, 2.0, 3.0]),
+        [np.array([0.0, 1.0, 4.0, 9.0]), np.array([5.0, 5.0, 5.0, np.nan])],
+    )
+    plot.set_view((0.0, 3.0), (0.0, 10.0))
+    width, height = plot.box.viewPixelSize()
+    # A few pixels off a point: the crosshair sits on it, with a dot.
+    near = (2.0 + 3 * width, 4.0 - 4 * height)
+    assert plot.snap(*near) == (2.0, 4.0, plot.curves[0].opts["pen"].color().name())
+    plot._hover(plot.box.mapViewToScene(QPointF(*near)))
+    assert plot.dot.isVisible() and plot.cross_x.value() == pytest.approx(2.0)
+    assert plot.note.textItem.toPlainText().strip() == "a: 2, 4"
+    # Between points, it follows the pointer and reads the nearest curve.
+    plot._hover(plot.box.mapViewToScene(QPointF(1.5, 6.0)))
+    assert not plot.dot.isVisible() and plot.cross_x.value() == pytest.approx(1.5)
+    assert plot.snap(1.5, 6.0) is None
+    # The second curve's missing sample is never snapped to.
+    found = plot.nearest_point(3.0, 5.0)
+    assert found is not None and found[:2] != (1, 3)
+    plot.set_log(True)
+    snapped = plot.snap(1.0, 0.0)
+    assert snapped is not None and snapped[:2] == (1.0, 0.0)  # 1 J: log axis at 0
+    plot.clear_hover()
+    assert not plot.dot.isVisible()
+    empty = LinePlot(xlabel="", ylabel="")
+    qtbot.addWidget(empty)
+    assert empty.snap(0.0, 0.0) is None
+
+
+def test_a_zoom_is_kept_through_redraws_until_reset(qtbot: QtBot) -> None:
+    plot = two_pulses(qtbot)
+    plot.box.scaleBy((0.5, 0.5))
+    plot.box.sigRangeChangedManually.emit(plot.box.state["mouseEnabled"])
+    assert plot.zoomed
+    zoomed = plot.box.viewRange()[0]
+    plot.set_view((-100.0, 100.0), (0.0, 1.1))
+    assert plot.box.viewRange()[0] == pytest.approx(zoomed)
+    menu = plot.show_menu(QPointF(0.0, 0.5), QPoint(0, 0))
+    reset = next(a for a in menu.actions() if a.text() == "Reset the zoom")
+    assert reset.isEnabled()
+    menu.close()
+    qtbot.mouseDClick(plot.viewport(), Qt.MouseButton.LeftButton)
+    assert not plot.zoomed
+    assert plot.box.viewRange()[0] == pytest.approx((-100.0, 100.0))
+
+
+def test_a_right_click_opens_the_menu_and_a_map_goes_to_its_peak(
+    qtbot: QtBot,
+) -> None:
+    plot = MapPlot(xlabel="x", ylabel="z", colours="viridis", unit="")
+    qtbot.addWidget(plot)
+    plot.resize(300, 300)
+    plot.show()
+    assert plot.menu_actions(QPointF(0, 0)) == []
+    data = np.zeros((10, 20))
+    data[7, 4] = 1.0
+    plot.show_map(data, (0.0, 0.0, 20.0, 10.0), ((0.0, 20.0), (0.0, 10.0)), (0, 1))
+    plot.set_along("y")
+    assert plot.peak() == pytest.approx((4.5, 7.5))
+    [(text, _action)] = plot.menu_actions(QPointF(0, 0))
+    assert text == "Go to the peak"
+    with qtbot.waitSignal(plot.plane_at) as moved:
+        plot.go_to_peak()
+    assert moved.args == [pytest.approx(7.5)]
+    plot.set_along("x")
+    with qtbot.waitSignal(plot.plane_at) as moved:
+        plot.go_to_peak()
+    assert moved.args == [pytest.approx(4.5)]
+    plot.data = np.full((2, 2), np.nan)
+    assert plot.peak() is None
+    plot.go_to_peak()
+    qtbot.mouseClick(plot.viewport(), Qt.MouseButton.RightButton, pos=QPoint(150, 150))
+
+
+def test_the_step_sparkline_draws_log_steps_and_starts_afresh(qtbot: QtBot) -> None:
+    line = StepSparkline()
+    qtbot.addWidget(line)
+    line.start(1.0)
+    line.add(0.1, 1e-4)
+    assert line.polygon().isEmpty()  # one point is no line
+    line.add(0.5, 1e-3)
+    line.add(0.6, 0.0)  # not a step: left out
+    line.add(0.7, float("nan"))
+    points = line.polygon()
+    assert points.size() == 2
+    assert points.at(1).x() < line.width() - 3.0  # the run's end is the right edge
+    assert points.at(1).y() < points.at(0).y()  # a longer step is higher
+    assert "now 0.001 m" in line.toolTip()
+    line.grab()
+    flat = StepSparkline()
+    qtbot.addWidget(flat)
+    flat.add(0.0, 1e-4)
+    flat.add(1.0, 1e-4)
+    assert flat.polygon().at(0).y() == pytest.approx(flat.height() / 2)
+    flat.grab()
+    line.start(2.0)
+    assert line.points == []
+
+
+def test_a_map_reads_its_value_under_the_pointer(qtbot: QtBot) -> None:
+    plot = MapPlot(
+        xlabel="Time (fs)", ylabel="Wavelength (nm)", colours="viridis", unit="dB"
+    )
+    qtbot.addWidget(plot)
+    assert plot.read(0.0, 0.0) == ""  # nothing drawn yet
+    data = np.array([[-30.0, -10.0], [np.nan, 0.0]])
+    plot.show_map(
+        data, (-10.0, 500.0, 20.0, 200.0), ((-10.0, 10.0), (500.0, 700.0)), (-40.0, 0.0)
+    )
+    assert plot.read(5.0, 650.0) == "5 fs, 650 nm: 0 dB"
+    assert plot.read(-5.0, 550.0) == "-5 fs, 550 nm: -30 dB"
+    assert plot.read(-5.0, 650.0) == ""  # no value there
+    assert plot.read(15.0, 550.0) == ""  # off the image
+    bare = MapPlot(xlabel="x", ylabel="z", colours="viridis", unit="")
+    qtbot.addWidget(bare)
+    bare.show_map(
+        np.ones((1, 1)), (0.0, 0.0, 1.0, 1.0), ((0.0, 1.0), (0.0, 1.0)), (0.0, 1.0)
+    )
+    assert bare.read(0.5, 0.5) == "0.5, 0.5: 1"

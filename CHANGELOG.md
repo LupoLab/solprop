@@ -165,6 +165,26 @@ All notable changes to solprop are recorded here. The format follows
   dispersion (`beta3`) and nonlinear coefficient (`gamma`) over the band, beside `beta`,
   `beta2`, the loss, the effective area and the zero-dispersion wavelength. The new
   `solprop.modes.base.beta3` differences the analytic `beta1` twice.
+- The desktop front end, `solprop-gui`, **experimental** in this release: its window, its
+  workflow and its files may change without notice before 1.0. Install it with
+  `pip install "solprop[gui]"` and start it with `solprop-gui`. It sets up, runs and reads
+  simulations without a script, and has a chapter of its own in the user guide:
+  - Home offers a problem class for each common geometry (capillary, antiresonant fibre,
+    radial filament, Cartesian and line beams, GNLSE, step-index and graded-index fibres),
+    each starting from a few chosen examples, and a waveguide designer that needs no
+    pulse; a recipe or results file of another route opens on a form built from solprop's
+    parameter metadata;
+  - each class has one setup sheet, checked as it is edited, with the numbers solprop
+    computes for it and a preview plot; a number such as the soliton order can be typed as
+    a target, which writes the recipe's `[pins]`;
+  - runs go in separate processes with live views, stop and resume, or in a service
+    process that keeps them going when the window closes;
+  - results are read on pages of the class, all at one plane, with plot tools (zoom,
+    readouts, widths at half maximum, peaks) and publication figures drawn by
+    `solprop.plotting`;
+  - scans run a setup over a grid of its parameters, record bands, spectra and pulses,
+    and open any point as a setup;
+  - every setup saves as a recipe or shows as a Python script.
 - `Recipe.modes()` gives each mode's phase matching to a soliton at the pump in the launch
   mode: the `phase_mismatch` of a dispersive wave in that mode over the band and its
   phase-matched wavelengths `rdw` (intermodal for every mode but the first), with the
@@ -192,9 +212,11 @@ All notable changes to solprop are recorded here. The format follows
   a few lines and costs no volume beyond the plane's own. `check_cache`, `resume` and
   `resumability` now refuse any output handler by name (#499).
 - Readers of a radial beam from its file, in `solprop.processing`: `on_axis_spectra`, `radial_spectrum`, `far_field`, `on_axis_power` and `on_axis_spectrogram`. `solprop.tools.beam_params` gives a Gaussian beam's Rayleigh range, critical power, power ratio and Marburger collapse distance, and `beam_through_lens` the waist a lens makes. `Recipe.example("filament")` is a filament in argon with plasma, and a new tutorial reads one.
+- The desktop front end's Cartesian class starts from `Recipe.example("crossing_beams")`, two beams crossing in argon whose interference fringes the Kerr effect focuses, and a tutorial of the same run; a one-beam Cartesian recipe still opens, on a one-beam sheet.
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
 - solprop.backends exports `thread_budget` and `ThreadBudget`: how many threads a process may run at once, and the limit that sets it, for a front end to show.
 - An `ApertureSet` row may be an ellipse, a rectangle or a half-plane (`shapes`, `extents`), with its own edge profile (`profiles`), so a far-field statistic can express an instrument's mask: a knife edge at a fixed position in a far-field plane, whose wavevector moves with frequency, no longer needs the field on the host. A half-plane is half-open and tiles the columns with its complement. Line grids take half-planes bounded in x and rectangles, and the offline `Aperture` takes the same shapes. Unset, the new fields leave every existing result, record and configuration hash as they were (#446, part of #186).
+- An example of the canonical photonic-crystal-fibre supercontinuum of Dudley, Genty and Coen (Rev. Mod. Phys. 78, 1135 (2006), Fig. 3), in the supercontinuum gallery and as `Recipe.example("fibre_supercontinuum")`, which the desktop front end lists for its GNLSE class.
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
 - `solprop-native` wheels for Windows on Arm (`win-arm64`), and an x86-64-v2 build beside the
@@ -268,6 +290,7 @@ All notable changes to solprop are recorded here. The format follows
 - A single-precision `prop_capillary`, `prop_gnlse` or `prop_waveguide` run on `mlx` (or `backend="auto"`) now builds its grid for MLX's transforms: past 4096 samples a power of two, which MLX's GPU transforms run six to twelve times faster than the 2-3-5-smooth sizes FFTW prefers. The helium RDW capillary's grid is 16384 fine samples instead of 10240, and a trial took a quarter of the time. `FieldGrid.from_limits` and `EnvelopeGrid.from_limits` take `transforms="mlx"` for a grid of one's own, and `fft_cost` takes the library. Binary64 runs and single-precision runs on `numpy_ref` are unchanged. (#85)
 - A single-precision free-space run (`prop_free`, Cartesian and line) now takes free space's binary64 default tolerance, `rtol=1e-4`, instead of `1e-5`: binary32 at `1e-4` was measured as close to a tight binary64 reference as binary64 at `1e-4` on a radial filament, a radial beam with its transverse collar and a Cartesian filament. The Cartesian filament takes 48 steps instead of 61. (#85)
 - The `antiresonant_fibre` example and its tutorial now record the default statistics, not energy alone.
+- The `antiresonant_fibre` example and the antiresonant tutorial's propagation show resonant dispersive-wave emission: 1 µJ, 30 fs at 800 nm through 20 cm of fibre in 5 bar of argon, field resolved over 150–1600 nm with photoionisation and 201 saved planes, in place of 2 µJ over 5 cm at 1 bar on an envelope grid.
 - `solprop.backends.protocol.Backend` now declares what the run layer asks of a backend, which
   it used to look up by name: `set_stop`, `attach_monitor`, `in_flight`, `march_snapshot`,
   `march_snapshot_nbytes`, `march_export_refusal`, `restore_march`, `edge_memory`,
@@ -501,6 +524,8 @@ All notable changes to solprop are recorded here. The format follows
   one plane the flag was ignored and the run finished as `complete`. `solprop run` and
   `solprop resume`, whose first SIGTERM or Ctrl-C reaches a run through that flag, stop the
   same way; they used to report a stop that the file showed had not happened (#519). A signal that comes too late to stop the run now exits with status zero and says the file is complete (#521).
+- `tools.lambda_rdw_all` skips a sign change of the phase mismatch through a resonance of the guide, where the mismatch has a pole or is not a number, instead of raising a bare `ValueError` from SciPy on an antiresonant fibre's default search window (#538).
+- The `step_index_fibre` example and its tutorial run 5 cm on a 2 ps window with the boundary monitor on, saving 201 planes; over 15 cm on 1 ps its Raman-shifted solitons left the window unnoticed and the run lost 71 % of its energy (#544). The `rdw`, `spm_compressor` and `graded_index_fibre` examples and their gallery scripts save 201 planes, for smoother plots along z.
 - Bad input to the processing and plotting helpers is refused by name, with its units, instead of failing late or silently. `Passband` refuses other than two limits, or a width that is not positive, when built; it raised `IndexError` on use, or kept two of three limits. `wavelength_to_axis` refuses a wavelength limit that is not positive on a frequency axis, where zero raised `ZeroDivisionError`. `spectral_bands` and `band_coherence` refuse `n_bands` below one, and a band with nothing to average stays `nan` without a `RuntimeWarning`. `spectrogram` refuses a `spec_range` that misses the data, as `get_spectral_density` does, instead of drawing an empty view (#96).
 - The default boundary check no longer does work that nothing uses. A saved plane the step that reached it already read takes no second read, which on a device was a copy of the whole state. A fixed schedule's reads of the transverse edge now follow its next step rather than `dz_init`, which read one step late with a short `dz_init`, past the spacing the reads promise, and at every step with a long one. The split collar's occupancy reduces per column, without an atomic per element, which took most of a monitor reading on a GPU. `energy` and `peak_intensity` no longer sum on one GPU thread, an Adams run over the snapshot limit takes no snapshot to learn its size, and a runner's points share the walk-off table rather than upload it each.
 - A run of a guide that is the same along its length (a fixed fibre, a uniform fill) records its mode basis once instead of once for each saved plane, so a step-index fibre with 201 saved planes now starts at once rather than after about 95 s.

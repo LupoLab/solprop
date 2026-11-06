@@ -2,32 +2,33 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-# Five centimetres of an argon-filled antiresonant fibre, on an envelope grid.
+# Resonant dispersive-wave emission in 20 cm of argon-filled antiresonant fibre, field
+# resolved, with photoionisation.
 # mirrors: docs/tutorials/waveguides/plot_01_antiresonant_fibre.py
 
 [recipe]
 format = 1
 route = "capillary"
-title = "An argon-filled antiresonant fibre"
+title = "RDW in an argon-filled antiresonant fibre"
 
 [build]
 radius = "15 um"
-length = "0.05 m"
+length = "0.2 m"
 gas = "Ar"
-pressure = "1 bar"
+pressure = "5 bar"
 lattice = { type = "TubeLattice", wall_thickness = "180 nm", tube_radius = "9 um", n_tubes = 6 }
 wavelength = "800 nm"
-wavelength_limits = ["300 nm", "1600 nm"]
-trange = "200 fs"
+wavelength_limits = ["150 nm", "1600 nm"]
+trange = "1 ps"
 fwhm = "30 fs"
-energy = "2 uJ"
-envelope = true
+energy = "1 uJ"
+envelope = false
 modes = 1
 kerr = true
-plasma = false
+plasma = true
 raman = false
 thg = false
 n_r = 8
-n_save = 11
+n_save = 201
 rtol = 1e-5
 seed = 20261027

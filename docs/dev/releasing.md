@@ -248,7 +248,9 @@ Then, for every release:
    `git push origin vX.Y.Z`: GitHub starts no workflow for a push of more than three
    tags at once. The tag starts the wheels workflow again, on the tagged commit (CI
    does not run on tags): it builds and tests every wheel, and builds solprop's and the
-   front end's distributions and checks an install of each. Every publish job
+   front end's distributions and checks an install of each. Its `solprop-dist` job first
+   checks that `CITATION.cff` names the tag's version, so a tag on a commit that still
+   cites the last release fails before anything is published. Every publish job
    waits for `solprop-dist`, and solprop's two for every wheel's `test` job, so the run
    that publishes has itself tested the release commit on every wheel platform,
    whichever lanes CI skipped on the push to `main`.
@@ -274,6 +276,10 @@ Then, for every release:
    in an issue and repair it in a new version if the published files need changing.
    If PyPI has not yet made the new files available, rerun the failed install jobs once
    they appear; the check does not retry a failed resolution or hide its first result.
+   With `PUBLISH_GUI` set, `published-install-gui` follows `publish-gui` on the same
+   platforms: it installs `solprop[gui]==X.Y.Z`, runs `pip check`, checks that the front
+   end is at the version and carries the user guide's chapter, and that `solprop-gui
+   --version` answers. Its artifacts are named `published-install-gui-<platform>`.
 4. Publish a GitHub release from the tag, with the version's changelog section as its
    notes: `gh release create vX.Y.Z --verify-tag --title "solprop X.Y.Z" --notes-file
    NOTES.md`. Zenodo archives it and gives it a DOI; the concept DOI that `CITATION.cff`
@@ -312,6 +318,8 @@ example was added for 0.1.0's outstanding platform checks
 ```sh
 gh workflow run published-install.yml -f version=X.Y.Z -f readme_example=true
 ```
+
+`gui=true` installs `solprop[gui]` instead and checks the front end as well.
 
 The **Wheels** workflow runs the same check, as its `qualify-published` job, when it is
 dispatched with `published_version` (and optionally `readme_example`): it then builds and

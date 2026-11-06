@@ -1,0 +1,36 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Two 0.2 mJ, 40 fs beams of 150 um waist cross at 10 mrad in 1 bar of argon, 8 cm in;
+# their interference fringes are focused by the Kerr effect.
+# mirrors: docs/tutorials/free_space/plot_12_crossing_beams_kerr.py
+
+[recipe]
+format = 1
+route = "free"
+title = "Two beams crossing in argon"
+
+[build]
+grid = { type = "EnvelopeGrid.from_limits", length = 0.16, reference_wavelength = "800 nm", wavelength_limits = ["700 nm", "950 nm"], trange = "200 fs", thg = false }
+space = { type = "FreeGrid", radius_x = "2 mm", n_x = 192, radius_y = "1 mm", n_y = 40 }
+medium = { type = "SpatialMedium", material = "Ar", pressure = "1 bar" }
+responses = [
+    { type = "KerrResponse", chi3 = { type = "gamma3", gas = "Ar", wavelength = "800 nm" }, thg = false },
+]
+noise = "none"
+
+[build.initial]
+type = "SpatialPulseSum"
+beams = [
+    { type = "SpatialPulse", temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "40 fs", energy = "0.2 mJ" }, waist = "150 um", displacement = ["-0.4 mm", "0 mm"], tilt = [0.005, 0.0] },
+    { type = "SpatialPulse", temporal = { type = "GaussianPulse", wavelength = "800 nm", fwhm = "40 fs", energy = "0.2 mJ" }, waist = "150 um", displacement = ["0.4 mm", "0 mm"], tilt = [-0.005, 0.0] },
+]
+
+[build.settings]
+type = "SimulationSettings"
+controller = { type = "PIController", rtol = 1e-5, atol = 1e-11 }
+save_planes = [0.008, 0.016, 0.024, 0.032, 0.04, 0.048, 0.05600000000000001, 0.064, 0.072, 0.08, 0.088, 0.096, 0.10400000000000001, 0.11200000000000002, 0.12, 0.128, 0.136, 0.144, 0.152, 0.16]
+dz_init = "0.1 mm"
+dz_max = "2 mm"
+stats = { type = "StatsSpec", names = ["energy", "peak_intensity"] }

@@ -945,6 +945,46 @@ def test_a_window_the_model_does_not_cover_is_refused_rather_than_searched():
         tools.lambda_rdw_all(nan_mode(), PUMP, wavelength_limits=(400e-9, 700e-9))
 
 
+def test_an_antiresonant_fibre_s_resonances_are_skipped_not_raised():
+    # Issue 538: the refinement of a sign change met a resonance of the Vincetti model
+    # between two finite samples, where the mismatch is not a number, and scipy's
+    # ValueError escaped. Such a bracket, or one through a pole, holds no phase match.
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only here
+
+    recipe = Recipe.example("antiresonant_fibre")
+    keywords = recipe.keywords()
+    mode = quiet(lambda: recipe.build().modes[0])
+    pulse = quiet(
+        tools.soliton_params,
+        mode,
+        keywords["gas"],
+        keywords["pressure"],
+        energy=keywords["energy"],
+        fwhm=keywords["fwhm"],
+        wavelength=keywords["wavelength"],
+        shape="gauss",
+    )
+    numbers = {
+        "peak_power": pulse.peak_power,
+        "gamma": pulse.gamma,
+        "fwhm": pulse.fwhm,
+        "shape": pulse.shape,
+    }
+    pump = float(keywords["wavelength"])  # pyright: ignore[reportArgumentType]
+    roots = quiet(tools.lambda_rdw_all, mode, pump, **numbers)
+    assert all(100e-9 <= root <= 0.9 * pump for root in roots)
+    for root in roots:  # each a true zero of the mismatch, not a pole
+        omega = 2 * math.pi * C / root
+        beside = quiet(
+            tools.phase_mismatch,
+            mode,
+            np.array([omega * (1 - 1e-4), omega, omega * (1 + 1e-4)]),
+            pump,
+            **numbers,
+        )
+        assert abs(beside[1]) < 1e-3 * max(abs(beside[0]), abs(beside[2]))
+
+
 def test_a_residual_that_is_not_a_number_is_a_tools_error():
     with pytest.raises(ToolsError, match="not finite at the ends"):
         tools._pressure_root(lambda pressure: math.nan, 10.0, "anything")

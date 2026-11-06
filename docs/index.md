@@ -3,6 +3,15 @@
 **Ultrafast nonlinear pulse propagation in Python** — from few-cycle pulses in
 gas-filled hollow-core fibres to multimode solid-core fibres and free-space beams.
 
+:::{admonition} New: a desktop GUI (experimental)
+:class: tip
+
+Set up, run and explore simulations in a window, with no script:
+`pip install "solprop[gui]"`, then `solprop-gui`. See
+[the desktop GUI](#the-desktop-gui) below and its
+[chapter of the user guide](guide/front-end/index.md).
+:::
+
 **Everything, fast, with rigour.** solprop aims to be one unified, highly accurate code
 for nonlinear pulse propagation, scaling from a laptop to a GPU cluster, with every model
 derived, cited and verified against analytic and independent references
@@ -28,6 +37,23 @@ The [examples](examples/index.md) explore particular physical processes and
 experimental configurations. Use the [API reference](api/index.md) to look up
 arguments and return values, and the [developer’s guide](dev/index.md) to work on
 solprop itself.
+
+(the-desktop-gui)=
+## The desktop GUI
+
+![The desktop GUI's Home, with a tile for each kind of simulation](_static/readme-gui-home.png)
+
+solprop comes with an experimental desktop front end, `solprop-gui`, for setting up,
+running and reading simulations without writing Python. Pick a geometry from Home; set
+it up on one sheet in physics terms, checked as you type, with the numbers solprop
+computes for it, and type a target such as a soliton order to have solprop solve for
+the pressure or energy that gives it; watch the spectrum and pulse grow as it runs; and
+read the results at any point along the propagation, with zoom, readouts, widths at
+half maximum and publication figures. Scans and a waveguide designer are built in, and
+every setup saves as a recipe or a Python script, so nothing done in the window is a
+dead end. Install it with `pip install "solprop[gui]"` and start it with `solprop-gui`;
+[the desktop front end](guide/front-end/index.md) shows it step by step. Its interface
+may still change between releases.
 
 ```{toctree}
 :maxdepth: 2

@@ -97,7 +97,7 @@ when adapting the wavelength band, especially in weak far-ultraviolet wings.
             fwhm=7.5e-15,
             energy=275e-6,
             modes=2,
-            n_save=51,
+            n_save=201,
             progress="none",
             seed=20261027,
         )
@@ -113,7 +113,7 @@ when adapting the wavelength band, especially in weak far-ultraviolet wings.
 
  .. code-block:: none
 
-    51 planes, 2 modes
+    201 planes, 2 modes
     model: multimode; backend: native
 
 
@@ -301,9 +301,9 @@ value.
  .. code-block:: none
 
     largest recorded quadrature diagnostic: 9.84e-10
-    peak on-axis intensity 9.189e+14 W/cm²
-    peak sampled electron density 1.568e+16 cm⁻³
-    15.2 s; backend native
+    peak on-axis intensity 9.251e+14 W/cm²
+    peak sampled electron density 1.619e+16 cm⁻³
+    2.9 s; backend native
 
 
 
@@ -321,7 +321,7 @@ illustrative calculation, not a fit to one measurement in that paper.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 15.186 seconds)
+   **Total running time of the script:** (0 minutes 2.931 seconds)
 
 
 .. _sphx_glr_download_introduction_lessons_plot_01_rdw.py:

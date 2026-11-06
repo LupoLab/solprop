@@ -7,5 +7,7 @@ modulational instability, and Raman comb-to-continuum -- with ensembles of noisy
 for the averaged spectrum, its relative intensity noise and its first-order coherence.
 The MI ensemble uses eight seeded shots over 0.4 m; the Raman comb-to-continuum
 example uses one seeded shot over 0.4 m and does not estimate ensemble coherence.
-The SPM and soliton examples use twenty shots. Measured runtimes and backends are
-reported on the individual pages; they depend on the problem and machine.
+The SPM and soliton examples use twenty shots. The last example is the canonical
+solid-core continuum, in a photonic crystal fibre, from one seeded shot. Measured
+runtimes and backends are reported on the individual pages; they depend on the problem
+and machine.

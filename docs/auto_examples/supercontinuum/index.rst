@@ -11,8 +11,10 @@ modulational instability, and Raman comb-to-continuum -- with ensembles of noisy
 for the averaged spectrum, its relative intensity noise and its first-order coherence.
 The MI ensemble uses eight seeded shots over 0.4 m; the Raman comb-to-continuum
 example uses one seeded shot over 0.4 m and does not estimate ensemble coherence.
-The SPM and soliton examples use twenty shots. Measured runtimes and backends are
-reported on the individual pages; they depend on the problem and machine.
+The SPM and soliton examples use twenty shots. The last example is the canonical
+solid-core continuum, in a photonic crystal fibre, from one seeded shot. Measured
+runtimes and backends are reported on the individual pages; they depend on the problem
+and machine.
 
 
 .. raw:: html
@@ -94,6 +96,23 @@ reported on the individual pages; they depend on the problem and machine.
     </div>
 
 
+.. raw:: html
+
+    <div class="sphx-glr-thumbcontainer" tooltip="The canonical solid-core supercontinuum: a 50 fs, 10 kW sech pulse at 835 nm in 15 cm of photonic crystal fibre, pumped in anomalous dispersion close to the zero-dispersion wavelength. The parameters are those of Fig. 3 of the review by Dudley, Genty and Coen, the standard test of a generalised nonlinear Schrödinger equation solver: the fibre&#x27;s dispersion as ten Taylor coefficients about the pump (beta_2 to beta_10), gamma = 0.11 /W/m, self-steepening, and silica&#x27;s Raman response.">
+
+.. only:: html
+
+  .. image:: /auto_examples/supercontinuum/images/thumb/sphx_glr_plot_05_fibre_supercontinuum_thumb.png
+    :alt:
+
+  :doc:`/auto_examples/supercontinuum/plot_05_fibre_supercontinuum`
+
+.. raw:: html
+
+      <div class="sphx-glr-thumbnail-title">Supercontinuum in a photonic crystal fibre</div>
+    </div>
+
+
 .. thumbnail-parent-div-close
 
 .. raw:: html
@@ -108,4 +127,5 @@ reported on the individual pages; they depend on the problem and machine.
    /auto_examples/supercontinuum/plot_02_soliton_supercontinuum
    /auto_examples/supercontinuum/plot_03_modulational_instability_supercontinuum
    /auto_examples/supercontinuum/plot_04_raman_comb_supercontinuum
+   /auto_examples/supercontinuum/plot_05_fibre_supercontinuum
 

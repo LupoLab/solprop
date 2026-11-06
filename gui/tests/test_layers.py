@@ -6,7 +6,7 @@
 
 The design (docs/dev/gui/design.md, "Code structure") fixes three rules:
 
-- ``model``, ``registry``, ``service`` and ``help`` import no Qt;
+- ``model``, ``registry``, ``classes``, ``service`` and ``help`` import no Qt;
 - the window's process imports from solprop only the light parts of
   ``solprop.recipe``; simulation code runs in the kernel and the workers, which live
   in ``service``;
@@ -26,7 +26,7 @@ import solprop_gui
 PACKAGE = Path(solprop_gui.__file__).parent
 
 QT = ("PySide6", "shiboken6", "pyqtgraph")
-WITHOUT_QT = ("model", "registry", "service", "help")
+WITHOUT_QT = ("model", "registry", "classes", "service", "help")
 # The modules whose code runs in the window's process: all but the service layer.
 WINDOW_PROCESS_SOLPROP = (
     "solprop.recipe.document",

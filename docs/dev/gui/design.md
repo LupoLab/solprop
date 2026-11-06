@@ -10,7 +10,12 @@ to the build. Two throwaway prototypes (NiceGUI and Qt, both around `prop_capill
 preceded it; they are not kept in the repository. Planned work is in GitHub issues: a
 tracking issue for the front end and one issue per milestone of section 16.
 
-**Starting work on the GUI? Read section 0, then section 21.** Much of this design depends
+**Revised on 2026-11-05 to a workflow per problem class** (D14), and Qt reaffirmed after a fairer
+comparison with the web (D1). Section 22 records why. Sections 5 to 11 now describe the front end
+being built, not the stepper in draft PR #484, whose code remains the starting point for the
+layers without Qt. Sections 18 to 21 are records, and their section numbers still resolve.
+
+**Starting work on the GUI? Read section 0, then section 22, then section 21.** Much of this design depends
 on solprop's recipes and front-end hooks, and what solprop delivers takes precedence over
 the names used here. The rules for working on the package are `gui/AGENTS.md`.
 
@@ -26,13 +31,13 @@ Contents
 2. Decisions so far
 3. Users and the work they do
 4. Core concepts: recipe, run, workspace
-5. The main window
-6. Step 1: Geometry
-7. Step 2: Medium, and the waveguide explorer
-8. Step 3: Nonlinearity
-9. Step 4: Input fields and the grid
-10. Step 5: Propagate
-11. Step 6: Results
+5. The window and the route through it
+6. Setup: one sheet per problem class
+7. Medium, and Design a waveguide
+8. Physics
+9. Pulse, beam and grid
+10. The Run stage
+11. Analyse
 12. Cross-cutting design: parameters, validation, help, files, scans
 13. Architecture and implementation options
 14. Open questions
@@ -43,6 +48,7 @@ Contents
 19. Response to the design review
 20. Changes from the second SEP 41 review
 21. What solprop delivered, and what changed here
+22. Workflow review and stack decision, 2026-11-04 and 05
 
 ---
 
@@ -142,8 +148,8 @@ Principles, in priority order:
 4. **Never block the window.** Anything that can take more than ~50 ms (importing
    solprop, solving for a pressure, building a mode set, running) happens in another
    process. The window stays responsive at all times.
-5. **Layered disclosure.** Each page shows the few choices that matter to a newcomer, with
-   defaults that are solprop's own; an "Advanced" section on each page reveals the rest.
+5. **Layered disclosure.** Each sheet shows the few choices that matter to a newcomer, with
+   defaults that are solprop's own; "Advanced" folds open in place to reveal the rest.
    No choice is ever hidden from an expert.
 6. **Explain everything where it appears.** Every control has a tooltip; every page has a
    help button; every warning says what to do about it.
@@ -159,7 +165,7 @@ door open); replacing scripts for production campaigns.
 
 | # | Decision | Source |
 |---|---|---|
-| D1 | Qt for Python (PySide6) with pyqtgraph for interactive plots; matplotlib (solprop's own `solprop.plotting`) for publication figures. NiceGUI is not pursued. | prototype comparison, 2026-10-31 |
+| D1 | Qt for Python (PySide6) with pyqtgraph for interactive plots; matplotlib (solprop's own `solprop.plotting`) for publication figures. NiceGUI is not pursued. | prototype comparison, 2026-10-31; reaffirmed 2026-11-05 after two equal spikes (22.4) |
 | D2 | A separate distribution, `solprop-gui` (import package `solprop_gui`), built from `gui/` in solprop's repository as a uv workspace member, as `solprop-native` is from `native/`. solprop's `gui` extra pins it to solprop's version and it pins solprop to its own, so the two are developed, tested and released together and cannot drift. Not a subpackage of `solprop`, whose repository-wide structural checks (the module list, the structure figures, the API reference, the import-time type hook, the 100 % coverage shards) would otherwise take in every Qt module. | 2026-10-31; revised 2026-11-02 (was a separate repository) |
 | D3 | Designed for both newcomers and experts through layered pages (principle 5). | 2026-10-31 |
 | D4 | Parameter scans are designed in now (data model, results browser) and built after single runs. | 2026-10-31 |
@@ -167,9 +173,16 @@ door open); replacing scripts for production campaigns.
 | D6 | Same machine first; remote work stays scripted in the short term. | 2026-10-31 |
 | D7 | solprop's API and way of working may change to help the GUI (nothing is public yet, so without aliases). | 2026-10-31 |
 | D8 | The recipe lives in solprop (`solprop.recipe`, change S1): its format, builders, Python export and `solprop run`; the GUI adds only presentation. Q1 closed. | 2026-10-31 |
-| D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue, branch and pull request per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change). | 2026-11-02 |
+| D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue and branch per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change) and is merged on its own. | 2026-11-02 |
 | D10 | Questions Q3–Q12 of section 14 are decided as recommended there. | 2026-11-02 |
 | D11 | The quality bar is split by layer: `model`, `registry`, `service` and `help` meet solprop's standard in full, 100 % coverage included; `ui` and `views` are typed, documented and linted the same way and tested by `pytest-qt` smoke tests and offscreen screenshots, outside the coverage measure. | 2026-11-02 |
+| D12 | The GUI is built out and tested locally, milestone on milestone, and iterated on by hand before any of it is merged: the milestone branches stack locally and are not pushed while that goes on, and the local gate (`poe check-gui`) stands in for CI. The solprop changes the GUI needs still go to main as their own pull requests. | 2026-11-02 |
+| D13 | The first hands-on review (2026-11-03) reshaped the front end. The start page is a gallery of the geometry classes, each a simple cross-section, grouped and titled; Cartesian and line free space, and rectangular and slab waveguides, are classes of their own, and planar guides are hidden for now. One set of plot options (spectral axis, typed limits, scale, a bandpass for the time domain) sits at the bottom left of Propagate and Results. Results show one run, with a 2 by 2 statistics grid of up to two quantities a panel and an interactive spectrogram (`processing.get_spectrogram`). Compression moves to a Post-process step after Results: a chain of solprop.optics elements, each fixed or searched by solprop's compressor of its kind, one at a time. **Replaced in part by D14:** the gallery, the shared plot options and the steps go; the spectrogram and the compressor chain stay, as pages. | 2026-11-03 |
+| D14 | A workflow per problem class replaces the stepper: Home, then Setup, Run and Analyse. A class is a definition held as data (6.1). The first are capillary, radial filament, solid-core fibre and antiresonant fibre; everything else is under Other geometry on the generic form. | 2026-11-04 |
+| D15 | Setup is one sheet per class, with live derived numbers and a preview plot, and a target can be typed into a derived number (7.5). Analysis is a rail of pages with one large page shown and one shared z scrubber. | 2026-11-04 |
+| D16 | The main user is a physicist who does not script: physics language by default, solprop's terms under Advanced. The usual work is one run at a time; comparison is rare, and scans are a mode of their own. | 2026-11-04 |
+| D17 | Design a waveguide is a workflow of its own, needing no pulse, and it never replaces a setup. Tuning a setup is the sheet's job. | 2026-11-04 |
+| D18 | The look is calm and light, with white plots, in IBM Plex Sans, carried in the package under the Open Font License. A filament's first screen is its fluence r-z map with its spectrum and spatio-spectral views. The beam is set by waist and focus, with a lens as an option. | 2026-11-04 |
 
 ## 3. Users and the work they do
 
@@ -182,7 +195,7 @@ serves.
 - **S2 — An experimentalist designs a fibre.** No propagation at all: what pressure puts
   the zero-dispersion wavelength at 450 nm in a 75 µm-core antiresonant fibre, what is
   the loss there, what is the soliton order at 30 µJ? Export the dispersion curve as CSV
-  for a paper figure. (The *waveguide explorer*, section 7.4, used on its own.)
+  for a paper figure. (*Design a waveguide*, section 7.4.)
 - **S3 — An expert sets up a multimode run, then leaves.** Configure a 4-mode capillary
   run with a pressure gradient and Raman in N₂, check the cost estimate, export the
   recipe, run it on the workstation or cluster with a script, later open the results file
@@ -221,7 +234,7 @@ serves.
   *outcome* is solprop's `RunOutcome.status` (running, complete, budget exhausted,
   failed), which has no "stopped". Whether a run can be resumed is never assumed from
   either: it is asked of solprop (`resumability`, SEP 41 S17), which gives the mode
-  (`resume=True`, from an interpolated plane, or forced, for a file already forced) or the
+  (`resume=True`, or `resume="interpolated"` from an interpolated plane) or the
   reason it cannot (no checkpoint before a failure, no work left, another output schema, a
   writer still alive), and whether the file can be rebuilt from itself. A changed grid, a
   wider time window included, is always a new run.
@@ -233,57 +246,59 @@ serves.
   as…"). Opening a results file offers "Open setup from this run", which loads its
   embedded recipe as a new, unsaved project.
 
-## 5. The main window
+## 5. The window and the route through it
+
+Rewritten on 2026-11-05 (D14, section 22). A newcomer sees one question at a time, and a
+problem class decides what is on screen. The sketches in sections 5 to 11 show layout; their
+numbers are illustrative.
 
 ### 5.1 Layout
 
 ```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│ File  Edit  View  Run  Tools  Help                     rdw-helium.toml  (edited) │
-├──────────────────────────────────────────────────────────────────────────────────┤
-│  ① Geometry ✓ ── ② Medium ✓ ── ③ Nonlinearity ✓ ── ④ Input ⚠ ── ⑤ Run ── ⑥ Results │
-├────────────────────────────────────────────────────────┬─────────────────────────┤
-│ Input fields                              [?] [Advanced]│ Summary            [⇥]  │
-│                                                        │ route   capillary,      │
-│                                                        │         4 HE₁ₘ modes    │
-│              (page content)                            │ λ₀      800 nm          │
-│                                                        │ β₂(λ₀)  … fs²/m         │
-│                                                        │ ZDW     … nm            │
-│                                                        │ N       …               │
-│                                                        │ L_fiss  … cm            │
-│                                                        │ I_peak  … W/cm²         │
-│                                                        │ grid    2¹³ × 4 modes   │
-│                                                        │ memory  ≈ … MB          │
-├────────────────────────────────────────────────────────┴─────────────────────────┤
-│ ⚠ Pulse 2 lies within 10 fs of the time-window edge.        [Widen window] [Why?] │
-└──────────────────────────────────────────────────────────────────────────────────┘
+Home ─┬─ New simulation ──► Setup ──► Run ──► Analyse
+      │    (a class)          ◄── edit and rerun ──┘
+      ├─ Design a waveguide ──► "Simulate this" ──► Setup
+      ├─ Open results ──► Analyse
+      └─ Scans (later, a mode of its own, started from a sheet)
 ```
 
-- **Step bar.** Six steps, always visible, each with a status badge: ✓ valid, ⚠ valid
-  with warnings, ✗ invalid, ○ untouched. Steps are not a forced sequence: once a geometry
-  is chosen, any step can be visited in any order. "Next" and "Back" buttons exist for
-  newcomers. On a narrow window the labels collapse to numbers and icons.
-- **Page.** Each page has a title, a help button `[?]`, and an `[Advanced]` toggle that
-  reveals the expert controls (remembered per page).
-- **Summary dock (right).** Live derived numbers for the current recipe, computed by
-  solprop (`tools.capillary_params`, `soliton_params`, `zdw`, the grid's own size, the
-  cost estimate): dispersion and soliton figures for guided routes; Rayleigh range,
-  critical power and peak intensity for free space. It answers "what will this do?" while
-  the user types, which is most of the value of a GUI over a script. Collapsible to an
-  icon rail. The same dock can show the help page instead (section 12.4).
-- **Message bar (bottom).** The most important current warning or error with one-click
-  fixes where solprop can suggest one, and a "Why?" link to the relevant help. The full
-  list is in a Messages panel (View menu).
-- **Show code (View menu).** A dock with the live Python equivalent of the current
-  recipe, updated as the user types. This is the bridge from GUI to scripts, and teaches
-  the API by example.
+```
+Capillary, helium                  Setup   Run   Analyse         [▶ Run]   ⋯
+┌───────────────────────────────┬───────────────────────────────────────────┐
+│ the current stage: a sheet,   │                                           │
+│ or the rail of analysis pages │        plots, as large as they can be     │
+│                               │                                           │
+└───────────────────────────────┴───────────────────────────────────────────┘
+```
 
-### 5.2 Start screen
+- **Three stages.** Setup, Run and Analyse are the only navigation inside a simulation. Each
+  shows one thing; none has tabs of views that do not apply. Finishing a run moves to Analyse
+  by itself, and editing a finished run's setup goes back to Setup without losing the results.
+- **One primary action.** The button at the top right is what comes next: Run, Stop or Rerun.
+  Run, Stop and Resume appear nowhere else.
+- **One overflow menu** (⋯) holds Save, Save as, Export recipe, Export Python and Open setup
+  from this run. The platform's menu bar repeats these, with the keyboard shortcuts.
+- **No permanent console.** The log moves to the Run health page (11.3). A warning appears
+  beside what it concerns and only when something is wrong. The recipe and its Python
+  equivalent open in a drawer on request.
+- **Controls sit beside their plots.** A control that changes a plot is on that plot's page,
+  never on another stage or in a shared panel.
 
-Shown when no project is open: *New simulation*, *Open setup…*, *Open results…*,
-*Waveguide explorer*, *Examples* (solprop's own example recipes, `Recipe.examples()`: RDW
-in a capillary, soliton self-compression, filament, …), and a list of recent setups and
-runs. *New simulation* starts from one of these examples for the chosen geometry.
+The step bar, the left settings panel, the view tabs, the messages panel and the status bar of
+the stepper in draft PR #484 all go.
+
+### 5.2 Home
+
+Shown when nothing is open. It asks what you want to do:
+
+- **New simulation**: one tile per problem class (6.1), each opening a sheet that can run at
+  once, and *Other geometry* for every other route.
+- **Design a waveguide** (7.4), for questions that need no pulse or run.
+- **Open results**: a file, or one of the recent runs listed here with its state.
+- **Open a setup**, and the recent setups.
+- **Scans**, later (12.7).
+
+A class's examples (`Recipe.examples()`) are a short list on its sheet, not a dialog.
 
 ### 5.3 Small screens
 
@@ -291,98 +306,154 @@ The design target is a 13-inch laptop (1280 × 800 logical pixels) without scrol
 main controls; it must remain usable at 1024 × 700 and look good on a 4K monitor and a
 projector (S5).
 
-- The summary dock collapses to a rail; the step bar to icons.
-- Setup pages are single-column forms grouped into collapsible sections; plots on setup
-  pages (pulse preview, dispersion) sit beside the form when there is room and below it
-  when there isn't.
-- The run and results pages use dock areas with saved layouts (section 11.2), so a
-  small screen shows one large view with the others as tabs.
-- Fonts and plot line widths follow the system scale; a "Presentation" toggle (View
-  menu) enlarges everything for S5.
+- A sheet is one column of sections beside its plot. On a narrow window the plot moves below.
+- An analysis page shows one large view at a time, and the rail can shrink to icons.
+- Fonts and plot line widths follow the system scale; a "Presentation" toggle enlarges
+  everything for S5.
 
-## 6. Step 1: Geometry
+## 6. Setup: one sheet per problem class
 
-Serves S1–S7. The choice here fixes the *route* — which solprop entry point builds the
-simulation — and so decides which options exist on the later pages.
+Serves S1, S3, S5, S6. The class fixes the *route*, which solprop entry point builds the
+simulation, and so decides what the sheet asks and which analysis pages exist.
 
-### 6.1 Selection
+### 6.1 Problem classes
 
-Two levels. First a **family**: *Hollow-core waveguide*, *Solid-core fibre*, *Free space*.
-Then a **description** within it, shown as cards. Each card has an icon, a one-line
-"use it for" text (taken from the guide's model-selection table), a cost hint and a
-newcomer/expert marker.
+A class is a definition, held as data in the layer that imports no Qt (13.5):
 
-```
-Hollow-core waveguide
-┌────────────────┐ ┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-│  (icon)        │ │  (icon)        │ │  (icon)        │ │  (icon)        │
-│ Capillary,     │ │ Capillary,     │ │ Capillary,     │ │ Antiresonant   │
-│ mode-averaged  │ │ multimode      │ │ full transverse│ │ fibre          │
-│ fastest        │ │ HE₁ₘ, radial   │ │ HE/TE/TM       │ │ tube lattice   │
-└────────────────┘ └────────────────┘ └────────────────┘ └────────────────┘
-┌────────────────┐ ┌────────────────┐ ┌────────────────┐
-│ Rectangular    │ │ Hollow slab    │ │ Slab, resolved │  expert ▸
-│ hollow guide   │ │ (per width)    │ │ in y           │
-└────────────────┘ └────────────────┘ └────────────────┘
-```
+| It declares | For example, on a capillary |
+|---|---|
+| Its sheet: sections and fields, each mapped to a recipe path | Capillary, Gas, Pulse, Physics |
+| Its derived numbers: kernel calls | Soliton order, ZDW, RDW, peak intensity |
+| Its preview plot | β₂ against wavelength, with the pump, ZDW and RDW marked |
+| Its analysis pages, each with the capabilities it requires | Overview, At this plane, Modes when multimode, … |
+| The statistics those pages need recorded | Electron density, ionisation fraction |
+| Its starting point: a solprop example recipe | `rdw` |
 
-| Card | solprop route | Notes |
+This replaces about 30 branches on the route in the views (22.1): a new class is a new
+definition, and no view asks which class it is drawing. The first four classes:
+
+| Class | solprop route | Notes |
 |---|---|---|
-| Capillary, mode-averaged | `prop_capillary(mode_average=True)` | The newcomer default. |
-| Capillary, multimode (radial) | `prop_capillary(modes=N)` | HE₁ₘ modes on a radial rule. |
-| Capillary, full transverse | `prop_capillary` with an azimuthal rule (`n_theta`), or `prop_waveguide` with Marcatili modes | Expert. |
-| Capillary with coherent wall | `prop_capillary(wall=CoherentWall())` | Expert; shown as an option of the capillary cards. |
-| Antiresonant fibre | `prop_capillary(lattice=TubeLattice(...))` | Lattice set by tube count, wall thickness, gap or diameter ratio. |
+| Capillary | `prop_capillary` | Mode-averaged, or multimode through the sheet's Modes field, so one tile covers both. A full-transverse rule and a coherent wall are under Advanced. |
+| Radial filament | `prop_radial` | Needs a filament example (21.2). |
+| Solid-core fibre | `prop_gnlse` | Taylor dispersion, then step-index and tables as recipes allow them (#472, #473). |
+| Antiresonant fibre | `prop_capillary(lattice=TubeLattice(...))` | Adds the lattice to the sheet and a loss readout. |
+
+**Other geometry** holds every other route on the generic form, built from solprop's metadata
+as in #484:
+
+| Route | solprop | Notes |
+|---|---|---|
 | Rectangular hollow guide | `prop_waveguide([RectMode…])` | |
 | Hollow slab | `prop_waveguide([SlabMode…])` | Values per unit width (J/m, W/m); the GUI labels units accordingly. |
-| Slab resolved in y | `prop_planar(PlanarGrid…)` | Expert. |
-| Fibre, GNLSE with Taylor dispersion | `prop_gnlse(gamma, betas=…)` | The textbook model. |
-| Step-index fibre | `prop_gnlse(fibre=StepIndexMode(...))` | Core radius, NA or core/cladding glasses. |
-| Fibre from a table | `prop_gnlse(fibre=IndexTable…)` | n_eff (and A_eff, loss) loaded from a file. |
-| General modal (vector) | `prop_waveguide((), provider=ModalGuide…)` | Expert: step-index or graded-index vector guides with material regions. |
-| Free space, radial | `prop_radial` | Cylindrical symmetry. |
+| Slab resolved in y | `prop_planar(PlanarGrid…)` | |
+| General modal (vector) | `prop_waveguide((), provider=ModalGuide…)` | Step-index or graded-index vector guides with material regions. |
 | Free space, Cartesian | `prop_free(FreeGrid…)` | Full x–y. |
 | Free space, line | `prop_free(LineGrid…)` | x only, per metre of y. |
 
-The list is data, not code: a route registry (section 13.3) describes each card, so a
-new solprop route is one entry.
+Any of these can become a class when its users need one. A route with no recipe form is shown
+disabled with the reason (21.1).
 
-### 6.2 Icons and the live cross-section
+### 6.2 The sheet
 
-solprop's guide already has to-scale cross-section figures of every geometry, generated
-by `docs/guide/figures/geometries.py` from solprop's own modes and node rules
-(`capillary_radial.svg`, `antiresonant.svg`, `radial_free.svg`, and so on). They are the
-right source for the cards, with two problems: they use CSS custom properties and a
-`prefers-color-scheme` media query, which Qt's SVG renderer (SVG Tiny 1.2) ignores; and
-at 560 px wide they are figures, not icons.
+One screen, with everything the class needs to run on it:
 
-Proposal: move the drawing code into solprop (`solprop.plotting.geometry`, section 15,
-S13) with two outputs — a simplified thumbnail and a detailed figure — and a palette
-argument so the GUI can render light or dark versions directly. The bigger win is that
-the GUI can then draw **the user's actual geometry** to scale on the geometry page: the
-real core radius, tube lattice, quadrature nodes and absorbing collar, updating as they
-type. Until then a build script resolves the CSS variables into two static palettes.
+- **It opens runnable.** Its values come from a solprop example recipe, so the GUI has no
+  defaults of its own (principle 1). Errors from solprop's check appear together, beside their
+  fields.
+- **Derived numbers are live.** They and the preview plot update as you type, off the window's
+  process, the latest request winning. The targets are 150 ms for the numbers and 300 ms for
+  the curve, which the spike met on the capillary (22.3).
+- **A target can be typed into a number** (7.5).
+- **One line of help** under the focused field explains it. A longer page opens from the help
+  button (12.4).
+- **Advanced folds open in place**, section by section. "Find any setting" reaches any keyword
+  without browsing. solprop's terms appear there; the basic rows use physics language.
+- **A Ready line** states solprop's check, the rough time and the output size. On a radial run
+  the size matters, since files can reach gigabytes.
 
-### 6.3 Geometry parameters
+**Cross-section.** Where the shape matters (antiresonant, Other geometry) the plot area can show
+the user's actual geometry to scale, from `plotting.geometry.outline()`, updating as they type.
+Qt's SVG renderer ignores the guide's CSS palettes, so the kernel sends the shapes as data and
+the window paints them (21.1).
 
-Below the cards, the parameters of the chosen geometry: length; core radius (or half
-widths, gap); lattice parameters; cladding material (advanced); number of modes and the
-transverse rule (`n_r`, `n_theta`, `radial_rule`; advanced); Marcatili `model`
-"full"/"reduced" and the `loss` switch (advanced).
+### 6.3 Profiles, and changing class
 
-**z-profiles.** Any parameter solprop accepts as a `ZProfile` (radius for a taper,
-half widths, and on later pages pressure, temperature, preionisation) gets a small
-profile button beside its field: *constant* (default), *linear*, *piecewise
-(table of z, value)*, or *from file*. The field then shows a sparkline of the profile;
-clicking it opens a profile editor (a table and a plot with draggable points). The same
-editor is used everywhere (section 12.2).
+**z-profiles.** Any parameter solprop accepts as a `ZProfile` (radius for a taper, half widths,
+pressure, temperature, preionisation) gets a small profile button beside its field: *constant*
+(default), *linear*, *piecewise (table of z, value)*, or *from file*. The field then shows a
+sparkline of the profile; clicking it opens a profile editor (a table and a plot with draggable
+points). The same editor is used everywhere (12.2).
 
-**Changing geometry later.** Choosing a different card keeps every value that still
-applies (gas, pulse, grid) and lists the ones that will be dropped, with an undo.
+**Changing class.** Setups do not convert. A new class is a new sheet from Home, and the current
+setup is kept until it is closed. Other geometry changes route as #484 does: values that still
+apply stay, and the ones that will be dropped are listed, with an undo.
 
-## 7. Step 2: Medium, and the waveguide explorer
+### 6.4 Capillary
 
-Serves S1, S2, S3, S6.
+Serves S1, S3, S5.
+
+```
+Capillary                       Setup  Run  Analyse     [▶ Run]  ⋯
+┌─────────────────────────┬──────────────────────────────────────┐
+│ Capillary               │ What this gives                      │
+│  Core radius [125] µm   │  Soliton order  [ 2.5 ]   ZDW  423 nm│
+│  Length      [1.0] m    │  Peak power     156 GW    RDW  154 nm│
+│  Modes       [ 1 ]      │  Peak intensity 3.7e14 W/cm²         │
+│ Gas                     │  Fission length ~0.3 m               │
+│  [Helium ▾] [1.0] bar   │ ──────────────────────────────────── │
+│ Pulse                   │       β₂ vs wavelength               │
+│  Wavelength [800] nm    │    (pump, ZDW and RDW marked;        │
+│  Duration   [ 10] fs    │     curve moves as you type)         │
+│  Energy     [275] µJ    │                                      │
+│ Physics                 │                                      │
+│  Kerr ✓  Plasma ✓  Raman│ ✓ Ready · ~40 s · 2 MB               │
+│ ▸ Simulation window  ▸ Advanced                                │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The numbers come from `tools.capillary_params` and `tools.lambda_rdw_all`, and the curve from
+`modes.base.beta2` on the sheet's mode, with no recipe built (22.3).
+
+### 6.5 Radial filament
+
+Serves S6. The same frame with different content:
+
+```
+Filament                        Setup  Run  Analyse     [▶ Run]  ⋯
+┌─────────────────────────┬──────────────────────────────────────┐
+│ Medium                  │ What this gives                      │
+│  [Argon ▾] [1.0] bar    │  P / P_cr       3.0                  │
+│  Propagate  [25] cm     │  Critical power 5.1 GW               │
+│ Beam                    │  Rayleigh range 35 cm                │
+│  Waist      [300] µm    │  Collapse (Marburger) ~13 cm         │
+│  To focus   [  0] cm    │ ──────────────────────────────────── │
+│  ▸ From a lens…         │     linear beam radius vs z          │
+│ Pulse                   │   (focus and collapse marked)        │
+│  Wavelength [800] nm    │                                      │
+│  Duration   [ 30] fs    │                                      │
+│  Energy     [2.0] mJ    │                                      │
+│ Physics                 │                                      │
+│  Kerr ✓  Plasma ✓       │ ✓ Ready · ~4 min · 35 MB             │
+│ ▸ Resolution  ▸ Advanced                                       │
+└────────────────────────────────────────────────────────────────┘
+```
+
+The beam is set by waist and focus (`SpatialPulse.propz` carries the distance to focus, with its
+sign changed), with lens input as an option. The beam numbers and the lens conversion are physics,
+so they come from solprop (`tools.beam_params`, `tools.beam_through_lens`; 21.2).
+
+### 6.6 Solid-core and antiresonant fibre
+
+Each follows the pattern. **Solid-core** has no gas section: fibre parameters (γ and Taylor
+coefficients, then a glass and core once #472 is done) with soliton figures and a dispersion
+curve. Its Physics section is Kerr and Raman. **Antiresonant** is the capillary sheet with the
+lattice (tube count, wall thickness, gap or diameter ratio), a loss readout and the cross-section.
+
+## 7. Medium, and Design a waveguide
+
+Serves S1, S2, S3, S6. Sections 7.1 to 7.3 say what a sheet's medium section can hold; the first
+row or two show by default and the rest are under Advanced.
 
 ### 7.1 Gas fills
 
@@ -400,7 +471,7 @@ Serves S1, S2, S3, S6.
 - **Temperature** (K, default 293.15): constant or profile.
 - **Material model policy** (advanced): `MaterialSelection` — linear, electronic,
   Raman and ionisation policies — with "recommended" defaults. These live with the
-  medium because they choose data, not physics; the nonlinear page links here.
+  medium because they choose data, not physics; the physics section links here.
 
 ### 7.2 Solid media
 
@@ -414,24 +485,36 @@ table of β₂, β₃, … (with units fs²/mm etc.) and γ or n₂, plus loss i
 `SpatialMedium`: a gas (with pressure, and a pressure profile on the radial route only),
 a glass, or a constant index.
 
-### 7.4 The waveguide explorer
+### 7.4 Design a waveguide
 
-S2 says this page is often the whole job. The explorer is a panel on the medium page
-and also a standalone tool (start screen, Tools menu) that opens with its own small
-geometry and medium form.
+S2 says this is often the whole job, and it needs no pulse or run: which pressure puts the ZDW at
+450 nm in this fibre, and what is the loss there? So it is a workflow of its own, opened from
+Home. Tuning a setup belongs to the sheet (6.2).
 
 ```
-┌ Explorer ───────────────────────────────────────────────────────────────────────┐
-│ Plot: [β₂ (GVD) ▾]  vs [wavelength ▾]   modes: [HE₁₁ ☑ HE₁₂ ☑ HE₁₃ ☐]    [Export]│
-│ ┌──────────────────────────────────────────────┐  Sweep: [pressure ▾] 0.2–5 bar │
-│ │                                              │         5 curves, coloured     │
-│ │       (curves; hover readout; drag λ₀)       │  Mark:  ZDW ☑  λ₀ ☑  RDW ☑     │
-│ │                                              │                               │
-│ └──────────────────────────────────────────────┘  At λ₀ = 800 nm:               │
-│                                                   n_eff, β₁, β₂, β₃, loss,      │
-│                                                   A_eff, γ  (table, copyable)   │
-└─────────────────────────────────────────────────────────────────────────────────┘
+Design a waveguide                          [Simulate this ▸]  ⋯
+┌───────────────┬──────────────────────────────────────────────┐
+│ Radius [125]µm│ [Curves] [ZDW map] [Phase matching] [Loss]   │
+│ Gas [He ▾]    │                                              │
+│ Pressure [1]  │     the large plot                           │
+│ Sweep:        │                                              │
+│  pressure     │                                              │
+│  0.2 to 5 bar │ ──────────────────────────────────────────── │
+│ ▸ Pulse (opt.)│ At 800 nm: β₂, β₃, loss, A_eff, γ  [CSV]     │
+└───────────────┴──────────────────────────────────────────────┘
 ```
+
+- **It works without a pulse.** Its inputs are all on one panel, and a missing energy blocks
+  nothing. In #484 a curve needs a whole valid simulation, because `preview.modes` builds the
+  recipe.
+- **It never replaces a setup.** *Simulate this* carries the design to a new sheet. In #484 opening
+  the explorer replaces your setup with a helium capillary.
+- **Clicking a curve or map point sets the design**, so a result can be adopted. In #484 a curve
+  or sweep leads nowhere.
+- **Two-value designs live here.** `tools.capillary_design` (pressure and energy from a ZDW and a
+  soliton order) writes both as literals. This replaces #484's Design dialog.
+
+What #484 built stays, since its plots are good:
 
 - **Quantities**, from `solprop.modes.base` and `tools`: n_eff − 1, β₁ (group index or
   group delay), β₂ (GVD, also as dispersion parameter D), β₃, loss (dB/m, loss length,
@@ -442,49 +525,47 @@ geometry and medium form.
   mode order), or show a 2-D map (ZDW vs pressure and radius).
 - **Markers**: ZDW, pump wavelength, phase-matched RDW wavelength
   (`tools.lambda_rdw_all`), phase-mismatch curves (`phase_mismatch`).
-- **Readouts**: a table at the pump wavelength, and the soliton figures for the pulse
-  of step 4 if one is defined (`soliton_params`: N, L_D, L_NL, L_fiss, critical power).
+- **Readouts**: a table at the pump wavelength, and the soliton figures of the optional pulse
+  (`soliton_params`: N, L_D, L_NL, L_fiss, critical power).
 - **Export**: CSV of every curve, figure as PNG/SVG/PDF, "Copy as Python".
 
-### 7.5 Pinning a parameter to a target
+### 7.5 Typing a target into a number
 
-The brainstorm asks to "fix the ZDW to a specific wavelength". The general form: a
-parameter can be **pinned** to a target instead of set directly. The pressure field
-gets a mode switch: *set* | *from ZDW* | *from RDW wavelength* | *from soliton order*.
-Pinned, it shows the target as the input and the solved value read-only beside it,
-re-solved whenever an input it depends on changes (in the background; the field shows a
-spinner). The semantics are solprop's (`[pins]`, SEP 41 S1), so the GUI, `solprop run`
-and the Python export agree:
+The sheet is two-way: click a derived number, type the value you want, and an input moves to
+give it. That input then reads "solved for N = 3", with the target editable where you typed it.
+Clearing the target returns the input to a plain value.
+
+This writes solprop's `[pins]` (SEP 41 S1), so the GUI, `solprop run` and the Python export agree,
+and a saved setup keeps the intent. It replaces #484's pin switch on the input field. What can
+move is solprop's rule, and where more than one input can, the number asks which:
+
+| Type into | What moves | solprop |
+|---|---|---|
+| ZDW | Constant pressure, or radius | `zdw` pin (`tools.pressure_zdw`, `tools.radius_zdw`) |
+| RDW wavelength | Constant pressure, or radius | `rdw` pin (`tools.pressure_rdw`) |
+| Soliton order | A pulse's energy or peak power | `soliton_order` pin |
+
+Pins exist on the capillary, with or without a lattice, and are refused on the object routes
+(21.1). Other numbers on a sheet are read-only until solprop offers a pin for them, as with
+P / P_cr on a filament (21.2).
 
 - the pin holds its target, its search range and which root to take (lowest, highest or
-  a chosen one); when solprop finds several roots the field offers them, and when it finds
-  none the field shows the attainable range as the error;
+  a chosen one); when solprop finds several roots the number offers them, and when it finds
+  none it shows the attainable range as the error;
 - pins resolve after the literal values, in two fixed stages: at most one pin on a parameter
   of the guide or fill, then the pins on pulses, which read it, so no cycle can be written. A
   pressure gradient cannot be pinned;
 - a scan re-solves the pins at every point;
 - the resolved value goes into the resolved recipe of every run.
 
-| Pin | solprop solver |
-|---|---|
-| Pressure from ZDW | `tools.pressure_zdw(radius, gas, zdw_wavelength, …)` |
-| Pressure from RDW wavelength | `tools.pressure_rdw(radius, gas, target_wavelength, wavelength, …)` |
-| Radius from ZDW | `tools.radius_zdw` (S7) |
-| Energy from soliton order | `tools.solve_parameter(…, SolitonOrder(…))` (S7) |
-| Any of these, on any guided route | `tools.solve_parameter(build, …)` (S7) |
-
-The authored recipe stores the pin, the resolved recipe the solved value, so a saved
-setup still shows the intent and a run reproduces exactly. A design that sets two values at
-once (`tools.capillary_design`, pressure and energy from a ZDW and a soliton order) is not a
-pin: the page offers it as a design tool that writes both values as literals.
-
-## 8. Step 3: Nonlinearity
+## 8. Physics
 
 Serves S1, S3, S6.
 
 ### 8.1 Layout
 
-One row per physical effect, each with an on/off switch, a short description, and its
+A sheet's Physics section shows the class's switches in one line (Kerr, Plasma, Raman). Advanced
+opens one row per physical effect, each with an on/off switch, a short description, and its
 options in an expandable area:
 
 ```
@@ -527,8 +608,8 @@ switches; for radial, Cartesian and planar routes the builder calls
 On free-space routes solprop's own default is linear (no responses), and the GUI keeps
 it: it has no defaults of its own (principle 1). New setups start from solprop's
 example recipes (`Recipe.example`, SEP 41 S1), so the filament starting point with Kerr
-and plasma on is a named solprop example the user chose, shown as such on the start
-screen and in the page header.
+and plasma on is a named solprop example the user chose, shown as such on Home and at the
+head of the sheet.
 
 ### 8.3 Unavailable options
 
@@ -539,14 +620,14 @@ representation", "No Raman-active species in this fill"). These rules belong to 
 S8 lists only the combination rules (route × keyword × species); rules that depend on
 values come from `Recipe.check()` (section 12.3).
 
-## 9. Step 4: Input fields and the grid
+## 9. Pulse, beam and grid
 
 Serves S1, S3, S5, S6.
 
 ### 9.1 Pulses
 
-A list of pulses (one by default; "Add pulse" for pump–probe or two-colour), each a
-compact card:
+A sheet shows one pulse's wavelength, duration and energy. Advanced opens the list of pulses
+("Add pulse" for pump–probe or two-colour), each a compact card:
 
 - **Shape**: Gaussian (super-Gaussian order `m` advanced), sech², or *from data*.
 - **Wavelength**; **duration** as FWHM (or `width` for sech, advanced); **energy** or
@@ -555,12 +636,12 @@ compact card:
   pulse's own wavelength), with units fs, fs², fs³.
 - **From data**: an import dialog for spectra (wavelength or frequency, intensity,
   optional phase) or temporal fields, from CSV/TXT with column picking and a preview,
-  building `DataPulse.from_spectral_density` or `DataPulse.from_time`. Common formats
+  building `DataPulse.from_spectral_density` or a `TimeDataPulse`. Common formats
   (two-column spectra, FROG/SPIDER retrievals) are proposed as solprop loaders (S12) so
   scripts get them too.
 - **CW** (advanced): `CWPulse` for seeding.
 
-A preview plot beside the list shows |E(t)|² and the spectrum of every pulse and their
+A preview plot beside the list, when Advanced is open, shows |E(t)|² and the spectrum of every pulse and their
 sum, **on the simulation's actual grid**, with the window edges drawn, so a pulse that
 doesn't fit is visible before the run.
 
@@ -577,7 +658,8 @@ doesn't fit is visible before the run.
 - **General modal**: the launch table, or a free-space beam coupled in
   (`incident=SpatialPulse`, `coupling=CouplingModel(...)`); the two exclude each other.
 - **Free space**: beam waist (1/e² intensity radius), super-Gaussian order, focus
-  position as a distance before or after the waist (`propz`), polarisation (`jones`).
+  position as a distance before or after the waist (`propz`), polarisation (`jones`). A lens
+  (focal length and beam on it) is an optional way to give the waist and focus (21.2).
   Cartesian: displacement and tilt (today only through `coupling.Alignment`; S6 puts them
   on the beam, with `Alignment`'s names; the tilt is a pure angle at every frequency).
   Planar: `waist_x`, `offset_x`. A preview shows the beam cross-section on the transverse
@@ -585,100 +667,97 @@ doesn't fit is visible before the run.
 
 ### 9.3 The grid
 
-Below the pulses, because the pulses determine it:
+A sheet's *Simulation window* section (*Resolution* on a filament), folded by default, because
+the example's values and the pulses determine it:
 
 - **Wavelength range** (λmin, λmax) and **time window**, with an *Auto* button that asks
   solprop for a suggestion from the pulses and the route (S10 covers the suggestion).
 - **Transverse grid** (free space: radius and points; planar: y extent and points).
 - Advanced: `ffac`, `fft_size`, collar fraction, a ready-made grid.
-- The resulting grid size, sample spacing and memory appear in the summary dock and
-  update immediately.
+- The resulting grid size, sample spacing and memory appear in the section and update
+  immediately, and the output size on the Ready line (6.2).
 
 ### 9.4 Noise
 
 `noise` (solprop's default, off, input, modified) and the seed, advanced, with the
 default explained in the tooltip.
 
-## 10. Step 5: Propagate
+## 10. The Run stage
 
 Serves S1, S3, S5, S6.
 
 ### 10.1 Before the run
 
-The run page opens on a **pre-flight** panel:
+There is no pre-flight page. The sheet's Ready line (6.2) states solprop's check, the rough time
+and the output size, and Run starts from it.
 
-- A compact read-only summary of the recipe by step, each line linking back to its page.
-- **Cost estimate** from solprop (S11): grid points, modes or transverse nodes, memory,
-  and a rough time based on similar past runs in the workspace.
-- **Numerics** (advanced): backend (from `backends.registry.available()`: auto, native,
-  numba_cpu, numpy_ref, mlx), precision, tolerance (`rtol`, with the route's default
-  shown), integrator (Multistep, Runge–Kutta, low-storage), save planes (`n_save` or a
-  spacing), statistics (`StatsSpec`, with the route's default set ticked), threads
-  (`SOLPROP_THREADS`), boundary check and absorber, snapshots.
+- **Cost**: the size comes from solprop, and the time from similar past runs in the workspace, or
+  it says it is unknown. Timing warm-up steps with `Simulation.estimate()` takes seconds, so it runs
+  on request (21.1).
+- **Numerics** (Advanced on the sheet): backend (from `backends.registry.available()`), precision,
+  tolerance (`rtol`, with the route's default shown), integrator, save planes (`n_save` or a
+  spacing), statistics (`StatsSpec`, with the route's default set and the class's required
+  statistics ticked), threads (`SOLPROP_THREADS`), boundary check and absorber, snapshots.
 - **Output**: run title and workspace folder (defaults filled in).
-- **Run** and, for an existing run of the same recipe that solprop reports resumable
-  (`resumability`), **Resume**; otherwise the reason is shown.
+- **Resume** replaces Run for an existing run of the same recipe that solprop reports resumable
+  (`resumability`); otherwise the reason is shown.
 
 ### 10.2 During the run
 
+The Run stage is the class's Overview page (11.3) with a progress strip. There is no separate
+live view to learn, so what you watch grow is what you then analyse.
+
 ```
-┌ Run: rdw-helium-4 ──────────────── 37 % ▕████████░░░░░░░░░░▏ z 0.37 / 1.00 m  ETA 0:42 ┐
-│ [■ Stop]  [⏸ Detach]   steps 1 204 (17 rejected)   step size ▁▂▃▅▅▃▂   boundary ● ok │
-├──────────────────────────────────────┬───────────────────────────────────────────────┤
-│ Spectrum vs z (dB)                   │ Power vs z                                    │
-│   (image fills in plane by plane;    │                                               │
-│    z marker; hover readout)          │                                               │
-├──────────────────────────────────────┴───────────────────────────────────────────────┤
-│ Spectrum at z │ Power at z │ Energy / peak power / FWHM vs z │ per-mode energy │ Log │
-└──────────────────────────────────────────────────────────────────────────────────────┘
+Capillary, helium              Setup  Run  Analyse              [■ Stop]  ⋯
+37 % ▕████████░░░░░░░░░░▏ z 0.37 / 1.00 m   ETA 0:42   step size ▁▂▃▅▅▃▂   boundary ● ok
+┌──────────────────────────────────┬──────────────────────────────────────┐
+│ Spectrum vs z (dB)               │ Power vs z                           │
+│  (fills in plane by plane)       │                                      │
+├──────────────────────────────────┼──────────────────────────────────────┤
+│ Spectrum at z                    │ Power at z                           │
+└──────────────────────────────────┴──────────────────────────────────────┘
 ```
 
-- **Live maps** as in the Qt prototype: spectral density in dB on a wavelength (or
-  frequency) axis and power in time, filling in at most four times a second whatever
-  the run's speed. Each is a view specification (section 12.8), so its normalisation and
-  reduction are stated, not implied. Clicking or dragging the z marker shows any saved plane while the
-  run continues; "follow" mode tracks the newest plane.
-- **Route-specific live views**: per-mode energy and the mode sum toggle for multimode
-  runs; for free space, fluence and beam radius vs z, on-axis spectrum vs z and the r–t
-  intensity at the current plane.
-- **Statistics strip**: whatever `StatsSpec` asked for, plotted against z as the planes
-  arrive (energy, peak power, FWHM, electron density, …), plus step size and rejections
-  from the step history.
+- **Live maps** fill in at most four times a second whatever the run's speed. Each is a view
+  specification (12.8), so its normalisation and reduction are stated, not implied. The z
+  scrubber shows any saved plane while the run continues, and "follow" tracks the newest. On a
+  filament they are the fluence map and on-axis spectrum (11.3).
 - **Boundary monitor** lamp: green until the monitor speaks, amber on `BoundaryWarning`, red
   on `BoundaryError`, which the worker catches like any other warning or error. The suggested
-  fix is "Widen the time window and
-  rerun": a wider window is a new grid, so a new run, and resuming cannot recover light
-  the old edge has already affected (it was the first failure met in the prototype).
-- **Log**: solprop's log and warnings, filterable.
+  fix is "Widen the time window and rerun": a wider window is a new grid, so a new run, and
+  resuming cannot recover light the old edge has already affected (it was the first failure met
+  in the prototype).
+- **On completion** the strip goes, the rail appears and you are in Analyse.
+- **On failure** an advice card states the fix and keeps the planes reached, which stay open for
+  analysis.
 - **Stop** sends a stop request on the worker's control pipe; the worker sets solprop's
   stop flag (S17), which takes effect within one step or trial on every platform (on Windows
   a signal would terminate the worker outright). The run writes its state and `run` returns
-  normally. The
-  execution state is *stopping* until the worker reports, then *stopped*, and the Resume
-  button follows `resumability`. If the worker hasn't stopped after a grace period the
+  normally. The execution state is *stopping* until the worker reports, then *stopped*, and
+  Resume follows `resumability`. If the worker hasn't stopped after a grace period the
   GUI offers to kill it; afterwards it asks `resumability` before calling the file
   resumable, since a killed run may have no restart state.
-- **Detach** (if the architecture supports it, section 13) lets the run continue after
-  the window closes; reopening the run re-attaches.
+- **Detach** (with the service, 13.3) lets the run continue after the window closes; reopening
+  the run re-attaches.
 
 ### 10.3 Several runs
 
-The run page shows one run; a **Runs** panel (left, collapsible) lists runs in the
-workspace with status, so several can run at once (each with a thread budget the user
-can see; the GUI warns before oversubscribing the machine) and a finished one opens in
-Results with a click. A simple queue ("run these one after another") falls out of the
-same panel.
+The usual work is one run at a time, so the window shows one. Home lists the workspace's runs with
+their state, and opening one shows it. Starting a second while one runs is allowed, with a warning
+before oversubscribing the machine's thread budget. Campaigns are scans (12.7).
 
-## 11. Step 6: Results
+## 11. Analyse
 
-Serves S1, S4, S5; scans (S7) in 12.7.
+Serves S1, S4, S5, S6; scans (S7) in 12.7. This is the hardest stage, because people want to look
+at different things. So a class offers a rail of pages, one shown large, with a good default first.
 
 ### 11.1 Opening results
 
-The results page opens **any** solprop results file of a supported output schema, not
-only GUI runs: it needs only solprop's `Output` interface (`open_file`). If the file
-carries a recipe, the setup pages can be restored from it (the resolved values, section
-4); if not (a scripted run), the setup pages show the run metadata read-only.
+Analyse opens **any** solprop results file of a supported output schema, not only GUI runs: it
+needs only solprop's `Output` interface (`open_file`). The class comes from the route in the file's
+recipe, or from its data on a scripted run, and an unknown one gets a generic rail. If the file
+carries a recipe, its sheet can be restored from it (the resolved values, section 4); if not, Setup
+shows the run metadata read-only.
 
 What a file can show depends on what it stores, not on its route. The GUI asks solprop
 (`capabilities.output`, SEP 41 S16) and offers only the views whose inputs and physical
@@ -687,22 +766,64 @@ quantity is a physical flux or a coordinate quantity, and its unit (per unit wid
 slab and line routes); whether general modal reconstruction has its guide and reference
 tables; which operations solprop refuses, with the reason, shown on the disabled view.
 
-### 11.2 Layout: a plane navigator and docked views
+### 11.2 Layout: a rail of pages and one z scrubber
 
-- **Left**: run information (title, status, recipe summary, wall time, warnings) and the
-  **plane navigator**: a z slider with the planes marked, the current plane's z, and
-  mode selection (sum, a mode, several).
-- **Centre**: views in docks. Each view follows the current plane unless pinned. Saved
-  **layouts** suit the common tasks and small screens:
-  - *Overview*: the two maps plus spectrum and power at the current plane (the
-    prototype's layout).
-  - *Plane*: spectrum, power, phase and spectrogram at one plane.
-  - *Statistics*: every recorded statistic against z.
-  - *Modal* or *Spatial*: per-mode content, or r–λ, r–t and far-field views.
-  - *Compare*: two or more runs overlaid.
-  Layouts are QDockWidget states; users can make and name their own.
+```
+Capillary, helium              Setup  Run  Analyse              [▶ Rerun]  ⋯
+┌───────────────┬─────────────────────────────────────────────────────────┐
+│ Overview      │ this page's controls: spectral axis, dB floor           │
+│ At this plane │                                                         │
+│ Spectrogram   │              this page's plots, large                   │
+│ Along z       │                                                         │
+│ Compress      │                                                         │
+│ Run health    │                                                         │
+├───────────────┴─────────────────────────────────────────────────────────┤
+│ z ──────────●──────────────────────────── 0.42 m (plane 21 of 51)       │
+└─────────────────────────────────────────────────────────────────────────┘
+```
 
-### 11.3 The views
+- **The rail** lists the class's pages. A page whose inputs the file lacks is disabled with
+  solprop's reason (11.1).
+- **One z scrubber** is shared by every page, so moving between pages keeps your place. Arrow keys
+  move through planes and pages.
+- **Controls sit on their page.** The band chosen for "At this plane" is the band Compress works
+  on; the plane is always the scrubber's.
+- **Comparison is rare**, so it is not in the first build; 12.8 keeps it possible.
+
+The Qt docks and saved layouts of the earlier design are dropped, since a page is a fixed set of
+views. A class's definition can add pages.
+
+### 11.3 The pages and their views
+
+**Capillary** (solid-core and antiresonant fibre follow it):
+
+| Page | Shows | Its controls |
+|---|---|---|
+| **Overview** | Spectrum(z) and pulse(z) maps, spectrum and pulse at z | Spectral axis, dB floor |
+| **At this plane** | Spectrum with a shaded band and the energy in it; pulse full and band-passed; phase | Band, axis, ranges |
+| **Spectrogram** | Spectrogram at z | Gate width, mode |
+| **Along z** | Energy, peak intensity, electron density, ionisation fraction | Pick quantities, log |
+| **Modes** (multimode only) | Energy per mode vs z, modal spectra | Mode selection |
+| **Compress** | Before, after and transform limit, on the current plane and band | Compressor chain |
+| **Noise and coherence** (a seeded ensemble only) | g₁₂ | |
+| **Run health** | Step size, rejections, boundary, quadrature error, log | |
+
+**Radial filament:**
+
+| Page | Shows | Its controls |
+|---|---|---|
+| **Overview** | Mirrored fluence r-z map, on-axis spectrum vs z, r-wavelength map at z, fluence(r) at z | Scale, floor |
+| **At this plane** | r-t and r-wavelength maps, fluence profile | r range, time range |
+| **Along z** | Peak intensity with electron density (Marburger marked), beam radius, energy | Pick quantities, log |
+| **On axis** | Pulse and spectrum at r = 0, on-axis spectrogram | Gate |
+| **Far field** | Angle-wavelength map showing conical emission | Angle range |
+| **Run health** | As for capillary | |
+
+Compress is absent because solprop refuses it on spatial runs (#479). Planes are thinned for
+display on large runs. Axes refuse to magnify noise: a near-constant quantity reads as a constant,
+and log axes are chosen automatically where the range calls for it.
+
+Where each view comes from:
 
 | View | solprop call | Offered when (from S16) |
 |---|---|---|
@@ -724,8 +845,8 @@ the labels say which is shown. On a modal file `get_power` gives $|b(t)|^2$ summ
 selected modes, which differs from the broadband Poynting flux of the recorded temporal
 statistics; where both appear on one page the help explains the difference.
 
-Interactive views are pyqtgraph with the prototype's hover readouts, a crosshair, and
-linked axes (the spectrum at a plane shares its λ axis with the map). Every view has
+White plots with plain-language titles (no "display-binned"). Interactive views are pyqtgraph
+with the prototype's hover readouts, a crosshair, and linked axes (the spectrum at a plane shares its λ axis with the map). Every view has
 **Copy as Python**, giving the solprop processing and plotting calls that reproduce it.
 
 ### 11.4 Export
@@ -746,8 +867,9 @@ linked axes (the spectrum at a plane shares its λ axis with the map). Every vie
 
 Every parameter the GUI shows has one registry entry: recipe key, label, symbol, unit
 and display unit, solprop keyword it maps to, default (read from solprop, never
-duplicated), range, newcomer/advanced, tooltip text and help anchor. Pages are built
-from the registry; the recipe schema, the tooltips, the "Show code" output and the
+duplicated), range, newcomer/advanced, tooltip text and help anchor. Advanced sections and the
+generic form are built from the registry, and a class's sheet names its entries by recipe path,
+with a test that every sheet field is a real path of a real recipe; the recipe schema, the tooltips, the "Show code" output and the
 tests all come from it. A test checks that every registry entry maps to a real keyword of
 the route's solprop function, catching drift when solprop changes.
 
@@ -772,7 +894,7 @@ tables. A small parser of our own is enough; `pint` is an option if it grows.
    every metadata-level issue, then builds and translates (about 0.1 s), so value rules
    such as a pulse inside the window or energy *or* peak power come from solprop, not
    from a copy. Each issue names its parameter path (S10), so the GUI puts the message
-   next to the field, warnings included. Step badges come from this layer, so ✓ means
+   next to the field, warnings included. The Ready line comes from this layer, so ✓ means
    solprop accepts the setup.
 
 ### 12.4 Tooltips and help
@@ -780,11 +902,13 @@ tables. A small parser of our own is enough; `pint` is an option if it grows.
 - **Tooltips** on every control: a sentence or two, the symbol and unit, the default and
   where it comes from, the solprop keyword (for the script-minded), and "More…" opening
   the help.
-- **Help button** on every page and dialog opens the help dock with a short page written
+- **Help button** on every page and dialog opens a short help page written
   for the GUI ("What this page sets, what to choose and why"), linking to the solprop
-  guide for depth: the geometry page to `guide/setup/model-selection` and
-  `spatial-decompositions`, the medium page to `guide/media/materials` and `mixtures`,
-  the nonlinear page to `media/nonlinear`, `ionisation`, `raman`, and so on.
+  guide for depth: the class to `guide/setup/model-selection` and
+  `spatial-decompositions`, the medium section to `guide/media/materials` and `mixtures`,
+  the physics section to `media/nonlinear`, `ionisation`, `raman`, and so on.
+- **One line of help** under the focused field gives the sentence that matters while typing. If
+  that proves too little for a newcomer compared with the old stepper, a guided mode can be added.
 - The guide pages open from the bundled HTML of the installed solprop version when
   present, otherwise from the online documentation.
 - A **GUI user guide** (in this repository's docs) walks through S1 and S2 with
@@ -851,14 +975,16 @@ pressure = { target = "zdw", wavelength = "600 nm", search = ["0.1 bar", "10 bar
 
 Every change is an undoable command (Qt's `QUndoStack`) on the recipe; the title bar
 shows unsaved changes; autosave keeps a recovery copy. Window layout, last workspace,
-units and recent files persist with `QSettings`. Light and dark themes follow the
-system.
+units and recent files persist with `QSettings`. The first look is light (D18); a dark theme can
+follow the system later.
 
 ### 12.7 Scans (designed now, built later)
 
+Scans are a mode of their own (D16), started from a sheet, not a section of the Run stage.
+
 - **Setup**: any numeric field, nested ones included (a second pulse's energy, a
   profile knot), gets a "scan" toggle in its context menu that turns it into a list or
-  range (linear, log, explicit) over its parameter path. Pins re-solve at every point. A *Scan* section on the run page shows
+  range (linear, log, explicit) over its parameter path. Pins re-solve at every point. The scan's setup shows
   the variables, the grid shape and the total cost, the retention choice (`fields`:
   none, chosen planes, all) and reductions (energy in a band, spectrum in a band, peak
   power, …, from `processing.scans`).
@@ -868,7 +994,7 @@ system.
   needs solprop change S4 (today the scan reports finished points only).
 - **Results**: a scan browser shows any reduction as a map over two scan variables (or
   lines over one), with the others as sliders; clicking a point opens that point's run
-  in the normal results page (when its fields were retained).
+  in Analyse (when its fields were retained).
 - **Data model**: a scan is a recipe plus a `[scan]` table of variables, so the recipe
   format must allow it from format 1.
 
@@ -897,9 +1023,9 @@ filtering, and the reduction used for display.
 
 - `import solprop` itself is lazy (about 30 ms), but building anything is not: importing
   `solprop.recipe` loads the driver, the backends and h5py (about 0.5 s warm, several
-  seconds cold), and numba compilation and FFTW planning add more on a first run. None of
+  seconds cold), and FFTW planning adds more on a first run. None of
   this may happen in the window's process; the light parts it may use are listed in 13.5.
-- A run uses all the cores it is given (numba, FFTW, OpenMP, native threads); a run in
+- A run uses all the cores it is given (FFTW, OpenMP, native threads); a run in
   the GUI process would fight the GUI for the GIL and the cores.
 - Stopping today is a signal: solprop's handlers turn SIGINT into `KeyboardInterrupt`
   and SIGTERM into `RunTerminated` (a signal arriving while a plane is being committed
@@ -968,7 +1094,7 @@ Messages (sketch):
 | Request (GUI → service) | Reply or events |
 |---|---|
 | `validate(recipe)` | errors and warnings with parameter paths |
-| `summarise(recipe)` | the summary dock's numbers |
+| `summarise(recipe)` | a sheet's numbers, on a route with no lighter call |
 | `explore(geometry, medium, quantities, axis, sweep)` | arrays |
 | `solve_pin(recipe, pin)` | every root and the chosen value, or the attainable range (`Recipe.pin_roots`) |
 | `preview_input(recipe)` | pulse and beam arrays on the grid |
@@ -1030,8 +1156,9 @@ gui/                      the distribution solprop-gui (D2)
   src/solprop_gui/
     model/      the editable recipe model over solprop.recipe (undo, dirty state, pins)
     registry/   routes and parameters (presentation over solprop's metadata)
+    classes/    the problem classes: sheets, derived numbers, pages (data; added by W1)
     service/    the service interface; kernel and worker processes; transports
-    ui/         main window, step pages, docks, widgets (quantity field, profile editor)
+    ui/         the window, its stages, sheets and rail, widgets (quantity field, profile editor)
     views/      pyqtgraph views and their matplotlib export counterparts
     help/       page help text and the map to solprop guide pages
     app.py      the solprop-gui command
@@ -1040,7 +1167,7 @@ gui/                      the distribution solprop-gui (D2)
 
 Rules, enforced by `gui/tests/test_layers.py`:
 
-- `model`, `registry`, `service` and `help` import no Qt.
+- `model`, `registry`, `classes`, `service` and `help` import no Qt.
 - The window's process imports from solprop only `solprop.recipe.quantity`, `paths`,
   `document` and `errors` (the quantity parser and writer, parameter paths and the TOML
   document, light once `solprop.recipe` imports lazily, section 21). Metadata,
@@ -1063,8 +1190,17 @@ solprop-gui`), giving a `solprop-gui` command; it pulls PySide6 (its Essentials
 distribution) and pyqtgraph, and solprop at the same version; add `native` for the native
 backend. It is released with solprop from the same tag; its publication to PyPI waits for
 a first usable milestone.
+
+The PySide6 wheels carry Qt itself, so Windows and macOS should need nothing more (Windows is
+untried by hand). Linux needs a few system libraries the wheels leave out. A desktop
+usually has `libegl1`, `libgl1`, `libxkbcommon0`, `libfontconfig1` and `libdbus-1-3`, but often not
+`libxcb-cursor0`, without which Qt cannot open an X11 window. A bare install has not been tried. The
+wheels also need glibc 2.34 on x86-64 and 2.39 on aarch64, where the window runs. `solprop-gui`
+should check at start and print the exact install line in place of Qt's error about the `xcb`
+plugin.
+
 Standalone bundles (PyInstaller, Briefcase, or a conda `constructor` installer) come
-later; the native backend, numba caches and FFTW make them a separate piece of work,
+later; the native backend and FFTW make them a separate piece of work,
 best done with solprop's release packaging.
 
 ## 14. Open questions
@@ -1078,12 +1214,12 @@ All are decided: Q1 by D8, Q2 by SEP 41 as recommended, and Q3–Q12 as recommen
 | Q2 | Recipe values: quantity strings ("125 um") or plain SI numbers? | Accept both; write quantity strings for readability. |
 | Q3 | Process model: B shaped as C (13.3), or straight to C? | B shaped as C. |
 | Q4 | Must runs survive closing the GUI in the first release? | Not required; detach comes with option C (13.3), not a B+ sidecar. |
-| Q5 | Which routes come first? | Capillary (all three descriptions) and GNLSE, then antiresonant and step-index, then free-space radial, then the rest. |
+| Q5 | Which routes come first? | Revised by D14 and section 16: capillary, radial filament, solid-core and antiresonant fibre, then the rest on the generic form. |
 | Q6 | Help: bundled guide HTML, online, or both? | Both, bundled preferred. |
 | Q7 | Name of the application and command. | `solprop-gui` / `solprop-gui`; open to better. |
 | Q8 | Minimum screen size. | 1280 × 800, usable at 1024 × 700. |
 | Q9 | Should the GUI ever accept Python snippets (a custom pulse shape, a custom response)? | No; "Export as Python" is the way out. |
-| Q10 | Compare-runs in the first release? | Yes, simple overlays of lines; maps later. |
+| Q10 | Compare-runs in the first release? | Revised by D16: no. Comparison is rare, so it comes later, as overlays of lines. |
 | Q11 | Expose GPU backends (mlx on Apple silicon, device builds)? | Yes, in Advanced, with the precision rule enforced. |
 | Q12 | Accessibility targets (keyboard-only use, screen readers)? | Keyboard-complete from the start; screen readers best effort through Qt. |
 
@@ -1140,24 +1276,49 @@ The original table follows.
 Each milestone is an issue, a branch and a pull request (D9), and each waits for the
 solprop changes section 21 names for it.
 
+The workflow redesign (D14) sets what comes next. W1 to W5 were built beside the step window of
+#484, which W6 then replaced and deleted. `model`, `registry`, `service` and
+`help` carry over, as do the widgets that fit (quantity field, type rows, profile editor, launch
+table, scan editor, compressor chain) and the pyqtgraph views.
+
+| Milestone | Content |
+|---|---|
+| W1 Frame (built locally) | The `classes` layer. The controller moved out of `MainWindow`. Home, the three stages, the sheet frame, the rail and the z scrubber. Built as: `classes/` holds the four classes as data, a test holding every row to its class's example; `ui/document.py` (`SetupDocument`) owns the recipe, undo, checks and files for both windows; `solprop-gui --workflow` opens the new window beside the step window, which Other geometry still opens. Setup edits and checks a real recipe with solprop's numbers; Run and Analyse host the existing views under the new frame, with their sliders replaced by the scrubber. Left to W2: the live sheet (preview plot, typed targets, fast numbers), plain-language rows, and the pages not built, which say so on the rail. |
+| W2 Capillary (built locally) | End to end: the live sheet with typed targets, the Run stage and every page of 11.3. Checked by walking S1 and S4 by hand. Built as: `service/sheet.py` gives the numbers (about 120 ms, `tools.capillary_params` on the resolved recipe), the curve and dispersive wave (about 170 ms) and the output's size; a number with a target is a button that writes `[pins]`, and the row it moves shows what it solved. Run and Analyse are one widget (`ui/analyse.py`), the Overview under a progress strip or beside the rail, and the pages are `ui/analysis_pages.py` over a shared `ui/analysis.py`, drawing only while on screen. Not built: a rough time on the Ready line, the step-size sparkline on the strip, and a choice among several roots of a target. A ZDW target takes about 290 ms to solve, over the sheet's 150 ms (P8). |
+| W3 Radial filament (built locally) | Its sheet and pages, with the spatial readers and beam numbers of 21.2. Checked by walking S6. Built as: rows that move several paths, because the object routes write a gas or wavelength several times and a run's length as its last saved plane (`Field.also`, `moves_planes`, `planes_over`, #533); switches for Kerr and plasma, whose entries come back from the class's example; a lens as an option on the beam. The live numbers come from `tools.beam_params`. The Overview grows from each plane's fluence and the beam's spectrum, and reads the on-axis spectrum from the file when the run ends. Not built: a far field or spectrogram while a run goes. |
+| W4 Fibres (built locally) | Solid-core and antiresonant, as classes. Checked by running both through every page. Built as: the solid-core sheet reads its mode and `tools`, with no targets, since pins cover the capillary only; the antiresonant sheet uses `tools.soliton_params` on its own mode, and only the soliton order is a target, because a fibre has many zeros and resonances. Its zero is read from the curve inside the run's window, where the tool's nearest in frequency can lie far beyond it. Its loss curve and cross-section sit below the dispersion curve. A sheet edit costs about 280 ms on the antiresonant route against the 150 ms of the capillary. Not built: Noise and coherence, which stays disabled as no run is a seeded ensemble until scans exist. |
+| W5 Design a waveguide (built locally) | The workflow of 7.4, reusing the explorer's quantities and sweeps. Checked by walking S2 by script. Built as: a stage of the workflow window, opened from Home, that never touches the open setup. A design is always a class's example with the design's values set, so what it shows is what that recipe builds, and *Simulate this* opens it as a new sheet. It covers capillary and antiresonant fibre, with pages Curves (β₂, D, β₃, n_eff − 1, group index), ZDW map (pressure against radius per zero, capillary only), Phase matching and Loss. It has a sweep of pressure, radius or gas, where a click takes a curve's value or a map point's radius and pressure. It solves the pressure for a ZDW, and the energy too for an order. A curve costs about 90 ms, a sweep of four about 250 ms, and a map about 2 s. Not built: a sweep of the mode order, the solid-core fibre, a figure export (CSV only), and Copy as Python. |
+| W6 Other geometry (built locally) | Every other route on the generic form. The step window is deleted. Checked by running each example of those routes (hollow rectangular, graded-index, Cartesian and line beams, both planar) from Home through every page. Built as: Home's Other geometry tile lists those examples. A recipe on a route with no class gets a class made from solprop's metadata: its sections are the metadata groups, holding the keywords the recipe sets, with the rest under Advanced. Its numbers are the summary's energy and peak power, and its rail is Overview, At this plane, Along z and Run health. A planar run has no Overview, since its planes are slab amplitudes no map reads yet. A beam's plane is summed across the beam. A general modal guide's energy is its physical energy. `solprop-gui` opens the workflow window, and `--workflow` is accepted and ignored. A service run re-attaches in the new window. Removed with the step window: `ui/main_window`, `ui/start`, `ui/design_tool`, `ui/scan_editor`, `views/explorer`, `views/zdw_chart` and their tests. Not built: scans, which wait for their own mode (12.7); a cross-section on the generic form; per-width labels (J/m) for line and planar beams; a fluence map page for Cartesian and line beams (#455 gives the reader). |
+| After W6 (built) | From the first hand review. Opening a class's sheet takes 0.06 to 0.18 s and is ready in 0.3 to 0.5 s, down from 0.7 to 1.9 s and 2 s. The cost was the window's widgets, so an object field now makes a type's form when it is picked, and Advanced rows are made when the section is opened, searched or holds an error. The kernel describes the classes' routes and makes a first check of the slow ones as the window opens. Opening another setup, example or file while a run is going asks first, and a run stopped that way no longer takes the stage when it ends. A "Runs on" line under the Ready line chooses the backend (the recipe's keyword, where the route has one; MLX writes single precision and is shown disabled with the reason where it cannot run) and the thread count (the window's, kept between sessions; the default is solprop's `thread_budget`, which `solprop.backends` exports for this, #540). Home's tiles carry a drawing of each geometry. There are two classes more: a Cartesian beam (`space.type=FreeGrid`), with the beam numbers and a page of the fluence across x and y, and a line beam (`space.type=LineGrid`), with values per metre of y and a map of the fluence across x along z. Not built: a rectangular guide class, a plasma switch on the Cartesian sheet (its example has none to copy), and P/P_cr for a line beam, which has no collapse of its own. |
+| Fibres (built) | From the hand review. The solid-core class is the GNLSE fibre, given by its γ and Taylor coefficients alone; its Raman row says silica, the GNLSE's default. A step-index fibre (`fibre.type=StepIndexMode`, from `step_index_fibre`) has its mode solved: its γ from the mode and n₂, its dispersion curve and its cross-section, and rows that say an empty core is fused silica and an empty cladding air. A graded-index fibre (`provider.provider.type=GradedIndexProvider`, from `graded_index_fibre`) is read from its recipe's profile without solving it, for its numerical aperture, V number and the modes a power-law core holds (about V² p / (2 (p + 2))), and draws its index across the core; its Modes page says why it has no energy per mode (its modes are not orthogonal). Not built: per-material Raman models, which belong in solprop. |
+| Plots (built) | From the hand review. A Home button starts the stage bar. Every plot zooms with the wheel, on the plot or on one axis, and pans by dragging (on a map with a z line a drag moves the plane, so an axis drag pans it); a double-click, or Reset the zoom, goes back, and a zoomed plot keeps its view while the scrubber or a live run redraws it. The readout on a line plot follows the nearest curve. A right-click opens a plot's own menu: Save this plot (PNG, or SVG drawn through Qt, since pyqtgraph's exporter fails on a legend), Copy this plot as an image, and, on a line plot, Width at half maximum here (−3 dB on a dB axis), which draws the width on the curve with its value, Copy the data as CSV and Clear the widths; on a map with a z line, Go to the peak. The export menu adds This page as an image, and offers the publication figure only where `solprop.plotting` draws one (not on spatial runs); a figure that fails says why. Every map reads out its position and value under the pointer, unless its page says more (the on-axis spectrogram, the beam's maps and the fluence maps had none). Pulses are drawn four times finer than the run's grid (`oversampling=4`, as solprop's plots and Luna do): on the modal routes through `get_power` (the plane, the Overview, the live rows, Compress and the scans' pulse and peak power), and on a beam through `spatial_power`, `spatial_intensity` and `on_axis_power`, whose `oversampling` came with #535, on `processing.time_axis`. The publication figure's maps are rasterized in solprop (#546). The run strip has the step-size sparkline W2 left out: the accepted step against z on a log scale, from the run's progress reports, with the latest and the range in its tooltip. |
+| User guide (drafted) | `docs/guide/front-end/`: what the window is and how to install and start it, a first simulation (S1, the capillary from Home through a typed target, its run and its pages), the problem classes, reading the results (the pages, the plot tools, exporting), scans, and designing a waveguide (S2). Its screenshots are the real window taken offscreen by `docs/guide/front-end/screenshots.py` (`poe guide-screenshots`), which runs the examples it shows; they are committed and, unlike the SVG figures, not compared byte for byte. Home now says which folder runs go in, with *Change…*. The Overview's time bins rose from 512 to 2048, so a few-femtosecond pulse in a 200 fs window is drawn smoothly. Not in the guide: the Noise and coherence page, which is not built yet. |
+| Identity and help (built) | An application icon, a sun rising over a few-cycle pulse, drawn by `gui/tools/app_icon.py` (an SVG master on macOS's icon grid and a compact variant for 64 px and less, rendered to PNGs by Qt): the window icon, which macOS shows in the dock, with an application id on Windows so the taskbar shows it rather than Python's, and the desktop file name `solprop-gui` for Linux. A Help menu: *User guide* opens the manual's chapter in a window of its own (`ui/help_window.py`), read offline from the copy the wheel carries (`gui/hatch_build.py` copies `docs/guide/front-end/` into `solprop_gui/help/guide/`, and into the sdist), its MyST shown as Markdown by `help/manual.py` with links out of the chapter sent to the online manual; *About solprop* gives the versions, the links to the manual, GitHub and PyPI, the copyright, the authors and the licences. The whole manual is not carried (862 MB built, mostly galleries). Not done: an `.icns` and `.ico` and a Linux `.desktop` file, which belong to the installers (#475); the macOS menu bar still says Python when the window is started from a Python environment, as only an application bundle can change it. |
+
+Each class gets one scripted run from Home through Setup, Run and Analyse, checking that each page
+loads or says why it cannot. M6, M7 and M8 follow. The rows below record what #484 built; W1 to W6
+take over M1 to M5, and their step-page wording is superseded. M6's scan setup moves out of the
+Propagate step into its own mode (12.7).
+
 | Milestone | Content |
 |---|---|
 | M0 (done) | Prototypes: NiceGUI and Qt run-and-watch for `prop_capillary`. |
 | Scaffold (done) | The `gui/` distribution in solprop's repository: packaging and the `gui` extra, the layer rules and their tests, the `gui` CI job, this page. |
-| M1 Lifecycle | On the capillary, mode-averaged, only: main window, step bar, summary dock, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
-| M2 Explorer | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. |
-| M3 Guided routes | Antiresonant, full-transverse capillary, GNLSE (Taylor, step-index, tables), rectangular, slab. |
-| M4 Results depth | All views of 11.3 under result capabilities, view specifications and export through `solprop.plotting`, richer compare. |
-| M5 Free space | Radial, Cartesian, line; spatial views. |
-| M6 Scans | Scan setup, runs, scan browser. |
-| M7 Service out of process | Option C, re-attach, then SSH-tunnel remote. |
-| M8 Distribution | Standalone installers. |
+| M1 Lifecycle (in progress) | On the capillary, mode-averaged, only: main window, step bar, summary panel, service with kernel and worker, and the whole run lifecycle end to end — edit, validate, save, export, run, stop, reopen, resume and a simple compare of two runs — with the Overview results layout. It needs the lazy `solprop.recipe` (21.2). This exercises the architecture more than more forms would. |
+| M2 Explorer (in progress, #422) | The waveguide explorer, standalone and in the medium page; pinned pressure; multimode capillary. Built as: a Dispersion view among the views (n_eff − 1, group index, β₂ or D, β₃, loss, A_eff and γ against wavelength, frequency or photon energy; modes on and off; ZDW and pump marked; a sweep of one keyword overlaid; a table at the pump; CSV), fed by a kernel `modes` request over `Recipe.modes` (P4) and brought forward on the Geometry and Medium steps; the start panel's "Waveguide explorer" opens a four-mode helium capillary; pins on pressure, radius, energy and peak power edited in their rows ("pinned": target, search range, root, solved value, every root on request through `Recipe.pin_roots`), a pin and a value of one keyword replacing each other in one undo step; the multimode capillary card; the launch table, labelled by the mode preview; the explorer at a position along the guide (z, for tapers and gradients); the design tool (Tools menu and the explorer's "Design…"), which solves the pressure or radius and the energy (or peak power) from a ZDW or RDW target and a soliton order with solprop's two pin stages on a copy of the setup and writes them as literals in one undo step; and the ZDW chart, the pressure `tools.pressure_zdw` gives each zero-dispersion wavelength against the radius for the setup's fill, the 2-D map of 7.4 drawn as its contours; each mode's phase mismatch to the launch soliton as a quantity and its phase-matched RDW marked (from the mode preview, P5, #445); figures exported as PNG, SVG or PDF, drawn by Matplotlib in the kernel from the view's own description. |
+| M3 Guided routes (built locally) | Antiresonant, full-transverse capillary, GNLSE (Taylor, step-index, tables), rectangular, slab. Built as: every keyword that names a registered type is edited in that type's own rows (the kernel's `describe` carries the metadata of every type a route can name, P2 #409), a list of them (pulses, a waveguide's modes) as a column of such editors; cards for the antiresonant fibre, the hollow waveguide of supplied modes and the GNLSE fibre, each starting from a solprop example (`hollow_rectangular`, #402, is new) and recognised by its preset and marked keywords; the GNLSE's Taylor coefficients as one row per order with its units; a slab set's energy and peak power per metre of y (#404); summary numbers with SI prefixes; the explorer on the GNLSE's one specified mode (P5), without the quantities a Taylor fibre does not have. Not built: step-index and tabulated GNLSE fibres (`IndexTable` and mode objects are not registered types), metal claddings (#403). |
+| M4 Results depth (in progress, local) | All views of 11.3 under result capabilities, view specifications and export through `solprop.plotting`, richer compare. Built so far: a Plane view (a slider over the field planes, mode selection; the spectral density, power and spectral phase from `solprop.processing`, the phase drawn only where the spectrum is within 30 dB of its peak; the spectrogram drawn by `solprop.plotting.spectrogram`; the best Taylor-phase compression by `compress_taylor` over the power with the transform limit) and a Statistics view (every recorded statistic against z with the catalogue's summary and unit, a column per mode; the step size with rejected steps); figures of `prop_2d`, `spec_1d`, `time_1d`, `spectrogram` and `plot_stats` written by solprop. Still to do: modal energy views, the spatial views (M5), the other compressors, coherence, data export (CSV/NPZ/HDF5, FieldPlane), layouts. |
+| M5 Free space (in progress, local) | Radial, Cartesian, line; spatial views. Built so far: the Cartesian free-space and planar-hybrid cards, starting from `cartesian_beam` and `planar_hybrid`, their `[build]` tables edited in the registered types' rows (M3); on a spatial file the Plane view draws the plane's fluence (`node_fluence` on the transverse grid rebuilt from the run's recipe, a map in x and y or a profile in r or x), labels the power and spectrum as the coordinate quantities `capabilities.output` says they are, and disables compression with solprop's reason. Still to do: the radial card (needs a radial example, #405), far field and beam-radius views beyond the recorded statistics, spatial maps along z (r-t, r-lambda), physical spatial power (#406). |
+| M6 Scans (built; moved to its own stage after W6) | Scan setup, runs, scan browser. Since W6: a Scan stage beside Setup, Run and Analyse holds the `[scan]` editor, the scan's progress point by point, and its results, a recorded quantity over the first variable with a line for each value of the second (failed points marked, quantities the scan does not move left out). *Scan this…* on a sheet row opens it with that keyword as a variable. A run from the sheet leaves `[scan]` out and runs the setup once; *Run scan* runs the scan; a `scan.h5` opened from Home comes to this stage. After the first hand review: a progress bar per variable, outermost first, with the value it is at, and one for the whole scan; what is also recorded at each point, as solprop reductions the front end declares (energy and peak power within a band, and over one variable the spectrum or the pulse at a distance, held on axes fixed by the recipe so the points line up and drawn as a map); and a point of a profile given as a list (`pressure[0]` of a gradient) offered as a variable, its values read back in their unit. Not built since W6 either: a map over two variables, a third variable's slider, a cost estimate, and opening a point's run. Built first in the step window as: a Scan section on the Propagate step edits the recipe's `[scan]` table (its name; each variable a path, offered from the route's keywords or typed, with a list of values or a range of start, stop, number and spacing; the number of points), as one undo step; Run runs a recipe with a scan through `Recipe.scan` and `run_scan` in the run's worker, a `ScanReporter` streaming each point's start (its values) and end, Stop leaving the points not started; the scan browser draws any result the points recorded (`ScanOutput.as_grid`, each point's value at its last plane summed over its modes) as a line over one variable or a map over two, failed points marked. Every numeric field's context menu has *Scan this…*, which makes it a variable from its value. Not built: nested fields' scan toggle, reductions chosen in the editor, opening a point's run from the browser (fields are not retained by default), executors other than `Local`. In its place, a right click on the results offers *Open this point as a setup*: the recipe the scan's file records, without `[scan]` and with the nearest point's values (the third variable on at its first), opened as a new sheet to run or change. |
+| M7 Service out of process (first part, local) | Option C, re-attach, then SSH-tunnel remote. Built as: `service/server.py`, a process of its own that owns one kernel and the run workers and speaks the same requests, replies, runs and events in `Envelope` messages over a Unix socket (a named pipe on Windows) guarded by a random token in a private state file; `service/remote.py`, a window's connection that finds the service or starts it detached; the bridge uses it with `SOLPROP_GUI_SERVICE=1` (opt-in while it is new; option B stays the default), a window that closes leaves its run going, and a new window lists the service's runs at start and re-attaches to the latest one going (its rows replayed by the worker; also Run → Re-attach). The service ends itself after ten idle minutes. Not built: several windows controlling one run (the last attached sees its events alongside the starter), the remote service over SSH with Slurm submission (deferred to #480), a service started at login. |
+| M8 Distribution | Standalone installers. Deferred from the first release (#475): it needs a packaging tool chosen first. |
 
 ## 17. Lessons from the prototypes
 
 - **Qt over NiceGUI** (D1): the Qt prototype felt like an application, needed no browser
   stack, and its plots were faster; NiceGUI's attraction (remote viewing) is better met
-  by option C later.
+  by option C later. That prototype's plots were not a fair test, and a later pair of spikes
+  felt the same. Qt stands for the reasons in 22.4.
 - **Streaming reduced rows works.** A child process sends one row per saved plane
   (spectrum in dB, cropped power, energy) and the GUI redraws at most four times a
   second; a fast run never floods the window and a slow one updates as soon as a plane
@@ -1361,7 +1522,7 @@ merged to `main` at `Final`.
 | Data pulses from FROG or SPIDER retrievals and temporal fields (9.1) | `load_spectrum` reads three columns, frequency in Hz, power and phase (SEP 41 Q5); a `TimeDataPulse` from a file is not registered | Spectral import only, until a temporal loader is registered |
 | The launch table (9.2) | `launch`, a mapping or a list of mappings, labels such as `HE1,1:even`, addressed as `launch["HE1,1"].share` | As designed, with solprop's labels |
 | Auto grid, the collar (9.3) | `solprop.grid.suggest`, a stated heuristic; on free space `collar_fraction` defaults to 0 and `spatial_absorber` is a table or `false` (SEP 40) | Auto is labelled as solprop's starting suggestion; the collar is an opt-in under Advanced |
-| The cost estimate in the summary dock (10.1) | `Simulation.estimate()` builds the backend and times warm-up trial steps (seconds): memory, output size, the right-hand side's cost and the calls per step, with no total time | Timing runs on request from the pre-flight panel; a live memory figure needs a size-only estimate (21.2); the rough time uses similar runs in the workspace or says it is unknown |
+| The cost estimate in the summary panel (10.1) | `Simulation.estimate()` builds the backend and times warm-up trial steps (seconds): memory, output size, the right-hand side's cost and the calls per step, with no total time | Timing runs on request, since it builds the backend and a run that does not fit fails there as the run would (ADR-065); the Ready line shows only the output's size, which needs no backend (21.2); the rough time uses similar runs in the workspace or says it is unknown |
 | One registry, its metadata from S9 (12.1) | S9 covers the keywords of the `gnlse`, `capillary` and `waveguide` routes and the execution settings; a registered type (`Factory`) carries units only | Forms for pulse lists, grids, profiles and every free-space table have no summaries, levels or defaults from solprop until 21.2's P2 |
 | The geometry cards (6.1) | No example recipe on the waveguide or radial routes; metal claddings, `IndexTable`, mode or table objects as the GNLSE `fibre`, providers and `CustomPulse` are not registered; a slab set's per-width units are not in the metadata | A card with no recipe form is shown disabled, with the reason |
 | `get_power` on spatial files (11.3) | Not physical there yet | The view is offered only where `capabilities.output` says so |
@@ -1371,12 +1532,132 @@ merged to `main` at `Final`.
 
 | | Change | Needed by |
 |---|---|---|
-| P1 | `solprop.recipe` imports lazily, so its quantity parser and writer, parameter paths and document load without the driver | M1 |
+| P1 | `solprop.recipe` imports lazily, so its quantity parser and writer, parameter paths and document load without the driver | M1; done ([#408](https://github.com/LupoLab/solprop/issues/408)) |
 | P2 | Per-keyword metadata for registered types: summary, level, default, range, manual anchor and display unit, held to the signatures as S9's is | M3, M5 |
-| P3 | A size-only estimate (shape, memory, output size) that builds no backend | M1, if not already possible |
-| P4 | `ModeSetPreview` gains n_eff, β₁, β₃ and γ | M2 |
+| P3 | The output's size without a backend, `Simulation.output_bytes` ([#531](https://github.com/LupoLab/solprop/pull/531)); memory stays with `estimate()`, as the constructed backend's ledger (ADR-065) | W2: the sheet's Ready line, which shows the output size live |
+| P4 | `ModeSetPreview` gains n_eff, β₁, β₃ and γ (PR #421) | M2 |
+| P5 | `ModePreview` gains each mode's phase mismatch to the launch soliton and its phase-matched wavelengths (#445, after #421) | M2 |
 | — | A waveguide example ([#402](https://github.com/LupoLab/solprop/issues/402)); metal claddings in recipes ([#403](https://github.com/LupoLab/solprop/issues/403)); a slab set's per-width units in the metadata ([#404](https://github.com/LupoLab/solprop/issues/404)) | M3 |
-| — | A radial example ([#405](https://github.com/LupoLab/solprop/issues/405)) | M5 |
-| — | `get_power` on a spatial output ([#406](https://github.com/LupoLab/solprop/issues/406)) | M4 |
+| — | A radial example ([#405](https://github.com/LupoLab/solprop/issues/405)) | M5; done, `radial_kerr` |
+| — | `get_power` on a spatial output ([#406](https://github.com/LupoLab/solprop/issues/406)) | M4; done |
 | — | Registering `TimeDataPulse` from a file and a TDSE response | after M3 |
+| P6 | A clear error for a missing keyword ([#454](https://github.com/LupoLab/solprop/issues/454)); today a bare `TypeError` from `build`, `modes` and `preview_input` | W1 |
+| P7 | A faster zero search in `capillary_params` ([#528](https://github.com/LupoLab/solprop/pull/528)), and no spurious zeros beside a gas resonance ([#527](https://github.com/LupoLab/solprop/issues/527)) | W2 |
+| P8 | A solve for a typed target light enough for a live sheet, without building a whole recipe (22.5) | W2 |
+| P9 | Spatial readers: a fluence map on the file's transverse grid ([#455](https://github.com/LupoLab/solprop/issues/455)), and in `processing.beams` the fluence along z, `radial_spectrum` and `on_axis_spectra` | W3; beams built, open as a support PR |
+| P10 | A far-field (angle-wavelength) reader: `processing.far_field` | W3; built, as above |
+| P11 | An on-axis spectrogram: `processing.on_axis_spectrogram`. `get_spectrogram` also stopped aliasing on a narrow envelope grid | W3; built, as above |
+| P12 | Beam numbers: `tools.beam_params` (Rayleigh range, critical power, Marburger) and `tools.beam_through_lens` | W3; built, as above |
+| P13 | A filament example with plasma, `Recipe.example("filament")`, with its tutorial | W3; built, as above |
+| P14 | Pin targets for free space, such as P / P_cr moving energy; recipe pins cover the capillary only today | after W3 |
+| P15 | Numbers and a dispersion curve without a whole recipe on the fibre classes, as `tools` and `MarcatiliMode` allow on the capillary | W4 |
 
+## 22. Workflow review and stack decision, 2026-11-04 and 05
+
+The front end of draft PR #484 worked, but its workflow was poor and its interface clunky. This
+section records the review of it, the comparison that settled Qt or web, and what the build must
+carry over.
+
+### 22.1 What the review found
+
+The review read the code at 5406ea39 and screenshots of builds dated 2026-11-03. It did not run
+the application, so runtime behaviour was inferred from code.
+
+**The root cause: a problem class only picked a starting recipe.** It never selected pages, tabs or
+tools, so one interface was bent to fit every class through about 30 branch points, mostly
+`basis == "spatial"`, which swap labels or refuse late.
+
+- **Too much at once.** A toolbar of 16 actions (8 of them steps), 8 view tabs, 3 console tabs,
+  6 menus with 36 entries and a left panel, none of which ever hide or disable. Plots got about
+  45 % of the window on Results, and the console 180 of 740 px by default. Run, Stop and Resume
+  each appeared in three places, and there were two progress bars.
+- **Classes forced into one frame.** Free space had 3 of 8 tabs and 1 step visible but dead, and
+  could open on an error. The radial Overview cut off its third map at 1280 px, its Energy axis
+  showed noise (200.00000000 to 200.00000005 µJ), and it had no fluence-vs-z map, the plot a
+  filament user wants most. Radial rows were constructor arguments (`Space`, `Medium`,
+  `Responses`, `KerrResponse`), not physics.
+- **Broken flow.** The waveguide explorer replaced your setup with a helium capillary. Opening
+  results from Start appeared to show nothing, because the view changed behind a hidden pane. A
+  finished run did not lead to its results. The two main capillary cards opened blank, with at
+  least 8 fields across 3 steps before a first run, and errors appeared one at a time. Left-panel
+  controls did not follow the tab. Compression worked on "the plane shown on the Results step".
+- **The explorer: capable plots, wrong workflow.** See 7.4.
+
+**Worth keeping**, against the complaint:
+
+- The capillary form is not overloaded: 20 basic rows, all in physics language, with 44 under
+  Advanced.
+- The explorer's nine quantities, markers, table and export are good.
+- The layers without Qt are sound: the recipe model, kernel, workers, latest-wins requests and
+  "solprop does the physics". These are `model`, `registry`, `service` and `help`, about 8,800
+  lines or 42 % of the package. `ui` and `views`, about 11,900 lines, are mostly what the redesign
+  replaces.
+
+### 22.2 Two spikes
+
+A clickable mock settled the flow. Then the same real application was built twice on the existing
+kernel: the live capillary sheet with a two-way target, the analysis rail on real files and the Run
+stage with live maps. One used NiceGUI 4.0 with a custom canvas map and uPlot, arrays sent in
+binary. The other used PySide6 and pyqtgraph, with the same font and palette through QSS. The
+earlier verdict in D1 had not been a fair test, since that prototype redrew whole `ui.plotly`
+figures. The spikes are throwaway, and are not in the repository.
+
+Side by side they looked and felt nearly identical, including by hand on a Linux workstation. So
+the look that motivated trying the web does not separate them: QSS gets there.
+
+### 22.3 What was measured
+
+On screen on one Apple M5 Max laptop with a 120 Hz display. The window must be exposed and paints
+counted, because macOS does not paint a covered window, and time per update misses paints.
+
+| Interaction | Target | Qt | Web |
+|---|---|---|---|
+| z scrub with linked slices | ≥ 30 /s | 66 /s | 120 /s |
+| dB floor drag | ≥ 30 /s | 49 /s | 120 /s |
+| The same on 510 × 512 maps, scrub and floor | ≥ 30 /s | 77 and 48 /s | not measured on screen (60 /s, a frame limit, headless) |
+| Sheet edit to numbers | < 150 ms | about 120 ms | about 120 ms |
+| Sheet edit to dispersion curve | < 300 ms | about 250 ms | about 250 ms |
+| Launch to window | | about 0.7 s | about 1.2 s |
+| Launch to first numbers | < 3 s | about 2.1 s | about 2.1 s |
+
+Both met every target. The filament's fluence maps took 0.14 s from a 39 MB file, and one plane 11
+ms. A live run did not disturb the sheet in either. OpenGL and removing image smoothing made no
+real difference to Qt. The sheet's numbers rely on the faster zero search of #528, which takes
+`capillary_params` from about 340 ms to about 125 ms.
+
+These times are from one machine, and Qt on a 4K display was not measured.
+
+### 22.4 The decision: Qt (D1 reaffirmed)
+
+Since the two feel the same, other differences decide:
+
+| | Qt | NiceGUI |
+|---|---|---|
+| What a user needs | The install, plus about one system package on Linux (13.6) | A browser, or pywebview for a window, which on Linux needs its own GTK/WebKit or Qt backend |
+| Languages | Python | Python and JavaScript, about the same amount of code in all |
+| Plot tools | pyqtgraph, with the existing readouts | A custom plot element we would maintain |
+| Size | 5 packages, about 357 MB | 50 packages, about 78 MB |
+| Change rate | Stable; PySide6 needs glibc 2.34 on x86-64 where the window runs | 8 releases in 4 months, 4.0 on 2026-11-04 |
+| Existing work | `ui` and `views` widgets, `pytest-qt` gates | Replaced, with browser tests |
+| Remote | The existing `service/server.py` and `remote.py` over a tunnel (#480), not yet tried over SSH | Almost free through a tunnel, though a browser cannot give the server a local path |
+
+The maintainer's reason: users should not have to go through a browser or install extra components.
+Remote is a gap in convenience, not capability, and it comes later anyway (D6).
+
+The choice would reopen if zero-install access or sharing by URL became central, or if Qt felt slow
+on 4K.
+
+### 22.5 What the build must not carry over
+
+The spikes took short cuts, and #484 has faults any design must fix:
+
+- The spike's kernel handler scales energy by `(target / order)²` for a soliton-order target. That
+  is physics in the GUI. The build uses solprop's pin, which needs a solve light enough for a live
+  sheet (21.2).
+- The spike's sheet covers the capillary only, through `tools` and `MarcatiliMode`. Other classes
+  need the same from solprop (21.2).
+- `handler.fields("fft")[index]` and `_fluence` read every plane to use one, and fail on
+  `fields="planes"` files. Use `plane_field`, which matters on large radial files.
+- `electron_density` is not a default statistic on radial runs, so the filament class must ask for
+  what its pages need.
+- Controller logic is trapped in the 1,739-line `MainWindow`, and moves out in W1 (section 16).
