@@ -241,7 +241,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                         defect += correction
                     end
                     defect *= h
-                    score = scale == 0 && defect == 0 ? zero(T) : abs2(defect / scale)
+                    score = scale == 0 && defect == 0 ? none : abs2(defect / scale)
                     result = Base.setindex(result, score, row)
                 end
             end

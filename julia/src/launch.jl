@@ -37,8 +37,21 @@ whose threads wait spinning: a pass between serial work costs 2.2 us on four Xeo
 cores where a spawned task costs 10 and `Threads.@threads` 110 (10240 x 4; 13, 49 and
 147 us over 1728 x 128). On a GPU each sample is a thread.
 """
-@inline each!(f::F, c, nt::Integer, nm::Integer; heavy=false) where {F} =
+@inline function each!(f::F, c, nt::Integer, nm::Integer; heavy=false) where {F}
+    CHECK[] && check_body(F)
     each_on!(f, c.backend, c.tasks, Int(nt), Int(nm), heavy)
+end
+
+# SOLPROP_JULIA_CHECK=1: refuse a body a GPU kernel could not take, on any device. A
+# captured type, box or union is found on a CPU run instead of on the first GPU one.
+const CHECK = Ref(false)
+function check_body(::Type{F}) where {F}
+    for T in fieldtypes(F)
+        (T <: Type || T === Core.Box || T isa Union || !isconcretetype(T)) &&
+            throw(ArgumentError("kernel body $F captures $T, which a GPU kernel cannot take"))
+        (T <: Function || T <: Tuple || T <: NamedTuple) && check_body(T)
+    end
+end
 
 function each_on!(f::F, ::KA.CPU, tasks, nt, nm, heavy) where {F}
     pieces, rows = tiling(tasks, nt, nm, heavy)
@@ -84,6 +97,7 @@ end
 
 """Call `f(m)` for each of `nm` columns, whose body runs sequentially down one."""
 function each_column!(f::F, c, nm::Integer) where {F}
+    CHECK[] && check_body(F)
     if oncpu(c)
         @batch for m in 1:Int(nm)
             @inline f(m)
@@ -100,6 +114,7 @@ Each task (CPU) or thread (GPU) owns a block of rows, so no two write one sum.
 """
 function rowsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
     nt, nm = Int(nt), Int(nm)
+    CHECK[] && check_body(F)
     if oncpu(c)
         rows = max(256, cld(nt, c.tasks))
         @batch for b in 1:cld(nt, rows)
@@ -129,6 +144,7 @@ reduction tree's (GPU), and differs with the width (SEP 25 bounds it, not bits).
 """
 function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=false) where {F,O}
     nt, nm = Int(nt), Int(nm)
+    CHECK[] && check_body(F)
     if oncpu(c)
         pieces, rows = tiling(c.tasks, nt, nm, heavy)
         partials = fill(neutral, pieces * nm)

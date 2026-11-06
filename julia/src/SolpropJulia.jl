@@ -47,7 +47,11 @@ include("observe.jl")
 real_type(engine) = real(eltype(engine.work.y))
 
 # Read at load, not at precompilation: a constant would be baked into the cache.
-__init__() = (TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"; nothing)
+function __init__()
+    TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"
+    CHECK[] = get(ENV, "SOLPROP_JULIA_CHECK", "0") == "1"
+    nothing
+end
 
 """Read the shared settings and route to the modal or the free-space engine."""
 function create(input)

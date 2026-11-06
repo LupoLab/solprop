@@ -30,6 +30,7 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
@@ -705,6 +706,66 @@ class JuliaBackend(StepDriver[object]):
             self._engine,
             None if monitor.columns is None else np.asarray(monitor.columns),
             None if crossing is None else np.asarray(crossing.buckets),
+        )
+
+    def _edge_reading(
+        self,
+        state: object,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> _EdgeReading:
+        """Read the transverse edge from the engine's node and column energies.
+
+        The state-sized sums are the engine's; the face tables act on the short
+        vectors here. A collar's strip and inward current keep the host reduction.
+
+        Parameters
+        ----------
+        state : object
+            The backend's state handle.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the nodes, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, not only the rows a read uses.
+
+        Returns
+        -------
+        solprop.transverse_monitor._EdgeReading
+            The reading.
+        """
+        reduction = edge.reduction
+        if current or (faces and reduction.lines):
+            return super()._edge_reading(
+                state, edge, faces=faces, current=current, full=full
+            )
+        if not faces:
+            return _EdgeReading()
+        tables = reduction.tables
+        count = self._problem.shape[1]
+        rows = np.arange(count) if full or self._problem.transform.kind == "free" else (
+            np.asarray(tables.rows)
+        )
+        inverse = reduction.synthesis()
+        nodes = np.asarray(
+            call_julia(
+                self._jl.node_energy,
+                self._engine,
+                None if inverse is None else np.asarray(inverse),
+                np.asarray(rows, dtype=np.int64),
+            )
+        )
+        return _EdgeReading(
+            faces=tables.faces @ nodes,
+            clip=tables.clip @ nodes if full else None,
+            totals=tables.totals @ nodes if full else None,
+            columns=np.asarray(call_julia(self._jl.column_energy, self._engine)),
         )
 
     def _boundary_energies(self, state: object) -> BoundaryEnergies:

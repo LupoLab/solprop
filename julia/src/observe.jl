@@ -100,3 +100,60 @@ function occupancy(engine)
     end
     vec(sum(Array{Float64}(Array(histogram)); dims=2))
 end
+
+# --- the transverse edge (SEP 44): per-node and per-column energies -----------------
+
+"""Set `out[m]` to the sum over `t` of `f(t, m)`: one column's reduction each."""
+function colsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
+    each_column!(c, nm) do m
+        total = zero(eltype(out))
+        @inbounds for t in 1:nt
+            total += f(t, m)
+        end
+        @inbounds out[m] = total
+        nothing
+    end
+end
+
+"""Each spectral column's energy, `sum |E|^2` over frequency."""
+function column_energy(engine)
+    y = engine.work.y
+    out = dzeros(engine.config, real_type(engine), size(y, 2))
+    colsum!(engine.config, out, size(y)...) do f, m
+        @inbounds abs2(y[f, m])
+    end
+    Vector{Float64}(Array(out))
+end
+
+"""Each physical node's energy: rows `rows` of the radial synthesis, or every node of
+a Cartesian grid through the transverse inverse transform; zero elsewhere."""
+function node_energy(engine, inverse, rows)
+    c, w = engine.config, engine.work
+    y = w.y
+    T = real_type(engine)
+    nodes = zeros(Float64, size(y, 2))
+    if c.free
+        physical = w.physical
+        copyto!(physical, y)
+        transverse!(physical, w.spatial_inverse, c)
+        scale = inv(T(size(y, 2)))^2
+        out = dzeros(c, T, size(y, 2))
+        colsum!(c, out, size(y)...) do f, m
+            @inbounds abs2(physical[f, m]) * scale
+        end
+        all = Vector{Float64}(Array(out))
+        selected = Vector{Int}(rows) .+ 1
+        nodes[selected] .= all[selected]
+        return nodes
+    end
+    selected = Vector{Int}(rows) .+ 1
+    matrix = upload(c, T.(permutedims(Matrix{Float64}(inverse)[selected, :])))
+    synthesised = dzeros(c, Complex{T}, size(y, 1), length(selected))
+    mul!(synthesised, y, matrix)
+    out = dzeros(c, T, length(selected))
+    colsum!(c, out, size(synthesised)...) do f, m
+        @inbounds abs2(synthesised[f, m])
+    end
+    nodes[selected] .= Array(out)
+    nodes
+end
