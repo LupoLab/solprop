@@ -88,9 +88,14 @@ def test_a_request_between_a_failure_and_its_news_is_not_lost(
     from solprop_gui.service import remote  # noqa: PLC0415 - only here
     from solprop_gui.service.client import KernelClient  # noqa: PLC0415 - only here
 
-    monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
-    monkeypatch.setattr(remote, "start_service", lambda _state: None)
-    monkeypatch.setattr(remote, "START_SECONDS", 0.0)  # refused at once
+    gate = threading.Event()
+
+    def refuse(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT_MS / 1000)  # refused once the first request is held
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
     bridge = ServiceBridge(service=True)
     failed: list[str] = []
     replies: list[int] = []
@@ -99,6 +104,7 @@ def test_a_request_between_a_failure_and_its_news_is_not_lost(
     held = bridge.request("examples", key="held")
     connection = bridge._kernel
     assert isinstance(connection, remote.ServiceConnection)
+    gate.set()
     connection._reader.join(WAIT_MS / 1000)  # failed; the news not yet delivered
     assert connection.failed and failed == []
     later = bridge.request("examples", key="later")

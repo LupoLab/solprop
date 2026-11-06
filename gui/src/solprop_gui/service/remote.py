@@ -179,6 +179,10 @@ class ServiceConnection:
         self._held: list[Envelope] = []
         self._failed = False
         self._reason = ""
+        # Set once the reader has told the window of the failure and given back what was
+        # held: anything sent later is given back only after that, so that the window,
+        # which may close this connection on hearing of it, cannot drop the held batch.
+        self._told = threading.Event()
         self._on_reply = on_reply
         self._on_event = on_event
         self._on_runs = on_runs
@@ -201,7 +205,10 @@ class ServiceConnection:
                 self._failed = True
                 self._reason = str(error)
                 held, self._held = self._held, []
-            self._give_back(held, news=True)
+            try:
+                self._give_back(held, news=True)
+            finally:
+                self._told.set()
             return
         with self._lock:
             if self._closing:
@@ -330,7 +337,10 @@ class ServiceConnection:
         except BrokenPipeError, EOFError, OSError:
             return False
         # Connecting failed before this was sent, perhaps between the window's look at
-        # :attr:`failed` and now: given back like what was held, or it would be lost.
+        # :attr:`failed` and now: given back like what was held, or it would be lost,
+        # once the reader has given back its own (unless this is the reader, telling).
+        if self._reader is not threading.current_thread():
+            self._told.wait()
         self._give_back([envelope], news=False)
         return False
 
