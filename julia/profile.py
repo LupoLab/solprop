@@ -17,6 +17,7 @@ import sys
 
 from benchmarks.builders import build
 from benchmarks.worker import timed_run
+
 from solprop.backends import select
 from solprop.driver.run import field_retention
 
@@ -36,8 +37,8 @@ def profile(row: dict) -> None:
     retention = field_retention(
         problem, simulation.settings.fields, simulation.settings.field_planes
     )
-    timed_run(simulation, problem, engine, retention, simulation._boundary_monitor())  # noqa: SLF001
-    jl = engine._jl  # noqa: SLF001
+    timed_run(simulation, problem, engine, retention, simulation._boundary_monitor())
+    jl = engine._jl
     sampling = os.environ.get("SOLPROP_JULIA_PROFILE") == "1"
     if sampling:
         from juliacall import Main  # noqa: PLC0415 - after the runtime starts
@@ -46,13 +47,13 @@ def profile(row: dict) -> None:
         Main.seval("Profile.clear(); Profile.start_timer()")
     jl.clear_timings()
     record, _ = timed_run(
-        simulation, problem, engine, retention, simulation._boundary_monitor()  # noqa: SLF001
+        simulation, problem, engine, retention, simulation._boundary_monitor()
     )
     if sampling:
         Main.seval("Profile.stop_timer()")
         Main.seval(
-            "Profile.print(IOContext(stdout, :displaysize => (200, 220)); format=:flat, "
-            "sortedby=:count, mincount=20, noisefloor=1)"
+            "Profile.print(IOContext(stdout, :displaysize => (200, 220)); "
+            "format=:flat, sortedby=:count, mincount=20, noisefloor=1)"
         )
     times = jl.timings()
     total = sum(float(times[name]) for name in times)

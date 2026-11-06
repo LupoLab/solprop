@@ -14,9 +14,9 @@ import os
 
 import numpy as np
 import pytest
-
 from benchmarks.builders import build
 from benchmarks.registry import CASES
+
 from solprop.backends import select
 from solprop.exceptions import BackendError
 

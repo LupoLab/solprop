@@ -14,6 +14,7 @@ import numpy as np
 from jaxtyping import Complex
 
 from solprop._helpers import PLAIN
+from solprop._process import _BlasLease
 from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame
 from solprop.backends.julia._runtime import (
@@ -30,7 +31,6 @@ from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
-from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
@@ -48,6 +48,7 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.precision import launch_peak, state_scale
 from solprop.translate.problem import KernelProblem
 from solprop.translate.stage import terms
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 __all__ = ["JuliaBackend"]
 
@@ -109,12 +110,11 @@ def _refuse(problem: KernelProblem) -> None:
     Raises
     ------
     BackendError
-        If a requested leaf is outside the prototype's scope.
+        If a requested leaf is outside the experiment's scope.
     """
-    response, transform, linear, stepper = (
+    response, transform, stepper = (
         problem.responses,
         problem.transform,
-        problem.linear,
         problem.stepper,
     )
     reasons = {
@@ -211,9 +211,7 @@ def _refuse_stats(spec: StatsSpec, *, spatial: bool = False) -> None:
         If any requested statistic is unsupported.
     """
     if missing := set(spec.names) - (_SPATIAL_STATS if spatial else _SUPPORTED_STATS):
-        raise BackendError(
-            f"julia does not support statistics {sorted(missing)}"
-        )
+        raise BackendError(f"julia does not support statistics {sorted(missing)}")
 
 
 def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
@@ -243,8 +241,6 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         0.0 if kerr is None else kerr.coefficient * float(density.coefficients[0, 0])
     )
     control, tableau = problem.stepper.controller, problem.stepper.tableau
-    chunk = min(transform.node_chunk, transform.n_nodes)
-    temporal_columns = chunk if transform.kind == "free" else shape[1]
     # One pool runs every pass, transforms and products included (julia/src/launch.jl):
     # a transform is split into at most this many blocks of whole columns.
     fft_threads = thread_limit("SOLPROP_JULIA_FFT_THREADS", threads)
@@ -252,7 +248,11 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
     # take s**2, the plasma reads the physical field s E (the engine's) and its loss
     # potential 1 / s**2, and the controller's absolute tolerance is divided by s.
     single = problem.precision.single
-    scale = state_scale(launch_peak(problem.initial.field0, problem.grid_kind)) if single else 1.0
+    scale = (
+        state_scale(launch_peak(problem.initial.field0, problem.grid_kind))
+        if single
+        else 1.0
+    )
     factor *= scale**2
     config: dict[str, object] = {
         "precision": "single" if single else "double",
@@ -367,7 +367,9 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
             raman_undamped=raman.undamped.T.copy(),
             raman_rates=np.array([float(rate(0.0)) for rate in raman.decay_rates]),
             raman_fraction=raman.fraction,
-            raman_factor=EPS0 * float((raman.density or responses.density)(0.0)) * scale**2,
+            raman_factor=EPS0
+            * float((raman.density or responses.density)(0.0))
+            * scale**2,
             raman_thg=raman.thg,
             dt=grids.dt_fine,
         )
@@ -556,7 +558,7 @@ class JuliaBackend(StepDriver[object]):
         object
             Opaque Julia engine handle.
         """
-        # A column-major (n_omega, n_modes) view of a contiguous copy: the engine reads it.
+        # The engine reads a contiguous copy's column-major (n_omega, n_modes) view.
         values = np.ascontiguousarray(state[0, :, 0, :], dtype=np.complex128)
         call_julia(self._jl.load_b, self._engine, values.T)
         self._fsal = False
@@ -652,7 +654,9 @@ class JuliaBackend(StepDriver[object]):
         material = np.array(
             [
                 [
-                    0.0 if kerr is None else kerr.coefficient * b.kerr_density * self._scale2,
+                    0.0
+                    if kerr is None
+                    else kerr.coefficient * b.kerr_density * self._scale2,
                     b.plasma_densities[0] if b.plasma_densities else 0.0,
                     b.preionisation,
                 ]
@@ -700,7 +704,9 @@ class JuliaBackend(StepDriver[object]):
             rate = monitor.weights[3]
             half = power * np.exp(-0.5 * rate * dz)
             self._split_removed += float(power @ -np.expm1(-rate * dz))
-            self._split_found = np.concatenate([[half.sum()], monitor.weights[:3] @ half])
+            self._split_found = np.concatenate(
+                [[half.sum()], monitor.weights[:3] @ half]
+            )
         if self._alarm > 1e-6 and not self._alarm_reported:
             self._alarm_reported = True
             logger.warning(
@@ -801,8 +807,10 @@ class JuliaBackend(StepDriver[object]):
             return _EdgeReading()
         tables = reduction.tables
         count = self._problem.shape[1]
-        rows = np.arange(count) if full or self._problem.transform.kind == "free" else (
-            np.asarray(tables.rows)
+        rows = (
+            np.arange(count)
+            if full or self._problem.transform.kind == "free"
+            else (np.asarray(tables.rows))
         )
         key = (id(reduction), bool(full))
         if self._edge_key != key:
@@ -1034,7 +1042,7 @@ class JuliaBackend(StepDriver[object]):
         self._rows.clear()
 
 
-def _hold_host_blas() -> object | None:
+def _hold_host_blas() -> _BlasLease | None:
     """Hold every host BLAS pool to one thread while the engine lives, as native does.
 
     NumPy's OpenBLAS spins after each small host product (the transverse edge's
@@ -1044,7 +1052,7 @@ def _hold_host_blas() -> object | None:
 
     Returns
     -------
-    object or None
+    solprop._process._BlasLease or None
         The lease, or None when no controllable BLAS is loaded.
     """
     import threadpoolctl  # noqa: PLC0415 - loaded with the engine only

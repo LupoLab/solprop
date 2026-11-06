@@ -56,7 +56,7 @@ def executable() -> Path:
     archive = private / name
     if not archive.is_file():
         url = f"https://julialang-s3.julialang.org/bin/{directory}/1.13/{name}"
-        urllib.request.urlretrieve(url, archive)  # noqa: S310 - fixed https URL
+        urllib.request.urlretrieve(url, archive)
     with archive.open("rb") as stream:
         if hashlib.file_digest(stream, "sha256").hexdigest() != expected:
             raise RuntimeError("Julia archive SHA256 does not match the release")
@@ -89,7 +89,7 @@ def main() -> None:
             env=env,
             check=True,
         )
-    sys.stdout.write(f"Prepared Julia and julia/Manifest.toml\n")
+    sys.stdout.write("Prepared Julia and julia/Manifest.toml\n")
 
 
 if __name__ == "__main__":

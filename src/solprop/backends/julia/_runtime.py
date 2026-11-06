@@ -81,8 +81,9 @@ def runtime() -> Any:
 
     ``SOLPROP_JULIA_EXE`` names the Julia 1.13 executable (default: the one
     ``julia/bootstrap.py`` downloads), ``SOLPROP_JULIA_DEPOT`` its package depot
-    (default ``.julia-depot``) and ``SOLPROP_JULIA_ROOT`` the checkout (`checkout`). ``SOLPROP_JULIA_DEVICE=cuda`` loads CUDA.jl first, so
-    that the engine's CUDA extension is available.
+    (default ``.julia-depot``) and ``SOLPROP_JULIA_ROOT`` the checkout (`checkout`).
+    ``SOLPROP_JULIA_DEVICE=cuda`` loads the CUDA environment, so that the engine's CUDA
+    extension is available.
 
     Returns
     -------
