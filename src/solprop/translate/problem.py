@@ -184,7 +184,6 @@ __all__ = [
     "DEFAULT_FLOW_CONDITION_LIMIT",
     "DEFAULT_STRETCH",
     "EXPONENT_BUDGET",
-    "KERNEL_SCHEMA_VERSION",
     "LOG_DBL_MAX",
     "LOG_FLT_MAX",
     "MAX_GENERAL_FLOW_EXPONENT",
@@ -206,320 +205,6 @@ __all__ = [
 ]
 
 logger = logging.getLogger(__name__)
-
-KERNEL_SCHEMA_VERSION = 46
-"""Version of the kernel contract this module implements.
-
-Incremented on every change to the field list of ``docs/dev/kernel-contract.md``. A
-backend refuses a problem whose version it does not know. Version 2 replaced the
-``prefactor`` array with a table along z and added ``prefactor_constant`` beside it, so
-that the effective index's z profile is carried rather than frozen at the entrance.
-Version 3 replaced the z tables of the operator and the prefactor with expansions in
-the scalar parameters they depend on, the z table staying behind the same evaluation
-functions, moved the harmonic carrier into the grids as ``carrier_2w0``, and gathered
-the Raman rows into ``raman_coefficients``.
-
-Version 4 adds spatial geometry, transverse integration and absorber data, and the
-constant separable spatial operator/prefactor in the problem and stage bundles.
-
-Version 5 adds required material and transverse square residuals to the separable
-record, resolving Cartesian cutoff arithmetic from unsquared binary inputs.
-
-Version 6 adds mixture channels and their stage bundles. Version 7 adds the three
-periodic statistics storage hooks to StepDriver, allowing device rows to be copied
-once per plane. Problem fields, stage bundles and numerical conventions are unchanged.
-Version 8 adds the batch protocol, independent member observations and metadata, and
-the backend free-device-memory query for admission of fixed-schedule fibre batches.
-
-The number also covers the seam a compiled backend subclasses and
-packs from: the protected surface of :class:`solprop.backends.driver.StepDriver` a
-subclass overrides or reads, and the fields of
-:class:`solprop.translate.stage.StageTerms` and
-:class:`solprop.translate.stage.StageScalars`. ``tests/backends/test_driver.py``
-holds that surface as a literal, so a change to it fails there until this number is
-bumped and the literal rewritten in the same commit. A separately built backend
-refuses a problem of another version and looks the members it relies on up by name; it
-never compares solprop's own version.
-
-Version 9 adds envelope plasma cycle data, labelled channels and explicit spectral
-assembly, and retains rate conventions and species bindings in rate tables. Field
-plasma channels and stage scalar field names remain unchanged; the population
-scalar tuples cover whichever plasma representation is active.
-
-Version 10 adds the explicit numeric Raman tensor weights and the
-per-component capability declaration; scalar Raman retains its operation order.
-Version 11 adds the modal power-weight row (see ``docs/dev/decisions.md``) in its three
-representations and the endpoint block of a cumulative parameter expansion; the
-driver surface and the stage bundles are unchanged and every backend consumes the
-weight in its statistics pass alone.
-
-Version 12 adds the four optional leaves of the general
-modal route -- ``linear.coupled_flow``, ``linear.modal_metric``,
-``transform.modal_tables`` and ``responses.regional_responses`` -- each ``None`` by
-default, and admits ``int32`` across the seam for the region and support indices they
-carry. A problem with all four ``None`` is the version-11 problem, bit for bit, and
-allocates no new buffer. The driver surface and the stage bundles are unchanged.
-
-Version 13 adds the two coupled-flow rows of the stage
-bundle -- ``flow_section``, which section of ``linear.coupled_flow`` the step's anchor
-lies in, and ``flow_weights``, the weights its ``(n_intervals, n_deg)`` coefficient
-block is combined over at the stage's position -- so that a varying guide's frozen
-generator and explicit residual are evaluated from host scalars rather than from a
-Clenshaw pass over a leaf. Nothing else moves: no ``LinearOperator`` row, no
-``StepDriver`` signature, no dtype. A problem carrying no coupled flow reports
-``flow_section = -1`` and ``flow_weights = None`` and is the version-12 problem bit for
-bit. ``numpy_ref`` and ``native`` execute both ``"frozen_residual"`` and
-``"constant_schur"`` sections. The ``"cf4"`` sections move nothing either:
-the Gauss nodes of a CF4 step are not stage positions, and ``numpy_ref`` evaluates the
-leaf's own expansion at them from ``z_edges``, the degree axis and the step's
-``flow_section``, which the leaf and the bundle already carry.
-
-Version 14 adds one row of the stage bundle,
-``transform_weights``: the weights a **moving** guide's ``transform.modal_tables``
-synthesis and projection maps are combined over at the stage's position, their
-``(n_intervals, n_deg)`` coefficient axes flattened, separate from ``flow_weights``
-so that the transform's sectioning is its own. A problem whose maps do not move
-reports ``None`` and is the version-13 problem bit for bit; nothing else moves.
-
-Version 15 adds the hybrid planar geometry: the
-``SpatialGeometry.kind`` ``"slab"`` (slab modes in x on the transform's own
-synthesis and projection, an FFT in y, columns ``(p, k_y)`` with the mode index
-fastest) and one appended ``SeparableOperator`` field, ``kappa_sq``, each channel's
-complex, frequency-dependent wall term subtracted from the column's longitudinal
-square. It is ``None`` on every other kind, whose problems are the version-14
-problems bit for bit. No ``KernelProblem`` field, stage bundle or ``StepDriver``
-signature moves. ``numpy_ref`` and native CPU execute the kind.
-
-Version 16 appends ``StepperSettings.integrator``: SEP 13's low-call Adams method
-stepping the problem instead of the tableau, or ``None`` for the Runge-Kutta march,
-whose problems are the version-15 problems bit for bit. Only ``numpy_ref`` executed an
-integrator at this version; the driver's settings refused it before translation on any
-other backend. No ``StepDriver`` signature moves:
-the Adams march is the reference backend's own ``_march_to``.
-
-Version 17 appends ``StepperSettings.interval_cap`` and ``auto_init`` (SEP 14 phase
-1): whether the march caps a step at the width of the operator-table interval it
-starts in, and whether the start-up rule takes the step after the first from that
-step's own error estimate. ``assemble`` resolves both from the route: off and on on
-the diagonal-flow routes, on and off for a coupled flow or a reject-free controller. A
-problem with the cap on and the rule off is the version-16 problem bit for bit. Every
-backend inherits the shared march, so none moves; Kokkos follows the version only.
-
-Version 18 appends ``StepperSettings.interpolate_planes`` (SEP 14 phase 3): ``True``
-observes a save plane inside an accepted step -- through DOPRI5's continuous extension,
-or the Adams march's own polynomial -- instead of landing on it; ``False`` (the
-version-17 problem bit for bit) lands. It replaces SEP 13's ``Multistep.dense``. The
-shared march does it with one more ``StepDriver`` hook, ``_dense_stages``, the accepted
-step's stage derivatives on the host. It also appends ``StepperSettings.step_planes``:
-a positive ``k`` stops ``propagate_to`` short of its target at the end of every
-``k``-th accepted step, so the driver saves the march's own steps as planes; ``0``
-(the version-17 march) never stops short.
-
-Version 20 (SEP 16 phase 2) gives ``StepperSettings.integrator`` a ``formulation``
-field, ``"interaction"`` (the version-19 method bit for bit) or ``"exponential"``, and
-adds one protected ``StepDriver`` hook, ``_adams_lab_source``: one source evaluation
-returned in the lab frame, untransported, which the exponential formulation integrates
-against the linear flow. A backend without the hook refuses the exponential
-formulation by name; no ``KernelProblem`` field or stage bundle moves.
-
-Version 21 (SEP 16 phase 3b) adds the protected hook ``_adams_engine``: a backend may
-return an engine that keeps the Adams history and every state-sized operation of the
-fused and exponential paths where its state lives
-(``solprop.backends.multistep.AdamsEngine``); ``None``, the default, keeps the host
-engine over the other Adams hooks, the version-20 arithmetic bit for bit. No
-``KernelProblem`` field or stage bundle moves.
-
-Version 22 (SEP 16 phase 5) adds the protected hook ``_adams_block``: a backend that
-holds a coupled flow returns the frozen block of the section a step is anchored in,
-whose matrix moments the exponential formulation's trial takes. ``None``, the default,
-is a problem without one. No ``KernelProblem`` field or stage bundle moves.
-Version 23 adds ``grids.norm_mask``, the bins the error norm scores: the controller's
-``region``, by default every active bin rather than the requested band alone, which
-``grids.inband_mask`` still carries.
-
-Version 24 (SEP 6 phase 1) appends ``responses.dispersive_kerr``, the
-frequency-dependent electronic response's leaf
-(``translate.responses.DispersiveKerrTerms``): its evaluator and sector, the fine-grid
-multipliers of each population's channel and their density tables, beside the
-``dispersive_kerr`` stage of ``response_order``. It appends one row to the stage
-bundle, ``StageScalars.dispersive_kerr_densities``, each channel's number
-density at the stage. ``grids.carrier_2w0`` is also present for the dispersive full
-cubic on an envelope grid. A problem without the leaf is the version-23 problem bit for
-bit, its new bundle row empty. On the general modal route the leaf's ``regions`` names
-each channel's node region, a gas region's species. ``numpy_ref`` executes the leaf on
-every route; the native backend refuses it by name.
-
-Version 25 (SEP 18 phase 1) appends ``responses.plasma_integral``, the running-integral
-rule of the field-grid plasma column
-(:class:`solprop.nonlinear.ionisation.RunningIntegral`): one per problem, because the
-channels share the two current integrals. The ``"trapezoid"`` rule is the version-24
-column bit for bit. The ``"band"`` rule filters each of the three integrands with the
-grid's symmetric taps before the trapezoid, closes the window's ends by point
-reflection and floors the exposure at zero, so ``plasma_scan`` and ``plasma_current``
-read ``K`` samples ahead of the one they finalise. ``numpy_ref`` and native CPU (SEP
-18 phase 3) execute both rules; a native device build refuses
-``"band"`` by name. No stage bundle or ``StepDriver`` hook moves.
-
-Version 26 (SEP 19 phase 1) appends ``transform.kind``, what the transform represents,
-stored instead of inferred from the node count: ``"mode_averaged"`` for the
-effective-area route alone, ``"modal"`` for every resolved quadrature of any node count
-and for the general modal tables, and the spatial geometry's kind otherwise. A one-node
-quadrature is therefore an ordinary modal transform, with no area conversion in its
-prefactor. Every existing problem keeps its arithmetic bit for bit.
-
-Version 27 (SEP 20 phase 1) widens what ``tdse`` may carry without changing any
-field: a ``solprop.tdse-descriptor.v3`` descriptor names a haCC model and its pinned
-setup record, and may carry an atomic window whose gate, read through
-``TDSEDescriptor.source_gate()``, replaces ``grids.t_window_fine`` as the
-``time_collar`` source gate. A version-26 consumer would misread such a descriptor,
-so the version moves; version-1 and version-2 descriptors are unchanged bit for bit.
-
-Version 28 (SEP 25) moves no field: ``StepDriver._stage_bundles``, a trial's stage
-bundles read together, joins the driver surface a separately built backend is built
-against, so a version-27 consumer refuses the problem.
-
-Version 29 (SEP 24 phase 1) widens ``StepperSettings.integrator`` to
-``Multistep | LowStorageRungeKutta | None``: the low-storage interaction-picture RK4
-march, which replays a schedule in three registers and records no estimate. It adds the
-protected hook ``StepDriver._low_storage_engine`` and the driver attributes
-``_low_storage`` and ``_in_flight`` to the surface, and ``_stage_bundles`` keeps the
-bundles of every anchor it is asked for until the next hoist (the march reads three).
-A backend that does not execute the march refuses it by name, because a widened field
-would otherwise read as no integrator and run DOPRI5. Every problem without it keeps
-its arithmetic bit for bit.
-
-Version 30 (SEP 26 phase 1) moves no field: ``tdse`` may carry a
-``solprop.tdse-descriptor.v4`` descriptor, the ``gated_derivative`` source filter of an
-SAE or haCC response, windowed or on the grid collar. Its source subtracts the gate's
-edge term, ``F[g' S] / (i omega)``, using ``TDSEDescriptor.source_gate_derivative()``,
-so a version-29 consumer would misread it; translation admits it only when its
-steady-current certificate is at most 1e-10 (SEP 26's further fixed 128-sample taper
-minimum was later dropped as a defect, with no field change).
-
-Version 31 (SEP 22 phase 2) appends ``SeparableOperator.kperp_rate``, a transverse
-collar's power rate per column, which joins the field attenuation on the active band
-(``D -= kperp_rate / 2`` there); zeros, the default, are the version-30 operator to
-the last bit. ``StepDriver.observe`` gains the keyword ``field``: ``False`` observes
-the step history and statistics' position without crossing the field or the noise
-phase to the host, and :class:`solprop.backends.protocol.Observation` carries
-``field=None``. ``StepDriver.held_observation`` returns the state a low-storage march
-held at its last field-free plane. ``SeparableOperator.evanescent_rate`` may now be
-set by the run (``SimulationSettings.evanescent_rate``).
-
-Version 32 (SEP 24 phase 3) moves no field of the problem: solprop-native executes the
-low-storage march with a resident engine, so an older wheel, which refuses it, must be
-refused in turn. :class:`solprop.backends.low_storage.LowStorageEngine` gains
-``atomic``, whether its step is one native call no signal interrupts (the march then
-takes the step, the finish and the move in one commit), and ``StepDriver`` gains
-``_hold`` and ``_held_field`` on its surface, so a backend may hold the field-free
-plane's state where its own state lives.
-
-Within version 32 the source filter was removed with descriptor versions 1 to 4:
-every ``tdse`` descriptor is now ``solprop.tdse-descriptor.v5``, and a native
-descriptor's source is always gated and edge-free (``TDSEDescriptor.gated``). Removing
-values no consumer could misread needs no bump.
-
-Version 33 (SEP 27) adds ``grids.t_window_fine_derivative`` and changes the field
-plasma column's outputs to the two products ``g J`` and ``g' J`` alongside collared
-non-plasma polarisation. Route assembly combines their spectra with ``1/(i omega)``
-and ``-1/(i omega)**2`` only on positive active bins.
-
-Version 34 (SEP 29 phase 2) moves no field of the problem: ``StepDriver`` gains the
-class attribute ``helpers``, the backend's implementation of the per-stage Chebyshev
-rows and the Adams basis, which the shared driver, march and engines pass down
-(``solprop._helpers``). An older native build does not set it, so it is refused.
-
-Version 35 (SEP 34) adds ``flux``, the spatial run's plane-measure coefficients
-(:class:`solprop.translate.spatial.FluxPlan`): every spatial statistic is the axial
-Poynting flux of the medium at its plane, weighted by the admittance
-``c k_z / omega`` of that plane's root, with the complex admittance for local flux.
-A radial gas path's cumulative operator gains the forward amplitude term
-``-ln(Y_z(z)/Y_z(0))/2``. A problem without spatial geometry carries no plan.
-
-Version 36 (SEP 33) adds ``precision``, the arithmetic the run is held in
-(:class:`solprop.translate.precision.Precision`). Every table stays binary64 at the
-seam; a backend that admits single precision narrows its tables on upload, and every
-other backend refuses a single-precision problem by name.
-
-Version 37 (SEP 35) gives ``StepperSettings.integrator`` a ``carrier_frame`` field,
-``"off"`` (the version-36 method bit for bit) or ``"scalar"`` (a ``"harmonic"`` value
-existed during SEP 35's development and was removed by its gate): the carrier phase the
-exponential formulation removes from its history inside each step. A backend that does
-not deliver the shift refuses it by name, and a build against an older version refuses
-the problem rather than step a requested shift unshifted; no ``KernelProblem`` field or
-stage bundle moves.
-
-Version 38 adds two members to the driver's protected surface: the boundary monitor's
-reading moves into the backend. ``StepDriver._bind_monitor`` hands the backend a run's
-monitor (or ``None``), and ``StepDriver._boundary_energies`` returns the monitor's five
-numbers of a state and what a split-step collar took since the last reading
-(:class:`solprop.monitor.BoundaryEnergies`), so a device backend reduces where its state
-lives; no ``KernelProblem`` field or stage bundle moves.
-
-Version 39 (SEP 39) lets a backend run the exponential Adams march natively: the
-march's policy is a record (:class:`solprop.stepper.multistep.MarchPolicy`), every
-number its algorithm reads, and the driver's protected surface gains
-``StepDriver._record_attempt`` and ``StepDriver._skip_step``, the bookkeeping of one
-attempt and of an accepted step on which the driver has no work, beside the frozen
-``_take_step_stats``, ``_natural_stop`` and ``_natural_stop_due``; no ``KernelProblem``
-field or stage bundle moves.
-
-Version 40 gives ``StepDriver.set_initial`` its ``resume`` keyword: a stored field never
-takes the ``input`` draw again, at the launch position included, where a file holding
-only its launch plane resumes. No ``KernelProblem`` field or stage bundle moves.
-
-Version 41 (SEP 40) resolves a free-space run's transverse boundary at translation.
-``KernelProblem.transverse`` holds the design
-(:class:`solprop.spatial_absorber.SpatialAbsorberDesign`), host-side: a backend meets
-it only through fields it already reads. ``SeparableOperator.kperp_rate``, the safety
-ramp, is admitted on the radial kind, where it rides the dense operator, and on the
-hybrid planar kind per ``(p, k_y)`` column, which the slab element now takes as its
-``transverse_rate``. The geometry's ``absorber_rate`` is the design's collar, zero
-without one, and an adaptive run's ``dz_max`` is held to the collar's crossing limit.
-
-Version 42 lets ``initial.field0`` be strided: a broadcast input is held as a
-zero-stride view of the block it repeats rather than as a full copy, and
-``StepDriver.set_initial`` accepts a state of any strides, copying it contiguous. Every
-other array stays C-contiguous; no ``KernelProblem`` field, stage bundle or
-``StepDriver`` signature moves.
-
-Version 43 widens the boundary monitor's reading under the ``"split_step"`` scheme.
-A backend's ``_boundary_energies`` returns, beside the removal, the energy and the
-guards' and collar's energies of the power the last accepted step's split found,
-halfway through its factor (:attr:`solprop.monitor.BoundaryEnergies.found`), kept by
-its finish in ``StepDriver._split_found``; the monitor judges the occupancies on them
-and refuses a split reading without them. ``KernelProblem.split_crossing``
-(:class:`solprop.boundaries.SplitCrossing`) carries each bin's walk-off bucket, a
-``uint8`` leaf, and the launch's crossing limit, which holds an adaptive ``dz_max`` and
-a fixed schedule; under the split every reading also returns the state's energy per
-bucket (``BoundaryEnergies.occupancy``), whose limit caps the steps until the next
-check: ``StepDriver._split_capped`` on the host marches, the native Adams march's
-required ``step_cap`` bound per call. The native reading, after ``bind_occupancy``
-hands it the table, grows from six numbers to ten and the 128 buckets. No stage
-bundle or existing driver signature moves.
-
-Version 44 adds ``StepDriver.set_held_plane``, which a driver calls at the start of a
-run to say whether the low-storage march holds its last field-free plane's state, and
-``StepDriver._drop_held``, which releases the buffer; the native backend overrides the
-second with ``State.release_plane``. No ``KernelProblem`` field, stage bundle or
-existing driver signature moves.
-
-Version 45 lets a far-field aperture set hold other outlines beside circles: optional
-fields of the ``stats_spec.apertures`` leaf, unset on every existing request, so no
-problem that does not use them changes. By the letter a leaf's fields are not rows of
-the contract, but solprop-native's row format moves with them, and only a modulus
-guards a row's width: its aperture tables grow from six constants to eleven and carry
-each row's profile and shape, so a native call takes no profile argument, and a stale
-wheel beside this tree must be refused rather than misread the rows. It also appends
-``SeparableOperator.user_rate``, the user's share of ``spectral_rate``, zeros by
-default, which only ``absorbed_power`` reads: the operator takes the total, to the last
-bit. No stage bundle or driver signature moves.
-
-Version 46 removes the low-storage march's held plane: ``StepDriver.set_held_plane``,
-``held_observation``, ``_hold``, ``_held_field`` and ``_drop_held``, the native state's
-``hold_plane``, ``release_plane`` and ``held_to_host``, and the ledger's ``held_plane``
-row (ADR-067). No ``KernelProblem`` field or stage bundle moves.
-"""
 
 DEFAULT_COMPONENTS = ("x",)
 """Canonical component of an unrotated HE_1m mode.
@@ -1241,8 +926,6 @@ class KernelProblem:
 
     Attributes
     ----------
-    schema_version : int
-        The contract version, :data:`KERNEL_SCHEMA_VERSION`.
     grid_kind : {'field', 'envelope'}
         Selects r2c/c2r against c2c transforms and the response formulas.
     shape : tuple of int
@@ -1300,11 +983,10 @@ class KernelProblem:
     ...     controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1.0],
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
-    >>> problem.shape, problem.grid_kind, problem.schema_version
-    ((1, 1, 1, 3072), 'envelope', 46)
+    >>> problem.shape, problem.grid_kind
+    ((1, 1, 1, 3072), 'envelope')
     """
 
-    schema_version: int
     grid_kind: GridKind
     shape: tuple[int, int, int, int]
     flags: Flags
@@ -1368,9 +1050,9 @@ class KernelProblem:
         """Check every promise the contract makes, raising on the first that fails.
 
         A backend calls this and refuses anything inconsistent
-        (``docs/dev/architecture.md`` section 7). What is checked: the schema version;
-        every array finite, read-only, of the stated dtype and shape, and C-contiguous
-        but for the initial state, which may be a broadcast view (:class:`Initial`);
+        (``docs/dev/architecture.md`` section 7). What is checked: every array finite,
+        read-only, of the stated dtype and shape, and C-contiguous but for the initial
+        state, which may be a broadcast view (:class:`Initial`);
         the masks Boolean; the breakpoints strictly increasing and covering the run
         including its margin; the hard kinks interval edges; every table along z
         spanning the same range and, for the prefactor, carrying the state's value
@@ -1411,12 +1093,6 @@ class KernelProblem:
         >>> problem.validate() is None
         True
         """
-        if self.schema_version != KERNEL_SCHEMA_VERSION:
-            msg = (
-                f"schema_version {self.schema_version} is not the kernel schema "
-                f"{KERNEL_SCHEMA_VERSION} this translation layer writes"
-            )
-            raise TranslationError(msg)
         if (self.tdse is None) != (self.current_numerator is None):
             raise TranslationError("TDSE descriptor and current numerator must coexist")
         self._check_integrator()
@@ -6982,7 +6658,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         step_planes=step_planes,
     )
     problem = KernelProblem(
-        schema_version=KERNEL_SCHEMA_VERSION,
         grid_kind=grid.kind,
         shape=(n_batch, n_modes, n_pol, n_omega),
         flags=Flags.from_content(
@@ -7060,7 +6735,7 @@ def debug_summary(problem: KernelProblem) -> str:
     ...     width=100e-15, peak_power=9.8, shape="sech", n_save=3,
     ... )
     >>> print(debug_summary(simulation.translate()).splitlines()[0])
-    kernel problem schema 46: envelope grid, route modal
+    kernel problem: envelope grid, route modal
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
@@ -7072,8 +6747,7 @@ def debug_summary(problem: KernelProblem) -> str:
         else "modal"
     )
     rows = [
-        f"kernel problem schema {problem.schema_version}: "
-        f"{problem.grid_kind} grid, route {route}",
+        f"kernel problem: {problem.grid_kind} grid, route {route}",
         f"  shape:         {problem.shape} (batch, modes, pol, omega)",
         f"  flow:          phi {linear.phi_representation}, "
         f"{linear.n_intervals} interval(s), {linear.nbytes / 2**20:.3f} MB",

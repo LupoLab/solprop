@@ -67,6 +67,7 @@ from scipy.interpolate import CubicSpline
 
 from solprop import fourier
 from solprop._display import Displayed, engineering, line, summarise
+from solprop._process import parallel_rows
 from solprop.exceptions import MaterialError, OutputError
 from solprop.grid import EnvelopeGrid, TimeGrid
 from solprop.modes.material import JsonValue
@@ -122,6 +123,7 @@ __all__ = [
     "recorded_input",
     "resolve_metadata_write",
     "serialise",
+    "stored_spectrum",
 ]
 
 logger = logging.getLogger(__name__)
@@ -533,6 +535,10 @@ def serialise(value: object) -> JsonValue:
     return _serialise_object(value)
 
 
+_DIGEST_BLOCK = 2**16
+"""Elements a digest of an array not held in its order reads at a time."""
+
+
 @dataclass(frozen=True)
 class ArrayDigest:
     """An array recorded by the digest of its contents rather than inline.
@@ -572,8 +578,9 @@ class ArrayDigest:
         Parameters
         ----------
         values : numpy.ndarray
-            The array; read once, in little-endian byte order, without a copy when it
-            is already contiguous and little-endian.
+            The array; read once, in C order and little-endian byte order, a block at
+            a time unless it is held that way already, so that a broadcast input never
+            becomes a whole volume.
 
         Returns
         -------
@@ -581,12 +588,28 @@ class ArrayDigest:
             The digest, the dtype and the shape.
         """
         array = np.asarray(values)
-        # One byte order, so that the same numbers digest alike on every platform; a
-        # copy only where the array is not contiguous in it already.
-        ordered = np.ascontiguousarray(array, dtype=array.dtype.newbyteorder("<"))
+        # One byte order, so that the same numbers digest alike on every platform.
+        little = array.dtype.newbyteorder("<")
+        digest = hashlib.sha256()
+        if array.size == 0:
+            pass
+        elif array.flags.c_contiguous and array.dtype == little:
+            digest.update(memoryview(array).cast("B"))
+        else:
+            # NumPy's stubs leave "contig" out of the flags they list.
+            for block in np.nditer(  # pyright: ignore[reportCallIssue, reportUnknownVariableType]
+                array,
+                flags=["external_loop", "buffered"],
+                op_flags=["readonly", "contig"],  # pyright: ignore[reportArgumentType]
+                op_dtypes=[little],
+                casting="equiv",
+                order="C",
+                buffersize=_DIGEST_BLOCK,
+            ):
+                digest.update(np.asarray(block).tobytes())
         return cls(
-            sha256=hashlib.sha256(memoryview(ordered).cast("B")).hexdigest(),
-            dtype=str(ordered.dtype),
+            sha256=digest.hexdigest(),
+            dtype=str(little),
             shape=tuple(int(size) for size in array.shape),
         )
 
@@ -4340,6 +4363,48 @@ class RecipeRecord:
         return hashlib.sha256(self.resolved.encode("utf-8")).hexdigest()
 
 
+def stored_spectrum(
+    field: Complex[np.ndarray, "*shape n_omega"],
+    kind: fourier.GridKind,
+    out: Complex[np.ndarray, "*shape n_omega"] | None = None,
+) -> Complex[np.ndarray, "*shape n_omega"]:
+    """Return :func:`solprop.fourier.spectrum_to_optics` of a large field, in threads.
+
+    One thread's conjugation and sign flip cost more than the state's whole crossing
+    from a device, and a state's rows are independent. The bits are the same.
+
+    Parameters
+    ----------
+    field : numpy.ndarray
+        A contiguous spectrum in the internal convention.
+    kind : {'field', 'envelope'}
+        The grid's spectral layout.
+    out : numpy.ndarray or None, optional
+        Contiguous room to write it to; a new array by default.
+
+    Returns
+    -------
+    numpy.ndarray
+        `out`, holding the spectrum in the optics convention.
+    """
+    target = np.empty_like(field) if out is None else out
+    rows = field.reshape(-1, field.shape[-1])
+    written = target.reshape(-1, field.shape[-1])
+
+    def convert(selected: slice) -> None:
+        """Convert the selected rows into their room.
+
+        Parameters
+        ----------
+        selected : slice
+            The rows.
+        """
+        fourier.spectrum_to_optics(rows[selected], kind=kind, out=written[selected])
+
+    parallel_rows(rows.shape[0], field.nbytes, convert)
+    return target
+
+
 class PlaneStore(Displayed, ABC):
     """The shared half of an output handler: one save protocol for every backing store.
 
@@ -4805,12 +4870,12 @@ class PlaneStore(Displayed, ABC):
         metadata = self._require_metadata()
         if self._checkpoint_pending and self._terminal_checkpoint is not None:
             plane = _prepend_checkpoint_history(self._terminal_checkpoint.plane, plane)
+        self._check_layout(plane, plane.field)
         stored = (
             None
             if plane.field is None
-            else fourier.spectrum_to_optics(plane.field, kind=metadata.grid.kind)
+            else self._stored_field(plane, metadata.grid.kind)
         )
-        self._check_layout(plane, stored)
         self._append(plane, stored)
         self._n_saved += 1
         if self._terminal_checkpoint is not None:
@@ -5136,6 +5201,28 @@ class PlaneStore(Displayed, ABC):
             return False
         return True
 
+    def _stored_field(
+        self, plane: SavedPlane, kind: fourier.GridKind
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return a plane's field as it is stored, in the optics convention.
+
+        A handler with room for it already converts it there (`MemoryOutput`).
+
+        Parameters
+        ----------
+        plane : SavedPlane
+            The plane, which carries a field.
+        kind : {'field', 'envelope'}
+            The grid's spectral layout.
+
+        Returns
+        -------
+        numpy.ndarray
+            The converted field.
+        """
+        assert plane.field is not None
+        return stored_spectrum(plane.field, kind)
+
     def _check_layout(
         self,
         plane: SavedPlane,
@@ -5148,7 +5235,8 @@ class PlaneStore(Displayed, ABC):
         plane : SavedPlane
             The plane being appended.
         stored : numpy.ndarray or None
-            Its field in the optics convention; ``None`` on a field-free plane.
+            Its field, in any convention, as only its shape is read; ``None`` on a
+            field-free plane.
 
         Raises
         ------

@@ -66,7 +66,8 @@ uncommitted changes, touches neither `native/` nor the solprop modules that `sol
 imports. Anything else is refused, and so is an expired artifact; each refusal names `uv sync`
 and the lightweight setup. A later plain `uv sync` or `uv run` builds native in its place, so
 run with `uv run --no-sync`. The wheel keeps the commit it was built from, and `check_build`'s
-comparison of `KERNEL_SCHEMA_VERSION` remains the guard at run time.
+lookup of the seam's names remains the guard at run time; the comparison of source digests is
+for an editable checkout, and a wheel has no sources beside it to compare.
 
 ## Agree and implement a change
 

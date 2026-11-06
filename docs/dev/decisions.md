@@ -1647,7 +1647,8 @@ Withdrawn (development-process record, not a design decision).
 - **Status:** accepted (maintainer, 2026-10-31); amends
   [SEP 0](seps/sep-0000-process.md)'s completion rule, which asked for every feature on
   `numpy_ref`, `numba_cpu` and the native CPU build; Tier 2 and the statement that the
-  documentation build installs no native backend are superseded by ADR-064
+  documentation build installs no native backend are superseded by ADR-064; ADR-068 makes
+  `native` the primary backend
 - **Context:** solprop has four backends, and each new feature was implemented three
   times before its SEP could be final: in the reference, in Numba and in C++. The native
   backend is where production runs happen; `numba_cpu` runs the same CPU problems more
@@ -1911,3 +1912,51 @@ Withdrawn (development-process record, not a design decision).
   and on `numpy_ref` a Python interrupt can too. A stop between steps checkpoints as ever. A
   killed process never had the held state. To keep a resumable state, keep the field at some
   planes with `fields="planes"`.
+
+## ADR-068 — Native is the primary backend; `numpy_ref` stays the oracle for numbers
+
+- **Status:** accepted (maintainer), 2026-11-04. Amends ADR-061 and
+  [SEP 0](seps/sep-0000-process.md)'s implementation rules. Those records, and the SEPs
+  implemented under them, stay as written.
+- **Context:** production runs on `native`, and the costs of the split between Python and
+  native decide what those runs can do. The written rules still steered work as if the
+  reference came first: a SEP was implemented on `numpy_ref` and then on native, the kernel
+  contract was the only crossing, and there was one step loop. None of those describes the
+  code. There are seven marches (`backends.md` §1), and the protected driver surface is as
+  much a crossing as the contract. `KERNEL_SCHEMA_VERSION` had 14 literal sites in 10 files,
+  moved 11 times in 12 days, collided 3 times between parallel pull requests, and missed a
+  change made only in C++.
+- **Decision:**
+  - `native` is the primary backend. `numpy_ref` remains the oracle for numbers and stays
+    comprehensive: every other backend is validated against it, and every new feature lands
+    on it. The order of implementation is free, and native may shape the contract.
+  - `numba_cpu` is gone (ADR-064) and constrains nothing. `mlx` doesn't constrain native
+    either: it stays as it is, kept runnable and correct, and its future is undecided.
+  - The kernel contract and the protected surface of `StepDriver` are the two crossings. A
+    backend that lacks a feature still refuses it by name, whichever backend that is, and
+    nothing falls back silently.
+  - The seam has no version number. A change to it rewrites the frozen tables in
+    `tests/backends/test_driver.py` in the same commit and adds a release-note fragment. The
+    two packages are released together and pinned to one version. `check_build` looks up the
+    members the adapter relies on by name. In an editable checkout it also compares the
+    extension with the digest of what it is compiled from (`native/CMakeLists.txt` and the C++
+    sources and headers under `native/src` and `native/include`), which CMake embeds and
+    Python recomputes once per process. `KERNEL_SCHEMA_VERSION` ended at 45.
+- **Why:** development time goes where the runs are, and correctness is still decided
+  against the reference. A number that changes with every seam change costs a merge conflict
+  each time and guards little: within one repository at one pinned version, the frozen tables
+  catch a seam change in the commit that makes it, and the digest catches the case that
+  mattered at run time, a stale extension beside newer sources.
+- **Consequences:**
+  - A SEP may land on native first, and the manual page comes with whichever lands first. A
+    SEP is still `Final` only with parity on `numpy_ref` and native CPU, or an exception
+    written into it.
+  - A native run's record names `source_digest` in `backend.settings` where it named
+    `schema_version`. Neither enters the configuration hash or a resume check.
+  - An editable checkout refuses to construct a native backend after any edit to the digested
+    sources until it is rebuilt, including a comment, so a C++ change can't be tested by
+    accident against an old build. Python under `native/src/solprop_native` is not digested,
+    since it isn't compiled.
+  - A wheel skips the comparison, and has only the pin and the name lookup between it and a
+    mismatched solprop. `poe fetch-wheel` keeps its own check on the tree.
+  - "Kernel schema N" in the code and the documents is history: the number a change took.

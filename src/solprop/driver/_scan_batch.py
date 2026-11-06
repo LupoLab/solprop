@@ -18,7 +18,7 @@ from tempfile import TemporaryDirectory
 
 from solprop.backends import select, select_batch
 from solprop.backends.protocol import Backend, BatchBackend
-from solprop.driver._scan_run import _Capture, _Job, _Work
+from solprop.driver._scan_run import _Capture, _field_retention, _Job, _Work
 from solprop.driver.batch import BatchMember, compatible_groups, shared_table_bytes
 from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.pool import _memory_limit, peak_rss
@@ -214,6 +214,8 @@ def _save(
     errors: list[str],
     spec: StatsSpec,
     problems: Sequence[KernelProblem],
+    *,
+    keep: bool,
 ) -> None:
     """Split observations into the existing singleton saved-plane schema.
 
@@ -229,8 +231,10 @@ def _save(
         Shared names and windows evaluated independently for each member.
     problems : sequence of solprop.translate.problem.KernelProblem
         Independent member tables for the true-power output conversion.
+    keep : bool
+        Whether the scan reads this plane's field. Otherwise no member's field crosses.
     """
-    observations = runner.observe_members()
+    observations = runner.observe_members(field=keep)
     statistics = runner.stats(spec)
     planes = tuple(
         plane_from_observation(
@@ -352,15 +356,23 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                         member.metadata, backend=BackendRecord.from_metadata(backend)
                     )
                 )
+                capture.retain(
+                    _field_retention(capture).resolved(capture.count),
+                    tuple(member.simulation.translate().shape[1:]),
+                )
                 captures.append(capture)
+            # One scan's options and one group's planes: one rule for all its members.
             _save(
                 runner,
                 captures,
                 errors,
                 spec,
                 [member.simulation.translate() for member in group],
+                keep=captures[0].retention.keeps(0),
             )
-            for target in group[0].simulation.settings.save_planes:
+            for plane, target in enumerate(
+                group[0].simulation.settings.save_planes, start=1
+            ):
                 summary = runner.propagate_to(float(target))
                 if not summary.met_tolerance:
                     logger.warning(
@@ -376,6 +388,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                     errors,
                     spec,
                     [member.simulation.translate() for member in group],
+                    keep=captures[0].retention.keeps(plane),
                 )
             runner.finish_monitors()
             # A warning raised as an error at the end fails its member alone.

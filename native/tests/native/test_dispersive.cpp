@@ -300,7 +300,6 @@ native::Problem dispersive_problem() {
   problem.projection_matrix = {1.0};
   problem.synthesis = 1.0;
   problem.projection = 1.0;
-  problem.phase_b_engine = true;
   const std::size_t bins = problem.n_to / 2 + 1;
   problem.dispersive = true;
   problem.dispersive_symmetric = true;

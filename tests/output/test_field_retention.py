@@ -10,6 +10,7 @@ of ``docs/dev/testing.md`` section 3), and so is every count and index.
 
 import dataclasses
 import json
+import tracemalloc
 from typing import cast
 
 import h5py
@@ -325,6 +326,42 @@ def test_a_field_free_file_resumes_only_from_its_checkpoint(tmp_path, metadata):
 
 
 # ----------------------------------------------------------- record helpers
+
+
+@pytest.mark.parametrize(
+    "view",
+    [
+        lambda a: a.astype(">c16"),
+        np.asfortranarray,
+        lambda a: np.repeat(a, 2, axis=0)[::2],
+        lambda a: a[::-1, ::-1, ::-1][::-1, ::-1, ::-1],
+    ],
+    ids=["byte_swapped", "fortran", "strided", "reversed_twice"],
+)
+def test_the_same_numbers_digest_alike_however_they_are_held(view):
+    numbers = np.arange(5 * 3 * 7, dtype=np.complex128).reshape(5, 3, 7)
+    assert ArrayDigest.of(view(numbers)) == ArrayDigest.of(numbers)
+
+
+@pytest.mark.parametrize("shape", [(0,), (3, 0, 2), ()], ids=["empty", "hollow", "0d"])
+def test_an_array_without_a_contiguous_copy_digests_at_any_shape(shape):
+    numbers = np.ones(shape, dtype=np.float64)
+    assert ArrayDigest.of(numbers.astype(">f8")) == ArrayDigest.of(numbers)
+
+
+def test_a_broadcast_input_digests_without_a_volume():
+    # A simulation holds a broadcast placeholder as one repeated block: its digest is
+    # that of the whole volume, and its peak is a buffer's, not the volume's.
+    shape = (4096, 1, 1024)
+    view = np.broadcast_to(np.zeros((1, 1, 1), dtype=np.complex128), shape)
+    tracemalloc.start()
+    try:
+        digest = ArrayDigest.of(view)
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert digest == ArrayDigest.of(np.zeros(shape, dtype=np.complex128))
+    assert peak < 16 * 2**20 < 16 * int(np.prod(shape))
 
 
 def test_an_array_above_the_inline_limit_is_recorded_by_its_digest():

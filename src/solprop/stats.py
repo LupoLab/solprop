@@ -193,10 +193,11 @@ def species_statistics(
     for row in electrons:
         total += row
     densest = int(np.argmax(total))
+    # A running sum over the nodes: the same additions, in the same order, as a Python
+    # loop over them, which took 0.2 s per species at 768 x 768 nodes.
     energy = np.zeros(len(densities))
     for index, (row, potential) in enumerate(zip(electrons, potentials, strict=True)):
-        for population, weight in zip(row, weights, strict=True):
-            energy[index] += weight * population * potential
+        energy[index] = np.add.accumulate(weights * row * potential)[-1]
     return {
         "species_ionisation": fractions.copy(),
         "species_electron_density": electrons[:, densest].copy(),

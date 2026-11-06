@@ -23,7 +23,7 @@ refused otherwise. Explicit names are preserved, so `backend="numpy_ref"` runs w
 absent and `backend="native"` on a processor below the baseline raises the package's refusal.
 `select` also accepts `"auto"`, checks `SOLPROP_REQUIRE_DEVICE` against the actual build before
 anything is allocated, and logs the actual backend at INFO after
-successful construction. Import, schema, device and unsupported-problem errors stay visible and
+successful construction. Import, build, device and unsupported-problem errors stay visible and
 stay distinct, and the registry finds the processor baseline out
 by running the package's own pure-Python check by path, without importing the package. This
 selection policy changes no kernel-contract member (ADR-029).
@@ -37,6 +37,7 @@ statistic), and that structure is precisely what a fast backend exists to change
 class Backend(Protocol):
     name: str
     max_batch: int  # 1 for backends that step one problem
+    reads_transverse_edge: bool  # whether a requested real-space collar can run on it
 
     def set_initial(
         self,
@@ -57,6 +58,21 @@ class Backend(Protocol):
     def memory_ledger(self) -> dict[str, int]: ...
     def available_device_memory(self) -> int | None: ...
     def close(self) -> None: ...  # idempotent
+
+    # What the run layer asks beside those; StepDriver gives each its default.
+    def set_stop(self, flag: StopFlag | None) -> None: ...  # polled between trials
+    def set_held_plane(self, held: bool) -> None: ...  # the low-storage march's hold
+    def attach_monitor(self, monitor: BoundaryMonitor) -> None: ...
+    @property
+    def in_flight(self) -> tuple[float, float] | None: ...  # a step abandoned there
+    def held_observation(self) -> Observation | None: ...
+    def march_snapshot(self) -> MarchSnapshot | None: ...  # the Adams history
+    def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
+    def march_export_refusal(self) -> str | None: ...
+    def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
+    def timed_step(self) -> Callable[[], object]: ...  # one step, for an estimate
+    @property
+    def closed(self) -> bool: ...  # a failure can close a backend
 ```
 
 The listing is abbreviated; `solprop/backends/protocol.py` holds the exact signatures and
@@ -181,9 +197,30 @@ both backends in one process, with every other implementation made to raise afte
 translation, and a native z-table run of each march with the plain forms
 forbidden.
 
-**3. One step loop.** The march, the replay, the landing, the controller bookkeeping, the
-history, the noise models, **the progress reporter and the statistics channel between
-planes** are `backends/driver.py` and are not reimplemented. A backend supplies
+**3. One driver, seven marches.** `StepDriver.propagate_to` is the one way in, and it hands
+the steps to one of these loops:
+
+| Loop | Steps | Where its state-sized work runs |
+|---|---|---|
+| `StepDriver._march_to`, in `backends/driver.py` | adaptive Runge-Kutta | the backend's `_trial_step` |
+| `StepDriver._replay_to` | Runge-Kutta on a fixed schedule | the backend's `_trial_step` |
+| `AdamsMarch.march_to`, in `backends/multistep.py` | adaptive Adams | an `AdamsEngine`: `HostHistory`, or `native`'s resident `_ResidentAdams` |
+| `AdamsMarch._replay_to` | Adams on a fixed schedule | the same engines |
+| `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
+| `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
+| `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
+
+Only the last loop is compiled. The driver's Runge-Kutta march is the reference for the march's
+bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
+through kernel contract §11 (ADR-060), and steps every configuration the compiled march doesn't
+cover. A new compiled loop needs a contract that specifies it in full and a reference to compare
+it with.
+
+What stays common, and is never reimplemented, is what the loops do around a step:
+`propagate_to` and `observe`, the history (`_record`, or `_record_attempt` and `_skip_step`
+for the attempts a compiled march books together), the committed step's work
+(`_take_step_stats`: **the statistics channel between planes** and the boundary monitor), the
+natural stops, the noise models and **the progress reporter**. A backend supplies
 `_trial_step`, `_apply_mask` and `stats`, overrides `_finish` if it has boundary treatments,
 and hooks `_begin_plane` and `_on_accepted_step` if it has something to score.
 
@@ -246,7 +283,9 @@ adds what each accepted step's split takes of the power it finds, `P (1 − e^{�
 accumulator the next reading drains, so the removal is exact on unchecked steps too, and
 keeps the energy and the guards' and collar's energies of that power halfway through the
 factor, `P e^{−αh/2}`, which the reading returns beside the five (`BoundaryEnergies.found`,
-kernel schema 43) and the monitor judges the occupancies on. The
+kernel schema 43) and the monitor judges the occupancies on. The split collar's crossing limit
+reads the state's energy per walk-off bucket at each check, in the same reduction style: one
+histogram per thread and no atomics, which is why its bucket count has a compiled limit. The
 input-noise floor is read on the host, once, at the launch.
 
 ## 2. `numpy_ref`: the oracle
@@ -371,7 +410,7 @@ It consumes the contract only through `linop.delta_phi`, `linop.unitary_phase`,
 `responses.prefactor_at` and the scalar tables `responses.density`,
 `transform.taper_scale`, `transform.aeff`, the plasma group's `preionisation` and the Raman
 decay rates, so a change of the operator's representation cannot reach it. It refuses, by
-name and with `BackendError`: an unknown `schema_version`; a spectral response other than
+name and with `BackendError`: a spectral response other than
 the compiled envelope-plasma assembly; scalar-only Raman on a two-component
 problem; general z-dependent response data; a transform and a state that
 would both carry the transverse components; and a batch axis above one.
@@ -446,27 +485,34 @@ complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The
 refuse a fluence negative beyond its rounding budget. The helper
 `backends.spatial.collar_field_fraction` stays an electric-field-norm share and is named
 as one; its end-of-plane log is retired, and the boundary monitor's transverse edge
-(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the schema.
+(SEP 40) judges the boundary instead. A backend whose own statistics do not apply this measure refuses the problem.
 
-**The transverse edge is read on the host** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md)).
+**The transverse edge is read where the state lives** ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), [SEP 44](seps/archive/sep-0044-native-edge-read.md)).
 A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
-`TransverseEdge` its observed field at the edge's reads, at saved planes, and with a
-requested collar at every committed step. The read spacing is a ceiling on the step, and
+`TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
+requested collar at every committed step. The reading is numbers and never the field: region sums, each
+column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
+the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
+the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
+field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
+once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
+transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. The current is still
+accumulated in Python. Everything else, the weights, the spacing, the ledgers and the judgement, is one
+code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
-from which the next proposal would carry past the next read (`TransverseEdge.due`), so
+from which the next step, a replay's scheduled one or else the controller's proposal, would
+carry past the next read (`TransverseEdge.due`), so
 reads stay at most a spacing apart without shortening the steps between them (landing on
 each read cost 10-35 % more steps on the suite's line and planar cases). Every solprop
 backend sets it; `numpy_ref` keeps its state on the host and steps from there, under the
 driver's ceiling, as mlx does from its widened device state. The native Adams march
 takes the next read and the spacing as the call's `read_at` and `read_spacing` bounds:
 an adaptive step is capped at the spacing, and the call returns at the committed
-position from which the next proposal would pass the read, so the host reads the state
+position from which the next step would pass the read, so the host reads the state
 there. With a collar the host step is one, so the march returns at every committed step.
-A native device build reads the edge the same way, copying its state to the host at each
-read; it is compiled, not qualified on a device. A backend that does not set it reports
-`unwatched` and refuses a requested collar by name. The edge's reductions run on the
-host copy of the field; moving them into the native memory space is left to the cost
-measurement of SEP 40 section 7.7.
+A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
+A backend that does not set it reports `unwatched` and refuses a requested collar by name.
 
 ## 3. Compiled execution: the design `native` runs
 
@@ -501,7 +547,7 @@ once-per-run FFTW planning and the output's planes.
 ### 3.1a What exists
 
 The adapter `native/src/solprop_native/backend.py` and the engine `native/src/general.cpp`
-over the shared step loop of `backends/driver.py`. The public default is `"auto"`: the
+over the shared driver of `backends/driver.py`. The public default is `"auto"`: the
 native backend, with no fallback (§1, ADR-029).
 `numpy_ref` stays selectable by name.
 
@@ -665,7 +711,8 @@ rows (§4), none-normalised, on a persistent
 plan made once per state at construction: the modal pair (complex on the envelope grid, real
 on the field grid); the doubled-grid Raman pairs, with their kernel's plan and the plans of
 the last, partial chunk at its actual width; the coarse pair of the split-step temporal
-absorber and the forward plan of ADR-025's in-stage absorber term, whose buffers are the
+absorber (on a free-space envelope, an in-place pair on the state's own rows, with no buffer
+of its own) and the forward plan of ADR-025's in-stage absorber term, whose buffers are the
 run's own because the stage's finish still reads the polarisation's spectrum when the term
 is formed; the held and envelope currents' streams; the general route's family (§3.8); and
 the transverse plans of the free and planar kinds. A stage allocates nothing.
@@ -737,9 +784,9 @@ Kokkos regions.
 
 ### 3.5 The step driver: Python first, compiled when measured
 
-**One loop, for every backend.** `backends/driver.py` is the march, the replay, the
-landing, the controller bookkeeping, the history and the noise models, and every backend
-inherits it. Per stage a backend asks the translation layer for one bundle of host
+**One driver, for every backend.** `backends/driver.py` is the Runge-Kutta march and replay,
+the controller bookkeeping, the history and the noise models, and every backend inherits it
+(§1, point 3, lists the other marches). Per stage a backend asks the translation layer for one bundle of host
 scalars and combines the terms it holds over them (§1); the driver applies the boundary
 treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
@@ -1124,9 +1171,10 @@ column-by-frequency table. The slots (`backends.spatial.far_field_layout`) are t
 present ones of `[beam, absorbed x 5, regions..., per aperture (collected, Re and Im of
 the on-axis amplitude per polarisation, then of its closure), on-axis amplitude and
 closure]`. The last is the `W = 1` slot: `on_axis_spectrum` is formed there, which holds SEP 23's
-identity between the two to rounding by construction. `native` forms `on_axis_intensity` in
-`spatial_statistics`, not from that slot, so its slot count leaves that name out
-(`far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)`).
+identity between the two to rounding by construction. `spatial_statistics` reads `on_axis_intensity`'s
+spectra from that slot too (`FarFieldPass::axis_spectrum`) and transforms them, on the Cartesian and
+line kinds: a sum per bin over every column would otherwise be a thread's serial walk across a whole
+state on a device.
 
 The per-element parts mirror the reference's: the radius of `mask_plane_radius` as a protected
 function (strict on the host; round-to-nearest intrinsics in a device build), so a hard edge
@@ -1164,11 +1212,29 @@ spectrum pairs the coherent axis amplitude with its closure; the on-axis intensi
 and fluence synthesise the closure `G` beside `E` -- on the radial kind through the dense synthesis
 of a closure time volume (`statistics_weighted_time`), on the separable kinds through a second
 transverse volume (`flux_closure_transverse`, one state's bytes, the estimate's
-`flux_closure_memory`) and the chunk's closure time rows -- and pack each node's signed fluence with
-its magnitude `dt sum |E| |G|`, whose largest value fixes the width refusal's normwise budget
-(`backends.spatial.fluence_budget`). The closure buffers are allocated at construction when the
-problem's own request has a local statistic and, outside any step, when a later request first needs
-one.
+`flux_closure_memory`) and, for the intensities, the chunk's closure time rows. The largest magnitude
+over the nodes fixes the width refusal's normwise budget (`backends.spatial.fluence_budget`). The
+closure buffers are allocated at construction when the problem's own request has a local statistic
+and, outside any step, when a later request first needs one.
+
+**A separable fluence takes no time transform.** The reference sums `Re(E conj(G))` over `n_t`
+samples; by Parseval's theorem that is a sum over the bins the transverse volumes already hold,
+weighted one or four as the energy is (`separable_fluence`). Its magnitude, the reference's
+`dt sum_t |E| |G|`, would need the samples, so the budget's scale is the Cauchy-Schwarz bound on it,
+`dt sqrt(sum_t |E|^2 sum_t |G|^2)`, formed from the same bins. That is never below the reference's,
+and equal where `G` is proportional to `E` at the node, as it is across a beam whose admittance varies
+little over its band. Only a negative value between the two budgets would be refused by the reference
+and read as rounding here.
+The axis's fluence, which only a radial width reads, isn't formed.
+
+**A Cartesian plane's widths reduce where the field lives** (`plane_fluence_moments`,
+`plane_fluence_trace`). The reference forms them on the host from every node's fluence
+(`solprop.spatial.cartesian_fluence_widths`): a centroid, a second moment, and an azimuthal average
+of the bilinear interpolant on a few thousand angles per ring, about 3.7 million samples at
+768 x 768. Native forms each as a kernel over the fluence it holds, so that the moments and one value
+per ring cross, and solprop keeps the rule: `solprop.spatial._fluence_rings` fixes the rings,
+`backends.spatial.plane_fluence_widths` reads the refusal and the widths. A line's and a planar
+fluence are short profiles, and these still cross.
 
 ## 4. `native`: the compiled CPU and GPU backend, a second distribution
 
@@ -1182,17 +1248,21 @@ backend runs on the CPU (OpenMP) or a device. How to build it is
 [Building the native backend](../guide/performance/building-native.md); the native rules are in
 `native/AGENTS.md`.
 
-The backend depends on solprop's versioned seam, `KERNEL_SCHEMA_VERSION` in
-`solprop.translate.problem`: the `KernelProblem`, the protected surface of `StepDriver` and the stage bundles, all frozen under
-`KERNEL_SCHEMA_VERSION` by `tests/backends/test_driver.py`. Its `check_build` refuses another
-schema and looks the driver members, bundle fields and contract tuples it relies on up by
-name. It records the repository version it was built at without comparing it, so an
-editable build stays valid across solprop commits until the schema bumps. Solprop knows only the registry
+The backend depends on solprop's seam: the `KernelProblem`, the protected surface of `StepDriver`
+and the stage bundles, all frozen by `tests/backends/test_driver.py`. A change to any of them
+rewrites those tables in the same commit and adds a release-note fragment. The two packages are
+released together, and solprop's metadata pins this one to its own version. `check_build` looks
+the driver members, bundle fields and contract tuples the adapter relies on up by name. In an editable
+checkout it also recomputes the digest of `native/CMakeLists.txt` and the C++ under `native/src`
+and `native/include`, once per process, and refuses an extension built from anything else
+(`BuildInfo.source_digest`, ADR-068), which catches a C++-only change too. It records the repository
+version it was built at without comparing it, so an editable build stays valid across solprop
+commits that leave `native/` alone. Solprop knows only the registry
 row and imports the package only when it is selected.
 
-**Every backend refuses what it cannot execute.** A schema check is not enough on the
-general modal route: its optional leaves (the coupled flow, the moving guide and the
-others) are part of the schema whether or not a backend executes them, and a backend that
+**Every backend refuses what it cannot execute.** The general modal route's optional
+leaves (the coupled flow, the moving guide and the others) are part of the contract whether
+or not a backend executes them, and a backend that
 accepted a problem carrying one it ignores would silently run a different model. A backend
 therefore calls
 {py:func}`~solprop.backends.driver.refuse_general_leaves` before it runs, naming in
@@ -1373,7 +1443,9 @@ analytic map synthesises its retained spectrum there too (the gather and the pad
 per element, the chunk's padded rows zeroed first): the product covers `n_omega` complex
 columns rather than `n_to`, which halves the binary64 work that bounds a radial trial. On free space the split-step collar acts on the stored
 transverse-spectrum columns (every build), and a device forms its factor once a step per
-sample. A free-space envelope whose material response is the Kerr term alone, with one
+sample. A free-space envelope's collar transforms those columns in place, a block of rows at
+a time, through no coarse buffer; the transform's normalisation goes with the factor. A
+free-space envelope whose material response is the Kerr term alone, with one
 polarisation, on a time grid the spectrum fills (`n_t = n_to = n_omega`, the crop the
 identity) takes its stage core on a device through one rank-3 transform of the scratch
 volume each way, forming the polarisation in place between them, instead of the chunks'
@@ -1825,8 +1897,9 @@ plasma do not cover it. The far-field statistics' device pass is not qualified (
 
 These rules set where development goes, not what a backend may run (ADR-061; ADR-064 retired
 `numba_cpu` and superseded the statement that the documentation build installs no native
-backend). Every backend keeps what it runs, correct and in parity with the reference, and
-refuses the rest by name.
+backend; ADR-068 makes `native` the primary backend). A feature lands on `native` and
+`numpy_ref` in either order. Every backend keeps what it runs, correct and in parity with the
+reference, and refuses the rest by name.
 
 | backend | role | new features |
 |---|---|---|

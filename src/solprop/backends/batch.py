@@ -400,17 +400,23 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             for name in values[0]
         }
 
-    def observe_members(self) -> tuple[Observation, ...]:
+    def observe_members(self, *, field: bool = True) -> tuple[Observation, ...]:
         """Drain each member's host observation and its own diagnostic history.
+
+        Parameters
+        ----------
+        field : bool, optional
+            Whether each member's field and noise phase cross to the host, as for a
+            lone run's ``observe``. Default ``True``.
 
         Returns
         -------
         tuple of solprop.backends.protocol.Observation
-            Singleton observations in batch order, with unchanged field shapes and
-            independently retained periodic rows.
+            Singleton observations in batch order, with unchanged field shapes or no
+            field, and independently retained periodic rows.
         """
         self._require_state()
-        observations = tuple(member.observe() for member in self._members)
+        observations = tuple(member.observe(field=field) for member in self._members)
         self._history = []
         return observations
 

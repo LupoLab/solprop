@@ -14,6 +14,7 @@ the legacy statistic; and every route and backend that does not define them refu
 them by name.
 """
 
+import math
 import warnings
 from contextlib import closing
 from typing import cast
@@ -21,6 +22,7 @@ from typing import cast
 import numpy as np
 import pytest
 
+from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sensitivity
 from rate_oracles import adk_oracle
 from solprop.backends import select
 from solprop.backends.driver import StepDriver
@@ -61,8 +63,8 @@ def table():
     return build_rate_table(adk_oracle(Gas.Ar), (1e9, 2e11))
 
 
-def argon(m=1):
-    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False)
+def argon(m=1, phi=0.0):
+    return MarcatiliMode(125e-6, "Ar", 1.0, m=m, cladding=1.45, loss=False, phi=phi)
 
 
 def problem_on(grid, table, modes, rule, start=None):
@@ -314,6 +316,153 @@ def test_the_compiled_backends_match_the_reference(
         # The node scans' parity tolerance: a compiled plasma column against the
         # reference's multipass scan over the window.
         np.testing.assert_allclose(got[statistic], want[statistic], rtol=1e-10)
+
+
+def _axis_row(modes):
+    rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
+    return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis[0]
+
+
+def _axis_state(grid, name):
+    """Return one adversarial state's modes and spectrum, and how far the axis cancels.
+
+    The native row sums the modes on the axis before the time transform and the
+    reference after it, so that cancellation between modes amplifies both one's
+    rounding: ``kappa`` is the largest term over the largest sum, on the row.
+    """
+    built = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=ENERGY).build(grid)
+    if name == "one_mode":
+        return [argon()], built, 1.0
+    if name == "two_polarisations":
+        return [argon()], np.concatenate([built, 0.3j * built], axis=1), 1.0
+    if name == "rotated":
+        # A mode with field on the axis's y row, which `phi = 0` leaves at zero, so that
+        # a row dropping y would still read the same.
+        modes = [argon(phi=math.pi / 4)]
+        assert np.all(np.abs(_axis_row(modes)) > 0.0)
+        return modes, built, 1.0
+    if name == "one_bin":
+        # All the energy in the peak bin: a tone of the pulse's peak amplitude.
+        tone = np.zeros_like(built)
+        peak = int(np.argmax(np.abs(built)))
+        tone[..., peak] = np.sum(np.abs(built))
+        return [argon()], tone, 1.0
+    modes = [argon(1), argon(2)]
+    profile = _axis_row(modes)
+    if name == "two_modes":
+        return modes, np.concatenate([built, 0.4j * built], axis=0), 1.0
+    # The second mode cancels 90 % of the first on the axis.
+    assert name == "cancelling"
+    second = -0.9 * profile[0] / profile[1] * built
+    return modes, np.concatenate([10 * built, 10 * second], axis=0), 19.0
+
+
+AXIS_STATES = (
+    "one_mode",
+    "rotated",
+    "two_polarisations",
+    "one_bin",
+    "two_modes",
+    "cancelling",
+)
+
+
+def _check_axis_row(grid, table, name):
+    modes, start, kappa = _axis_state(grid, name)
+    rule = transverse_quadrature(modes, n_r=32, radial_rule="gauss_kronrod")
+    problem = problem_on(grid, table, modes, rule, start=start)
+    want, _ = entrance_stats(grid, problem, modes, AXIS)
+    got, counted = backend_stats("native", grid, problem, modes, AXIS)
+    assert counted == 1
+    rate = float(np.max(want["on_axis_peak_ionisation_rate"]))
+    assert rate > 0
+    # The row's relative error, on both routes: the time transform and the modes' sum,
+    # amplified by the axis's cancellation. A rate moves by its log sensitivity times
+    # that, and a final fraction by no more: `1 - exp(-X)` has a log derivative of at
+    # most one in X, and X's is a weighted mean of the rate's over the pulse. The rate
+    # is steepest at its weakest, so the sensitivity is read an order of magnitude
+    # below the peak's and doubled.
+    sensitivity = rate_log_sensitivity(adk_oracle(Gas.Ar), 1e-1 * rate, (1e9, 2e11))
+    row = kappa * (fft_bound(grid.n_to) + gamma(8 * len(modes)))
+    bound = 2 * sensitivity * row
+    for statistic in ON_AXIS_PLASMA_STATISTICS:
+        assert_within(
+            got[statistic], want[statistic], bound, what=f"{name} {statistic}"
+        )
+
+
+@pytest.mark.parametrize("name", AXIS_STATES)
+def test_the_native_row_reads_the_reference_s_axis(grid, table, name):
+    pytest.importorskip("solprop_native")
+    _check_axis_row(grid, table, name)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("name", AXIS_STATES)
+def test_a_device_s_row_reads_the_reference_s_axis(grid, table, name):
+    # The row is formed in the device's memory space; only the row crosses.
+    pytest.importorskip("solprop_native")
+    if device_backend("native") == "none":
+        pytest.skip("the installed solprop-native build has no accelerator backend")
+    _check_axis_row(grid, table, name)
+
+
+class _StateRefused:
+    """A native state that refuses to bring its field across (solprop #359)."""
+
+    def __init__(self, state):
+        self._state = state
+
+    def field_to_host(self):
+        raise AssertionError("an on-axis statistic brought the state to the host")
+
+    def __getattr__(self, name):
+        return getattr(self._state, name)
+
+
+@pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
+def test_the_native_axis_row_leaves_the_state_on_the_device(grid, table, radial_rule):
+    pytest.importorskip("solprop_native")
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
+    problem = problem_on(grid, table, [mode], rule)
+    with closing(select("native", problem, grid=grid, modes=[mode])) as backend:
+        backend.set_initial(problem.initial.field0, None)
+        held = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        backend._native_state = _StateRefused(held)  # pyright: ignore[reportAttributeAccessIssue]
+        try:
+            values = backend.stats(StatsSpec(names=AXIS.names))
+        finally:
+            backend._native_state = held  # pyright: ignore[reportAttributeAccessIssue]
+    assert np.all(values["on_axis_peak_ionisation_rate"] > 0)
+
+
+def test_the_native_row_refuses_a_matrix_that_is_not_one_or_two_rows(grid, table):
+    pytest.importorskip("solprop_native")
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
+    problem = problem_on(grid, table, [mode], rule)
+    with closing(select("native", problem, grid=grid, modes=[mode])) as backend:
+        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
+        with pytest.raises(RuntimeError, match="no initial field"):
+            state.axis_spectrum(np.ones((1, 1)))
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(ValueError, match="at most two rows"):
+            state.axis_spectrum(np.ones((3, 1)))
+        with pytest.raises(ValueError, match="two-dimensional"):
+            state.axis_spectrum(np.ones(1))
+
+
+def test_a_host_backend_s_axis_scan_needs_the_field(grid, table):
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
+    problem = problem_on(grid, table, [mode], rule)
+    with closing(NumpyRefBackend(problem, grid=grid, modes=[mode])) as backend:
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(BackendError, match="needs the field"):
+            backend._axis_row_populations(  # pyright: ignore[reportPrivateUsage]
+                None, np.zeros((2, 1))
+            )
 
 
 def test_they_are_saved_plane_statistics_and_tdse_never_defines_them():

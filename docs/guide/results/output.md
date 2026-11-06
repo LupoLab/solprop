@@ -143,7 +143,9 @@ writes its terminal checkpoint **with** the field ([resuming](resuming.md)).
 A handler of your own takes field-free planes by declaring
 {py:class}`~solprop.output.schema.RetainingOutput`, one method beside the
 {py:class}`~solprop.output.schema.Output` protocol; a run that keeps fewer than every field
-refuses a handler without it, by name.
+refuses a handler without it, by name. To reduce each plane and keep nothing, no class is
+needed: {py:class}`~solprop.output.callback.CallbackOutput` is built from a callable
+([a scan that reduces each plane](../setup/running.md#a-scan-that-reduces-each-plane)).
 
 ```{code-block} python
 class Energies:
@@ -187,9 +189,9 @@ rather than a copy of it, and nothing writes to that again, so a handler
 that reduces each plane to a few numbers and drops it costs one field volume on the host at
 that plane, the one the observation already crossed with, and a handler may equally keep
 `plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
-is given. On a free-space run the boundary check reads the transverse edge on the host as
-well, which [costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the
-plane does.
+is given. On a free-space run the boundary check reads the transverse edge at that plane too:
+`native` does it where the state lives, and `numpy_ref` and `mlx` on their host copy, which
+[costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the plane does.
 
 The handler converts the field on the way out, because the file is where the internal
 FFT convention meets the user's optics convention: stored spectra go through

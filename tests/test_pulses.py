@@ -15,7 +15,7 @@ from hypothesis import HealthCheck, given, settings
 from hypothesis import strategies as st
 from numpy.testing import assert_allclose
 
-from solprop import fourier
+from solprop import _process, fourier
 from solprop.constants import C
 from solprop.exceptions import PulseError
 from solprop.grid import EnvelopeGrid, FieldGrid, TimeGrid
@@ -1292,3 +1292,30 @@ def test_energy_and_arrival_hold_for_any_pulse(fwhm, energy, gdd, t0, kind):
     # a chirped pulse is a ratio of two sums with cancellation, and the strategies allow
     # a stretch factor of about seven, which brings the tails towards the window edge.
     assert_allclose(centroid(spectrum, grid), t0, rtol=0.0, atol=0.1 * grid.dt)
+
+
+@pytest.mark.parametrize("workers", [2, 7])
+@pytest.mark.parametrize("jones", [(1,), (1, 0.4j)], ids=["one", "two"])
+def test_a_large_launch_is_the_same_on_any_number_of_threads(
+    workers, jones, monkeypatch
+):
+    # The passes over a large launch take threads, one block of rows each. The sum that
+    # scales the field stays one sum in one order, so no bit may depend on the blocks.
+    from solprop.grid import FreeGrid  # noqa: PLC0415
+    from solprop.pulses import SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    grid = EnvelopeGrid.from_limits(
+        1e-4, 800e-9, (500e-9, 1.6e-6), 300e-15, thg=False, fft_size="smooth"
+    )
+    space = FreeGrid(2e-4, 32, 3e-4, 48, collar_fraction=0)
+    temporal = GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=3e-9)
+    medium = SpatialMedium("Ar", 1.0)
+    pulse = SpatialPulse(temporal, 60e-6, jones=jones)
+
+    serial = pulse.build(grid, space, medium=medium)
+    assert serial.nbytes < _process.PARALLEL_BYTES
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
+    budget = dataclasses.replace(_process.thread_budget(), threads=workers)
+    monkeypatch.setattr(_process, "thread_budget", lambda: budget)
+    assert pulse.build(grid, space, medium=medium).tobytes() == serial.tobytes()

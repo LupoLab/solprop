@@ -25,7 +25,6 @@ from solprop.output.schema import SavedPlane
 from solprop.stats import StatsSpec, collect
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.linop import unitary_phase
-from solprop.translate.problem import KERNEL_SCHEMA_VERSION
 from solprop.translate.responses import prefactor_at
 
 LENGTH = 0.01  # m
@@ -151,29 +150,6 @@ def test_a_declared_raman_kernel_is_executed_rather_than_refused(
     backend = backend_class(problem)
     assert backend.name == backend_name
     backend.close()
-
-
-@pytest.mark.parametrize("declared", [2, 3, KERNEL_SCHEMA_VERSION - 1, 99])
-def test_an_unknown_contract_version_is_refused_before_validation(
-    backend_class, soliton_problem, narrow_grid, declared
-):
-    """The version is checked first: validate assumes the version it knows.
-
-    The previous version is refused too: the check is an exact match, so a consumer of
-    the previous version equally refuses a problem of this one.
-
-    Version 2 is refused by name and not merely unrecognised: its section 3 and section
-    5 carry z tables where version 3 carries expansions, and its Raman rows are three
-    fields rather than a leaf, so a backend that read it would read the wrong things.
-    """
-    problem = dataclasses.replace(
-        soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), schema_version=declared
-    )
-    expected = (
-        f"version {KERNEL_SCHEMA_VERSION} and the problem declares version {declared}"
-    )
-    with pytest.raises(BackendError, match=expected):
-        backend_class(problem)
 
 
 def test_a_transform_and_a_state_cannot_both_carry_the_components(

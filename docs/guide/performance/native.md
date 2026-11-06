@@ -98,9 +98,10 @@ python -c "import solprop_native as sn; sn.check_build()"
 ```
 
 `check_build()` raises if the build is inconsistent (for example a GPU build that sees
-no device) or does not fit the installed solprop: the two packages share a versioned
-kernel contract, and `check_build()` names any solprop member the build relies on that
-is missing. Install the two at the same version, from one release or one checkout. The build
+no device) or does not fit the installed solprop: the two packages share a kernel
+contract, and `check_build()` names any solprop member the build relies on that is
+missing. In a checkout it also refuses an extension built from other sources than
+`native/`. Install the two at the same version, from one release or one checkout. The build
 record reports the profile (`build_profile`), the BLAS (`blas_selection`,
 `blas_library`), FFTW, the compiler flags, the thread counts and, on a GPU build, the
 device. Then, in Python:
@@ -130,8 +131,8 @@ one ([contributing](../../dev/contributing.md)). The editable install does not r
 itself: run `uv sync --reinstall-package solprop-native` after a native change.
 `uv run poe check-native` runs the native gate
 and `uv run poe check-all` both gates. A build stays valid across solprop changes until
-solprop's kernel schema (`KERNEL_SCHEMA_VERSION`) changes or `check_build()` names a
-member the installed solprop lacks. Running solprop's test lanes against the build is described in
+the sources under `native/` change, when `check_build()` refuses it and names that
+command, or until `check_build()` names a member the installed solprop lacks. Running solprop's test lanes against the build is described in
 the developer notes on [testing](../../dev/testing.md#tiers-and-backends).
 
 ## Running on a GPU
@@ -157,10 +158,10 @@ planes. Things to know:
   problem is small enough for it. The GPU wins on large grids: multimode and
   general modal guides with many nodes, coherent walls with many channels, broadband
   supercontinuum grids, and free-space runs.
-- **On-axis plasma statistics.** The four modal `on_axis_*` plasma statistics
-  require a host copy of the field at each requested save plane. Their CPU parity
-  is qualified; they are not yet qualified on a GPU, and there is no device-only
-  axis scan. See [the statistics catalogue](../results/statistics-catalogue.md).
+- **On-axis plasma statistics.** The four modal `on_axis_*` plasma statistics bring only
+  the axis row's spectrum to the host at each requested save plane, not the field, and
+  scan it there. Their CPU parity is qualified; they are not yet qualified on a GPU. See
+  [the statistics catalogue](../results/statistics-catalogue.md).
 - **Reproducibility.** A device answer is not bit for bit the CPU build's, because the
   device sums in its own order; the difference is at the level of rounding and is
   covered by the same derived error bounds that every backend is tested against. A
@@ -216,10 +217,12 @@ large run, for a scan of many runs and on a cluster.
 
 ## When something goes wrong
 
-- **`ImportError`, a schema mismatch, or `check_build()` naming a missing member.** The
+- **`ImportError`, or `check_build()` naming a missing member.** The
   installed solprop-native does not fit the installed solprop; install both at the same
   version (`pip install --force-reinstall solprop`, or both from one checkout
   as in [Building the native backend](building-native.md)).
+- **`check_build()` saying the extension was built from other sources.** A checkout's
+  `native/` changed after the build: run `uv sync --reinstall-package solprop-native`.
 - **`backend="auto"` refuses.** The message says why: the native package is missing, the
   processor is below the build's baseline, or its features could not be read
   ([installation](../../introduction/installation.md)). A contributor's lightweight setup has

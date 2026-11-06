@@ -36,6 +36,7 @@ from solprop.nonlinear.tdse import (
     TDSESampling,
 )
 from solprop.output import (
+    CallbackOutput,
     MemoryOutput,
     RunOutcome,
     SavedPlane,
@@ -962,6 +963,17 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
                 metadata=atomic_simulation.metadata(),
                 progress="none",
             )
+
+
+def test_a_handler_that_keeps_nothing_is_refused_a_tdse_run(
+    atomic_simulation, monkeypatch
+):
+    def forbidden(*args, **kwargs):
+        raise AssertionError("resource preparation must follow output admission")
+
+    monkeypatch.setattr(runtime_module, "prepare_binding", forbidden)
+    with pytest.raises(DriverError, match="terminal checkpoints"):
+        atomic_simulation.run(CallbackOutput(lambda plane: None), progress="none")
 
 
 @pytest.mark.medium

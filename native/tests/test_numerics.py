@@ -198,8 +198,7 @@ def test_a_kerr_leaf_density_path_scales_the_single_column_response(
     multi-component Kerr leaf has: the physics is unchanged, so the reference's split
     run and the backend's are each as accurate as the reference's unsplit run, against
     a much tighter reference, within the factor of four of the adaptive envelope
-    (solprop SEP 25 section 4.4). The unreachable single-column engine (`State`)
-    ignores the path and misses by about one per cent on such a case.
+    (solprop SEP 25 section 4.4).
     """
     problem, grid = phase_a_case
     kerr = problem.responses.kerr_coefficients
