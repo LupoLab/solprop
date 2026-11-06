@@ -191,6 +191,7 @@ All notable changes to solprop are recorded here. The format follows
   a few lines and costs no volume beyond the plane's own. `check_cache`, `resume` and
   `resumability` now refuse any output handler by name (#499).
 - The installation page now explains how to install a development version from CI's wheels with no compiler, and `poe fetch-wheel` now finds CI's Windows on Arm wheel.
+- solprop.backends exports `thread_budget` and `ThreadBudget`: how many threads a process may run at once, and the limit that sets it, for a front end to show.
 - An `ApertureSet` row may be an ellipse, a rectangle or a half-plane (`shapes`, `extents`), with its own edge profile (`profiles`), so a far-field statistic can express an instrument's mask: a knife edge at a fixed position in a far-field plane, whose wavevector moves with frequency, no longer needs the field on the host. A half-plane is half-open and tiles the columns with its complement. Line grids take half-planes bounded in x and rectangles, and the offline `Aperture` takes the same shapes. Unset, the new fields leave every existing result, record and configuration hash as they were (#446, part of #186).
 - `solprop-native` wheels use CPython's stable ABI, so one wheel serves Python 3.14 and later.
   solprop itself still needs pyFFTW and h5py wheels on 3.15.
