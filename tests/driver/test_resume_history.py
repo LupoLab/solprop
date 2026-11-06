@@ -186,8 +186,10 @@ def test_a_resumed_run_is_the_uninterrupted_one(
 ):
     if case.endswith("-native"):
         pytest.importorskip("solprop_native")
-    if case.endswith("-mlx") and "mlx" not in available("single"):
-        pytest.skip("mlx needs an Apple GPU")
+    if case.endswith("-mlx"):
+        # The skip reason native/ci/check_skips.py expects off macOS; the macOS lanes
+        # install MLX and require Metal, so there the case runs.
+        pytest.importorskip("mlx.core")
     build = CASES[case](build_simulation)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")
