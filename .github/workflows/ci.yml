@@ -713,7 +713,16 @@ jobs:
       - run: >-
           uv run --no-sync python -c "from solprop.backends.registry import resolve_name;
           assert resolve_name() == 'native', resolve_name()"
-      - run: uv run --no-sync poe check-gui
+      - if: runner.os != 'Windows'
+        run: uv run --no-sync poe check-gui
+      # Windows cannot reach the POSIX-only lines (a Unix socket, a new session, a
+      # socket's shutdown), and its own are marked `no cover`: the 100 % is held on
+      # Linux and macOS, and Windows runs the same gate without it.
+      - if: runner.os == 'Windows'
+        run: |
+          uv run --no-sync poe gui-types
+          uv run --no-sync poe gui-docstrings
+          uv run --no-sync poe gui-test --cov-fail-under=0
 
   # The one check the main branch's ruleset requires. Which lanes run depends on what a
   # change touches (above), and a required check is matched by its reported name: a

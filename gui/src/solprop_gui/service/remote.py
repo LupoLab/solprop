@@ -13,7 +13,6 @@ latest-wins and revision filtering, runs started and controlled through
 :class:`RemoteRun` handles, and in addition the service's runs listed and attached to.
 """
 
-import contextlib
 import itertools
 import subprocess
 import sys
@@ -25,7 +24,7 @@ from pathlib import Path
 
 from solprop_gui.service.client import ReplyFilter
 from solprop_gui.service.messages import Control, Event, Reply, Request
-from solprop_gui.service.server import Envelope, read_state, state_file
+from solprop_gui.service.server import Envelope, hang_up, read_state, state_file
 from solprop_gui.service.worker import RunSpec
 
 __all__ = ["START_SECONDS", "RemoteRun", "ServiceConnection", "start_service"]
@@ -422,7 +421,6 @@ class ServiceConnection:
             Seconds to wait for the reader to finish.
         """
         self._closing = True
-        with contextlib.suppress(OSError):
-            self._connection.close()  # pyright: ignore[reportAttributeAccessIssue]
+        hang_up(self._connection)
         if self._reader is not threading.current_thread():
             self._reader.join(timeout)

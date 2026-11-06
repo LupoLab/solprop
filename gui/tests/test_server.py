@@ -4,6 +4,7 @@
 
 """The solprop service (option C) and a window's connection to it, over a socket."""
 
+import contextlib
 import json
 import threading
 import time
@@ -146,6 +147,38 @@ def test_a_killed_run_is_lost_and_strangers_are_refused(state: Path, tmp_path: P
     assert connection.request("examples") > 0
     wait_for(lambda: bool(window.replies))
     connection.close()
+
+
+def test_a_hang_up_wakes_its_reader_and_an_acceptor_ends_with_its_listener():
+    near, _far = Pipe()
+    woken = threading.Event()
+
+    def read() -> None:
+        with contextlib.suppress(EOFError, OSError):
+            near.recv()
+        woken.set()
+
+    threading.Thread(target=read, daemon=True).start()
+    time.sleep(0.1)  # blocked in its read: on Linux, a bare close would not wake it
+    server.hang_up(near)
+    assert woken.wait(WAIT)
+    server.hang_up(near)  # already closed: nothing to do
+    closed: list[bool] = []
+
+    class Other:
+        def close(self) -> None:
+            closed.append(True)
+
+    server.hang_up(Other())
+    assert closed == [True]
+
+    class Gone:
+        def accept(self) -> None:
+            raise OSError("closed")
+
+    closing = threading.Event()
+    closing.set()
+    server._accept(Gone(), server.Service(), closing)  # pyright: ignore[reportArgumentType]
 
 
 def test_the_state_file_and_starting_a_service(tmp_path: Path, monkeypatch):

@@ -26,15 +26,17 @@ Messages are :class:`Envelope` pairs of a kind and a body:
 - to a window: ``reply``, ``event``, ``runs`` (each run's id, folder and last event).
 """
 
+import contextlib
 import json
 import os
 import secrets
+import socket
 import sys
 import tempfile
 import threading
 import time
 from dataclasses import dataclass
-from multiprocessing.connection import Connection, Listener
+from multiprocessing.connection import Client, Connection, Listener
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -414,8 +416,31 @@ class Service:
             self._kernel.close(timeout=2.0)
 
 
-def _accept(listener: Listener, service: Service) -> None:
-    """Accept windows, each served on a thread of its own.
+def hang_up(connection: object) -> None:
+    """Close a connection, waking a thread blocked reading it.
+
+    On Linux, closing a socket does not wake a thread blocked reading it, and the
+    socket stays open until that read returns: the other end never sees it close.
+    Shutting the socket down first wakes the reader at both ends. A Windows pipe
+    wakes on its own.
+
+    Parameters
+    ----------
+    connection : object
+        A :class:`multiprocessing.connection.Connection`, or a Windows pipe's.
+    """
+    if isinstance(connection, Connection):
+        with (
+            contextlib.suppress(OSError),
+            socket.socket(fileno=os.dup(connection.fileno())) as duplicate,
+        ):
+            duplicate.shutdown(socket.SHUT_RDWR)
+    with contextlib.suppress(OSError):
+        connection.close()  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def _accept(listener: Listener, service: Service, closing: threading.Event) -> None:
+    """Accept windows, each served on a thread of its own, until the service closes.
 
     Parameters
     ----------
@@ -423,14 +448,19 @@ def _accept(listener: Listener, service: Service) -> None:
         The socket.
     service : Service
         The service.
+    closing : threading.Event
+        Set as the service closes; :func:`main` then connects once more to wake this.
     """
     while True:
         try:
             connection = listener.accept()
-        except OSError, EOFError:
-            return
-        except Exception:
+        except Exception:  # a stranger without the token, or one gone
+            if closing.is_set():  # the listener closed under it
+                return
             continue
+        if closing.is_set():
+            hang_up(connection)
+            return
         threading.Thread(
             target=service.serve, args=(_Session(connection),), daemon=True
         ).start()
@@ -464,11 +494,20 @@ def main(state: Path | None = None, *, poll: float = 1.0) -> None:
         json.dump(record, stream)
     temporary.replace(target)
     service = Service()
-    threading.Thread(target=_accept, args=(listener, service), daemon=True).start()
+    closing = threading.Event()
+    acceptor = threading.Thread(
+        target=_accept, args=(listener, service, closing), daemon=True
+    )
+    acceptor.start()
     try:
         while not service.idle:
             time.sleep(poll)
     finally:
+        closing.set()
+        # A last connection wakes the acceptor; on Linux, closing the listener does not.
+        with contextlib.suppress(Exception):
+            hang_up(Client(address, family=family, authkey=authkey))
+        acceptor.join(2.0)
         if read_state(target) == record:
             target.unlink(missing_ok=True)
         listener.close()
