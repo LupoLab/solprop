@@ -277,6 +277,7 @@ All notable changes to solprop are recorded here. The format follows
   check. `solprop_native.check_build()` takes no problem, and in an editable checkout refuses
   an extension built from other sources than `native/`, naming `uv sync --reinstall-package
   solprop-native` (ADR-068).
+- `solprop.plotting` draws its maps (`prop_2d` and `spectrogram`) rasterized, so a figure saved as PDF or SVG keeps its axes and text as vectors and stays small.
 - Notable changes are recorded in separate release-note fragments and collected into one
   rolling draft release PR after merges. Implementation PRs no longer edit the shared
   changelog, avoiding conflicts between unrelated changes. Release tags and publication

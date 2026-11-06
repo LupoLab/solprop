@@ -718,7 +718,7 @@ def _spectral_map(  # noqa: PLR0913 - an axis, two axes of data, and the colour 
     """
     floor = reference * 10.0 ** ((db_min - _DB_FLOOR_MARGIN) / 10.0)
     decibels = 10.0 * np.log10(np.maximum(density, floor) / reference)
-    mesh = ax.pcolormesh(x, z, decibels, shading="auto", cmap=cmap)
+    mesh = ax.pcolormesh(x, z, decibels, shading="auto", cmap=cmap, rasterized=True)
     mesh.set_clim(db_min, 0.0)
     _figure_of(ax).colorbar(mesh, ax=ax).set_label("SED (dB)")
     ax.set_ylabel("Distance (cm)")
@@ -751,7 +751,9 @@ def _temporal_map(
         ``"/m"`` for a power per metre of y (:func:`solprop.plotting.style.per_width`).
     """
     scale, unit = power_unit(power)
-    mesh = ax.pcolormesh(t, z, power * scale, shading="auto", cmap=cmap)
+    mesh = ax.pcolormesh(
+        t, z, power * scale, shading="auto", cmap=cmap, rasterized=True
+    )
     _figure_of(ax).colorbar(mesh, ax=ax).set_label(f"Power ({unit}{width})")
     ax.set_xlabel("Time (fs)")
     ax.set_ylabel("Distance (cm)")
