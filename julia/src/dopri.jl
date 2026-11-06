@@ -121,11 +121,12 @@ function weighted_norm(engine, error, magnitude)
 end
 
 """Accept the candidate: the mask, the split-step collar, then the quadrature alarm."""
-function commit!(engine, dz::Float64)
+function commit!(engine, dz::Float64, monitored::Bool=false)
     c, w = engine.config, engine.work
     mask!(engine, w.candidate)
     if c.split_active
-        c.free ? split_free!(engine, dz) : split_modal!(engine, dz)
+        # With a split monitor bound, the power the split finds (`split_power`).
+        c.free ? split_free!(engine, dz, monitored) : split_modal!(engine, dz, monitored)
         mask!(engine, w.candidate)
         engine.fsal_valid = false
     elseif !c.low_storage && w.adams === nothing
@@ -137,10 +138,14 @@ function commit!(engine, dz::Float64)
     c.embedded ? quadrature_alarm(engine) : NaN
 end
 
-function split_modal!(engine, dz)
+function split_modal!(engine, dz, monitored)
     c, w = engine.config, engine.work
     (; coarse) = w
     mul!(coarse, w.coarse_inverse, w.candidate)
+    if monitored
+        fill!(w.monitor.split, 0)
+        add_power!(w.monitor.split, coarse, w.monitor.columns, 1, size(coarse, 2), c)
+    end
     rate = c.coarse_rate
     T = real_type(engine)
     # The unnormalised inverse's 1/nc is folded into the collar's factor.

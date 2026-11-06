@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "6fe1a72221429eac96c1944ecdaeb78d27aa4d11"
+project_hash = "0ebf08b9c460789dacbdc3ddc7c3310f1b94422b"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -703,7 +703,7 @@ uuid = "6462fe0b-24de-5631-8697-dd941f90decc"
 version = "1.11.0"
 
 [[deps.SolpropJulia]]
-deps = ["AcceleratedKernels", "FFTW", "KernelAbstractions", "LinearAlgebra", "Polyester", "PythonCall"]
+deps = ["AcceleratedKernels", "Atomix", "FFTW", "KernelAbstractions", "LinearAlgebra", "Polyester", "PythonCall"]
 path = "."
 uuid = "bc9db228-6fd1-46b1-b175-748485922872"
 version = "0.0.0"

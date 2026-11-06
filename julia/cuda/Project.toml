@@ -1,5 +1,6 @@
 [deps]
 CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
 SolpropJulia = "bc9db228-6fd1-46b1-b175-748485922872"
 
 [sources]

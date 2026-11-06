@@ -94,6 +94,34 @@ function each_column!(f::F, c, nm::Integer) where {F}
     nothing
 end
 
+"""Set `out[t]` to the sum over `m` of `f(t, m)`: a reduction across columns.
+
+Each task (CPU) or thread (GPU) owns a block of rows, so no two write one sum.
+"""
+function rowsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
+    nt, nm = Int(nt), Int(nm)
+    if oncpu(c)
+        rows = max(256, cld(nt, c.tasks))
+        @batch for b in 1:cld(nt, rows)
+            r = (b-1)*rows+1:min(b * rows, nt)
+            for m in 1:nm
+                @inbounds @simd for t in r
+                    out[t] += f(t, m)
+                end
+            end
+        end
+    else
+        AK.foreachindex(1:nt; backend=c.backend) do t
+            total = zero(eltype(out))
+            for m in 1:nm
+                total += f(t, m)
+            end
+            @inbounds out[t] += total
+        end
+    end
+    nothing
+end
+
 """Return `op` folded over `f(t, m)` for every sample, starting from `neutral`.
 
 `op` must be associative and commutative: the order is the tiling's (CPU) or the

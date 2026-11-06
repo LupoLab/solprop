@@ -43,7 +43,7 @@ function create_free(c, host)
     coarse, coarse_spec = dzeros(c, R, nc, chunk), dzeros(c, C, nw, chunk)
     planes = (threads=c.transverse_fft_threads, batch=1)
     work = (
-        adams=nothing, path=nothing, raman=nothing,
+        adams=nothing, path=nothing, raman=nothing, monitor=monitor_workspace(c, nw, nm, nc),
         plasma=plasma_workspace(c, host, nt, chunk, chunk, nm),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -226,7 +226,7 @@ function gather_columns!(physical, fine, loss, absorber_spec, first, count, c)
     end
 end
 
-function split_free!(engine, dz)
+function split_free!(engine, dz, monitored)
     c, w = engine.config, engine.work
     (; physical, coarse, coarse_spec) = w
     copyto!(physical, w.candidate)
@@ -236,12 +236,12 @@ function split_free!(engine, dz)
     rate, half = c.coarse_rate, T(-0.5 * dz)
     # Both unnormalised inverses' 1/(nc n_x n_y) is folded into the collar's factor.
     inverse = inv(T(c.nc) * T(nm))
+    monitored && fill!(w.monitor.split, 0)
     for first in 1:chunk:nm
         count = min(chunk, nm - first + 1)
-        each!(c, size(coarse_spec)...) do f, m
-            @inbounds coarse_spec[f, m] = m <= count ? physical[f, first+m-1] : zero(eltype(coarse_spec))
-        end
+        columns_into!(coarse_spec, physical, first, count, c)
         mul!(coarse, w.coarse_inverse, coarse_spec)
+        monitored && add_power!(w.monitor.split, coarse, w.monitor.columns, first, count, c)
         each!(c, size(coarse)...) do t, m
             @inbounds coarse[t, m] *= exp(half * rate[t]) * inverse
         end

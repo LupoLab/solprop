@@ -29,6 +29,7 @@ from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
+from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
@@ -432,7 +433,8 @@ class JuliaBackend(StepDriver[object]):
         self._jl = runtime()
         # The loaded module is the one on disk: a source edit after the runtime
         # started would otherwise time or test stale code.
-        if str(self._jl.loaded_digest()) != source_digest():
+        self._digest = source_digest()
+        if str(self._jl.loaded_digest()) != self._digest:
             raise BackendError("julia sources changed after the runtime loaded them")
         self._threads = thread_limit("SOLPROP_JULIA_THREADS")
         if not 1 <= self._threads <= int(self._jl.runtime()[1]):
@@ -507,7 +509,8 @@ class JuliaBackend(StepDriver[object]):
         object
             Opaque Julia engine handle.
         """
-        call_julia(self._jl.load_b, self._engine, state[0, :, 0, :].T.copy())
+        # A column-major (n_omega, n_modes) view: the engine copies it once.
+        call_julia(self._jl.load_b, self._engine, state[0, :, 0, :].T)
         self._fsal = False
         self._alarm = math.nan
         return self._engine
@@ -636,15 +639,20 @@ class JuliaBackend(StepDriver[object]):
         object
             Opaque accepted state handle.
         """
-        if (monitor := self._split_monitor) is not None and _splits(self._problem):
-            # What the split collar takes and finds, from the masked state before
-            # it, as the reference's finish reads it (SEP 21).
-            values = np.asarray(call_julia(self._jl.candidate, self._engine))
-            masked = values.T[None, :, None, :] * self._problem.grids.active_mask
-            sums = monitor.split_sums(masked, dz)
-            self._split_removed += float(sums[0])
-            self._split_found = sums[1:]
-        self._alarm = float(call_julia(self._jl.commit_b, self._engine, dz, nogil=True))
+        monitor = self._split_monitor if _splits(self._problem) else None
+        self._alarm = float(
+            call_julia(
+                self._jl.commit_b, self._engine, dz, monitor is not None, nogil=True
+            )
+        )
+        if monitor is not None:
+            # What the split collar takes and finds, from the power of the masked
+            # state before it, which the commit formed: BoundaryMonitor.split_sums.
+            power = np.asarray(call_julia(self._jl.split_power, self._engine))
+            rate = monitor.weights[3]
+            half = power * np.exp(-0.5 * rate * dz)
+            self._split_removed += float(power @ -np.expm1(-rate * dz))
+            self._split_found = np.concatenate([[half.sum()], monitor.weights[:3] @ half])
         if self._alarm > 1e-6 and not self._alarm_reported:
             self._alarm_reported = True
             logger.warning(
@@ -675,8 +683,63 @@ class JuliaBackend(StepDriver[object]):
         numpy.ndarray
             Independent complex128 host array in the seam layout.
         """
-        values = np.asarray(call_julia(self._jl.snapshot, state), dtype=np.complex128)
-        return values.T.copy()[None, :, None, :]
+        # The engine's own column-major array, viewed: one copy makes it the host's.
+        values = np.asarray(call_julia(self._jl.host_state, state))
+        return np.array(values.T, dtype=np.complex128)[None, :, None, :]
+
+    def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
+        """Hold the monitor's column weights and rate buckets in the engine.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor or None
+            The run's monitor, or ``None`` to stop.
+        """
+        super()._bind_monitor(monitor)
+        if monitor is None:
+            return
+        crossing = monitor.crossing
+        call_julia(
+            self._jl.bind_monitor_b,
+            self._engine,
+            None if monitor.columns is None else np.asarray(monitor.columns),
+            None if crossing is None else np.asarray(crossing.buckets),
+        )
+
+    def _boundary_energies(self, state: object) -> BoundaryEnergies:
+        """Read the monitor's energies from the engine's power, not a state copy.
+
+        Parameters
+        ----------
+        state : object
+            The accepted state handle.
+
+        Returns
+        -------
+        solprop.monitor.BoundaryEnergies
+            The reading.
+
+        Raises
+        ------
+        BackendError
+            If no monitor is attached.
+        """
+        del state
+        monitor = self._monitor
+        if monitor is None:
+            raise BackendError("julia: no boundary monitor is attached")
+        removed, self._split_removed = self._split_removed, 0.0
+        power = np.asarray(call_julia(self._jl.state_power, self._engine))
+        crossing = monitor.crossing
+        return BoundaryEnergies(
+            float(power.sum()),
+            monitor.weights @ power,
+            removed=removed,
+            found=self._split_found,
+            occupancy=None
+            if crossing is None
+            else np.asarray(call_julia(self._jl.occupancy, self._engine)),
+        )
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect supported modal or spatial statistics through shared host functions.
@@ -801,7 +864,7 @@ class JuliaBackend(StepDriver[object]):
         free = self._problem.transform.kind == "free"
         return super().metadata() | {
             "julia_version": str(version),
-            "julia_source_digest": source_digest(),
+            "julia_source_digest": self._digest,
             "device": str(self._jl.device_name(self._engine)),
             "resident_source_evaluations": int(self._engine.calls),
             "propagator_cache": (

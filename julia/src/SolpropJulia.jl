@@ -18,6 +18,7 @@ using PythonCall
 using Polyester: @batch
 import AcceleratedKernels as AK
 import KernelAbstractions as KA
+import Atomix
 
 # The digest of the sources this module was loaded from, set by the Python loader.
 const SOURCE_DIGEST = Ref("")
@@ -41,6 +42,7 @@ include("dopri.jl")
 include("rk4.jl")
 include("adams.jl")
 include("stages.jl")
+include("observe.jl")
 
 real_type(engine) = real(eltype(engine.work.y))
 
@@ -66,10 +68,34 @@ function create(input)
         rtol=host.real("rtol"), atol=host.real("atol"),
         cache_propagators=host.has("cache_propagators") ? host.flag("cache_propagators") : true,
     )
-    c.free ? create_free(c, host) : create_modal(c, host)
+    engine = c.free ? create_free(c, host) : create_modal(c, host)
+    compile!(engine)
+    engine
 end
 
-load!(engine, input) = (copyto!(engine.work.y, device_matrix(engine, input)); reset!(engine))
+"""Compile every entry point the march calls for this engine's types, now.
+
+Construction is timed apart from propagation; without this, a run's first step and
+first boundary reading pay seconds of compilation inside the propagation's time.
+"""
+function compile!(engine)
+    E = typeof(engine)
+    for (f, arguments) in ((trial!, (E, Float64)), (commit!, (E, Float64, Bool)),
+                           (rk4!, (E, Float64, Float64)), (state_power, (E,)),
+                           (split_power, (E,)), (occupancy, (E,)), (host_state, (E,)),
+                           (host_candidate, (E,)), (adams_start!, (E,)), (adams_accept!, (E, Int)),
+                           (material_stage!, (E, Int)), (reset!, (E,)))
+        precompile(f, arguments)
+    end
+    a = engine.work.adams
+    if a !== nothing
+        for n in 1:size(a.moments, 3)
+            precompile(adams_trial_width!, (E, Float64, Val{n}))
+        end
+    end
+    nothing
+end
+
 function reset!(engine)
     mask!(engine, engine.work.y)
     engine.fsal_valid = false
@@ -88,8 +114,6 @@ function mask!(engine, values)
     end
 end
 
-snapshot(engine) = complex_host(engine.work.y)
-candidate(engine) = complex_host(engine.work.candidate)
 complex_host(a) = Matrix{ComplexF64}(Array(a))
 function evaluate!(engine, input)
     copyto!(engine.work.lab, device_matrix(engine, input))
@@ -122,6 +146,7 @@ runtime() = (string(VERSION), Threads.nthreads(), FFTW.get_num_threads(),
 const rk4_b = rk4!
 const configure_stages_b = configure_stages!
 const load_b = load!
+const bind_monitor_b = bind_monitor!
 const trial_b = trial!
 const commit_b = commit!
 const evaluate_b = evaluate!
