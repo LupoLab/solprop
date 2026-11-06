@@ -279,6 +279,7 @@ from solprop.pulses import (
     PulseSum,
     SechPulse,
     SpatialPulse,
+    SpatialPulseSum,
 )
 from solprop.spatial import SpatialDispersion, SpatialFlux, SpatialMedium, peak_field
 from solprop.spatial_absorber import SpatialAbsorberDesign
@@ -1713,7 +1714,8 @@ def _plane_bases(
 
     A spatial basis is its transverse grid and a general one its checked reference,
     the same at every plane; an ordinary mode set's basis is evaluated at each plane
-    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary.
+    (:func:`solprop.coupling.plane.modal_basis_identity`), because a guide may vary,
+    and once for a set whose every mode is ``z_constant``.
 
     Parameters
     ----------
@@ -1758,6 +1760,11 @@ def _plane_bases(
             "metric": {"kind": metric.get("kind"), "gauge_id": metric.get("gauge_id")},
         }
         identities = [basis_identity("general_modal", record)] * len(planes)
+    elif all(mode.z_constant for mode in modes):
+        # A guide that is the same at every plane has one basis there: evaluated once,
+        # since a solved mode (a step-index fibre's) costs a mode solve per evaluation.
+        route = "modal"
+        identities = [modal_basis_identity(modes, grid, planes[0])] * len(planes)
     else:
         route = "modal"
         identities = [modal_basis_identity(modes, grid, z) for z in planes]
@@ -2119,7 +2126,7 @@ class Simulation(Displayed):
         grid: TimeGrid,
         modes: Mode | Sequence[Mode],
         responses: Sequence[object],
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         initial_z: float = 0.0,
@@ -2202,7 +2209,7 @@ class Simulation(Displayed):
 
     def _built_input(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         grid: TimeGrid,
         initial_z: float,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -2230,7 +2237,7 @@ class Simulation(Displayed):
         DriverError
             If a spatial pulse comes without a spatial grid and a medium.
         """
-        if not isinstance(initial, SpatialPulse):
+        if not isinstance(initial, SpatialPulse | SpatialPulseSum):
             return _built(initial, grid)
         if self.spatial_grid is None or self.medium is None:
             msg = "a SpatialPulse requires spatial_grid and medium"
@@ -2577,7 +2584,7 @@ class Simulation(Displayed):
 
     def with_input(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray | CouplingLaunch,
         *,
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
@@ -2804,7 +2811,7 @@ class Simulation(Displayed):
 
     def _derived_configuration(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         configuration: Mapping[str, object] | None,
         coupling: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
@@ -2858,7 +2865,7 @@ class Simulation(Displayed):
 
     def _check_replaced_array(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         noise: NoiseRealisation | None,
     ) -> None:
         """Validate a replaced array input before it is copied; a pulse is built first.
@@ -4130,7 +4137,7 @@ class Simulation(Displayed):
         space: RadialGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4154,7 +4161,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal Hankel spectrum in V m, with shape
             ``(n_r, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4236,7 +4243,7 @@ class Simulation(Displayed):
         space: FreeGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4265,7 +4272,7 @@ class Simulation(Displayed):
             Constant bulk material; varying profiles are refused.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal Cartesian DFT spectrum in V/m, with shape
             ``(n_x*n_y, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4490,7 +4497,7 @@ class Simulation(Displayed):
         space: RadialGrid | FreeGrid,
         medium: SpatialMedium,
         responses: Sequence[object],
-        initial: SpatialPulse | np.ndarray,
+        initial: SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         frame: Frame | None = None,
@@ -4511,7 +4518,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal spectrum, a Hankel spectrum in V m or a
             raw Cartesian DFT spectrum in V/m, with shape ``(n_columns, n_pol,
             n_omega)``.
@@ -5017,6 +5024,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
@@ -5582,6 +5591,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
@@ -6398,6 +6409,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
@@ -7222,7 +7235,7 @@ class SimulationRunner(Displayed):
 
     def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         output: Output | Path | str | None = None,
         configuration: Mapping[str, object] | None = None,
@@ -7355,7 +7368,7 @@ class SimulationRunner(Displayed):
 
     def _load(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
@@ -7464,8 +7477,8 @@ class SimulationRunner(Displayed):
 
 
 def _borrowed_input(
-    initial: Pulse | SpatialPulse | np.ndarray, *, stated: bool
-) -> Pulse | SpatialPulse | np.ndarray:
+    initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray, *, stated: bool
+) -> Pulse | SpatialPulse | SpatialPulseSum | np.ndarray:
     """Return a runner's input as its private derived simulation may take it, uncopied.
 
     A derived simulation copies an array so that its record and its run outlive the
@@ -8725,7 +8738,8 @@ def _replaced_launch(
 
 
 def _check_input_identity(
-    identity: str | None, initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch
+    identity: str | None,
+    initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray | CouplingLaunch,
 ) -> None:
     """Refuse a stated identity that is empty, or of anything but an array input.
 
@@ -12026,7 +12040,7 @@ def _peak_field_reports(
 
 
 def _check_rate_inputs(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> None:
     """Check a run's input against each optmat rate it carries, once per run.
 
@@ -12075,7 +12089,7 @@ def _check_rate_inputs(
 
 
 def _bind_spatial_rates(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> None:
     """Bind a free-space or planar run's optmat rates to its input, and check it.
 
@@ -12109,7 +12123,7 @@ def _bind_spatial_rates(
 
 
 def _spatial_input_peak(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> tuple[float, float]:
     """Return a free-space or planar run's peak input field and its circular share.
 
@@ -12132,7 +12146,7 @@ def _spatial_input_peak(
     peak = peak_field(simulation.grid, space, simulation._field0)
     jones = (
         np.asarray(initial.jones, dtype=np.complex128)
-        if isinstance(initial, SpatialPulse)
+        if isinstance(initial, SpatialPulse | SpatialPulseSum)
         else np.ones(1, dtype=np.complex128)
     )
     circular = (

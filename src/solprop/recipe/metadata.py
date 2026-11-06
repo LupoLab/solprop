@@ -1609,7 +1609,7 @@ def _free_space(route: str) -> tuple[Parameter, ...]:
     beam = (
         Form("object", types=("PlanarPulse",))
         if route == "planar"
-        else Form("object", types=("SpatialPulse",))
+        else Form("object", types=("SpatialPulse", "SpatialPulseSum"))
     )
     return (
         Parameter(
@@ -3310,6 +3310,16 @@ _ENTRIES: Final[dict[str, tuple[Parameter, ...]]] = {
         ),
     ),
     "SpatialPulse": _beam(),
+    "SpatialPulseSum": _type(
+        "input",
+        "guide/free-space/beams.md#launching-several-beams",
+        _keyword(
+            "beams",
+            _object("SpatialPulse"),
+            "basic",
+            "The beams launched together, sharing one Jones vector.",
+        ),
+    ),
     "PlanarPulse": _beam(
         _keyword(
             "waist_x",

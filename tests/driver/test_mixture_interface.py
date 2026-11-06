@@ -187,6 +187,24 @@ def test_mixture_refuses_pressure_floor(material_grid):
         construct(mixture, grid, pressure_floor=0.0)
 
 
+def test_pressure_floor_beside_a_constant_pressure_is_refused():
+    # The constructors route pressure_floor through the fill's pressure path, which
+    # refuses a floor that a constant pressure has no end to apply to.
+    with pytest.raises(MaterialError, match="floor"):
+        Simulation.from_capillary(
+            100e-6,
+            0.05,
+            "He",
+            1.0,
+            wavelength=800e-9,
+            wavelength_limits=(300e-9, 2e-6),
+            trange=400e-15,
+            pressure_floor=-5.0,
+            plasma=False,
+            noise=None,
+        )
+
+
 @pytest.mark.parametrize("option", ["plasma", "raman", "preionisation"])
 def test_unknown_component_selection_fails_by_name(material_grid, option):
     mixture, grid = material_grid

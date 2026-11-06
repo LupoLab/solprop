@@ -20,7 +20,7 @@ from collections.abc import Sequence
 import numpy as np
 from jaxtyping import Complex, Float
 
-from solprop.exceptions import OutputError
+from solprop.exceptions import OutputError, ProcessingError
 from solprop.output.schema import Output
 from solprop.processing.axes import Band, ModeSelection
 from solprop.processing.fields import get_spectrum
@@ -174,6 +174,11 @@ def spectral_bands(
     list of numpy.ndarray
         The bins of each band, in order; empty when every weight is zero.
 
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If `n_bands` is less than one.
+
     Examples
     --------
     >>> import numpy as np
@@ -181,6 +186,9 @@ def spectral_bands(
     >>> [band.tolist() for band in spectral_bands(np.array([0.0, 1, 1, 1, 1, 0]), 2)]
     [[1, 2], [3, 4]]
     """
+    if n_bands < 1:
+        msg = f"n_bands must be at least 1, got {n_bands!r}"
+        raise ProcessingError(msg)
     occupied = np.flatnonzero(np.asarray(weights) > 0)
     if occupied.size == 0:
         return []
@@ -234,6 +242,8 @@ def band_coherence(
     ------
     solprop.exceptions.OutputError
         If the trailing shapes differ, or `spectra` has fewer than two realisations.
+    solprop.exceptions.ProcessingError
+        If `n_bands` is less than one.
 
     Examples
     --------
@@ -269,6 +279,8 @@ def band_coherence(
         values = coherence[:, band]
         # An empty bin has no coherence (nan) and no weight: it adds nothing.
         finite = np.isfinite(values) & (weights > 0)
+        if not finite.any():
+            continue  # nothing to average: the band stays nan, as an unscored one
         result[index] = float(
             np.sum(weights[finite] * values[finite]) / np.sum(weights[finite])
         )

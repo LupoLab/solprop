@@ -263,8 +263,10 @@ at half of it, the beam diffracts.
 On a Cartesian grid a beam can be launched off the axis and at an angle:
 `displacement=(d_x, d_y)` in metres and `tilt=(theta_x, theta_y)` in radians, as
 {class}`~solprop.coupling.elements.Alignment` defines them. The tilt is a phase screen
-$\exp[\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$, with $k(\omega)$
-the launch medium's wave number, so every frequency leaves at the same angle; both apply
+$\exp[-\mathrm{i}\,k(\omega)(x\sin\theta_x + y\sin\theta_y)]$ on the field's samples
+(solprop's fields go as $\exp[\mathrm{i}(\omega t - \mathbf{k}\cdot\mathbf{r})]$), with
+$k(\omega)$ the launch medium's wave number, so every frequency leaves at the same angle;
+both apply
 at the launch plane, after `propz`, and the energy is set after them:
 
 ```python
@@ -282,6 +284,30 @@ band, when the moved beam is not negligible at the window's edge, or when the ti
 pulse-front delay across the beam is more than half the time window. A radial grid has
 no direction to move along, a line grid has no y, and a planar beam has its own
 `offset_x`; to misalign a beam into a guide, use `Alignment`.
+
+### Launching several beams
+
+{py:class}`~solprop.pulses.SpatialPulseSum` launches several beams together: each member
+is a `SpatialPulse`, built and scaled on the grid exactly as it would be alone, and the
+input is the sum of their fields, as {py:class}`~solprop.pulses.PulseSum` sums pulses.
+Two beams crossing at an angle, a pump beside a probe, or a beam and a displaced replica
+are each a sum. Beams that do not overlap at the launch plane keep their own energies;
+beams that overlap there interfere, as fields do. The members share one Jones vector:
+
+```python
+from solprop.pulses import SpatialPulseSum
+
+pulse = GaussianPulse(wavelength=800e-9, fwhm=70e-15, energy=1e-9)
+crossing = SpatialPulseSum(
+    (
+        SpatialPulse(pulse, 150e-6, displacement=(-0.4e-3, 0.0), tilt=(5e-3, 0.0)),
+        SpatialPulse(pulse, 150e-6, displacement=(0.4e-3, 0.0), tilt=(-5e-3, 0.0)),
+    )
+)
+```
+
+A recipe holds it as `type = "SpatialPulseSum"` with its `beams` as a list of
+`SpatialPulse` tables.
 
 ## Reading the output
 

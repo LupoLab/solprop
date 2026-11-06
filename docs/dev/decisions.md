@@ -1941,7 +1941,7 @@ Withdrawn (development-process record, not a design decision).
     members the adapter relies on by name. In an editable checkout it also compares the
     extension with the digest of what it is compiled from (`native/CMakeLists.txt` and the C++
     sources and headers under `native/src` and `native/include`), which CMake embeds and
-    Python recomputes once per process. `KERNEL_SCHEMA_VERSION` ended at 45.
+    Python recomputes once per process. `KERNEL_SCHEMA_VERSION` is gone; the last number taken was 47.
 - **Why:** development time goes where the runs are, and correctness is still decided
   against the reference. A number that changes with every seam change costs a merge conflict
   each time and guards little: within one repository at one pinned version, the frozen tables

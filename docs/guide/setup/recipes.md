@@ -99,7 +99,7 @@ supplies them. An unknown key is refused with the nearest valid one.
   (`RadialGrid`, `FreeGrid`, `LineGrid`, `PlanarGrid`), `SpatialMedium`, the responses
   (`KerrResponse`, with `gamma3` for optmat's coefficient of a gas,
   `EnvelopePlasmaResponse`, `PlasmaResponse`, `OptmatRate`), the beams
-  (`SpatialPulse`, `PlanarPulse`), `SimulationSettings`, `PIController`,
+  (`SpatialPulse`, `SpatialPulseSum`, `PlanarPulse`), `SimulationSettings`, `PIController`,
   `default_spec` and `SpatialAbsorber`. A recipe never imports a module or evaluates
   code.
 

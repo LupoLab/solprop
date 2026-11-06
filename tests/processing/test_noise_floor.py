@@ -164,12 +164,16 @@ def test_the_floor_is_refused_without_a_seed_in_the_saved_field(runs):
         _check_choice("remove", NOISE_FLOORS, "noise_floor")
 
 
-def test_a_spectrum_refuses_the_floor_and_names_the_density(runs):
+def test_a_spectrum_takes_no_noise_floor(runs):
     """An amplitude has no part that is the floor's power; only the density has it."""
-    omega, spectrum = get_spectrum(runs["input"], plane=-1, noise_floor="keep")
+    omega, spectrum = get_spectrum(runs["input"], plane=-1)
     assert spectrum.shape == omega.shape
-    with pytest.raises(ProcessingError, match="ask get_spectral_density"):
-        get_spectrum(runs["input"], plane=-1, noise_floor="subtract")
+    with pytest.raises(TypeError, match="noise_floor"):
+        get_spectrum(
+            runs["input"],
+            plane=-1,
+            noise_floor="subtract",  # pyright: ignore[reportCallIssue]
+        )
 
 
 def test_the_plots_draw_the_subtracted_density_and_mask_its_gaps_on_a_log_axis(runs):

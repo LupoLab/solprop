@@ -329,6 +329,12 @@ def wavelength_to_axis(
     tuple of float
         The lower and upper limits in m, Hz or rad/s.
 
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If ``axis`` is unknown, or if a wavelength limit is not positive on a
+        frequency axis.
+
     Examples
     --------
     >>> from solprop.plotting.style import wavelength_to_axis
@@ -340,6 +346,9 @@ def wavelength_to_axis(
     low, high = min(wavelength_limits), max(wavelength_limits)
     if axis == "wavelength":
         return low, high
+    if low <= 0.0:
+        msg = f"wavelength_limits must be positive, in m, got {wavelength_limits!r}"
+        raise ProcessingError(msg)
     turn = 2.0 * np.pi * C if axis == "omega" else C
     # Wavelength and frequency run in opposite directions, so the limits swap.
     return float(turn / high), float(turn / low)
