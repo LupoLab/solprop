@@ -692,23 +692,6 @@ class SpatialPulseSum(Displayed):
         return np.sum(spectra, axis=0).astype(np.complex128)
 
 
-def _unit_jones(jones: tuple[complex, ...]) -> np.ndarray:
-    """Return a Jones vector normalised to unit squared magnitude.
-
-    Parameters
-    ----------
-    jones : tuple of complex
-        One or two components, not all zero.
-
-    Returns
-    -------
-    numpy.ndarray
-        The normalised vector.
-    """
-    vector = np.asarray(jones, dtype=np.complex128)
-    return vector / np.sqrt(np.sum(np.abs(vector) ** 2))
-
-
 _EDGE_FLUENCE: Final = 1e-6
 """Largest fluence a moved beam may keep at the window's edge, relative to its peak."""
 

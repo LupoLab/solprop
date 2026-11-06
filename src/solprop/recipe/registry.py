@@ -465,8 +465,9 @@ The free-space routes register their grids (``RadialGrid``, ``FreeGrid``,
 susceptibility), the responses the free-space guide uses (``KerrResponse``, with
 ``gamma3`` for optmat's coefficient of a gas, ``EnvelopePlasmaResponse``,
 ``PlasmaResponse`` and ``OptmatRate``), the beams (``SpatialPulse``,
-``PlanarPulse``), their settings (``SimulationSettings`` without the execution
-settings, which are ``[execution]``'s, nor the fields a route's builder sets;
+``SpatialPulseSum``, ``PlanarPulse``), their settings (``SimulationSettings`` without
+the execution settings, which are ``[execution]``'s, nor the fields a route's builder
+sets;
 ``PIController`` without its per-bin weights, history lag and estimator order;
 ``default_spec``) and the transverse boundary (``SpatialAbsorber``).
 """
