@@ -246,9 +246,10 @@ class _Namespace:
 
 class _Monitor:
     """The boundary monitor's interval and crossing cap, the parts the march's caps
-    read; no split collar caps these scenarios."""
+    read; no split collar caps these scenarios, and no transverse edge is watched."""
 
     step_cap = math.inf
+    transverse = None
 
     def __init__(self, interval: float) -> None:
         self.interval = interval

@@ -4,6 +4,7 @@
 
 """A scan's portable stop and its point-by-point progress (SEP 41, S4 and S17)."""
 
+import dataclasses
 import logging
 import multiprocessing as mp
 import sys
@@ -17,6 +18,7 @@ from jaxtyping import TypeCheckError
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER
+from solprop.backends.registry import available
 from solprop.driver import _scan_batch
 from solprop.driver._scan_run import _collect, _Job, _Options, _ScanEvents, _Work
 from solprop.driver.executors import Batch, Local, Queue, Slurm, pool
@@ -26,7 +28,7 @@ from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError, StopRequested
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter, NullScanReporter, PlaneSummary
-from solprop.stepper import FixedSchedule
+from solprop.stepper import FixedSchedule, Multistep
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
@@ -254,6 +256,40 @@ def test_local_stop_mid_point_is_not_committed_and_a_rerun_computes_it(tmp_path)
     )
     assert again.status.tolist() == ["done", "done", "done"]
     assert rerun.finished() == [(0, "skipped"), (1, "done"), (2, "done")]
+
+
+@pytest.mark.skipif("native" not in available(), reason="native is not installed")
+def test_local_stop_reaches_a_one_plane_native_adams_point(tmp_path):
+    native = pytest.importorskip("solprop_native.backend")
+    most = native._NativeAdamsMarch.MAX_ATTEMPTS
+
+    def build(point):
+        # More steps than a native call's bound, and no plane until the last of them.
+        simulation = _fibre(point.values["power"], 2 * most, 1)
+        simulation.settings = dataclasses.replace(
+            simulation.settings,
+            integrator=Multistep(),
+            backend="native",
+            boundary_check=None,
+        )
+        return simulation
+
+    scan = Scan("stop", power=[1.0, 2.0])
+    flag = threading.Event()
+    reporter = StopAtStep(flag, index=0, steps=10)
+    output = run_scan(
+        scan,
+        build,
+        output=tmp_path / "scan.h5",
+        executor=Local(),
+        progress=reporter,
+        stop=flag,
+    )
+    assert output.status.tolist() == ["todo", "todo"]
+    assert reporter.finished() == [(0, "stopped")]
+    steps = [call for call in reporter.points[0].calls if call[0] == "step"]
+    # Polled as a native call returns: the rest of that call's attempts report too.
+    assert 10 <= len(steps) < 10 + most
 
 
 def test_a_flag_set_between_local_points_dispatches_no_more(tmp_path):

@@ -216,9 +216,9 @@ The long form is [SEP 0](docs/dev/seps/sep-0000-process.md); the index is
   starts and marked ready when the last commit sets `Final`; there are no per-phase pull
   requests. CI runs on every push to it and need not be green while it is a draft; a push
   that needs no run has `[skip ci]` in its head commit's message. The branch may start on
-  top of an open pull request's branch when pull requests are stacked behind CI. Within
-  each phase: `numpy_ref` first with its tests and manual page, then native CPU in
-  `native/`; `mlx` only where the SEP says so (the backend rules, below). A
+  top of another agent's open pull request, when the SEP needs that work first. Within
+  each phase: `numpy_ref` and native CPU in `native/`, in either order (ADR-068), with
+  tests and the manual page; `mlx` only where the SEP says so (the backend rules, below). A
   backend without the feature refuses it by name, never falls back silently; `Final`
   needs parity on `numpy_ref` and native CPU, or an exception written into the accepted
   SEP.
@@ -259,7 +259,8 @@ to it; a function that departs from it says so in the first line of its docstrin
   sentinel where raising is correct.
 - Respect the layers (`architecture.md §3`): physics code never contains performance
   tricks; backend code never contains physics knowledge; the kernel contract
-  (`kernel-contract.md`) is the only crossing.
+  (`kernel-contract.md`) and the protected driver surface (frozen in
+  `tests/backends/test_driver.py`) are the crossings.
 
 ## Environment and dependencies
 
@@ -317,13 +318,15 @@ no blanket `# noqa`). What is left to judgement:
 
 The long form is [`backends.md`](docs/dev/backends.md).
 
-- **Where features land** (ADR-061, ADR-064, `backends.md §10`). `numpy_ref` and `native`:
-  every new feature lands on both, and they come first for testing and development.
-  `mlx`: experimental; keep it runnable and correct, add nothing as part of other work. A
-  backend without a feature refuses it by name.
-- The **NumPy reference backend is the oracle**. Every other backend is validated against
-  it (one linear application, one nonlinear evaluation, one step, eight steps, each
-  statistic, a full run) with tolerances derived from summation bounds and asserted `> 0`.
+- **Where features land** (ADR-061, ADR-064, ADR-068, `backends.md §10`). `native` is the
+  primary backend. `numpy_ref` and `native`: every new feature lands on both, in either
+  order, and `native` may shape the contract. `mlx`: experimental; keep it runnable and
+  correct, add nothing as part of other work. A backend without a feature refuses it by
+  name.
+- The **NumPy reference backend is the oracle** for numbers. Every other backend is
+  validated against it (one linear application, one nonlinear evaluation, one step, eight
+  steps, each statistic, a full run) with tolerances derived from summation bounds and
+  asserted `> 0`.
 - Hot code lives only under `src/solprop/backends/`, `src/solprop/translate/` and
   `native/`.
 - **Native kernels** follow [`native/AGENTS.md`](native/AGENTS.md). The floating-point
@@ -353,11 +356,16 @@ The long form is [`backends.md`](docs/dev/backends.md).
     tolerance. Adaptive work counts may differ; accounting for actual work is exact.
 - **In-place and `out=`** only inside the backends, wrapped by the seam; every buffer is
   listed by `memory_ledger()`, which is tested.
-- Device arrays never cross the seam; backends take and return host arrays.
-- **`KERNEL_SCHEMA_VERSION` versions the whole seam** (the `KernelProblem` fields, the
-  protected `StepDriver` surface and the stage bundles of `translate/stage.py`, frozen in
-  `tests/backends/test_driver.py`). Changing any of them bumps the version, rewrites the
-  literal in the same commit and adds a release-note fragment.
+- Device arrays never cross the `Backend` protocol, whose methods take and return host
+  arrays. Between `StepDriver` and its subclass the state is an opaque handle (an MLX
+  array, a native state), and the shared code reads it only through `_observed_field`,
+  which copies it to the host.
+- **The seam has no version number** (ADR-068). A change to the `KernelProblem` fields,
+  the protected `StepDriver` surface or the stage bundles of `translate/stage.py` rewrites
+  the frozen tables in `tests/backends/test_driver.py` in the same commit and adds a
+  release-note fragment. solprop and solprop-native are released together and pinned to
+  one version, and an editable checkout's extension is compared with its `native/` sources
+  by digest (`check_build`).
 - Every hot-path change comes with a benchmark ledger entry
   ([`benchmarks.md`](docs/dev/benchmarks.md)), measured with `python -m benchmarks ab`
   on about ten steps or a short `ab --length` window; report the window measured and
@@ -471,6 +479,10 @@ The long form is [`testing.md`](docs/dev/testing.md).
   commits rather than one large one. Stage deliberately with `git add <paths>`.
 - Changes reach `main` as pull requests with green CI, or by a local merge when the
   maintainers ask for one.
+- **Few pull requests, few pushes.** CI runs its whole matrix on every push to every pull
+  request, so keep one agent's work in one pull request, or a few, rather than one per
+  step. Stack only on another agent's open pull request, when your work needs it before it
+  lands. Commit as often as you like and push in batches.
 - **Before opening an issue or a pull request,** read [`CONTRIBUTING.md`](CONTRIBUTING.md):
   search the issues, the pull requests and the SEPs, link what is related, and follow its
   sections and labels.

@@ -124,7 +124,6 @@ native::Problem base_problem(const native::FieldFamily family) {
   problem.self_factor = 0.5;
   problem.conjugate_factor = 0.25;
   problem.harmonic_factor = 0.0;
-  problem.cubic_real = family == native::FieldFamily::field_real;
   problem.take_real = family != native::FieldFamily::envelope;
   return problem;
 }
@@ -401,8 +400,8 @@ TEST(MultiplyPhase, AppliesQuarterTurnAndPreservesMagnitude) {
   }
 }
 
-TEST(State, MasksAndAppliesCombinedWholeStepPropagator) {
-  auto problem = base_problem(native::FieldFamily::envelope);
+TEST(GeneralState, MasksAndAppliesCombinedWholeStepPropagator) {
+  auto problem = general_problem(native::FieldFamily::envelope);
   problem.n_phi_terms = 2;
   problem.phi_terms.clear();
   for (std::size_t term = 0; term < 2; ++term) {
@@ -416,7 +415,7 @@ TEST(State, MasksAndAppliesCombinedWholeStepPropagator) {
   auto scalars = trial(problem);
   scalars.phi_delta = {0.1, 0.2, 0.3, 0.4};
   const std::vector<Complex> initial(problem.n_omega, {1.0, -0.5});
-  native::State state(problem);
+  native::GeneralState state(problem);
   state.set_initial(initial, {});
   const auto partials = state.trial_step(0.25, scalars);
   state.finish(0.25);
@@ -432,12 +431,12 @@ TEST(State, MasksAndAppliesCombinedWholeStepPropagator) {
   EXPECT_EQ(partials[2], 0.0);
 }
 
-TEST(State, KerrFamiliesMatchStraightforwardHostTransforms) {
+TEST(GeneralState, KerrFamiliesMatchStraightforwardHostTransforms) {
   for (const auto family :
        {native::FieldFamily::field_real, native::FieldFamily::field_analytic,
         native::FieldFamily::envelope}) {
     SCOPED_TRACE(static_cast<int>(family));
-    auto problem = base_problem(family);
+    auto problem = general_problem(family);
     problem.nonlinear = true;
     std::vector<Complex> initial(problem.n_omega);
     initial[0] = Complex(1.0, 0.0);
@@ -448,7 +447,7 @@ TEST(State, KerrFamiliesMatchStraightforwardHostTransforms) {
     constexpr double taper = 1.5;
     constexpr double dz = 0.02;
     const auto derivative = nonlinear_reference(problem, initial, taper);
-    native::State state(problem);
+    native::GeneralState state(problem);
     state.set_initial(initial, {});
     const auto partials = state.trial_step(dz, trial(problem, taper));
     state.finish(dz);
@@ -2430,12 +2429,12 @@ TEST(PlasmaBandScan, FilteringPreservesShortRowsBlockTailsAndDynamicRange) {
   }
 }
 
-TEST(State, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
-  auto problem = base_problem(native::FieldFamily::envelope);
+TEST(GeneralState, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
+  auto problem = general_problem(native::FieldFamily::envelope);
   problem.nonlinear = true;
   const std::vector<Complex> initial = {
       {1.0, 0.0}, {0.25, -0.125}, {-0.1, 0.05}, {0.05, 0.025}};
-  native::State state(problem);
+  native::GeneralState state(problem);
   state.set_initial(initial, {});
   const auto first = state.trial_step(0.02, trial(problem, 1.5));
   const auto second = state.trial_step(0.02, trial(problem, 1.5));
@@ -2456,20 +2455,20 @@ TEST(State, RepeatedTrialsOverwriteFullCropAndStageZeroAccumulators) {
   EXPECT_EQ(state.field_to_host(), initial);
 }
 
-TEST(State, RejectsDuplicateCropBins) {
-  auto problem = base_problem(native::FieldFamily::envelope);
+TEST(GeneralState, RejectsDuplicateCropBins) {
+  auto problem = general_problem(native::FieldFamily::envelope);
   problem.crop_index[1] = problem.crop_index[0];
-  EXPECT_THROW(native::State state(problem), std::invalid_argument);
+  EXPECT_THROW(native::GeneralState state(problem), std::invalid_argument);
 }
 
-TEST(State, SplitStepAbsorberDampsOnlyAcceptedState) {
-  auto problem = base_problem(native::FieldFamily::envelope);
+TEST(GeneralState, SplitStepAbsorberDampsOnlyAcceptedState) {
+  auto problem = general_problem(native::FieldFamily::envelope);
   problem.nonlinear = false;
   problem.split_step_absorber = true;
   problem.absorber_coarse.assign(problem.n_t, 2.0);
   const std::vector<Complex> initial(problem.n_omega, {1.0, -0.25});
   constexpr double dz = 0.1;
-  native::State state(problem);
+  native::GeneralState state(problem);
   state.set_initial(initial, {});
   static_cast<void>(state.trial_step(dz, trial(problem)));
   const auto before = state.field_to_host();
@@ -2485,15 +2484,15 @@ TEST(State, SplitStepAbsorberDampsOnlyAcceptedState) {
   EXPECT_FALSE(state.fsal_ready());
 }
 
-TEST(State, InStageAbsorberPreservesFirstSameAsLastEligibility) {
-  auto problem = base_problem(native::FieldFamily::envelope);
+TEST(GeneralState, InStageAbsorberPreservesFirstSameAsLastEligibility) {
+  auto problem = general_problem(native::FieldFamily::envelope);
   problem.nonlinear = false;
   problem.in_stage_absorber = true;
   problem.first_same_as_last = true;
   problem.absorber_fine.assign(problem.n_to, 2.0);
   const std::vector<Complex> initial(problem.n_omega, {1.0, 0.0});
   constexpr double dz = 0.1;
-  native::State state(problem);
+  native::GeneralState state(problem);
   state.set_initial(initial, {});
   static_cast<void>(state.trial_step(dz, trial(problem)));
   state.finish(dz);
@@ -2720,8 +2719,8 @@ TEST(GeneralState, LowStorageRefusesATableNeverBuilt) {
                std::logic_error);
 }
 
-TEST(State, CloseIsIdempotentAndRejectsFurtherUse) {
-  native::State state(base_problem(native::FieldFamily::envelope));
+TEST(GeneralState, CloseIsIdempotentAndRejectsFurtherUse) {
+  native::GeneralState state(general_problem(native::FieldFamily::envelope));
   state.close();
   state.close();
   EXPECT_TRUE(state.closed());
@@ -3079,13 +3078,14 @@ TEST(CpuThreadPolicy, MatrixPackingDoesNotInheritTheDenseWorkWidth) {
 }
 
 TEST(CpuThreadPolicy, WorkspacesKeepIndependentChoicesAndReleaseTheirPools) {
-  auto problem = base_problem(native::FieldFamily::envelope);
-  native::State small(problem);
+  auto problem = general_problem(native::FieldFamily::envelope);
+  native::GeneralState small(problem);
   problem.n_to = native::fft_full_thread_elements;
   problem.time_window.assign(problem.n_to, 1.0);
+  problem.time_window_derivative.assign(problem.n_to, 0.0);
   problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
-  native::State large(problem);
-  native::State another_small(base_problem(native::FieldFamily::envelope));
+  native::GeneralState large(problem);
+  native::GeneralState another_small(general_problem(native::FieldFamily::envelope));
   const auto small_sizing = small.execution_sizing();
   EXPECT_EQ(small_sizing, another_small.execution_sizing());
   const auto key = "fft.fft." + std::to_string(problem.n_to);

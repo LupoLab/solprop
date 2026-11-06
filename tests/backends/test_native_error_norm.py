@@ -144,6 +144,31 @@ def test_a_whole_trial_scores_as_the_reference_s_trial_does(
     assert abs(score - wanted) <= STEP_RELATIVE / rtol
 
 
+def test_each_norm_is_read_from_its_own_state(capillary_problem, field_grid):
+    """The accept's sums: the state before the step, and the state after it."""
+    problem = _problem(capillary_problem)
+    dz = 1e-2
+    backend = native.NativeBackend(problem, grid=field_grid)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        partials = np.asarray(backend._prepare_trial(0.0, dz))
+        old, new = float(partials[0].sum()), float(partials[1].sum())
+        backend._finish(backend._native_state, dz)
+        after = backend.observe().require_field()
+    finally:
+        backend.close()
+    mask = problem.grids.norm_mask
+    before = problem.initial.field0
+    wanted_old = float(np.sum(np.abs(before[..., mask]) ** 2))
+    wanted_new = float(np.sum(np.abs(after[..., mask]) ** 2))
+    # Two sums of the same samples in other orders, and the band mask between the
+    # accept and `after`, which only the norm's bins pass.
+    bound = 4 * higham_gamma(before[..., mask].size)
+    assert abs(wanted_new - wanted_old) > 8 * bound * wanted_old, "the step must show"
+    assert abs(old - wanted_old) <= bound * wanted_old
+    assert abs(new - wanted_new) <= bound * wanted_new
+
+
 def _weights(n_omega):
     return np.linspace(0.5, 2.0, n_omega)
 

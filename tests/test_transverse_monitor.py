@@ -19,6 +19,7 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
+from solprop.backends.driver import _clean_launch_columns
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
@@ -30,8 +31,35 @@ from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
 from solprop.output.schema import PlaneStore
 from solprop.translate.transverse import _nodes_window
-from solprop.transverse_monitor import READ_RESOLUTION, TransverseEdge, _row_energy
+from solprop.transverse_monitor import TransverseEdge, _row_energy
 from test_transverse_resolution import LENGTH, suite
+
+
+def _launch(edge: TransverseEdge, state: np.ndarray, z: float, **options: Any) -> None:
+    """Launch `edge` on a state's host reading, as a backend's load would."""
+    noise = options.get("noise")
+    clean = None if noise is None else edge.reduction.column_power(state - noise)
+    reading = edge.reduction.reading(
+        state,
+        full=not edge.resumed,
+        current=edge.every_step and edge.resumed,
+    )
+    edge.launch(reading, z, clean_columns=clean, **options)
+
+
+def _read(edge: TransverseEdge, state: np.ndarray, z: float) -> None:
+    """Read `edge` on a state's host reading."""
+    edge.read(edge.reduction.reading(state), z)
+
+
+def _current(edge: TransverseEdge, state: np.ndarray) -> float:
+    """Return the state's inward current as a share of the launch."""
+    return edge.reduction.current(state) / edge._launch  # pyright: ignore[reportPrivateUsage]
+
+
+def _step(edge: TransverseEdge, state: np.ndarray, z: float) -> None:
+    """Accumulate `edge`'s current on a state's host reading."""
+    edge.step(edge.reduction.current(state), z)
 
 
 def edge_record(output: object) -> dict[str, Any]:
@@ -191,6 +219,67 @@ def test_a_resume_judges_against_the_original_launch(tmp_path: Path) -> None:
     assert max(resumed["edge_max"]) == pytest.approx(max(expected["edge_max"]), rel=0.1)
 
 
+def test_a_resume_restores_a_collars_totals_and_continues_its_current() -> None:
+    # A resumed collar run used to judge against zero baselines, with its current and
+    # peaks restarted: nothing the resumed branch of the launch doesn't take again was
+    # restored. The current's trapezoid continues from the resumed state's own sample.
+    edge, space = _line_edge()
+    start = _packet(space, 0.0, 0.0)
+    # Returning, but faint enough to stay below the stop.
+    packet = 3e-3 * _packet(space, 230e-6, 1e6)
+    options: dict[str, Any] = {
+        "noise": None,
+        "steps": None,
+        "reads": True,
+        "declared": False,
+    }
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        _launch(edge, start, 0.0, **options)
+        _step(edge, packet, 1e-5)
+        _step(edge, packet, 2e-5)
+        _read(edge, packet, 2e-5)
+    record = edge.summary()
+    assert cast("float", record["current"]) > 0.0
+    assert cast("float", record["strip_max"]) > 0.0
+    resumed, _ = _line_edge()
+    resumed.resume(record)
+    for name in (
+        "current",
+        "current_baseline",
+        "strip_baseline",
+        "strip_floor",
+        "strip_max",
+        "returned_max",
+    ):
+        # Copied from the record: a structural contract, not arithmetic.
+        assert resumed.summary()[name] == record[name], name
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        _launch(resumed, packet, 2e-5, **options)
+        _step(resumed, packet, 3e-5)
+        _step(edge, packet, 3e-5)
+    # Two runs of the same arithmetic on the same numbers, in one process.
+    assert resumed.summary()["current"] == pytest.approx(
+        edge.summary()["current"], rel=1e-12
+    )
+
+
+def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise() -> None:
+    # They stand in for `mask(field + noise) - noise`, which on a device would mean a
+    # copy of the state. The two differ only by the rounding of adding and subtracting
+    # the noise, relative to the column's energy.
+    rng = np.random.default_rng(29)
+    shape = (5, 2, 16)
+    field = rng.standard_normal(shape) + 1j * rng.standard_normal(shape)
+    noise = 1e-3 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
+    active = np.ones(16, dtype=bool)
+    active[:3] = False
+    expected = np.sum(np.abs(active * (field + noise) - noise) ** 2, axis=(1, 2))
+    found = _clean_launch_columns(field, noise, active)
+    np.testing.assert_allclose(found, expected, rtol=1e-13)
+
+
 def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
     from solprop.driver.summary import run_summary  # noqa: PLC0415
     from solprop.output import MemoryOutput  # noqa: PLC0415
@@ -246,17 +335,18 @@ def test_the_strip_reads_inward_flow_and_not_outward() -> None:
     # inward reads most of itself.
     edge, space = _line_edge()
     launch = _packet(space, 0.0, 0.0)
-    edge.launch(launch, 0.0, noise=None, steps=None, reads=True, declared=False)
+    _launch(edge, launch, 0.0, noise=None, steps=None, reads=True, declared=False)
     # solprop propagates as exp(-i k_z z): a packet exp(i kappa x) travels to -x.
-    outward, _ = edge._strip_inward(_packet(space, 230e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
-    inward, _ = edge._strip_inward(_packet(space, 230e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
+    outward, _ = edge._strip_shares(edge.reduction.strip(_packet(space, 230e-6, -1e6)))  # pyright: ignore[reportPrivateUsage]
+    inward, _ = edge._strip_shares(edge.reduction.strip(_packet(space, 230e-6, 1e6)))  # pyright: ignore[reportPrivateUsage]
     assert outward < 1e-6
     assert inward > 0.1
 
 
 def test_the_onset_current_counts_inward_flow_only() -> None:
     edge, space = _line_edge()
-    edge.launch(
+    _launch(
+        edge,
         _packet(space, 0.0, 0.0),
         0.0,
         noise=None,
@@ -264,8 +354,8 @@ def test_the_onset_current_counts_inward_flow_only() -> None:
         reads=True,
         declared=False,
     )
-    leaving = edge._onset_current(_packet(space, 200e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
-    returning = edge._onset_current(_packet(space, 200e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
+    leaving = _current(edge, _packet(space, 200e-6, -1e6))  # pyright: ignore[reportPrivateUsage]
+    returning = _current(edge, _packet(space, 200e-6, 1e6))  # pyright: ignore[reportPrivateUsage]
     assert leaving < 1e-20
     assert returning > 1e3 * leaving
 
@@ -284,15 +374,15 @@ def test_the_ramp_s_removal_stops_a_run_at_ten_budgets() -> None:
         space, design, 1e-3, 10.0, 0.01, np.arange(1), 2 * math.pi / 800e-9
     )
     clean = _packet(space, 0.0, 0.0)
-    edge.launch(clean, 0.0, noise=None, steps=None, reads=True, declared=False)
+    _launch(edge, clean, 0.0, noise=None, steps=None, reads=True, declared=False)
     filament = clean.copy()
     top = int(np.argmax(np.abs(np.asarray(space.k_x))))
     filament[top] = 0.05 * float(np.max(np.abs(clean)))  # content generated at the edge
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", BoundaryWarning)
-        edge.read(filament, 1e-4)
+        _read(edge, filament, 1e-4)
         with pytest.raises(BoundaryError, match="safety ramp has removed"):
-            edge.read(filament, 1e-3)
+            _read(edge, filament, 1e-3)
     assert edge.status == "stopped"
 
 
@@ -337,7 +427,7 @@ def _launched(edge: TransverseEdge, state: np.ndarray, **options: Any) -> None:
         "reads": True,
         "declared": False,
     }
-    edge.launch(state, 0.0, **(arguments | options))
+    _launch(edge, state, 0.0, **(arguments | options))
 
 
 def _gaussian_line(space: LineGrid, centre: float, waist: float) -> np.ndarray:
@@ -351,7 +441,7 @@ def test_a_launch_with_no_energy_is_never_read() -> None:
     _launched(edge, np.zeros((64, 1, 1), dtype=complex))
     # Nothing to judge shares against: no read is due, and a read does nothing.
     assert edge.ceiling(0.0) == math.inf
-    edge.read(np.zeros((64, 1, 1), dtype=complex), 1e-3)
+    _read(edge, np.zeros((64, 1, 1), dtype=complex), 1e-3)
     assert edge.summary()["reads"] == 0
 
 
@@ -391,13 +481,13 @@ def test_input_noise_above_the_warning_leaves_the_edge_insensitive() -> None:
     launch = cast("float", record["launch_energy"])
     scale = math.sqrt(above * launch / _energy(edge, packet))
     with pytest.warns(BoundaryWarning, match="light reached the transverse edge"):
-        edge.read(beam + noise + scale * packet, 1e-3)
+        _read(edge, beam + noise + scale * packet, 1e-3)
     assert edge.status == "insensitive"
 
 
 def _energy(edge: TransverseEdge, state: np.ndarray) -> float:
     """Return a state's energy in the edge's own measure."""
-    return float(np.sum(edge._column_power(state)))  # pyright: ignore[reportPrivateUsage]
+    return float(np.sum(edge._column_power(edge.reduction.column_power(state))))  # pyright: ignore[reportPrivateUsage]
 
 
 def _scaled(edge: TransverseEdge, state: np.ndarray, share: float) -> np.ndarray:
@@ -426,13 +516,13 @@ def test_the_ramp_s_warning_keeps_an_earlier_verdict() -> None:
     )
     state = beam + filament + _scaled(edge, _gaussian_line(space, 196e-6, 2e-6), 3e-5)
     with pytest.warns(BoundaryWarning, match="light reached the transverse edge"):
-        edge.read(state, 1e-4)
+        _read(edge, state, 1e-4)
     assert edge.status == "warned"
     with pytest.warns(BoundaryWarning, match="safety ramp has removed"):
-        edge.read(state, 2e-4)
+        _read(edge, state, 2e-4)
     assert edge.status == "warned"
     # Without a collar there is no current across an onset to accumulate.
-    edge.step(state, 2e-4)
+    _step(edge, state, 2e-4)
     assert edge.summary()["current"] == 0.0
 
 
@@ -474,7 +564,7 @@ def test_a_stop_on_a_slab_names_a_y_half_width() -> None:
     edge = _edge(space, None)
     _launched(edge, _slab(space, 0.0, 20e-6, 0.0))
     with pytest.raises(BoundaryError, match="a y half-width of at least") as caught:
-        edge.read(_scaled(edge, _slab(space, 195e-6, 4e-6, 0.0), 1e-2), 1e-3)
+        _read(edge, _scaled(edge, _slab(space, 195e-6, 4e-6, 0.0), 1e-2), 1e-3)
     assert "n_y of at least" in str(caught.value)
 
 
@@ -518,10 +608,10 @@ def test_a_collar_s_return_warns_then_stops_on_every_periodic_grid(
     _launched(edge, beam)
     inward = packet(230e-6, 10e-6, 3e5)
     with pytest.warns(BoundaryWarning, match="requested collar returns"):
-        edge.read(beam + _scaled(edge, inward, 1e-5), 1e-4)
+        _read(edge, beam + _scaled(edge, inward, 1e-5), 1e-4)
     assert edge.status == "warned"
     with pytest.raises(BoundaryError, match="absorbing too little"):
-        edge.read(beam + _scaled(edge, inward, 1e-2), 2e-4)
+        _read(edge, beam + _scaled(edge, inward, 1e-2), 2e-4)
     assert edge.status == "stopped"
     assert cast("float", edge.summary()["spatial_removed"]) > 0.0
 
@@ -534,8 +624,8 @@ def test_a_collar_narrower_than_its_strip_s_resolution_reads_no_return() -> None
     edge = _edge(space, _collar(space, 2e-6))
     _launched(edge, _gaussian_line(space, 0.0, 20e-6))
     returning = _gaussian_line(space, 195e-6, 10e-6) * 10
-    assert edge._strip_inward(returning) == (0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
-    assert edge._onset_current(returning) == 0.0  # pyright: ignore[reportPrivateUsage]
+    assert edge._strip_shares(edge.reduction.strip(returning)) == (0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
+    assert _current(edge, returning) == 0.0  # pyright: ignore[reportPrivateUsage]
 
 
 def test_under_input_noise_a_collar_s_strip_is_judged_above_the_noise_s() -> None:
@@ -548,7 +638,9 @@ def test_under_input_noise_a_collar_s_strip_is_judged_above_the_noise_s() -> Non
         warnings.simplefilter("ignore", BoundaryWarning)
         _launched(edge, beam + noise, noise=noise)
     floor = edge._strip_floor  # pyright: ignore[reportPrivateUsage]
-    assert floor == pytest.approx(3 * edge._strip_inward(noise)[0])  # pyright: ignore[reportPrivateUsage]
+    assert floor == pytest.approx(
+        3 * edge._strip_shares(edge.reduction.strip(noise))[0]
+    )  # pyright: ignore[reportPrivateUsage]
     assert floor > 0.0
 
 
@@ -565,78 +657,3 @@ def test_row_energy_sums_each_rows_squared_magnitude(dtype: type) -> None:
     sliced = rows[:, ::2]
     expected = np.sum(np.abs(sliced.astype(np.complex128)) ** 2, axis=1)
     np.testing.assert_allclose(_row_energy(sliced), expected, rtol=1e-6)
-
-
-def _faint_planes(space: LineGrid, faint: float) -> np.ndarray:
-    """Return a beam in three of 32 frequency planes, `faint` of it in the others."""
-    beam = _gaussian_line(space, 0.0, 20e-6)
-    weights = np.full(32, faint, dtype=float)
-    weights[10:13] = 1.0
-    return beam * weights
-
-
-def test_a_read_synthesises_only_the_planes_that_can_reach_its_resolution() -> None:
-    space = LineGrid(200e-6, 128)
-    edge = _edge(space, None)
-    state = _faint_planes(space, 1e-12)
-    _launched(edge, state)
-    flat = state.reshape(state.shape[0], -1)
-    kept = edge._occupied_planes(flat)  # pyright: ignore[reportPrivateUsage]
-    assert kept.shape == (128, 3)
-    np.testing.assert_array_equal(kept, flat[:, 10:13])
-
-
-def test_a_read_that_leaves_planes_out_reads_low_by_at_most_its_bound() -> None:
-    # READ_RESOLUTION's promise, against a read of every plane: the faint planes hold
-    # the whole of a face's light, the case that loses the most.
-    space = LineGrid(200e-6, 128)
-    beam = _faint_planes(space, 0.0)
-    spread = _gaussian_line(space, 195e-6, 5e-6) * np.ones(32)
-    state = beam + 1e-8 * spread * (np.abs(np.arange(32) - 11) > 1)
-    full, leaving_out = _edge(space, None), _edge(space, None)
-    _launched(full, beam)
-    _launched(leaving_out, beam)
-    flat = state.reshape(state.shape[0], -1)
-    assert leaving_out._occupied_planes(flat).shape[1] == 3  # pyright: ignore[reportPrivateUsage]
-    full._occupied_planes = lambda rows: rows  # type: ignore[method-assign]  # pyright: ignore[reportPrivateUsage]
-    full.read(state, 1e-4)
-    leaving_out.read(state, 1e-4)
-    every = np.asarray(full.summary()["edge_max_raw"], dtype=float)
-    some = np.asarray(leaving_out.summary()["edge_max_raw"], dtype=float)
-    # An under-read to rounding (the kept planes' transforms are the same), by no more
-    # than the bound; the faint planes do reach the x+ face, so there is one to lose.
-    assert np.all(some <= every * (1 + 1e-12))
-    assert np.max(every - some) <= READ_RESOLUTION * full.budget**2
-    assert np.max(every - some) > 0.0
-
-
-def test_a_read_of_a_state_filling_its_planes_takes_no_copy() -> None:
-    space = LineGrid(200e-6, 128)
-    edge = _edge(space, None)
-    state = _faint_planes(space, 1.0)
-    _launched(edge, state)
-    flat = state.reshape(state.shape[0], -1)
-    assert edge._occupied_planes(flat) is flat  # pyright: ignore[reportPrivateUsage]
-
-
-def test_a_read_of_light_fainter_than_its_resolution_keeps_no_plane() -> None:
-    # Most of the launch has been absorbed: every plane is left out, and the read
-    # reports an empty edge rather than failing on an empty transform.
-    space = LineGrid(200e-6, 128)
-    edge = _edge(space, None)
-    beam = _faint_planes(space, 0.0)
-    _launched(edge, beam)
-    state = 1e-6 * beam
-    flat = state.reshape(state.shape[0], -1)
-    assert edge._occupied_planes(flat).shape == (128, 0)  # pyright: ignore[reportPrivateUsage]
-    edge.read(state, 1e-4)
-    assert np.all(np.asarray(edge.summary()["edge_max_raw"], dtype=float) == 0.0)
-
-
-def test_a_requested_collar_reads_every_plane() -> None:
-    # Its rate is credited as a removal, not judged against the warning.
-    space = LineGrid(200e-6, 128, collar_fraction=0.5)
-    edge = _edge(space, _collar(space, 1e-4))
-    state = _faint_planes(space, 1e-12)
-    flat = state.reshape(state.shape[0], -1)
-    assert edge._occupied_planes(flat) is flat  # pyright: ignore[reportPrivateUsage]

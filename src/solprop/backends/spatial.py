@@ -4,7 +4,8 @@
 
 """Collect spatial host statistics through bounded transverse reconstruction chunks."""
 
-from collections.abc import Collection, Mapping
+import math
+from collections.abc import Callable, Collection, Mapping
 from dataclasses import dataclass, fields
 
 import numpy as np
@@ -12,7 +13,7 @@ from jaxtyping import Complex, Float
 
 from solprop import fourier
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, GridError
 from solprop.grid import TimeGrid
 from solprop.profiles import ZProfile
 from solprop.spatial import (
@@ -20,6 +21,8 @@ from solprop.spatial import (
     FAR_FIELD_STATISTICS,
     OPERATOR_STATISTICS,
     ApertureTables,
+    _fluence_rings,
+    _ring_fluence_widths,
     aperture_statistics,
     cartesian_fluence_widths,
     radial_fluence_widths,
@@ -38,7 +41,6 @@ from solprop.translate.spatial import (
 
 __all__ = [
     "AXIS_FOLDED",
-    "AXIS_SPECTRUM_ONLY",
     "FAR_FIELD_BAND_BUDGET",
     "LINE_BLOCK",
     "FarFieldLayout",
@@ -50,6 +52,7 @@ __all__ = [
     "far_field_layout",
     "far_field_partials",
     "fluence_budget",
+    "plane_fluence_widths",
     "radial_absorber_matrix",
     "signed_fluence_widths",
     "slab_columns",
@@ -230,14 +233,7 @@ LINE_BLOCK = 64
 """Columns per unit of a line's far-field pass: a plane's unit is a whole row."""
 
 AXIS_FOLDED = frozenset({"on_axis_spectrum", "on_axis_intensity"})
-"""The axis statistics a far-field pass forms from a ``W = 1`` slot, by default."""
-
-AXIS_SPECTRUM_ONLY = frozenset({"on_axis_spectrum"})
-"""The axis statistics Kokkos's far-field pass forms from its ``W = 1`` slot.
-
-Kokkos forms ``on_axis_intensity`` in its own spatial statistics pass, so its slot
-count leaves that name out.
-"""
+"""The axis statistics a far-field pass forms from a ``W = 1`` slot."""
 
 
 @dataclass(frozen=True)
@@ -296,7 +292,6 @@ def far_field_layout(
     n_apertures: int,
     n_regions: int,
     n_pol: int,
-    axis_folded: Collection[str] = AXIS_FOLDED,
 ) -> FarFieldLayout | None:
     """Lay out the slots a compiled far-field pass accumulates for a request.
 
@@ -308,9 +303,6 @@ def far_field_layout(
         The request's table rows.
     n_pol : int
         The state's polarisation components.
-    axis_folded : collections.abc.Collection of str, optional
-        The axis statistics that read the ``W = 1`` slot: :data:`AXIS_FOLDED` by
-        default, :data:`AXIS_SPECTRUM_ONLY` on the native backend.
 
     Returns
     -------
@@ -341,7 +333,7 @@ def far_field_layout(
         ),
         ("regions", n_regions if "region_spectrum" in wanted else 0),
         ("apertures", stride * n_apertures),
-        ("axis", 4 * n_pol if wanted & set(axis_folded) else 0),
+        ("axis", 4 * n_pol if wanted & AXIS_FOLDED else 0),
     )
     first: dict[str, int] = {}
     slots = 0
@@ -398,9 +390,7 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(
-    problem: KernelProblem, *, axis_folded: Collection[str] = AXIS_FOLDED
-) -> tuple[int, int]:
+def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
     Sized from the problem's own request at construction: its names, tables and
@@ -411,8 +401,6 @@ def far_field_partials(
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
-    axis_folded : collections.abc.Collection of str, optional
-        The axis statistics the backend's pass forms, as for :func:`far_field_layout`.
 
     Returns
     -------
@@ -430,7 +418,6 @@ def far_field_partials(
         n_apertures=spec.n_apertures,
         n_regions=spec.n_regions,
         n_pol=problem.shape[2],
-        axis_folded=axis_folded,
     )
     if layout is None:
         return 0, 0
@@ -751,7 +738,8 @@ def fluence_budget(
     Parameters
     ----------
     magnitude : numpy.ndarray
-        The fluence magnitude at each node in J/m^2.
+        The fluence magnitude at each node in J/m^2, or a bound on it from above: a
+        backend that forms the fluence without a time transform has only the bound.
     n_terms : int
         ``n_pol * n_t + n_modes``.
 
@@ -800,12 +788,7 @@ def signed_fluence_widths(
     """
     if np.any(fluence < -budget):
         worst = int(np.argmin(fluence + budget))
-        msg = (
-            "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
-            f"signed axial flux is {fluence[worst]:.3e} J/m^2 at node {worst}, "
-            "beyond its rounding budget; the width is undefined for it"
-        )
-        raise BackendError(msg)
+        raise _negative_fluence(float(fluence[worst]), worst)
     fluence = np.maximum(fluence, 0.0)
     if geometry.kind == "radial":
         return radial_fluence_widths(
@@ -815,6 +798,112 @@ def signed_fluence_widths(
         moment, radius, fwhm = _slab_widths(geometry, fluence)
         return moment, radius, fwhm
     return cartesian_fluence_widths(geometry.axes[0], geometry.axes[1], fluence)
+
+
+def plane_fluence_widths(
+    geometry: SpatialGeometry,
+    moments: Float[np.ndarray, " 8"],
+    n_terms: int,
+    trace: Callable[..., np.ndarray],
+) -> tuple[float, float, float]:
+    """Return a Cartesian plane's widths from reductions a backend took of its fluence.
+
+    :func:`signed_fluence_widths` and :func:`solprop.spatial.cartesian_fluence_widths`
+    for a backend that reduces the fluence where the field lives, so that the profile
+    itself never crosses: the refusal, the clamp, the centroid, the rings and the widths
+    are read as those functions read them.
+
+    Parameters
+    ----------
+    geometry : solprop.translate.spatial.SpatialGeometry
+        The plane's ``"free"`` geometry, with at least two samples on each axis.
+    moments : numpy.ndarray
+        The lowest fluence in J/m^2, its node, the bound on the largest magnitude in
+        J/m^2 (at least :func:`fluence_budget`'s), the largest fluence read as
+        nonnegative, the count of values that aren't finite, then the sum of the fluence
+        scaled by that largest value, clamped to be nonnegative, and that sum weighted
+        by the samples' x and y indices.
+    n_terms : int
+        As for :func:`fluence_budget`.
+    trace : collections.abc.Callable
+        Called with the centroid in m from the axes' first samples, their spacings, the
+        extent, the rings' spacing, their count, and the rings' cosines and sines. It
+        returns the sum of the scaled fluence times the squared distance from the
+        centroid over the squared extent, then the scaled fluence averaged on each ring.
+
+    Returns
+    -------
+    tuple of float
+        Second-moment, 1/e^2 and FWHM widths in m.
+
+    Raises
+    ------
+    BackendError
+        If the fluence is negative beyond its budget anywhere.
+    GridError
+        If a value isn't finite or the second moment isn't representable.
+    """
+    worst, node, size, maximum, nonfinite, total, moment_x, moment_y = moments
+    if nonfinite:
+        msg = (
+            "Cartesian fluence widths require finite axes "
+            "and matching nonnegative samples"
+        )
+        raise GridError(msg)
+    if worst < -fluence_budget(np.array([size]), n_terms)[0]:
+        raise _negative_fluence(float(worst), int(node))
+    if maximum == 0:
+        return math.nan, math.nan, math.nan
+    x, y = geometry.axes
+    dx, dy = float(x[1] - x[0]), float(y[1] - y[0])
+    center_x = float(x[0]) + dx * float(moment_x / total)
+    center_y = float(y[0]) + dy * float(moment_y / total)
+    extent = math.hypot(
+        max(center_x - x[0], x[-1] - center_x), max(center_y - y[0], y[-1] - center_y)
+    )
+    rings = _fluence_rings(x, y, center_x, center_y)
+    empty = np.empty(0)
+    packed = trace(
+        center_x - float(x[0]),
+        center_y - float(y[0]),
+        dx,
+        dy,
+        extent,
+        float(rings.radii[1]) if rings is not None else 0.0,
+        0 if rings is None else rings.radii.size,
+        empty if rings is None else rings.cosines,
+        empty if rings is None else rings.sines,
+    )
+    values = np.ravel(packed)
+    second = extent * math.sqrt(2 * float(values[0]) / float(total))
+    if not math.isfinite(second):
+        msg = "Cartesian fluence moments are not representable"
+        raise GridError(msg)
+    if rings is None:
+        return second, math.nan, math.nan
+    return second, *_ring_fluence_widths(rings.radii, values[1:])
+
+
+def _negative_fluence(value: float, node: int) -> BackendError:
+    """Return the refusal of a fluence negative beyond its rounding budget.
+
+    Parameters
+    ----------
+    value : float
+        The fluence in J/m^2.
+    node : int
+        Its node.
+
+    Returns
+    -------
+    solprop.exceptions.BackendError
+        The refusal, to raise.
+    """
+    return BackendError(
+        "beam_radius and fwhm_r need a nonnegative fluence profile, and the "
+        f"signed axial flux is {value:.3e} J/m^2 at node {node}, "
+        "beyond its rounding budget; the width is undefined for it"
+    )
 
 
 def _rows(

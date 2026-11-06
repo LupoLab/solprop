@@ -211,8 +211,8 @@ def _is_stop(message: object) -> bool:
 class _Channel:
     """The worker's end of its pipe: commands in, a stop flag, progress out.
 
-    :meth:`is_set` is the stop flag the worker's run polls before every trial step. It
-    reads what has arrived without waiting, remembers a stop, and keeps any other
+    :meth:`is_set` is the stop flag the worker's run polls, as any run polls its flag.
+    It reads what has arrived without waiting, remembers a stop, and keeps any other
     message for :meth:`command`, so polling never consumes a command.
 
     Parameters
@@ -857,9 +857,9 @@ class Pool:
 
         Work that implements :class:`ControlledWork` is stopped and watched through
         each worker's pipe (SEP 41, S4 and S17). Once its caller's flag is set, the
-        pool sends every busy worker the stop message, which that worker's run polls
-        before every trial step, collects their results, dispatches nothing more and
-        shuts the workers down; the abrupt ``terminate`` of a worker that does not
+        pool sends every busy worker the stop message, which that worker's run polls,
+        collects their results, dispatches nothing more and shuts the workers down;
+        the abrupt ``terminate`` of a worker that does not
         exit stays the last resort. While a watched point runs, its worker sends the
         run's reporter calls, which the pool hands to :meth:`ControlledWork.relay`.
 

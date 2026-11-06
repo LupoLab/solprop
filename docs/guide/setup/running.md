@@ -549,11 +549,92 @@ percent of a digest, about 0.6 s and 9 s for a 4 GiB input on a Xeon without SHA
 instructions, and it refuses a bad input before it is loaded.
 
 **The boundary check on a free-space scan.** The default
-[`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge on the
-host at the launch, at every plane and at every read: it copies the state across and
-transforms it out of place, even with `fields="none"`. That is about 1.1 field volumes more at
-the peak, which neither `memory_ledger` nor the admission counts, and on native CPU at 256 ×
-256 × 96 with two planes it took a point from 0.96 to 2.1 volumes above the level before the
-input, and from 3.05 to 3.99 s. A scan whose window is already settled can pass
-`boundary_check=None`. That also turns off the check of the time window's edges, since no
-setting keeps one without the other, so settle the window on one input with the check on first.
+[`boundary_check`](../numerics/boundaries.md) reads a free-space run's transverse edge at the
+launch, at every plane and at every read, and a requested collar's at every committed step. `native` does it where the
+state lives, with only numbers crossing, even on a device ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)). `numpy_ref` and `mlx` read a host copy of the state
+instead, and transform it out of place: on a device, a whole state's copy at each read. On native
+CPU at 256 × 256 × 48, with sixteen steps and two planes at sixteen threads, the check took a point from 1.8 to 2.0 s and
+from 1.5 to 2.1 volumes above the level before the run. A scan whose window is already settled can
+still pass `boundary_check=None`. That also turns off the check of the time window's edges, since
+no setting keeps one without the other, so settle the window on one input with the check on first.
+
+### A scan that reduces each plane
+
+A scan whose result is a few numbers per input has no use for a store.
+{py:class}`~solprop.output.callback.CallbackOutput` is a handler built from a callable: it
+gives each {py:class}`~solprop.output.schema.SavedPlane` to the callable, the entrance
+first, and keeps nothing, so the body of a hand loop over the backend moves into a few
+lines. Most reductions want statistics and no field, which is a run with `fields="none"`
+and the statistics it names:
+
+```python
+import dataclasses
+
+from solprop.driver import Simulation
+from solprop.output import CallbackOutput
+from solprop.pulses import SechPulse
+from solprop.stats import StatsSpec
+
+simulation = Simulation.from_gnlse(
+    0.11,
+    0.01,
+    [0.0, 0.0, -1.183e-26],
+    wavelength=835e-9,
+    wavelength_limits=(500e-9, 2e-6),
+    trange=1.2e-12,
+    width=100e-15,
+    peak_power=9.8,
+    shape="sech",
+    n_save=3,
+    rtol=1e-6,
+    stats=StatsSpec(names=("peak_power",)),
+)
+simulation.settings = dataclasses.replace(simulation.settings, fields="none")
+
+peak_power = {}
+with simulation.runner() as runner:
+    for launched in (8.0, 9.8, 12.0):
+        peaks = []
+        runner.run(
+            SechPulse(wavelength=835e-9, width=100e-15, peak_power=launched),
+            output=CallbackOutput(
+                lambda plane: peaks.append(plane.stats["peak_power"][0])
+            ),
+            progress="none",
+        )
+        peak_power[launched] = max(peaks)
+```
+
+Under `fields="none"` the callable's plane carries `z`, `stats`, `step_history` and
+`step_stats`, with `field=None` and `noise_phase=None`, and no field leaves the backend,
+even on a device. `Simulation.run` takes the same handler for a single run.
+
+To reduce the field itself, keep it: the default `fields="all"`, or `fields="planes"`, whose
+other planes arrive with `field=None`. The plane then holds the backend's observation
+itself, read-only and not copied, so a plane reduced and let go costs one field volume on
+the host and the handler adds none. (A modal route first converts the amplitudes to true
+power in a new array, so that conversion holds a second volume while it runs.) The field is
+in the internal FFT convention, in the square root of watts: `np.abs(plane.field) ** 2`
+does not depend on the convention, and {py:func}`~solprop.fourier.spectrum_to_optics` gives
+what a file stores, in a second volume.
+
+Nothing writes to a plane's arrays again, so the callable may keep any of them, at the cost
+of what it keeps: `plane.field` is a volume. What the callable raises stops the run and
+propagates, and that plane is not counted.
+
+What the handler cannot do, it refuses by name:
+
+- Reading anything back: `handler["stats/peak_power"]` and `handler.fields()` raise
+  {py:class}`~solprop.exceptions.OutputError`, and so does whatever reads a run through
+  them; `key in handler` answers `False`.
+- A resume: `resume=True` needs a path, and
+  {py:func}`~solprop.output.hdf5.check_cache`, {py:func}`~solprop.output.hdf5.resume` and
+  {py:func}`~solprop.output.resumable.resumability` read a file and refuse any handler.
+- A second run: having kept no plane, it has nothing to continue, so build one per run.
+- A TDSE run, whose call ledger has to be recorded.
+
+It also has nowhere to put a checkpoint or a record: a run stopped with `stop=` returns the
+handler with no state written, and a run with an optmat ionisation rate, which reads its
+peak rates back from its output, neither reports its peak field nor warns past the rate's
+range ({py:class}`~solprop.exceptions.MaterialRangeWarning`). Read `peak_ionisation_rate`
+in the callable where that matters.

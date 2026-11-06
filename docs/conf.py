@@ -155,6 +155,12 @@ nitpick_ignore = [
     # which the shared stage and Adams functions take as a keyword and StepDriver
     # carries as a class attribute; private for the same reason.
     ("py:class", "solprop._helpers.Helpers"),
+    # Private to solprop and solprop-native, released together, and named in the public
+    # `TransverseEdge`'s signatures.
+    ("py:class", "solprop.transverse_monitor._EdgeLine"),
+    ("py:class", "solprop.transverse_monitor._EdgeReading"),
+    ("py:class", "solprop.transverse_monitor._EdgeTables"),
+    ("py:class", "solprop.transverse_monitor._HostEdgeReduction"),
     ("py:class", "Helpers"),
     # MLX publishes no inventory Sphinx can resolve (the mlx backend, SEP 33).
     ("py:class", "mlx.core.array"),

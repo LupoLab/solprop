@@ -8,13 +8,16 @@ In-memory and HDF5 outputs sharing one save protocol
 (:class:`solprop.output.schema.PlaneStore`), one metadata schema and one sign convention
 on the way out: stored fields are in the optics convention and carry the attribute
 ``spectral_convention = "optics"`` (see ``docs/dev/decisions.md``). The manual page is
-``docs/guide/results/output.md``. A TDSE run can also write its raw provider
+``docs/guide/results/output.md``. A run reduced plane by plane stores nothing, and gives
+each plane to a callable instead (:class:`~solprop.output.callback.CallbackOutput`;
+``docs/guide/setup/running.md``). A TDSE run can also write its raw provider
 evaluations to a separate archive
 (:class:`~solprop.output.tdse_archive.TDSEArchive`, read with
 :func:`~solprop.output.tdse_archive.open_tdse_archive`;
 ``docs/guide/media/tdse.md``).
 """
 
+from solprop.output.callback import CallbackOutput
 from solprop.output.hdf5 import (
     COMPRESSIONS,
     HDF5Output,
@@ -77,6 +80,7 @@ __all__ = [
     "SPECTRAL_CONVENTION",
     "TDSE_ARCHIVE_SCHEMA",
     "BackendRecord",
+    "CallbackOutput",
     "CheckpointOutput",
     "GitProvenance",
     "GridRecord",

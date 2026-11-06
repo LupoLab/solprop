@@ -255,12 +255,12 @@ user script / prop_capillary(...)                                  (D)
    │  Boundaries, StepperSettings, Output
    ▼
 Simulation(...)                                                    (D)
-   │  .translate() → KernelProblem  (validated arrays, schema_version)   (T)
+   │  .translate() → KernelProblem  (validated arrays)                   (T)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)
    │  backend.set_initial(field)                                    host → device once
-   │  for z_save in planes: backend.propagate_to(z_save)            shared step loop
+   │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
    │                        stats = backend.stats(spec)             one fused pass
    │                        output.save(z_save, obs, stats)
@@ -545,7 +545,7 @@ class Backend(Protocol):
 
     def set_initial(self, field, noise, *, z=0.0, resume=False) -> None: ...
     def set_progress(self, reporter) -> None: ...  # an observer, never an input
-    def propagate_to(self, z: float) -> StepSummary: ...  # shared step loop
+    def propagate_to(self, z: float) -> StepSummary: ...  # the driver's way in
     def observe(self, *, field: bool = True) -> Observation: ...  # host arrays only
     def stats(self, spec) -> dict[str, np.ndarray]: ...  # one fused pass
     def metadata(self) -> dict[str, object]: ...  # what the execution was
@@ -553,6 +553,9 @@ class Backend(Protocol):
     def available_device_memory(self) -> int | None: ...
     def memory_ledger(self) -> dict[str, int]: ...
     def close(self) -> None: ...
+
+    # And what the run layer asks beside them: the stop flag, the held plane, the boundary
+    # monitor, the march's snapshot and an estimate's step (backends.md section 1).
 ```
 
 - `numpy_ref`: the readable oracle. Plain NumPy + `scipy.fft`, no fusion, no in-place
@@ -596,6 +599,11 @@ save and on resume); processing accessors squeeze trivial axes and accept `conve
 A TDSE run may also write its raw provider evaluations to a separate archive
 (`output/tdse_archive.py`, schema `solprop.tdse-archive.v1`), which the optical record
 references and never needs ([the archive page](../guide/media/tdse.md)).
+
+`CallbackOutput` (`output/callback.py`) stores nothing: it implements `Output` and
+`RetainingOutput` and hands each plane to a callable, unconverted. It is deliberately not a
+`PlaneStore`, whose save path converts the field into a new volume, and not a
+`CheckpointOutput`, which promises a state a resume can continue.
 
 `output/snapshots.py` coordinates optional immutable disk snapshots at the existing
 accepted-step commit boundary. It persists retained march state and execution facts,

@@ -157,12 +157,29 @@ def _stopped(received: list[int], output: Path) -> int:
     Returns
     -------
     int
-        Zero, or ``128`` plus the first signal's number.
+        Zero, or ``128`` plus the first signal's number. A signal that came too late to
+        stop anything, since the file says the run completed, is zero too.
     """
     if not received:
         return 0
+    from solprop.exceptions import OutputError  # noqa: PLC0415 - imports the physics
+    from solprop.output.hdf5 import open_file  # noqa: PLC0415 - imports the physics
+
+    # A signal during the build can stop a run before it has written anything.
+    try:
+        with open_file(output) as stored:
+            outcome = stored.outcome
+    except OSError, OutputError:
+        outcome = None
+    complete = outcome is not None and outcome.status == "complete"
+    name = signal.Signals(received[0]).name
+    if complete:
+        sys.stderr.write(
+            f"solprop: {name} arrived too late to stop the run; {output} is complete\n"
+        )
+        return 0
     sys.stderr.write(
-        f"solprop: stopped by {signal.Signals(received[0]).name}; the state is "
+        f"solprop: stopped by {name}; the state is "
         f"written to {output}, and solprop resume {output} continues it\n"
     )
     return 128 + received[0]

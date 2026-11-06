@@ -4,7 +4,7 @@ A solprop Enhancement Proposal (SEP) is the design document for one major change
 model, route or numerical scheme, a changed default or convention, a redesigned
 interface. It sets out the motivation, the theory with its references, the implementation
 options and how the result will be verified; once accepted it is implemented in phases,
-`numpy_ref` first, then the native backend, and each phase appends its
+on `numpy_ref` and the native backend in either order, and each phase appends its
 report to the SEP. Finished SEPs are archived and linked from the manual pages they
 produced. [SEP 0](sep-0000-process.md) describes the process and says when a SEP is
 needed; new SEPs start from [the template](template.md). The [roadmap](../roadmap.md)
@@ -79,6 +79,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [41](archive/sep-0041-recipes-and-front-ends.md) | Recipes, and the hooks a front end needs | Final | Change |
 | [42](archive/sep-0042-tolerant-resume.md) | Resuming by what matters to the run | Final | Change |
 | [43](archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
+| [44](archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
 
 ```{toctree}
 :hidden:

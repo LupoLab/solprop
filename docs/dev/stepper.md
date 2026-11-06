@@ -418,7 +418,9 @@ replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop, a monitor check), the call's bound, the
-budget, the floor or a native error. The driver books the call's attempts through
+budget, the floor or a native error. The run's stop flag is polled before each call
+and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
+what either waits for. The driver books the call's attempts through
 `_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
 and steps every configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or

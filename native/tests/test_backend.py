@@ -47,10 +47,8 @@ from solprop_native.backend import (
 )
 
 
-def test_check_build_accepts_the_compiled_contract(phase_a_case: PhaseACase) -> None:
-    problem, _ = phase_a_case
+def test_check_build_accepts_the_compiled_contract() -> None:
     assert check_build() is None
-    assert check_build(problem) is None
 
 
 def test_rk_source_dispatch_counter_resets_and_excludes_fsal_reuse(
@@ -153,6 +151,17 @@ def test_a_solprop_without_a_driver_member_is_refused_by_name(
         check_build()
 
 
+def test_the_driver_surface_names_every_method_the_adapter_overrides() -> None:
+    overridden = {
+        name
+        for name, member in vars(NativeBackend).items()
+        if not name.startswith("__")
+        and callable(member)
+        and callable(getattr(StepDriver, name, None))
+    }
+    assert overridden <= set(solprop_native.DRIVER_SURFACE)
+
+
 def test_stage_observation_owns_its_host_copy_and_checks_lifetime(
     phase_a_case: PhaseACase,
 ) -> None:
@@ -220,7 +229,7 @@ def test_the_solprop_version_is_recorded_and_never_compared(
     monkeypatch.setattr(
         solprop_native.backend, "_build_facts", functools.cache(facts.__wrapped__)
     )
-    assert check_build(problem) is None
+    assert check_build() is None
     backend = NativeBackend(problem, grid=grid)
     try:
         record = backend.metadata()
@@ -228,43 +237,6 @@ def test_the_solprop_version_is_recorded_and_never_compared(
         backend.close()
     assert record["solprop_version"] == "solprop-elsewhere"
     assert record["solprop_version_built_against"] != "solprop-elsewhere"
-
-
-@pytest.mark.parametrize(
-    "declared",
-    [
-        2,
-        18,
-        19,
-        20,
-        21,
-        22,
-        23,
-        24,
-        26,
-        27,
-        28,
-        29,
-        30,
-        31,
-        32,
-        34,
-        35,
-        36,
-        37,
-        39,
-        40,
-        41,
-    ],
-)
-def test_schema_mismatch_names_both_versions(
-    phase_a_case: PhaseACase, declared: int
-) -> None:
-    # The two independently qualified schema-18 branches are not the combined seam.
-    problem, _ = phase_a_case
-    spoiled = dataclasses.replace(problem, schema_version=declared)
-    with pytest.raises(BackendError, match=rf"version 46.*version {declared}"):
-        check_build(spoiled)
 
 
 @pytest.mark.parametrize("mode", ["tabulate", "recompute"])
@@ -484,9 +456,9 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
 
 @pytest.mark.parametrize(
     "member",
-    ["restore_call_ledgers", "_reserve_source_calls", "_release_source_calls"],
+    ["_adams_block", "_march_to", "_propagator_mode", "reads_transverse_edge"],
 )
-def test_schema_requires_the_inherited_response_accounting_hooks(
+def test_the_build_requires_each_kind_of_driver_member_the_adapter_uses(
     monkeypatch: pytest.MonkeyPatch, member: str
 ) -> None:
     monkeypatch.delattr(StepDriver, member)
@@ -781,7 +753,7 @@ def test_metadata_and_memory_ledger_are_self_consistent(
     n = problem.shape[-1]
     stages = problem.stepper.tableau.n_stages
     assert metadata["backend"] == "native"
-    assert metadata["schema_version"] == 46
+    assert metadata["source_digest"] == build_info().source_digest
     assert metadata["openmp_wait_policy"] == solprop_native.WAIT_POLICY
     assert metadata["openmp_proc_bind"] == solprop_native.PROC_BIND
     # NumPy's own BLAS pool is held while the backend lives (solprop_native._host_blas).
