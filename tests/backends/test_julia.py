@@ -53,8 +53,13 @@ WINDOWS = [
 ]
 
 
+# Statistics that measure rounding: the quadrature's error estimate and the plasma
+# column's work balance.
+ROUNDING_ESTIMATES = frozenset(("quadrature_error", "plasma_work_defect"))
+
+
 def _run(name, configuration):
-    """Propagate the configured window on one backend; return the field and steps."""
+    """Propagate a window on one backend; return its field, steps and statistics."""
     simulation = build(configuration | {"backend": name})
     problem = simulation.translate()
     engine = select(
@@ -68,8 +73,9 @@ def _run(name, configuration):
     engine.propagate_to(float(configuration["stop"]))
     observation = engine.observe(field=True)
     steps = (observation.n_steps, observation.n_rejected)
+    statistics = engine.stats(problem.stats_spec)
     engine.close()
-    return observation.field, steps
+    return observation.field, steps, statistics
 
 
 # The Cartesian beam's fused silica is evaluated past Malitson's range, by design of the
@@ -82,9 +88,23 @@ def test_julia_matches_the_reference(runtime, case, stepper, fraction):
     configuration = CASES[case].configuration(
         stepper, 2, "julia", fraction=fraction, noise="none"
     )
-    field, steps = _run("julia", configuration)
-    reference, reference_steps = _run("numpy_ref", configuration)
+    field, steps, statistics = _run("julia", configuration)
+    reference, reference_steps, reference_statistics = _run("numpy_ref", configuration)
     assert steps == reference_steps
+    # The engine forms the Poynting set's transforms and the populations itself: each
+    # statistic to rounding of its own largest value (a spectrum's tails are rounding).
+    assert set(statistics) == set(reference_statistics)
+    for name, value in reference_statistics.items():
+        if name in ROUNDING_ESTIMATES:
+            # A difference of nearly equal sums, at their rounding here (a work defect
+            # of 1e-13 to 1e-12): two orders of summation agree on its order only.
+            ours, theirs = float(statistics[name][0]), float(value[0])
+            assert ours == theirs or 0.5 <= ours / theirs <= 2.0, (name, ours, theirs)
+            continue
+        largest = float(np.max(np.abs(value), initial=0.0))
+        np.testing.assert_allclose(
+            statistics[name], value, rtol=1e-9, atol=1e-9 * largest, err_msg=name
+        )
     # Matched discrete methods on one step sequence: the fields differ by the rounding
     # of their transforms and sums, which the native/julia A/B measures at <= 1e-13
     # over these windows; 1e-10 leaves three orders for longer accumulation and is
@@ -123,8 +143,8 @@ def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fra
     configuration = CASES[case].configuration(
         stepper, 2, "julia", fraction=fraction, noise="none"
     ) | {"precision": "single"}
-    field, _ = _run("julia", configuration)
-    reference, _ = _run("numpy_ref", configuration)
+    field, _, _ = _run("julia", configuration)
+    reference, _, _ = _run("numpy_ref", configuration)
     # SEP 33's whole-run field envelope is 1e-3; over these few steps two binary32
     # implementations differ by their rounding, ~1e-6 (PR #543's records), so 1e-4
     # holds two orders in hand and still catches a mis-scaled response (O(1)).
@@ -152,10 +172,10 @@ def test_julia_poynting_statistics_match_the_host(runtime):
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     engine.propagate_to(float(configuration["stop"]))
     state = engine.observe(field=True).field[0]
-    axis = engine._on_axis_synthesis(simulation.modes)  # noqa: SLF001
+    axis = engine._on_axis_synthesis(simulation.modes)
     spec = problem.stats_spec
-    ours = engine._poynting(spec, simulation.grid, state, axis)  # noqa: SLF001
-    host = _poynting_statistics(spec, simulation.grid, state, engine._weight, axis)  # noqa: SLF001
+    ours = engine._poynting(spec, simulation.grid, state, axis)
+    host = _poynting_statistics(spec, simulation.grid, state, engine._weight, axis)
     assert set(ours) == set(host)
     for name, value in host.items():
         # The same transforms in another library and order: rounding of the analytic
