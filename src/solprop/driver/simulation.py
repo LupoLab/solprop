@@ -48,7 +48,7 @@ import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
-from solprop.backends.protocol import Backend
+from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import metal_available, resolve_name, select
 from solprop.boundaries import (
     Absorber,
@@ -2903,13 +2903,13 @@ class Simulation(Displayed):
         """
         if field0.shape != self._field0.shape:
             raise DriverError("with_input requires the existing mode and grid shape")
-        if not np.all(np.isfinite(field0)):
+        if not _all_finite(field0):
             raise DriverError("with_input requires a finite initial field")
         if noise is None:
             return
         if noise.spectrum.shape != self._field0.shape:
             raise DriverError("replacement noise must match the input field shape")
-        if not np.all(np.isfinite(noise.spectrum)):
+        if not _all_finite(noise.spectrum):
             raise DriverError("with_input requires a finite noise realisation")
 
     def runner(self) -> "SimulationRunner":  # noqa: UP037 - defined below
@@ -3517,7 +3517,10 @@ class Simulation(Displayed):
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
             step and before every trial step, so the run answers within one step or
-            trial. When it is set the run writes its state as for SIGTERM, tells the
+            trial; on a native ``Multistep()`` march, whose trials run in native calls
+            that cannot read it, before every call, so the run answers within 256
+            attempts or 0.1 s and the attempt in flight, whichever comes first. When it
+            is set the run writes its state as for SIGTERM, tells the
             reporter through ``interrupted``, and returns the handler: a requested
             stop is not an error. The outcome's message says the caller's flag
             stopped it, and ``resume=True`` continues the file. A front end sets it
@@ -3556,6 +3559,56 @@ class Simulation(Displayed):
         >>> handler = simulation.run()
         >>> handler.n_saved, handler["z"].tolist()
         (3, [0.0, 0.005, 0.01])
+        """
+        return self._run(
+            output,
+            progress=progress,
+            progress_period=progress_period,
+            resume=resume,
+            tdse_archive=tdse_archive,
+            snapshots=snapshots,
+            stop=stop,
+        )
+
+    def _run(  # noqa: PLR0913 - run's controls, and the backend it may be handed
+        self,
+        output: Output | Path | str | None = None,
+        *,
+        progress: ProgressReporter | ProgressChoice | None = None,
+        progress_period: float = DEFAULT_PROGRESS_PERIOD,
+        resume: _ResumeChoice = False,
+        tdse_archive: TDSEArchive | None = None,
+        snapshots: SnapshotController | None = None,
+        stop: StopFlag | None = None,
+        kept: Backend | None = None,
+    ) -> Output:
+        """Execute the run, on a new backend or on one a caller keeps between runs.
+
+        Parameters
+        ----------
+        output : solprop.output.schema.Output or pathlib.Path or str or None, optional
+            As for :meth:`run`.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None, optional
+            As for :meth:`run`.
+        progress_period : float, optional
+            As for :meth:`run`, s.
+        resume : bool or str, optional
+            As for :meth:`run`.
+        tdse_archive : object or None, optional
+            As for :meth:`run`.
+        snapshots : object or None, optional
+            As for :meth:`run`.
+        stop : object or None, optional
+            As for :meth:`run`.
+        kept : solprop.backends.protocol.Backend or None, optional
+            A backend built for this problem but for its input, which is loaded and
+            left open for the caller; ``None`` constructs one and closes it. It serves
+            a fresh run only, with no TDSE response.
+
+        Returns
+        -------
+        solprop.output.schema.Output
+            The handler the run was written to.
         """
         _check_resume_choice(resume)
         with _optmat.material_context(self._material_log):
@@ -3617,7 +3670,7 @@ class Simulation(Displayed):
                         _AtomicContext(handler, state, metadata),
                         tdse_archive,
                     )
-                backend = select(
+                backend = kept or select(
                     self.settings.backend,
                     problem,
                     grid=self.grid,
@@ -3625,7 +3678,9 @@ class Simulation(Displayed):
                     profiles=self.profiles,
                     tdse_binding=binding,
                 )
-                start_plane = self._prime(backend, problem, state)
+                start_plane = self._prime(
+                    backend, problem, state, kept=kept is not None
+                )
                 self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
@@ -3655,7 +3710,13 @@ class Simulation(Displayed):
                 failure = error
                 raise
             finally:
-                _close_run(backend, binding, archive, handler, failure)
+                _close_run(
+                    None if kept is not None else backend,
+                    binding,
+                    archive,
+                    handler,
+                    failure,
+                )
             self._peak_fields = _peak_field_reports(problem, handler, self.responses)
         if (
             state is not None
@@ -3957,6 +4018,8 @@ class Simulation(Displayed):
         backend: Backend,
         problem: KernelProblem,
         state: ResumeState | None,
+        *,
+        kept: bool = False,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -3969,6 +4032,9 @@ class Simulation(Displayed):
         state : solprop.output.hdf5.ResumeState or None
             What a file the run is continuing holds, or ``None`` to start at the
             entrance.
+        kept : bool, optional
+            Whether the backend was built for another input, so that the noise of
+            this one has to be handed to it.
 
         Returns
         -------
@@ -3976,7 +4042,11 @@ class Simulation(Displayed):
             Index of the first save plane still to propagate to.
         """
         if state is None:
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            backend.set_initial(
+                problem.initial.field0,
+                _realisation(problem) if kept else None,
+                z=problem.initial.z,
+            )
             return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
@@ -4017,9 +4087,6 @@ class Simulation(Displayed):
             Whether this run steps with an Adams method. Another integrator keeps no
             history, by its own choice, which needs no warning.
         """
-        restore = getattr(backend, "restore_march", None)
-        if restore is None:
-            return
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
@@ -4028,7 +4095,7 @@ class Simulation(Displayed):
         # to: say so once, as a warning (SEP 29 section 6.6).
         if not adams:
             return
-        refusal = getattr(backend, "march_export_refusal", lambda: None)()
+        refusal = backend.march_export_refusal()
         if refusal is not None:
             warnings.warn(
                 f"the Adams history starts afresh: {refusal}",
@@ -4038,7 +4105,7 @@ class Simulation(Displayed):
             return
         if state.march is None:
             return
-        reason = restore(state.march)
+        reason = backend.restore_march(state.march)
         if reason is None:
             logger.info(
                 "continuing the Adams history at order %d, %d samples",
@@ -7229,11 +7296,60 @@ class SimulationRunner(Displayed):
             )
         except BaseException:
             # A backend that closed itself cannot run another input.
-            if getattr(self._backend, "_closed", False):
+            if self._backend.closed:
                 self._close_held()
             raise
         finally:
             self._lock.release()
+
+    def _takes(self, simulation: Simulation) -> bool:
+        """Return whether a simulation is this runner's but for its input.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            A simulation that may share this one's translation.
+
+        Returns
+        -------
+        bool
+            Whether its problem passes :func:`check_derived_problem`.
+        """
+        try:
+            check_derived_problem(self._problem, simulation.translate())
+        except DriverError as error:
+            logger.debug("a new backend for this run: %s", error)
+            return False
+        return True
+
+    def _run_point(
+        self,
+        simulation: Simulation,
+        output: Output,
+        *,
+        progress: ProgressReporter | ProgressChoice | None,
+        stop: StopFlag | None,
+    ) -> None:
+        """Run a simulation this runner :meth:`_takes`, as its own ``run`` would.
+
+        For a scan's worker, which has built the point's simulation and holds its
+        record already. Unlike :meth:`run` it honours `stop`, and the handler's record
+        is the simulation's own.
+
+        Parameters
+        ----------
+        simulation : Simulation
+            The point.
+        output : solprop.output.schema.Output
+            Where its planes go.
+        progress : ProgressReporter, {'auto', 'bar', 'log', 'none'} or None
+            Where progress goes.
+        stop : object or None
+            The point's stop flag.
+        """
+        with self._lock:
+            simulation._run(output, progress=progress, stop=stop, kept=self._backend)
+            self.runs += 1
 
     def _load(
         self,

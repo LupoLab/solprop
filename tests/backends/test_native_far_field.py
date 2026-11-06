@@ -41,14 +41,20 @@ from backends.forced_threads import assert_threaded
 from backends.matched import native_thread_fields
 from bounds import assert_within, gamma
 from solprop.backends import select
-from solprop.backends.spatial import AXIS_SPECTRUM_ONLY, far_field_partials
+from solprop.backends.spatial import far_field_partials
 from solprop.boundaries import SpatialAbsorber, absorber, custom_absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BackendError
 from solprop.grid import FreeGrid, LineGrid
 from solprop.output import MemoryOutput
 from solprop.pulses import GaussianPulse, SpatialPulse
-from solprop.spatial import FAR_FIELD_STATISTICS, SpatialMedium, mask_plane_radius
+from solprop.spatial import (
+    FAR_FIELD_STATISTICS,
+    SpatialMedium,
+    aperture_outline,
+    mask_plane_offsets,
+    mask_plane_radius,
+)
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
 from solprop.translate.spatial import aperture_tables
@@ -422,6 +428,132 @@ def test_a_column_at_a_hard_edge_is_decided_natively_as_the_reference_decides():
         assert (expected["aperture_spectrum"][0, bin_] > 0) == inside
 
 
+def edge_rows(shape, rng, across, along):
+    """Rows of one shape that put one column on its hard edge and a float either side.
+
+    The circle's diameter and the half-plane's position are placed exactly. An
+    ellipse's edge has no closed form in floats, so its height is bisected to the two
+    adjacent values between which the reference's decision flips.
+    """
+    if shape == "circle":
+        radius = float(np.sqrt(across * across + along * along))
+        twice = 2 * radius
+        return [
+            {"diameter": value}
+            for value in (twice, np.nextafter(twice, 0), np.nextafter(twice, np.inf))
+        ]
+    if shape == "half_plane_x_ge":
+        # across = s k + X, so the edge is at X = -(s k), where the sum is exactly zero.
+        edge = -across
+        return [
+            {"position": value}
+            for value in (edge, np.nextafter(edge, -np.inf), np.nextafter(edge, np.inf))
+        ]
+    width = float(rng.uniform(3.0, 6.0)) * max(abs(across), 1e-5)
+
+    def inside(height):
+        outline = aperture_outline("ellipse", 0.0, (width, height), 0.0, "hard")
+        return outline.weight(np.array([across]), np.array([along]))[0] > 0
+
+    low, high = 1e-9, 1.0
+    assert not inside(low)
+    assert inside(high)
+    while True:
+        middle = 0.5 * (low + high)
+        if middle in (low, high):
+            break
+        if inside(middle):
+            high = middle
+        else:
+            low = middle
+    return [{"width": width, "height": value} for value in (low, high)]
+
+
+def decide_edges(seed, shape):
+    """Compare native's decisions at columns on a shape's edge with the reference's.
+
+    One lit sample per frequency bin, so a row's spectrum at that bin is that column's
+    alone, in the row or out of it.
+    """
+    rng = np.random.default_rng(seed)
+    grid = time_grid("envelope")
+    space = FreeGrid(3e-4, 12, 3e-4, 10, collar_fraction=0)
+    tables = aperture_tables(
+        spec_of(holes("hard"), ("aperture_spectrum",)), grid, space
+    )
+    assert tables is not None
+    field = np.zeros((space.n_columns, 1, grid.n_omega), complex)
+    # An inactive bin is masked at the load, so it would decide nothing.
+    active = np.flatnonzero(grid.active_mask & (grid.omega > 0))
+    bins = rng.choice(active, size=5, replace=False)
+    rows = []
+    for bin_ in bins:
+        column = int(rng.integers(space.n_columns))
+        field[column, 0, bin_] = 1e3
+        centre = rng.uniform(-3e-4, 3e-4, 2)
+        if shape == "half_plane_x_ge":
+            centre[1] = 0.0
+        across, along = mask_plane_offsets(
+            tables.scale[0, bin_ : bin_ + 1],
+            tables.k_x[column % space.n_x : column % space.n_x + 1],
+            tables.k_y[column // space.n_x : column // space.n_x + 1],
+            (0.0, centre[1]) if shape == "half_plane_x_ge" else centre,
+        )
+        offsets = float(across[0, 0]), float(along[0, 0])
+        rows += [(int(bin_), centre, row) for row in edge_rows(shape, rng, *offsets)]
+    apertures = ApertureSet(
+        centres=[
+            [row.get("position", centre[0]), centre[1]] for _, centre, row in rows
+        ],
+        diameters=[row.get("diameter", 0.0) for _, _, row in rows],
+        distances=[DISTANCE] * len(rows),
+        shapes=(shape,) * len(rows),
+        extents=None
+        if shape != "ellipse"
+        else [[row["width"], row["height"]] for _, _, row in rows],
+    )
+    spec = StatsSpec(names=("aperture_spectrum",), apertures=apertures)
+    problem = problem_of(grid, space, field, spec)
+    values, field = native_stats(problem, grid, field, spec.names)
+    tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
+    expected = reference(spec.names, grid, problem, field, tables)
+    decided = [
+        (
+            bool(values["aperture_spectrum"][index, bin_] > 0),
+            bool(expected["aperture_spectrum"][index, bin_] > 0),
+        )
+        for index, (bin_, _, _) in enumerate(rows)
+    ]
+    # Each of the five targets' rows straddle its edge, so each gives both answers.
+    for start in range(0, len(decided), len(decided) // 5):
+        target = decided[start : start + len(decided) // 5]
+        assert {theirs for _, theirs in target} == {True, False}
+    assert [ours for ours, _ in decided] == [theirs for _, theirs in decided]
+
+
+EDGE_SHAPES = ("circle", "half_plane_x_ge", "ellipse")
+
+
+@pytest.mark.parametrize("seed", range(4))
+@pytest.mark.parametrize("shape", EDGE_SHAPES)
+def test_columns_on_a_shape_s_edge_decide_natively_as_the_reference_decides(
+    shape, seed
+):
+    decide_edges(seed, shape)
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("seed", range(40))
+@pytest.mark.parametrize("shape", EDGE_SHAPES)
+def test_columns_on_a_shape_s_edge_decide_on_a_device_as_the_reference_decides(
+    shape, seed
+):
+    # solprop #504: a fused product and sum on HIP once moved 16 of 588 such decisions,
+    # and this fuzz is what would catch that coming back.
+    require_device()
+    decide_edges(seed, shape)
+
+
 # ------------------------------------------------ item 11: thread counts, bands
 
 
@@ -488,23 +620,24 @@ def test_the_native_partials_are_held_to_the_byte():
         owner.close()
 
 
-def test_on_axis_intensity_takes_no_native_slot():
-    # Kokkos forms on_axis_intensity in its own spatial pass, so its partials leave the
-    # W = 1 slot out.
+def test_on_axis_intensity_reads_the_native_axis_slots():
+    # Its spectra are the W = 1 slot's, so its partials hold them.
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 12, 2.5e-4, 10, collar_fraction=0.1)
     field = random_field(space, 2, grid)
     spec = StatsSpec(names=("beam_spectrum", "on_axis_intensity"))
     problem = problem_of(grid, space, field, spec)
-    n_slots, n_bands = far_field_partials(problem, axis_folded=AXIS_SPECTRUM_ONLY)
-    assert n_slots == 1
-    # The axis amplitude and its closure, 4 n_pol slots.
-    assert far_field_partials(problem)[0] == 1 + 4 * 2
+    # The beam, then the axis amplitude and its closure, 4 n_pol slots.
+    n_slots, n_bands = far_field_partials(problem)
+    assert n_slots == 1 + 4 * 2
     owner = select("native", problem, grid=grid)
     try:
+        # Held from construction: no statistic allocates them.
+        held = owner.memory_ledger()["far_field_partials"]
+        assert held == 8 * n_bands * n_slots * grid.n_omega
         owner.set_initial(problem.initial.field0, None)
         values = owner.stats(problem.stats_spec)
-        assert owner.memory_ledger()["far_field_partials"] == 8 * n_bands * grid.n_omega
+        assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
     assert values["on_axis_intensity"].shape == (1,)

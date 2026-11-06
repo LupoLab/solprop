@@ -228,7 +228,8 @@ def test_the_native_closure_buffers_are_in_the_ledger():
         assert ledger["flux_closure_transverse"] == closure
         # A separable run's plane measure is its operator's own views.
         assert ledger["flux_coefficients"] == ledger["flux_table"] == 0
-        assert ledger["statistics_flux_magnitude"] > 0
+        # Its fluence takes no time transform, so it holds no magnitude per sample.
+        assert ledger["statistics_flux_magnitude"] == 0
     finally:
         owner.close()
     # Without a local statistic nothing is held until a call first needs it.
@@ -255,5 +256,6 @@ def test_the_native_closure_buffers_are_in_the_ledger():
             flux.material.coefficients.size * 16 + flux.material.breakpoints.size * 8
         )
         assert ledger["flux_closure_transverse"] == 0
+        assert ledger["statistics_flux_magnitude"] > 0
     finally:
         owner.close()

@@ -5,6 +5,7 @@
 #include "solprop_native/adams_phi.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
+#include "solprop_native/crossing.hpp"
 #include "solprop_native/dispersive.hpp"
 #include "solprop_native/envelope_plasma.hpp"
 #include "solprop_native/far_field.hpp"
@@ -46,7 +47,7 @@
 #include <dlfcn.h>
 #endif
 
-namespace solprop_native::host {
+namespace solprop_native {
 /** The three squared norms an accepted step reports, as one reduction value. */
 struct NormSums {
   double old_sum = 0.0;
@@ -59,10 +60,29 @@ struct NormSums {
     return *this;
   }
 };
-} // namespace solprop_native::host
+} // namespace solprop_native
 
-template <> struct Kokkos::reduction_identity<solprop_native::host::NormSums> {
-  KOKKOS_FUNCTION static solprop_native::host::NormSums sum() { return {}; }
+template <> struct Kokkos::reduction_identity<solprop_native::NormSums> {
+  KOKKOS_FUNCTION static solprop_native::NormSums sum() { return {}; }
+};
+
+namespace solprop_native {
+/** A plane's scaled fluence, one reduction value: its sum and its index moments. */
+struct FluenceMoments {
+  double total = 0.0;
+  double x = 0.0;
+  double y = 0.0;
+  KOKKOS_INLINE_FUNCTION FluenceMoments& operator+=(const FluenceMoments& other) {
+    total += other.total;
+    x += other.x;
+    y += other.y;
+    return *this;
+  }
+};
+} // namespace solprop_native
+
+template <> struct Kokkos::reduction_identity<solprop_native::FluenceMoments> {
+  KOKKOS_FUNCTION static solprop_native::FluenceMoments sum() { return {}; }
 };
 
 namespace solprop_native {
@@ -244,6 +264,9 @@ using TransversePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView
 using VolumePlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 3>;
 // The hybrid planar kind transforms y alone, the trailing axis of (bins, n_p, n_y).
 using SlabPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView3, ComplexView3, 1>;
+// A requested collar's padded transform, along the last axis of a batch (solprop SEP
+// 44).
+using StripPlan = KokkosFFT::Plan<ExecutionSpace, ComplexView2, ComplexView2, 1>;
 
 // Each current keeps its own chunk accumulator, including stacked embedded
 // quadrature. Sharing the latter would mix currents between partial chunks.
@@ -377,7 +400,6 @@ struct SpatialElement {
   Complex linear, prefactor;
 };
 
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device crossing through a 32-by-32 tile of team scratch (SEP 28): the tile is read
 // with adjacent threads along the side that is contiguous for `read` (rows when
 // `read_rows`, else bins) and written with adjacent threads along the other, so both
@@ -387,7 +409,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
                     const std::size_t rows, const std::size_t width,
                     const bool read_rows, const Read& read, const Write& write) {
   constexpr int tile = 32;
-  constexpr int depth = 8;
+  const int depth = std::min(8, execution.concurrency());
   using Policy = Kokkos::TeamPolicy<ExecutionSpace>;
   using Member = Policy::member_type;
   using Shared = Kokkos::View<Complex**, Kokkos::LayoutRight,
@@ -432,6 +454,7 @@ void tiled_crossing(const char* label, const ExecutionSpace& execution,
       });
 }
 
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
 // A device update of registers and the transverse scratch together (SEP 28): a tile of
 // the scratch is staged in team scratch with adjacent threads along rows, `body`
 // visits each (row, bin) with adjacent threads along bins (the registers' contiguous
@@ -543,6 +566,31 @@ struct TransverseLayout {
   }
   KOKKOS_INLINE_FUNCTION std::size_t second(const std::size_t column) const {
     return channel_fastest ? column / inner : column % inner;
+  }
+};
+
+// A node's physical spectrum in a transverse volume after the inverse transverse plan:
+// on free space the node's own cell; on the hybrid planar kind the slab rule over its y
+// row's channels, without the temporal pad scale the planar synthesis carries, since
+// the statistics read the coarse field (solprop's `collect_spatial`).
+struct PhysicalSpectrum {
+  TransverseLayout layout{};
+  RealView2 synthesis;
+  std::size_t n_x{}, n_p{};
+  double crop_scale = 1.0;
+  bool slab = false;
+  template <class View>
+  KOKKOS_INLINE_FUNCTION Complex read(const View& source, const std::size_t plane,
+                                      const std::size_t node) const {
+    if (!slab)
+      return layout.cell(source, plane, node);
+    const auto ix = node % n_x;
+    const auto rows = (node / n_x) * n_p;
+    Complex sum{};
+    for (std::size_t channel = 0; channel < n_p; ++channel)
+      sum += synthesis(ix, channel) *
+             source(plane, layout.first(rows + channel), layout.second(rows + channel));
+    return crop_scale * sum;
   }
 };
 
@@ -690,10 +738,21 @@ KOKKOS_INLINE_FUNCTION void cosine_sine(const double theta, double& cosine,
 #endif
 }
 
+// A flow's magnitude: on a lossless bin `exp(+-0)`, exactly one, taken without a
+// binary64 `exp` per element. Out of line on a host, whose call to its library was out
+// of line already: inlined there, this branch took the tabulated fold's whole kernel
+// past the compiler's inlining limit, 40 % slower (solprop's docs/dev/benchmarks.md).
+#if defined(__GNUC__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+[[gnu::noinline]]
+#endif
+KOKKOS_INLINE_FUNCTION double flow_magnitude(const double real) {
+  return real == 0.0 ? 1.0 : Kokkos::exp(real);
+}
+
 // A stage or step propagator `exp(argument)`: `exponential` with the cosine and sine
 // from `cosine_sine`, so it is `exponential` to the bit on the host.
 KOKKOS_INLINE_FUNCTION Complex propagator_exp(const Complex argument) {
-  const double magnitude = Kokkos::exp(argument.real());
+  const double magnitude = flow_magnitude(argument.real());
   double cosine = 0.0;
   double sine = 0.0;
   cosine_sine(argument.imag(), cosine, sine);
@@ -860,14 +919,20 @@ void ionisation_rates_within(double* values, const std::size_t live,
 // A host span as an unmanaged view of a state-shaped memory-space view, for one copy
 // between them: no staging mirror, no element loop. A span whose data is not aligned
 // as `Complex` (a NumPy buffer need not be) is staged in an aligned vector first.
-void upload_span(const ExecutionSpace& execution_space, const ComplexView2& destination,
+void upload_span(const ExecutionSpace& execution_space, crossing::Ring& ring,
+                 const ComplexView2& destination,
                  const std::span<const Complex> source) {
   if (destination.size() != source.size())
     throw std::invalid_argument("fixed problem array has the wrong extent");
   if (reinterpret_cast<std::uintptr_t>(source.data()) % alignof(Complex) != 0) {
     const std::vector<Complex> aligned(source.begin(), source.end());
-    upload_span(execution_space, destination, aligned);
+    upload_span(execution_space, ring, destination, aligned);
     execution_space.fence("solprop_native unaligned upload");
+    return;
+  }
+  if (crossing::takes_ring(source.size_bytes())) {
+    execution_space.fence("solprop_native upload");
+    ring.from_host(destination.data(), source.data(), source.size_bytes());
     return;
   }
   const Kokkos::View<const Complex**, Layout, Kokkos::HostSpace,
@@ -1414,18 +1479,24 @@ KOKKOS_INLINE_FUNCTION void slot_range(const std::size_t n, const std::size_t sl
   end = Kokkos::min(n, first + width);
 }
 
-// The update and its three binary64 norms. On a device each column is `slots` teams,
-// each over its own bins, writing its partial sums at offset `slot` from the column's
-// partial pointers; the host reduces them.
+// The update and its three binary64 norms in one pass. On the host one team per column,
+// its threads splitting the bins when the columns are fewer than the threads; on a
+// device `slots` teams per column, each over its own bins, writing its partial sums at
+// offset `slot` from the column's partial pointers. The sums associate as the teams
+// split them (solprop SEP 25), and the host reduces them.
 template <class Columns>
 void accept_update(const ExecutionSpace& execution, const std::size_t count,
                    const std::size_t n, const double dz, const Columns& columns,
                    const char* label, const std::size_t slots) {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
   using ReductionMember = ReductionPolicy::member_type;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  const int team_size = SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE;
+#else
+  const int team_size = host_reduction_team_size(execution, count, n);
+#endif
   const ReductionPolicy reduction_policy(execution, static_cast<int>(count * slots),
-                                         SOLPROP_NATIVE_DEVICE_REDUCTION_SIZE);
+                                         team_size);
   launch::parallel_for(
       label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
         const auto league = static_cast<std::size_t>(team.league_rank());
@@ -1435,71 +1506,12 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
         std::size_t end = 0;
         slot_range(n, slots, slot, first, end);
         const auto values = columns(column);
-        Kokkos::parallel_for(Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                                     static_cast<int>(end)),
-                             [&](const int index_value) {
-                               const auto index = static_cast<std::size_t>(index_value);
-                               const Complex candidate =
-                                   values.whole[index] * (values.carried[index] +
-                                                          dz * values.solution[index]);
-                               values.advanced[index] = candidate;
-                               values.residual[index] =
-                                   values.whole[index] * (dz * values.error[index]);
-                             });
-        team.team_barrier();
-        double old_sum = 0.0;
-        double new_sum = 0.0;
-        double error_sum = 0.0;
+        NormSums sums;
         Kokkos::parallel_reduce(
             Kokkos::TeamThreadRange(team, static_cast<int>(first),
                                     static_cast<int>(end)),
-            [&](const int index_value, double& update) {
+            [&](const int index_value, NormSums& update) {
               const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.current[index]);
-            },
-            old_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.advanced[index]);
-            },
-            new_sum);
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, static_cast<int>(first),
-                                    static_cast<int>(end)),
-            [&](const int index_value, double& update) {
-              const auto index = static_cast<std::size_t>(index_value);
-              if (values.in_norm[index] != 0U)
-                update += squared_abs(values.residual[index]);
-            },
-            error_sum);
-        Kokkos::single(Kokkos::PerTeam(team), [&]() {
-          values.old_partial[slot] = old_sum;
-          values.new_partial[slot] = new_sum;
-          values.error_partial[slot] = error_sum;
-        });
-      });
-#else
-  // One team per column, its threads splitting the bins when the columns are fewer
-  // than the threads, and the update and the three norms in one pass; the sums
-  // associate as the team splits them (solprop SEP 25). The host keeps one slot.
-  static_cast<void>(slots);
-  using ReductionPolicy = Kokkos::TeamPolicy<ExecutionSpace>;
-  using ReductionMember = ReductionPolicy::member_type;
-  const ReductionPolicy reduction_policy(execution, static_cast<int>(count),
-                                         host_reduction_team_size(execution, count, n));
-  launch::parallel_for(
-      label, reduction_policy, KOKKOS_LAMBDA(const ReductionMember& team) {
-        const auto column = static_cast<std::size_t>(team.league_rank());
-        const auto values = columns(column);
-        host::NormSums sums;
-        Kokkos::parallel_reduce(
-            Kokkos::TeamThreadRange(team, n),
-            [&](const std::size_t index, host::NormSums& update) {
               const Complex candidate =
                   values.whole[index] *
                   (values.carried[index] + dz * values.solution[index]);
@@ -1513,14 +1525,13 @@ void accept_update(const ExecutionSpace& execution, const std::size_t count,
               update.new_sum += squared_abs(candidate);
               update.error_sum += squared_abs(one_residual);
             },
-            Kokkos::Sum<host::NormSums>(sums));
-        Kokkos::single(Kokkos::PerTeam(team), [&] {
-          *values.old_partial = sums.old_sum;
-          *values.new_partial = sums.new_sum;
-          *values.error_partial = sums.error_sum;
+            Kokkos::Sum<NormSums>(sums));
+        Kokkos::single(Kokkos::PerTeam(team), [&]() {
+          values.old_partial[slot] = sums.old_sum;
+          values.new_partial[slot] = sums.new_sum;
+          values.error_partial[slot] = sums.error_sum;
         });
       });
-#endif
 }
 
 // The bins a host work item of the stage's entry kernel takes at a time: every bin's
@@ -2009,6 +2020,9 @@ struct StageTerms {
 
 } // namespace
 
+// What a Cartesian plane's widths read of its fluence (`plane_fluence_moments`).
+inline constexpr std::size_t plane_moment_slots = 8;
+
 class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
@@ -2151,6 +2165,12 @@ public:
                      const std::vector<double>& densities);
   std::vector<double> spatial_statistics(std::uint64_t flags, double intensity_factor,
                                          double z);
+  std::vector<double> plane_fluence_trace(double center_x, double center_y, double dx,
+                                          double dy, double extent, double spacing,
+                                          std::size_t n_radii,
+                                          const std::vector<double>& cosines,
+                                          const std::vector<double>& sines);
+  std::vector<Complex> axis_spectrum(const std::vector<double>& matrix);
   std::vector<double> aperture_statistics(std::uint64_t flags,
                                           const std::vector<double>& apertures,
                                           int exponent,
@@ -2173,9 +2193,34 @@ public:
   void unbind_monitor() noexcept { monitor_bound_ = false; }
   void bind_occupancy(const std::vector<unsigned char>& buckets, std::size_t count);
   std::vector<double> monitor_reading();
+  void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
+                 const std::vector<double>& totals,
+                 const std::vector<double>& synthesis, std::size_t first_row);
+  void bind_edge_lines(const EdgeLines& lines);
+  EdgeNumbers edge_reading(bool faces, bool whole, bool totals, bool strip,
+                           bool want_current);
+  // What reading the edge holds in the state's memory space (solprop SEP 44).
+  [[nodiscard]] std::size_t edge_bytes() const noexcept {
+    std::size_t total =
+        (edge_faces_.size() + edge_clip_.size() + edge_totals_.size() +
+         edge_synthesis_.size() + edge_columns_.size() + edge_scale_.size()) *
+        sizeof(double);
+    for (const auto& line : edge_lines_)
+      total += line.positions.size() * sizeof(std::size_t) +
+               line.window.size() * sizeof(double);
+    return total + edge_strip_.size() * sizeof(Complex);
+  }
+  // The bytes through this state's crossings since it was built, each way (solprop SEP
+  // 44).
+  [[nodiscard]] CrossedBytes crossed_bytes() const noexcept { return crossed_; }
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
+  void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
+  void set_crossing_workers(const std::size_t workers) noexcept {
+    crossing_ring_.set_workers(workers);
+  }
   std::vector<Complex> stage_to_host(std::size_t stage) const;
+  void stage_to_host(std::size_t stage, std::span<Complex> destination) const;
   std::vector<Complex> projected_to_host(bool coarse);
   std::map<std::string, bool> dispersive_path() const;
   std::map<std::string, std::size_t> memory_ledger() const;
@@ -2289,7 +2334,8 @@ public:
   void plan();
   void reuse_fsal();
   void evaluate_stage(std::size_t stage, double dz);
-  void evaluate_stage_source(std::size_t stage, double dz);
+  // `accumulate` false: an Adams trial reads the stage row alone.
+  void evaluate_stage_source(std::size_t stage, double dz, bool accumulate = true);
   bool modal_core(std::size_t stage);
   void general_core(std::size_t stage);
   StageTerms stage_terms(std::size_t stage) const;
@@ -2331,7 +2377,7 @@ public:
   void flux_at(double z);
   void require_flux_closure();
   void fill_statistics_closure();
-  void evaluate_separable_stage(std::size_t stage, double dz);
+  void evaluate_separable_stage(std::size_t stage, double dz, bool accumulate);
   void seed_free_wisdom();
   void seed_modal_wisdom();
   void seed_stream_wisdom();
@@ -2344,8 +2390,11 @@ public:
   void separable_nodes(const TransverseChunk& chunk);
   void slab_project(const TransverseChunk& chunk, const EnvelopeStream* stream);
   void separable_finish_transform(std::size_t stage, bool material);
-  void separable_time_statistics(std::size_t axis_peak, std::size_t peak,
-                                 std::size_t fluence, double intensity_factor);
+  void separable_time_statistics(std::size_t axis_peak, std::size_t peak, bool fluence,
+                                 double intensity_factor);
+  void separable_fluence(double intensity_factor);
+  FarFieldPass::Inputs far_field_inputs() const;
+  void plane_fluence_moments(double (&moments)[plane_moment_slots]);
   void scale_transform(std::size_t stage, double taper);
   void synthesise(std::size_t first_node, std::size_t node_count);
   void response(std::size_t stage, std::size_t first_node, std::size_t node_count);
@@ -2500,8 +2549,10 @@ public:
   void form_split_factor(double dz);
   void split_columns(double dz, std::size_t active_rows = 0, double parseval = 0.0,
                      std::size_t first_column = 0);
+  void split_state_rows(double dz, const ComplexView2& state);
   void add_split_removal(double dz, std::size_t active_rows, double parseval,
-                         std::size_t first_column);
+                         std::size_t first_column, const ComplexView2& complex_time,
+                         double power_scale);
   void separable_to_time(const TransverseChunk& chunk);
   void separable_to_frequency(const TransverseChunk& chunk);
   void separable_split_step(double dz, const ComplexView2& values);
@@ -2692,9 +2743,11 @@ public:
   RealView2 chunk_projection_stacked_, tail_projection_stacked_;
   RealView2 partials_, quadrature_partials_, stash_candidate_, stash_current_;
   RealView2 statistics_power_, plasma_statistics_scratch_;
-  // solprop SEP 34: each node's `|E| |G|` beside its signed flux, which bounds the
+  // solprop SEP 34: each node's `|E| |G|` beside its signed flux, which bounds a radial
   // fluence's rounding; allocated with the closure's buffers.
   RealView2 statistics_magnitude_;
+  // `spatial_statistics_partials_` holds a plane's scaled fluence for its trace.
+  bool plane_fluence_held_ = false;
   RealView2 plasma_rate_, plasma_exposure_, plasma_fraction_;
   RealView2 plasma_current_integrand_, plasma_free_current_;
   // The device trapezoid plasma's tile totals, by component row, and its tile count
@@ -2778,6 +2831,11 @@ public:
   ComplexView2 adams_source_, adams_propagator_, adams_exponent_, adams_saved_;
   ComplexView2 adams_held_, adams_dense_start_, adams_dense_end_, adams_dense_exponent_;
   Kokkos::View<double*, Layout, MemorySpace> adams_divisor_;
+  // A Runge-Kutta trial's norm partials cross through this mirror, pinned on a device
+  // (the view itself on a host build), so that no trial takes a fresh host buffer. The
+  // copy is asynchronous: it is read after the trial's fence.
+  decltype(Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{},
+                                      std::declval<RealView2>())) pinned_partials_;
   // A trial's squared norms, which its reduction writes and the host reads: in pinned
   // host memory on a device, which the reduction's last block writes directly, so that
   // no copy from the device follows it before the trial's one fence.
@@ -2837,6 +2895,11 @@ public:
   std::unique_ptr<ForwardRealPlan> absorber_real_plan_;
   std::unique_ptr<ComplexPlan> absorber_complex_plan_;
   std::unique_ptr<InverseRealPlan> coarse_inverse_real_plan_;
+  // A free-space envelope's split collar transforms the state's own rows in place, this
+  // many at a time, and holds no coarse buffers (`split_state_rows`).
+  std::size_t split_rows_{};
+  std::unique_ptr<ComplexPlan> split_inverse_plan_, split_forward_plan_;
+  std::unique_ptr<ComplexPlan> split_tail_inverse_plan_, split_tail_forward_plan_;
   std::unique_ptr<ComplexPlan> coarse_inverse_complex_plan_;
   std::unique_ptr<ForwardRealPlan> coarse_forward_real_plan_;
   std::unique_ptr<ComplexPlan> coarse_forward_complex_plan_;
@@ -2871,8 +2934,33 @@ public:
   // energy per bucket, which a reading returns for the crossing limit (solprop
   // #440); empty unbound.
   ByteView occupancy_buckets_;
-  RealView occupancy_;
-  OccupancyScatter occupancy_scatter_;
+  std::size_t occupancy_count_ = 0;
+  mutable CrossedBytes crossed_;
+  // What the transverse edge's reading sums with, once a monitor is bound (SEP 44).
+  RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
+  RealView edge_columns_;
+  std::size_t edge_first_row_ = 0;
+  // A requested collar's lines, and one padded batch per distinct shape, kept across a
+  // runner's points. Native chooses none of what's in them.
+  struct EdgeLine {
+    std::size_t axis{}, nodes{}, rows{}, batch{}, first{}, last{};
+    double factor{}, measure{}, step{};
+    std::size_t onset{EdgeLines::no_onset}, before{}, after{};
+    IndexView positions;
+    RealView window;
+  };
+  struct EdgeBatch {
+    ComplexView2 buffer;
+    std::unique_ptr<StripPlan> plan;
+    std::size_t heap_growth{}, device_growth{};
+  };
+  std::vector<EdgeLine> edge_lines_;
+  std::map<std::pair<std::size_t, std::size_t>, EdgeBatch> edge_batches_;
+  ComplexView edge_strip_;
+  RealView edge_scale_;
+  double edge_k_min_{};
+  // A large crossing's pinned chunks, once one has been made (`crossing.hpp`).
+  mutable crossing::Ring crossing_ring_;
   [[nodiscard]] bool monitoring_split() const noexcept {
     return monitor_bound_ && problem_.split_step_absorber;
   }
@@ -3169,9 +3257,9 @@ bool GeneralWorkspace::use_chunked_blas_for_synthesis() const noexcept {
 
 // One node, one mode and one scalar component: the synthesis and the projection are
 // each one product, which the response column forms itself (solprop SEP 25 section
-// 6.7), as the Kerr-only engine's `kerr_1x1` does, in place of the stage's taper
-// scaling, two one-element GEMMs and the zero fill of the projection. Each folded
-// product is the GEMM's own one rounding, `(s * taper) * x` and `(p / taper) * y`.
+// 6.7), in place of the stage's taper scaling, two one-element GEMMs and the zero
+// fill of the projection. Each folded product is the GEMM's own one rounding,
+// `(s * taper) * x` and `(p / taper) * y`.
 // The host's columns only: a device keeps its own column kernels.
 bool GeneralWorkspace::folds_single_node() const noexcept {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -3477,6 +3565,9 @@ void GeneralWorkspace::allocate() {
         RealView2("solprop_native.transform.quadrature_partials", 2, columns);
   quadrature_scores_ = RealView("solprop_native.transform.quadrature_scores", 2);
   Kokkos::deep_copy(quadrature_scores_, Kokkos::Experimental::quiet_NaN_v<double>);
+  if (!problem_.low_storage)
+    pinned_partials_ =
+        Kokkos::create_mirror_view(Kokkos::SharedHostPinnedSpace{}, partials_);
   if (problem_.weighted_controller) {
     weighted_scale_ = RealView("solprop_native.step.weighted_scale", n);
     weighted_partials_ =
@@ -3510,7 +3601,7 @@ void GeneralWorkspace::allocate() {
                    problem_.n_t);
   statistics_power_ =
       RealView2("solprop_native.statistics.power", statistic_nodes, problem_.n_t);
-  if (problem_.flux_closure)
+  if (problem_.flux_closure && !problem_.separable_geometry())
     statistics_magnitude_ = RealView2("solprop_native.statistics.flux_magnitude",
                                       statistic_nodes, problem_.n_t);
   statistics_total_power_ =
@@ -4107,14 +4198,19 @@ void GeneralWorkspace::allocate() {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     split_factor_ = RealView("solprop_native.absorber.split_factor", problem_.n_t);
 #endif
-    coarse_spectrum_ =
-        ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
-    if (problem_.family == FieldFamily::envelope)
-      coarse_time_complex_ = ComplexView2("solprop_native.absorber.coarse_time_complex",
-                                          temporal_columns, problem_.n_t);
-    else
-      coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
-                                    temporal_columns, problem_.n_t);
+    if (problem_.free_geometry() && problem_.family == FieldFamily::envelope) {
+      split_rows_ = temporal_columns;
+    } else {
+      coarse_spectrum_ =
+          ComplexView2("solprop_native.absorber.coarse_spectrum", temporal_columns, n);
+      if (problem_.family == FieldFamily::envelope)
+        coarse_time_complex_ =
+            ComplexView2("solprop_native.absorber.coarse_time_complex",
+                         temporal_columns, problem_.n_t);
+      else
+        coarse_time_real_ = RealView2("solprop_native.absorber.coarse_time_real",
+                                      temporal_columns, problem_.n_t);
+    }
   }
   if (problem_.general_modal) {
     general_ = std::make_unique<GeneralModalSource>(problem_);
@@ -4615,6 +4711,30 @@ void GeneralWorkspace::plan() {
   }
   if (!problem_.split_step_absorber)
     return;
+  if (split_rows_ != 0) {
+    // In place on the state's rows; a later execution may name another row block or the
+    // other of the state's two views, of the same extents.
+    const auto& state = problem_.low_storage ? current_ : advanced_;
+    const auto plan_rows = [&](const std::size_t count,
+                               const KokkosFFT::Direction direction) {
+      const ComplexView2 rows =
+          Kokkos::subview(state, std::make_pair(std::size_t{0}, count), Kokkos::ALL());
+      const auto& space = fft_space_for(rows.size());
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      // Seeding may overwrite the rows; nothing is loaded yet.
+      seed_row_fft_wisdom(space, rows, rows, direction);
+      graph::deep_copy(execution_space_, rows, Complex{});
+#endif
+      return std::make_unique<ComplexPlan>(space, rows, rows, direction, axis);
+    };
+    split_inverse_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::backward);
+    split_forward_plan_ = plan_rows(split_rows_, KokkosFFT::Direction::forward);
+    if (const auto tail = problem_.n_columns() % split_rows_; tail != 0) {
+      split_tail_inverse_plan_ = plan_rows(tail, KokkosFFT::Direction::backward);
+      split_tail_forward_plan_ = plan_rows(tail, KokkosFFT::Direction::forward);
+    }
+    return;
+  }
   if (problem_.family == FieldFamily::envelope) {
     coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
         fft_space_for(coarse_time_complex_.size()), coarse_spectrum_,
@@ -4658,7 +4778,8 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
                  "initial field");
   if (!noise.empty())
     require_extent(noise.size(), field.size(), "noise");
-  upload_span(execution_space_, current_, field);
+  upload_span(execution_space_, crossing_ring_, current_, field);
+  crossed_.from_host += field.size_bytes();
   if (noise.empty()) {
     if (problem_.modified_noise)
       graph::deep_copy(execution_space_, noise_, Complex{});
@@ -4667,7 +4788,8 @@ void GeneralWorkspace::set_initial(const std::span<const Complex> field,
     if (!problem_.modified_noise)
       throw std::invalid_argument(
           "a native noise field is valid only for modified noise");
-    upload_span(execution_space_, noise_, noise);
+    upload_span(execution_space_, crossing_ring_, noise_, noise);
+    crossed_.from_host += noise.size_bytes();
     has_noise_ = true;
   }
   mask(current_);
@@ -5349,10 +5471,21 @@ double GeneralWorkspace::low_storage_step(const double dz, const TrialScalars& s
   stages_ready_ = false;
   stash_is_current_ = false;
   execution_space_.fence("solprop_native low-storage step");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
   double total = 0.0;
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // One number crosses, not the whole of the partials' table.
+  const auto partials = partials_;
+  launch::parallel_reduce(
+      "solprop_native.low_storage.norm_total",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_columns()),
+      KOKKOS_LAMBDA(const std::size_t column, double& sum) {
+        sum += partials(0, column);
+      },
+      Kokkos::Sum<double>(total));
+#else
   for (std::size_t column = 0; column < problem_.n_columns(); ++column)
-    total += host(0, column);
+    total += partials_(0, column);
+#endif
   return total;
 }
 
@@ -5529,20 +5662,34 @@ void GeneralWorkspace::low_storage_separable_input(const std::size_t pass) {
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double scale = inverse_transverse_count();
   const auto row = low_storage_rows[pass];
+  const auto input = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
+    const auto mode = index.mode(column);
+    Complex value =
+        pass == 0 ? state(column, omega) : stage_register.data()[index(column, omega)];
+    if (add_noise) {
+      const auto values = spatial.value(mode, omega, active(omega) != 0U);
+      const double angle = at(row) * values.linear.imag();
+      value += noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
+    }
+    return value * scale;
+  };
+  if (problem_.low_storage_tiled_input) {
+    // Read along the state's bins and written along the scratch's rows, a tile at a
+    // time.
+    tiled_crossing(
+        "solprop_native.low_storage.separable_input", execution_space_,
+        problem_.n_columns(), problem_.n_omega, false, input,
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                      const Complex value) {
+          scratch.data()[index.cell(column, omega)] = value;
+        });
+    return;
+  }
   crossing_for(
       "solprop_native.low_storage.separable_input", execution_space_,
       problem_.n_columns(), problem_.n_omega,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        const auto mode = index.mode(column);
-        Complex value = pass == 0 ? state(column, omega)
-                                  : stage_register.data()[index(column, omega)];
-        if (add_noise) {
-          const auto values = spatial.value(mode, omega, active(omega) != 0U);
-          const double angle = at(row) * values.linear.imag();
-          value +=
-              noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
-        }
-        scratch.data()[index.cell(column, omega)] = value * scale;
+        scratch.data()[index.cell(column, omega)] = input(column, omega);
       });
 }
 
@@ -5554,7 +5701,6 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const auto stage_register = register_stage_;
   const auto flows = low_storage_flows_;
   const bool tabulated = problem_.low_storage_flows != 0;
-  const bool elemental = !tabulated || (problem_.modified_noise && has_noise_);
   const auto scratch = transverse_;
   const auto spatial = spatial_;
   const auto window = omega_window_;
@@ -5585,6 +5731,7 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
   const bool writes_register = stage < 3 && !forward;
   const auto own = low_storage_rows[pass];
   const auto next = low_storage_rows[pass < 3 ? pass + 1 : 3];
+  const bool linear_here = add_noise || (flows_here && !tabulated);
   const std::size_t flow_row = stage == 0 ? 0 : 1;
   const double step = dz;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
@@ -5598,9 +5745,10 @@ void GeneralWorkspace::low_storage_separable_fold(const std::size_t pass,
                                   Complex& cell, Complex& held) {
     const auto column_mode = index.mode(column);
     const bool in_band = active(omega) != 0U;
-    // Tabulated flows without noise read only the prefactor of the element.
+    // Tabulated flows without noise, or a pass with no flow, read only the prefactor of
+    // the element.
     SpatialElement values{};
-    if (elemental)
+    if (linear_here)
       values = spatial.value(column_mode, omega, in_band);
     else if (term == term_material)
       values.prefactor = spatial.prefactor(column_mode, omega, in_band);
@@ -5990,7 +6138,7 @@ void GeneralWorkspace::adams_evaluate_source(const TrialScalars& scalars) {
     prepare_raman_stage(0, scalars.raman_rates.data(),
                         problem_.n_raman_components > 1 ? scalars.raman_densities.data()
                                                         : nullptr);
-  evaluate_stage_source(0, 0.0);
+  evaluate_stage_source(0, 0.0, false);
   stages_ready_ = true;
   pending_fsal_ = false;
   has_recycled_ = false;
@@ -6180,19 +6328,20 @@ GeneralWorkspace::adams_fused_trial(const double dz, const AdamsWeights& weights
   const auto policy = Range2(execution_space_, {0, 0}, {columns, n});
   const auto store = adams_store_;
   const auto current = current_;
-  const auto saved = adams_saved_;
+  const auto predicted = adams_saved_;
   // The predictor in the anchor's frame, a_n + dz sum_t w_t g_t, is the field the
-  // stage-zero source evaluates; the accepted state is kept aside meanwhile.
-  graph::deep_copy(execution_space_, saved, current);
+  // stage-zero source evaluates; the accepted state is swapped aside meanwhile.
   launch::parallel_for(
       "solprop_native.adams.predict", policy,
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
         Complex total{};
         for (std::size_t t = 0; t < weights.order; ++t)
           total += weights.predictor[t] * store(weights.slot[t], column, index);
-        current(column, index) = saved(column, index) + dz * total;
+        predicted(column, index) = current(column, index) + dz * total;
       });
-  adams_evaluate(scalars);
+  std::swap(current_, adams_saved_);
+  adams_evaluate_source(scalars);
+  std::swap(current_, adams_saved_);
   const auto stages = stages_;
   const auto source = adams_source_;
   const auto propagator = adams_propagator_;
@@ -6348,6 +6497,11 @@ void GeneralWorkspace::adams_rows_to_host(const std::string& name,
     throw std::invalid_argument("the Adams history row '" + name +
                                 "' has the wrong extent");
   execution_space_.fence("solprop_native Adams rows_to_host");
+  crossed_.to_host += size * sizeof(Complex);
+  if (crossing::takes_ring(size * sizeof(Complex))) {
+    crossing_ring_.to_host(destination, view.data(), size * sizeof(Complex));
+    return;
+  }
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, view);
   const auto* source = host.data();
   for (std::size_t index = 0; index < size; ++index)
@@ -8717,8 +8871,9 @@ std::vector<double> GeneralWorkspace::collect_trial() {
   // it is not the next step's first stage; solprop's reference takes no FSAL there.
   pending_fsal_ =
       problem_.first_same_as_last && !problem_.split_step_absorber && !flow_;
+  graph::deep_copy(execution_space_, pinned_partials_, partials_);
   execution_space_.fence("solprop_native trial boundary");
-  const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, partials_);
+  const auto& host = pinned_partials_;
   // Every column's slots, in order: the host's reduction is the caller's sum of a row.
   const auto slots = host.extent(1);
   std::vector<double> result(3 * slots);
@@ -8971,7 +9126,8 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
 // back onto the rows in time) or the in-stage absorber on the rows, and back; the
 // forward transverse transform and each column's prefactor and propagator.
 void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
-                                                const double dz) {
+                                                const double dz,
+                                                const bool accumulate) {
   auto* const dispersive = separable_dispersive_.get();
   const bool nonlinear =
       problem_.nonlinear || problem_.plasma || problem_.raman || dispersive != nullptr;
@@ -8996,6 +9152,8 @@ void GeneralWorkspace::evaluate_separable_stage(const std::size_t stage,
     separable_core(stage, material);
     separable_finish_transform(stage, material);
   }
+  if (!accumulate)
+    return;
   const double weight = problem_.solution_weights[stage];
   const double error_weight = problem_.error_weights[stage];
   cartesian_for(
@@ -9520,11 +9678,12 @@ void GeneralWorkspace::evaluate_stage(const std::size_t stage, const double dz) 
                     problem_.error_weights[stage], stages_, solution_, error_);
 }
 
-void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz) {
+void GeneralWorkspace::evaluate_stage_source(const std::size_t stage, const double dz,
+                                             const bool accumulate) {
   if (!defer_quadrature_)
     coarse_pending_ = false;
   if (problem_.separable_geometry()) {
-    evaluate_separable_stage(stage, dz);
+    evaluate_separable_stage(stage, dz, accumulate);
     return;
   }
   stage_entry(stage, dz);
@@ -13624,7 +13783,8 @@ std::vector<double> GeneralWorkspace::statistics(
 void GeneralWorkspace::require_flux_closure() {
   const auto rows = statistics_time_.extent(0);
   const bool time = statistics_weighted_time_.extent(0) != rows;
-  const bool magnitude = statistics_magnitude_.extent(0) != statistics_power_.extent(0);
+  const bool magnitude = !problem_.separable_geometry() &&
+                         statistics_magnitude_.extent(0) != statistics_power_.extent(0);
   const bool volume = problem_.separable_geometry() && flux_transverse_.empty();
   if (!time && !magnitude && !volume)
     return;
@@ -13674,7 +13834,7 @@ void GeneralWorkspace::fill_statistics_closure() {
 
 void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
                                                  const std::size_t peak,
-                                                 const std::size_t fluence,
+                                                 const bool fluence,
                                                  const double intensity_factor) {
   constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
@@ -13687,7 +13847,6 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
   const auto scratch = transverse_;
   const auto closure_scratch = flux_transverse_;
   const auto power = statistics_power_;
-  const auto magnitude = statistics_magnitude_;
   const auto partials = spatial_statistics_partials_;
   const auto synthesis = synthesis_;
   const auto flux = flux_;
@@ -13699,30 +13858,38 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
   const auto layout = transverse_layout();
   const auto n = problem_.n_omega;
   const auto n_t = problem_.n_t;
-  const auto dt = problem_.dt;
   const bool envelope = problem_.family == FieldFamily::envelope;
-  if (axis_peak != absent || fluence != absent) {
+  if (axis_peak != absent) {
     // The axis's closure first, kept in the closure rows, then its field: each the
-    // coherent on-axis sum of the analytic spectrum (solprop SEP 34).
+    // coherent on-axis sum of the analytic spectrum (solprop SEP 34). On free space the
+    // far-field pass forms those sums in its team-local bands. A sum per bin over every
+    // column, as the slab's few columns take here, is a thread's serial walk across a
+    // whole state on a device. A plane's on-axis spectrum reads the same slots.
+    if (far_field_)
+      static_cast<void>(far_field_->run(far_field_axis, {}, 2, {}, intensity_factor,
+                                        current, far_field_inputs()));
     for (const bool closed : {true, false}) {
       graph::deep_copy(execution_space_, spectrum, Complex{});
-      launch::parallel_for(
-          "solprop_native.free.statistics_axis_input",
-          Range2(execution_space_, {0, 0}, {n_pol, n}),
-          KOKKOS_LAMBDA(const std::size_t pol, const std::size_t index) {
-            const bool live = active(index) != 0U;
-            Complex sum{};
-            for (std::size_t mode = 0; mode < n_modes; ++mode) {
-              const Complex value = current(mode * n_pol + pol, index);
-              sum += axis_weights(mode) *
-                     (closed ? flux.closing(mode, index, live, omega(index)) * value
-                             : value);
-            }
-            const double scale =
-                (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
-                static_cast<double>(n_t);
-            spectrum(pol, index) = scale * sum;
-          });
+      if (far_field_)
+        far_field_->axis_spectrum(closed, spectrum);
+      else
+        launch::parallel_for(
+            "solprop_native.free.statistics_axis_input",
+            Range2(execution_space_, {0, 0}, {n_pol, n}),
+            KOKKOS_LAMBDA(const std::size_t pol, const std::size_t index) {
+              const bool live = active(index) != 0U;
+              Complex sum{};
+              for (std::size_t mode = 0; mode < n_modes; ++mode) {
+                const Complex value = current(mode * n_pol + pol, index);
+                sum += axis_weights(mode) *
+                       (closed ? flux.closing(mode, index, live, omega(index)) * value
+                               : value);
+              }
+              const double scale =
+                  (envelope || index == 0 || index + 1 == n ? 1.0 : 2.0) /
+                  static_cast<double>(n_t);
+              spectrum(pol, index) = scale * sum;
+            });
       graph::execute(*statistics_inverse_plan_, statistics_spectrum_, statistics_time_,
                      KokkosFFT::Normalization::none);
       if (closed)
@@ -13736,21 +13903,17 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         "solprop_native.free.statistics_axis_reduce",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
         KOKKOS_LAMBDA(const std::size_t) {
-          double sum = 0.0, maximum = lowest;
+          double maximum = lowest;
           for (std::size_t time = 0; time < n_t; ++time) {
             double value = 0.0;
             for (std::size_t pol = 0; pol < n_pol; ++pol)
               value += (field(pol, time) * Kokkos::conj(closure(pol, time))).real();
-            sum += value;
             maximum = Kokkos::max(maximum, value);
           }
-          if (axis_peak != absent)
-            packed(axis_peak) = intensity_factor * maximum;
-          if (fluence != absent)
-            packed(fluence + n_nodes) = intensity_factor * dt * sum;
+          packed(axis_peak) = intensity_factor * maximum;
         });
   }
-  if (peak == absent && fluence == absent)
+  if (peak == absent && !fluence)
     return;
   const auto transverse_count =
       static_cast<double>(problem_.slab_geometry() ? problem_.n_y : n_modes);
@@ -13767,6 +13930,10 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
       });
   transverse_inverse();
   transverse_inverse(flux_transverse_);
+  if (fluence)
+    separable_fluence(intensity_factor);
+  if (peak == absent)
+    return;
   const bool slab = problem_.slab_geometry();
   const auto n_x = problem_.n_x;
   const auto n_p = problem_.n_p;
@@ -13821,43 +13988,337 @@ void GeneralWorkspace::separable_time_statistics(const std::size_t axis_peak,
         "solprop_native.free.statistics_intensity",
         Range2(execution_space_, {0, 0}, {count, n_t}),
         KOKKOS_LAMBDA(const std::size_t node, const std::size_t time) {
-          double value = 0.0, size = 0.0;
-          for (std::size_t pol = 0; pol < n_pol; ++pol) {
-            const Complex electric = field(node * n_pol + pol, time);
-            const Complex magnetic = closure(node * n_pol + pol, time);
-            value += (electric * Kokkos::conj(magnetic)).real();
-            size += Kokkos::sqrt(squared_abs(electric) * squared_abs(magnetic));
-          }
+          double value = 0.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol)
+            value += (field(node * n_pol + pol, time) *
+                      Kokkos::conj(closure(node * n_pol + pol, time)))
+                         .real();
           power(node, time) = intensity_factor * value;
-          magnitude(node, time) = intensity_factor * size;
         });
     launch::parallel_for(
-        "solprop_native.free.statistics_fluence",
+        "solprop_native.free.statistics_node_peak",
         Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, count),
         KOKKOS_LAMBDA(const std::size_t node) {
-          double maximum = lowest, sum = 0.0, size = 0.0;
-          for (std::size_t time = 0; time < n_t; ++time) {
-            sum += power(node, time);
-            size += magnitude(node, time);
+          double maximum = lowest;
+          for (std::size_t time = 0; time < n_t; ++time)
             maximum = Kokkos::max(maximum, power(node, time));
-          }
           partials(first + node, 1) = maximum;
-          if (fluence != absent) {
-            packed(fluence + first + node) = dt * sum;
-            packed(fluence + n_nodes + 1 + first + node) = dt * size;
-          }
         });
   }
-  if (peak != absent)
-    launch::parallel_for(
-        "solprop_native.free.statistics_peak",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-        KOKKOS_LAMBDA(const std::size_t) {
-          double maximum = lowest;
-          for (std::size_t node = 0; node < n_nodes; ++node)
-            maximum = Kokkos::max(maximum, partials(node, 1));
-          packed(peak) = maximum;
-        });
+  launch::parallel_reduce(
+      "solprop_native.free.statistics_peak",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+        maximum = Kokkos::max(maximum, partials(node, 1));
+      },
+      Kokkos::Max<double, MemorySpace>(Kokkos::subview(packed, peak)));
+}
+
+// Each node's signed fluence into `partials(node, 0)` and a bound on its magnitude into
+// `partials(node, 2)`, from the physical spectra of the transverse volumes, with no
+// time transform. The analytic signal's spectrum is `s_k a_k`, with `s_k` one or two
+// over `n_t`, so Parseval's theorem over the `n_t` samples gives `sum_t Re(E(t)
+// conj(G(t))) = (1 / n_t) sum_k w_k Re(a_k conj(b_k))`, with `w_k` one or four: exactly
+// the time sum the reference takes. The same pairs bound that sum's magnitude: by
+// Cauchy-Schwarz over time and polarisation, `sum_t |E(t)| |G(t)| <= (1 / n_t)
+// sqrt(sum_k w_k |a_k|^2 sum_k w_k |b_k|^2)`, with equality where `G` is proportional
+// to `E`, as in a beam whose admittance varies little across its band. So a rounding
+// budget set from it is never below the reference's.
+void GeneralWorkspace::separable_fluence(const double intensity_factor) {
+  const auto scratch = transverse_;
+  const auto closure_scratch = flux_transverse_;
+  const auto partials = spatial_statistics_partials_;
+  const PhysicalSpectrum spectrum{transverse_layout(),
+                                  synthesis_,
+                                  problem_.n_x,
+                                  problem_.n_p,
+                                  static_cast<double>(problem_.n_t) /
+                                      static_cast<double>(problem_.n_to),
+                                  problem_.slab_geometry()};
+  const auto n_nodes = problem_.n_nodes;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n = problem_.n_omega;
+  const bool envelope = problem_.family == FieldFamily::envelope;
+  const double measure =
+      intensity_factor * problem_.dt / static_cast<double>(problem_.n_t);
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  // One node per thread, whole planes per block: adjacent threads read adjacent cells.
+  launch::parallel_for(
+      "solprop_native.free.statistics_fluence",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        double sum = 0.0, electric_size = 0.0, magnetic_size = 0.0;
+        for (std::size_t index = 0; index < n; ++index) {
+          const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol) {
+            const Complex electric = spectrum.read(scratch, index * n_pol + pol, node);
+            const Complex magnetic =
+                spectrum.read(closure_scratch, index * n_pol + pol, node);
+            sum += weight * (electric.real() * magnetic.real() +
+                             electric.imag() * magnetic.imag());
+            electric_size += weight * squared_abs(electric);
+            magnetic_size += weight * squared_abs(magnetic);
+          }
+        }
+        partials(node, 0) = measure * sum;
+        partials(node, 2) =
+            measure * Kokkos::sqrt(electric_size) * Kokkos::sqrt(magnetic_size);
+      });
+#else
+  // A task takes a run of adjacent nodes and reads each plane's cells of the run in
+  // order: one node at a time would touch a new plane at every sample.
+  constexpr std::size_t run = 256;
+  const std::size_t runs = (n_nodes + run - 1) / run;
+  launch::parallel_for(
+      "solprop_native.free.statistics_fluence",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, runs),
+      KOKKOS_LAMBDA(const std::size_t item) {
+        const std::size_t first = item * run;
+        const std::size_t count = n_nodes - first < run ? n_nodes - first : run;
+        double sum[run] = {}, electric_size[run] = {}, magnetic_size[run] = {};
+        for (std::size_t index = 0; index < n; ++index) {
+          const double weight = envelope || index == 0 || index + 1 == n ? 1.0 : 4.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol) {
+            const auto plane = index * n_pol + pol;
+            for (std::size_t offset = 0; offset < count; ++offset) {
+              const Complex electric = spectrum.read(scratch, plane, first + offset);
+              const Complex magnetic =
+                  spectrum.read(closure_scratch, plane, first + offset);
+              sum[offset] += weight * (electric.real() * magnetic.real() +
+                                       electric.imag() * magnetic.imag());
+              electric_size[offset] += weight * squared_abs(electric);
+              magnetic_size[offset] += weight * squared_abs(magnetic);
+            }
+          }
+        }
+        for (std::size_t offset = 0; offset < count; ++offset) {
+          partials(first + offset, 0) = measure * sum[offset];
+          partials(first + offset, 2) = measure * Kokkos::sqrt(electric_size[offset]) *
+                                        Kokkos::sqrt(magnetic_size[offset]);
+        }
+      });
+#endif
+}
+
+// What a plane's widths read of its fluence (`separable_fluence`), each a reduction
+// over the nodes, so that the profile itself stays on the device: `moments` takes the
+// lowest value and its node, the largest magnitude, the largest value and the count of
+// values that aren't finite and, when the plane has a positive value and none that
+// isn't finite, the scaled profile's sum and index moments. That scaled profile is left
+// in `partials(node, 0)` for `plane_fluence_trace`. Each reduction blocks: one plane's
+// work.
+void GeneralWorkspace::plane_fluence_moments(double (&moments)[plane_moment_slots]) {
+  const auto partials = spatial_statistics_partials_;
+  const auto n_nodes = problem_.n_nodes;
+  const auto n_x = problem_.n_x;
+  const Kokkos::RangePolicy<ExecutionSpace> nodes(execution_space_, 0, n_nodes);
+  std::size_t nonfinite = 0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_finite", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, std::size_t& update) {
+        if (!Kokkos::isfinite(partials(node, 0)))
+          ++update;
+      },
+      Kokkos::Sum<std::size_t>(nonfinite));
+  Kokkos::MinLoc<double, std::size_t>::value_type worst{};
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_worst", nodes,
+      KOKKOS_LAMBDA(const std::size_t node,
+                    Kokkos::MinLoc<double, std::size_t>::value_type& update) {
+        if (partials(node, 0) < update.val) {
+          update.val = partials(node, 0);
+          update.loc = node;
+        }
+      },
+      Kokkos::MinLoc<double, std::size_t>(worst));
+  double size = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_size", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        update = Kokkos::max(update, partials(node, 2));
+      },
+      Kokkos::Max<double>(size));
+  double highest = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_highest", nodes,
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        update = Kokkos::max(update, partials(node, 0));
+      },
+      Kokkos::Max<double>(highest));
+  // A negative value within its budget is read as zero, as the reference reads it.
+  const double maximum = Kokkos::max(highest, 0.0);
+  FluenceMoments sums;
+  plane_fluence_held_ = nonfinite == 0 && maximum > 0.0;
+  if (plane_fluence_held_)
+    launch::parallel_reduce(
+        "solprop_native.free.plane_fluence_moments", nodes,
+        KOKKOS_LAMBDA(const std::size_t node, FluenceMoments& update) {
+          // Scaling cancels in the centroid and the widths and keeps them from
+          // overflowing on a bright beam.
+          const double sample = Kokkos::max(partials(node, 0), 0.0) / maximum;
+          partials(node, 0) = sample;
+          update.total += sample;
+          update.x += sample * static_cast<double>(node % n_x);
+          update.y += sample * static_cast<double>(node / n_x);
+        },
+        Kokkos::Sum<FluenceMoments>(sums));
+  moments[0] = worst.val;
+  moments[1] = static_cast<double>(worst.loc);
+  moments[2] = size;
+  moments[3] = maximum;
+  moments[4] = static_cast<double>(nonfinite);
+  moments[5] = sums.total;
+  moments[6] = sums.x;
+  moments[7] = sums.y;
+}
+
+// The second moment and the azimuthal average of a plane's scaled fluence, left by a
+// call that asked for its moments. The rule is solprop's
+// (`solprop.spatial.cartesian_fluence_widths`), which owns the rings and hands them
+// over: each ring samples the bilinear interpolant at `cosines.size()` angles about the
+// centroid, with the centre in metres from the axes' first samples, so that only the
+// trace crosses, not the profile. Returned: the second-moment sum, then the trace.
+std::vector<double> GeneralWorkspace::plane_fluence_trace(
+    const double center_x, const double center_y, const double dx, const double dy,
+    const double extent, const double spacing, const std::size_t n_radii,
+    const std::vector<double>& cosines, const std::vector<double>& sines) {
+  require_open();
+  if (!plane_fluence_held_)
+    throw std::logic_error("a plane's fluence trace follows the call that holds it");
+  plane_fluence_held_ = false;
+  if (cosines.size() != sines.size() || (n_radii != 0 && cosines.empty()) ||
+      !(dx > 0.0) || !(dy > 0.0) || !(extent > 0.0) ||
+      (n_radii != 0 && !(spacing > 0.0)))
+    throw std::invalid_argument("invalid fluence rings");
+  const auto n_angles = cosines.size();
+  const auto packed_size =
+      checked_sum(checked_sum(1, n_radii, "fluence trace"),
+                  checked_product(2, n_angles, "fluence rings"), "fluence trace");
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native spatial statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  const auto packed = statistics_packed_;
+  const auto samples = spatial_statistics_partials_;
+  const auto n_x = problem_.n_x;
+  const auto n_y = problem_.n_y;
+  const auto first_ring = n_radii + 1;
+  if (n_angles != 0) {
+    std::vector<double> rings(cosines);
+    rings.insert(rings.end(), sines.begin(), sines.end());
+    copy_vector(execution_space_,
+                Kokkos::subview(packed, std::make_pair(first_ring, packed_size)),
+                rings);
+  }
+  double second = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.free.plane_fluence_second",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_nodes),
+      KOKKOS_LAMBDA(const std::size_t node, double& update) {
+        const double x = (static_cast<double>(node % n_x) * dx - center_x) / extent;
+        const double y = (static_cast<double>(node / n_x) * dy - center_y) / extent;
+        update += samples(node, 0) * (x * x + y * y);
+      },
+      Kokkos::Sum<double>(second));
+  const double last_x = static_cast<double>(n_x - 1);
+  const double last_y = static_cast<double>(n_y - 1);
+  // One thread per ring: a ring's samples are few, and a thread's sum needs no
+  // reduction.
+  launch::parallel_for(
+      "solprop_native.free.plane_fluence_rings",
+      Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_radii),
+      KOKKOS_LAMBDA(const std::size_t ring) {
+        const double distance = spacing * static_cast<double>(ring);
+        double sum = 0.0;
+        for (std::size_t angle = 0; angle < n_angles; ++angle) {
+          const double horizontal = Kokkos::min(
+              Kokkos::max((center_x + distance * packed(first_ring + angle)) / dx, 0.0),
+              last_x);
+          const double vertical = Kokkos::min(
+              Kokkos::max(
+                  (center_y + distance * packed(first_ring + n_angles + angle)) / dy,
+                  0.0),
+              last_y);
+          const auto ix =
+              Kokkos::min(static_cast<std::size_t>(horizontal), n_x - std::size_t{2});
+          const auto iy =
+              Kokkos::min(static_cast<std::size_t>(vertical), n_y - std::size_t{2});
+          const double fx = horizontal - static_cast<double>(ix);
+          const double fy = vertical - static_cast<double>(iy);
+          const auto low = iy * n_x + ix;
+          const auto high = low + n_x;
+          sum +=
+              (1.0 - fy) * ((1.0 - fx) * samples(low, 0) + fx * samples(low + 1, 0)) +
+              fy * ((1.0 - fx) * samples(high, 0) + fx * samples(high + 1, 0));
+        }
+        packed(1 + ring) = sum / static_cast<double>(n_angles);
+      });
+  const auto trace =
+      Kokkos::subview(packed, std::make_pair(std::size_t{1}, first_ring));
+  auto host = Kokkos::create_mirror_view(trace);
+  graph::deep_copy(execution_space_, host, trace);
+  execution_space_.fence("solprop_native fluence trace boundary");
+  std::vector<double> result(first_ring);
+  result[0] = second;
+  for (std::size_t ring = 0; ring < n_radii; ++ring)
+    result[1 + ring] = host(ring);
+  return result;
+}
+
+// The field's spectrum at one physical point, the matrix `(n_rows, n_modes)` contracted
+// with the modal state: `(n_rows * n_pol, n_omega)` samples, each a real and an
+// imaginary part in turn. The on-axis statistics scan this row on the host (solprop SEP
+// 19), so that it is all a plane's scan brings across.
+std::vector<Complex>
+GeneralWorkspace::axis_spectrum(const std::vector<double>& matrix) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (problem_.separable_geometry() || matrix.empty() ||
+      matrix.size() % problem_.n_modes != 0 ||
+      matrix.size() / problem_.n_modes > statistics_on_axis_.size() / problem_.n_modes)
+    throw std::invalid_argument(
+        "an on-axis row needs a modal state and at most two rows of n_modes columns");
+  const auto n_rows = matrix.size() / problem_.n_modes;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n_modes = problem_.n_modes;
+  const auto n = problem_.n_omega;
+  const auto columns = checked_product(n_rows, n_pol, "on-axis columns");
+  const auto samples = checked_product(columns, n, "on-axis samples");
+  const auto packed_size = checked_product(2, samples, "on-axis samples");
+  if (statistics_packed_.size() < packed_size) {
+    execution_space_.fence("solprop_native statistics output resize");
+    statistics_packed_ = RealView("solprop_native.statistics.packed", packed_size);
+  }
+  copy_vector(execution_space_,
+              Kokkos::subview(statistics_on_axis_,
+                              std::make_pair<std::size_t>(0, matrix.size())),
+              matrix);
+  const auto weights = statistics_on_axis_;
+  const auto packed = statistics_packed_;
+  const auto current = current_;
+  launch::parallel_for(
+      "solprop_native.statistics.axis_spectrum",
+      Range2(execution_space_, {0, 0}, {columns, n}),
+      KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+        const auto row = column / n_pol;
+        const auto pol = column % n_pol;
+        Complex sum{};
+        for (std::size_t mode = 0; mode < n_modes; ++mode)
+          sum += weights(row * n_modes + mode) * current(mode * n_pol + pol, index);
+        const auto at = 2 * (column * n + index);
+        packed(at) = sum.real();
+        packed(at + 1) = sum.imag();
+      });
+  const auto filled =
+      Kokkos::subview(packed, std::make_pair<std::size_t>(0, packed_size));
+  auto host = Kokkos::create_mirror_view(filled);
+  graph::deep_copy(execution_space_, host, filled);
+  execution_space_.fence("solprop_native on-axis row boundary");
+  std::vector<Complex> result(samples);
+  for (std::size_t index = 0; index < samples; ++index)
+    result[index] = Complex(host(2 * index), host(2 * index + 1));
+  return result;
 }
 
 std::vector<double> GeneralWorkspace::aperture_statistics(
@@ -13867,13 +14328,23 @@ std::vector<double> GeneralWorkspace::aperture_statistics(
   if (!initialized_ || !far_field_)
     throw std::logic_error(
         "far-field statistics need an initial field on a Cartesian or line grid");
-  return far_field_->run(
-      flags, apertures, exponent, regions, intensity_factor, current_,
-      FarFieldPass::Inputs{spatial_spectral_weights_, spatial_on_axis_, spatial_.square,
-                           spatial_.square_low, spatial_.transverse,
-                           spatial_.transverse_low, spatial_.spectral_rate,
-                           spatial_.user_rate, spatial_.transverse_rate, omega_,
-                           active_mask_, spatial_.evanescent});
+  return far_field_->run(flags, apertures, exponent, regions, intensity_factor,
+                         current_, far_field_inputs());
+}
+
+FarFieldPass::Inputs GeneralWorkspace::far_field_inputs() const {
+  return FarFieldPass::Inputs{spatial_spectral_weights_,
+                              spatial_on_axis_,
+                              spatial_.square,
+                              spatial_.square_low,
+                              spatial_.transverse,
+                              spatial_.transverse_low,
+                              spatial_.spectral_rate,
+                              spatial_.user_rate,
+                              spatial_.transverse_rate,
+                              omega_,
+                              active_mask_,
+                              spatial_.evanescent};
 }
 
 std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t flags,
@@ -13885,10 +14356,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
         "spatial statistics need an initial field and spatial geometry");
   if (flux_.square.empty())
     throw std::logic_error("spatial statistics need the run's plane measure");
-  if ((flags & ~std::uint64_t{31}) != 0 || !std::isfinite(intensity_factor) ||
+  if ((flags & ~std::uint64_t{63}) != 0 || !std::isfinite(intensity_factor) ||
       intensity_factor <= 0.0 || !std::isfinite(z))
     throw std::invalid_argument(
         "invalid spatial statistic flags, intensity factor or position");
+  if ((flags & 32U) != 0 &&
+      (!problem_.free_geometry() || problem_.slab_geometry() || problem_.n_y < 2))
+    throw std::invalid_argument("a plane's fluence moments need a Cartesian plane");
   constexpr auto absent = std::numeric_limits<std::size_t>::max();
   constexpr double lowest = std::numeric_limits<double>::lowest();
   std::size_t packed_size = 0;
@@ -13904,12 +14378,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   const auto axis_peak_offset = reserve(2, 1);
   const auto peak_offset = reserve(4, 1);
   const auto spectrum_offset = reserve(8, problem_.n_omega);
-  // Widths read the signed fluence at the nodes, the separately reconstructed axis
-  // and each node's magnitude `dt sum |E| |G|`, whose largest value fixes the
+  // Widths read the signed fluence at the nodes, the separately reconstructed axis,
+  // which only a radial width reads, and the largest magnitude, which fixes the
   // fluence's rounding budget (solprop SEP 34).
   const auto fluence_offset =
-      reserve(16, checked_sum(checked_product(2, problem_.n_nodes, "spatial nodes"), 1,
-                              "spatial statistics output"));
+      reserve(16, checked_sum(problem_.n_nodes, 2, "spatial statistics output"));
+  // On a Cartesian plane the widths reduce here instead, and the moments cross.
+  const auto moments_offset = reserve(32, plane_moment_slots);
   if (packed_size == 0)
     return {};
   if (statistics_packed_.size() < packed_size) {
@@ -13918,7 +14393,7 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   }
   // Every field statistic is the axial flux of the medium at the plane z.
   flux_at(z);
-  const bool local = (flags & (2U | 4U | 16U)) != 0;
+  const bool local = (flags & (2U | 4U | 16U | 32U)) != 0;
   if (local)
     require_flux_closure();
   const auto packed = statistics_packed_;
@@ -13956,15 +14431,13 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
           partials(mode, 0) = intensity_factor * spectral_weights(mode) * dt /
                               static_cast<double>(n_t) * sum;
         });
-    launch::parallel_for(
+    launch::parallel_reduce(
         "solprop_native.spatial.pack_energy",
-        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, 1),
-        KOKKOS_LAMBDA(const std::size_t) {
-          double sum = 0.0;
-          for (std::size_t mode = 0; mode < n_modes; ++mode)
-            sum += partials(mode, 0);
-          packed(energy_offset) = sum;
-        });
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_modes),
+        KOKKOS_LAMBDA(const std::size_t mode, double& sum) {
+          sum += partials(mode, 0);
+        },
+        Kokkos::Sum<double, MemorySpace>(Kokkos::subview(packed, energy_offset)));
   }
   if (spectrum_offset != absent) {
     // The coherent on-axis amplitude paired at each frequency with its closure.
@@ -13990,9 +14463,29 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
               (2.0 * Kokkos::numbers::pi_v<double>)*weight * power;
         });
   }
+  double moments[plane_moment_slots] = {};
   if (problem_.separable_geometry()) {
-    separable_time_statistics(axis_peak_offset, peak_offset, fluence_offset,
+    separable_time_statistics(axis_peak_offset, peak_offset,
+                              fluence_offset != absent || moments_offset != absent,
                               intensity_factor);
+    if (fluence_offset != absent) {
+      launch::parallel_for(
+          "solprop_native.free.fluence_rows",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+          KOKKOS_LAMBDA(const std::size_t node) {
+            packed(fluence_offset + node) = partials(node, 0);
+          });
+      launch::parallel_reduce(
+          "solprop_native.free.fluence_largest",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+          KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+            maximum = Kokkos::max(maximum, partials(node, 2));
+          },
+          Kokkos::Max<double, MemorySpace>(
+              Kokkos::subview(packed, fluence_offset + n_nodes + 1)));
+    }
+    if (moments_offset != absent)
+      plane_fluence_moments(moments);
   } else if (local) {
     if (n_nodes != n_modes)
       throw std::logic_error("radial statistics need one node per Hankel column");
@@ -14095,11 +14588,19 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
               size += magnitude(node, time);
             }
             partials(node, 1) = peak;
-            if (fluence_offset != absent) {
+            partials(node, 2) = dt * size;
+            if (fluence_offset != absent)
               packed(fluence_offset + node) = dt * sum;
-              packed(fluence_offset + n_nodes + 1 + node) = dt * size;
-            }
           });
+      if (fluence_offset != absent)
+        launch::parallel_reduce(
+            "solprop_native.spatial.fluence_largest",
+            Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n_nodes),
+            KOKKOS_LAMBDA(const std::size_t node, double& maximum) {
+              maximum = Kokkos::max(maximum, partials(node, 2));
+            },
+            Kokkos::Max<double, MemorySpace>(
+                Kokkos::subview(packed, fluence_offset + n_nodes + 1)));
       if (peak_offset != absent)
         launch::parallel_for(
             "solprop_native.spatial.pack_peak",
@@ -14120,6 +14621,11 @@ std::vector<double> GeneralWorkspace::spatial_statistics(const std::uint64_t fla
   std::vector<double> result(packed_size);
   for (std::size_t index = 0; index < packed_size; ++index)
     result[index] = host(index);
+  // The separable routes don't form the axis's fluence: only a radial width reads it.
+  if (fluence_offset != absent && problem_.separable_geometry())
+    result[fluence_offset + n_nodes] = Kokkos::Experimental::quiet_NaN_v<double>;
+  if (moments_offset != absent)
+    std::copy_n(moments, plane_moment_slots, result.data() + moments_offset);
   return result;
 }
 
@@ -14345,14 +14851,15 @@ namespace {
 template <class TimeView>
 void split_apply(const char* label, const ExecutionSpace& execution,
                  const TimeView& time, const RealView& rate, const RealView& factors,
-                 const double dz, const std::size_t rows, const std::size_t samples) {
+                 const double dz, const std::size_t rows, const std::size_t samples,
+                 const double scale = 1.0) {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   static_cast<void>(rate);
   static_cast<void>(dz);
   launch::parallel_for(
       label, Range2(execution, {0, 0}, {rows, samples}),
       KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-        time(row, index) *= factors(index);
+        time(row, index) *= scale * factors(index);
       });
 #else
   static_cast<void>(factors);
@@ -14372,6 +14879,8 @@ void split_apply(const char* label, const ExecutionSpace& execution,
         for (std::size_t sample = 0; sample < count; ++sample)
           factor[sample] = -0.5 * rate(first + sample) * dz;
         vmath::exp(factor, factor, count);
+        for (std::size_t sample = 0; sample < count; ++sample)
+          factor[sample] *= scale;
         for (std::size_t row = row_first; row < row_last; ++row)
           for (std::size_t sample = 0; sample < count; ++sample)
             time(row, first + sample) *= factor[sample];
@@ -14393,7 +14902,8 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_complex_plan_, coarse_spectrum_,
                      coarse_time_complex_, KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, coarse_time_complex_,
+                        1.0);
     split_apply("solprop_native.absorber.split_apply_complex", execution_space_,
                 coarse_time_complex_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14409,7 +14919,7 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
       graph::execute(*coarse_inverse_real_plan_, coarse_spectrum_, coarse_time_real_,
                      KokkosFFT::Normalization::none);
     if (monitoring_split())
-      add_split_removal(dz, active_rows, parseval, first_column);
+      add_split_removal(dz, active_rows, parseval, first_column, {}, 1.0);
     split_apply("solprop_native.absorber.split_apply_real", execution_space_,
                 coarse_time_real_, absorber_coarse_, split_factor_, dz, active_rows,
                 problem_.n_t);
@@ -14421,6 +14931,32 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
   }
 }
 
+// Free space's complex rows: the split's factor depends on time alone, so it acts alike
+// on every column of any transverse basis, and the temporal pair runs in place on the
+// state's own rows, a block of them at a time. Nothing is copied to a coarse buffer and
+// back, the transform's normalisation goes with the factor, and the band's mask is the
+// one pass after the blocks. Equal to the reference's split in real space up to the
+// transforms' rounding, at any block size.
+void GeneralWorkspace::split_state_rows(const double dz, const ComplexView2& state) {
+  const double inverse_time = 1.0 / static_cast<double>(problem_.n_t);
+  const auto columns = problem_.n_columns();
+  for (std::size_t first = 0; first < columns; first += split_rows_) {
+    const auto rows = std::min(split_rows_, columns - first);
+    const ComplexView2 block =
+        Kokkos::subview(state, std::make_pair(first, first + rows), Kokkos::ALL());
+    const bool tail = rows != split_rows_;
+    graph::execute(tail ? *split_tail_inverse_plan_ : *split_inverse_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+    if (monitoring_split())
+      add_split_removal(dz, rows, 0.0, first, block, inverse_time * inverse_time);
+    split_apply("solprop_native.absorber.split_apply_complex", execution_space_, block,
+                absorber_coarse_, split_factor_, dz, rows, problem_.n_t, inverse_time);
+    graph::execute(tail ? *split_tail_forward_plan_ : *split_forward_plan_, block,
+                   block, KokkosFFT::Normalization::none);
+  }
+  mask(state);
+}
+
 // What one split takes of the power it finds in the coarse time rows, `sum P (1 -
 // exp(-alpha h))` with the boundary monitor's column weights, added to the run's
 // accumulator in the memory space (solprop SEP 21, ADR-057): the monitor's reading
@@ -14430,10 +14966,13 @@ void GeneralWorkspace::split_columns(const double dz, std::size_t active_rows,
 // monitor judges the occupancies on: the symmetric splitting's state at the step's
 // end. A separable route's rows are real-space rows, measured by `parseval`; zero
 // means the rows are the stored columns from `first_column` on, weighted by their
-// quadrature.
+// quadrature. `complex_time` holds a complex route's rows, whose power `power_scale`
+// brings to the state's measure: the state's own rows carry no transform normalisation.
 void GeneralWorkspace::add_split_removal(const double dz, const std::size_t active_rows,
                                          const double parseval,
-                                         const std::size_t first_column) {
+                                         const std::size_t first_column,
+                                         const ComplexView2& complex_time,
+                                         const double power_scale) {
   const auto rate = absorber_coarse_;
   const auto share = monitor_share_;
   const auto half = monitor_half_;
@@ -14451,13 +14990,12 @@ void GeneralWorkspace::add_split_removal(const double dz, const std::size_t acti
   const auto guards = monitor_weights_;
   const auto samples = Range2(execution_space_, {0, 0}, {active_rows, problem_.n_t});
   if (problem_.family == FieldFamily::envelope) {
-    const auto time = coarse_time_complex_;
     launch::parallel_reduce(
         "solprop_native.monitor.split_removal_complex", samples,
         KOKKOS_LAMBDA(const std::size_t row, const std::size_t index,
                       SplitSums& update) {
           const double power = (stored ? weights(first_column + row) : parseval) *
-                               squared_abs(time(row, index));
+                               (power_scale * squared_abs(complex_time(row, index)));
           update.values[0] += power * share(index);
           const double found = half(index) * power;
           update.values[1] += found;
@@ -14549,10 +15087,10 @@ namespace {
 // `power(row, index)`, in total and weighed by each of the four regions' weights. A
 // host work item takes a run of one row's samples, its sums in sample order, so that
 // no sample divides its flat index by the row length; a device takes one sample.
-template <class Power>
+template <class Weights, class Power>
 MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
                          const std::size_t count, const std::size_t n_t,
-                         const RealView2& weights, const Power& power) {
+                         const Weights& weights, const Power& power) {
   MonitorSums sums;
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
   launch::parallel_reduce(
@@ -14591,6 +15129,383 @@ MonitorSums monitor_sums(const char* label, const ExecutionSpace& execution,
   return sums;
 }
 } // namespace
+
+namespace {
+// The field on a line's node, in a row of the transverse scratch (solprop SEP 44): a
+// row is a plane and a position across the line, and no route has a branch here.
+struct EdgeScratchValue {
+  ComplexView3 scratch;
+  std::size_t units{}, across{}, row_stride{}, node_stride{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t row,
+                                            const std::size_t node) const {
+    return scratch.data()[(row / across) * units + (row % across) * row_stride +
+                          node * node_stride];
+  }
+};
+
+// The same radially: `sqrt(r) E`, a dense product per value, in a row of (pol, omega).
+struct EdgeRadialValue {
+  RealView2 synthesis;
+  ComplexView2 current;
+  RealView scale;
+  std::size_t n_pol{}, n{}, modes{};
+  KOKKOS_INLINE_FUNCTION Complex operator()(const std::size_t row,
+                                            const std::size_t node) const {
+    const auto pol = row / n;
+    const auto omega = row % n;
+    Complex value{};
+    for (std::size_t mode = 0; mode < modes; ++mode)
+      value += synthesis(node, mode) * current(mode * n_pol + pol, omega);
+    return scale(node) * value;
+  }
+};
+
+// One line's `(inward, windowed)`, unscaled: a Kaiser-windowed transform along its
+// normal, padded twice, batch by batch so that the buffer stays bounded.
+template <class Value>
+MonitorSums edge_strip_line(const ExecutionSpace& execution, const Value& value,
+                            const std::size_t rows, const std::size_t batch,
+                            const std::size_t nodes, const std::size_t first,
+                            const std::size_t last, const IndexView& positions,
+                            const RealView& window, const ComplexView2& buffer,
+                            StripPlan& plan) {
+  const std::size_t count = 2 * nodes;
+  MonitorSums sums;
+  for (std::size_t start = 0; start < rows; start += batch) {
+    launch::parallel_for(
+        "solprop_native.edge.strip_fill",
+        Kokkos::RangePolicy<ExecutionSpace>(execution, 0, batch),
+        KOKKOS_LAMBDA(const std::size_t row) {
+          // A short last batch leaves its other rows zero, whose energy is none.
+          const bool live = start + row < rows;
+          for (std::size_t index = 0; index < nodes; ++index)
+            buffer(row, index) =
+                live ? window(index) * value(start + row, positions(index)) : Complex{};
+          for (std::size_t index = nodes; index < count; ++index)
+            buffer(row, index) = Complex{};
+        });
+    graph::execute(plan, buffer, buffer, KokkosFFT::Normalization::none);
+    MonitorSums part;
+    launch::parallel_reduce(
+        "solprop_native.edge.strip_sums",
+        Kokkos::RangePolicy<ExecutionSpace>(execution, 0, batch),
+        KOKKOS_LAMBDA(const std::size_t row, MonitorSums& update) {
+          for (std::size_t index = 0; index < count; ++index) {
+            const double power = squared_abs(buffer(row, index));
+            update.values[1] += power;
+            if (index >= first && index < last)
+              update.values[0] += power;
+          }
+        },
+        Kokkos::Sum<MonitorSums>(part));
+    sums += part;
+  }
+  return sums;
+}
+
+// One line's rectified inward current: `Im(E* dE/ds) / k`, rectified per row before
+// it's summed, as a collar's current is defined (solprop SEP 40 section 5.3).
+template <class Value>
+double edge_current_line(const ExecutionSpace& execution, const Value& value,
+                         const std::size_t rows, const std::size_t node,
+                         const std::size_t before, const std::size_t after,
+                         const double step, const double k_min) {
+  double total = 0.0;
+  launch::parallel_reduce(
+      "solprop_native.edge.current",
+      Kokkos::RangePolicy<ExecutionSpace>(execution, 0, rows),
+      KOKKOS_LAMBDA(const std::size_t row, double& update) {
+        const Complex here = value(row, node);
+        const Complex slope = (value(row, after) - value(row, before)) / step;
+        const double flux =
+            (here.real() * slope.imag() - here.imag() * slope.real()) / k_min;
+        update += flux > 0.0 ? flux : 0.0;
+      },
+      Kokkos::Sum<double>(total));
+  return total;
+}
+
+// The transverse edge's region weights (solprop SEP 44), from the rows given on: a
+// radial read synthesises only the outer rows its regions can touch.
+struct EdgeWeights {
+  RealView2 weights;
+  std::size_t first{};
+  KOKKOS_INLINE_FUNCTION double operator()(const std::size_t region,
+                                           const std::size_t index) const {
+    return weights(region, first + index);
+  }
+};
+} // namespace
+
+// Bind what the transverse edge's reading sums with (solprop SEP 44): three tables of
+// four regions' weights on the nodes, and radially the synthesis and the first row a
+// read uses. Native holds no face, mask or judgement. The views are allocated at the
+// first bind and kept.
+void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
+                                 const std::vector<double>& clip,
+                                 const std::vector<double>& totals,
+                                 const std::vector<double>& synthesis,
+                                 const std::size_t first_row) {
+  require_open();
+  const auto nodes = faces.size() / 4;
+  require_extent(faces.size(), 4 * nodes, "edge faces");
+  require_extent(clip.size(), 4 * nodes, "edge clip");
+  require_extent(totals.size(), 4 * nodes, "edge totals");
+  if (problem_.separable_geometry()) {
+    require_extent(nodes, transverse_units(), "edge nodes");
+    require_extent(synthesis.size(), 0, "a separable edge's synthesis");
+  } else {
+    require_extent(nodes, problem_.n_modes, "edge nodes");
+    require_extent(synthesis.size(), nodes * nodes, "edge synthesis");
+  }
+  if (first_row >= nodes)
+    throw std::invalid_argument("the edge's first row lies past its nodes");
+  if (edge_faces_.extent(0) == 0) {
+    edge_faces_ = RealView2("solprop_native.edge.faces", 4, nodes);
+    edge_clip_ = RealView2("solprop_native.edge.clip", 4, nodes);
+    edge_totals_ = RealView2("solprop_native.edge.totals", 4, nodes);
+    edge_columns_ = RealView("solprop_native.edge.columns", problem_.n_modes);
+    if (!synthesis.empty())
+      edge_synthesis_ = RealView2("solprop_native.edge.synthesis", nodes, nodes);
+  }
+  copy_vector(execution_space_, edge_faces_, faces);
+  copy_vector(execution_space_, edge_clip_, clip);
+  copy_vector(execution_space_, edge_totals_, totals);
+  if (!synthesis.empty())
+    copy_vector(execution_space_, edge_synthesis_, synthesis);
+  edge_first_row_ = first_row;
+  execution_space_.fence("solprop_native edge bind");
+}
+
+// Bind a requested collar's lines (solprop SEP 44), which Python describes: their
+// nodes, windows, inward bins and onsets. A batch of one shape serves every line that
+// has it.
+void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
+  require_open();
+  const auto n_lines = lines.axes.size();
+  require_extent(lines.counts.size(), n_lines, "edge line counts");
+  require_extent(lines.inward.size(), 2 * n_lines, "edge line bins");
+  require_extent(lines.factors.size(), n_lines, "edge line factors");
+  require_extent(lines.measures.size(), n_lines, "edge line measures");
+  require_extent(lines.onsets.size(), 3 * n_lines, "edge line onsets");
+  require_extent(lines.steps.size(), n_lines, "edge line steps");
+  require_extent(lines.windows.size(), lines.positions.size(), "edge line windows");
+  if (std::accumulate(lines.counts.begin(), lines.counts.end(), std::size_t{0}) !=
+      lines.positions.size())
+    throw std::invalid_argument("the edge's lines don't account for their nodes");
+  const auto planes = problem_.n_pol_state * problem_.n_omega;
+  // A runner's next point reuses the plans of its shapes, and only those stay held.
+  decltype(edge_batches_) batches;
+  std::vector<EdgeLine> bound;
+  bound.reserve(n_lines);
+  std::size_t offset = 0;
+  for (std::size_t index = 0; index < n_lines; ++index) {
+    EdgeLine line;
+    line.axis = lines.axes[index];
+    line.nodes = lines.counts[index];
+    line.rows = planes * (problem_.slab_geometry()         ? problem_.n_p
+                          : !problem_.separable_geometry() ? std::size_t{1}
+                          : line.axis == 1                 ? problem_.n_y
+                                                           : problem_.n_x);
+    line.first = lines.inward[2 * index];
+    line.last = lines.inward[2 * index + 1];
+    line.factor = lines.factors[index];
+    line.measure = lines.measures[index];
+    line.step = lines.steps[index];
+    line.onset = lines.onsets[3 * index];
+    line.before = lines.onsets[3 * index + 1];
+    line.after = lines.onsets[3 * index + 2];
+    if (line.nodes != 0) {
+      const auto first = static_cast<std::ptrdiff_t>(offset);
+      const auto last = static_cast<std::ptrdiff_t>(offset + line.nodes);
+      line.positions = IndexView("solprop_native.edge.line_nodes", line.nodes);
+      line.window = RealView("solprop_native.edge.line_window", line.nodes);
+      copy_vector(execution_space_, line.positions,
+                  std::vector<std::size_t>(lines.positions.begin() + first,
+                                           lines.positions.begin() + last));
+      copy_vector(execution_space_, line.window,
+                  std::vector<double>(lines.windows.begin() + first,
+                                      lines.windows.begin() + last));
+      offset += line.nodes;
+      const std::size_t count = 2 * line.nodes;
+      line.batch =
+          std::min(line.rows, std::max<std::size_t>(1, lines.batch_bytes /
+                                                           (sizeof(Complex) * count)));
+    }
+    bound.push_back(std::move(line));
+  }
+  // The strips run in turn, so one allocation serves every shape: a positive and a
+  // negative face's lines commonly differ by a node, and would otherwise hold two.
+  std::size_t largest = 0;
+  for (const auto& line : bound)
+    largest = std::max(largest, line.batch * 2 * line.nodes);
+  if (edge_strip_.size() != largest)
+    edge_strip_ =
+        largest == 0
+            ? ComplexView{}
+            : ComplexView(Kokkos::view_alloc(Kokkos::WithoutInitializing,
+                                             std::string("solprop_native.edge.strip")),
+                          largest);
+  for (const auto& line : bound) {
+    if (line.nodes == 0)
+      continue;
+    const std::size_t count = 2 * line.nodes;
+    const std::pair<std::size_t, std::size_t> shape{line.batch, count};
+    if (!batches.contains(shape)) {
+      EdgeBatch batch;
+      if (auto kept = edge_batches_.extract(shape); kept)
+        batch = std::move(kept.mapped());
+      // Not tracked: `edge_strip_` owns the memory, and outlives every shape's view.
+      batch.buffer = ComplexView2(edge_strip_.data(), line.batch, count);
+      if (!batch.plan) {
+        // A plan's own memory is measured as the workspace's are, and listed with them.
+        const auto heap_before = heap_bytes();
+        const auto device_before = device_free_bytes();
+        constexpr int along = -1;
+        batch.plan = std::make_unique<StripPlan>(fft_space_for(batch.buffer.size()),
+                                                 batch.buffer, batch.buffer,
+                                                 KokkosFFT::Direction::forward, along);
+        execution_space_.fence("solprop_native edge strip plan");
+        const auto heap_after = heap_bytes();
+        const auto device_after = device_free_bytes();
+        batch.heap_growth = heap_after > heap_before ? heap_after - heap_before : 0;
+        batch.device_growth =
+            device_before > device_after ? device_before - device_after : 0;
+      }
+      batches.emplace(shape, std::move(batch));
+    }
+  }
+  edge_lines_ = std::move(bound);
+  edge_batches_ = std::move(batches);
+  edge_k_min_ = lines.k_min;
+  if (lines.scale.empty()) {
+    edge_scale_ = {};
+  } else {
+    edge_scale_ = RealView("solprop_native.edge.line_scale", lines.scale.size());
+    copy_vector(execution_space_, edge_scale_, lines.scale);
+  }
+  execution_space_.fence("solprop_native edge lines");
+}
+
+// The state's reading for the transverse edge: its region sums and each mode's energy,
+// with only those numbers crossing. With `whole` (a launch) every table on every node;
+// otherwise the faces', and with `totals` a collar's, on the rows a read uses; and with
+// a requested collar its strip and current, on the same transform. The transverse
+// scratch is free at a committed position: a step's first pass writes it again.
+EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
+                                           const bool totals, const bool strip,
+                                           const bool want_current) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  if (edge_faces_.extent(0) == 0)
+    throw std::logic_error("no transverse edge is bound");
+  const auto current = current_;
+  const auto n_pol = problem_.n_pol_state;
+  const auto n = problem_.n_omega;
+  EdgeNumbers reading;
+  const bool separable = problem_.separable_geometry();
+  if (separable)
+    separable_load_current();
+  const auto take = [&reading](const MonitorSums& sums) {
+    reading.sums.insert(reading.sums.end(), sums.values.data() + 1,
+                        sums.values.data() + 5);
+  };
+  if (!faces) {
+    // Only what follows was asked for.
+  } else if (separable) {
+    const auto scratch = transverse_;
+    const auto units = transverse_units();
+    const auto planes = scratch.size() / units;
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t node) {
+      return squared_abs(scratch.data()[plane * units + node]);
+    };
+    take(monitor_sums("solprop_native.edge.faces", execution_space_, planes, units,
+                      edge_faces_, power));
+    if (whole)
+      take(monitor_sums("solprop_native.edge.clip", execution_space_, planes, units,
+                        edge_clip_, power));
+    if (whole || totals)
+      take(monitor_sums("solprop_native.edge.totals", execution_space_, planes, units,
+                        edge_totals_, power));
+  } else {
+    // Each plane's synthesis on the rows wanted. A launch reads every node: its total
+    // is the grid's. A dense product per sample, on a read's few outer rows.
+    const auto synthesis = edge_synthesis_;
+    const auto nodes = problem_.n_modes;
+    const auto first = whole ? std::size_t{0} : edge_first_row_;
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t row) {
+      const auto pol = plane / n;
+      const auto omega = plane % n;
+      Complex value{};
+      for (std::size_t mode = 0; mode < nodes; ++mode)
+        value += synthesis(first + row, mode) * current(mode * n_pol + pol, omega);
+      return squared_abs(value);
+    };
+    const auto sums = [&](const char* label, const RealView2& weights) {
+      return monitor_sums(label, execution_space_, n_pol * n, nodes - first,
+                          EdgeWeights{weights, first}, power);
+    };
+    take(sums("solprop_native.edge.faces", edge_faces_));
+    if (whole)
+      take(sums("solprop_native.edge.clip", edge_clip_));
+    if (whole || totals)
+      take(sums("solprop_native.edge.totals", edge_totals_));
+  }
+  if (faces) {
+    const auto energies = edge_columns_;
+    launch::parallel_for(
+        "solprop_native.edge.columns",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, problem_.n_modes),
+        KOKKOS_LAMBDA(const std::size_t mode) {
+          double sum = 0.0;
+          for (std::size_t pol = 0; pol < n_pol; ++pol)
+            for (std::size_t index = 0; index < n; ++index)
+              sum += squared_abs(current(mode * n_pol + pol, index));
+          energies(mode) = sum;
+        });
+    execution_space_.fence("solprop_native edge columns");
+    const auto host =
+        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, energies);
+    reading.columns.assign(host.data(), host.data() + host.size());
+  }
+  // The same two kernels on any route: only where a row's value comes from differs.
+  const auto take_line = [&](const EdgeLine& line, const auto& value) {
+    if (strip) {
+      MonitorSums sums;
+      if (line.nodes != 0) {
+        auto& batch = edge_batches_.at({line.batch, 2 * line.nodes});
+        sums = edge_strip_line(execution_space_, value, line.rows, line.batch,
+                               line.nodes, line.first, line.last, line.positions,
+                               line.window, batch.buffer, *batch.plan);
+      }
+      reading.strip.push_back(sums.values[0] * line.factor);
+      reading.strip.push_back(sums.values[1] * line.factor);
+    }
+    if (want_current && line.onset != EdgeLines::no_onset)
+      reading.current +=
+          line.measure * edge_current_line(execution_space_, value, line.rows,
+                                           line.onset, line.before, line.after,
+                                           line.step, edge_k_min_);
+  };
+  if (strip || want_current) {
+    for (const auto& line : edge_lines_) {
+      if (!separable) {
+        take_line(line, EdgeRadialValue{edge_synthesis_, current, edge_scale_, n_pol, n,
+                                        problem_.n_modes});
+      } else if (problem_.slab_geometry()) {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), 1, 0, 1});
+      } else if (line.axis == 1) {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_y,
+                                         problem_.n_x, 1});
+      } else {
+        take_line(line, EdgeScratchValue{transverse_, transverse_units(), problem_.n_x,
+                                         1, problem_.n_x});
+      }
+    }
+  }
+  return reading;
+}
 
 std::vector<double> GeneralWorkspace::monitor_reading() {
   require_open();
@@ -14675,47 +15590,34 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
                               sums.values[3],  sums.values[4],  removed,
                               found.values[1], found.values[2], found.values[3],
                               found.values[4]};
-  if (occupancy_.extent(0) != 0) {
+  if (occupancy_count_ != 0) {
     // The state's energy per walk-off bucket, beside the five: a state column is
-    // `mode * n_pol + pol`, and the buckets are by mode.
+    // `mode * n_pol + pol`, and the buckets are by mode. A reduction per column, whose
+    // per-thread histograms need no atomics: on a device an atomic per element took
+    // most of a reading, several steps' time on an AMD Instinct MI325X.
     const auto buckets = occupancy_buckets_;
     const auto n_pol = problem_.n_pol_state;
-    auto scatter = occupancy_scatter_;
-    // `contribute` adds the per-thread copies of a host build into the view: each
-    // reading starts the view, as `reset` starts the copies, from zero (a device
-    // build's atomic scatter adds into the view itself).
-    graph::deep_copy(execution_space_, occupancy_, 0.0);
-    scatter.reset(execution_space_);
-    if constexpr (Kokkos::SpaceAccessibility<ExecutionSpace,
-                                             Kokkos::HostSpace>::accessible) {
-      // A host scatter finds its thread's copy at each `access`, which dominated this
-      // loop per element; a row takes it once (issue #453). A device's access is
-      // atomic.
-      launch::parallel_for(
+    for (std::size_t first = 0; first < occupancy_count_;
+         first += occupancy_reduction_slots) {
+      OccupancySums occupancy;
+      launch::parallel_reduce(
           "solprop_native.monitor.occupancy",
           Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
-          KOKKOS_LAMBDA(const std::size_t row) {
-            auto access = scatter.access();
+          KOKKOS_LAMBDA(const std::size_t row, OccupancySums& update) {
             const std::size_t offset = (row / n_pol) * n;
             const double weight = column_weights(row);
-            for (std::size_t index = 0; index < n; ++index)
-              access(buckets(offset + index)) +=
-                  weight * squared_abs(current(row, index));
-          });
-    } else {
-      launch::parallel_for(
-          "solprop_native.monitor.occupancy",
-          Range2(execution_space_, {0, 0}, {columns, n}),
-          KOKKOS_LAMBDA(const std::size_t row, const std::size_t index) {
-            auto access = scatter.access();
-            access(buckets((row / n_pol) * n + index)) +=
-                column_weights(row) * squared_abs(current(row, index));
-          });
+            for (std::size_t index = 0; index < n; ++index) {
+              const std::size_t bucket = buckets(offset + index);
+              if (bucket >= first && bucket - first < occupancy_reduction_slots)
+                update.values[bucket - first] +=
+                    weight * squared_abs(current(row, index));
+            }
+          },
+          Kokkos::Sum<OccupancySums>(occupancy));
+      reading.insert(reading.end(), occupancy.values.data(),
+                     occupancy.values.data() +
+                         std::min(occupancy_reduction_slots, occupancy_count_ - first));
     }
-    Kokkos::Experimental::contribute(execution_space_, occupancy_, scatter);
-    const auto host =
-        Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, occupancy_);
-    reading.insert(reading.end(), host.data(), host.data() + host.extent(0));
   }
   execution_space_.fence("solprop_native monitor reading");
   return reading;
@@ -14723,23 +15625,21 @@ std::vector<double> GeneralWorkspace::monitor_reading() {
 
 // Bind the split collar's walk-off bucket of each (mode, frequency) bin (solprop
 // #440): from here on a monitor reading also returns the state's energy per bucket.
-// The views are allocated at the first bind and kept.
+// The table is allocated at the first bind and kept.
 void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
                                       const std::size_t count) {
   require_open();
   require_extent(buckets.size(), problem_.n_modes * problem_.n_omega,
                  "occupancy buckets");
-  if (count == 0 || count > 256)
-    throw std::invalid_argument("the occupancy needs between 1 and 256 buckets");
+  if (count == 0 || count > occupancy_bucket_limit)
+    throw std::invalid_argument("the occupancy needs between 1 and 128 buckets");
   for (const auto bucket : buckets)
     if (bucket >= count)
       throw std::invalid_argument("an occupancy bucket lies past the bucket count");
-  if (occupancy_.extent(0) != count) {
+  if (occupancy_count_ == 0)
     occupancy_buckets_ =
         ByteView("solprop_native.monitor.occupancy_buckets", buckets.size());
-    occupancy_ = RealView("solprop_native.monitor.occupancy", count);
-    occupancy_scatter_ = OccupancyScatter(occupancy_);
-  }
+  occupancy_count_ = count;
   auto host = Kokkos::create_mirror_view(occupancy_buckets_);
   for (std::size_t index = 0; index < buckets.size(); ++index)
     host(index) = buckets[index];
@@ -14752,6 +15652,10 @@ void GeneralWorkspace::bind_occupancy(const std::vector<unsigned char>& buckets,
 // y rows of slab amplitudes) between the two transverse transforms.
 void GeneralWorkspace::separable_split_step(const double dz,
                                             const ComplexView2& advanced) {
+  if (split_rows_ != 0) {
+    split_state_rows(dz, advanced);
+    return;
+  }
   if (problem_.free_geometry()) {
     // The split's factor depends on time alone, so it acts alike on every column of
     // any transverse basis (solprop's reference measures its removal on the stored
@@ -14897,6 +15801,22 @@ std::vector<Complex> GeneralWorkspace::field_to_host() const {
 
 // One copy from the memory space into the caller's buffer: no staging mirror and no
 // element loop, so a large state crosses once (a device's one transfer).
+void GeneralWorkspace::cross_to_host(const ComplexView2& source,
+                                     const std::span<Complex> destination) const {
+  crossed_.to_host += destination.size_bytes();
+  if (crossing::takes_ring(destination.size_bytes())) {
+    crossing_ring_.to_host(destination.data(), source.data(), destination.size_bytes());
+    return;
+  }
+  const Kokkos::View<Complex**, Layout, Kokkos::HostSpace,
+                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
+      host(destination.data(), source.extent(0), source.extent(1));
+  // On the stage's instance: a compact problem's team, which the default instance's
+  // whole-runtime copy would end and restart.
+  graph::deep_copy(execution_space_, host, source);
+  execution_space_.fence("solprop_native crossing");
+}
+
 void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const {
   require_open();
   if (!initialized_)
@@ -14904,29 +15824,36 @@ void GeneralWorkspace::field_to_host(const std::span<Complex> destination) const
   require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
                  "field destination");
   execution_space_.fence("solprop_native field_to_host");
-  const Kokkos::View<Complex**, Layout, Kokkos::HostSpace,
-                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>
-      host(destination.data(), problem_.n_columns(), problem_.n_omega);
-  // On the stage's instance: a compact problem's team, which the default instance's
-  // whole-runtime copy would end and restart.
-  graph::deep_copy(execution_space_, host, current_);
-  execution_space_.fence("solprop_native field_to_host copy");
+  cross_to_host(current_, destination);
 }
 
 std::vector<Complex> GeneralWorkspace::stage_to_host(const std::size_t stage) const {
+  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
+  stage_to_host(stage, result);
+  return result;
+}
+
+void GeneralWorkspace::stage_to_host(const std::size_t stage,
+                                     const std::span<Complex> destination) const {
   require_open();
   if (!stages_ready_)
     throw std::logic_error("no trial stages have been evaluated");
   if (stage >= problem_.n_stages)
     throw std::out_of_range("stage index is outside the tableau");
+  require_extent(destination.size(), problem_.n_columns() * problem_.n_omega,
+                 "stage destination");
   execution_space_.fence("solprop_native stage_to_host");
   const auto selected = Kokkos::subview(stages_, stage, Kokkos::ALL, Kokkos::ALL);
+  crossed_.to_host += destination.size_bytes();
+  if (crossing::takes_ring(destination.size_bytes())) {
+    crossing_ring_.to_host(destination.data(), selected.data(),
+                           destination.size_bytes());
+    return;
+  }
   const auto host = Kokkos::create_mirror_view_and_copy(Kokkos::HostSpace{}, selected);
-  std::vector<Complex> result(problem_.n_columns() * problem_.n_omega);
   for (std::size_t column = 0; column < problem_.n_columns(); ++column)
     for (std::size_t index = 0; index < problem_.n_omega; ++index)
-      result[column * problem_.n_omega + index] = host(column, index);
-  return result;
+      destination[column * problem_.n_omega + index] = host(column, index);
 }
 
 std::vector<Complex> GeneralWorkspace::projected_to_host(const bool coarse) {
@@ -14974,6 +15901,12 @@ std::map<std::string, std::size_t> GeneralWorkspace::memory_ledger() const {
 }
 
 std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const {
+  std::size_t edge_plan_heap = 0;
+  std::size_t edge_plan_device = 0;
+  for (const auto& [shape, batch] : edge_batches_) {
+    edge_plan_heap += batch.heap_growth;
+    edge_plan_device += batch.device_growth;
+  }
   const auto complex_bytes = sizeof(Complex);
   const auto real_bytes = sizeof(double);
   const auto byte_bytes = sizeof(unsigned char);
@@ -15168,8 +16101,12 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
        stage_staging_.empty() || stage_staging_.front().data() == stage_scalars_.data()
            ? 0
            : stage_staging_.size() * stage_scalars_.size() * real_bytes},
-      // An Adams trial's norms, read back in pinned host memory on a device.
-      {"trial_norms", adams_norms_.size() * real_bytes},
+      // An Adams trial's norms, read back in pinned host memory on a device, and a
+      // Runge-Kutta trial's mirror of its partials (the view itself on a host build).
+      {"trial_norms",
+       (adams_norms_.size() +
+        (pinned_partials_.data() == partials_.data() ? 0 : pinned_partials_.size())) *
+           real_bytes},
       {"crop_index", crop_index_.size() * index_bytes},
       {"masks", (active_mask_.size() + norm_mask_.size()) * byte_bytes},
       {"windows", (omega_window_.size() + time_window_.size()) * real_bytes},
@@ -15231,17 +16168,18 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       // The boundary monitor's weights and accumulators, once a monitor is bound.
       {"monitor_weights",
        (monitor_weights_.size() + monitor_column_weights_.size() +
-        monitor_share_.size() + monitor_half_.size() + monitor_removed_.size() +
-        occupancy_.size()) *
+        monitor_share_.size() + monitor_half_.size() + monitor_removed_.size()) *
                real_bytes +
            occupancy_buckets_.size() +
            (monitor_split_sum_.size() + monitor_found_.size()) * sizeof(SplitSums)},
       {"statistics_flux_magnitude", statistics_magnitude_.size() * real_bytes},
+      {"host_crossing_ring", crossing_ring_.bytes()},
+      {"transverse_edge", edge_bytes()},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
                                  real_bytes},
-      {"fft_plan_heap_growth", plan_heap_growth_},
-      {"fft_plan_device_growth", plan_device_growth_},
+      {"fft_plan_heap_growth", plan_heap_growth_ + edge_plan_heap},
+      {"fft_plan_device_growth", plan_device_growth_ + edge_plan_device},
   };
 }
 
@@ -15328,6 +16266,10 @@ void GeneralWorkspace::close() noexcept {
   absorber_real_plan_.reset();
   absorber_complex_plan_.reset();
   coarse_inverse_real_plan_.reset();
+  split_inverse_plan_.reset();
+  split_forward_plan_.reset();
+  split_tail_inverse_plan_.reset();
+  split_tail_forward_plan_.reset();
   coarse_inverse_complex_plan_.reset();
   coarse_forward_real_plan_.reset();
   coarse_forward_complex_plan_.reset();
@@ -15445,6 +16387,7 @@ void GeneralWorkspace::close() noexcept {
   chunk_projection_stacked_ = {};
   tail_projection_stacked_ = {};
   partials_ = {};
+  pinned_partials_ = {};
   quadrature_partials_ = {};
   weighted_scale_ = {};
   weighted_partials_ = {};
@@ -15474,9 +16417,18 @@ void GeneralWorkspace::close() noexcept {
   monitor_removed_ = {};
   monitor_split_sum_ = {};
   monitor_found_ = {};
-  occupancy_scatter_ = {};
   occupancy_buckets_ = {};
-  occupancy_ = {};
+  occupancy_count_ = 0;
+  crossing_ring_.release();
+  edge_batches_.clear();
+  edge_strip_ = {};
+  edge_lines_.clear();
+  edge_scale_ = {};
+  edge_faces_ = {};
+  edge_clip_ = {};
+  edge_totals_ = {};
+  edge_synthesis_ = {};
+  edge_columns_ = {};
   tableau_ = {};
   omega_window_ = {};
   omega_ = {};
@@ -15747,6 +16699,18 @@ std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->spatial_statistics(flags, intensity_factor, z);
 }
+std::vector<double> GeneralState::plane_fluence_trace(
+    const double center_x, const double center_y, const double dx, const double dy,
+    const double extent, const double spacing, const std::size_t n_radii,
+    const std::vector<double>& cosines, const std::vector<double>& sines) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->plane_fluence_trace(center_x, center_y, dx, dy, extent, spacing,
+                                         n_radii, cosines, sines);
+}
+std::vector<Complex> GeneralState::axis_spectrum(const std::vector<double>& matrix) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->axis_spectrum(matrix);
+}
 std::vector<double> GeneralState::aperture_statistics(
     const std::uint64_t flags, const std::vector<double>& apertures, const int exponent,
     const std::vector<double>& regions, const double intensity_factor) {
@@ -15770,6 +16734,27 @@ void GeneralState::unbind_monitor() noexcept {
 std::vector<double> GeneralState::monitor_reading() {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->monitor_reading();
+}
+void GeneralState::bind_edge(const std::vector<double>& faces,
+                             const std::vector<double>& clip,
+                             const std::vector<double>& totals,
+                             const std::vector<double>& synthesis,
+                             const std::size_t first_row) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->bind_edge(faces, clip, totals, synthesis, first_row);
+}
+CrossedBytes GeneralState::crossed_bytes() const noexcept {
+  return workspace_->crossed_bytes();
+}
+void GeneralState::bind_edge_lines(const EdgeLines& lines) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->bind_edge_lines(lines);
+}
+EdgeNumbers GeneralState::edge_reading(const bool faces, const bool whole,
+                                       const bool totals, const bool strip,
+                                       const bool current) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->edge_reading(faces, whole, totals, strip, current);
 }
 void GeneralState::bind_occupancy(const std::vector<unsigned char>& buckets,
                                   const std::size_t count) {
@@ -15813,9 +16798,18 @@ std::vector<Complex> GeneralState::field_to_host() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->field_to_host();
 }
+void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
+  if (workspace_)
+    workspace_->set_crossing_workers(workers);
+}
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->field_to_host(destination);
+}
+void GeneralState::stage_to_host(const std::size_t stage,
+                                 const std::span<Complex> destination) const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  workspace_->stage_to_host(stage, destination);
 }
 std::vector<Complex> GeneralState::stage_to_host(const std::size_t stage) const {
   const CpuTeamScope team(workspace_->cpu_team());

@@ -77,6 +77,7 @@ from typing import Final
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, UInt8
 
+from solprop._process import parallel_rows
 from solprop.exceptions import GridError, SolpropWarning
 from solprop.grid import Collar, TimeGrid
 from solprop.spatial_absorber import SpatialAbsorber, SpatialAbsorberDesign
@@ -1084,15 +1085,36 @@ class SplitCrossing:
             Shape ``(SPLIT_RATE_BUCKETS,)``, in the state's units of energy.
         """
         # In the state's own precision, without a state-sized temporary: the shares
-        # are what the limit reads.
+        # are what the limit reads, so the order of summing is free.
         spectrum = np.asarray(field_spectrum)
         re, im = np.real(spectrum), np.imag(spectrum)
-        energy = np.einsum("bmpw,bmpw->mw", re, re) + np.einsum("bmpw,bmpw->mw", im, im)
-        if columns is not None:
-            energy = energy * np.asarray(columns, dtype=np.float64)[:, None]
-        return np.bincount(
-            self.buckets.ravel(), weights=energy.ravel(), minlength=SPLIT_RATE_BUCKETS
-        ).astype(np.float64)
+        weights = None if columns is None else np.asarray(columns, dtype=np.float64)
+
+        def block(rows: slice) -> Float[np.ndarray, " n_buckets"]:
+            """Return a block of modes' energy per bucket.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of modes.
+
+            Returns
+            -------
+            numpy.ndarray
+                The block's energy in each bucket.
+            """
+            energy = np.einsum("bmpw,bmpw->mw", re[:, rows], re[:, rows]) + np.einsum(
+                "bmpw,bmpw->mw", im[:, rows], im[:, rows]
+            )
+            if weights is not None:
+                energy = energy * weights[rows, None]
+            return np.bincount(
+                self.buckets[rows].ravel(),
+                weights=energy.ravel(),
+                minlength=SPLIT_RATE_BUCKETS,
+            ).astype(np.float64)
+
+        return np.sum(parallel_rows(spectrum.shape[1], spectrum.nbytes, block), axis=0)
 
     def limit(self, occupancy: Float[np.ndarray, " n_buckets"]) -> float:
         """Return the crossing limit of an occupancy, m.

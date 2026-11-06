@@ -364,13 +364,6 @@ def test_a_compiled_cpu_backend_accepts_the_shift(backend_name):
         ).close()
 
 
-def test_a_problem_of_the_older_schema_is_refused():
-    simulation = capillary(SCALAR)
-    stale = dataclasses.replace(simulation.translate(), schema_version=35)
-    with pytest.raises(BackendError, match="version 35"):
-        NumpyRefBackend(stale, grid=simulation.grid, modes=simulation.modes)
-
-
 # --- the reference rule (section 6.1) -------------------------------------------------
 
 

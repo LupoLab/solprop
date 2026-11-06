@@ -382,6 +382,14 @@ public:
       const std::vector<double>& regions, double intensity_factor,
       const ComplexView2& field, const Inputs& inputs);
 
+  /**
+   * The analytic spectrum of the on-axis amplitude, or of its closure, into the leading
+   * `n_pol` rows of `spectrum`, from the partials a `run` with `far_field_axis` alone
+   * left: the bins' sums over the columns, which `spatial_statistics` transforms for
+   * `on_axis_intensity`.
+   */
+  void axis_spectrum(bool closed, const ComplexView2& spectrum);
+
   /** The bytes of the band partials, the ledger's `far_field_partials` row. */
   [[nodiscard]] std::size_t partial_bytes() const noexcept;
   /** The bytes of the column axes, tables and packed output. */

@@ -25,6 +25,7 @@ from jaxtyping import Complex, Float
 from numpy.typing import ArrayLike
 
 from solprop import fourier
+from solprop._process import parallel_rows
 from solprop.constants import EPS0, ROOM_TEMPERATURE, C
 from solprop.exceptions import GridError, MaterialError, OutputError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -523,19 +524,7 @@ class SpatialDispersion:
             Inactive material bins are zero. No spatial-frequency table is built.
         """
         square, low = self.material_squares(z)
-        x_squared = [Fraction(float(value)) ** 2 for value in space.k_x]
-        y_squared = [Fraction(float(value)) ** 2 for value in space.k_y]
-        transverse_low = np.array(
-            [
-                float(x + y - Fraction(float(high)))
-                for (x, y), high in zip(
-                    ((x, y) for y in y_squared for x in x_squared),
-                    space.kperp_sq,
-                    strict=True,
-                )
-            ]
-        )
-        return square, low, transverse_low
+        return square, low, _transverse_residual(space)
 
     def material_squares(
         self, z: float = 0.0
@@ -952,6 +941,33 @@ class SpatialFlux:
             columns,
         )
 
+    def whole_admittance(self) -> Complex[np.ndarray, "n_modes n_omega"]:
+        """Return every column's admittance, its chunks formed in threads.
+
+        Returns
+        -------
+        numpy.ndarray
+            :meth:`admittance` of every column, shape ``(n_modes, n_omega)``.
+        """
+        chunks = self.chunks()
+        admittance = np.empty(
+            (self.space.spectral_weights.size, self.grid.n_omega), dtype=np.complex128
+        )
+
+        def work(rows: slice) -> None:
+            """Form one block of the chunks' admittance.
+
+            Parameters
+            ----------
+            rows : slice
+                The block of chunks.
+            """
+            for columns in chunks[rows]:
+                admittance[columns] = self.admittance(columns)
+
+        parallel_rows(len(chunks), admittance.nbytes, work)
+        return admittance
+
     def chunks(self) -> list[slice]:
         """Return column slices bounding an integrated sum's working memory.
 
@@ -966,6 +982,77 @@ class SpatialFlux:
             slice(start, min(start + size, n_columns))
             for start in range(0, n_columns, size)
         ]
+
+
+def _exact_squares(
+    values: Float[np.ndarray, " n"],
+) -> tuple[Float[np.ndarray, " n"], Float[np.ndarray, " n"]]:
+    """Return each value's square as the sum of two floats, exactly (Dekker, Veltkamp).
+
+    Parameters
+    ----------
+    values : numpy.ndarray
+        Each zero or of magnitude within ``[2**-450, 2**500]``, where the split can't
+        overflow and the low part can't underflow.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The rounded squares and their exact residuals.
+    """
+    split = 134217729.0 * values  # 2**27 + 1
+    upper = split - (split - values)
+    lower = values - upper
+    high = values * values
+    return high, ((upper * upper - high) + 2.0 * upper * lower) + lower * lower
+
+
+def _transverse_residual(space: FreeGrid) -> Float[np.ndarray, " n_modes"]:
+    """Return ``k_x**2 + k_y**2 - kperp_sq`` per column, rounded from its exact value.
+
+    ``math.fsum`` rounds the exact sum of its floats, as a rational sum would.
+
+    Parameters
+    ----------
+    space : solprop.grid.FreeGrid
+        Stored unsquared transverse axes in rad/m, with x fastest.
+
+    Returns
+    -------
+    numpy.ndarray
+        The real residuals in m^-2.
+    """
+    k_x, k_y = np.asarray(space.k_x), np.asarray(space.k_y)
+    moduli = np.abs(np.concatenate((k_x, k_y)))
+    moduli = moduli[moduli != 0.0]
+    if moduli.size and not (moduli.min() >= 2.0**-450 and moduli.max() <= 2.0**500):
+        x_squared = [Fraction(float(value)) ** 2 for value in k_x]
+        y_squared = [Fraction(float(value)) ** 2 for value in k_y]
+        return np.array(
+            [
+                float(x + y - Fraction(float(high)))
+                for (x, y), high in zip(
+                    ((x, y) for y in y_squared for x in x_squared),
+                    space.kperp_sq,
+                    strict=True,
+                )
+            ]
+        )
+    x_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_x)), strict=True))
+    y_parts = list(zip(*map(np.ndarray.tolist, _exact_squares(k_y)), strict=True))
+    fsum = math.fsum
+    return np.fromiter(
+        (
+            fsum((y_high, y_low, x_high, x_low, -high))
+            for ((y_high, y_low), (x_high, x_low)), high in zip(
+                ((y, x) for y in y_parts for x in x_parts),
+                np.asarray(space.kperp_sq).tolist(),
+                strict=True,
+            )
+        ),
+        dtype=np.float64,
+        count=k_x.size * k_y.size,
+    )
 
 
 def _check_flux(
@@ -3301,24 +3388,16 @@ def cartesian_fluence_widths(
     if not math.isfinite(second):
         msg = "Cartesian fluence moments are not representable"
         raise GridError(msg)
-    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
-    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
-    if limit < 2 * spacing:
+    rings = _fluence_rings(x, y, center_x, center_y)
+    if rings is None:
         return second, math.nan, math.nan
-    # Anchor the rule to the grid, not the rounded centroid: otherwise a
-    # one-ulp change in the limiting radius can change every interpolation
-    # point through ceil/linspace, amplifying roundoff into sampling error.
-    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
-    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
-    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
-    angles = 2 * np.pi * np.arange(n_angles) / n_angles
-    averaged = np.empty(radii.size)
-    for index, distance in enumerate(radii):
+    averaged = np.empty(rings.radii.size)
+    for index, distance in enumerate(rings.radii):
         horizontal = np.clip(
-            (center_x + distance * np.cos(angles) - x[0]) / (x[1] - x[0]), 0, x.size - 1
+            (center_x + distance * rings.cosines - x[0]) / (x[1] - x[0]), 0, x.size - 1
         )
         vertical = np.clip(
-            (center_y + distance * np.sin(angles) - y[0]) / (y[1] - y[0]), 0, y.size - 1
+            (center_y + distance * rings.sines - y[0]) / (y[1] - y[0]), 0, y.size - 1
         )
         ix = np.minimum(horizontal.astype(np.intp), x.size - 2)
         iy = np.minimum(vertical.astype(np.intp), y.size - 2)
@@ -3327,10 +3406,92 @@ def cartesian_fluence_widths(
             (1 - fx) * samples[iy, ix] + fx * samples[iy, ix + 1]
         ) + fy * ((1 - fx) * samples[iy + 1, ix] + fx * samples[iy + 1, ix + 1])
         averaged[index] = np.mean(interpolated)
+    return second, *_ring_fluence_widths(rings.radii, averaged)
+
+
+@dataclass(frozen=True)
+class _FluenceRings:
+    """The rings on which a Cartesian fluence is averaged about its centroid.
+
+    Attributes
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero, shape ``(n_radii,)``.
+    cosines, sines : numpy.ndarray
+        The cosine and the sine of each ring's sampling angles, shape ``(n_angles,)``.
+    """
+
+    radii: Float[np.ndarray, " n_radii"]
+    cosines: Float[np.ndarray, " n_angles"]
+    sines: Float[np.ndarray, " n_angles"]
+
+
+def _fluence_rings(
+    x: Float[np.ndarray, " n_x"],
+    y: Float[np.ndarray, " n_y"],
+    center_x: float,
+    center_y: float,
+) -> _FluenceRings | None:
+    """Return the rings of :func:`cartesian_fluence_widths` about a centroid.
+
+    Half the finest pixel spacing in radius, out to the largest circle about the
+    centroid inside the axes, and an angular spacing no larger than that arc length on
+    the largest ring of the plane.
+
+    Parameters
+    ----------
+    x, y : numpy.ndarray
+        Uniform increasing physical axes in m, of at least two samples each.
+    center_x, center_y : float
+        The fluence centroid in m.
+
+    Returns
+    -------
+    _FluenceRings or None
+        The rings, or ``None`` when the centroid lies within two half-spacings of an
+        edge, where the threshold widths are undefined.
+    """
+    limit = min(center_x - x[0], x[-1] - center_x, center_y - y[0], y[-1] - center_y)
+    spacing = min(x[1] - x[0], y[1] - y[0]) / 2
+    if limit < 2 * spacing:
+        return None
+    # Anchor the rule to the grid, not the rounded centroid: otherwise a
+    # one-ulp change in the limiting radius can change every interpolation
+    # point through ceil/linspace, amplifying roundoff into sampling error.
+    radii = spacing * np.arange(math.floor(limit / spacing) + 1)
+    largest_circle = min(x[-1] - x[0], y[-1] - y[0]) / 2
+    n_angles = max(8, math.ceil(2 * np.pi * largest_circle / spacing))
+    angles = 2 * np.pi * np.arange(n_angles) / n_angles
+    return _FluenceRings(radii, np.cos(angles), np.sin(angles))
+
+
+def _ring_fluence_widths(
+    radii: Float[np.ndarray, " n_radii"], averaged: Float[np.ndarray, " n_radii"]
+) -> tuple[float, float]:
+    """Return the threshold widths of a fluence averaged on its rings.
+
+    Parameters
+    ----------
+    radii : numpy.ndarray
+        The rings' radii in m, the first zero (``_fluence_rings``).
+    averaged : numpy.ndarray
+        The nonnegative fluence averaged on each ring.
+
+    Returns
+    -------
+    tuple of float
+        The first 1/e^2 radius and the FWHM in m, as :func:`radial_fluence_widths`
+        defines them, with the first ring as the axis.
+
+    Raises
+    ------
+    GridError
+        With fewer than three radii, too few to find a width from.
+    """
     _, radius_e2, width = radial_fluence_widths(
         radii[1:], averaged[1:], np.ones(radii.size - 1), float(averaged[0])
     )
-    return second, radius_e2, width
+    return radius_e2, width
 
 
 def _line_fluence_widths(

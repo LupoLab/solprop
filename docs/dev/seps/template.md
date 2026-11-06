@@ -72,8 +72,9 @@ routes, backends, scans and outputs, and what is refused.*
 plan. Cover as applicable:*
 
 - *the layer the work belongs to (physics, translation, backends; architecture.md §3);*
-- *the effect on the kernel contract and whether KERNEL_SCHEMA_VERSION changes;*
-- *each Tier 1 backend in turn — numpy_ref, then the native CPU build — and anything
+- *the effect on the kernel contract and the frozen tables of
+  tests/backends/test_driver.py;*
+- *each Tier 1 backend — numpy_ref and the native CPU build, in either order — and anything
   that makes one of them hard; GPU considerations for later; whether mlx (Tier 3)
   should take the feature too, and why (ADR-061);*
 - *the expected cost in time and memory, and how it scales;*
@@ -93,7 +94,7 @@ worked example belongs in a gallery.*
 
 ### 9. Compatibility and impact
 
-*Changed defaults, breaking changes, the output schema, KERNEL_SCHEMA_VERSION, the effect on
+*Changed defaults, breaking changes, the output schema, the kernel contract, the effect on
 existing validated results, and any deliberate difference from Luna.jl to record on the
 differences page.*
 
@@ -103,9 +104,9 @@ differences page.*
 
 ### 11. Phases
 
-*The proposed phases, each independently mergeable with a green gate. The usual order is
-numpy_ref with tests and the manual page first, then the native CPU build. For each
-phase: its deliverables and what it must verify.*
+*The proposed phases, each independently mergeable with a green gate. numpy_ref and the
+native CPU build come in either order, each with tests, and the manual page with whichever
+lands first. For each phase: its deliverables and what it must verify.*
 
 ### 12. Open questions
 

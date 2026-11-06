@@ -9,13 +9,14 @@ import json
 import signal
 import subprocess
 import sys
+from types import SimpleNamespace
 from typing import Any
 
 import h5py
 import numpy as np
 import pytest
 
-from solprop import fourier
+from solprop import _process, fourier
 from solprop.backends.registry import REMOVED_BACKENDS
 from solprop.exceptions import OutputError
 from solprop.grid import EnvelopeGrid, FieldGrid
@@ -165,6 +166,51 @@ def test_both_handlers_satisfy_the_protocol(factory, tmp_path):
     assert isinstance(handler, Output)
     assert isinstance(handler, PlaneStore)
     assert (handler.n_saved, handler.metadata, handler.closed) == (0, None, False)
+
+
+def test_a_store_converts_a_plane_in_threads_to_the_same_bits(
+    grid, metadata, monkeypatch
+):
+    plane = make_plane(grid, 0)
+    assert plane.field is not None
+    expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 0)
+    monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
+    handler = MemoryOutput()
+    handler.open(metadata)
+    handler.save(plane)
+    # A lossless structural contract: only the order of the rows' work differs.
+    assert handler["field"][0].tobytes() == expected.tobytes()
+    handler.close()
+
+
+def test_a_store_keeps_its_own_copy_of_a_plane(grid, metadata):
+    plane = make_plane(grid, 0)
+    assert plane.field is not None
+    expected = fourier.spectrum_to_optics(plane.field, kind=grid.kind)
+    handler = MemoryOutput()
+    handler.open(metadata)
+    handler.save(plane)
+    # A run goes on stepping the state an observation may have been a view of.
+    assert not np.shares_memory(handler["field"], plane.field)
+    assert np.array_equal(handler["field"][0], expected)
+    handler.close()
+
+
+def test_a_store_grows_past_its_block_with_every_plane_intact(grid, metadata):
+    # Each plane's room is taken before it is converted, so growing must come first.
+    planes = [make_plane(grid, index) for index in range(5)]
+    handler = MemoryOutput(block=1)
+    handler.open(metadata)
+    for plane in planes:
+        handler.save(plane)
+    for index, plane in enumerate(planes):
+        assert plane.field is not None
+        assert np.array_equal(
+            handler["field"][index],
+            fourier.spectrum_to_optics(plane.field, kind=grid.kind),
+        )
+    handler.close()
 
 
 def test_the_two_handlers_store_the_same_planes_bitwise(grid, metadata, tmp_path):

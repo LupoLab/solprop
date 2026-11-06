@@ -22,6 +22,7 @@ from __future__ import annotations
 import dataclasses
 import math
 from collections.abc import Callable
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -294,12 +295,73 @@ def test_a_monitor_s_own_transform_is_in_the_ledger(
     assert all(ledger[row] > 0 for row in rows), {row: ledger[row] for row in rows}
 
 
+class _CountingState:
+    """A native state that counts its `bind_occupancy` calls."""
+
+    def __init__(self, state: object) -> None:
+        """Wrap `state`."""
+        self.__dict__["_state"] = state
+        self.__dict__["binds"] = 0
+
+    def bind_occupancy(self, *args: object) -> None:
+        """Count, then bind."""
+        self.__dict__["binds"] += 1
+        self.__dict__["_state"].bind_occupancy(*args)
+
+    def __getattr__(self, name: str) -> object:
+        """Hand everything else to the state."""
+        return getattr(self.__dict__["_state"], name)
+
+
+def test_a_second_point_keeps_its_bucket_table_and_reads_as_the_first() -> None:
+    # The table is a sixteenth of a state, and a runner's points share it: a second
+    # upload would move it per point. Nothing else may carry over.
+    _require("native")
+    simulation = probe("radial", "split_step", MARCHES["runge_kutta"])
+    made = watched(simulation, "native")
+    try:
+        driver = cast("Any", as_driver(made))
+        assert driver._bound_buckets is not None
+        first = reading(made)
+        counting = _CountingState(driver._native_state)
+        driver._native_state = counting
+        problem = simulation.translate()
+        driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None
+        driver.attach_monitor(monitor)
+        assert counting.binds == 0
+        again = reading(made)
+        assert first.occupancy is not None and again.occupancy is not None
+        # The same state, read again on the same build: a structural repeat.
+        np.testing.assert_array_equal(again.occupancy, first.occupancy)
+        driver._native_state = counting.__dict__["_state"]
+    finally:
+        made.close()
+
+
+@pytest.mark.parametrize("count", [0, 129])
+def test_an_occupancy_outside_its_reduction_is_refused(count: int) -> None:
+    _require("native")
+    simulation = probe("radial", "split_step", MARCHES["runge_kutta"])
+    made = watched(simulation, "native")
+    try:
+        driver = cast("Any", as_driver(made))
+        table = np.zeros(
+            math.prod(driver._problem.shape[1:2]) * simulation.grid.n_omega
+        )
+        with pytest.raises(ValueError, match="between 1 and 128 buckets"):
+            driver._native_state.bind_occupancy(table.astype(np.uint8), count)
+    finally:
+        made.close()
+
+
 @pytest.mark.parametrize("route", ROUTE_NAMES)
 @pytest.mark.parametrize("backend", COMPILED)
 def test_successive_occupancies_are_the_reference_s(backend: str, route: str) -> None:
-    # Each reading of the state's energy per walk-off bucket stands alone: a host
-    # build's scatter added every reading into the last until the view was zeroed
-    # before each, and the third reading was three times the first's.
+    # Each reading of the state's energy per walk-off bucket stands alone. A host
+    # build's scatter once added every reading into the last, and the third read three
+    # times the first; a reduction starts from nothing, and this holds it there.
     _require(backend)
     simulation = probe(route, "split_step", MARCHES["runge_kutta"])
     theirs, ours = (watched(simulation, name) for name in ("numpy_ref", backend))

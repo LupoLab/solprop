@@ -7,7 +7,7 @@
 from collections.abc import Iterable
 
 import numpy as np
-from jaxtyping import Complex, Float
+from jaxtyping import Complex, Float, Inexact
 
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
@@ -19,6 +19,8 @@ __all__ = [
     "axis_node",
     "axis_populations",
     "axis_refusal",
+    "axis_row_matrix",
+    "axis_row_populations",
     "axis_statistics",
     "population_statistics",
 ]
@@ -210,10 +212,11 @@ def axis_populations(
 
     The one implementation every backend uses, on the host: the axis is one row per
     saved plane, against every node of every stage, so its scan costs nothing a
-    backend would compile. The field is the same as the node fields' -- the same pad
-    scale, taper and fine grid -- with both Cartesian components of the mode profiles,
-    as for ``peak_intensity``; when the state carries the components itself, the
-    profile's magnitude on the axis is the scalar synthesis. The tables,
+    backend would compile. A device reads only the row
+    (:func:`axis_row_populations`). The field is the same as the node fields' -- the
+    same pad scale, taper and fine grid -- with both Cartesian components of the mode
+    profiles, as for ``peak_intensity``; when the state carries the components itself,
+    the profile's magnitude on the axis is the scalar synthesis. The tables,
     preionisation and running-integral rule are the node scan's.
 
     Parameters
@@ -234,16 +237,98 @@ def axis_populations(
         The final ionised fraction and the largest rate (cycle-averaged on an
         envelope grid) on the axis, one per channel.
     """
-    responses, grids = problem.responses, problem.grids
-    scaled = axis * grids.pad_scale
+    grids = problem.grids
     modal_t = passes.to_time(
         field, grids.crop_index, grids.n_to, kind=problem.grid_kind
     )
-    row = (
-        passes.synthesise(modal_t, scaled, 1.0, 2)
-        if field.shape[1] == 1
-        else passes.synthesise(modal_t, np.hypot(scaled[0], scaled[1])[None], 1.0, 1)
+    row = passes.synthesise(
+        modal_t, axis_row_matrix(problem, axis), 1.0, 2 if field.shape[1] == 1 else 1
     )
+    return _scan_axis_row(problem, row, z)
+
+
+def axis_row_matrix(
+    problem: KernelProblem, axis: Float[np.ndarray, "2 n_modes"]
+) -> Float[np.ndarray, "n_rows n_modes"]:
+    """Return the matrix that synthesises the axis row from the modal state.
+
+    With both Cartesian components of the mode profiles, as for ``peak_intensity``;
+    when the state carries the components itself, the profile's magnitude on the axis.
+
+    Parameters
+    ----------
+    problem : KernelProblem
+        The translated problem.
+    axis : numpy.ndarray
+        The mode set's synthesis on the axis at this position, taper included, rows x
+        and y (``StepDriver._on_axis_synthesis``).
+
+    Returns
+    -------
+    numpy.ndarray
+        The rows, carrying the pad scale: x and y on a scalar state, or the one
+        magnitude row on a state with two polarisations.
+    """
+    scaled = axis * problem.grids.pad_scale
+    if problem.shape[2] == 1:
+        return scaled
+    return np.hypot(scaled[0], scaled[1])[None]
+
+
+def axis_row_populations(
+    problem: KernelProblem,
+    spectrum: Complex[np.ndarray, "1 n_components n_omega"],
+    z: float,
+) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
+    """Scan the axis row from its spectrum, for a backend that reads only that row.
+
+    The synthesis is linear, so a row synthesised before the time transform is the row
+    :func:`axis_populations` synthesises after it, to rounding, and the state need not
+    leave the device for it.
+
+    Parameters
+    ----------
+    problem : KernelProblem
+        The translated problem.
+    spectrum : numpy.ndarray
+        The :func:`axis_row_matrix` rows contracted with the modal state, one column for
+        each row and polarisation, in V/m on the coarse frequency axis.
+    z : float
+        Plane position in m.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The final ionised fraction and the largest rate (cycle-averaged on an envelope
+        grid) on the axis, one per channel.
+    """
+    grids = problem.grids
+    row = passes.to_time(spectrum, grids.crop_index, grids.n_to, kind=problem.grid_kind)
+    return _scan_axis_row(problem, row, z)
+
+
+def _scan_axis_row(
+    problem: KernelProblem,
+    row: Inexact[np.ndarray, "1 n_components n_to"],
+    z: float,
+) -> tuple[Float[np.ndarray, " n_channels"], Float[np.ndarray, " n_channels"]]:
+    """Scan one row of the field in time: every channel, with the node scan's tables.
+
+    Parameters
+    ----------
+    problem : KernelProblem
+        The translated problem.
+    row : numpy.ndarray
+        The field on the axis on the fine time grid in V/m.
+    z : float
+        Plane position in m.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The final ionised fraction and the largest rate on the axis, one per channel.
+    """
+    responses, grids = problem.responses, problem.grids
     preionisation = tuple(
         float(channel.preionisation(z)) for channel in responses.population_channels
     )
