@@ -191,8 +191,8 @@ def test_a_fibre_s_numbers_come_from_its_own_mode() -> None:
     direct = tools.soliton_params(
         recipe.build().modes[0],
         "Ar",
-        1.0,
-        energy=2e-6,
+        5.0,
+        energy=1e-6,
         fwhm=30e-15,
         wavelength=800e-9,
         shape="gauss",
@@ -203,8 +203,8 @@ def test_a_fibre_s_numbers_come_from_its_own_mode() -> None:
 
 def test_a_fibre_s_zero_is_the_one_on_its_curve() -> None:
     numbers = fibre()
-    # The tool's nearest in frequency is out at 1919 nm, past the run's window.
-    assert 460e-9 < numbers["zdw"] < 500e-9
+    # At 5 bar the zero sits at 541 nm, between the wall resonance and the pump.
+    assert 520e-9 < numbers["zdw"] < 560e-9
     curve = curve_of(numbers)
     plot = curve["plot"]
     marks = dict(plot["marks"])
@@ -232,7 +232,7 @@ def test_a_capillary_has_no_cross_section_beside_its_curve() -> None:
 
 def test_a_fibre_with_nothing_crossing_zero_says_so() -> None:
     text = Recipe.example("antiresonant_fibre").to_text()
-    narrow = text.replace('["300 nm", "1600 nm"]', '["700 nm", "900 nm"]')
+    narrow = text.replace('["150 nm", "1600 nm"]', '["700 nm", "900 nm"]')
     numbers: dict[str, Any] = capillary_sheet({"text": narrow})
     assert np.isnan(numbers["zdw"])
     assert dict(curve_of(numbers)["plot"]["marks"])["ZDW"] is None

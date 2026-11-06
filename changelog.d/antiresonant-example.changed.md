@@ -1,0 +1,1 @@
+The `antiresonant_fibre` example and the antiresonant tutorial's propagation show resonant dispersive-wave emission: 1 µJ, 30 fs at 800 nm through 20 cm of fibre in 5 bar of argon, field resolved over 150–1600 nm with photoionisation and 201 saved planes, in place of 2 µJ over 5 cm at 1 bar on an envelope grid.
