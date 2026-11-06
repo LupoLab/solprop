@@ -34,6 +34,7 @@ from solprop.processing.fields import (
     _to_time,
     field_spectrogram,
     real_field_oversampling,
+    time_axis,
 )
 from solprop.spatial import (
     SpatialFlux,
@@ -402,7 +403,11 @@ def radial_intensity(
 
 
 def on_axis_power(
-    output: Output, *, plane: int | None = None, z: float | None = None
+    output: Output,
+    *,
+    plane: int | None = None,
+    z: float | None = None,
+    oversampling: int = 1,
 ) -> tuple[Float[np.ndarray, " n_t"], Float[np.ndarray, " n_t"]]:
     """Return one plane's axial flux on the beam's axis against time.
 
@@ -414,16 +419,20 @@ def on_axis_power(
         The plane, negative from the end; the last when neither it nor ``z`` is given.
     z : float or None, optional
         Its position, m: the nearest saved plane.
+    oversampling : int, optional
+        Factor by which to resample the time axis by zero-padding the spectrum, at
+        least 1, as :func:`~solprop.processing.fields.get_power` does.
 
     Returns
     -------
     t : numpy.ndarray
-        The times, s.
+        The times, s: :func:`~solprop.processing.fields.time_axis` of the run's grid.
     values : numpy.ndarray
         The flux in W/m^2.
     """
     spectrum, flux = _measured_plane(output, plane, z)
-    return np.asarray(flux.grid.t), on_axis_trace(spectrum, flux)
+    values = on_axis_trace(spectrum, flux, oversampling=oversampling)
+    return time_axis(flux.grid, oversampling), values
 
 
 def on_axis_spectrogram(  # noqa: PLR0913 - a plane, its axis and the gate

@@ -89,6 +89,7 @@ __all__ = [
     "get_spectrum",
     "nearest_plane",
     "real_field_oversampling",
+    "time_axis",
 ]
 
 FieldKind = Literal["analytic", "real", "envelope"]
@@ -813,6 +814,49 @@ def _fft_norm(grid: TimeGrid) -> float:
     return grid.dt / np.sqrt(2.0 * np.pi)
 
 
+def time_axis(grid: TimeGrid, oversampling: int = 1) -> Float[np.ndarray, " n_t"]:
+    """Return the times a reading resampled by zero-padding its spectrum lies on.
+
+    The grid's own ``t`` at ``oversampling = 1``; otherwise ``oversampling`` times as
+    many samples over the same window, centred on zero, coinciding with the grid's
+    every ``oversampling``-th. It is the axis of :func:`get_power` and
+    :func:`get_field`, and of :func:`solprop.spatial.spatial_power` and its kin, at
+    the same factor.
+
+    Parameters
+    ----------
+    grid : solprop.grid.TimeGrid
+        The run's grid.
+    oversampling : int, optional
+        The factor, at least 1.
+
+    Returns
+    -------
+    numpy.ndarray
+        The times, s.
+
+    Raises
+    ------
+    solprop.exceptions.ProcessingError
+        If ``oversampling`` is below one.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.grid import EnvelopeGrid
+    >>> from solprop.processing.fields import time_axis
+    >>> grid = EnvelopeGrid.from_limits(0.1, 800e-9, (650e-9, 1000e-9), 600e-15)
+    >>> fine = time_axis(grid, 4)
+    >>> fine.size == 4 * grid.n_t, bool(np.allclose(fine[::4], grid.t))
+    (True, True)
+    """
+    if oversampling < 1:
+        msg = f"oversampling must be at least 1, got {oversampling}"
+        raise ProcessingError(msg)
+    n_t = oversampling * grid.n_t
+    return (np.arange(n_t, dtype=float) - n_t / 2) * (grid.dt / oversampling)
+
+
 def _to_time(
     grid: TimeGrid,
     stored: Complex[np.ndarray, "*rest n_omega"],
@@ -873,13 +917,11 @@ def _to_time(
         )
     if transfer is not None:
         stored = stored * stored_factor(grid, transfer)
-    n_t = oversampling * grid.n_t
     if oversampling > 1:
-        stored = fourier.oversample(stored, n_t, kind=grid.kind)
+        stored = fourier.oversample(stored, oversampling * grid.n_t, kind=grid.kind)
     samples = fourier.inverse(stored, kind=grid.kind)
     amplitude = fourier.analytic_signal(samples) if grid.kind == "field" else samples
-    t = (np.arange(n_t, dtype=float) - n_t / 2) * (grid.dt / oversampling)
-    return t, amplitude
+    return time_axis(grid, oversampling), amplitude
 
 
 def _plane_amplitude(  # noqa: PLR0913 - the plane and everything done to its spectrum
