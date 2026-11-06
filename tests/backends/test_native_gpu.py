@@ -8,7 +8,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from benchmarks.device_split import _simulation
+from benchmarks.device_split import STEP, _simulation
 
 from bounds import assert_within, ladder_bound
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -119,6 +119,35 @@ def test_a_large_state_crosses_both_ways_through_the_ring_bit_for_bit(
         assert back.tobytes() == field.tobytes()
         observed = engine.observe(field=True).require_field()
         assert observed.tobytes() == field.tobytes()
+    finally:
+        engine.close()
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_the_plans_of_the_scratch_hold_one_work_area(accelerator_backend):
+    # A forward and an inverse rank-3 plan take a state's work area each at this size,
+    # on their own (solprop #529). Run a step on it, so that a shared area can't be
+    # one no transform has used, and read the field the transforms left.
+    del accelerator_backend
+    simulation = _simulation(512, 2, 1, None)
+    problem = simulation.translate()
+    engine = cast(
+        "Any",
+        select(
+            "native",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        ),
+    )
+    try:
+        state = int(np.prod(problem.shape)) * 16
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        engine.propagate_to(2 * STEP)
+        field = engine.observe(field=True).require_field()
+        assert np.isfinite(field).all() and np.any(field != 0.0)
+        assert engine.memory_ledger()["fft_plan_device_growth"] < 1.5 * state
     finally:
         engine.close()
 
