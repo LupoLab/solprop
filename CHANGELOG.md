@@ -7,6 +7,8 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+## [0.2.0] - 2026-11-06
+
 solprop 0.2.0 adds a desktop front end, describes every run as a recipe that can be
 checked, saved and rerun, and retires the numba backend in favour of the native one,
 which is now required. Every break is listed first, under "Changed (breaking)", with how
