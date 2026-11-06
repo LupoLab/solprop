@@ -21,6 +21,10 @@ def test_prop_2d_draws_one_figure_of_two_panels_for_one_mode(single):
     assert spectral.get_xlabel() == "Frequency (PHz)"
     assert spectral.get_ylabel() == "Distance (cm)"
     assert temporal.get_xlabel() == "Time (fs)"
+    # The maps are raster images inside a vector figure: a PDF stays small.
+    assert all(
+        mesh.get_rasterized() for ax in (spectral, temporal) for mesh in ax.collections
+    )
 
 
 def test_prop_2d_adds_a_modal_sum(multimode):

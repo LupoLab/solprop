@@ -41,6 +41,7 @@ def test_a_spectrogram_puts_the_pulse_at_the_carrier(single):
     figure = spectrogram(single, 0.0, time_range=(-100e-15, 100e-15))
     mesh = figure.axes[0].collections[0]
     assert isinstance(mesh, QuadMesh)
+    assert mesh.get_rasterized()
     values = np.asarray(mesh.get_array())
     ordinate = np.asarray(mesh.get_coordinates())[:, 0, 1]
     brightest = float(ordinate[int(np.argmax(np.max(values, axis=1)))])
