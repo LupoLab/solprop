@@ -2126,7 +2126,7 @@ class Simulation(Displayed):
         grid: TimeGrid,
         modes: Mode | Sequence[Mode],
         responses: Sequence[object],
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         settings: SimulationSettings,
         initial_z: float = 0.0,
@@ -2209,7 +2209,7 @@ class Simulation(Displayed):
 
     def _built_input(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         grid: TimeGrid,
         initial_z: float,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
@@ -2584,7 +2584,7 @@ class Simulation(Displayed):
 
     def with_input(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray | CouplingLaunch,
         *,
         noise: NoiseRealisation | Literal["keep"] | None = "keep",
         initial_z: float | None = None,
@@ -2811,7 +2811,7 @@ class Simulation(Displayed):
 
     def _derived_configuration(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         configuration: Mapping[str, object] | None,
         coupling: Mapping[str, object] | None = None,
     ) -> dict[str, object]:
@@ -2865,7 +2865,7 @@ class Simulation(Displayed):
 
     def _check_replaced_array(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         noise: NoiseRealisation | None,
     ) -> None:
         """Validate a replaced array input before it is copied; a pulse is built first.
@@ -4161,7 +4161,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal Hankel spectrum in V m, with shape
             ``(n_r, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4272,7 +4272,7 @@ class Simulation(Displayed):
             Constant bulk material; varying profiles are refused.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal Cartesian DFT spectrum in V/m, with shape
             ``(n_x*n_y, n_pol, n_omega)``.
         settings : SimulationSettings
@@ -4518,7 +4518,7 @@ class Simulation(Displayed):
             Homogeneous transverse material; gas density may vary along z.
         responses : collections.abc.Sequence
             Existing Kerr, plasma or explicitly declared Raman response objects.
-        initial : solprop.pulses.SpatialPulse, solprop.pulses.SpatialPulseSum or numpy.ndarray
+        initial : SpatialPulse, SpatialPulseSum or numpy.ndarray
             Beam specification or internal spectrum, a Hankel spectrum in V m or a
             raw Cartesian DFT spectrum in V/m, with shape ``(n_columns, n_pol,
             n_omega)``.
@@ -7235,7 +7235,7 @@ class SimulationRunner(Displayed):
 
     def run(  # noqa: PLR0913 - one input's run, as with_input and run_problem take it
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         output: Output | Path | str | None = None,
         configuration: Mapping[str, object] | None = None,
@@ -7368,7 +7368,7 @@ class SimulationRunner(Displayed):
 
     def _load(
         self,
-        initial: Pulse | SpatialPulse | np.ndarray,
+        initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray,
         *,
         output: Output | Path | str | None,
         configuration: Mapping[str, object] | None,
@@ -7477,8 +7477,8 @@ class SimulationRunner(Displayed):
 
 
 def _borrowed_input(
-    initial: Pulse | SpatialPulse | np.ndarray, *, stated: bool
-) -> Pulse | SpatialPulse | np.ndarray:
+    initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray, *, stated: bool
+) -> Pulse | SpatialPulse | SpatialPulseSum | np.ndarray:
     """Return a runner's input as its private derived simulation may take it, uncopied.
 
     A derived simulation copies an array so that its record and its run outlive the
@@ -8738,7 +8738,8 @@ def _replaced_launch(
 
 
 def _check_input_identity(
-    identity: str | None, initial: Pulse | SpatialPulse | np.ndarray | CouplingLaunch
+    identity: str | None,
+    initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray | CouplingLaunch,
 ) -> None:
     """Refuse a stated identity that is empty, or of anything but an array input.
 
@@ -12039,7 +12040,7 @@ def _peak_field_reports(
 
 
 def _check_rate_inputs(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> None:
     """Check a run's input against each optmat rate it carries, once per run.
 
@@ -12088,7 +12089,7 @@ def _check_rate_inputs(
 
 
 def _bind_spatial_rates(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> None:
     """Bind a free-space or planar run's optmat rates to its input, and check it.
 
@@ -12122,7 +12123,7 @@ def _bind_spatial_rates(
 
 
 def _spatial_input_peak(
-    simulation: Simulation, initial: Pulse | SpatialPulse | np.ndarray
+    simulation: Simulation, initial: Pulse | SpatialPulse | SpatialPulseSum | np.ndarray
 ) -> tuple[float, float]:
     """Return a free-space or planar run's peak input field and its circular share.
 
