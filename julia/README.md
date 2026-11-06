@@ -15,11 +15,13 @@ controller and the output are solprop's own. The engine is the Julia package in
 |---|---|
 | `SolpropJulia.jl` | the engine type, construction and its warm-up, the bridge's entry points |
 | `launch.jl` | the device layer: every pass a scalar body run by `each!`, `each_column!`, `reduce_each` or `rowsum!`; FFT plans and GEMMs |
+| `vmath.jl` | branch-free binary64 `exp` and `log` within one ulp, for the CPU's vectorised passes |
 | `modal.jl`, `free.jl` | the modal and radial routes, and Cartesian and line free space |
 | `responses.jl` | Kerr, one field-plasma channel and one Raman term |
 | `dopri.jl`, `rk4.jl`, `adams.jl` | the DOPRI5 trial and commit, SEP 24's RK4IP and SEP 16's exponential Adams |
-| `stages.jl` | the longitudinal expansions' stage weights |
-| `observe.jl` | what the driver reads between steps: the state, the boundary monitor's and the transverse edge's sums |
+| `helpers.jl` | the shared code's Chebyshev rows and Adams basis (SEP 29 section 6.6), and an Adams trial's tables |
+| `stages.jl` | the longitudinal expansions' stage weights, and the stage scalars from the engine's own tables |
+| `observe.jl` | what the driver reads between steps: the state, the boundary monitor's and the transverse edge's sums, the Poynting statistics' power |
 | `../ext/SolpropJuliaCUDAExt.jl` | CUDA: the engine's arrays become `CuArray`s |
 
 ## Setting up

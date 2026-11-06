@@ -38,10 +38,16 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | Monitor and edge sums, state copies, in the engine | a Cartesian window's host copies and reductions 1.7 s -> 1.1 s |
 | GPU: plasma and observation populations a sample a thread, scans column-wise | A40 rdw plasma 1.23 s -> 0.04 s, argon 4.9 s -> 0.14 s |
 | Native's phi-function evaluation (quarter-ulp stop, reciprocals) | radial Adams predictor 0.16 s -> 0.10 s |
+| Frequency-domain synthesis where the nodes match the modes (radial) | a radial window 0.86 s -> 0.63 s on 16 threads |
+| Its own helpers record (SEP 29 section 6.6), an Adams trial's tables formed in the engine | `rdw` on 16 threads 0.273 s -> 0.214 s; equal to the Python forms bit for bit |
+| Stage scalars read by the engine from its own tables (SEP 39's staged tables) | `rdw` stage preparation 17 ms -> 5 ms a window |
+| The Poynting statistics' transforms and the populations in the engine, without allocating | `rdw` statistics 55 ms -> 40 ms; collector pauses (13 to 83 ms) gone |
+| A plasma column's live samples gathered; vectorised `exp` and `log` (`src/vmath.jl`, 1 ulp) | argon's plasma on one thread 4.7 ms -> 2.9 ms a source |
 
-What did not pay: branch-free vectorised `exp` and `log` (1 ulp, and 2x faster than
-Base's in isolation) made the plasma's columns slower in place, where the table gather
-keeps the loops scalar and Base's cached exponential is cheaper.
+The vectorised functions paid only once the live samples were gathered and each pass
+was a function of its own: in the column's branchy loop, and inside its closure, LLVM
+kept them scalar, and a table lookup in a loop keeps LLVM from vectorising it, so the
+rate is a vectorised `log`, the lookup and a vectorised `exp`, three passes.
 
 ## Where it stands
 
@@ -76,16 +82,20 @@ The AMD EPYC 7763 and binary32 rows are in the ledger.
 
 ## What is left, measured
 
-- **Host work per step.** The Adams march, its stage scalars and coefficient tables run in
-  Python: about 1.2 ms a step on the Xeon (rdw at 16 threads: 0.09 s of engine work in a
-  0.23 s window). Native runs the march compiled (SEP 39). A Julia march is the largest
-  remaining CPU and GPU item.
-- **Host statistics per plane.** The saved planes' statistics are the shared host
-  functions: about 4.6 ms a plane on rdw (12 planes in the window). Native forms them in
-  its own code.
-- **Serial plasma.** The column scans' rate (scalar `log` and `exp` behind an exact
-  zero-support test), fraction and two running integrals take 0.8 s of argon's 1.2 s
-  window on one thread; native's vectorised SLEEF calls do the same in less.
+- **The march in Python.** The Adams controller's decisions and the bridge's calls
+  between them: about 0.37 ms a step on the Xeon (`argon_blueshift` on 16 threads:
+  0.08 s of a 0.40 s window, 213 steps; native's whole step is 0.86 ms). A Julia march
+  (native's SEP 39, with its decision-trace tests as the oracle) would remove it; the
+  tables and stage scalars it needs are in the engine already.
+- **Host statistics per plane.** The spectra and the reductions over the engine's power
+  are the shared host functions: about 1.4 ms a plane on `rdw`.
+- **The quadrature alarm.** Three forward transforms of the coarse quadrature per
+  accepted step, each over the modes alone (four columns for `rdw`, so four of 16
+  threads): 11 ms of `rdw`'s 0.19 s window. One batched transform of every forward
+  buffer would fill the pool.
+- **Small states on many threads.** With one mode and 1601 bins the passes are serial
+  by size, and run 20 to 40 % slower with 16 cores busy than with one (the clock).
+- **Serial plasma integrals.** The two running integrals are sequential by design.
 - **Binary32 on x86.** It runs (fields 1e-6 from binary64), but slower than binary64:
   the scaled field's tails are subnormal, and flush-to-zero is not allowed. GPUs handle
   binary32 subnormals at full speed.
@@ -103,6 +113,13 @@ planes are refused by name.
 
 - `parallel_rows` read the CPU topology from sysfs (a file per CPU) before deciding a
   pass was too small to thread: 60 ms of a 0.36 s rdw window. Fixed on this branch.
-- `benchmarks.worker.timed_run` evaluates `simulation.metadata()` inside the timed
+- `benchmarks.worker.timed_run` evaluated `simulation.metadata()` inside the timed
   window, and its first evaluation costs about 0.18 s on rdw (the plane bases' modal
-  identity): the first timed repeat of every arm, native's included, pays it.
+  identity): every arm's first timed repeat, native's included, paid it. Fixed on this
+  branch; ratios measured before it understate both arms' speed (native's `rdw` window
+  on 16 threads is 0.145 s, not 0.314 s).
+- Julia's LinearAlgebra gave wrong products for concurrent `mul!` calls on views of a
+  `Complex{Float32}` matrix times a `Float32` one (relative error 1.5); the engine forms
+  them as real GEMMs over the complex array's real view instead.
+- `docs/dev/backends.md` still names `set_held_plane` and `held_observation`, which
+  main removed.
