@@ -1349,8 +1349,9 @@ class Mixture(Displayed):
         MaterialError
             If fractions or pressure are missing for an independent mixture, or new
             fractions are given beside a retained fill whose choked end or flow
-            weight was computed for the old composition, or if `floor` is given
-            beside a constant or profile pressure.
+            weight was computed for the old composition, if `radius`, `vacuum_end`
+            or `floor` is given without `pressure`, or if `floor` is given beside a
+            constant or profile pressure.
         """
         if fractions is not None and set(fractions) != set(self.labels):
             raise MaterialError(f"fill fractions must name exactly {self.labels}")
@@ -1359,10 +1360,12 @@ class Mixture(Displayed):
             if fractions is None
             else _fractions(tuple(fractions[label] for label in self.labels))
         )
-        if pressure is None and (radius is not None or vacuum_end is not None):
+        if pressure is None and (
+            radius is not None or vacuum_end is not None or floor is not None
+        ):
             raise MaterialError(
-                "radius and vacuum_end shape a new pressure fill; pass pressure= "
-                "beside them, since the retained shared path carries its own"
+                "radius, vacuum_end and floor shape a new pressure fill; pass "
+                "pressure= beside them, since the retained shared path carries its own"
             )
         if (
             pressure is None

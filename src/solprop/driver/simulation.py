@@ -5016,6 +5016,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
@@ -5581,6 +5583,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
@@ -6397,6 +6401,8 @@ class Simulation(Displayed):
             :data:`solprop.profiles.DEFAULT_PRESSURE_FLOOR_FRACTION` of the highest
             stage pressure. With ``vacuum_end="floor"``, pass ``0.0`` for a true
             vacuum end, which warns, because ``dp/dz`` diverges there.
+            Refused beside a constant pressure or a pressure profile, which have
+            no end to apply it to.
         vacuum_end : {'choked', 'floor'} or None, optional
             How a pressure gradient's outer end below its choked pressure is treated.
             ``None`` (the default) means ``"choked"`` for a circular hollow guide: the
