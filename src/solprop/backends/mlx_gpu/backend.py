@@ -53,20 +53,20 @@ from solprop.backends.populations import population_statistics
 from solprop.boundaries import SPLIT_RATE_BUCKETS
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError
-from solprop.grid import TimeGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
 from solprop.profiles import ZProfile
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.envelope_plasma import EnvelopePlasmaAssembly
-from solprop.translate.linop import _separable_phase
 from solprop.translate.precision import combine, narrow
 from solprop.translate.problem import KernelProblem
 from solprop.translate.responses import ResponseStage
-from solprop.translate.spatial import separable_values
+from solprop.translate.spatial import SeparableOperator, separable_values
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEBinding
+from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 __all__ = ["DeviceSources", "MlxBackend", "MlxLowStorage", "refuse_unsupported"]
 
@@ -211,6 +211,43 @@ def _restored(value: float, power: float, exponent: int) -> float:
     if not math.isfinite(power):
         return math.nan
     return math.ldexp(value, 2 * int(power) + exponent)
+
+
+def _separable_tables(
+    separable: SeparableOperator,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Return a separable operator at unit distance and its prefactor, in one pass.
+
+    ``translate.linop._separable_phase`` at unit distance and the prefactor of
+    :func:`~solprop.translate.spatial.separable_values`, bitwise, from one evaluation
+    of each bounded chunk of columns rather than one for each (seconds apiece on a
+    384^2 x 750 grid).
+
+    Parameters
+    ----------
+    separable : solprop.translate.spatial.SeparableOperator
+        The constant-medium coefficients.
+
+    Returns
+    -------
+    tuple of numpy.ndarray
+        The operator, of ``value_shape``, and the prefactor, without its leading
+        batch axis.
+    """
+    shape = separable.value_shape
+    operator = np.empty(shape, dtype=np.complex128)
+    prefactor: np.ndarray | None = None
+    # _separable_phase's 64 MiB workspace ceiling.
+    chunk = max(1, (64 << 20) // (8 * 16 * len(separable.k_squared)))
+    for first in range(0, shape[1], chunk):
+        rows = slice(first, first + chunk)
+        values, factor = separable_values(separable, rows)
+        operator[:, rows] = values
+        if prefactor is None:
+            prefactor = np.empty(shape[1:], dtype=factor.dtype)
+        prefactor[rows] = factor
+    assert prefactor is not None
+    return operator, prefactor
 
 
 def refuse_unsupported(problem: KernelProblem) -> None:
@@ -409,6 +446,7 @@ class MlxBackend(NumpySingleBackend):
             and problem.responses.absorber_scheme != "split_step"
         )
         self._first: tuple[float, Any, mx.array] | None = None
+        self._edge_matrix: mx.array | None = None
         self._pending_first: tuple[float, mx.array] | None = None
         self._last_source: mx.array | None = None
         compiled = mx.compile if self._fused else (lambda function: function)
@@ -486,10 +524,8 @@ class MlxBackend(NumpySingleBackend):
         if separable is not None:
             # A separable operator is one term linear in the distance: the operator
             # at unit distance, weighted by the bundle's dz (translate.linop).
-            self._phi = DoubleFloatTerms.upload(
-                _separable_phase(separable, 1.0, imaginary=False)[None]
-            )
-            _, prefactor = separable_values(separable)
+            operator, prefactor = _separable_tables(separable)
+            self._phi = DoubleFloatTerms.upload(operator[None])
             self._free_prefactor = mx.array(self._cast(prefactor))
         elif self._terms.phi is None:
             raise BackendError("mlx needs the operator's device-ready terms")
@@ -1220,7 +1256,10 @@ class MlxBackend(NumpySingleBackend):
         inputs = {
             "lab": lab,
             "back": back,
-            "prefactor": self._device_prefactor(bundle),
+            # The Cartesian route applies its own prefactor (_free_prefactor).
+            "prefactor": self._unit
+            if self._free_prefactor is not None
+            else self._device_prefactor(bundle),
             "values": self._stage_values(bundle).vector,
         }
         if raman is not None:
@@ -2132,6 +2171,103 @@ class MlxBackend(NumpySingleBackend):
             The double-float accurate propagator, complex64.
         """
         return self._propagators(self._stage_scalars(anchor, position))[0]
+
+    def _edge_reading(
+        self,
+        state: Any,
+        edge: TransverseEdge,
+        *,
+        faces: bool = True,
+        current: bool = False,
+        full: bool = False,
+    ) -> _EdgeReading:
+        """Read the transverse edge on the device, where no collar is requested.
+
+        The host reduction (``_HostEdgeReduction``) of the node and column energies,
+        formed on the device -- a Cartesian or line grid's transverse inverse
+        transform, a radial grid's synthesis -- with only the nodes' and columns'
+        sums read, where the default copied the whole state to the host and widened
+        it at every read. A requested collar's strip and current, a planar grid and
+        MLX's CPU device take the host reduction.
+
+        Parameters
+        ----------
+        state : mlx.core.array
+            The scaled state.
+        edge : solprop.transverse_monitor.TransverseEdge
+            The run's edge.
+        faces : bool, optional
+            Whether the nodes, the columns and any collar's strip are wanted.
+        current : bool, optional
+            Whether a collar's inward current is wanted.
+        full : bool, optional
+            Whether every node is wanted, not only the rows a read uses.
+
+        Returns
+        -------
+        solprop.transverse_monitor._EdgeReading
+            The reading.
+        """
+        reduction = edge.reduction
+        space = reduction.space
+        if (
+            not on_gpu()
+            or current
+            or not faces
+            or reduction.lines
+            or not isinstance(space, (FreeGrid, LineGrid, RadialGrid))
+        ):
+            return super()._edge_reading(
+                state, edge, faces=faces, current=current, full=full
+            )
+        member = cast(mx.array, state)[0]
+        flat = member.reshape(member.shape[0], -1)
+        if isinstance(space, RadialGrid):
+            synthesis = self._edge_synthesis(reduction)
+            nodes = synthesis @ mx.real(flat), synthesis @ mx.imag(flat)
+            physical = nodes[0] + 1j * nodes[1]
+        else:
+            cube = flat.reshape(space.n_y, space.n_x, -1)
+            physical = mx.fft.ifftn(cube, axes=[0, 1]).reshape(
+                space.n_y * space.n_x, -1
+            )
+        energies = [
+            mx.sum(
+                mx.real(rows) * mx.real(rows) + mx.imag(rows) * mx.imag(rows), axis=1
+            )
+            for rows in (physical, flat)
+        ]
+        read = np.array(mx.concatenate(energies), dtype=np.float64) * self.scale**2
+        node_energy, columns = read[: physical.shape[0]], read[physical.shape[0] :]
+        tables = reduction.tables
+        if not full:
+            # The host reads only the rows a read's sums touch, the others zero.
+            node_energy = np.where(tables.rows, node_energy, 0.0)
+        return _EdgeReading(
+            faces=tables.faces @ node_energy,
+            clip=tables.clip @ node_energy if full else None,
+            totals=tables.totals @ node_energy if full else None,
+            columns=columns,
+        )
+
+    def _edge_synthesis(self, reduction: Any) -> mx.array:
+        """Return a radial grid's synthesis from columns to nodes on the device.
+
+        Parameters
+        ----------
+        reduction : solprop.transverse_monitor._HostEdgeReduction
+            The edge's host reduction, which holds the binary64 matrix.
+
+        Returns
+        -------
+        mlx.core.array
+            The matrix in binary32, uploaded once.
+        """
+        if self._edge_matrix is None:
+            synthesis = reduction.synthesis()
+            assert synthesis is not None  # a radial grid's
+            self._edge_matrix = mx.array(np.asarray(synthesis, dtype=np.float32))
+        return self._edge_matrix
 
     def _collar_changed(self) -> None:
         """Forget a reused first stage, evaluated under the other collar setting."""

@@ -283,6 +283,25 @@ def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
         capillary("single", length=length, schedule=schedule).translate()
 
 
+@pytest.mark.parametrize(
+    "integrator",
+    [LowStorageRungeKutta(), Multistep()],
+    ids=["low_storage", "adams"],
+)
+def test_a_forward_only_march_takes_the_damped_step_runge_kutta_cannot(integrator):
+    """The low-storage march and the exponential Adams flow form no inverse.
+
+    A damped bin's forward flow underflows towards zero in binary32, harmlessly, so the
+    step the Runge-Kutta interaction picture is refused (|Re dPhi| = 150) is admitted;
+    only growth would overflow them.
+    """
+    length = 0.001
+    schedule = FixedSchedule.uniform(0.0, length, length / 4)
+    capillary(
+        "single", length=length, schedule=schedule, integrator=integrator
+    ).translate()
+
+
 def overflowing_beam(precision: str) -> Simulation:
     """Return a radial Kerr beam whose first trial step is the whole millimetre.
 

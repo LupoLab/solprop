@@ -58,11 +58,16 @@ interfaces. Under single precision:
   ([its record](#free-space-at-its-binary64-tolerance)). A spatial interface applies it where its `SimulationSettings` give no
   controller; an explicit `rtol` or controller is the caller's.
 - **The step's exponent.** Binary32 represents ``exp(x)`` only up to $x \approx 88.7$
-  (binary64 to 709.8). The interaction picture multiplies by the linear propagator and
-  its inverse, so a replayed step (or an adaptive run's floor `dz_min`) over which a
-  strong collar or loss reaches that exponent is refused at translation, with the
-  shortest step that fits, and one within a tenth of it is warned of. A 1 mm capillary's
-  default collar on 0.25 mm steps is one such case.
+  (binary64 to 709.8). The Runge–Kutta interaction picture multiplies by the linear
+  propagator and its inverse, so under `RungeKutta()` a replayed step (or an adaptive
+  run's floor `dz_min`) over which a strong collar or loss reaches that exponent is
+  refused at translation, with the shortest step that fits, and one within a tenth of
+  it is warned of; a 1 mm capillary's default collar on 0.25 mm steps is one such case.
+  The low-storage march and the exponential Adams method apply forward flows only: a
+  damped bin's flow underflows harmlessly towards zero, so they are limited by growth
+  alone, which no passive medium has. The Kerr beams' 0.5 µm steps, whose spectral
+  collar reaches 150 to 180, run in binary32 with `LowStorageRungeKutta()` for this
+  reason.
 - **The integrator.** Each interface takes its binary64 default
   ([the defaults](../numerics/choosing-a-stepper.md#the-defaults)): `Multistep()` in
   its exponential formulation on `prop_capillary`, `prop_radial` and `prop_planar`

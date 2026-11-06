@@ -311,6 +311,44 @@ def test_reusing_the_last_stage_as_the_next_first_changes_nothing(steps):
     assert np.array_equal(fields[0][0], fields[1][0])
 
 
+@gpu_only
+@pytest.mark.parametrize("route", ["radial", "cartesian"])
+def test_the_transverse_edge_is_read_on_the_device_as_the_host_reads_it(route):
+    """Node and column energies from the device's own transform or synthesis.
+
+    Binary32 sums against the host's binary64 ones: held to a millionth of the
+    state's energy, three orders below the edge's warning.
+    """
+    from solprop.backends.driver import StepDriver  # noqa: PLC0415
+
+    simulation = on("mlx", spatial_kerr(route, "single"))
+    problem = simulation.translate()
+    with ExitStack() as cleanup:
+        backend = cast(MlxBackend, select("mlx", problem, grid=simulation.grid))
+        cleanup.callback(backend.close)
+        monitor = simulation._boundary_monitor()
+        assert monitor is not None and monitor.transverse is not None
+        backend.set_initial(problem.initial.field0, None)
+        backend._bind_monitor(monitor)
+        backend.propagate_to(float(simulation.settings.save_planes[-1]))
+        state, edge = backend._require_state(), monitor.transverse
+        whole = StepDriver._edge_reading(backend, state, edge, full=True)
+        assert whole.totals is not None and whole.columns is not None
+        # The nodes' sums carry the grid's own weights, the columns' the state's.
+        scales = {"columns": float(np.sum(whole.columns))}
+        nodes = float(np.max(whole.totals))
+        for full in (True, False):
+            device = backend._edge_reading(state, edge, full=full)
+            host = StepDriver._edge_reading(backend, state, edge, full=full)
+            for name in ("faces", "clip", "totals", "columns"):
+                found, expected = getattr(device, name), getattr(host, name)
+                if expected is None:
+                    assert found is None
+                    continue
+                scale = scales.get(name, nodes)
+                assert np.max(np.abs(found - expected)) <= 1e-6 * scale
+
+
 def test_mlx_refuses_the_interaction_formulation_by_name():
     simulation = gnlse("single", integrator=Multistep(formulation="interaction"))
     with pytest.raises(BackendError, match="interaction formulation"):

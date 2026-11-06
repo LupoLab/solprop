@@ -2516,11 +2516,12 @@ The single-precision default is still Runge-Kutta, so on the capillaries the mid
 column sets `mlx`'s DOPRI5 against `native`'s Adams. Whole runs, RK at `rtol = 1e-4`:
 `radial_filament_256` 0.67 s on `mlx` against 2.07 s on `native`, `spatial_absorber`
 1.98 against 5.54. The short runs' ratios carry the planes' shared host statistics
-(12 planes) as a fixed cost. `kerr_beam_*` is refused on `mlx` past a tenth of its
-length: over its 0.5–0.6 µm steps the linear operator's own damping, the spectral
-collar's chiefly, reaches `|Re ΔΦ|` of 150–180, past binary32's 88.7 in the
-interaction picture's inverse propagator (its temporal collar is already the split
-step's, outside the operator).
+(12 planes) as a fixed cost. `kerr_beam_*` was refused on `mlx` past a tenth of its
+length: over its 0.5–0.6 µm steps the spectral collar reaches `|Re ΔΦ|` of 150–180,
+past binary32's 88.7. Its low-storage march applies forward flows only, which a damped
+bin underflows harmlessly, so binary32 now holds it to growth alone; with the edge read
+on the device and the operator built once, whole runs take 1.05 s on `mlx` against
+2.64 s on `native` (192²) and 7.72 against 9.43 s (384²), the fields 2e-7 apart.
 
 ## Reference tables
 

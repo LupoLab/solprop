@@ -494,7 +494,9 @@ A backend whose `StepDriver.reads_transverse_edge` is set hands the monitor's
 `TransverseEdge` an `_EdgeReading` from `StepDriver._edge_reading` at the edge's reads, at saved planes, and with a
 requested collar at every committed step. The reading is numbers and never the field: region sums, each
 column's energy and any collar's strip and current. The default forms them with `_HostEdgeReduction` on a host copy,
-the reference, which `numpy_ref` and `mlx` use. `native` forms them on its own state against
+the reference, which `numpy_ref` uses, and `mlx` where a collar's strip or current is asked for. `mlx` otherwise forms the node and column
+energies on the device (`MlxBackend._edge_reading`: the Cartesian or line grid's transverse inverse transform, the radial synthesis in
+binary32), within a millionth of the state's energy of the host's, and reads those sums only. `native` forms them on its own state against
 the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no face, mask or judgement, and a
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
