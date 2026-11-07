@@ -21,13 +21,15 @@ import logging
 import threading
 import time
 import traceback
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from multiprocessing.connection import Connection
 from pathlib import Path
 
 import numpy as np
 
 from solprop.driver.scan import run_scan
+from solprop.exceptions import RunTerminated
 from solprop.grid import TimeGrid
 from solprop.log import NullReporter, ScanReporter
 from solprop.output import open_file
@@ -35,6 +37,7 @@ from solprop.recipe import Recipe, resume_file
 from solprop.service.beam import beam_reading, profile_row
 from solprop.service.messages import Control, Event
 from solprop.service.outbox import Outbox
+from solprop.service.record import EventLog, Job, clear_stop, watch_stop, write_job
 from solprop.service.reduce import (
     SPECTRAL_AXES,
     TIME_OVERSAMPLING,
@@ -220,9 +223,9 @@ class LiveObserver(NullReporter):
             axes = self.axes
             rows = [row for row in self.rows if int(row.data["index"]) >= from_plane]  # pyright: ignore[reportArgumentType]
         if axes is not None:
-            self.outbox.put(axes)
+            self.outbox.put(axes, copy=False)
         for row in rows:
-            self.outbox.put(row)
+            self.outbox.put(row, copy=False)
 
 
 class ScanObserver(ScanReporter):
@@ -571,67 +574,52 @@ def _display(spec: RunSpec, output: Path) -> Display:
         return spec.display
 
 
-def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
+def execute(
+    spec: RunSpec, events: Connection | None = None, control: Connection | None = None
+) -> None:
     """Run, or continue, one run and stream its events until its terminal one.
+
+    A run with a record (``spec.record``) also appends its events to its folder and
+    obeys its stop file; a run started with no window (:mod:`solprop.service.job`)
+    has no pipes, and its record is all it streams to. A signal that ends the run
+    (``SIGTERM``, as Slurm sends at a time limit or ``scancel``) leaves the file
+    resumable, so it ends the run as stopped.
 
     Parameters
     ----------
     spec : solprop.service.worker.RunSpec
         What to run.
-    events : multiprocessing.connection.Connection
-        Where the events go.
-    control : multiprocessing.connection.Connection
-        Where stop and subscribe requests come from.
+    events : multiprocessing.connection.Connection or None, optional
+        Where the events go; ``None`` for none.
+    control : multiprocessing.connection.Connection or None, optional
+        Where stop and subscribe requests come from; ``None`` for none.
     """
     folder = Path(spec.folder)
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / OUTPUT
-    outbox = Outbox()
     stop = threading.Event()
+    done = threading.Event()
+    record, job = _open_record(spec, folder, stop, done)
+    outbox = Outbox(copy_to=None if record is None else record.put)
     observer = LiveObserver(spec.run_id, Reducer(_display(spec, output)), outbox)
-    sender = threading.Thread(target=_send, args=(outbox, events), daemon=True)
-    sender.start()
-    threading.Thread(
-        target=_listen, args=(control, stop, observer), daemon=True
-    ).start()
-
-    log_file = logging.FileHandler(folder / LOG, encoding="utf-8")
-    log_file.setFormatter(
-        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
-    )
-    forward = EventHandler(spec.run_id, outbox)
-    forward.setLevel(logging.WARNING)
-    logging.captureWarnings(True)
-    loggers = [logging.getLogger("solprop"), logging.getLogger("py.warnings")]
-    for logger in loggers:
-        logger.addHandler(log_file)
-        logger.addHandler(forward)
-    logging.getLogger("solprop").setLevel(logging.INFO)
+    sender: threading.Thread | None = None
+    if events is not None:
+        sender = threading.Thread(target=_send, args=(outbox, events), daemon=True)
+        sender.start()
+    if control is not None:
+        threading.Thread(
+            target=_listen, args=(control, stop, observer), daemon=True
+        ).start()
+    detach = _attach_log(folder, spec.run_id, outbox)
 
     kind = "failed"
     data: dict[str, object] = {"path": str(output)}
     try:
-        if spec.resume is None:
-            if spec.recipe is None:
-                msg = "a new run needs its recipe"
-                raise ValueError(msg)
-            recipe = Recipe.loads(
-                spec.recipe, base=Path(spec.base) if spec.base else None
-            )
-            (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
-            if "scan" in recipe.to_dict():
-                kind, data = _scan(
-                    recipe, folder, spec.run_id, outbox, stop, spec.reductions
-                )
-                return
-            # Built here and kept: a free-space run's planes are measured with its
-            # grids and medium; run as Recipe.run would.
-            simulation = recipe.build()
-            observer.measure(simulation)
-            simulation.run(output, progress=observer, stop=stop)
-        else:
-            resume_file(output, spec.resume, progress=observer, stop=stop)  # pyright: ignore[reportArgumentType]
-        kind, data = _ending(output, stop.is_set())
+        kind, data = _march(spec, folder, outbox, observer, stop)
+    except RunTerminated as error:
+        # solprop wrote the state a resume needs before raising.
+        kind, data = "stopped", {"path": str(output), "terminated": True}
+        data["message"] = str(error) or "ended by a signal"
     except BaseException as error:
         data = {
             "path": str(output),
@@ -641,8 +629,130 @@ def execute(spec: RunSpec, events: Connection, control: Connection) -> None:
     finally:
         outbox.put(Event(spec.run_id, kind, data))
         outbox.close()
-        sender.join(timeout=10.0)
+        done.set()
+        if record is not None and job is not None:
+            record.close()
+            write_job(folder, replace(job, ended=time.time()))
+        if sender is not None:
+            sender.join(timeout=10.0)
+        detach()
+
+
+def _open_record(
+    spec: RunSpec, folder: Path, stop: threading.Event, done: threading.Event
+) -> tuple[EventLog | None, Job | None]:
+    """Start a run's record, when its spec asks for one.
+
+    Parameters
+    ----------
+    spec : solprop.service.worker.RunSpec
+        The run.
+    folder : pathlib.Path
+        Its folder.
+    stop : threading.Event
+        Its stop flag, which its stop file sets.
+    done : threading.Event
+        Set when it ends.
+
+    Returns
+    -------
+    tuple
+        Its record and its ``job.json``; both ``None`` for a run without a record.
+    """
+    if not spec.record:
+        return None, None
+    clear_stop(folder)
+    job = Job.here(spec.run_id, spec.launcher, spec.threads)
+    write_job(folder, job)
+    watch_stop(folder, stop, done)
+    return EventLog(folder, spec.run_id), job
+
+
+def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]:
+    """Send solprop's log to the run's ``run.log``, and its warnings as events.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The run's folder.
+    run_id : str
+        The run.
+    outbox : solprop.service.outbox.Outbox
+        Where its events go.
+
+    Returns
+    -------
+    Callable
+        What takes the handlers off again and closes the log.
+    """
+    log_file = logging.FileHandler(folder / LOG, encoding="utf-8")
+    log_file.setFormatter(
+        logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
+    )
+    forward = EventHandler(run_id, outbox)
+    forward.setLevel(logging.WARNING)
+    logging.captureWarnings(True)
+    loggers = [logging.getLogger("solprop"), logging.getLogger("py.warnings")]
+    for logger in loggers:
+        logger.addHandler(log_file)
+        logger.addHandler(forward)
+    logging.getLogger("solprop").setLevel(logging.INFO)
+
+    def detach() -> None:
         for logger in loggers:
             logger.removeHandler(log_file)
             logger.removeHandler(forward)
         log_file.close()
+
+    return detach
+
+
+def _march(
+    spec: RunSpec,
+    folder: Path,
+    outbox: Outbox,
+    observer: LiveObserver,
+    stop: threading.Event,
+) -> tuple[str, dict[str, object]]:
+    """Run, continue or scan, and return the terminal event.
+
+    Parameters
+    ----------
+    spec : solprop.service.worker.RunSpec
+        The run.
+    folder : pathlib.Path
+        Its folder.
+    outbox : solprop.service.outbox.Outbox
+        Where a scan's events go.
+    observer : LiveObserver
+        The run's reporter.
+    stop : threading.Event
+        Its stop flag.
+
+    Returns
+    -------
+    tuple
+        The terminal event's kind and data.
+
+    Raises
+    ------
+    ValueError
+        For a new run without its recipe.
+    """
+    output = folder / OUTPUT
+    if spec.resume is None:
+        if spec.recipe is None:
+            msg = "a new run needs its recipe"
+            raise ValueError(msg)
+        recipe = Recipe.loads(spec.recipe, base=Path(spec.base) if spec.base else None)
+        (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
+        if "scan" in recipe.to_dict():
+            return _scan(recipe, folder, spec.run_id, outbox, stop, spec.reductions)
+        # Built here and kept: a free-space run's planes are measured with its
+        # grids and medium; run as Recipe.run would.
+        simulation = recipe.build()
+        observer.measure(simulation)
+        simulation.run(output, progress=observer, stop=stop)
+    else:
+        resume_file(output, spec.resume, progress=observer, stop=stop)  # pyright: ignore[reportArgumentType]
+    return _ending(output, stop.is_set())

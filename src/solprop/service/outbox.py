@@ -16,6 +16,7 @@ the pipe (design 13.3). The outbox never blocks the producer:
 
 import threading
 from collections import deque
+from collections.abc import Callable
 
 from solprop.service.messages import Event
 
@@ -29,6 +30,10 @@ class Outbox:
     ----------
     capacity : int
         The most events held, terminal ones aside.
+    copy_to : Callable or None
+        Also given every event put, before it is queued, whatever the outbox's room:
+        the run's record (:class:`~solprop.service.record.EventLog`), which keeps
+        what a full outbox drops.
 
     Attributes
     ----------
@@ -47,7 +52,9 @@ class Outbox:
     {'z': 0.2}
     """
 
-    def __init__(self, capacity: int = 1024) -> None:
+    def __init__(
+        self, capacity: int = 1024, copy_to: Callable[[Event], None] | None = None
+    ) -> None:
         """Make an empty outbox."""
         if capacity < 1:
             msg = f"capacity must be at least 1, not {capacity}"
@@ -56,6 +63,7 @@ class Outbox:
         self._events: deque[Event] = deque()
         self._ready = threading.Condition()
         self._closed = False
+        self._copy_to = copy_to
         self.dropped = 0
 
     def __len__(self) -> int:
@@ -69,19 +77,23 @@ class Outbox:
         with self._ready:
             return len(self._events)
 
-    def put(self, event: Event) -> bool:
+    def put(self, event: Event, *, copy: bool = True) -> bool:
         """Hand over one event, without waiting.
 
         Parameters
         ----------
         event : Event
             The event.
+        copy : bool, optional
+            Give it to ``copy_to`` too; False for an event sent again, as a replay.
 
         Returns
         -------
         bool
             Whether it was kept: False when the outbox was full, or closed.
         """
+        if copy and self._copy_to is not None:
+            self._copy_to(event)
         with self._ready:
             if self._closed:
                 return False

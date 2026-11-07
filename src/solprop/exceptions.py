@@ -42,6 +42,7 @@ __all__ = [
     "ResponseBudgetError",
     "RunTerminated",
     "SampledPeakWarning",
+    "ServiceError",
     "SolpropError",
     "SolpropWarning",
     "StepperError",
@@ -316,6 +317,10 @@ class ResponseBudgetError(ConvergenceError):
 
 class StepperError(SolpropError, ValueError):
     """A tableau, controller, schedule or landing setting is invalid."""
+
+
+class ServiceError(SolpropError, RuntimeError):
+    """The front end's service refused a message, a run's record or a machine."""
 
 
 class ToolsError(SolpropError, ValueError):

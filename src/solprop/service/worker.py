@@ -15,12 +15,22 @@ imports nothing heavy; :func:`main` imports the run code in the child.
 
 import os
 from collections.abc import Mapping
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from multiprocessing.connection import Connection
 
 from solprop.service.reduce import Display
 
-__all__ = ["LOG", "OUTPUT", "RECIPE", "SCAN_OUTPUT", "RunSpec", "main"]
+__all__ = [
+    "LOG",
+    "OUTPUT",
+    "RECIPE",
+    "SCAN_OUTPUT",
+    "SPEC",
+    "RunSpec",
+    "main",
+    "spec_from_value",
+    "spec_value",
+]
 
 OUTPUT = "run.h5"
 """The results file in a run's folder."""
@@ -33,6 +43,9 @@ LOG = "run.log"
 
 SCAN_OUTPUT = "scan.h5"
 """A scan's results file, in its folder: its points, their status and reductions."""
+
+SPEC = "spec.json"
+"""What a run started without a window runs (:func:`spec_value`), in its folder."""
 
 
 @dataclass(frozen=True)
@@ -61,6 +74,12 @@ class RunSpec:
     reductions : tuple of Mapping
         What a scan records at each point beyond its statistics
         (:func:`solprop.service.scan_reductions.reductions`).
+    record : bool
+        Keep the run's record in its folder (:mod:`solprop.service.record`): its
+        events, its summary and ``job.json``, and a stop file it obeys.
+    launcher : str
+        How it was started, as its ``job.json`` says: ``"window"``, ``"direct"`` or
+        ``"slurm"``.
 
     Examples
     --------
@@ -76,6 +95,8 @@ class RunSpec:
     display: Display = field(default_factory=Display)
     threads: int | None = None
     reductions: tuple[Mapping[str, object], ...] = ()
+    record: bool = False
+    launcher: str = "window"
 
 
 def main(spec: RunSpec, events: Connection, control: Connection) -> None:
@@ -95,3 +116,64 @@ def main(spec: RunSpec, events: Connection, control: Connection) -> None:
     from solprop.service.run import execute  # noqa: PLC0415 - child only
 
     execute(spec, events, control)
+
+
+def spec_value(spec: RunSpec) -> dict[str, object]:
+    """Return a run's spec as plain data, as ``spec.json`` and the helper carry it.
+
+    Parameters
+    ----------
+    spec : RunSpec
+        The spec.
+
+    Returns
+    -------
+    dict
+        Its fields, the display's as a dict of its own.
+
+    Examples
+    --------
+    >>> spec = RunSpec("r1", "/tmp/r1", recipe="...", threads=4)
+    >>> spec_from_value(spec_value(spec)) == spec
+    True
+    """
+    value = asdict(spec)
+    value["reductions"] = [dict(entry) for entry in spec.reductions]
+    return value
+
+
+def spec_from_value(value: Mapping[str, object]) -> RunSpec:
+    """Return a run's spec from its plain data (:func:`spec_value`).
+
+    Parameters
+    ----------
+    value : Mapping
+        The fields.
+
+    Returns
+    -------
+    RunSpec
+        The spec; fields the data leaves out take their defaults.
+
+    Raises
+    ------
+    solprop.exceptions.ServiceError
+        If the data names a field a spec does not have.
+    """
+    from solprop.exceptions import ServiceError  # noqa: PLC0415 - light, rare
+
+    fields = dict(value)
+    display = fields.pop("display", None)
+    if isinstance(display, Mapping):
+        shown = {
+            key: tuple(item) if isinstance(item, list) else item  # pyright: ignore[reportUnknownArgumentType]
+            for key, item in display.items()  # pyright: ignore[reportUnknownVariableType]
+        }
+        fields["display"] = Display(**shown)  # pyright: ignore[reportArgumentType]
+    reductions = fields.pop("reductions", ())
+    fields["reductions"] = tuple(dict(entry) for entry in reductions)  # pyright: ignore[reportGeneralTypeIssues, reportUnknownArgumentType, reportUnknownVariableType]
+    try:
+        return RunSpec(**fields)  # pyright: ignore[reportArgumentType]
+    except TypeError as error:
+        msg = f"not a run's spec: {error}"
+        raise ServiceError(msg) from error
