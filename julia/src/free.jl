@@ -51,15 +51,29 @@ function create_free(c, host)
     analytic = dzeros(c, C, nt, chunk)
     coarse, coarse_spec = dzeros(c, R, nc, chunk), dzeros(c, C, nw, chunk)
     planes = (threads=c.transverse_fft_threads, batch=1)
+    # On a GPU the projected polarisation and the plasma's two currents are column
+    # blocks of one buffer, transformed together (three transforms a source were one
+    # each, through the device's FFT library between the engine's kernels).
+    plasma = plasma_workspace(c, host, nt, chunk, chunk, nm)
+    projected = dzeros(c, R, nt, chunk)
+    pack = nothing
+    if !oncpu(c) && plasma !== nothing && !c.envelope
+        pack_in, pack_out = dzeros(c, R, nt, 3chunk), dzeros(c, C, nf, 3chunk)
+        block(a, j) = view(a, :, (j-1)*chunk+1:j*chunk)
+        projected, fine = block(pack_in, 1), block(pack_out, 1)
+        plasma = merge(plasma, (gated=block(pack_in, 2), edge=block(pack_in, 3),
+                                spectrum=block(pack_out, 2), edge_spectrum=block(pack_out, 3)))
+        pack = (input=pack_in, output=pack_out, forward=plan(c, plan_rfft, pack_in, 1))
+    end
     work = (
         adams=nothing, path=nothing, raman=nothing, monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
-        plasma=plasma_workspace(c, host, nt, chunk, chunk, nm),
+        plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
         stages=dzeros(c, C, nw, nm, stages),
         forward=dzeros(c, C, nw, nm, 1), inverse=dzeros(c, C, nw, nm, c.low_storage ? 0 : 1),
         physical=physical, loss=dzeros(c, C, in_stage ? nw : 0, in_stage ? nm : 0),
-        fine=fine, modal=modal, projected=dzeros(c, R, nt, chunk), analytic=analytic,
+        fine=fine, modal=modal, projected=projected, analytic=analytic,
         absorber=dzeros(c, R, nt, chunk), absorber_spec=similar(fine), coarse=coarse, coarse_spec=coarse_spec,
         spatial_inverse=plan(c, plan_bfft!, spatial, (2, 3); planes...),
         spatial_forward=plan(c, plan_fft!, spatial, (2, 3); planes...),
@@ -211,10 +225,15 @@ function source_free!(engine, lab)
                 @inbounds projected[t, m] = polarization(scale * modal[t, m], factor, a) * window[t]
             end
         end
-        mul!(fine, w.forward_plan, projected)
         # The held-current polarisation joins before the transverse forward transform,
         # as the reference Cartesian source does.
-        w.plasma === nothing || add_plasma!(fine, w.plasma, w.forward_plan, c; direct=true)
+        if w.pack !== nothing
+            mul!(w.pack.output, w.pack.forward, w.pack.input)
+            add_plasma_spectra!(fine, w.plasma, c)
+        else
+            mul!(fine, w.forward_plan, projected)
+            w.plasma === nothing || add_plasma!(fine, w.plasma, w.forward_plan, c; direct=true)
+        end
         c.in_stage && free_absorber!(w, c, first, count)
         gather_columns!(physical, fine, c.in_stage ? loss : nothing, w.absorber_spec, first, count, c)
     end
