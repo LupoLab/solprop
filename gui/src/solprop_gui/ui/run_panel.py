@@ -129,9 +129,9 @@ class RunPanel(QWidget):
         self.machine: Machine | None = None
         # The run's own machine, while it is one elsewhere.
         self.run_machine: Machine | None = None
-        # Whether a run on this computer keeps its record (design 13.4); off until
-        # its cost is measured.
-        self.record_local = False
+        # Whether a run on this computer keeps its record (design 13.4): measured to
+        # cost nothing above run-to-run noise on macOS, Linux and Windows.
+        self.record_local = True
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
