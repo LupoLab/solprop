@@ -11,7 +11,9 @@
 #include <chrono>
 #include <complex>
 #include <cstddef>
+#include <cstdlib>
 #include <stdexcept>
+#include <string>
 #include <vector>
 
 #if defined(KOKKOS_ENABLE_OPENMP)
@@ -25,6 +27,38 @@ ThreadPolicy configured_threads;
 // (`CpuTeamScope`): Kokkos sets the default only on the thread that initialised it.
 std::atomic<int> runtime_width{0};
 } // namespace
+
+// EXPERIMENT (branch exp/native-one-team, not for merging): run-time switches over the
+// CPU thread policy, read once from the environment.
+//   SOLPROP_NATIVE_EXP_THRESHOLD_SCALE=f  every operation's thresholds times f
+//   SOLPROP_NATIVE_EXP_NO_MEDIUM=1        no four-thread band: serial or full width
+//   SOLPROP_NATIVE_EXP_COMPACT=n          the compact team's cap (0: none)
+//   SOLPROP_NATIVE_EXP_STABLE=0|1         the stable kernel team on or off
+//   SOLPROP_NATIVE_EXP_FFT_JOBS=1         FFTW's unscoped loops on a team of their jobs
+struct Experiment {
+  double scale{1.0};
+  bool no_medium{};
+  int compact{-1};
+  int stable{-1};
+  bool fft_jobs{};
+};
+const Experiment& experiment() {
+  static const Experiment value = [] {
+    Experiment e;
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_THRESHOLD_SCALE"))
+      e.scale = std::stod(v);
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_NO_MEDIUM"))
+      e.no_medium = v[0] == '1';
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_COMPACT"))
+      e.compact = std::stoi(v);
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_STABLE"))
+      e.stable = std::stoi(v);
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_FFT_JOBS"))
+      e.fft_jobs = v[0] == '1';
+    return e;
+  }();
+  return value;
+}
 
 ThreadPolicy thread_policy() {
   if (configured_threads.kernels != 0)
@@ -116,8 +150,17 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
     full = adams_full_thread_elements;
     break;
   }
+  const Experiment& exp = experiment();
+  if (exp.scale != 1.0) {
+    threshold = std::max<std::size_t>(
+        1, static_cast<std::size_t>(static_cast<double>(threshold) * exp.scale));
+    full = std::max<std::size_t>(
+        threshold, static_cast<std::size_t>(static_cast<double>(full) * exp.scale));
+  }
   if (elements < threshold)
     return 1;
+  if (exp.no_medium)
+    return capacity;
   if (operation == CpuOperation::response &&
       (fine_samples >= response_full_thread_samples ||
        (fine_samples != 0 && elements / fine_samples >= response_full_thread_columns)))
@@ -144,8 +187,12 @@ void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
   if (team == 0) {
     // The runtime's width, named: on a thread other than Kokkos', the OpenMP default
     // is every CPU (solprop issue #130).
-    const int width = runtime_width.load(std::memory_order_relaxed);
-#pragma omp parallel for num_threads(width > 0 ? width : omp_get_max_threads())
+    int width = runtime_width.load(std::memory_order_relaxed);
+    if (width <= 0)
+      width = omp_get_max_threads();
+    if (experiment().fft_jobs)
+      width = std::min(width, count);
+#pragma omp parallel for num_threads(width)
     for (int job = 0; job < count; ++job)
       work(jobs + size * static_cast<std::size_t>(job));
   } else {
@@ -293,9 +340,11 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
   int width = operation_threads(policy, pool_, operation, elements, fine_samples);
   int capacity = policy.kernels;
   if (compact_ && policy.explicit_pools == 0) {
-    capacity = pool_ == CpuPool::kernels || fftw_team_loops()
-                   ? std::min(capacity, cpu_compact_threads)
-                   : 1;
+    const int cap = experiment().compact < 0    ? cpu_compact_threads
+                    : experiment().compact == 0 ? capacity
+                                                : experiment().compact;
+    capacity =
+        pool_ == CpuPool::kernels || fftw_team_loops() ? std::min(capacity, cap) : 1;
     // On the compact team a threaded transform takes the whole team: its loops run on
     // that team anyway. The Raman transforms keep their own start: threading the
     // 18432-sample ones of the averaged hydrogen case cost it 17 % on an AMD EPYC 7763.
@@ -311,8 +360,10 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
   // threaded loops keep the runtime's team and only distribute fewer iterations, so the
   // FFT pools keep their medium widths. Workspaces ask for their stage instance first.
   // Not on macOS (`stable_kernel_team`).
-  if (stable_kernel_team && pool_ == CpuPool::kernels && width > 1 &&
-      width < capacity && instances_.contains(capacity))
+  const bool stable =
+      experiment().stable < 0 ? stable_kernel_team : experiment().stable == 1;
+  if (stable && pool_ == CpuPool::kernels && width > 1 && width < capacity &&
+      instances_.contains(capacity))
     width = capacity;
   auto found = instances_.find(width);
   if (found == instances_.end())
