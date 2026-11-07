@@ -92,7 +92,7 @@ function create_modal(c, host)
         coarse_inverse=c.envelope ? plan(c, plan_bfft, band, 1) : plan(c, plan_brfft, band, c.nc, 1),
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
-    Engine(c, work, false, 0, NaN, c.factor)
+    Engine(c, work, false, 0, NaN, c.factor, NaN, false)
 end
 
 """Place a band-limited state in the fine spectrum, clearing the padding."""

@@ -201,7 +201,10 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     # The predictor, the flow and its moments, and the state's norm for the scale.
     active = c.mask
     none, nil, h = zero(T), zero(C), T(step)
-    squared = @section :adams_predict reduce_each(+, zero(T), c, size(y)...; heavy=true) do f, m
+    # The state's squared norm, for the corrector's scale, stays where the corrector
+    # reads it: on a GPU the device (`sum_device!`).
+    squared = scratch(c, :adams_squared, T, 1)
+    @section :adams_predict sum_device!(squared, c, size(y)...; heavy=true) do f, m
         @inbounds begin
             # Outside the band the state, the history and the source are exactly zero,
             # and so is everything this element forms.
@@ -250,14 +253,37 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     end
     w.path === nothing || material_stage!(engine, 7)
     source!(engine, lab; quadrature=true)
-    magnitude = sqrt(squared)
-    relative, absolute, weight = T(c.rtol) * magnitude, T(c.atol), c.weights
-    zero3 = (zero(T), zero(T), zero(T))
-    norms = @section :adams_correct reduce_each(.+, zero3, c, size(y)...; heavy=true) do f, m
+    # A GPU reads the quadrature alarm with the norms, for the commit to take.
+    alarm = oncpu(c) ? nothing : alarm_arrays(engine)
+    norms = @section :adams_correct corrector_norms(engine, Val(N), squared, h, alarm)
+    alarm === nothing || hold_alarm!(engine, norms)
+    [sqrt(Float64(norms[row])) for row in 1:count]
+end
+
+"""The corrected candidate and the defect norms' squares, one to three, and with an
+`alarm` (`alarm_arrays`) its two sums after them, in one reduction: one value the host
+waits for a trial."""
+function corrector_norms(engine, ::Val{N}, squared, h, alarm) where {N}
+    c, w = engine.config, engine.work
+    a = w.adams
+    order, _, count = a.sizes
+    T = real_type(engine)
+    C = Complex{T}
+    (; y, forward, candidate, source) = w
+    (; store, moments, carried, endpoint) = a
+    (; corrector, defects, ccorrector, cdefects, slots) = a.device
+    compensated = a.compensated
+    active, mask, weight = c.mask, c.norm_mask, c.weights
+    rtol, absolute = T(c.rtol), T(c.atol)
+    none, nil = zero(T), zero(C)
+    zero3 = (none, none, none)
+    neutral = alarm === nothing ? zero3 : (zero3..., none, none)
+    reduce_each(.+, neutral, c, size(y)...; heavy=true) do f, m
         @inbounds begin
+            extra = alarm === nothing ? () : alarm_term(alarm, f, m)
             if !active[f]
                 candidate[f, m] = 0
-                return zero3
+                return (zero3..., extra...)
             end
             corrected = nil
             for k in 1:N
@@ -277,6 +303,8 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
             candidate[f, m] = muladd(h, corrected, forward[f, m, 1] * y[f, m])
             result = zero3
             if mask[f]
+                # rtol |y|, formed as the host formed it from the predictor's sum.
+                relative = rtol * sqrt(squared[1])
                 scale = relative * weight[f] + absolute
                 for row in 1:count
                     difference = defects[row, 1] * source[f, m]
@@ -300,10 +328,9 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                     result = Base.setindex(result, score, row)
                 end
             end
-            result
+            (result..., extra...)
         end
     end
-    [sqrt(Float64(norms[row])) for row in 1:count]
 end
 
 function adams_accept!(engine, slot)

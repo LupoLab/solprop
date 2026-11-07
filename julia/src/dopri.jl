@@ -78,9 +78,24 @@ function combine!(engine, dz, slot)
     mask = c.norm_mask
     b = ntuple(s -> T(dz * c.b[s]), Val(7))
     e = ntuple(s -> T(dz * c.e[s]), Val(7))
+    # A GPU reads the quadrature alarm with the norms, for the commit to take.
+    alarm = oncpu(c) ? nothing : alarm_arrays(engine)
+    sums = combine_sums(y, candidate, error, stages, forward, mask, b, e, slot, alarm, c, T)
+    alarm === nothing || hold_alarm!(engine, sums)
+    magnitude = max(sqrt(sums[1]), sqrt(sums[2]))
+    if c.uniform
+        scale = T(c.rtol) * magnitude + T(c.atol)
+        return scale == 0 ? (sums[3] == 0 ? 0.0 : Inf) : Float64(sqrt(sums[3]) / scale)
+    end
+    weighted_norm(engine, error, magnitude)
+end
+
+function combine_sums(y, candidate, error, stages, forward, mask, b, e, slot, alarm, c, T)
     zero3 = (zero(T), zero(T), zero(T))
-    sums = reduce_each(.+, zero3, c, size(y)...) do f, m
+    neutral = alarm === nothing ? zero3 : (zero3..., zero(T), zero(T))
+    reduce_each(.+, neutral, c, size(y)...) do f, m
         @inbounds begin
+            extra = alarm === nothing ? () : alarm_term(alarm, f, m)
             solution, defect = zero(eltype(y)), zero(eltype(y))
             for s in 1:7
                 value = stages[f, m, s]
@@ -92,15 +107,9 @@ function combine!(engine, dz, slot)
             estimate = flow * defect
             candidate[f, m] = new
             error[f, m] = estimate
-            mask[f] ? (abs2(y[f, m]), abs2(new), abs2(estimate)) : zero3
+            ((mask[f] ? (abs2(y[f, m]), abs2(new), abs2(estimate)) : zero3)..., extra...)
         end
     end
-    magnitude = max(sqrt(sums[1]), sqrt(sums[2]))
-    if c.uniform
-        scale = T(c.rtol) * magnitude + T(c.atol)
-        return scale == 0 ? (sums[3] == 0 ? 0.0 : Inf) : Float64(sqrt(sums[3]) / scale)
-    end
-    weighted_norm(engine, error, magnitude)
 end
 
 function weighted_norm(engine, error, magnitude)
@@ -167,10 +176,13 @@ function collar_factor(rate, half, inverse, c)
     factor
 end
 
-"""The embedded coarse quadrature's relative defect in the last stage's source."""
-function quadrature_alarm(engine)
+"""The quadrature alarm's arrays for a reduction body (`alarm_term`), its transforms done:
+the exact and the coarse spectra, the crop (`nothing` on the band), the prefactor and
+the window; `nothing` without an embedded quadrature."""
+function alarm_arrays(engine)
     c, w = engine.config, engine.work
-    c.spectral && return band_alarm(engine)
+    c.embedded || return nothing
+    c.spectral && return (w.band_source, w.band_coarse, nothing, c.prefactor, c.omega_window)
     if w.plasma === nothing
         mul!(w.coarse_spec, w.forward_plan, w.projected_coarse)
     else
@@ -179,30 +191,39 @@ function quadrature_alarm(engine)
                        (w.projected_coarse, p.coarse, p.coarse_edge), w.forward_stage, c)
         add_plasma_spectra!(w.coarse_spec, p, c)
     end
-    (; prefactor, omega_window, crop) = c
-    fine, coarse = w.fine, w.coarse_spec
-    T = real_type(engine)
-    sums = reduce_each(.+, (zero(T), zero(T)), c, size(w.y)...) do f, m
-        @inbounds begin
-            weight = prefactor[f, m] * omega_window[f]
-            exact = weight * fine[crop[f], m]
-            (abs2(exact), abs2(weight * coarse[crop[f], m] - exact))
-        end
-    end
-    sums[1] == 0 ? NaN : Float64(sqrt(sums[2] / sums[1]))
+    (w.fine, w.coarse_spec, c.crop, c.prefactor, c.omega_window)
 end
 
-function band_alarm(engine)
-    c, w = engine.config, engine.work
-    (; prefactor, omega_window) = c
-    exact, coarse = w.band_source, w.band_coarse
-    T = real_type(engine)
-    sums = reduce_each(.+, (zero(T), zero(T)), c, size(w.y)...) do f, m
-        @inbounds begin
-            weight = prefactor[f, m] * omega_window[f]
-            value = weight * exact[f, m]
-            (abs2(value), abs2(weight * coarse[f, m] - value))
-        end
+"""One element's two alarm sums: the exact source's power and its coarse error's."""
+@inline function alarm_term(alarm, f, m)
+    exact, coarse, crop, prefactor, window = alarm
+    @inbounds begin
+        k = crop === nothing ? f : crop[f]
+        weight = prefactor[f, m] * window[f]
+        value = weight * exact[k, m]
+        (abs2(value), abs2(weight * coarse[k, m] - value))
     end
-    sums[1] == 0 ? NaN : Float64(sqrt(sums[2] / sums[1]))
+end
+alarm_value(power, error) = power == 0 ? NaN : Float64(sqrt(error / power))
+
+"""The relative error of the quadrature's coarse source against the exact one: the
+GPU trial's own, read with its norms, when it left one (`alarm_ready`)."""
+function quadrature_alarm(engine)
+    if engine.alarm_ready
+        engine.alarm_ready = false
+        return engine.alarm
+    end
+    alarm = alarm_arrays(engine)
+    T = real_type(engine)
+    sums = alarm_sums(alarm, engine.config, T, size(engine.work.y))
+    alarm_value(sums...)
+end
+alarm_sums(alarm, c, T, dims) =
+    reduce_each((f, m) -> alarm_term(alarm, f, m), .+, (zero(T), zero(T)), c, dims...)
+band_alarm(engine) = quadrature_alarm(engine)
+
+"""Keep a GPU trial's alarm, read with its norms, for the commit."""
+function hold_alarm!(engine, sums)
+    engine.alarm = alarm_value(sums[end-1], sums[end])
+    engine.alarm_ready = true
 end

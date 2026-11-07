@@ -32,6 +32,10 @@ mutable struct Engine{C,W}
     calls::Int
     propagator_dz::Float64
     factor::Float64
+    # A GPU trial's quadrature alarm, read back with its norms (`alarm_arrays`) and
+    # handed to the commit that follows, so that the commit waits for nothing.
+    alarm::Float64
+    alarm_ready::Bool
 end
 
 include("launch.jl")
@@ -188,6 +192,7 @@ function reset_work!(engine)
     a === nothing || (buffers = (buffers..., a.store, a.states, a.rates, a.moments, a.carried, a.endpoint))
     foreach(buffer -> fill!(buffer, 0), buffers)
     engine.fsal_valid, engine.calls, engine.propagator_dz = false, 0, NaN
+    engine.alarm, engine.alarm_ready = NaN, false
     TIMING[] && empty!(TIMES)
     COUNT[] && empty!(COUNTS)
     nothing

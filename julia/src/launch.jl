@@ -205,6 +205,24 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
     end
 end
 
+"""The sum of `f(t, m)` over every sample into `out[1]`, which the next kernel reads: on a
+GPU it stays on the device (each value the host waits for cost about 0.2 ms on an M5
+Max), on a CPU it is `reduce_each`'s, the same bits."""
+function sum_device!(f::F, out, c, nt::Integer, nm::Integer; heavy=false) where {F}
+    nt, nm = Int(nt), Int(nm)
+    if oncpu(c)
+        @inbounds out[1] = reduce_each(f, +, zero(eltype(out)), c, nt, nm; heavy=heavy)
+        return out
+    end
+    terms = SolpropJulia.scratch(c, :sum_terms, eltype(out), 1, nt * nm)
+    each!(c, nt, nm) do t, m
+        @inbounds terms[1, t+(m-1)*nt] = f(t, m)
+    end
+    tally!(:launch)
+    sum!(reshape(out, 1, 1), terms)
+    out
+end
+
 # FFTW's planner measures every plan unless SOLPROP_FFTW_PLAN says otherwise. Unlike
 # native's policy (rows estimated when threaded), a threaded estimate is far slower
 # here: the Raman convolution's c2r of 73728 x 17 takes 6.6 ms estimated and 1.49 ms
