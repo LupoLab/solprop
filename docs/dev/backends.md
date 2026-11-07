@@ -212,7 +212,7 @@ the steps to one of these loops:
 | `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
 | `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
 | `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
-| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | adaptive Runge-Kutta, compiled (ADR-069, [SEP 45](seps/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
+| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
 
 Only the last two loops are compiled. The driver's Runge-Kutta march is the reference for the
 compiled Runge-Kutta march, which holds to it through kernel contract §12 (ADR-069), and for the
@@ -808,7 +808,7 @@ step cost 1.69 % of a step at 1024 bins on the GNLSE soliton), but the host's wh
 work, the stage scalars and the packing with the loop, came to about 200 µs a step on an Intel
 Xeon Gold 6240: a fifth of a small-grid fibre run (SEP 45 §3.4). The march is compiled where
 the kernel contract specifies it in full, with solprop's implementation as the reference:
-`native` steps `Multistep()` itself (ADR-060, §8), the adaptive Runge–Kutta march (ADR-069),
+`native` steps `Multistep()` itself (ADR-060, §8), the Runge–Kutta march (ADR-069),
 and makes one native call a step under the low-storage march (§9).
 
 ### 3.6 Propagator factors

@@ -1267,9 +1267,9 @@ tables and norms and take the same steps.
 ## 12. The Runge–Kutta march
 
 *Normative from [SEP 45](seps/sep-0045-native-rk-march.md) phase 3. `native` executes it
-(`native/src/rk_march.cpp`) for an adaptive run on staged rows with `PIController`'s weak
-norm on a CPU build; every other configuration steps the reference, with a
-`HostMarchWarning` naming the reason.*
+(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s weak norm on a CPU
+build; a weighted norm, a controller with its own methods and a device build step the
+reference, with a `HostMarchWarning` naming the reason.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `StepDriver._march_to` and the controller core it
@@ -1326,6 +1326,22 @@ The call takes the boundary monitor's checks inside the march as §11's does, wi
 monitor's watch policy and state, and returns its readings by the row they follow; on a
 floor it returns the site (`rejection`, `start_up`, `proposal`) with the state as the
 reference holds it there.
+
+**Coverage** (SEP 45 phase 4). *Interpolated planes:* the landings step across the save
+planes to the run's end, and the call returns the accepted step that crosses its target
+unfinished (`dense`), with its equivalent norm; solprop records the step's extension from
+the state before it and finishes it with the reference's acceptance. *Replay:*
+`StepDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
+rejection, each step recorded after its commit with its raw norm, the edges within the
+replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
+flow:* the stage rows carry the anchor's section and each stage's residual weights, and the
+state forms the step's actions for one (section, step) at a time behind
+`_flow_squarings` and `_check_flow_conditioning`, transcribed, with the Taylor scale, the
+squarings admitted, the sections' row sums, the certificate and the rounding allowance in
+a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
+positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
+after the quiet interval and before the split cap, the call returns before a step would
+carry past the next read, and solprop takes the monitor's checks by its distance test.
 
 **Rounding.** The decisions are compiled without contraction or fast-math, call no
 elementary function but `pow`, and take every power of `1/e` as the reference does, so

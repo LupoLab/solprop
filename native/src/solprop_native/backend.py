@@ -345,6 +345,7 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 45 phase 3: the native Runge-Kutta march, decided on first use.
         self._rk_march_state: _NativeRungeKuttaMarch | Literal[False] | None = None
         self._rk_refusal: str | None = None
+        self._rk_weighted = False
         self._flow_key: tuple[int, float] | None = None
         tables = problem.transform.modal_tables
         self._moving_maps = (
@@ -1174,12 +1175,18 @@ class NativeBackend(StepDriver[_core.State]):
         is not ``PIController.scale``, keeps the host's reduction and its own scale.
         """
         controller = self._problem.stepper.controller
-        if (
-            _RK_ROWS != "host"
-            and type(controller).scale is PIController.scale
-            and controller.weights is None
-        ):
-            return float(_core.rk_score(partials, controller.rtol, controller.atol))
+        if _RK_ROWS != "host" and type(controller).scale is PIController.scale:
+            if controller.weights is None:
+                return float(_core.rk_score(partials, controller.rtol, controller.atol))
+            # The weighted scale and its reduction, in order (SEP 45 phase 4).
+            self._rk_weights_ready()
+            return float(
+                self._native_state.rk_weighted_score(
+                    np.ascontiguousarray(partials, dtype=np.float64),
+                    controller.rtol,
+                    controller.atol,
+                )
+            )
         old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
         new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
         residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
@@ -1189,6 +1196,16 @@ class NativeBackend(StepDriver[_core.State]):
             weighted = self._native_state.weighted_error(native_scale)
             return math.sqrt(float(np.asarray(weighted).sum()))
         return residual / float(scale)
+
+    def _rk_weights_ready(self) -> None:
+        """Hand the native state a weighted controller's weights, once (SEP 45)."""
+        if not self._rk_weighted:
+            weights = self._problem.stepper.controller.weights
+            assert weights is not None
+            self._native_state.rk_weights_configure(
+                [float(value) for value in np.asarray(weights, dtype=np.float64)]
+            )
+            self._rk_weighted = True
 
     def _bind_monitor(self, monitor: BoundaryMonitor | None) -> None:
         """Hold the boundary monitor's weights in the native state (solprop SEP 21).
@@ -3309,7 +3326,6 @@ class _NativeRungeKuttaMarch:
                 bool(overridden),
                 "a controller with its own " + ", ".join(overridden),
             ),
-            (controller.weights is not None, "a weighted error norm"),
             (
                 _RK_ROWS == "host" or not driver._staged_rows(),
                 "a trial whose stage rows the host forms",
@@ -3365,6 +3381,8 @@ class _NativeRungeKuttaMarch:
             return
         stepper = backend._problem.stepper
         controller = stepper.controller
+        if controller.weights is not None:
+            backend._rk_weights_ready()
         schedule = stepper.schedule
         steps = edges = _NO_SCHEDULE
         if schedule is not None:
@@ -3543,6 +3561,9 @@ class _NativeRungeKuttaMarch:
                 backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
                 if accepted and not (index == last and reason == _DENSE):
                     position = end
+                    if slack is not None:
+                        # The row's own replay cursor (SEP 45 4.10).
+                        cursor += 1
                 final = index == last and (event or reason in (_FLOOR, _DENSE))
                 if accepted and not final:
                     try:

@@ -25,6 +25,7 @@ from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
+from solprop.stepper.controller import PIController
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from test_monitor import TRANGE, walker
@@ -160,6 +161,16 @@ def _replayed(route: str, steps: int) -> Any:
 def test_a_replay_is_the_host_loop_s(route, monkeypatch):
     """A fixed schedule's steps, taken as given (``StepDriver._replay_to``)."""
     build = lambda: _replayed(route, 400)  # noqa: E731
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
+def test_a_weighted_norm_s_march_is_the_host_loop_s(monkeypatch):
+    """Tightening part of the band (``weighted_norm_scale``), scored natively."""
+    n_omega = _route("gnlse").translate().grids.n_omega
+    weights = np.ones(n_omega)
+    weights[: n_omega // 3] = 0.1
+    controller = PIController(rtol=1e-6, atol=1e-12, weights=weights)
+    build = lambda: _route("gnlse", controller=controller)  # noqa: E731
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 

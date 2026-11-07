@@ -1367,11 +1367,23 @@ class ResidentRungeKutta final : public native::rk::Engine {
 public:
   using Trial = std::function<std::vector<double>(double, double)>;
   ResidentRungeKutta(native::GeneralState& state, Trial trial, const double rtol,
-                     const double atol)
-      : state_(state), trial_(std::move(trial)), rtol_(rtol), atol_(atol) {}
+                     const double atol, const std::vector<double>& weights)
+      : state_(state), trial_(std::move(trial)), rtol_(rtol), atol_(atol),
+        weights_(weights) {}
   double trial(const double z, const double dz) override {
     const auto partials = trial_(z, dz);
+    if (!weights_.empty())
+      return weighted_norm(state_, partials, rtol_, atol_, weights_);
     return native::rk::score(partials.data(), partials.size() / 3, rtol_, atol_);
+  }
+  // solprop SEP 45 phase 4: a weighted controller's norm, `_score_trial`'s weighted
+  // path with its sums in order.
+  static double weighted_norm(native::GeneralState& state,
+                              const std::vector<double>& partials, const double rtol,
+                              const double atol, const std::vector<double>& weights) {
+    const auto scale = native::rk::weighted_scale(partials.data(), partials.size() / 3,
+                                                  rtol, atol, weights);
+    return native::rk::weighted_score(state.weighted_error(scale));
   }
   void accept(const double dz) override {
     state_.promote_fsal();
@@ -1384,6 +1396,7 @@ private:
   Trial trial_;
   double rtol_;
   double atol_;
+  const std::vector<double>& weights_;
 };
 
 // A script of norms in place of the field arithmetic, logging what the march asked:
@@ -1676,7 +1689,7 @@ public:
         [this](const double z, const double dz) {
           return rk_trial(z, dz, rk_nodes_, false);
         },
-        rk_rtol_, rk_atol_);
+        rk_rtol_, rk_atol_, rk_weights_);
     native::rk::Result result;
     {
       const nb::gil_scoped_release release;
@@ -1713,6 +1726,20 @@ public:
   std::vector<double> weighted_error(const std::vector<double>& scale) {
     require_open();
     return general_state_->weighted_error(scale);
+  }
+  // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
+  // trial's partials, for both Runge-Kutta loops.
+  void rk_weights_configure(std::vector<double> weights) {
+    open_state();
+    rk_weights_ = std::move(weights);
+  }
+  double rk_weighted_score(const double* partials, const std::size_t slots,
+                           const double rtol, const double atol) {
+    if (rk_weights_.empty())
+      throw std::logic_error("no weighted controller's weights were configured");
+    const std::vector<double> values(partials, partials + 3 * slots);
+    return ResidentRungeKutta::weighted_norm(open_state(), values, rtol, atol,
+                                             rk_weights_);
   }
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities) {
@@ -2053,6 +2080,7 @@ private:
   double rk_rtol_ = 0.0;
   double rk_atol_ = 0.0;
   march::Schedule rk_schedule_;
+  std::vector<double> rk_weights_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -3058,6 +3086,17 @@ NB_MODULE(_core, module_) {
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
           "edges"_a.noconvert())
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("rk_weights_configure", &BoundState::rk_weights_configure, "weights"_a)
+      .def(
+          "rk_weighted_score",
+          [](BoundState& self, const RealInput partials, const double rtol,
+             const double atol) {
+            if (partials.ndim() != 2 || partials.shape(0) != 3)
+              throw std::invalid_argument("a trial's partials have shape (3, slots)");
+            return self.rk_weighted_score(partials.data(), partials.shape(1), rtol,
+                                          atol);
+          },
+          "partials"_a.noconvert(), "rtol"_a, "atol"_a)
       .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
            "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)
       // A test hook: fail the resident engine's `stage` after `after` more calls.

@@ -298,7 +298,7 @@ def test_native_runs_ten_steps_of_a_moving_guide_as_numpy_ref_does(
 
 
 @pytest.mark.medium
-def test_the_moving_maps_are_combined_per_stage_not_frozen():
+def test_the_moving_maps_are_combined_per_stage_not_frozen(monkeypatch):
     """The stages of one step read different maps: a frozen map would not be caught.
 
     Kokkos run with every stage's weights replaced by the step's first stage's --
@@ -315,6 +315,10 @@ def test_the_moving_maps_are_combined_per_stage_not_frozen():
     expected = propagate(case, NumpyRefBackend)
     linear = 1e3 * propagate(case, NumpyRefBackend, case.problem.initial.field0 * 1e-3)
     bound = moving_parity_bound(case, expected, linear)
+    # The frozen maps are the host's bundles: solprop's loop on host-packed rows.
+    backend_module = pytest.importorskip("solprop_native.backend")
+    monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
+    monkeypatch.setattr(backend_module, "_RK_ROWS", "host")
     backend = native_class()(case.problem, grid=case.grid)
     original = backend._stage_bundles
     single = backend._stage_scalars

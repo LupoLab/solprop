@@ -4,6 +4,7 @@
 
 #include "solprop_native/rk_march.hpp"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <exception>
@@ -46,6 +47,33 @@ double score(const double* partials, const std::size_t slots, const double rtol,
   const double larger = advanced > old ? advanced : old;
   const double scaled = rtol * larger;
   return residual / (scaled + atol);
+}
+
+std::vector<double> weighted_scale(const double* partials, const std::size_t slots,
+                                   const double rtol, const double atol,
+                                   const std::vector<double>& weights) {
+  double sums[2] = {0.0, 0.0};
+  for (std::size_t row = 0; row < 2; ++row)
+    for (std::size_t slot = 0; slot < slots; ++slot)
+      sums[row] += partials[row * slots + slot];
+  const double old = std::sqrt(sums[0]);
+  const double advanced = std::sqrt(sums[1]);
+  const double larger = advanced > old ? advanced : old;
+  std::vector<double> scale(weights.size());
+  for (std::size_t bin = 0; bin < weights.size(); ++bin) {
+    // NumPy's `rtol * weights * max(...) + atol`: left to right, each rounded.
+    const double weighted = rtol * weights[bin];
+    const double product = weighted * larger;
+    scale[bin] = product + atol;
+  }
+  return scale;
+}
+
+double weighted_score(const std::vector<double>& partials) {
+  double sum = 0.0;
+  for (const double value : partials)
+    sum += value;
+  return std::sqrt(sum);
 }
 
 double strict_probe(const double a, const double b, const double c) {
@@ -186,6 +214,19 @@ Result run(const Policy& policy, State& state, Engine& engine,
       result.readings.insert(result.readings.end(), reading.begin(), reading.end());
       result.reading_rows.push_back(result.rows.size() / march::row_columns - 1);
       verdict = watch::check(rules, state.watch, reading.data(), state.z);
+      const std::size_t n_steps = schedule.steps.size();
+      if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
+          state.cursor < n_steps) {
+        // `_refuse_scheduled_crossing`: the longest scheduled step before the next
+        // check against the cap this check read, as the Adams march holds it.
+        const auto ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
+            watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
+        double longest = schedule.steps[state.cursor];
+        for (std::size_t index = 1; index < ahead; ++index)
+          longest = std::max(longest, schedule.steps[state.cursor + index]);
+        if (longest > state.watch.cap)
+          verdict = watch::Verdict::refuse;
+      }
     }
     if (verdict == watch::Verdict::none)
       return false;

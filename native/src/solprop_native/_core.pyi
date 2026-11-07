@@ -242,6 +242,10 @@ class State:
     def rk_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
     ) -> dict[str, Any]: ...
+    def rk_weights_configure(self, weights: list[float]) -> None: ...
+    def rk_weighted_score(
+        self, partials: npt.NDArray[np.float64], rtol: float, atol: float
+    ) -> float: ...
     def flow_guard_configure(
         self,
         row_sum: list[float],

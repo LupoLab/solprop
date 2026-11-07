@@ -412,9 +412,11 @@ path (PECE and the comparison variants) keeps host arrays.
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
 its staged trial and native norm, a call of attempts at a time, returning only at a host
 event and taking the boundary checks itself; the kernel contract's section 12 is the
-interface. Interpolated planes, a replayed schedule, a coupled flow, a z table, a transverse
-edge, a weighted norm, a controller with its own methods and a device build still step the
-driver's loop, with a `HostMarchWarning` naming the reason.
+interface. It covers interpolated planes (the step across a plane returns to solprop, which
+holds its extension), a replayed schedule, a coupled flow (its guards transcribed), a z table
+and the transverse edge (read on the host, as the Adams march reads it); a weighted norm, a
+controller with its own methods and a device build still step the driver's loop, with a
+`HostMarchWarning` naming the reason.
 
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and

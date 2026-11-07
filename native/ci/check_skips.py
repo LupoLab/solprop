@@ -46,6 +46,8 @@ EXPECTED: tuple[str, ...] = (
     r"numpy_ref executes every schema-12 leaf in one combination",
     r"the Kokkos route's parity; numpy_ref is its oracle",
     r"Kokkos's propagator scratch has one fixed residency policy",
+    r"native forms a staged trial's stage scalars in its own state and scores the "
+    r"alarm there \(SEP 45 phase 2\): no host bundle carries the stage",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
     r"this case took the expansion",

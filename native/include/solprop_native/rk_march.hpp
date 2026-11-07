@@ -35,6 +35,17 @@ namespace solprop_native::rk {
 [[nodiscard]] double score(const double* partials, std::size_t slots, double rtol,
                            double atol);
 
+/** A weighted controller's per-bin scale, `rtol * w_i * max(|y|, |y_new|) + atol`
+    (`weighted_norm_scale`), the two norms' sums in order as `score` takes them. */
+[[nodiscard]] std::vector<double> weighted_scale(const double* partials,
+                                                 std::size_t slots, double rtol,
+                                                 double atol,
+                                                 const std::vector<double>& weights);
+
+/** The weighted norm from the residual's scaled partials, `sqrt` of their sum in order.
+ */
+[[nodiscard]] double weighted_score(const std::vector<double>& partials);
+
 /** The strictness test's witness, as this translation unit rounds `a b + c`. */
 [[nodiscard]] double strict_probe(double a, double b, double c);
 

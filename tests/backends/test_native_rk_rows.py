@@ -227,3 +227,27 @@ def test_only_solprop_s_weak_scale_is_reduced_natively(controller, monkeypatch):
             assert norm == pytest.approx(expected, rel=1e-14)
     finally:
         backend.close()
+
+
+def test_a_weighted_norm_is_the_host_s_to_rounding():
+    """The weighted scale and its reduction natively (SEP 45 phase 4), in order."""
+    backend, problem = runge_kutta("gnlse")
+    n_omega = problem.grids.n_omega
+    weights = np.linspace(0.05, 1.0, n_omega)
+    controller = PIController(rtol=1e-6, atol=1e-12, weights=weights)
+    backend.close()
+    backend, problem = runge_kutta("gnlse", controller)
+    try:
+        z, dz = steps(problem)[0]
+        partials = np.asarray(backend._prepare_trial(z, dz))
+        found = backend._score_trial(partials)
+        old = math.sqrt(float(partials[0].sum()))
+        new = math.sqrt(float(partials[1].sum()))
+        scale = controller.scale(old, new)
+        weighted = backend._native_state.weighted_error(
+            np.ascontiguousarray(scale, dtype=np.float64)
+        )
+        expected = math.sqrt(float(np.asarray(weighted).sum()))
+        assert found == pytest.approx(expected, rel=1e-13)
+    finally:
+        backend.close()
