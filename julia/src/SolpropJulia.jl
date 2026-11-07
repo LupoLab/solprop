@@ -69,6 +69,9 @@ function create(input)
     W = wide_type(T, host.has("wide") ? host.string("wide") : "binary64")
     device == "metal" && W === Float64 &&
         throw(ArgumentError("an Apple GPU has no binary64: metal runs single precision with wide = df32"))
+    # SOLPROP_JULIA_FTZ=1: flush subnormals to zero in the engine's numerical work (an
+    # experiment; solprop's policy forbids it, #561).
+    flush_subnormals!(get(ENV, "SOLPROP_JULIA_FTZ", "0") == "1")
     # One pool runs everything (launch.jl, `plan`): the libraries' own are single.
     FFTW.set_num_threads(1)
     BLAS.set_num_threads(1)
@@ -90,6 +93,32 @@ function create(input)
     compile!(engine)
     warm!(engine)
     engine
+end
+
+"""Set or clear flush-to-zero (and denormals-are-zero) for the engine's numerical work.
+
+A CPU's floating-point control register is per thread. Julia's other threads run only
+pool tasks, so theirs is set for good; thread one is the Python interpreter's own,
+whose NumPy and `math` must keep subnormals (a flushed one made a `math.log` of a
+tiny positive value fail), so the entry points set it on entry and restore it on exit
+(`flushed`). GPU kernels are unaffected."""
+function flush_subnormals!(on::Bool)
+    FTZ[] = on
+    Threads.@threads :static for k in 1:Threads.nthreads()
+        k == 1 || set_zero_subnormals(on)
+    end
+    nothing
+end
+const FTZ = Ref(false)
+@inline function flushed(f::F, args...) where {F}
+    FTZ[] || return f(args...)
+    previous = get_zero_subnormals()
+    set_zero_subnormals(true)
+    try
+        f(args...)
+    finally
+        set_zero_subnormals(previous)
+    end
 end
 
 """Run each path once on the zero state, then forget it: a GPU's kernels compile at
@@ -210,15 +239,15 @@ end
 device_name(engine) = device_label(engine.config.backend)
 runtime() = (string(VERSION), Threads.nthreads(), FFTW.get_num_threads(),
              BLAS.get_num_threads(), string(BLAS.get_config()))
-const rk4_b = rk4!
+rk4_b(args...) = flushed(rk4!, args...)
 const configure_stages_b = configure_stages!
 const load_b = load!
 const bind_monitor_b = bind_monitor!
 const copy_state_b = copy_state!
 const bind_edge_b = bind_edge!
-const trial_b = trial!
-const commit_b = commit!
-const evaluate_b = evaluate!
+trial_b(args...) = flushed(trial!, args...)
+commit_b(args...) = flushed(commit!, args...)
+evaluate_b(args...) = flushed(evaluate!, args...)
 const reset_work_b = reset_work!
 
 

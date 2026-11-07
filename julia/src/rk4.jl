@@ -20,8 +20,8 @@ function rk4!(engine, dz::Float64, key::Float64)
             y[f, m] *= flow
             slope = flow * source[f, m]
             error[f, m] = slope
-            candidate[f, m] = y[f, m] + sixth * slope
-            lab[f, m] = y[f, m] + half * slope
+            candidate[f, m] = muladd(sixth, slope, y[f, m])
+            lab[f, m] = muladd(half, slope, y[f, m])
         end
     end
     source!(engine, lab)
@@ -31,8 +31,8 @@ function rk4!(engine, dz::Float64, key::Float64)
             difference = slope - error[f, m]
             # The second slope is the third's reference: kept where the first was.
             error[f, m] = slope
-            candidate[f, m] += third * slope
-            lab[f, m] = y[f, m] + half * slope
+            candidate[f, m] = muladd(third, slope, candidate[f, m])
+            lab[f, m] = muladd(half, slope, y[f, m])
             mask[f] ? abs2(difference) : none
         end
     end
@@ -42,15 +42,15 @@ function rk4!(engine, dz::Float64, key::Float64)
             slope = source[f, m]
             difference = slope - error[f, m]
             error[f, m] = difference
-            candidate[f, m] += third * slope
-            lab[f, m] = forward[f, m, 1] * (y[f, m] + h * slope)
+            candidate[f, m] = muladd(third, slope, candidate[f, m])
+            lab[f, m] = forward[f, m, 1] * muladd(h, slope, y[f, m])
             mask[f] ? abs2(difference) : none
         end
     end
     source!(engine, lab)
     squared = reduce_each(+, none, c, size(y)...) do f, m
         @inbounds begin
-            new = forward[f, m, 1] * candidate[f, m] + sixth * source[f, m]
+            new = muladd(sixth, source[f, m], forward[f, m, 1] * candidate[f, m])
             candidate[f, m] = new
             mask[f] ? abs2(new) : none
         end

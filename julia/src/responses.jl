@@ -26,7 +26,7 @@ function nonlinear_nodes!(nodes, values, c, factor, raman, count)
         each!(c, size(nodes, 1), count) do t, m
             @inbounds begin
                 v = nodes[t, m]
-                nodes[t, m] = (polarization(values[t, m], f, a) + r * v * drive[t, m]) * window[t]
+                nodes[t, m] = muladd(r * v, drive[t, m], polarization(values[t, m], f, a)) * window[t]
             end
         end
     end
@@ -44,7 +44,7 @@ function nonlinear_envelope!(nodes, c, factor, raman, count)
             v = nodes[t, m]
             response = f * abs2(v) * v
             if live
-                response += r * v * real(drive[t, m])
+                response = muladd(r * v, real(drive[t, m]), response)
             end
             nodes[t, m] = response * window[t]
         end
@@ -114,7 +114,8 @@ end
 @noinline function live_rates!(scratch, knots, node, count, table, cap, origin, step)
     last = Int32(size(table, 2))
     # The logarithm, then each sample's knot and its distance past it, vectorised; only
-    # the table's four loads and the cubic stay scalar (`log_rate`'s values, bit for bit).
+    # the table's four loads and the cubic stay scalar (`log_rate`'s cubic, contracted
+    # the same way, so the two paths agree).
     @inbounds @simd for i in 1:count
         logarithm = vlog(scratch[i, node])
         j = clamp(unsafe_trunc(Int32, floor((logarithm - origin) / step)) + Int32(1),
@@ -124,7 +125,7 @@ end
     end
     @inbounds for i in 1:count
         j, s = knots[i, node], scratch[i, node]
-        scratch[i, node] = ((table[1, j] * s + table[2, j]) * s + table[3, j]) * s + table[4, j]
+        scratch[i, node] = cubic(table, j, s)
     end
     @inbounds @simd for i in 1:count
         scratch[i, node] = min(vexp(scratch[i, node]), cap)
@@ -186,35 +187,41 @@ end
 @inline function log_rate(logarithm, table, origin, step)
     j = clamp(unsafe_trunc(Int, floor((logarithm - origin) / step)) + 1, 1, size(table, 2))
     s = logarithm - (origin + (j - 1) * step)
-    @inbounds ((table[1, j] * s + table[2, j]) * s + table[3, j]) * s + table[4, j]
+    cubic(table, j, s)
 end
+"""Knot `j`'s cubic at `s` by Horner's rule, contracted (SEP 25 permits fused
+multiply-adds in an ordinary kernel)."""
+@inline cubic(table, j, s) =
+    @inbounds muladd(muladd(muladd(table[1, j], s, table[2, j]), s, table[3, j]), s, table[4, j])
 @inline rate_arguments(p) =
     (p.field_scale, p.coefficients, ntuple(k -> typeof(p.dt)(p.parameters[k]), 5)...)
 """The rate at a scaled field's physical value `s E`: exact, s a power of two."""
 @inline scaled_rate(value, scale, args...) = rate_value(scale * value, args...)
 
 # A symmetric FIR, reflected at the ends as RunningIntegral is, then a running
-# trapezoid. The scan's order is strict: no reassociation.
+# trapezoid. The scan runs in order on a CPU; that is a choice, not policy: SEP 25 (5,
+# item 5) permits a reassociated or segmented scan within its prefix's rounding bound,
+# as the GPU's column scans are. The sums contract.
 @inline function filtered(values, t, node, taps)
     nt = size(values, 1)
     @inbounds value = taps[1] * values[t, node]
     @inbounds for k in 1:length(taps)-1
         left = t - k < 1 ? 2 * values[1, node] - values[1+k-t+1, node] : values[t-k, node]
         right = t + k > nt ? 2 * values[nt, node] - values[2nt-t-k, node] : values[t+k, node]
-        value += taps[k+1] * (left + right)
+        value = muladd(taps[k+1], left + right, value)
     end
     value
 end
 
 """The interior samples' FIR, one pass: each sample's sum in the order the taps give it
-(the centre, then each pair), as the tap-at-a-time passes formed it, bit for bit, with
-a fifth of their memory traffic. The taps are a tuple, so the sum unrolls and the
-samples vectorise."""
+(the centre, then each pair), contracted as `filtered` contracts it, with a fifth of
+the tap-at-a-time passes' memory traffic. The taps are a tuple, so the sum unrolls and
+the samples vectorise."""
 @noinline function fir_interior!(out, values, node, first, last, taps::NTuple{N}) where {N}
     @inbounds @simd for t in first:last
         value = taps[1] * values[t, node]
         for k in 1:N-1
-            value += taps[k+1] * (values[t-k, node] + values[t+k, node])
+            value = muladd(taps[k+1], values[t-k, node] + values[t+k, node], value)
         end
         out[t, node] = value
     end
@@ -499,7 +506,8 @@ function population_columns!(p, nodes, c, first, count)
             if t == 1
                 start = value
             else
-                # The diagnostic's trapezoid is ordered and strict, like the prefix.
+                # The diagnostic's trapezoid stays ordered and uncontracted: it is a
+                # defect, a difference of nearly equal sums (strict by SEP 25).
                 paid += dt * (product + product_before) / 2
             end
             product_before = product

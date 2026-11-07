@@ -77,7 +77,7 @@ are exactly the original ones.
     end
     out = Base.setindex(out, total, N + 1)
     for k in N-1:-1:1
-        out = Base.setindex(out, recip_factorial(W, k + 1) + y * out[k+2], k + 1)
+        out = Base.setindex(out, muladd(y, out[k+2], recip_factorial(W, k + 1)), k + 1)
     end
     out = Base.setindex(out, exp(y), 1)
     for _ in 1:levels
@@ -86,7 +86,7 @@ are exactly the original ones.
         for k in 1:N
             value = old[1] * old[k+1]
             for j in 1:k
-                value += old[j+1] * recip_factorial(W, k - j + 1)
+                value = muladd(old[j+1], recip_factorial(W, k - j + 1), value)
             end
             out = Base.setindex(out, scale_down(value, k), k + 1)
         end
@@ -225,9 +225,9 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                 if k <= order
                     weighted = nil
                     for j in 1:order
-                        weighted += predictor[j, k] * store[f, m, slots[j]]
+                        weighted = muladd(predictor[j, k], store[f, m, slots[j]], weighted)
                     end
-                    predicted += moment * weighted
+                    predicted = muladd(moment, weighted, predicted)
                 end
             end
             if compensated
@@ -236,12 +236,12 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                     slot = slots[j]
                     value = oftype(nil, exp(spans[j] * x)) * (rates[f, m, slot] - oftype(nil, x / step)) * states[f, m, slot]
                     carried[f, m, j] = value
-                    j <= order && (correction += cpredictor[j] * value)
+                    j <= order && (correction = muladd(cpredictor[j], value, correction))
                 end
                 predicted += correction
                 error[f, m] = adams_rate(linear, phi, weights, f, m)
             end
-            value = oftype(nil, values[1]) * y[f, m] + h * predicted
+            value = muladd(h, predicted, oftype(nil, values[1]) * y[f, m])
             lab[f, m] = value
             compensated && (endpoint[f, m] = (error[f, m] - oftype(nil, x / step)) * value)
             mask[f] ? abs2(y[f, m]) : none
@@ -262,18 +262,18 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
             for k in 1:N
                 weighted = corrector[1, k] * source[f, m]
                 for j in 2:N
-                    weighted += corrector[j, k] * store[f, m, slots[j-1]]
+                    weighted = muladd(corrector[j, k], store[f, m, slots[j-1]], weighted)
                 end
-                corrected += moments[f, m, k] * weighted
+                corrected = muladd(moments[f, m, k], weighted, corrected)
             end
             if compensated
                 correction = ccorrector[1] * endpoint[f, m]
                 for j in 1:order
-                    correction += ccorrector[j+1] * carried[f, m, j]
+                    correction = muladd(ccorrector[j+1], carried[f, m, j], correction)
                 end
                 corrected += correction
             end
-            candidate[f, m] = forward[f, m, 1] * y[f, m] + h * corrected
+            candidate[f, m] = muladd(h, corrected, forward[f, m, 1] * y[f, m])
             result = zero3
             if mask[f]
                 scale = relative * weight[f] + absolute
@@ -323,7 +323,7 @@ function adams_load_rows!(engine, name, rows)
 end
 const configure_adams_b = configure_adams!
 const configure_adams_rate_b = configure_adams_rate!
-const adams_start_b = adams_start!
-const adams_trial_b = adams_trial!
-const adams_accept_b = adams_accept!
+adams_start_b(args...) = flushed(adams_start!, args...)
+adams_trial_b(args...) = flushed(adams_trial!, args...)
+adams_accept_b(args...) = flushed(adams_accept!, args...)
 const adams_load_rows_b = adams_load_rows!

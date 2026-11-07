@@ -1389,6 +1389,7 @@ class JuliaBackend(StepDriver[object]):
             "julia_source_digest": self._digest,
             "device": str(self._jl.device_name(self._engine)),
             "julia_wide": _wide(self._problem.precision.single),
+            "julia_flush_subnormals": os.environ.get("SOLPROP_JULIA_FTZ", "0") == "1",
             "propagator_cache": (
                 "schedule_run_mean"
                 if self._low_storage is not None

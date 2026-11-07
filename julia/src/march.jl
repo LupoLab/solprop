@@ -448,4 +448,4 @@ for T in (Int,)
 end
 
 const configure_march_b = configure_march!
-const march_run_b = march_run!
+march_run_b(args...) = flushed(march_run!, args...)

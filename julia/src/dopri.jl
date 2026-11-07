@@ -52,7 +52,7 @@ function trial!(engine, dz::Float64)
             @inbounds begin
                 combination = zero(eltype(y))
                 for p in 1:stage-1
-                    combination += row[p] * stages[f, m, p]
+                    combination = muladd(row[p], stages[f, m, p], combination)
                 end
                 lab[f, m] = forward[f, m, slot] * (y[f, m] + combination)
             end
@@ -84,8 +84,8 @@ function combine!(engine, dz, slot)
             solution, defect = zero(eltype(y)), zero(eltype(y))
             for s in 1:7
                 value = stages[f, m, s]
-                solution += b[s] * value
-                defect += e[s] * value
+                solution = muladd(b[s], value, solution)
+                defect = muladd(e[s], value, defect)
             end
             flow = forward[f, m, slot]
             new = flow * (y[f, m] + solution)
