@@ -1,0 +1,163 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""A run's record: its events, summary, job and stop file, read back by anyone."""
+
+import os
+import subprocess
+import sys
+import threading
+import time
+from pathlib import Path
+
+import numpy as np
+import pytest
+
+from solprop.exceptions import ServiceError
+from solprop.service import record
+from solprop.service.messages import Event
+from solprop.service.record import (
+    EVENTS,
+    JOB,
+    EventLog,
+    Job,
+    alive,
+    clear_stop,
+    process_stamp,
+    read_events,
+    read_job,
+    read_status,
+    request_stop,
+    stop_requested,
+    watch_stop,
+    write_job,
+)
+
+
+def test_rows_and_the_ending_are_kept_and_read_from_where_a_reader_was(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log.put(Event("r1", "axes", {"x": np.arange(3.0)}))
+    log.put(Event("r1", "row", {"index": 0, "density": np.ones(3)}))
+    log.close()
+    first, offset = read_events(tmp_path)
+    assert [event.kind for event in first] == ["axes", "row"]
+    assert np.array_equal(first[1].data["density"], np.ones(3))
+
+    more = EventLog(tmp_path, "r1")  # a continued run appends
+    more.put(Event("r1", "stopped", {"path": "run.h5", "detail": "a traceback"}))
+    more.close()
+    later, end = read_events(tmp_path, offset)
+    assert [event.kind for event in later] == ["stopped"] and end > offset
+    status = read_status(tmp_path)
+    assert status is not None
+    assert status["ending"] == {"kind": "stopped", "data": {"path": "run.h5"}}
+
+
+def test_a_frame_still_being_written_waits_for_the_next_read(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log.put(Event("r1", "row", {"index": 0}))
+    log.close()
+    whole = (tmp_path / EVENTS).read_bytes()
+    with (tmp_path / EVENTS).open("ab") as stream:
+        stream.write(whole[:9])
+    events, offset = read_events(tmp_path)
+    assert len(events) == 1 and offset == len(whole)
+    assert read_events(tmp_path / "missing", 5) == ([], 5)
+
+
+def test_a_record_that_holds_something_else_is_refused(tmp_path):
+    from solprop.service.frames import encode  # noqa: PLC0415 - only here
+
+    (tmp_path / EVENTS).write_bytes(encode([1, 2]))
+    with pytest.raises(ServiceError, match="other than a run's events"):
+        read_events(tmp_path)
+
+
+def test_progress_is_kept_on_a_period_and_the_summary_has_the_latest(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(record, "RECORD_PROGRESS_PERIOD", 3600.0)
+    log = EventLog(tmp_path, "r1")
+    for z in (0.1, 0.2, 0.3):
+        log.put(Event("r1", "progress", {"z": z}))
+    log.put(Event("r1", "started", {"z_end": 1.0}))
+    log.put(Event("r1", "scan_started", {"points": 4}))
+    log.put(Event("r1", "point", {"index": 0, "status": None}))
+    log.put(Event("r1", "point", {"index": 0, "status": "done", "done": 1}))
+    log.put(Event("r1", "row", {"index": 0}))
+    log.close()
+    kinds = [event.kind for event in read_events(tmp_path)[0]]
+    assert kinds.count("progress") == 1
+    status = read_status(tmp_path)
+    assert status is not None
+    assert status["progress"] == {"z": 0.3} and status["started"] == {"z_end": 1.0}
+    assert (status["points"], status["done"], status["rows"]) == (4, 1, 1)
+
+
+def test_a_quiet_run_still_beats(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "HEARTBEAT", 0.05)
+    log = EventLog(tmp_path, "r1")
+    time.sleep(0.3)
+    status = read_status(tmp_path)
+    log.close()
+    assert status is not None and status["run_id"] == "r1"
+
+
+def test_an_event_that_cannot_be_written_costs_the_record_not_the_run(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log.put(Event("r1", "row", {"bad": {1, 2}}))  # not plain data
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    assert [event.kind for event in read_events(tmp_path)[0]] == ["finished"]
+
+
+def test_the_job_record_round_trips_and_a_torn_one_reads_as_none(tmp_path):
+    assert read_job(tmp_path) is None
+    job = Job.here("r1", "direct", threads=4)
+    write_job(tmp_path, job)
+    assert read_job(tmp_path) == job
+    (tmp_path / JOB).write_text('{"run_id": "r1"', encoding="utf-8")
+    assert read_job(tmp_path) is None
+    (tmp_path / JOB).write_text('{"run_id": "r1", "other": 1}', encoding="utf-8")
+    assert read_job(tmp_path) is None
+    (tmp_path / JOB).write_text("[1]", encoding="utf-8")
+    assert read_job(tmp_path) is None
+
+
+def test_the_stop_file_asks_and_is_watched(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "STOP_PERIOD", 0.01)
+    stop, done = threading.Event(), threading.Event()
+    thread = watch_stop(tmp_path, stop, done)
+    assert not stop_requested(tmp_path)
+    request_stop(tmp_path)
+    assert stop.wait(5.0) and stop_requested(tmp_path)
+    thread.join(5.0)
+    clear_stop(tmp_path)
+    assert not stop_requested(tmp_path)
+    ended = threading.Event()
+    quiet = watch_stop(tmp_path, ended, done)
+    done.set()
+    quiet.join(5.0)
+    assert not ended.is_set()
+
+
+def test_a_process_is_alive_only_while_it_is_the_one_recorded():
+    assert alive(os.getpid(), process_stamp(os.getpid()))
+    assert alive(os.getpid(), None)
+    assert not alive(0, None)
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    stamp = process_stamp(child.pid)
+    child.wait()
+    assert not alive(child.pid, stamp or "a start long ago")
+    if stamp is not None:
+        assert not alive(os.getpid(), stamp + "0")
+
+
+def test_the_record_s_files_live_in_the_run_s_folder(tmp_path):
+    log = EventLog(tmp_path, "r1")
+    log.close()
+    assert sorted(path.name for path in Path(tmp_path).iterdir()) == [
+        "events.bin",
+        "status.json",
+    ]
