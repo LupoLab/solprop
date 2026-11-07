@@ -197,7 +197,6 @@ def _refuse(problem: KernelProblem) -> None:
             or any(not _constant(v) for v in r.decay_rates)
             for r in response.raman_terms
         ),
-        "Cartesian Raman": problem.flags.has_raman and transform.kind == "free",
         "spectral responses": problem.flags.has_spectral_responses,
         "dispersive Kerr": response.dispersive_kerr is not None,
         "separable responses off free space": response.separable is not None

@@ -417,6 +417,67 @@ def test_julia_radial_envelope_matches_the_reference(runtime):
     assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
 
 
+@pytest.mark.parametrize(
+    ("grid_kind", "thg"), [("envelope", False), ("field", True), ("field", False)]
+)
+@binary64
+def test_julia_free_space_raman_matches_the_reference(runtime, grid_kind, thg):
+    """Kerr and one Raman term on a line (free space), on the envelope grid and on the
+    field grid with and without the third harmonic, as the reference evaluates them."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+    from functools import partial  # noqa: PLC0415
+
+    from backends.test_radial_nonlinear import LENGTH, make_problem  # noqa: PLC0415
+    from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid  # noqa: PLC0415
+    from solprop.nonlinear.raman import (  # noqa: PLC0415
+        DampedOscillator,
+        RamanResponse,
+        undamped_dephasing,
+    )
+    from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
+    from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+
+    constructor = (
+        FieldGrid.from_limits
+        if grid_kind == "field"
+        else partial(EnvelopeGrid.from_limits, thg=False)
+    )
+    grid = constructor(LENGTH, 800e-9, (600e-9, 1.2e-6), 150e-15)
+    space = LineGrid(4e-4, 24)
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-3), 80e-6, jones=(1,)
+    )
+    responses = [
+        KerrResponse(1e-25, thg=thg),
+        RamanResponse((DampedOscillator(1e-8, 2e14, undamped_dephasing()),), thg=thg),
+    ]
+    problem = make_problem(
+        grid,
+        space,
+        pulse.build(grid, space, medium=SpatialMedium()),
+        responses,
+        density=1.0,
+    )
+    observed = {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            engine = select(name, problem, grid=grid)
+            cleanup.callback(engine.close)
+            engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            engine.propagate_to(LENGTH)
+            observation = engine.observe(field=True)
+            observed[name] = (observation.field, observation.n_steps)
+    (field, steps), (expected, expected_steps) = (
+        observed["julia"],
+        observed["numpy_ref"],
+    )
+    assert steps == expected_steps
+    scale = float(np.linalg.norm(expected))
+    assert float(np.linalg.norm(field - expected)) <= 1e-10 * scale
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""

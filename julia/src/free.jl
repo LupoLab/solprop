@@ -66,7 +66,7 @@ function create_free(c, host)
         pack = (input=pack_in, output=pack_out, forward=plan(c, plan_rfft, pack_in, 1))
     end
     work = (
-        adams=nothing, path=nothing, raman=nothing, monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
+        adams=nothing, path=nothing, raman=raman_workspace(c, host, nt, chunk), monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
         plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -201,35 +201,23 @@ function source_free!(engine, lab)
         count = min(chunk, nm - first + 1)
         scatter_columns!(fine, physical, first, count, c)
         mul!(modal, w.inverse_plan, fine)
-        if w.plasma !== nothing
-            each!(c, size(modal)...) do t, m
-                @inbounds projected[t, m] = scale * modal[t, m]
-            end
-            plasma_current!(w.plasma, projected, c, count)
+        # The physical field, which the plasma reads, then the responses in place, as
+        # a modal source's nodes take them (`node_response!`).
+        each!(c, size(modal)...) do t, m
+            @inbounds projected[t, m] = scale * modal[t, m]
         end
+        w.plasma === nothing || plasma_current!(w.plasma, projected, c, count)
+        raman = w.raman
         if c.envelope
-            h, carrier = factor * c.harmonic, c.carrier
-            harmonic = !iszero(h)
-            each!(c, size(modal)...) do t, m
-                @inbounds begin
-                    v = scale * modal[t, m]
-                    response = factor * a * abs2(v) * v
-                    if harmonic
-                        response += h * carrier[t] * (v * v) * v
-                    end
-                    projected[t, m] = response * window[t]
-                end
-            end
-        elseif c.analytic
-            each!(c, size(modal)...) do t, m
-                @inbounds projected[t, m] = scale * modal[t, m]
-            end
+            raman === nothing || raman_drive!(raman, projected, projected, c, chunk)
+            nonlinear_envelope!(projected, c, factor, raman, chunk)
+        elseif c.analytic || (raman !== nothing && !raman.thg)
             analytic_signal!(analytic, projected, w.analytic_forward, w.analytic_inverse, c, chunk)
-            nonlinear_nodes!(projected, analytic, c, factor, nothing, chunk)
+            raman === nothing || raman_drive!(raman, projected, analytic, c, chunk)
+            nonlinear_nodes!(projected, c.analytic ? analytic : projected, c, factor, raman, chunk)
         else
-            each!(c, size(modal)...) do t, m
-                @inbounds projected[t, m] = polarization(scale * modal[t, m], factor, a) * window[t]
-            end
+            raman === nothing || raman_drive!(raman, projected, projected, c, chunk)
+            nonlinear_nodes!(projected, projected, c, factor, raman, chunk)
         end
         # The held-current polarisation joins before the transverse forward transform,
         # as the reference Cartesian source does.
