@@ -6,7 +6,7 @@
 | **Title** | A native Runge–Kutta march, and boundary checks inside the compiled marches |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-07) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march, its call protocol and ADR-060); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 21](archive/sep-0021-absorbing-boundaries.md) and [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) (the boundary monitor) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march`, based on #563 and #566: started 2026-11-07 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -896,6 +896,8 @@ changes at rounding level, and step choices differing by a few steps, are accept
   replay in phase 4 (Q5); #133 fixed first (Q6). Recorded in §§3.6, 4.10, 11 and 12.
 - 2026-11-07: John Travers reviewed Part I (human review). Accepted by John Travers;
   Part I is frozen from here, and deviations go in the phase reports.
+- 2026-11-07: Implementation started (Opus 5.5 for John Travers) on
+  `feature/sep-0045-native-rk-march`.
 
 ### AI review — 2026-11-07
 
