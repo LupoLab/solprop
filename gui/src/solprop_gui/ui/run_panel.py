@@ -9,7 +9,7 @@ workspace, in a worker of its own (design 10). The panel's controls sit on the
 Propagate step, its actions also on the window's toolbar; its live view, log and
 progress are shown by the window, among its views, in its bottom panel and in its
 status bar. Its execution state is the window's
-(:mod:`solprop_gui.service.states`); whether the file can be continued is asked of
+(:mod:`solprop.service.states`); whether the file can be continued is asked of
 solprop after every ending, and Resume follows that answer alone.
 """
 
@@ -29,15 +29,15 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.client import RunClient
+from solprop.service.messages import Event, Reply
+from solprop.service.reduce import Display
+from solprop.service.remote import RemoteRun
+from solprop.service.states import ACTIVE, ExecutionState, advance, failure_advice
+from solprop.service.worker import OUTPUT, RunSpec
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import new_run_folder
-from solprop_gui.service.client import RunClient
-from solprop_gui.service.messages import Event, Reply
-from solprop_gui.service.reduce import Display
-from solprop_gui.service.remote import RemoteRun
-from solprop_gui.service.states import ACTIVE, ExecutionState, advance, failure_advice
-from solprop_gui.service.worker import OUTPUT, RunSpec
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.icons import icon
 from solprop_gui.views.live import OverviewView
@@ -405,7 +405,7 @@ class RunPanel(QWidget):
 
         Returns
         -------
-        solprop_gui.service.reduce.Display
+        solprop.service.reduce.Display
             The plot options' bandpass.
         """
         return Display(bandpass=self.options.bandpass)
@@ -464,7 +464,7 @@ class RunPanel(QWidget):
 
         Parameters
         ----------
-        spec : solprop_gui.service.worker.RunSpec
+        spec : solprop.service.worker.RunSpec
             What it runs.
         fresh : bool
             Whether it is a new run, rather than a continued one.
@@ -543,7 +543,7 @@ class RunPanel(QWidget):
 
         Parameters
         ----------
-        event : solprop_gui.service.messages.Event
+        event : solprop.service.messages.Event
             The event; events of other runs are ignored.
         """
         if event.run_id != self.run_id:
@@ -668,7 +668,7 @@ class RunPanel(QWidget):
 
         Parameters
         ----------
-        event : solprop_gui.service.messages.Event
+        event : solprop.service.messages.Event
             The terminal event.
         """
         self._grace.stop()
@@ -715,7 +715,7 @@ class RunPanel(QWidget):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         kind = self._pending.pop(reply.request_id, None)
@@ -745,7 +745,7 @@ class RunPanel(QWidget):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The kernel's reply.
         """
         if not reply.ok or not isinstance(reply.value, dict):

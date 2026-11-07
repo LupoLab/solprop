@@ -14,6 +14,7 @@ import pytest
 from PySide6.QtWidgets import QComboBox, QLineEdit
 from pytestqt.qtbot import QtBot
 from solprop.exceptions import SolpropError
+from solprop.service import handlers
 
 from solprop_gui.model.compressor import (
     FIELDS,
@@ -23,9 +24,7 @@ from solprop_gui.model.compressor import (
     new_stage,
     payload,
 )
-from solprop_gui.service import handlers
 from solprop_gui.ui.postprocess import StageEditor
-from test_results import beam, run  # noqa: F401 - fixtures
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 
 
@@ -66,14 +65,7 @@ def test_a_stage_is_described_edited_and_fixed_at_what_was_found():
     assert "R - cm" in blank.describe()
 
 
-def test_the_catalogue_names_glasses_gases_and_mirrors():
-    found = ask("optics_catalogue", {})
-    assert "fused silica" in found["glasses"] and "Air" in found["gases"]
-    assert found["media"] == found["glasses"] + found["gases"]
-    assert "PC70" in found["mirrors"]
-
-
-def test_fixed_elements_are_applied_in_order(run: str):  # noqa: F811 - a fixture
+def test_fixed_elements_are_applied_in_order(run: str):
     air = new_stage("material").with_value("medium", "Air")
     air = air.with_value("thickness", 0.5)  # no pressure: one bar
     stages = [
@@ -95,7 +87,7 @@ def test_fixed_elements_are_applied_in_order(run: str):  # noqa: F811 - a fixtur
     assert np.allclose(empty["after"], empty["before"])
 
 
-def test_auto_elements_are_searched_one_at_a_time(run: str):  # noqa: F811 - a fixture
+def test_auto_elements_are_searched_one_at_a_time(run: str):
     taylor = new_stage("taylor", auto=True).with_value("order", 2)
     found = chain(run, new_stage("material").with_value("thickness", 2e-3), taylor)
     (fixed, searched) = found["stages"]
@@ -114,7 +106,7 @@ def test_auto_elements_are_searched_one_at_a_time(run: str):  # noqa: F811 - a f
     assert set(reports[2]["values"]) == {"reflections"}  # no wedge: no thickness
 
 
-def test_pairs_are_searched_within_their_ranges(run: str):  # noqa: F811 - a fixture
+def test_pairs_are_searched_within_their_ranges(run: str):
     prisms = new_stage("prisms", auto=True)
     gratings = new_stage("gratings", auto=True).with_value("separation_max", 0.02)
     found = chain(run, prisms, gratings)
@@ -124,7 +116,7 @@ def test_pairs_are_searched_within_their_ranges(run: str):  # noqa: F811 - a fix
     assert 0.01 <= grating["values"]["separation"] <= 0.02
 
 
-def test_a_compressor_says_what_it_cannot_do(run: str, beam: str):  # noqa: F811
+def test_a_compressor_says_what_it_cannot_do(run: str, beam: str):
     with pytest.raises(SolpropError, match="field samples"):
         chain(beam, new_stage("taylor"))
     with pytest.raises(SolpropError, match="its thickness"):

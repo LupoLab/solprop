@@ -11,6 +11,7 @@ from typing import Any
 
 import pytest
 from solprop.recipe import Recipe
+from solprop.service.handlers import HANDLERS, describe, describe_output
 from solprop.stats import CATALOGUE
 
 from conftest import TINY
@@ -44,7 +45,6 @@ from solprop_gui.classes.problem import (
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
 from solprop_gui.model.recipe import MISSING
 from solprop_gui.model.values import inline
-from solprop_gui.service.handlers import HANDLERS, describe, describe_output
 
 
 @pytest.mark.parametrize("problem", CLASSES, ids=lambda p: p.key)
@@ -264,7 +264,7 @@ def test_the_filament_s_linked_rows_write_a_recipe_solprop_builds() -> None:
 
 def test_other_geometry_s_form_comes_from_the_metadata() -> None:
     described = Recipe.example("hollow_rectangular")
-    from solprop_gui.service.handlers import describe  # noqa: PLC0415 - only here
+    from solprop.service.handlers import describe  # noqa: PLC0415 - only here
 
     parameters: Any = describe({"route": described.route})["parameters"]
     made = other_class(

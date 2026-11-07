@@ -16,9 +16,9 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QStandardPaths, QTimer, Signal
 from PySide6.QtGui import QUndoCommand, QUndoStack
 from PySide6.QtWidgets import QFileDialog, QWidget
+from solprop.service.messages import Reply
 
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 
 __all__ = ["CHECK_DELAY_MS", "Change", "Confirm", "SetupDocument"]
@@ -258,7 +258,7 @@ class SetupDocument(QObject):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
@@ -682,7 +682,7 @@ def _failure(reply: Reply) -> dict[str, object]:
 
     Parameters
     ----------
-    reply : solprop_gui.service.messages.Reply
+    reply : solprop.service.messages.Reply
         The failed reply.
 
     Returns

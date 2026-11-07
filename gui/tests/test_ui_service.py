@@ -9,13 +9,13 @@ from pathlib import Path
 
 import pytest
 from pytestqt.qtbot import QtBot
+from solprop.service import server
 
+from conftest import SLOW, wait_for
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import RecipeModel
-from solprop_gui.service import server
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.workflow_window import WorkflowWindow
-from test_server import SLOW, wait_for
 from test_ui import WAIT_MS, private_settings  # noqa: F401 - a fixture
 
 
@@ -61,7 +61,7 @@ def test_a_new_window_re_attaches_to_the_run_the_last_one_left(
 def test_a_service_out_of_reach_falls_back_to_the_window_s_own(
     qtbot: QtBot, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
-    from solprop_gui.service import remote  # noqa: PLC0415 - only here
+    from solprop.service import remote  # noqa: PLC0415 - only here
 
     monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
     monkeypatch.setattr(remote, "start_service", lambda _state: None)
@@ -85,8 +85,8 @@ def test_a_request_between_a_failure_and_its_news_is_not_lost(
     # The connection fails on its own thread and its news is queued to the window's.
     # A request sent before the news arrives once opened another service connection,
     # which the fallback then closed with the request held in it.
-    from solprop_gui.service import remote  # noqa: PLC0415 - only here
-    from solprop_gui.service.client import KernelClient  # noqa: PLC0415 - only here
+    from solprop.service import remote  # noqa: PLC0415 - only here
+    from solprop.service.client import KernelClient  # noqa: PLC0415 - only here
 
     gate = threading.Event()
 
@@ -119,7 +119,7 @@ def test_a_first_request_that_finds_the_connection_failed_is_not_lost(
 ):
     # The reader thread starts in the connection's constructor, and may fail before the
     # window's first request reaches it (seen on macOS): that request is given back.
-    from solprop_gui.service import remote  # noqa: PLC0415 - only here
+    from solprop.service import remote  # noqa: PLC0415 - only here
 
     monkeypatch.setenv("SOLPROP_GUI_STATE", str(tmp_path / "none"))
     monkeypatch.setattr(remote, "start_service", lambda _state: None)

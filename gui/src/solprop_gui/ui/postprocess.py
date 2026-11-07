@@ -8,7 +8,7 @@ The page builds a chain of :class:`~solprop_gui.model.compressor.Stage` elements
 a Taylor phase, a material (a glass, or a gas such as an air path), chirped mirrors
 with optional wedges, a prism pair, a grating pair -- each fixed or searched ("auto")
 by solprop, and asks the kernel to apply it to the plane the Results step shows
-(:mod:`solprop_gui.service.postprocess`). The pulse before, after and at the transform
+(:mod:`solprop.service.postprocess`). The pulse before, after and at the transform
 limit is drawn by :class:`~solprop_gui.views.compression.CompressionView`; the values
 an auto stage found can be taken into the chain, to change by hand.
 """
@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.messages import Reply
 
 from solprop_gui.model.compressor import (
     FIELDS,
@@ -42,7 +43,6 @@ from solprop_gui.model.compressor import (
     payload,
 )
 from solprop_gui.model.plot_options import parse_limit
-from solprop_gui.service.messages import Reply
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.pages import Section
@@ -510,7 +510,7 @@ class PostprocessPage(QWidget):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         kind = self._pending.pop(reply.request_id, None)

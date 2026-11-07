@@ -1226,8 +1226,7 @@ gui/                      the distribution solprop-gui (D2)
     model/      the editable recipe model over solprop.recipe (undo, dirty state, pins)
     registry/   routes and parameters (presentation over solprop's metadata)
     classes/    the problem classes: sheets, derived numbers, pages (data; added by W1)
-    service/    the window's side of the service: the bridge's transports (the service
-                itself is solprop.service, D20)
+                (the service is solprop.service in solprop, D20)
     ui/         the window, its stages, sheets and rail, widgets (quantity field, profile editor)
     views/      pyqtgraph views and their matplotlib export counterparts
     help/       page help text and the map to solprop guide pages
@@ -1237,13 +1236,14 @@ gui/                      the distribution solprop-gui (D2)
 
 Rules, enforced by `gui/tests/test_layers.py`:
 
-- `model`, `registry`, `classes`, `service` and `help` import no Qt.
+- `model`, `registry`, `classes` and `help` import no Qt; neither does `solprop.service`,
+  where the service lives since D20 (solprop's `tests/service/test_layers.py`).
 - The window's process imports from solprop only `solprop.recipe.quantity`, `paths`,
   `document` and `errors` (the quantity parser and writer, parameter paths and the TOML
-  document, light once `solprop.recipe` imports lazily, section 21). Metadata,
-  capabilities, checks and previews come from the kernel as plain data, which also keeps
-  option C open. Only `service` imports the rest of solprop, and only its child processes
-  run it.
+  document, light once `solprop.recipe` imports lazily, section 21), and the light modules
+  of `solprop.service` that start, reach and describe the kernel and the workers.
+  Metadata, capabilities, checks and previews come from the kernel as plain data. Only
+  the service's child processes run the rest of solprop.
 - Nothing imports a private solprop name.
 
 Tooling follows solprop's (uv, ruff, basedpyright, pytest, numpy-style docstrings,

@@ -4,7 +4,7 @@
 
 """The Compression view: the pulse before, after the compressor, and at its limit.
 
-The Post-process step's result (:func:`solprop_gui.service.postprocess.compress_chain`):
+The Post-process step's result (:func:`solprop.service.postprocess.compress_chain`):
 the power before the compressor, after it and at the transform limit, with solprop's
 width and peak of each, and what each searched element found.
 """

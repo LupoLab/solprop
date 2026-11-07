@@ -29,6 +29,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.messages import Reply
+from solprop.service.recipes import BEAM_ROUTES, without_table
+from solprop.service.worker import SCAN_OUTPUT
 
 from solprop_gui.classes.catalog import (
     CLASSES,
@@ -40,13 +43,11 @@ from solprop_gui.classes.catalog import (
 )
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.model.recipe import BEAM_ROUTES, MISSING, RecipeModel, without_table
+from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.scans import profile_points
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
 from solprop_gui.registry.pages import label
 from solprop_gui.registry.routes import card_of
-from solprop_gui.service.messages import Reply
-from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
@@ -564,7 +565,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
@@ -616,7 +617,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The kernel's reply.
         """
         value = reply.value
@@ -660,7 +661,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The kernel's reply.
         """
         value = reply.value
@@ -905,7 +906,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The ``scan_overview`` reply.
         """
         if reply.ok:
@@ -930,7 +931,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The ``scan_point`` reply.
         """
         if not reply.ok:

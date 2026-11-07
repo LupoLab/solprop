@@ -12,7 +12,7 @@ Two transports give the same calls (design 13.3): by default a kernel child and 
 worker child per run, which end with the window (option B); with
 ``SOLPROP_GUI_SERVICE=1``, this user's solprop service (option C), a process of its own
 that keeps runs going when the window closes, and lists them for a window to attach
-to (:mod:`solprop_gui.service.remote`).
+to (:mod:`solprop.service.remote`).
 """
 
 import itertools
@@ -20,11 +20,10 @@ import os
 from collections.abc import Mapping, Sequence
 
 from PySide6.QtCore import QObject, Signal
-
-from solprop_gui.service.client import KernelClient, RunClient
-from solprop_gui.service.messages import Event, Request
-from solprop_gui.service.remote import RemoteRun, ServiceConnection
-from solprop_gui.service.worker import RunSpec
+from solprop.service.client import KernelClient, RunClient
+from solprop.service.messages import Event, Request
+from solprop.service.remote import RemoteRun, ServiceConnection
+from solprop.service.worker import RunSpec
 
 __all__ = ["ServiceBridge"]
 
@@ -43,9 +42,9 @@ class ServiceBridge(QObject):
     Attributes
     ----------
     replied : Signal
-        Emitted with each wanted :class:`~solprop_gui.service.messages.Reply`.
+        Emitted with each wanted :class:`~solprop.service.messages.Reply`.
     run_event : Signal
-        Emitted with each :class:`~solprop_gui.service.messages.Event` of any run.
+        Emitted with each :class:`~solprop.service.messages.Event` of any run.
     kernel_lost : Signal
         Emitted when the kernel process (or the service) ends unasked; the next
         request starts it again.
@@ -197,7 +196,7 @@ class ServiceBridge(QObject):
 
         Parameters
         ----------
-        spec : solprop_gui.service.worker.RunSpec
+        spec : solprop.service.worker.RunSpec
             What to run.
 
         Returns
@@ -232,7 +231,7 @@ class ServiceBridge(QObject):
 
         Parameters
         ----------
-        spec : solprop_gui.service.worker.RunSpec
+        spec : solprop.service.worker.RunSpec
             The run's identity and folder.
 
         Returns

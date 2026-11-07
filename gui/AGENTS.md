@@ -21,20 +21,22 @@ them is corrected.
 - **Public solprop only.** Nothing here imports a private solprop name (a module or name
   starting with `_`); `tests/test_layers.py` enforces it.
 - **The layers.** `model` (the editable recipe), `registry` (presentation over solprop's
-  metadata), `classes` (the problem classes, as data), `service` (the messages, the
-  kernel process, one worker process per run, transports) and `help` import no Qt. `ui` and `views` build the window with PySide6
-  and pyqtgraph.
+  metadata), `classes` (the problem classes, as data) and `help` import no Qt. `ui` and
+  `views` build the window with PySide6 and pyqtgraph. The service (the messages, the
+  kernel process, one worker process per run, transports) is not here: it is
+  `solprop.service`, in solprop, so that a machine which only runs simulations needs no
+  Qt (design D20). It follows solprop's own rules.
 - **The window's process never imports simulation code.** It may import from solprop
-  only `solprop.recipe.quantity`, `paths`, `document` and `errors`; metadata,
-  capabilities, checks, previews and runs come from the kernel and the workers as
-  plain data. Only `service` may import the rest of solprop, and only its child
-  processes run it. `tests/test_layers.py` enforces both rules, statically and by what
-  a fresh interpreter loads.
+  only `solprop.recipe.quantity`, `paths`, `document` and `errors`, and the light parts
+  of `solprop.service` that start, reach and describe the kernel and the workers
+  (`tests/test_layers.py` lists them); metadata, capabilities, checks, previews and runs
+  come from the kernel and the workers as plain data. `tests/test_layers.py` enforces
+  both rules, statically and by what a fresh interpreter loads.
 - **Never block the window.** Anything that can take more than about 50 ms happens in
   another process.
 - **Two transports, one interface** (design 13.3). By default a kernel child and a worker
   child per run end with the window (option B); with `SOLPROP_GUI_SERVICE=1` the
-  window speaks to this user's solprop service (`service/server.py`, option C) over a
+  window speaks to this user's solprop service (`solprop.service.server`, option C) over a
   socket only the user can open, whose address and token are in
   `~/.solprop-gui/service.json`; the service owns the kernel and the runs and ends
   itself when idle.
@@ -57,7 +59,7 @@ and the `gui-test` task); set it to your platform's own value to watch a test.
 
 The repository's rules apply, with one difference in the coverage bar:
 
-- `model`, `registry`, `classes`, `service` and `help` meet solprop's standard in full: annotated,
+- `model`, `registry`, `classes` and `help` meet solprop's standard in full: annotated,
   NumPy-style docstrings validated by numpydoc, tested to **100 %** of statements and
   branches (`[tool.coverage]` in `pyproject.toml`).
 - `ui`, `views` and the entry points are typed, documented and linted the same way, but

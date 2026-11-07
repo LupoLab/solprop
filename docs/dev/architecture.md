@@ -224,6 +224,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
 | `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
+| `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, one worker process per run that streams reduced rows, and the transports between them ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version, and a required dependency of solprop pinned to that
@@ -233,7 +234,9 @@ which has no version number: the pin and `check_build` guard it (ADR-068).
 `solprop-gui`, the desktop front end, is the third, built from `gui/` at solprop's
 version and installed through the `gui` extra ([its design](gui/design.md)). It sits
 above every layer here and uses only solprop's public interface, running it in child
-processes; nothing in solprop imports it.
+processes through `solprop.service`; nothing in solprop imports it. The service lives in
+solprop rather than beside the window so that a machine which only runs simulations needs
+solprop alone, with no Qt.
 
 `driver/scaffold.py` is an independent fixed-step IP-RK4 reference used by tests and
 its tutorial; it is not the production stepper. It propagates a `GnlseProblem`

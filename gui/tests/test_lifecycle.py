@@ -15,13 +15,13 @@ from pathlib import Path
 
 import numpy as np
 import pytest
+from solprop.service.client import KernelClient, RunClient
+from solprop.service.messages import Event, Reply
+from solprop.service.worker import OUTPUT, RunSpec
 
 from conftest import TINY
 from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.workspace import list_runs, new_run_folder
-from solprop_gui.service.client import KernelClient, RunClient
-from solprop_gui.service.messages import Event, Reply
-from solprop_gui.service.worker import OUTPUT, RunSpec
 
 TIMEOUT = 120.0
 
