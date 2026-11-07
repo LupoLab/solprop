@@ -406,6 +406,16 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
+**The native Runge–Kutta march** (ADR-069, [SEP 45](seps/sep-0045-native-rk-march.md)):
+`StepDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
+(`backends/rk_core.py`), held to a decision corpus recorded before the refactor
+(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
+its staged trial and native norm, a call of attempts at a time, returning only at a host
+event and taking the boundary checks itself; the kernel contract's section 12 is the
+interface. Interpolated planes, a replayed schedule, a coupled flow, a z table, a transverse
+edge, a weighted norm, a controller with its own methods and a device build still step the
+driver's loop, with a `HostMarchWarning` naming the reason.
+
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
 growth factors, the restart and hysteresis constants, the collar's and the carrier's

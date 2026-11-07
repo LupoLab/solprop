@@ -27,9 +27,10 @@ contract and its conventions; where both apply, follow the stricter rule.
 - The layers are solprop -> Python backend adapter -> nanobind seam -> a Python-free
   C++20 core. Native code never imports Python or solprop concepts and never owns
   user-facing policy: it may execute an algorithm the kernel contract specifies in
-  full -- the Adams march's controller, order choice and landings among them (SEP 39)
-  -- with every parameter handed over by solprop and solprop's implementation as the
-  reference, and it never chooses or defaults a parameter itself.
+  full -- the Adams march's controller, order choice and landings among them (SEP 39),
+  the Runge-Kutta march's controller and the boundary monitor's checks (SEP 45) -- with
+  every parameter handed over by solprop and solprop's implementation as the reference,
+  and it never chooses or defaults a parameter itself.
 - solprop imports this package only lazily, through its backend registry. The wheel
   does not depend on solprop at run time; the contract is solprop's kernel contract and
   the members named by the tuples above, which `check_build()` looks up. In an editable

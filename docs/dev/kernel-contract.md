@@ -1266,8 +1266,10 @@ tables and norms and take the same steps.
 
 ## 12. The Runge–Kutta march
 
-*Draft ([SEP 45](seps/sep-0045-native-rk-march.md), phase 0). Normative once phase 3
-lands; until then every backend steps the Runge–Kutta march with the reference.*
+*Normative from [SEP 45](seps/sep-0045-native-rk-march.md) phase 3. `native` executes it
+(`native/src/rk_march.cpp`) for an adaptive run on staged rows with `PIController`'s weak
+norm on a CPU build; every other configuration steps the reference, with a
+`HostMarchWarning` naming the reason.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `StepDriver._march_to` and the controller core it
@@ -1287,8 +1289,9 @@ by `rk_policy`, with the landings of the run):
 | `RungeKuttaPolicy.auto_init` | whether the first accepted step takes the start-up rule |
 | `RungeKuttaPolicy.dz_min`, `RungeKuttaPolicy.dz_max` | the floor and the cap on a proposal, m |
 | the landings: `stretch`, `z_end`, `save_planes`, `hard_kinks`, `breakpoints`, `landing_ulps` | as §11's, shared with the Adams march |
-| the tableau's nodes and its first-same-as-last flag | the stage positions $z + c_i\,\Delta z$ |
-| the norm's scale | `rtol`, `atol`, the weights and the region of §7, applied by the engine's scorer |
+| the tableau's nodes | the stage positions $z + c_i\,\Delta z$, with the whole step at $z + \Delta z$ |
+| the norm's scale | `rtol`, `atol` and the region of §7, applied by the engine's scorer; a weighted norm keeps the reference march |
+| the quiet collar's interval | the monitor's, or none |
 
 **The state**: the position; the controller's proposal; the accepted-norm history, at
 most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
@@ -1319,7 +1322,10 @@ commit and append, before its boundary check and statistics.
 the call's bounds (the target, the accepted steps after which the driver has work, the
 call's own bound of 256 attempts or 0.1 s), and per attempt one row of end, step, norm
 (non-finite as infinity), accepted and wall time, the reason it returned and the state.
-Phase 1 adds the boundary checks the call takes inside the march (§11).
+The call takes the boundary monitor's checks inside the march as §11's does, with the
+monitor's watch policy and state, and returns its readings by the row they follow; on a
+floor it returns the site (`rejection`, `start_up`, `proposal`) with the state as the
+reference holds it there.
 
 **Rounding.** The decisions are compiled without contraction or fast-math, call no
 elementary function but `pow`, and take every power of `1/e` as the reference does, so

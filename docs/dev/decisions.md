@@ -1960,3 +1960,30 @@ Withdrawn (development-process record, not a design decision).
   - A wheel skips the comparison, and has only the pin and the name lookup between it and a
     mismatched solprop. `poe fetch-wheel` keeps its own check on the tree.
   - "Kernel schema N" in the code and the documents is history: the number a change took.
+
+## ADR-069 — The Runge–Kutta march and the boundary checks run natively, solprop's as reference
+
+- **Status:** accepted (maintainer), 2026-11-07, with
+  [SEP 45](seps/sep-0045-native-rk-march.md). Extends ADR-060 to the adaptive Runge–Kutta march
+  and to the boundary monitor's checks.
+- **Context:** after SEP 39 the native Adams march still returned to Python at every check of a
+  busy boundary monitor, 100–250 µs each, and the Runge–Kutta march, the default of the fibre
+  interfaces, was a Python loop costing about 200 µs a step: 17–21 % and 22–24 % of the warm
+  runs that showed them (SEP 45 §3.4).
+- **Decision:**
+  - The native marches take the boundary monitor's checks themselves: solprop hands them the
+    monitor's thresholds (`BoundaryMonitor.watch_policy`), they buffer each reading and predict
+    the monitor's verdict, and return only where solprop must act. solprop replays every
+    reading through its own monitor, which keeps its record and its arithmetic, and raises
+    `BackendError` when the prediction and the monitor disagree.
+  - `native` steps the adaptive Runge–Kutta march itself from one record
+    (`rk_core.RungeKuttaPolicy` and the landings), held to `StepDriver._march_to` by a decision
+    corpus recorded before the refactor; solprop's loop stays the reference and steps every
+    configuration the native march does not cover, with a `HostMarchWarning`.
+  - A Runge–Kutta trial's stage rows are formed natively from the uploaded stage tables, and
+    its weak norm is reduced natively in both loops, in one sequential order (Q1).
+- **Why:** the decisions are cheap and exactly specified, and the host's share of a step is
+  largest where steps are cheapest: small grids, many threads and devices.
+- **Consequences:** native Runge–Kutta trajectories moved once at rounding level (phase 2); the
+  split collar's crossing limit sums in one sequential order (Q7); the driver's protected
+  surface gained `_account_step`, `_statistics_step` and `_watched_step` for `_skip_step`.

@@ -55,3 +55,42 @@ TEST(RungeKuttaMarch, TheNormIsTheWeakScaledNorm) {
   EXPECT_EQ(rk::score(partials.data(), 2, 0.5, 0.0), 2.0 / (0.5 * 4.0));
   EXPECT_EQ(rk::score(partials.data(), 2, 0.5, 1.0), 2.0 / (0.5 * 4.0 + 1.0));
 }
+
+namespace {
+rk::Policy controller() {
+  rk::Policy policy;
+  policy.safety = 0.9;
+  policy.beta1 = 0.7 / 5.0;
+  policy.beta2 = 0.4 / 5.0;
+  policy.min_factor = 0.2;
+  policy.max_factor = 5.0;
+  policy.lag = 1;
+  policy.power = 5.0;
+  policy.exponent = 1.0 / 5.0;
+  policy.start_growth = 100.0;
+  policy.dz_max = 1.0;
+  return policy;
+}
+} // namespace
+
+TEST(RungeKuttaMarch, TheControllerTakesPIControllersBranches) {
+  const auto policy = controller();
+  const double inf = INFINITY;
+  // A non-finite norm is rejected, shrinks by the smallest factor and stays as it is.
+  EXPECT_FALSE(rk::accepts(policy, inf));
+  EXPECT_FALSE(rk::accepts(policy, NAN));
+  EXPECT_EQ(rk::rejection_factor(policy, inf), policy.min_factor);
+  EXPECT_EQ(rk::equivalent(policy, inf, 1.0, 2.0), inf);
+  EXPECT_EQ(rk::equivalent(policy, 0.5, 1.0, 2.0), 0.5 * std::pow(2.0, 5.0));
+  // A zero norm: the start-up rule grows by its cap; a rejection keeps the step.
+  EXPECT_EQ(rk::start_factor(policy, 0.0), policy.start_growth);
+  EXPECT_EQ(rk::rejection_factor(policy, 0.0), 1.0);
+  // The lag's unit factors until the history holds lag + 1 norms.
+  EXPECT_EQ(rk::propose(policy, {0.5}), 1.0);
+  const double expected =
+      (0.9 * std::pow(1.0 / 0.25, policy.beta1)) * std::pow(1.0 / 0.5, policy.beta2);
+  EXPECT_EQ(rk::propose(policy, {0.5, 0.25, 0.75}), expected);
+  // A zero current norm grows by the largest factor; the cap bounds a proposal.
+  EXPECT_EQ(rk::propose(policy, {0.5, 0.0, 0.75}), policy.max_factor);
+  EXPECT_EQ(rk::limited(policy, 0.75, 2.0), policy.dz_max);
+}
