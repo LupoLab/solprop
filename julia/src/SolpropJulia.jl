@@ -72,6 +72,8 @@ function create(input)
     # SOLPROP_JULIA_FTZ=1: flush subnormals to zero in the engine's numerical work (an
     # experiment; solprop's policy forbids it, #561).
     flush_subnormals!(get(ENV, "SOLPROP_JULIA_FTZ", "0") == "1")
+    # SOLPROP_JULIA_BLAS=accelerate: Apple's Accelerate for the products (an experiment).
+    get(ENV, "SOLPROP_JULIA_BLAS", "openblas") == "accelerate" && use_accelerate!()
     # One pool runs everything (launch.jl, `plan`): the libraries' own are single.
     FFTW.set_num_threads(1)
     BLAS.set_num_threads(1)
@@ -93,6 +95,22 @@ function create(input)
     compile!(engine)
     warm!(engine)
     engine
+end
+
+const ACCELERATE = "/System/Library/Frameworks/Accelerate.framework/Accelerate"
+"""Forward libblastrampoline's BLAS and LAPACK to Accelerate's new interfaces (macOS 13.4
+and later), LP64 and ILP64, keeping OpenBLAS beneath for what Accelerate lacks, as
+AppleAccelerate.jl does (the `\x1a` marks an exact suffix); then set Accelerate
+single-threaded (macOS 15 and later), since the engine's pool already splits its
+products into blocks of rows (`gemm!`). Return the configuration."""
+function use_accelerate!()
+    Sys.isapple() || throw(ArgumentError("SOLPROP_JULIA_BLAS=accelerate needs macOS"))
+    BLAS.lbt_forward(ACCELERATE; suffix_hint="\x1a\$NEWLAPACK")
+    BLAS.lbt_forward(ACCELERATE; suffix_hint="\x1a\$NEWLAPACK\$ILP64")
+    # BLASSetThreading(BLAS_THREADING_SINGLE_THREADED = 1) returns 0 on success.
+    ccall((:BLASSetThreading, ACCELERATE), Cint, (Cint,), 1) == 0 ||
+        throw(ErrorException("Accelerate's BLASSetThreading failed"))
+    BLAS.get_config()
 end
 
 """Set or clear flush-to-zero (and denormals-are-zero) for the engine's numerical work.
