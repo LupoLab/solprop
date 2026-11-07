@@ -4,6 +4,7 @@
 
 """Shared test configuration: widgets are drawn without a display."""
 
+import gc
 import multiprocessing
 import os
 import shutil
@@ -16,6 +17,25 @@ import pytest
 # Before any Qt application exists: the tests run headless on every platform, and a
 # developer's display is never used. An explicit setting (a debugging session) wins.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Collect garbage only between tests, as the window collects it between events.
+
+    A plot a test dropped lingers in reference cycles until collected. Collected
+    automatically, that could happen inside its own scene's queued update, as Qt
+    processed the events after the test, and free the scene under Qt's feet.
+    """
+    del config
+    gc.disable()
+
+
+@pytest.hookimpl(tryfirst=True)
+def pytest_runtest_setup(item: pytest.Item) -> None:
+    """Collect the last test's garbage before this test, with no Qt event under way."""
+    del item
+    gc.collect()
+
 
 TINY = """\
 [recipe]
