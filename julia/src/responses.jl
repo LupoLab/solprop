@@ -197,6 +197,20 @@ end
     value
 end
 
+"""The interior samples' FIR, one pass: each sample's sum in the order the taps give it
+(the centre, then each pair), as the tap-at-a-time passes formed it, bit for bit, with
+a fifth of their memory traffic. The taps are a tuple, so the sum unrolls and the
+samples vectorise."""
+@noinline function fir_interior!(out, values, node, first, last, taps::NTuple{N}) where {N}
+    @inbounds @simd for t in first:last
+        value = taps[1] * values[t, node]
+        for k in 1:N-1
+            value += taps[k+1] * (values[t-k, node] + values[t+k, node])
+        end
+        out[t, node] = value
+    end
+end
+
 """Integrate one column of `values` into `out`, sequentially down the column.
 
 Exact zero support is skipped: reflection cannot carry the live interval past the
@@ -225,19 +239,13 @@ any one sample's additions.
         out[t, node] = 0
     end
     interior_first, interior_last = max(first, half + 1), min(last, nt - half)
-    @inbounds for t in first:last
-        if t < interior_first || t > interior_last
-            out[t, node] = filtered(values, t, node, taps)
-        else
-            out[t, node] = taps[1] * values[t, node]
-        end
+    @inbounds for t in first:interior_first-1
+        out[t, node] = filtered(values, t, node, taps)
     end
-    @inbounds for k in 1:half
-        tap = taps[k+1]
-        @simd for t in interior_first:interior_last
-            out[t, node] += tap * (values[t-k, node] + values[t+k, node])
-        end
+    @inbounds for t in interior_last+1:last
+        out[t, node] = filtered(values, t, node, taps)
     end
+    fir_interior!(out, values, node, interior_first, interior_last, Tuple(taps))
     @inbounds previous = out[1, node]
     total = zero(dt)
     @inbounds out[1, node] = 0
