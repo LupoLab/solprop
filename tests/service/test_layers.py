@@ -57,6 +57,15 @@ def test_the_service_imports_no_qt_and_no_window(path: Path):
     assert tops.isdisjoint(FORBIDDEN)
 
 
+@pytest.mark.parametrize(
+    "path", sorted(Path(__file__).parent.glob("*.py")), ids=lambda p: p.name
+)
+def test_the_service_s_tests_need_no_window(path: Path):
+    # solprop's lanes install no Qt: a test that needs the window lives in gui/tests.
+    tops = {name.split(".")[0] for name in imported(path)}
+    assert tops.isdisjoint({*FORBIDDEN, "pytestqt"})
+
+
 def test_nothing_else_in_solprop_imports_the_service():
     importers = [
         path.relative_to(PACKAGE).as_posix()

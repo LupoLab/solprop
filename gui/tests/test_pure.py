@@ -134,43 +134,6 @@ def test_guide_addresses():
 # ---------------------------------------------------------------------- the explorer
 
 
-def test_the_explorers_axes_and_quantities():
-    from solprop.service import explore  # noqa: PLC0415 - only here
-
-    omega = 2 * np.pi * 299_792_458.0 / np.array([1e-6, 5e-7])
-    assert explore.axis_values(omega, "frequency") == pytest.approx(
-        [299.792458, 599.584916]
-    )
-    with pytest.raises(KeyError):
-        explore.axis_values(omega, "time")
-    mode = {
-        "neff_minus_one": np.array([1e-5, 2e-5]),
-        "beta1": np.array([3.3e-9, 3.4e-9]),
-        "beta2": np.array([-1e-29, 1e-29]),
-        "beta3": np.array([1e-44, 1e-44]),
-        "alpha": np.array([0.1, 0.2]),
-        "aeff": 1e-8,
-        "gamma": None,
-        "phase_mismatch": None,
-    }
-    for quantity in explore.QUANTITIES:
-        values = explore.quantity_values(mode, omega, quantity)
-        if quantity.key in ("gamma", "mismatch"):
-            assert values is None
-        else:
-            assert values is not None and values.shape == (2,)
-    sets = [
-        {"value": "x", "error": "no"},
-        {"value": None, "omega": omega, "modes": [{"label": "HE1,1", **mode}]},
-    ]
-    (row,) = explore.table_rows(sets, 7e-7)
-    assert row["label"] == "HE1,1" and row["gamma"] is None
-    assert row["neff"] == pytest.approx(1.6e-5)
-    assert explore.table_rows([{"error": "no"}], 7e-7) == []
-    assert explore.table_rows(sets, 2e-6)[0]["neff"] is None  # outside the band
-    assert explore.sweep_values("He, 2 bar") == ["He", "2 bar"]
-
-
 def test_plot_options_read_typed_limits_and_saved_values():
     from solprop_gui.model import plot_options as po  # noqa: PLC0415 - only here
 
@@ -215,3 +178,11 @@ def test_a_remote_run_folder_keeps_a_workspace_given_in_full():
     found = remote_run_folder("/scratch/runs", "/home/me", None, when)
     assert found.startswith("/scratch/runs/2026-11-07-") and found.endswith("-090001")
     assert remote_run_folder("~", "/home/me/", "t", when).startswith("/home/me/2026")
+
+
+def test_the_per_width_keywords_are_solprop_s():
+    from solprop.recipe.metadata import PER_WIDTH_KEYWORDS  # noqa: PLC0415
+
+    from solprop_gui.ui.pages import PER_WIDTH  # noqa: PLC0415
+
+    assert PER_WIDTH == PER_WIDTH_KEYWORDS

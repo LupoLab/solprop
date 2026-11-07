@@ -109,3 +109,12 @@ def test_an_empty_frame_has_no_body():
     frame = encode(None)
     assert read_frame(io.BytesIO(frame)) is None
     assert frame[:4] == frames.MAGIC
+
+
+def test_frames_cut_after_their_preamble_wait_or_are_refused():
+    frame = encode({"power": [1.0, 2.0, 3.0]})
+    assert split_frames(frame + frame[:20]) == ([decode(frame)[0]], len(frame))
+    with pytest.raises(ServiceError, match="inside a frame"):
+        read_frame(io.BytesIO(frame[:16]))  # the preamble, and nothing after it
+    with pytest.raises(ServiceError, match="inside a frame"):
+        read_frame(io.BytesIO(b"motd" + MAGIC), skip_preface=True)

@@ -49,6 +49,9 @@ LOCAL: Final = "local"
 RECONNECT_PAUSES: Final = (1.0, 2.0, 5.0, 10.0, 30.0)
 """The pauses before each try to reconnect, s; the last repeats."""
 
+STOP_SECONDS: Final = 3.0
+"""How long a session's process may take to end once told, before it is killed, s."""
+
 CHUNK: Final = 4 << 20
 """The largest piece of a file one ``fetch`` or ``put`` carries, bytes."""
 
@@ -276,6 +279,25 @@ def _drain(stream: BinaryIO, into: list[bytes]) -> None:
         stream.close()
 
 
+def _said(drainer: threading.Thread, errors: list[bytes]) -> str:
+    """Return what an ended session wrote to its error stream.
+
+    Parameters
+    ----------
+    drainer : threading.Thread
+        The thread reading that stream, which ends with it.
+    errors : list of bytes
+        Where it read the stream to.
+
+    Returns
+    -------
+    str
+        The text.
+    """
+    drainer.join(timeout=5)
+    return b"".join(errors).decode("utf-8", "replace").strip()
+
+
 class Connection:
     """A window's session with one machine's helper, which reconnects by itself.
 
@@ -326,7 +348,6 @@ class Connection:
         self._closing = threading.Event()
         self._thread: threading.Thread | None = None
         self._was_up = False
-        self._drainer: threading.Thread | None = None
 
     def open(self) -> None:
         """Start the session, and keep it up until :meth:`close`."""
@@ -391,25 +412,25 @@ class Connection:
             return f"could not start {command[0]}: {error}"
         self._process = process
         errors: list[bytes] = []
-        self._drainer = threading.Thread(
+        drainer = threading.Thread(
             target=_drain, args=(cast("BinaryIO", process.stderr), errors), daemon=True
         )
-        self._drainer.start()
+        drainer.start()
         stream = cast("BinaryIO", process.stdout)
         try:
-            return self._read(stream, errors)
+            return self._read(stream, lambda: _said(drainer, errors))
         finally:
             stream.close()
 
-    def _read(self, stream: BinaryIO, errors: list[bytes]) -> str:
+    def _read(self, stream: BinaryIO, said: Callable[[], str]) -> str:
         """Read a session's frames until it ends.
 
         Parameters
         ----------
         stream : BinaryIO
             The session's output.
-        errors : list of bytes
-            What it writes to its error stream, as it comes.
+        said : Callable
+            Returns what the session wrote to its error stream, once it has ended.
 
         Returns
         -------
@@ -420,8 +441,7 @@ class Connection:
             greeting = read_frame(stream, skip_preface=True)
         except (EOFError, ServiceError) as error:
             self._stop_process()
-            said = self._said(errors)
-            return self._no_helper(said or str(error) or "the session ended")
+            return self._no_helper(said() or str(error) or "the session ended")
         refusal = self._refusal(greeting)
         if refusal is not None:
             self._set("refused", refusal)
@@ -435,26 +455,9 @@ class Connection:
                 frame = read_frame(stream)
             except (EOFError, ServiceError) as error:
                 self._stop_process()
-                return self._said(errors) or str(error) or "the session ended"
+                return said() or str(error) or "the session ended"
             if isinstance(frame, dict):
                 self._deliver(cast("dict[str, Any]", frame))
-
-    def _said(self, errors: list[bytes]) -> str:
-        """Return what an ended session wrote to its error stream.
-
-        Parameters
-        ----------
-        errors : list of bytes
-            Where its error stream was read to.
-
-        Returns
-        -------
-        str
-            The text, once the stream has been read to its end.
-        """
-        if self._drainer is not None:
-            self._drainer.join(timeout=5)
-        return b"".join(errors).decode("utf-8", "replace").strip()
 
     def _no_helper(self, said: str) -> str:
         """Return why a session gave no hello, as the user should read it.
@@ -631,12 +634,12 @@ class Connection:
         if process is None:
             return
         with contextlib.suppress(OSError):
-            if process.stdin is not None:
-                process.stdin.close()
+            cast("BinaryIO", process.stdin).close()
         try:
-            process.wait(timeout=3)
+            process.wait(timeout=STOP_SECONDS)
         except subprocess.TimeoutExpired:
             process.kill()
+            process.wait()
 
     def close(self) -> None:
         """End the session for good; the machine's runs go on."""

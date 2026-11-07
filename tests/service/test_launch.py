@@ -184,12 +184,18 @@ def test_a_missing_or_silent_scheduler_is_said(monkeypatch):
         (SlurmState("COMPLETED"), True, True, "lost"),
         (None, True, True, "running"),
         (None, True, False, "lost"),
+        (None, False, True, "queued"),
+        (None, False, False, "lost"),
     ],
 )
 def test_a_slurm_run_s_state(tmp_path, known, has_job, fresh, state):
     folder = tmp_path / "r1"
     folder.mkdir()
-    write_json(folder / SUBMITTED, {"launcher": "slurm", "slurm_job": "5"})
+    submitted = time.time() - (0 if fresh else 10 * runs.STALE)
+    write_json(
+        folder / SUBMITTED,
+        {"launcher": "slurm", "slurm_job": "5", "submitted": submitted},
+    )
     if has_job:
         write_job(folder, Job("r1", "slurm", "node7", 99, None, "5", time.time()))
     updated = time.time() - (0 if fresh else 10 * runs.STALE)
@@ -284,3 +290,43 @@ def test_the_job_command_runs_in_this_process(tmp_path, monkeypatch):
     job = json.loads((folder / JOB).read_text(encoding="utf-8"))
     assert (job["launcher"], job["slurm_job"]) == ("slurm", "77")
     assert summarise(folder)["state"] == "finished"
+
+
+def test_a_start_that_fails_says_why(tmp_path, monkeypatch):
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+
+    def refused(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 1, "", "no such python")
+
+    monkeypatch.setattr(launch.subprocess, "run", refused)
+    with pytest.raises(ServiceError, match="could not be started: no such python"):
+        start_direct(folder, "/no/python")
+
+
+def test_a_job_without_threads_leaves_the_budget_alone(tmp_path, monkeypatch):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    seen = []
+    monkeypatch.setattr(run_module, "execute", seen.append)
+    monkeypatch.delenv("SLURM_JOB_ID", raising=False)
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    assert job_main([str(folder)]) == 0
+    (spec,) = seen
+    assert spec.threads is None and spec.launcher == "direct" and spec.record
+
+
+def test_a_run_ended_by_a_signal_ends_stopped(tmp_path, monkeypatch):
+    import signal  # noqa: PLC0415 - only here
+
+    from solprop.exceptions import RunTerminated  # noqa: PLC0415 - only here
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    def terminated(*args, **kwargs):
+        raise RunTerminated(signal.SIGTERM)
+
+    monkeypatch.setattr(run_module, "_march", terminated)
+    folder = tmp_path / "r1"
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY, record=True))
+    (ending,) = [e for e in read_events(folder)[0] if e.terminal]
+    assert ending.kind == "stopped" and ending.data["terminated"]
+    assert ending.data["message"] == "terminated by SIGTERM"

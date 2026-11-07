@@ -12,19 +12,13 @@ from typing import Any
 import numpy as np
 import pytest
 
-from service.cases import TINY
+from service.cases import MULTIMODE, TINY
 from service.test_service import Collector
 from solprop.exceptions import SolpropError
 from solprop.recipe import Recipe
 from solprop.service import handlers
 from solprop.service.messages import Control
 from solprop.service.worker import RunSpec
-
-MULTIMODE = TINY.replace("mode_average = true", "modes = 2").replace(
-    "n_save = 6",
-    'n_save = 3\nlaunch = { "HE1,1" = 0.8, "HE1,2" = { share = 0.2, phase = 1.0 } }',
-)
-"""The tiny capillary in two modes, launched into both."""
 
 PINNED = TINY.replace('pressure = "1 bar"\n', "") + (
     '\n[pins]\npressure = { target = "zdw", wavelength = "500 nm", '
@@ -201,11 +195,6 @@ SLAB = (
 
 
 def test_a_slab_set_s_energy_is_per_metre_of_y():
-    from solprop_gui.ui.pages import PER_WIDTH  # noqa: PLC0415
-
-    from solprop.recipe.metadata import PER_WIDTH_KEYWORDS  # noqa: PLC0415
-
-    assert PER_WIDTH == PER_WIDTH_KEYWORDS
     assert "ModeCollection.slab" in SLAB
     assert ask("summarise", {"text": SLAB})["per_width"]
     assert not ask("summarise", {"text": TINY})["per_width"]
@@ -234,3 +223,30 @@ def test_a_scan_runs_point_by_point_and_stops(tmp_path: Path):
     collector = Collector(spec).start()
     collector.collect(until="point", then=Control("stop"))
     assert collector.kinds()[-1] == "stopped"
+
+
+def test_a_figure_is_drawn_from_a_views_description(tmp_path: Path):
+    x = np.linspace(1.0, 2.0, 5)
+    pen = {"colour": "#1f77b4", "style": "-", "width": 1.2}
+    spec = {
+        "xlabel": "Radius (µm)",
+        "ylabel": "Pressure (bar)",
+        "logx": True,
+        "logy": True,
+        "curves": [
+            {"x": x, "y": x**2, "label": "ZDW 400 nm", **pen},
+            {"x": x, "y": x, "label": "", **pen},
+        ],
+        "lines": [
+            {"x": 1.5, "label": "pump", **pen},
+            {"x": 1.2, "label": "", **pen},
+            {"y": 2.0, "label": "", **pen},
+        ],
+        "points": [{"x": 1.5, "y": 2.0, "label": "setup", "colour": "#c62828"}],
+    }
+    for name, head in (("f.pdf", b"%PDF"), ("f.svg", b"<?xml"), ("f.png", b"\x89PNG")):
+        written = Path(ask("figure", {"path": str(tmp_path / name), "spec": spec}))
+        assert written.read_bytes().startswith(head)
+    bare = {"curves": [{"x": x, "y": x, "label": "", **pen}]}
+    other = ask("figure", {"path": str(tmp_path / "f.tif"), "spec": bare})
+    assert other.endswith("f.png")  # another kind is written as PNG

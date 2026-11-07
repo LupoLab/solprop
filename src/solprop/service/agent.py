@@ -619,7 +619,7 @@ def serve(stream_in: Readable, stream_out: Writable) -> None:
         agent.close()
 
 
-def main() -> int:
+def main() -> int:  # pragma: no cover - the helper's own process; test_agent drives it
     """Run the helper on this process's standard input and output.
 
     Anything else that writes to standard output (a library's print) would break the

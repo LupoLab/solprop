@@ -147,13 +147,30 @@ def process_stamp(pid: int) -> str | None:
         Its start, in the system's own terms; ``None`` where the system does not say
         or the process does not exist.
     """
-    proc = Path(f"/proc/{pid}/stat")
-    if proc.exists():
-        with contextlib.suppress(OSError, IndexError):
-            return proc.read_text(encoding="utf-8").rsplit(")", 1)[1].split()[19]
-        return None
+    if sys.platform == "linux":
+        try:
+            stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        except OSError:
+            return None
+        return stat.rsplit(")", 1)[1].split()[19]
     if sys.platform == "win32":  # pragma: no cover - Windows only
         return _windows_stamp(pid)
+    return _ps_stamp(pid)  # pragma: no cover - macOS and other POSIX: not the lanes
+
+
+def _ps_stamp(pid: int) -> str | None:  # pragma: no cover - not Linux, see above
+    """Return a process's start as ``ps`` gives it, off Linux.
+
+    Parameters
+    ----------
+    pid : int
+        The process.
+
+    Returns
+    -------
+    str or None
+        Its start; ``None`` when it does not exist.
+    """
     import subprocess  # noqa: PLC0415 - only off Linux
 
     result = subprocess.run(
@@ -224,32 +241,9 @@ def alive(pid: int, stamp: str | None) -> bool:
     if pid < 1:
         return False
     now = process_stamp(pid)
-    if now is None:
-        # No start time: the process has gone, or the system cannot say.
-        return sys.platform not in {"win32", "linux"} and _signal_alive(pid)
-    return stamp is None or stamp == now
-
-
-def _signal_alive(pid: int) -> bool:
-    """Return whether a POSIX process exists, by signal 0.
-
-    Parameters
-    ----------
-    pid : int
-        The process.
-
-    Returns
-    -------
-    bool
-        True when it exists, or exists under another user.
-    """
-    try:
-        os.kill(pid, 0)
-    except ProcessLookupError:
-        return False
-    except PermissionError:
-        return True
-    return True
+    # No start time: the process has gone (every system here gives one for a
+    # process that exists).
+    return now is not None and (stamp is None or stamp == now)
 
 
 @dataclass(frozen=True)

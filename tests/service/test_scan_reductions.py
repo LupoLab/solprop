@@ -124,3 +124,10 @@ def test_a_beam_s_scan_is_refused_the_readers_of_a_guided_run() -> None:
     with pytest.raises(ValueError, match="statistics only"):
         reductions([band], beam)
     assert reductions([], beam) == []  # its statistics alone are fine
+
+
+def test_a_reduction_of_no_known_kind_is_refused():
+    from solprop.service.scan_reductions import _reader  # noqa: PLC0415 - only here
+
+    with pytest.raises(KeyError):
+        _reader({"kind": "colour"}, None)

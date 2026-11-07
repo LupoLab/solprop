@@ -401,3 +401,12 @@ def test_a_solved_fibre_s_coefficient_and_cross_section() -> None:
     assert numbers["gamma"] == pytest.approx(0.0721, rel=1e-2)
     curve: Any = fibre_curve({"text": text, "numbers": numbers})
     assert [shape["kind"] for shape in curve["shapes"]] == ["disc", "disc"]
+
+
+def test_two_beams_give_the_first_beam_s_numbers() -> None:
+    numbers: dict[str, Any] = beam_sheet(
+        {"text": Recipe.example("crossing_beams").to_text()}
+    )
+    one = Recipe.example("crossing_beams")
+    assert numbers["peak_power"] > 0 and numbers["waist"] > 0
+    assert "beams" in one.to_text()

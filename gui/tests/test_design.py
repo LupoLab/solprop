@@ -6,10 +6,8 @@
 
 import warnings
 from collections.abc import Iterator, Mapping
-from pathlib import Path
 from typing import Any
 
-import numpy as np
 import pytest
 from solprop.recipe import Recipe, parameters
 from solprop.recipe.pins import TARGETS
@@ -79,33 +77,6 @@ DESIGN_PINS = {
     "energy": {"target": "soliton_order", "order": 3},
 }
 """The design tool's two targets: the ZDW at 500 nm, then a third-order soliton."""
-
-
-def test_a_figure_is_drawn_from_a_views_description(tmp_path: Path):
-    x = np.linspace(1.0, 2.0, 5)
-    pen = {"colour": "#1f77b4", "style": "-", "width": 1.2}
-    spec = {
-        "xlabel": "Radius (µm)",
-        "ylabel": "Pressure (bar)",
-        "logx": True,
-        "logy": True,
-        "curves": [
-            {"x": x, "y": x**2, "label": "ZDW 400 nm", **pen},
-            {"x": x, "y": x, "label": "", **pen},
-        ],
-        "lines": [
-            {"x": 1.5, "label": "pump", **pen},
-            {"x": 1.2, "label": "", **pen},
-            {"y": 2.0, "label": "", **pen},
-        ],
-        "points": [{"x": 1.5, "y": 2.0, "label": "setup", "colour": "#c62828"}],
-    }
-    for name, head in (("f.pdf", b"%PDF"), ("f.svg", b"<?xml"), ("f.png", b"\x89PNG")):
-        written = Path(ask("figure", {"path": str(tmp_path / name), "spec": spec}))
-        assert written.read_bytes().startswith(head)
-    bare = {"curves": [{"x": x, "y": x, "label": "", **pen}]}
-    other = ask("figure", {"path": str(tmp_path / "f.tif"), "spec": bare})
-    assert other.endswith("f.png")  # another kind is written as PNG
 
 
 def test_each_card_s_example_is_solprop_s_and_the_card_s():

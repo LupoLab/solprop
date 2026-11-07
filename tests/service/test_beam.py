@@ -12,7 +12,6 @@ from typing import Any
 import numpy as np
 import pytest
 
-from service.test_results import beam, run  # noqa: F401 - fixtures
 from service.test_service import Collector
 from solprop.exceptions import SolpropError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid
@@ -50,7 +49,7 @@ def test_the_nodes_across_a_beam_s_centre():
         across(object(), np.zeros(2))
 
 
-def test_a_beam_s_plane_its_profile_and_its_slice(beam: str, run: str):  # noqa: F811
+def test_a_beam_s_plane_its_profile_and_its_slice(beam: str, run: str):
     found = ask("plane", {"path": beam, "index": 1})
     profile = found["profile"]
     assert profile["axis"] == "x" and profile["x"].size == profile["y"].size == 32

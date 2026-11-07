@@ -13,15 +13,13 @@ import numpy as np
 import pytest
 from matplotlib.figure import Figure
 
-from service.test_design import MULTIMODE
+from service.cases import STATS
 from solprop.exceptions import SolpropError
 from solprop.output import open_file
 from solprop.processing import get_power
 from solprop.recipe import Recipe
 from solprop.service import handlers, results
 from solprop.service.reduce import TIME_OVERSAMPLING
-
-STATS = '\nstats = { type = "StatsSpec", names = ["energy", "peak_power", "fwhm_t"] }\n'
 
 
 @pytest.fixture(autouse=True)
@@ -30,16 +28,6 @@ def _quiet() -> Iterator[None]:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         yield
-
-
-@pytest.fixture(scope="module")
-def run(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """Return a two-mode run's results file, with statistics, made once."""
-    path = tmp_path_factory.mktemp("results") / "run.h5"
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        Recipe.loads(MULTIMODE.replace("n_save = 3", "n_save = 3" + STATS)).run(path)
-    return str(path)
 
 
 def ask(kind: str, payload: Mapping[str, object]) -> Any:
@@ -135,16 +123,6 @@ def test_a_file_says_its_planes_positions_and_modes(run: str, monkeypatch):
 
     monkeypatch.setattr(handlers, "channel_labels", refuse)
     assert ask("describe_output", {"path": run})["labels"] == []
-
-
-@pytest.fixture(scope="module")
-def beam(tmp_path_factory: pytest.TempPathFactory) -> str:
-    """Return a Cartesian beam's results file (solprop's example), made once."""
-    path = tmp_path_factory.mktemp("beam") / "beam.h5"
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        Recipe.example("cartesian_beam").run(path)
-    return str(path)
 
 
 def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):

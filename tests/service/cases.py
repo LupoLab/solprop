@@ -34,3 +34,13 @@ backend = "numpy_ref"
 def pipe(*, duplex: bool = True) -> tuple[Connection, Connection]:
     """Return a pipe's two ends, typed as the service takes them on every platform."""
     return cast("tuple[Connection, Connection]", multiprocessing.Pipe(duplex))
+
+
+MULTIMODE = TINY.replace("mode_average = true", "modes = 2").replace(
+    "n_save = 6",
+    'n_save = 3\nlaunch = { "HE1,1" = 0.8, "HE1,2" = { share = 0.2, phase = 1.0 } }',
+)
+"""The tiny capillary in two modes, launched into both."""
+
+STATS = '\nstats = { type = "StatsSpec", names = ["energy", "peak_power", "fwhm_t"] }\n'
+"""The statistics the two-mode run records."""

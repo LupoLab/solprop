@@ -233,7 +233,16 @@ def _living_state(
     del folder
     slurm_job = submitted.get("slurm_job") or (job.slurm_job if job else None)
     if slurm_job is not None:
-        return _slurm_state(slurm.get(str(slurm_job)), job, status, now)
+        known = slurm.get(str(slurm_job))
+        if known is None and job is None:
+            # Not listed, and not started: just submitted (the scheduler lists a job
+            # a moment later), or asked about without the scheduler.
+            submitted_at = submitted.get("submitted")
+            recent = (
+                isinstance(submitted_at, int | float) and now - submitted_at < STALE
+            )
+            return ("queued", "") if recent else ("lost", "")
+        return _slurm_state(known, job, status, now)
     here = socket.gethostname()
     if job is not None and job.host == here:
         return ("running", "") if alive(job.pid, job.stamp) else ("lost", "")

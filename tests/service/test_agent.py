@@ -12,6 +12,7 @@ the hosted kernel, a dropped session and its reconnection, and refusals.
 
 import io
 import os
+import socket
 import sys
 import threading
 import time
@@ -353,3 +354,290 @@ def test_hello_names_this_machine():
     greeting = hello()
     assert greeting["pid"] == os.getpid() and greeting["home"] == str(Path.home())
     assert agent.CHUNK >= 1 << 20
+
+
+# ------------------------------------------------------- the helper, in-process
+
+
+def answers(output: io.BytesIO) -> list[Any]:
+    """Return the frames a helper wrote."""
+    return split_frames(output.getvalue())[0]
+
+
+def test_each_request_in_this_process(tmp_path: Path, monkeypatch):
+    output = io.BytesIO()
+    helper = Agent(output)
+    workspace = tmp_path / "runs"
+    assert helper.list_runs({"workspace": str(workspace)}) == []
+
+    folder = workspace / "r1"
+    spec = spec_value(RunSpec("r1", str(folder), recipe=TINY))
+    summary = helper.start({"spec": spec, "launcher": "direct"})
+    assert summary["state"] in {"starting", "running", "finished"}
+    deadline = time.monotonic() + WAIT
+    while helper.list_runs({"workspace": str(workspace)})[0]["state"] != "finished":
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    helper.cancel({"folder": str(folder)})  # ended: its process has gone, a no-op
+    helper.stop({"folder": str(folder)})
+    assert (folder / "stop").exists()
+    helper.follow({"folder": str(folder), "offset": 0})
+    deadline = time.monotonic() + WAIT
+    while b"finished" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    helper.unfollow({"folder": str(folder)})
+    helper.unfollow({"folder": str(folder)})  # twice: nothing to stop
+    helper.remove({"folder": str(folder)})
+    assert not folder.exists()
+    helper.close()
+
+
+def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
+    import subprocess  # noqa: PLC0415 - only here
+
+    from solprop.service.record import Job, process_stamp, write_job  # noqa: PLC0415
+
+    sleeper = subprocess.Popen([sys.executable, "-c", "import time; time.sleep(60)"])
+    try:
+        job = Job("r1", "direct", socket.gethostname(), sleeper.pid, None, None, 0.0)
+        write_job(tmp_path, job)
+        Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+        assert sleeper.wait(timeout=WAIT) != 0
+        stamped = Job(
+            "r1",
+            "direct",
+            socket.gethostname(),
+            sleeper.pid,
+            process_stamp(os.getpid()),
+            None,
+            0.0,
+        )
+        write_job(tmp_path, stamped)  # its process has gone: nothing to send
+        Agent(io.BytesIO()).cancel({"folder": str(tmp_path)})
+    finally:
+        sleeper.kill()
+        sleeper.wait()
+
+
+def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
+    if sys.platform == "win32":
+        pytest.skip("the fake commands are shell scripts")
+    bin_ = tmp_path / "bin"
+    bin_.mkdir()
+    for name, script in (
+        ("sbatch", 'echo "77"\n'),
+        ("squeue", 'echo "77|PENDING|Resources"\n'),
+        ("scancel", "exit 0\n"),
+    ):
+        (bin_ / name).write_text("#!/bin/sh\n" + script, encoding="utf-8")
+        (bin_ / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")
+    helper = Agent(io.BytesIO())
+    folder = tmp_path / "runs" / "s1"
+    spec = spec_value(RunSpec("s1", str(folder), recipe=TINY))
+    summary = helper.start(
+        {"spec": spec, "launcher": "slurm", "resources": {"cpus": 2}}
+    )
+    assert summary["slurm_job"] == "77" and summary["state"] == "queued"
+    listed = helper.list_runs({"workspace": str(tmp_path / "runs")})
+    assert listed[0]["detail"] == "Resources"
+    helper.cancel({"folder": str(folder)})
+    with pytest.raises(ServiceError, match="is queued"):
+        helper.remove({"folder": str(folder)})
+    with pytest.raises(ServiceError, match="no launcher"):
+        helper.start({"spec": spec, "launcher": "nowhere"})
+
+
+def test_the_hosted_kernel_in_this_process(monkeypatch):
+    output = io.BytesIO()
+    helper = Agent(output)
+    request = {"kind": "examples", "payload": {}, "request_id": 3, "revision": 2}
+    assert helper.kernel({"request": request}) == 3
+    deadline = time.monotonic() + WAIT
+    while not any(frame["kind"] == "kernel_reply" for frame in answers(output)):
+        assert time.monotonic() < deadline
+        time.sleep(0.05)
+    reply = next(f for f in answers(output) if f["kind"] == "kernel_reply")["reply"]
+    assert reply["request_id"] == 3 and reply["error"] is None
+    plain = {"kind": "examples", "payload": {}, "request_id": 4}
+    assert helper.kernel({"request": plain}) == 4  # the same kernel, no revision
+    kernel = helper._kernel
+    helper._kernel_lost()
+    assert helper._kernel is None
+    assert answers(output)[-1] == {"kind": "kernel_lost"}
+    helper._kernel = kernel
+    helper.close()  # ends the kernel
+
+
+def test_a_request_s_failure_is_answered_not_raised():
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.handle({"id": 4, "kind": "nothing"})
+    helper.handle({"id": 5, "kind": "stat", "body": {"path": "/no/such/file"}})
+    assert answers(output) == [
+        {"kind": "error", "id": 4, "message": "no request 'nothing'"},
+        {"kind": "reply", "id": 5, "value": None},
+    ]
+
+
+# ------------------------------------------------------- a misbehaving helper
+
+
+def fake(mode: str):
+    """Return a command factory running the misbehaving helper in a mode."""
+    script = str(Path(__file__).with_name("fake_helper.py"))
+    return lambda machine: ([sys.executable, script, mode], dict(os.environ))
+
+
+def connected(mode: str, window: Window) -> Connection:
+    connection = Connection(
+        Machine("lab", "me@lab"), window.on_frame, window.on_state, command=fake(mode)
+    )
+    connection.open()
+    connection.open()  # once is enough: a second open does nothing
+    return connection
+
+
+def test_another_protocol_is_refused(window: Window):
+    connection = connected("protocol", window)
+    window.wait(lambda: "refused" in window.kinds())
+    assert "speaks protocol" in str(dict(window.states)["refused"])
+    connection.close()
+
+
+def test_frames_that_are_not_for_a_request_go_to_the_window(window: Window):
+    connection = connected("chatty", window)
+    window.wait(lambda: "up" in window.kinds())
+    assert connection.call("stat", {"path": "/"}) == "ok"
+    window.wait(lambda: any(f.get("kind") == "note" for f in window.frames))
+    assert [f["kind"] for f in window.frames] == ["note"]
+    connection.close()
+
+
+def test_a_silent_helper_times_out_and_a_dropped_one_fails_its_requests(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(machines, "RECONNECT_PAUSES", (30.0,))
+    silent_window = Window()
+    silent = connected("silent", silent_window)
+    silent_window.wait(lambda: "up" in silent_window.kinds())
+    with pytest.raises(ServiceError, match=r"did not answer stat within 0\.2 s"):
+        silent.call("stat", {"path": "/"}, timeout=0.2)
+    silent.close()
+
+    window = Window()
+    dropped = connected("drop", window)
+    window.wait(lambda: "up" in window.kinds())
+    with pytest.raises(ServiceError, match="the connection dropped"):
+        dropped.call("stat", {"path": "/"})
+    window.wait(lambda: "down" in window.kinds())
+    dropped.close()
+
+
+def test_a_helper_that_will_not_end_is_killed(
+    window: Window, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(machines, "STOP_SECONDS", 0.1)
+    connection = connected("stubborn", window)
+    window.wait(lambda: "up" in window.kinds())
+    process = connection._process
+    connection.close()
+    assert process is not None and process.returncode is not None
+
+
+def test_a_request_that_cannot_be_written_says_so(
+    window: Window, monkeypatch: pytest.MonkeyPatch
+):
+    connection = connected("silent", window)
+    window.wait(lambda: "up" in window.kinds())
+
+    def broken(stream, value):
+        raise BrokenPipeError("gone")
+
+    monkeypatch.setattr(machines, "write_frame", broken)
+    with pytest.raises(ServiceError, match="is not connected: gone"):
+        connection.call("stat", {"path": "/"})
+    monkeypatch.undo()
+    connection.close()
+
+
+def test_a_session_ssh_cannot_make_is_retried_with_what_ssh_said(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(machines, "RECONNECT_PAUSES", (0.01,))
+    window = Window()
+    command = [sys.executable, "-c", "import sys; sys.exit('ssh: Connection refused')"]
+    connection = Connection(
+        Machine("lab", "me@lab"),
+        window.on_frame,
+        window.on_state,
+        command=lambda machine: (command, dict(os.environ)),
+    )
+    connection.open()
+    window.wait(lambda: window.kinds().count("down") >= 2)
+    assert dict(window.states)["down"] == "ssh: Connection refused"
+    connection.close()
+
+
+def test_a_closed_connection_never_starts(window: Window):
+    connection = Connection(Machine("lab", "me@lab"), window.on_frame, window.on_state)
+    connection.close()  # never opened: nothing to end
+    connection._closing.set()
+    connection.open()
+    window.wait(lambda: window.kinds() == ["closed"])
+
+
+def test_windows_has_no_master_connections(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(machines.sys, "platform", "win32")
+    command, _ = agent_command(Machine("lab", "me@lab"))
+    assert not any("ControlMaster" in part for part in command)
+
+
+def test_a_relative_include_is_read_from_the_ssh_folder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    (tmp_path / ".ssh").mkdir()
+    (tmp_path / ".ssh" / "lab.conf").write_text("Host lab\n", encoding="utf-8")
+    (tmp_path / ".ssh" / "config").write_text("Include lab.conf\n", encoding="utf-8")
+    assert ssh_hosts() == ["lab"]
+
+
+def test_the_helper_s_files_and_refusals_in_this_process(tmp_path: Path):
+    output = io.BytesIO()
+    helper = Agent(output)
+    path = tmp_path / "a" / "b.txt"
+    data = np.frombuffer(b"abcdef", dtype=np.uint8)
+    assert helper.put({"path": str(path), "data": data}) == 6
+    assert helper.put({"path": str(path), "data": data, "append": True}) == 12
+    assert helper.stat({"path": str(path)})["size"] == 12
+    assert (
+        helper.fetch({"path": str(path), "offset": 3, "size": 4}).tobytes() == b"defa"
+    )
+    (tmp_path / "empty").mkdir()
+    with pytest.raises(ServiceError, match="no process or job"):
+        helper.cancel({"folder": str(tmp_path / "empty")})
+    with pytest.raises(ServiceError, match="holds no run"):
+        helper.remove({"folder": str(tmp_path / "empty")})
+    # A run still going: its events come, and the watch goes on.
+    from solprop.service.messages import Event  # noqa: PLC0415 - only here
+    from solprop.service.record import EventLog  # noqa: PLC0415 - only here
+
+    going = tmp_path / "going"
+    going.mkdir()
+    log = EventLog(going, "going")
+    log.put(Event("going", "row", {"index": 0}))
+    log.close()
+    helper.follow({"folder": str(going), "offset": 0})
+    deadline = time.monotonic() + WAIT
+    while not any(f.get("folder") == str(going) for f in answers(output)):
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    helper.unfollow({"folder": str(going)})
+    # Followed, and unfollowed before anything is recorded: the watch ends.
+    helper.follow({"folder": str(tmp_path / "empty"), "offset": 0})
+    time.sleep(0.1)
+    helper.unfollow({"folder": str(tmp_path / "empty")})
+    time.sleep(1.2 * agent.FOLLOW_PERIOD)
+    helper.close()
