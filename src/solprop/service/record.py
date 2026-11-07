@@ -82,6 +82,9 @@ RECORD_PROGRESS_PERIOD: Final = 2.0
 HEARTBEAT: Final = 30.0
 """The longest time between two rewrites of a living run's summary, s."""
 
+REPLACE_TRIES: Final = 50
+"""How many times a small file is put in place while a reader holds it (Windows)."""
+
 STOP_PERIOD: Final = 0.25
 """How often a run looks for its stop file, s."""
 
@@ -108,7 +111,17 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
             json.dump(value, stream, indent=1, sort_keys=True)
             stream.flush()
             os.fsync(stream.fileno())
-        temporary.replace(path)
+        # Windows refuses to replace a file another process has open (a reader of
+        # the summary): try again for a moment rather than leave it stale.
+        for left in range(REPLACE_TRIES - 1, -1, -1):
+            try:
+                temporary.replace(path)
+            except PermissionError:
+                if not left:
+                    raise
+                time.sleep(0.02)
+            else:
+                break
     finally:
         temporary.unlink(missing_ok=True)
 

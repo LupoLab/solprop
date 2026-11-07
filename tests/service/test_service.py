@@ -410,3 +410,23 @@ def test_summaries_and_previews_of_other_routes_and_modes():
     assert gnlse["design"] == {} and gnlse["design_error"] is None
     rdw = ask("preview_input", {"text": example("rdw")})
     assert rdw["spectral_power"].ndim == 1  # summed over the two modes
+
+
+def test_a_run_leaves_logging_as_it_found_it(tmp_path: Path):
+    import warnings  # noqa: PLC0415 - only here
+
+    solprop_logger = logging.getLogger("solprop")
+    level = solprop_logger.level
+    shown = warnings.showwarning
+    detach = run._attach_log(tmp_path, "r", lambda event: None)
+    assert solprop_logger.level == logging.INFO
+    detach()
+    assert solprop_logger.level == level and warnings.showwarning is shown
+    # Warnings already sent to logging stay so.
+    logging.captureWarnings(True)
+    try:
+        captured = warnings.showwarning
+        run._attach_log(tmp_path, "r", lambda event: None)()
+        assert warnings.showwarning is captured
+    finally:
+        logging.captureWarnings(False)

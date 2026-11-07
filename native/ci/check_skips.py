@@ -33,6 +33,9 @@ EXPECTED: tuple[str, ...] = (
     r"POSIX shared locks",
     r"Windows has no SIGKILL",
     r"a read-only directory mode is not enforced on Windows",
+    r"Slurm is faked with POSIX shell scripts",
+    r"a machine's setup script runs in a POSIX shell",
+    r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
     # Other backends and packages a lane doesn't install.

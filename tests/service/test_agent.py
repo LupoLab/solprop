@@ -137,6 +137,10 @@ def test_files_go_both_ways_in_pieces(connection: Connection, tmp_path: Path):
 def test_the_hosted_kernel_answers_as_the_window_s_does(
     connection: Connection, window: Window
 ):
+    if sys.platform == "win32":
+        pytest.skip(
+            "a machine's helper hosts its kernel on Linux and macOS, not Windows"
+        )
     request = {"kind": "examples", "payload": {}, "request_id": 7, "revision": 0}
     assert connection.call("kernel", {"request": request}) == 7
     window.wait(lambda: any(f["kind"] == "kernel_reply" for f in window.frames))
@@ -299,7 +303,7 @@ def test_the_helper_serves_a_stream_and_ignores_what_is_not_a_request():
 
 def test_sinfo_s_partitions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     if sys.platform == "win32":
-        pytest.skip("the fake sinfo is a shell script")
+        pytest.skip("Slurm is faked with POSIX shell scripts")
     fake = tmp_path / "sinfo"
     fake.write_text(
         "#!/bin/sh\n"
@@ -442,7 +446,7 @@ def test_a_direct_run_is_cancelled_by_its_signal(tmp_path: Path):
 
 def test_slurm_runs_through_the_helper(tmp_path: Path, monkeypatch):
     if sys.platform == "win32":
-        pytest.skip("the fake commands are shell scripts")
+        pytest.skip("Slurm is faked with POSIX shell scripts")
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     for name, script in (
@@ -671,3 +675,62 @@ def test_a_machine_with_no_host_is_refused(window: Window):
     window.wait(lambda: "refused" in window.kinds())
     assert dict(window.states)["refused"] == "typed has no SSH host"
     connection.close()
+
+
+def test_a_followed_run_that_goes_without_an_ending_is_said_lost(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    from solprop.service.launch import SUBMITTED  # noqa: PLC0415 - only here
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(agent, "LIVENESS_PERIOD", 0.0)
+    here = socket.gethostname()
+    folder = tmp_path / "gone"
+    folder.mkdir()
+    # Started, and still starting: its process lives (this one), so it is waited for.
+    write_json(
+        folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": os.getpid()}
+    )
+    output = io.BytesIO()
+    helper = Agent(output)
+    helper.follow({"folder": str(folder), "offset": 0, "period": 0.02})
+    time.sleep(0.2)
+    assert b"lost" not in output.getvalue()
+    # Its process gone, with nothing recorded: lost, and the follow ends.
+    write_json(folder / SUBMITTED, {"launcher": "direct", "host": here, "pid": 0})
+    deadline = time.monotonic() + 10
+    while b"lost" not in output.getvalue():
+        assert time.monotonic() < deadline
+        time.sleep(0.02)
+    frames = [f for f in answers(output) if f.get("kind") == "events"]
+    (event,) = frames[-1]["events"]
+    assert event["kind"] == "lost" and event["run_id"] == "gone"
+    assert "before it started" in event["data"]["message"]
+    helper.close()
+
+
+def test_a_folder_held_open_is_removed_once_let_go(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    held = iter([True, False])
+    real = agent.shutil.rmtree
+
+    def rmtree(path):
+        if next(held, False):
+            raise PermissionError("in use")
+        real(path)
+
+    monkeypatch.setattr(agent.shutil, "rmtree", rmtree)
+    monkeypatch.setattr(agent.time, "sleep", lambda seconds: None)
+    (tmp_path / "a").mkdir()
+    agent._remove_tree(tmp_path / "a")
+    assert not (tmp_path / "a").exists()
+    agent._remove_tree(tmp_path / "a")  # already gone: nothing to do
+    (tmp_path / "b").mkdir()
+    monkeypatch.setattr(
+        agent.shutil,
+        "rmtree",
+        lambda path: (_ for _ in ()).throw(PermissionError("in use")),
+    )
+    with pytest.raises(PermissionError):
+        agent._remove_tree(tmp_path / "b", tries=3)

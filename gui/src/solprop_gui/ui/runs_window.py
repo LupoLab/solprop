@@ -378,7 +378,9 @@ class RunsWindow(QWidget):
         self.buttons["Resume"].setEnabled(resumable and bool(run.get("output")))
         self.buttons["Stop"].setEnabled(going and run.get("record", False))
         self.buttons["Cancel job"].setEnabled(going and run.get("record", False))
-        self.buttons["Fetch a copy"].setEnabled(remote and bool(run.get("output")))
+        # A run still writing its file is copied once it has ended.
+        fetchable = remote and bool(run.get("output")) and not going
+        self.buttons["Fetch a copy"].setEnabled(fetchable)
         self.buttons["Remove"].setEnabled(chosen is not None and not going)
 
     def _open(self) -> None:

@@ -34,7 +34,7 @@ def local_shell(machine: Machine, askpass: str) -> tuple[list[str], dict[str, st
 @pytest.fixture
 def posix() -> None:
     if sys.platform == "win32":
-        pytest.skip("the setup script is for POSIX machines")
+        pytest.skip("a machine's setup script runs in a POSIX shell")
 
 
 def test_the_script_says_where_and_what(tmp_path: Path):

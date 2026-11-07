@@ -9,6 +9,7 @@ a remote one is reached short of ``ssh`` itself; solprop's service tests drive t
 helper and the connection in depth.
 """
 
+import json
 import shutil
 from pathlib import Path
 from typing import Any
@@ -209,6 +210,10 @@ def test_a_copy_is_fetched_in_pieces_and_resumed(
     target = tmp_path / "copies" / "run.h5"
     target.parent.mkdir()
     target.with_name("run.h5.part").write_bytes(source.read_bytes()[:1500])
+    # The partial copy's marker names the very file it came from: it is resumed.
+    found = source.stat()
+    marker = {"size": found.st_size, "mtime": found.st_mtime}
+    target.with_name("run.h5.part.json").write_text(json.dumps(marker), "utf-8")
     hub = MachineHub()
     hub.ensure(Machine(LOCAL))
     seen: list[tuple[int, int]] = []
@@ -224,6 +229,40 @@ def test_a_copy_is_fetched_in_pieces_and_resumed(
     assert done == [(str(target), None)]
     assert target.read_bytes() == source.read_bytes()
     assert seen[0] == (2500, 5120) and seen[-1] == (5120, 5120)  # from the partial
+    assert not target.with_name("run.h5.part.json").exists()
+    # A partial copy of another version of the file starts over.
+    target.with_name("run.h5.part").write_bytes(b"stale" * 300)
+    stale = {"size": 1, "mtime": 0.0}
+    target.with_name("run.h5.part.json").write_text(json.dumps(stale), "utf-8")
+    again: list[tuple[object, object]] = []
+    hub.fetch(
+        LOCAL,
+        str(source),
+        target,
+        lambda have, total: None,
+        lambda value, error: again.append((value, error)),
+    )
+    qtbot.waitUntil(lambda: bool(again), timeout=WAIT_MS)
+    assert again == [(str(target), None)]
+    assert target.read_bytes() == source.read_bytes()
+    # A file that changes while it is copied is not kept.
+    growing: list[tuple[object, object]] = []
+
+    def grow(have: int, total: int) -> None:
+        if have < total:
+            with source.open("ab") as stream:
+                stream.write(b"more")
+
+    hub.fetch(
+        LOCAL,
+        str(source),
+        tmp_path / "copies" / "grown.h5",
+        grow,
+        lambda value, error: growing.append((value, error)),
+    )
+    qtbot.waitUntil(lambda: bool(growing), timeout=WAIT_MS)
+    assert growing[0][0] is None and "changed while it was copied" in str(growing[0][1])
+    assert not (tmp_path / "copies" / "grown.h5").exists()
     missing: list[tuple[object, object]] = []
     hub.fetch(
         LOCAL,

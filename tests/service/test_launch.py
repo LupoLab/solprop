@@ -70,7 +70,7 @@ def fake(folder: Path, name: str, script: str) -> None:
 def slurm(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     """Fake Slurm commands, first on the path."""
     if sys.platform == "win32":
-        pytest.skip("the fake commands are shell scripts")
+        pytest.skip("Slurm is faked with POSIX shell scripts")
     bin_ = tmp_path / "bin"
     bin_.mkdir()
     monkeypatch.setenv("PATH", f"{bin_}{os.pathsep}{os.environ['PATH']}")

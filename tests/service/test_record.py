@@ -202,3 +202,24 @@ def test_a_job_record_that_cannot_be_made_costs_nothing_else(tmp_path):
     log.close()
     assert log.job is None and read_job(tmp_path) is None
     assert [event.kind for event in read_events(tmp_path)[0]] == ["finished"]
+
+
+def test_a_summary_held_open_is_replaced_once_let_go(tmp_path, monkeypatch):
+    from solprop.service.record import write_json  # noqa: PLC0415 - only here
+
+    real = Path.replace
+    refusals = iter([True, True, False])
+
+    def held(self, target):
+        if next(refusals, False):
+            raise PermissionError("in use")  # as Windows says of an open file
+        return real(self, target)
+
+    monkeypatch.setattr(Path, "replace", held)
+    write_json(tmp_path / "s.json", {"a": 1})
+    assert read_status(tmp_path) is None and (tmp_path / "s.json").exists()
+    monkeypatch.setattr(record, "REPLACE_TRIES", 2)
+    refusals = iter([True, True])
+    with pytest.raises(PermissionError):
+        write_json(tmp_path / "t.json", {"a": 1})
+    assert not list(tmp_path.glob(".t.json.*"))  # its temporary file is gone

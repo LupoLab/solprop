@@ -66,6 +66,7 @@ __all__ = [
     "CHUNK",
     "FOLLOW_LIMITS",
     "FOLLOW_PERIOD",
+    "LIVENESS_PERIOD",
     "REQUESTS",
     "Agent",
     "hello",
@@ -74,6 +75,9 @@ __all__ = [
 
 FOLLOW_PERIOD: Final = 0.5
 """How often a followed run's record is read for new events by default, s."""
+
+LIVENESS_PERIOD: Final = 2.0
+"""How often a followed run with a quiet record is checked for having gone, s."""
 
 FOLLOW_LIMITS: Final = (0.02, 5.0)
 """The shortest and longest period a window may ask a record to be read at, s."""
@@ -293,7 +297,15 @@ class Agent:
             How often to read the record, s.
         done : threading.Event
             Set to stop following.
+
+        Notes
+        -----
+        A run that has gone without recording an ending (its process killed, out of
+        memory, its job cancelled) is said ``lost``, from its state
+        (:func:`~solprop.service.runs.summarise`) checked every
+        :data:`LIVENESS_PERIOD` seconds while its record stays quiet.
         """
+        checked = time.monotonic()
         while not done.is_set():
             try:
                 events, offset = read_events(folder, offset)
@@ -319,6 +331,25 @@ class Agent:
                     }
                 )
                 if any(event.terminal for event in events):
+                    return
+            elif time.monotonic() - checked >= LIVENESS_PERIOD:
+                checked = time.monotonic()
+                lost = _lost(folder)
+                if lost is not None:
+                    # Gone without an ending: killed, out of memory, cancelled.
+                    lost_event = {
+                        "run_id": folder.name,
+                        "kind": "lost",
+                        "data": {"exitcode": None, "message": lost},
+                    }
+                    self.send(
+                        {
+                            "kind": "events",
+                            "folder": key,
+                            "offset": offset,
+                            "events": [lost_event],
+                        }
+                    )
                     return
             done.wait(period)
 
@@ -574,6 +605,31 @@ class Agent:
         if self._kernel is not None:
             with contextlib.suppress(Exception):
                 self._kernel.close()
+
+
+def _lost(folder: Path) -> str | None:
+    """Return why a run that recorded no ending has gone, or ``None`` while it lives.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The run's folder.
+
+    Returns
+    -------
+    str or None
+        The reason, as the run's summary gives it; ``None`` for a run queued,
+        starting, running or ended with its own record.
+    """
+    from solprop.service.launch import slurm_states  # noqa: PLC0415 - light
+    from solprop.service.runs import slurm_jobs, summarise  # noqa: PLC0415 - light
+
+    jobs = slurm_jobs([folder])
+    with contextlib.suppress(ServiceError):
+        summary = summarise(folder, slurm_states(jobs) if jobs else None)
+        if summary["state"] == "lost":
+            return str(summary["detail"] or "its process ended without saying how")
+    return None
 
 
 def _remove_tree(folder: Path, tries: int = 20) -> None:

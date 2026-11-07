@@ -32,6 +32,26 @@ __all__ = ["MachineHub", "MachineRun", "MachineStore"]
 _KEY = "machines"
 
 
+def _read_marker(path: Path) -> dict[str, object] | None:
+    """Return the source a partial copy was taken from, as its marker records it.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        The marker beside the partial copy.
+
+    Returns
+    -------
+    dict or None
+        The source's ``size`` and ``mtime``; ``None`` with no readable marker.
+    """
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except OSError, ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
 def _copy_to(connection: Connection, local: Path, remote: str) -> None:
     """Copy one file to a machine through its helper, piece by piece.
 
@@ -259,7 +279,9 @@ class MachineHub(QObject):
         """
         connection = self.connections.get(machine.name)
         if connection is not None and connection.machine != machine:
-            connection.close()
+            # Retired on a thread: closing waits for the helper, which a stuck SSH
+            # session can make slow, and the window must not wait.
+            self._pool.submit(connection.close)
             connection = None
         if connection is None:
             name = machine.name
@@ -616,6 +638,13 @@ class MachineHub(QObject):
                     raise ServiceError(msg)
                 total = int(found["size"])
                 local.parent.mkdir(parents=True, exist_ok=True)
+                # A partial copy is resumed only from the same file: one changed
+                # since (a run continued, a run still writing) starts over.
+                source = {"size": total, "mtime": found["mtime"]}
+                marker = local.with_name(local.name + ".part.json")
+                if _read_marker(marker) != source:
+                    partial.unlink(missing_ok=True)
+                    marker.write_text(json.dumps(source), encoding="utf-8")
                 have = partial.stat().st_size if partial.exists() else 0
                 with partial.open("ab") as stream:
                     while have < total and not cancelled.is_set():
@@ -631,7 +660,22 @@ class MachineHub(QObject):
                 if cancelled.is_set():
                     msg = "the copy was cancelled"
                     raise ServiceError(msg)
+                after = connection.call("stat", {"path": remote})
+                unchanged = (
+                    after is not None
+                    and {
+                        "size": int(after["size"]),
+                        "mtime": after["mtime"],
+                    }
+                    == source
+                )
+                if not unchanged or partial.stat().st_size != total:
+                    partial.unlink(missing_ok=True)
+                    marker.unlink(missing_ok=True)
+                    msg = f"{remote} changed while it was copied: copy it again"
+                    raise ServiceError(msg)
                 partial.replace(local)
+                marker.unlink(missing_ok=True)
             except (ServiceError, OSError) as error:
                 self._answered(token, None, str(error))
                 return

@@ -6,6 +6,9 @@ terminal, and keeps nothing between you and the run: each run keeps its own reco
 its folder on that machine. You can close the window, lose the network or shut the
 laptop, and the run goes on. When you come back, the window finds it again.
 
+The machines a window reaches run Linux (or macOS); the window itself runs on Windows,
+macOS or Linux.
+
 ## Adding a machine
 
 Choose **Run → Machines…**, or **Machines…** at the end of the list on the setup's
