@@ -304,14 +304,14 @@ plasma_current!(p, nodes, c, count) =
 const SAMPLE_PLASMA = Ref(false)
 
 """`out` = the running trapezoid of the FIR-filtered `values`, every column at once."""
-function integrate_samples!(out, values, scratch, taps, dt, c, count)
+function integrate_samples!(out, values, taps, dt, c, count)
     nt = size(values, 1)
+    half, none = dt / 2, zero(dt)
+    # Each trapezoid increment filters its two samples itself: the same values as a
+    # filtered pass and then an increments pass, one kernel and one memory pass fewer.
     each!(c, nt, count) do t, n
-        @inbounds scratch[t, n] = filtered(values, t, n, taps)
-    end
-    half = dt / 2
-    each!(c, nt, count) do t, n
-        @inbounds out[t, n] = t == 1 ? zero(dt) : half * (scratch[t, n] + scratch[t-1, n])
+        @inbounds out[t, n] = t == 1 ? none :
+                              half * (filtered(values, t, n, taps) + filtered(values, t - 1, n, taps))
     end
     AK.accumulate!(+, @view(out[:, 1:count]); dims=1, init=zero(dt), backend=c.backend)
     nothing
@@ -328,7 +328,7 @@ function plasma_samples!(p, nodes, c, count)
     each!(c, nt, count) do t, n
         @inbounds rate[t, n] = scaled_rate(nodes[t, n], args...)
     end
-    integrate_samples!(fraction, rate, current, taps, dt, c, count)
+    integrate_samples!(fraction, rate, taps, dt, c, count)
     each!(c, nt, count) do t, n
         @inbounds begin
             exposure = floor ? max(fraction[t, n], none) : fraction[t, n]
@@ -337,7 +337,7 @@ function plasma_samples!(p, nodes, c, count)
             integrand[t, n] = value * charge * nodes[t, n]
         end
     end
-    integrate_samples!(current, integrand, gated, taps, dt, c, count)
+    integrate_samples!(current, integrand, taps, dt, c, count)
     each!(c, nt, count) do t, n
         @inbounds begin
             field = nodes[t, n]
@@ -429,7 +429,7 @@ function population_samples!(p, nodes, c, first, count)
     each!(c, nt, count) do t, n
         @inbounds rate[t, n] = scaled_rate(nodes[t, n], args...)
     end
-    integrate_samples!(fraction, rate, current, taps, dt, c, count)
+    integrate_samples!(fraction, rate, taps, dt, c, count)
     columns = 1:count
     # The exposure's steps, then its fractions, the depletion they pay and the integrand.
     each!(c, nt, count) do t, n
