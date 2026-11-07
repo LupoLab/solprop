@@ -159,6 +159,19 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
         end
         return foldl(op, partials; init=neutral)
     end
+    if heavy
+        # A heavy body a thread: AK's reduction gives each thread several elements
+        # (six blocks for rdw's 10244, its predictor 539 us a trial on an A40), so the
+        # bodies run as an elementwise kernel into scratch and only the sums reduce.
+        scratch = KA.allocate(c.backend, typeof(neutral), nt * nm)
+        each!(c, nt, nm) do t, m
+            @inbounds scratch[t+(m-1)*nt] = f(t, m)
+        end
+        total = AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral,
+                             neutral=neutral)
+        KA.unsafe_free!(scratch)
+        return total
+    end
     AK.mapreduce(op, 1:nt*nm; backend=c.backend, init=neutral, neutral=neutral) do i
         m = (i - 1) ÷ nt + 1
         f(i - (m - 1) * nt, m)
@@ -223,7 +236,32 @@ end
     r = p.ranges[b]
     mul!(block_view(outs[j], p.batch, r), p.plans[b], block_view(ins[j], p.batch, r))
 end
-transform_all!(p, outs::Tuple, ins::Tuple) = (foreach((y, x) -> mul!(y, p, x), outs, ins); nothing)
+# On a GPU each transform over a capillary's few modes is a few blocks (one a column,
+# four for rdw, 96 us each on an A40): the group goes through one batched plan over a
+# staging buffer instead, the copies a few microseconds each.
+const STAGES = WeakKeyDict{Any,Dict{Int,Any}}()
+function transform_all!(p, outs::Tuple, ins::Tuple)
+    x = first(ins)
+    if x isa Array
+        foreach((y, x) -> mul!(y, p, x), outs, ins)
+        return nothing
+    end
+    n, columns = length(ins), size(x, 2)
+    stage = get!(get!(() -> Dict{Int,Any}(), STAGES, p), n) do
+        staged = similar(x, size(x, 1), n * columns)
+        result = similar(first(outs), size(first(outs), 1), n * columns)
+        (staged, result, eltype(x) <: Real ? plan_rfft(staged, 1) : plan_fft(staged, 1))
+    end
+    staged, result, batched = stage
+    for j in 1:n
+        copyto!(view(staged, :, (j-1)*columns+1:j*columns), ins[j])
+    end
+    mul!(result, batched, staged)
+    for j in 1:n
+        copyto!(outs[j], view(result, :, (j-1)*columns+1:j*columns))
+    end
+    nothing
+end
 function Base.:*(p::Blocked, x)
     @batch for b in eachindex(p.plans)
         p.plans[b] * block_view(x, p.batch, p.ranges[b])
