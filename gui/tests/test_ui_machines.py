@@ -11,6 +11,7 @@ helper and the connection in depth.
 
 import shutil
 from pathlib import Path
+from typing import Any
 
 from pytestqt.qtbot import QtBot
 from solprop.service.machines import LOCAL, Machine
@@ -100,14 +101,15 @@ def test_a_request_about_a_machine_s_run_goes_to_its_kernel(qtbot: QtBot):
     assert bridge.machine_of({"base": "/runs/a"}) == "cluster"
     assert bridge.machine_of({"machine": "cluster"}) is None  # not connected
     assert bridge.machine_of(None) is None and bridge.machine_of({"path": 3}) is None
-    sent: list[object] = []
+    sent: list[Any] = []
     bridge.hub.kernel = lambda name, request: sent.append((name, request))  # type: ignore[method-assign]
     identity = bridge.request("describe_output", {"path": "/runs/a/run.h5"}, key="k")
     ((name, request),) = sent
     assert name == "cluster" and request.request_id == identity
     with qtbot.waitSignal(bridge.replied) as got:
         bridge._machine_replied(Reply("describe_output", identity, 0, value={}))
-    assert got.args[0].request_id == identity
+    replies: Any = got.args
+    assert replies[0].request_id == identity
     bridge.close()
 
 
@@ -129,14 +131,16 @@ def test_the_runs_window_lists_and_opens_this_computer_s_runs(
     qtbot.addWidget(window)
     window.show()
     qtbot.waitUntil(lambda: window.table.rowCount() == 1, timeout=WAIT_MS)
-    assert window.table.item(0, 1).text() == "Two modes"
+    title: Any = window.table.item(0, 1)
+    assert title.text() == "Two modes"
     window.table.selectRow(0)
     assert window.buttons["Open"].isEnabled() and window.buttons["Remove"].isEnabled()
     assert not window.buttons["Stop"].isEnabled()
     assert not window.buttons["Fetch a copy"].isEnabled()  # this computer's own
     with qtbot.waitSignal(window.open_wanted) as wanted:
         window._open()
-    machine, summary = wanted.args
+    opened: Any = wanted.args
+    machine, summary = opened
     assert machine.local and summary["output"].endswith("run.h5")
     window._machine_state("cluster", "down", "no route")
     assert "cluster is down: no route" in window.note.text()
@@ -160,3 +164,25 @@ def test_a_run_is_started_and_followed_through_a_machine(qtbot: QtBot, tmp_path:
     qtbot.waitUntil(again.ended.is_set, timeout=WAIT_MS)
     handle.subscribe(3)  # a record drops nothing: no replay needed
     bridge.close()
+
+
+def test_the_setup_dialog_shows_its_script_before_running_it(
+    qtbot: QtBot, tmp_path: Path
+):
+    from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415 - only here
+
+    dialog = SetupDialog(SLURM, "0.2.1.dev3+gabc")
+    qtbot.addWidget(dialog)
+    assert "development build" in dialog.note.text()
+    assert '"solprop==0.2.1.dev3+gabc"' in dialog.script.toPlainText()
+    dialog.root.setText("/scratch/envs")
+    dialog.add_wheels([tmp_path / "solprop-0.2.1-py3-none-any.whl"])
+    assert "--find-links /scratch/envs/wheels" in dialog.script.toPlainText()
+    assert "copied first" in dialog.wheel_label.text()
+    dialog._finished(None, "no route to host")
+    assert dialog.python is None and "Not set up: no route" in dialog.log.toPlainText()
+    dialog._finished("/scratch/envs/x/bin/python", None)
+    assert dialog.python == "/scratch/envs/x/bin/python"
+    released = SetupDialog(SLURM, "0.3.0")
+    qtbot.addWidget(released)
+    assert released.note.text() == ""

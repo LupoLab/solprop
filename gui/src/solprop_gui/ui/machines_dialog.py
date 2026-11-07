@@ -165,6 +165,10 @@ class MachinesDialog(QDialog):
 
         test = QPushButton("Test the connection")
         test.clicked.connect(self._test)
+        setup = QPushButton("Set up solprop there…")
+        setup.setToolTip("Install solprop, at this window's version, on the machine")
+        setup.clicked.connect(self._set_up)
+        form.addRow(setup)
         self.status = QLabel()
         self.status.setObjectName("note")
         self.status.setWordWrap(True)
@@ -404,6 +408,25 @@ class MachinesDialog(QDialog):
         if name not in self.hub.connections:
             self._test()
         self.hub.call(name, "slurm_info", {}, listed)
+
+    def _set_up(self) -> None:
+        """Show the setup script for the machine shown, and keep its Python."""
+        self._keep()
+        machine = next((m for m in self.machines if m.name == self._shown), None)
+        if machine is None or machine.destination is None:
+            self.status.setText("Give the machine's SSH host first.")
+            return
+        from solprop.service.install import this_version  # noqa: PLC0415 - light
+
+        from solprop_gui.ui.setup_dialog import SetupDialog  # noqa: PLC0415
+
+        dialog = SetupDialog(machine, this_version(), self, askpass=self.hub.askpass)
+        dialog.exec()
+        if dialog.python:
+            self.python.setText(dialog.python)
+            self._keep()
+            self.hub.forget(machine.name)
+            self.status.setText(f"Set up: {dialog.python}")
 
     def accept(self) -> None:
         """Keep the last edits, and close."""

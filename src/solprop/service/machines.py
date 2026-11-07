@@ -40,6 +40,7 @@ __all__ = [
     "Connection",
     "Machine",
     "agent_command",
+    "ssh_command",
     "ssh_hosts",
 ]
 
@@ -206,6 +207,70 @@ class Machine:
         return cls(**known)  # pyright: ignore[reportArgumentType]
 
 
+def ssh_command(
+    machine: Machine, remote: str, *, askpass: str | None = None
+) -> tuple[list[str], dict[str, str]]:
+    """Return an ``ssh`` command that runs a shell command on a machine.
+
+    Parameters
+    ----------
+    machine : Machine
+        The machine, reached over SSH.
+    remote : str
+        The command, as the machine's shell reads it.
+    askpass : str or None, optional
+        A program ``ssh`` asks a password or code of, where it needs one.
+
+    Returns
+    -------
+    tuple
+        The command, and the environment to start it in.
+
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        For a machine with no SSH host.
+
+    Examples
+    --------
+    >>> command, _ = ssh_command(Machine("lab", "me@lab", port=2222), "true")
+    >>> command[0], command[-2:], "2222" in command
+    ('ssh', ['me@lab', 'true'], True)
+    """
+    if not machine.destination:
+        msg = f"{machine.name} has no SSH host"
+        raise ServiceError(msg)
+    environment = dict(os.environ)
+    options = [
+        "-o",
+        "ServerAliveInterval=15",
+        "-o",
+        "ServerAliveCountMax=4",
+        "-o",
+        "ConnectTimeout=20",
+        "-T",
+    ]
+    if sys.platform != "win32":
+        # One master connection per machine: a password is typed once, and the copies
+        # a window makes reuse it.
+        control = Path.home() / ".ssh" / "solprop-%C"
+        options += [
+            "-o",
+            "ControlMaster=auto",
+            "-o",
+            f"ControlPath={control}",
+            "-o",
+            "ControlPersist=600",
+        ]
+    if machine.port is not None:
+        options += ["-p", str(int(machine.port))]
+    if askpass is not None:
+        environment["SSH_ASKPASS"] = askpass
+        environment["SSH_ASKPASS_REQUIRE"] = "force"
+        environment.setdefault("DISPLAY", ":0")
+    return ["ssh", *options, str(machine.destination), remote], environment
+
+
 def agent_command(
     machine: Machine, *, askpass: str | None = None
 ) -> tuple[list[str], dict[str, str]]:
@@ -234,41 +299,10 @@ def agent_command(
     >>> command[0], command[-2:]
     ('ssh', ['me@lab', 'exec ~/env/bin/python -m solprop.service.agent'])
     """
-    environment = dict(os.environ)
     if machine.local:
-        return [sys.executable, "-m", "solprop.service.agent"], environment
-    if not machine.destination:
-        msg = f"{machine.name} has no SSH host"
-        raise ServiceError(msg)
-    options = [
-        "-o",
-        "ServerAliveInterval=15",
-        "-o",
-        "ServerAliveCountMax=4",
-        "-o",
-        "ConnectTimeout=20",
-        "-T",
-    ]
-    if sys.platform != "win32":
-        # One master connection per machine: a password is typed once, and the copies
-        # a window makes reuse it.
-        control = Path.home() / ".ssh" / "solprop-%C"
-        options += [
-            "-o",
-            "ControlMaster=auto",
-            "-o",
-            f"ControlPath={control}",
-            "-o",
-            "ControlPersist=600",
-        ]
-    if machine.port is not None:
-        options += ["-p", str(int(machine.port))]
-    if askpass is not None:
-        environment["SSH_ASKPASS"] = askpass
-        environment["SSH_ASKPASS_REQUIRE"] = "force"
-        environment.setdefault("DISPLAY", ":0")
+        return [sys.executable, "-m", "solprop.service.agent"], dict(os.environ)
     remote = f"exec {machine.python} -m solprop.service.agent"
-    return ["ssh", *options, str(machine.destination), remote], environment
+    return ssh_command(machine, remote, askpass=askpass)
 
 
 def _drain(stream: BinaryIO, into: list[bytes]) -> None:

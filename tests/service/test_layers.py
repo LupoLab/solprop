@@ -26,6 +26,7 @@ LIGHT = (
     "solprop.service.client",
     "solprop.service.explore",
     "solprop.service.frames",
+    "solprop.service.install",
     "solprop.service.launch",
     "solprop.service.machines",
     "solprop.service.messages",

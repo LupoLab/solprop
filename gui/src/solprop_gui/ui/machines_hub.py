@@ -184,6 +184,7 @@ class MachineHub(QObject):
         )
         self._tokens = iter(range(1, 1 << 62))
         self._callbacks: dict[int, Callable[[object, object], None]] = {}
+        self._closed = False
         self.answered.connect(self._answer)
 
     # -------------------------------------------------------------- connections
@@ -241,6 +242,8 @@ class MachineHub(QObject):
         detail : object
             What goes with it.
         """
+        if self._closed:
+            return
         self.states[name] = state
         if state == "up":
             # Back: follow again, from where each run's record was read to.
@@ -259,6 +262,8 @@ class MachineHub(QObject):
         frame : Mapping
             The frame.
         """
+        if self._closed:
+            return
         kind = frame.get("kind")
         if kind == "events":
             folder = str(frame["folder"])
@@ -313,11 +318,26 @@ class MachineHub(QObject):
                     raise ServiceError(msg)
                 value = connection.call(kind, body)
             except ServiceError as error:
-                self.answered.emit(token, None, str(error))
+                self._answered(token, None, str(error))
                 return
-            self.answered.emit(token, value, None)
+            self._answered(token, value, None)
 
         self._pool.submit(ask)
+
+    def _answered(self, token: int, value: object, error: object) -> None:
+        """Hand an answer to the window's thread, unless the hub has closed.
+
+        Parameters
+        ----------
+        token : int
+            The call.
+        value : object
+            Its value.
+        error : object
+            Its error's text, or ``None``.
+        """
+        if not self._closed:
+            self.answered.emit(token, value, error)
 
     def _answer(self, token: int, value: object, error: object) -> None:
         """Hand a call's answer to whoever asked, on the window's thread.
@@ -482,16 +502,17 @@ class MachineHub(QObject):
                     raise ServiceError(msg)
                 partial.replace(local)
             except (ServiceError, OSError) as error:
-                self.answered.emit(token, None, str(error))
+                self._answered(token, None, str(error))
                 return
-            self.answered.emit(token, str(local), None)
+            self._answered(token, str(local), None)
 
         self._pool.submit(copy)
         return cancelled
 
     def close(self) -> None:
-        """Close every connection; the machines' runs go on."""
+        """Close every connection, now; the machines' runs go on."""
+        self._closed = True
         for connection in self.connections.values():
-            self._pool.submit(connection.close)
+            connection.close()
         self.connections.clear()
-        self._pool.shutdown(wait=False, cancel_futures=False)
+        self._pool.shutdown(wait=False, cancel_futures=True)
