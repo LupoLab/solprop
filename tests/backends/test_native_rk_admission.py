@@ -19,6 +19,7 @@ from capability_routes import ROUTES
 from solprop.backends import available
 from solprop.exceptions import HostMarchWarning
 from solprop.stepper.controller import PIController
+from solprop.stepper.runge_kutta import RungeKutta
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -41,7 +42,7 @@ def launched(route: str, **settings):
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
         simulation.settings = dataclasses.replace(
-            simulation.settings, integrator=None, **settings
+            simulation.settings, integrator=RungeKutta(), **settings
         )
         problem = simulation.translate()
     backend = native.NativeBackend(
