@@ -7,6 +7,11 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Added
+
+- Performance-history rows for 0.2.0 (`benchmarks/history/`) on the same nine hardware sets
+  as 0.1.0.
+
 ### Changed
 
 - The README, the package metadata, the desktop front end's Help and the native backend's
