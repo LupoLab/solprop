@@ -269,6 +269,16 @@ function Base.:*(p::Blocked, x)
     x
 end
 
+"""`copyto!(target, source)` for two state-sized arrays of the device: on a CPU as the
+pool's tasks, since one thread's copy of a Cartesian state (226 MB) took 45 ms."""
+function pool_copy!(target, source, c)
+    oncpu(c) || return copyto!(target, source)
+    each!(c, size(target)...) do f, m
+        @inbounds target[f, m] = source[f, m]
+    end
+    target
+end
+
 """`C = alpha A B + beta C`: on a CPU, blocks of rows of `C` and `A` as the pool's tasks.
 
 A complex `C` and `A` against a real `B` are their real views, of twice the rows: one

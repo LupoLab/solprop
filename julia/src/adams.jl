@@ -134,9 +134,9 @@ function adams_start!(engine)
     a = w.adams
     w.path === nothing || material_stage!(engine, 1)
     source!(engine, w.y)
-    copyto!(@view(a.store[:, :, 1]), w.source)
+    pool_copy!(@view(a.store[:, :, 1]), w.source, c)
     if a.compensated
-        copyto!(@view(a.states[:, :, 1]), w.y)
+        pool_copy!(@view(a.states[:, :, 1]), w.y, c)
         (; rates) = a
         linear, phi, weights = c.linear, path_terms(w), a.device.rate
         each!(c, size(w.y)...) do f, m
@@ -272,10 +272,10 @@ end
 function adams_accept!(engine, slot)
     w = engine.work
     a = w.adams
-    copyto!(@view(a.store[:, :, slot+1]), w.source)
+    pool_copy!(@view(a.store[:, :, slot+1]), w.source, engine.config)
     if a.compensated
-        copyto!(@view(a.states[:, :, slot+1]), w.lab)
-        copyto!(@view(a.rates[:, :, slot+1]), w.error)
+        pool_copy!(@view(a.states[:, :, slot+1]), w.lab, engine.config)
+        pool_copy!(@view(a.rates[:, :, slot+1]), w.error, engine.config)
     end
     nothing
 end

@@ -43,7 +43,7 @@ function trial!(engine, dz::Float64)
             # c_1 = 0: both propagators are exactly the identity.
             if !engine.fsal_valid
                 source!(engine, y)
-                copyto!(@view(stages[:, :, 1]), source)
+                pool_copy!(@view(stages[:, :, 1]), source, c)
             end
             continue
         end
@@ -132,10 +132,10 @@ function commit_step!(engine, dz, monitored)
         engine.fsal_valid = false
     elseif !c.low_storage && w.adams === nothing
         # The last stage's source is the next trial's first.
-        copyto!(@view(w.stages[:, :, 1]), w.source)
+        pool_copy!(@view(w.stages[:, :, 1]), w.source, c)
         engine.fsal_valid = true
     end
-    copyto!(w.y, w.candidate)
+    pool_copy!(w.y, w.candidate, c)
     c.embedded ? quadrature_alarm(engine) : NaN
 end
 

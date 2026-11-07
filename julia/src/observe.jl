@@ -19,10 +19,8 @@ On a CPU the pool's tasks copy, each touching its own pages: a single-threaded c
 of a 226 MB Cartesian state into fresh host memory took 75-220 ms.
 """
 function copy_between!(target, source, c)
-    if oncpu(c) && eltype(target) == eltype(source)
-        each!(c, size(target)...) do f, m
-            @inbounds target[f, m] = source[f, m]
-        end
+    if eltype(target) == eltype(source) && (oncpu(c) || !(target isa Array))
+        pool_copy!(target, source, c)
     else
         copyto!(target, convert(Array{eltype(target)}, Array(source)))
     end
@@ -99,7 +97,7 @@ function monitor_power(engine)
         end
     else
         # The c2r transform overwrites its input: the scratch takes a copy.
-        copyto!(w.lab, w.y)
+        pool_copy!(w.lab, w.y, c)
         mul!(w.coarse, w.coarse_inverse, w.lab)
         add_power!(power, w.coarse, columns, 1, size(w.y, 2), c)
     end
@@ -186,7 +184,7 @@ function edge_energy(engine)
     out = edge.energy
     if c.free
         physical = w.physical
-        copyto!(physical, y)
+        pool_copy!(physical, y, c)
         transverse!(physical, w.spatial_inverse, c)
         scale = inv(T(size(y, 2)))^2
         colsum!(c, out, size(y)...) do f, m

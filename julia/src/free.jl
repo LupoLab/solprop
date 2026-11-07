@@ -142,7 +142,7 @@ function source_free!(engine, lab)
     (; physical, fine, modal, projected, analytic, loss) = w
     nm = size(lab, 2)
     chunk = size(modal, 2)
-    copyto!(physical, lab)
+    pool_copy!(physical, lab, c)
     transverse!(physical, w.spatial_inverse, c)
     # Transverse inversion first: a transverse spectral column alone is not the
     # spectrum of a real temporal field.
@@ -233,7 +233,7 @@ end
 function split_free!(engine, dz, monitored)
     c, w = engine.config, engine.work
     (; physical, coarse, coarse_spec) = w
-    copyto!(physical, w.candidate)
+    pool_copy!(physical, w.candidate, c)
     transverse!(physical, w.spatial_inverse, c)
     chunk, nm, nw = size(coarse, 2), size(physical, 2), size(physical, 1)
     T = real_type(engine)
@@ -255,7 +255,7 @@ function split_free!(engine, dz, monitored)
         end
     end
     transverse!(physical, w.spatial_forward, c)
-    copyto!(w.candidate, physical)
+    pool_copy!(w.candidate, physical, c)
     nothing
 end
 
@@ -263,7 +263,7 @@ function population_free_snapshot(engine, input)
     c, w = engine.config, engine.work
     p = w.plasma
     (; physical, fine, modal, projected) = w
-    copyto!(physical, scaled_input(engine, input))
+    pool_copy!(physical, scaled_input(engine, input), c)
     transverse!(physical, w.spatial_inverse, c)
     chunk, nm = size(modal, 2), size(physical, 2)
     scale = c.field_scale
