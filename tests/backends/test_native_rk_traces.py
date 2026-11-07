@@ -126,12 +126,12 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
                 harness.events.append({"target": target, **harness.snapshot()})
                 if reached(harness._z, target):
                     break
+    except (BackendError, ConvergenceError) as error:
+        end = {"stop": type(error).__name__, "message": str(error)}
     except RuntimeError as error:
         if "ran out of norms" not in str(error):
             raise
         end = {"stop": "exhausted"}
-    except (BackendError, ConvergenceError) as error:
-        end = {"stop": type(error).__name__, "message": str(error)}
     harness.close()
     end["in_flight"] = {}
     end.update(harness.snapshot())
