@@ -1084,10 +1084,9 @@ def test_a_quiet_collar_is_left_out_without_changing_the_run(backend: str) -> No
     assert np.linalg.norm(a - b) <= QUIET_ENVELOPE * np.linalg.norm(b)
     record = record_of(watched)
     assert record["collar_left_out_checks"] > 0
-    # Every committed step is either checked or counted as skipped (the planes'
-    # checks add to the checked ones).
+    # Every committed step is either checked or counted as skipped, once (#133).
     accepted = int(np.asarray(watched["step_history/accepted"], dtype=bool).sum())
-    assert record["steps"] + record["skipped"] >= accepted
+    assert record["steps"] + record["skipped"] == accepted
 
 
 @pytest.mark.parametrize("integrator", sorted(INTEGRATORS))
@@ -1620,3 +1619,48 @@ def test_a_warning_raised_as_an_error_fails_its_own_point_alone(
             if statuses[name][index] == "failed":
                 assert "Boundary" in str(read_point(path, index)["error"]), name
     assert statuses["batch"] == statuses["local"]
+
+
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_plane_s_check_of_a_skipped_step_counts_it_once(backend: str) -> None:
+    # #133: a step the cadence left unchecked was checked again at its plane and
+    # counted among both the checked and the skipped steps.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = walker(0.0, backend=backend, n_save=9, integrator=RungeKutta()).run(
+            progress="none"
+        )
+    record = record_of(run)
+    accepted = int(np.asarray(run["step_history/accepted"], dtype=bool).sum())
+    assert record["skipped"] > 0
+    assert record["steps"] + record["skipped"] == accepted
+
+
+def test_a_plane_no_check_read_records_no_occupancies() -> None:
+    # #133: under interpolated planes, a later plane inside one step has no reading of
+    # its own; its row is unmeasured (None), not the last collar and empty guards.
+    simulation = walker(0.0, n_save=301, integrator=RungeKutta())
+    simulation.settings = dataclasses.replace(
+        simulation.settings, interpolate_planes=True
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        run = simulation.run(progress="none")
+    rows = record_of_rows(run)
+    accepted = np.asarray(run["step_history/accepted"], dtype=bool)
+    # The history holds each step's start and length.
+    starts = np.asarray(run["step_history/z"], dtype=float)
+    ends = (starts + np.asarray(run["step_history/h"], dtype=float))[accepted]
+    # The accepted step that carries each plane after the launch's row; a plane
+    # carried by the same step as the one before it was read by no check. (The last
+    # plane is the guide's end, which the last step reaches to rounding.)
+    index = np.searchsorted(ends, np.asarray(rows["z"][1:]), side="left")
+    carrier = ends[np.minimum(index, ends.size - 1)]
+    unread = np.concatenate([[False, False], carrier[1:] == carrier[:-1]])
+    assert unread.any()
+    for name in ("collar_occupancy", "guard_low", "guard_high"):
+        values = rows[name]
+        assert [value is None for value in values] == unread.tolist(), name
+    assert all(value is not None for value in rows["removed_fraction"])
