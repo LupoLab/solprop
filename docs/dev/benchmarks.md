@@ -3216,3 +3216,20 @@ apart (binary32 against binary32).
 binary64 (the view copies were Metal's problem); against native, binary64 1.88 (1.97
 before; `h2_raman_6ps` 1.00, `ctc_reduced` 1.44, `kerr_beam_192` 2.97) and binary32 with
 df32 1.51 (1.72 before; `h2_raman_6ps` 0.58, radial 1.29).
+
+**NVIDIA A40, Nsight Systems** at `fbd75c2c` (binary64, one warmed 2 % window inside
+`cudaProfilerStart`/`Stop`, `scripts/prof_case.py` on DMOG): one-chunk and the packed
+tables against `5df088ec` gave 0.95 (`h2_raman_6ps` 0.90, `ctc_reduced` 0.91). The
+profiles show that on the A40 in binary64 Julia is bound by device work, not the host:
+
+| case | native kernels | julia kernels | FFTs a step, native / julia | windows, native / julia |
+|---|---|---|---|---|
+| `rdw` | 15 ms, 592 launches | 80 ms, 2975 launches | 1.7 / 5.4 | 0.054 / 0.130 s |
+| `h2_raman_6ps` | 117 ms | 868 ms | 0.38 / 14.4 | 1.05 / 1.09 s |
+| `radial_filament_256` | 65 ms | 209 ms | | 0.17 / 0.29 s |
+
+Native's `h2_raman_6ps` window is host-bound instead (984 ms of API time for 117 ms of
+kernels), which is why the two windows are level there. Julia's elementwise kernels take
+50 ms of `rdw`'s 80 (one heavy kernel a step, the Adams predictor's phi functions in
+binary64 at the A40's 1/64 rate, 0.28 ms), its FFTs 19 ms; radial's FP64 GEMMs (cutlass)
+58 ms. The gap is native's lighter algorithm per source, not Julia's launches.
