@@ -14,6 +14,7 @@ field by field, on drawn readings around every threshold and on the review's wit
 
 from __future__ import annotations
 
+import importlib
 import math
 import warnings
 from typing import Any
@@ -37,9 +38,7 @@ STOP, WARN, QUIET, ERROR = 1, 2, 3, 5
 
 
 def _core() -> Any:
-    import solprop_native._core as core  # noqa: PLC0415
-
-    return core
+    return importlib.import_module("solprop_native._core")
 
 
 def _monitor(*, split: bool, quiet: bool, budget: float = 1e-3) -> BoundaryMonitor:

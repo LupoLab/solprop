@@ -2762,7 +2762,7 @@ def _readings_of(
     if not rows:
         return {}
     values = np.asarray(result["readings"], dtype=np.float64).reshape(len(rows), -1)
-    readings = {}
+    readings: dict[int, BoundaryEnergies] = {}
     for row, reading in zip(rows, values, strict=True):
         readings[row] = BoundaryEnergies(
             float(reading[0]),
@@ -3058,7 +3058,7 @@ class _NativeAdamsMarch(AdamsMarch):
     def _state(self, watching: bool = False) -> dict[str, object]:
         """Return the march's state as the native call takes it."""
         backend, ledger = self._driver, self.ledger
-        state = {
+        state: dict[str, object] = {
             "z": float(backend._z),
             "proposal": float(backend._proposal),
             "order": self._order,
@@ -3261,8 +3261,9 @@ class _NativeRungeKuttaMarch:
         """Return why the native march does not step a run, and whether to warn."""
         if _RK_MARCH == "host":
             return "the private switch asked for it", False
-        stepper = backend._problem.stepper
-        controller = stepper.controller
+        driver: Any = backend
+        stepper = driver._problem.stepper
+        controller: PIController = stepper.controller
         overridden = [
             name
             for name in (
@@ -3275,13 +3276,13 @@ class _NativeRungeKuttaMarch:
             )
             if getattr(type(controller), name) is not getattr(PIController, name)
         ]
-        monitor = backend._monitor
+        monitor = driver._monitor
         reasons = (
             (_on_device(), "a device build (SEP 45 phase 5)"),
             (stepper.interpolate_planes, "interpolated planes (SEP 45 phase 4)"),
             (
-                not isinstance(controller, PIController) or bool(overridden),
-                "a controller with its own " + ", ".join(overridden or ["type"]),
+                bool(overridden),
+                "a controller with its own " + ", ".join(overridden),
             ),
             (controller.weights is not None, "a weighted error norm"),
             (
@@ -3289,7 +3290,7 @@ class _NativeRungeKuttaMarch:
                 "the transverse edge's reads (SEP 45 phase 4)",
             ),
             (
-                _RK_ROWS == "host" or not backend._staged_rows(),
+                _RK_ROWS == "host" or not driver._staged_rows(),
                 "a coupled flow or a z table, whose stage rows the host forms "
                 "(SEP 45 phase 4)",
             ),
