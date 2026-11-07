@@ -616,6 +616,11 @@ def test_the_alarm_is_weighted_at_the_stage_it_was_scored_from(
     bundle is what makes it right: the alarm reads the scalars of the stage it was
     scored from.
     """
+    if backend_class.name == "native":
+        pytest.skip(
+            "native forms a staged trial's stage scalars in its own state and scores "
+            "the alarm there (SEP 45 phase 2): no host bundle carries the stage"
+        )
     problem = capillary_problem()
     backend, _ = run_to(backend_class, problem, field_grid, 0.1)
     bundle = backend._last_bundle
