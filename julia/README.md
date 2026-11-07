@@ -48,6 +48,8 @@ solprop is installed without `-e`. A run then takes `backend="julia"`:
 |---|---|
 | `SOLPROP_JULIA_THREADS` | the engine's threads (default 1); the benchmark harness sets it to the width |
 | `SOLPROP_JULIA_DEVICE` | `cpu` (default), `cuda`, `rocm` or `metal`, which load `julia/cuda`, `julia/rocm` or `julia/metal`: CUDA.jl, AMDGPU.jl or Metal.jl resolved with the engine. `metal` runs `precision="single"` only |
+| `SOLPROP_JULIA_BLAS` | `accelerate` (default on macOS: Apple's BLAS, OpenBLAS beneath) or `openblas` (default elsewhere) |
+| `SOLPROP_JULIA_FTZ` | `1`: flush subnormals to zero in the engine's numerical calls (an experiment; solprop's policy forbids it, #561) |
 | `SOLPROP_JULIA_WIDE` | a binary32 run's wide type for the operator's exponents, the propagators and the Adams flow: `binary64` (default) or `df32` (double-float, `src/dfloat.jl`); `metal` always uses `df32`. Binary64 runs ignore it |
 | `SOLPROP_JULIA_MARCH` | `host`: the Python Adams march in place of the engine's (`src/march.jl`) |
 | `SOLPROP_FFTW_PLAN` | `estimate`, `measure` (default) or `patient` |

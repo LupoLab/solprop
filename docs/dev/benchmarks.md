@@ -3070,3 +3070,50 @@ Geometric means 2.48 (binary64) and 2.62 (binary32 against native's binary64). A
 statistics' sums, the monitor's row and column sums) and the occupancy's atomics on a
 crossing's few buckets the largest kernels; commit `50158fa6` forms them as device
 reductions.
+
+**Apple M5 Max** (6 top-tier and 12 second-tier cores, 128 GB, macOS 27; native built on
+the NEON FFTW 3.3.11 prefix with Accelerate's BLAS), three rounds on a quiet machine,
+commit `3933d4f3` (the engine as measured above; Julia's BLAS is OpenBLAS). The first
+measurement of the rewritten engine on this machine:
+
+| case | native 1 thread, s | julia | ratio | native 6, s | julia | ratio | native 18, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.196 | 0.222 | 1.17 | 0.085 | 0.072 | 0.88 | 0.110 | 0.067 | 0.61 |
+| `argon_blueshift` | 0.355 | 0.303 | 0.86 | 0.134 | 0.106 | 0.79 | 0.135 | 0.114 | 0.86 |
+| `h2_raman_6ps` | 1.433 | 1.478 | 1.03 | 0.804 | 0.653 | 0.81 | 1.038 | 0.925 | 0.82 |
+| `ctc_reduced` | 0.669 | 0.573 | 0.84 | 0.207 | 0.158 | 0.76 | 0.214 | 0.163 | 0.76 |
+| `radial_filament_256` | 0.914 | 1.030 | 1.12 | 0.322 | 0.291 | 0.90 | 0.302 | 0.260 | 0.86 |
+| `kerr_beam_192` | 1.662 | 1.555 | 0.92 | 0.528 | 0.475 | 0.90 | 0.443 | 0.337 | 0.76 |
+| `line` | 0.219 | 0.266 | 1.23 | 0.114 | 0.078 | 0.68 | 0.183 | 0.070 | 0.38 |
+
+Geometric mean 0.83: Julia faster in 16 of 21 rows, every row on native's steps with
+fields equal to 1e-13 or better. Native is slower on 18 threads than on 6 in four
+cases (`h2_raman_6ps` 0.80 -> 1.04 s, `line` 0.11 -> 0.18 s, `rdw`, `ctc_reduced`): the
+second-tier cores hold back its parallel regions. Julia's tasks lose less there.
+
+**Apple M5 Max GPU** (40 cores, Metal 4; Metal.jl 1.12), `julia` in binary32 with
+`SOLPROP_JULIA_DEVICE=metal` and the double-float wide type (`julia/src/dfloat.jl`),
+commit `ecbcafbe`, `--device-arm candidate`. Against native's binary64 on 6 CPU threads,
+three rounds, the cases' own transform sizes; and against `mlx` (binary32,
+`MLX_ENABLE_TF32=0`), two rounds, `--fft-size pow2`:
+
+| case | native 6 threads, s | julia Metal, s | ratio | mlx, s | julia Metal, s | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.091 | 0.359 | 3.95 | 0.453 | 0.523 | 1.16 |
+| `argon_blueshift` | 0.137 | 0.868 | 6.35 | 0.530 | 0.890 | 1.68 |
+| `h2_raman_6ps` | 0.797 | 1.574 | 1.97 | 0.916 | 1.939 | 2.12 |
+| `ctc_reduced` | 0.213 | 0.723 | 3.42 | 1.115 | 1.062 | 0.96 |
+| `radial_filament_256` | 0.306 | 0.278 | 0.92 | 0.318 | 0.271 | 0.96 |
+| `kerr_beam_192` | 0.539 | 0.176 | 0.33 | 0.286 | 0.200 | 0.71 |
+| `line` | 0.112 | 0.231 | 2.09 | 0.134 | 0.241 | 1.80 |
+
+Geometric means 1.95 against native's CPU and 1.25 against `mlx`. The binary32 fields
+are 4e-7 to 2e-5 from native's binary64 and 1e-6 to 2e-5 from `mlx`'s. The GPU wins
+where the state is large (the Cartesian beam three times native's six cores, radial at
+par) and loses where it is a capillary's few modes, whose windows are launch-bound;
+`argon_blueshift`'s plasma takes the per-sample GPU path. Metal.jl's probes on this GPU:
+every FFT plan form the engine uses (in-place, dimension 1 of a matrix, odd `brfft`,
+dims (2, 3)) works, without MLX's Bluestein cliff (10240 points as fast as 8192), at
+2 to 5e-7; Float32 GEMM is full precision (1.5e-7, not TF32) on real views; the
+two-sum and fused two-product survive compilation. Construction compiles the Metal
+kernels: about 28 s, with no precompiled trace for the device yet.

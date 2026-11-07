@@ -78,6 +78,13 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         help="the candidate arm's backend; default: --backend",
     )
     parser.add_argument(
+        "--cooldown",
+        type=float,
+        default=0.0,
+        help="seconds to idle before each worker, so that one worker's heat (a Julia "
+        "worker's compilation) does not slow the next",
+    )
+    parser.add_argument(
         "--device-arm",
         choices=("baseline", "candidate"),
         help="run only this arm on its device (a GPU against a CPU build); the other "
@@ -275,6 +282,8 @@ def ab(args: argparse.Namespace) -> int:
         for row in shuffled:
             width = row["configuration"]["threads"]
             for arm in arm_order(round_index):
+                if args.cooldown > 0:
+                    time.sleep(args.cooldown)
                 quiet = guard(allocation)["quiet"]
                 events, elapsed = launch_worker(
                     pythons[arm],

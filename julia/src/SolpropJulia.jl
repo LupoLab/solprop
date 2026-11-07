@@ -72,8 +72,12 @@ function create(input)
     # SOLPROP_JULIA_FTZ=1: flush subnormals to zero in the engine's numerical work (an
     # experiment; solprop's policy forbids it, #561).
     flush_subnormals!(get(ENV, "SOLPROP_JULIA_FTZ", "0") == "1")
-    # SOLPROP_JULIA_BLAS=accelerate: Apple's Accelerate for the products (an experiment).
-    get(ENV, "SOLPROP_JULIA_BLAS", "openblas") == "accelerate" && use_accelerate!()
+    # Apple's Accelerate for the products on macOS (SOLPROP_JULIA_BLAS=openblas keeps
+    # OpenBLAS): radial's window on one M5 Max thread 1.02 s -> 0.60 s, no case slower.
+    blas = get(ENV, "SOLPROP_JULIA_BLAS", Sys.isapple() ? "accelerate" : "openblas")
+    blas in ("accelerate", "openblas") ||
+        throw(ArgumentError("SOLPROP_JULIA_BLAS must be accelerate or openblas"))
+    blas == "accelerate" && use_accelerate!()
     # One pool runs everything (launch.jl, `plan`): the libraries' own are single.
     FFTW.set_num_threads(1)
     BLAS.set_num_threads(1)
