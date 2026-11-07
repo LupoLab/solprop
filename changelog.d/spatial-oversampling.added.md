@@ -1,1 +1,0 @@
-`solprop.spatial.spatial_power`, `spatial_intensity` and `on_axis_trace`, and `solprop.processing.on_axis_power`, take `oversampling=`, resampling the time axis by zero-padding the spectrum as `get_power` does, so a beam's pulse is drawn smoothly and its peak found between samples. `solprop.processing.time_axis(grid, oversampling)` returns the times they lie on.

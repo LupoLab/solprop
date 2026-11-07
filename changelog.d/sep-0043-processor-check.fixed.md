@@ -1,1 +1,0 @@
-With `/proc/cpuinfo` unreadable, native chose its x86-64-v3 build, so a lower processor could reach an illegal instruction ([#443](https://github.com/LupoLab/solprop/issues/443)). It now asks NumPy, and refuses before loading if neither answers. The Windows on Arm wheel gains a processor check too, for the Armv8.2-A OpenBLAS it links.

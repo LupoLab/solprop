@@ -1,1 +1,0 @@
-The [boundaries guide](docs/guide/numerics/boundaries.md#a-spectral-walk-off-absorber) gives a recipe for a spectral walk-off absorber through `custom_absorber`, for runs whose walk-off can be predicted, with its geometry, its strength, its limits and a per-band loss check (#226).

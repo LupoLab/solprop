@@ -1,1 +1,0 @@
-The desktop front end's Cartesian class starts from `Recipe.example("crossing_beams")`, two beams crossing in argon whose interference fringes the Kerr effect focuses, and a tutorial of the same run; a one-beam Cartesian recipe still opens, on a one-beam sheet.

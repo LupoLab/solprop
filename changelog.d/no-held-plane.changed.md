@@ -1,1 +1,0 @@
-A low-storage run no longer holds a state volume at its last field-free plane, so `memory_ledger()` and `estimate()` are one volume smaller, 5.27 GiB at 768² × 600. A step abandoned in flight after such a plane records `failed` with no terminal checkpoint and says plainly when the file cannot be resumed; a stop between steps checkpoints as ever (ADR-067, #345, #500).

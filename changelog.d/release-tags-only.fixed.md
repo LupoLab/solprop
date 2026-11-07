@@ -1,1 +1,0 @@
-The versions of solprop, solprop-native and solprop-gui now come from `v*` tags only, so another tag on a commit can no longer set them. Building any of them now needs setuptools-scm 9, and solprop-native requires NumPy 2.5, as solprop does (#92).

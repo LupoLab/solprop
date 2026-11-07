@@ -1,1 +1,0 @@
-On `mlx`, the transverse edge is read on the GPU where no collar is requested, rather than by copying the whole state to the host at every read, and a Cartesian run's operator is built in one pass and no longer forms an unused prefactor. On an Apple M5 Max the 384 x 384 x 750 Kerr beam takes 0.82 of `native`'s time, the 192 x 192 one 0.40. (#343)

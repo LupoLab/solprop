@@ -1,1 +1,0 @@
-The [Cartesian chapter](docs/guide/free-space/cartesian.md) gives a reading of the risk of transverse aliasing, the beam's energy outside `|k| <= k_max / 2` from `region_spectrum` and `beam_spectrum`, tested through `FreeGrid` runs, and states what the proxy leaves out (#216).

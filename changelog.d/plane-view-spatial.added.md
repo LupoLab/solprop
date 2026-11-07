@@ -1,1 +1,0 @@
-A plane observer can measure a spatial run's planes while it runs: `PlaneView.stored()` returns the plane's stored spectrum (what the `solprop.spatial` functionals take with the run's `SpatialFlux`) and `PlaneView.field_plane()` the plane as `processing.field_plane` reads it, whose `spectral_energy` is the beam's energy per bin.

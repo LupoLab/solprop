@@ -1,1 +1,0 @@
-The `mlx` backend's Runge–Kutta march now reuses the last stage of an accepted DOPRI5 step as the first stage of the next, as `native` does, so a step takes six evaluations of the nonlinear source instead of seven where the temporal collar is applied in the stages. The results are bitwise the same. (#343)

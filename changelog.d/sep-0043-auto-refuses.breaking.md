@@ -1,1 +1,0 @@
-`backend="auto"` has no fallback: it is `native`, and refuses with no native package or on a processor below the floor, such as Arm below Neoverse N1. A TDSE response still resolves to `numpy_ref` and single precision to `mlx`. `numpy_ref` stays selectable by name, as the numerical reference and for the features only it runs.

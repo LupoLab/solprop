@@ -1,1 +1,0 @@
-`poe` tasks now run in the environment `poe` was started in, so `uv run --no-sync poe fetch-wheel` no longer tries to build the native backend first, and `uv run --no-sync poe test` no longer replaces a fetched wheel with a local build. The contributor guide now gives the command that works with no compiler.

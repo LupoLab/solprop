@@ -1,1 +1,0 @@
-`pulses.SpatialPulseSum` launches several beams together on the free-space routes, the sum of its `SpatialPulse` members' fields, each built and scaled as it would be alone: two beams crossing at an angle, a pump beside a probe. Recipes hold it (`type = "SpatialPulseSum"`, `beams = [...]`), so a crossing-beam run is a recipe.

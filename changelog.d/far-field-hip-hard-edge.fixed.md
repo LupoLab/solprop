@@ -1,1 +1,0 @@
-On an AMD device, the far-field pass decided about 3 % of the columns exactly at a hard aperture's edge differently from `numpy_ref`, because the compiler fused products and sums the pass meant to round separately. The radius is now rounded as on every other build.

@@ -1,1 +1,0 @@
-`tools.soliton_params` and `tools.capillary_params` find the zero-dispersion wavelength nearest the pump by refining the sign changes outwards from it, not all of them. The answer is the same, and on an antiresonant fibre, whose resonances give dozens of changes, it takes about 0.17 s where it took about 3 s.

@@ -1,1 +1,0 @@
-The `step_index_fibre` example and its tutorial run 5 cm on a 2 ps window with the boundary monitor on, saving 201 planes; over 15 cm on 1 ps its Raman-shifted solitons left the window unnoticed and the run lost 71 % of its energy (#544). The `rdw`, `spm_compressor` and `graded_index_fibre` examples and their gallery scripts save 201 planes, for smoother plots along z.
