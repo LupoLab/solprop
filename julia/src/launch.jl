@@ -251,21 +251,23 @@ end
 end
 # On a GPU each transform over a capillary's few modes is a few blocks (one a column,
 # four for rdw, 96 us each on an A40): the group goes through one batched plan over a
-# staging buffer instead, the copies a few microseconds each.
-const STAGES = WeakKeyDict{Any,Dict{Int,Any}}()
-function transform_all!(p, outs::Tuple, ins::Tuple)
+# staging buffer instead, the copies a few microseconds each. The staging lives in the
+# engine's workspace (`stage`, a `Ref`), not in a global table of plans.
+function transform_all!(p, outs::Tuple, ins::Tuple, stage::Ref)
     x = first(ins)
     if x isa Array
         foreach((y, x) -> mul!(y, p, x), outs, ins)
         return nothing
     end
     n, columns = length(ins), size(x, 2)
-    stage = get!(get!(() -> Dict{Int,Any}(), STAGES, p), n) do
+    held = stage[]
+    if held === nothing || size(held[1], 2) != n * columns
         staged = similar(x, size(x, 1), n * columns)
         result = similar(first(outs), size(first(outs), 1), n * columns)
-        (staged, result, eltype(x) <: Real ? plan_rfft(staged, 1) : plan_fft(staged, 1))
+        held = (staged, result, eltype(x) <: Real ? plan_rfft(staged, 1) : plan_fft(staged, 1))
+        stage[] = held
     end
-    staged, result, batched = stage
+    staged, result, batched = held
     for j in 1:n
         copyto!(view(staged, :, (j-1)*columns+1:j*columns), ins[j])
     end
@@ -275,6 +277,8 @@ function transform_all!(p, outs::Tuple, ins::Tuple)
     end
     nothing
 end
+transform_all!(p::Blocked, outs::Tuple, ins::Tuple, ::Ref) = transform_all!(p, outs, ins)
+
 function Base.:*(p::Blocked, x)
     @batch for b in eachindex(p.plans)
         p.plans[b] * block_view(x, p.batch, p.ranges[b])

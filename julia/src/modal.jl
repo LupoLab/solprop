@@ -76,7 +76,7 @@ function create_modal(c, host)
         node_forward=spectral ? plan(c, plan_rfft, nodes, 1) : nothing,
         absorber_spec_band=dzeros(c, C, spectral && in_stage ? nw : 0, spectral && in_stage ? nm : 0),
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
+        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing), forward_stage=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
         raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -142,7 +142,8 @@ function source!(engine, lab; quadrature=false)
         # The source's and the currents' transforms as one pool's work.
         p = w.plasma
         @section :forward_fft transform_all!(w.forward_plan, (w.fine, p.spectrum, p.edge_spectrum),
-                                             (w.projected, p.projected, p.edge_projected))
+                                             (w.projected, p.projected, p.edge_projected),
+                                             w.forward_stage)
         @section :plasma_spectrum add_plasma_spectra!(w.fine, p, c)
     end
     if c.in_stage
