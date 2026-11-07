@@ -108,7 +108,9 @@ def _read_hosts(path: Path, found: list[str], seen: set[Path]) -> None:
     except OSError:
         return
     for line in lines:
-        words = shlex.split(line, comments=True) if line.strip() else []
+        # Backslashes are a path's on Windows, not escapes.
+        text = line.replace("\\", "/") if os.name == "nt" else line
+        words = shlex.split(text, comments=True) if text.strip() else []
         if not words:
             continue
         keyword, *values = words

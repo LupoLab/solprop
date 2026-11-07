@@ -402,7 +402,7 @@ class Agent:
         if not any((folder / name).exists() for name in ("recipe.toml", "spec.json")):
             msg = f"{folder} holds no run"
             raise ServiceError(msg)
-        shutil.rmtree(folder)
+        _remove_tree(folder)
 
     def stat(self, body: Mapping[str, Any]) -> dict[str, object] | None:
         """Return a file's size and modification time (``stat``).
@@ -576,6 +576,38 @@ class Agent:
                 self._kernel.close()
 
 
+def _remove_tree(folder: Path, tries: int = 20) -> None:
+    """Delete a run's folder, once its process has let go of its files.
+
+    A run that has recorded its ending may still be writing its last summary as its
+    process leaves, and Windows refuses to delete a file that is open; so the folder
+    is tried again for a few seconds.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The folder.
+    tries : int, optional
+        How many times to try, a quarter of a second apart.
+
+    Raises
+    ------
+    OSError
+        If it still cannot be deleted.
+    """
+    for left in range(tries - 1, -1, -1):
+        try:
+            shutil.rmtree(folder)
+        except FileNotFoundError:
+            return
+        except PermissionError:
+            if not left:
+                raise
+            time.sleep(0.25)
+        else:
+            return
+
+
 def _reply_value(reply: Reply) -> dict[str, object]:
     """Return a kernel reply as a frame carries it.
 
@@ -660,6 +692,14 @@ def main() -> int:  # pragma: no cover - the helper's own process; test_agent dr
     """
     output = os.fdopen(os.dup(sys.stdout.fileno()), "wb", buffering=0)
     os.dup2(sys.stderr.fileno(), sys.stdout.fileno())
+    if sys.platform == "win32":
+        # The C runtime's descriptor is not what a child inherits on Windows: point
+        # the process's own standard output at standard error too, so a child's
+        # print never lands among the frames.
+        import ctypes  # noqa: PLC0415 - Windows only
+
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.SetStdHandle(-11, kernel.GetStdHandle(-12))
     try:
         serve(sys.stdin.buffer, output)
     finally:

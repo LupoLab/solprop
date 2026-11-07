@@ -294,13 +294,15 @@ def test_the_job_command_runs_in_this_process(tmp_path, monkeypatch):
 
 def test_a_start_that_fails_says_why(tmp_path, monkeypatch):
     folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    with pytest.raises(ServiceError, match=r"could not be started \(status 1\): "):
+        start_direct(folder, str(tmp_path / "no-python"))
 
-    def refused(*args, **kwargs):
-        return subprocess.CompletedProcess(args, 1, "", "no such python")
+    def silent(*args, **kwargs):
+        return subprocess.CompletedProcess(args, 3)
 
-    monkeypatch.setattr(launch.subprocess, "run", refused)
-    with pytest.raises(ServiceError, match="could not be started: no such python"):
-        start_direct(folder, "/no/python")
+    monkeypatch.setattr(launch.subprocess, "run", silent)
+    with pytest.raises(ServiceError, match=r"\(status 3\): $"):
+        start_direct(folder)
 
 
 def test_a_job_without_threads_leaves_the_budget_alone(tmp_path, monkeypatch):

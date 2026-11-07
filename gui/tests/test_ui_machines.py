@@ -443,12 +443,14 @@ def test_figures_and_a_copy_of_the_results_are_written_here(
     assert "f-1.png" in stage.said.text()
     with qtbot.waitSignal(stage.copied, timeout=WAIT_MS) as copied:
         stage.save_results_copy(tmp_path / "copy.h5")
-    assert copied.args == [str(tmp_path / "copy.h5")]
+    copied_args: Any = copied.args
+    assert copied_args == [str(tmp_path / "copy.h5")]
     assert (tmp_path / "copy.h5").read_bytes() == Path(run).read_bytes()
     window.bridge.know_folder(LOCAL, str(Path(run).parent))  # as a machine's file
     window.bridge.hub.ensure(Machine(LOCAL))
     with qtbot.waitSignal(stage.copied, timeout=WAIT_MS) as fetched:
         stage.save_results_copy(tmp_path / "fetched.h5")
     assert (tmp_path / "fetched.h5").read_bytes() == Path(run).read_bytes()
-    assert fetched.args[0].endswith("fetched.h5")
+    args: Any = fetched.args
+    assert args[0].endswith("fetched.h5")
     window.close()

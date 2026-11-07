@@ -20,6 +20,7 @@ import logging
 import threading
 import time
 import traceback
+import warnings
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
@@ -592,19 +593,27 @@ def _attach_log(
     )
     forward = EventHandler(run_id, emit)
     forward.setLevel(logging.WARNING)
+    solprop_logger = logging.getLogger("solprop")
+    level = solprop_logger.level
+    # Warnings go to logging while the run goes; whoever had them before gets them back.
+    before = warnings.showwarning
     logging.captureWarnings(True)
-    loggers = [logging.getLogger("solprop"), logging.getLogger("py.warnings")]
+    captured = warnings.showwarning is not before
+    loggers = [solprop_logger, logging.getLogger("py.warnings")]
     for logger in loggers:
         logger.addHandler(log_file)
         logger.addHandler(forward)
-    logging.getLogger("solprop").setLevel(logging.INFO)
+    solprop_logger.setLevel(logging.INFO)
 
     def detach() -> None:
-        """Take the handlers off and close the log."""
+        """Take the handlers off, close the log, and leave logging as it was."""
         for logger in loggers:
             logger.removeHandler(log_file)
             logger.removeHandler(forward)
         log_file.close()
+        solprop_logger.setLevel(level)
+        if captured:
+            logging.captureWarnings(False)
 
     return detach
 

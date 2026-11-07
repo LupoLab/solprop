@@ -53,6 +53,9 @@ SUBMITTED: Final = "submitted.json"
 JOB_OUTPUT: Final = "job.out"
 """The run's process's own output (what solprop does not log), in its folder."""
 
+STARTED: Final = "started.txt"
+"""What a direct run's starter writes: the run's process, or why it did not start."""
+
 SLURM_SCRIPT: Final = "job.slurm"
 """The batch script a Slurm run was submitted with, in its folder."""
 
@@ -145,19 +148,31 @@ def start_direct(
     # Started through a short-lived Python that starts the job and leaves at once:
     # the job is then no child of this process, so it leaves no zombie behind a
     # long-lived helper, and outlives it (a session of its own; detached on Windows).
+    # The starter writes the job's process number to a file, not to a pipe: a pipe
+    # the job could inherit would keep this call waiting.
+    started = folder / STARTED
+    started.unlink(missing_ok=True)
     result = subprocess.run(
-        [sys.executable, "-c", _DETACH, str(folder / JOB_OUTPUT), *command],
-        capture_output=True,
-        text=True,
+        [
+            sys.executable,
+            "-c",
+            _DETACH,
+            str(folder / JOB_OUTPUT),
+            str(started),
+            *command,
+        ],
+        stdin=subprocess.DEVNULL,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
         env=env,
         check=False,
         timeout=60,
     )
-    if result.returncode != 0 or not result.stdout.strip().isdigit():
-        said = result.stderr.strip() or f"status {result.returncode}"
-        msg = f"the run could not be started: {said}"
+    said = started.read_text(encoding="utf-8").strip() if started.exists() else ""
+    if result.returncode != 0 or not said.isdigit():
+        msg = f"the run could not be started (status {result.returncode}): {said}"
         raise ServiceError(msg)
-    pid = int(result.stdout.strip())
+    pid = int(said)
     import socket  # noqa: PLC0415 - light, only here
 
     write_json(
@@ -175,7 +190,7 @@ def start_direct(
 
 _DETACH: Final = """\
 import os, subprocess, sys
-output, command = sys.argv[1], sys.argv[2:]
+output, started, command = sys.argv[1], sys.argv[2], sys.argv[3:]
 options = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
 if sys.platform == "win32":
     options["creationflags"] = (
@@ -183,9 +198,15 @@ if sys.platform == "win32":
     )
 else:
     options["start_new_session"] = True
-with open(output, "ab") as stream:
-    process = subprocess.Popen(command, stdout=stream, **options)
-print(process.pid, flush=True)
+try:
+    with open(output, "ab") as stream:
+        process = subprocess.Popen(command, stdout=stream, **options)
+except OSError as error:
+    with open(started, "w") as said:
+        said.write(str(error))
+    os._exit(1)
+with open(started, "w") as said:
+    said.write(str(process.pid))
 os._exit(0)
 """
 """The starter's code: it starts the job, says its process, and leaves."""
@@ -300,11 +321,12 @@ def slurm_script(
     (True, 'exec /env/bin/python -m solprop.service.job /runs/r1')
     """
     name = re.sub(r"[^A-Za-z0-9_.-]", "_", folder.name)[:40]
+    posix = folder.as_posix()  # a cluster's path, whatever this computer writes
     lines = [
         "#!/bin/bash",
         f"#SBATCH --job-name=solprop-{name}",
-        f"#SBATCH --output={shlex.quote(str(folder / JOB_OUTPUT))}",
-        f"#SBATCH --chdir={shlex.quote(str(folder))}",
+        f"#SBATCH --output={shlex.quote(posix + '/' + JOB_OUTPUT)}",
+        f"#SBATCH --chdir={shlex.quote(posix)}",
         "#SBATCH --ntasks=1",
         f"#SBATCH --cpus-per-task={int(resources.cpus)}",
         f"#SBATCH --signal=B:TERM@{WARNING_SECONDS}",
@@ -323,7 +345,9 @@ def slurm_script(
     lines.extend(line for line in resources.setup if line.strip())
     budget = str(threads) if threads is not None else "${SLURM_CPUS_PER_TASK:-1}"
     lines.append(f"export SOLPROP_THREADS={budget}")
-    command = " ".join(shlex.quote(part) for part in _job_command(python, folder))
+    command = " ".join(
+        shlex.quote(part) for part in [python, "-m", "solprop.service.job", posix]
+    )
     lines.append(f"exec {command}")
     return "\n".join(lines) + "\n"
 

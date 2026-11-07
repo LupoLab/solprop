@@ -618,6 +618,7 @@ def test_a_relative_include_is_read_from_the_ssh_folder(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("USERPROFILE", str(tmp_path))  # Path.home() on Windows
     (tmp_path / ".ssh").mkdir()
     (tmp_path / ".ssh" / "lab.conf").write_text("Host lab\n", encoding="utf-8")
     (tmp_path / ".ssh" / "config").write_text("Include lab.conf\n", encoding="utf-8")
