@@ -15,7 +15,7 @@ authors:
 # version and date-released are those of the latest release, set by the release
 # commit; tests/test_release_metadata.py checks them against CHANGELOG.md.
 version: 0.2.0
-date-released: "2026-11-06"
+date-released: "2026-11-07"
 license: GPL-3.0-or-later
 url: "https://solprop.readthedocs.io/"
 repository-code: "https://github.com/LupoLab/solprop"
