@@ -7,6 +7,7 @@
 Run as ``python fake_helper.py MODE``:
 
 ``protocol``   says hello in another protocol.
+``release``    says hello as solprop 0.1.0, and then nothing.
 ``chatty``     says hello, then a frame that is no dict, a reply nobody asked for, and
                an event, then answers one request.
 ``silent``     says hello and never answers.
@@ -28,6 +29,8 @@ def main() -> None:
     greeting = hello()
     if mode == "protocol":
         greeting["protocol"] = PROTOCOL + 1
+    if mode == "release":
+        greeting["solprop"] = "0.1.0"
     write_frame(out, greeting)
     if mode == "chatty":
         write_frame(out, [1, 2])

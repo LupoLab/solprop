@@ -209,8 +209,13 @@ class RunOptions(QWidget):
         if index >= 0:
             self.machine.setCurrentIndex(index)
         said = "" if machine.local else _STATES.get(state, state)
+        tip = "" if detail is None else str(detail)
+        if isinstance(detail, Mapping):
+            # Its hello: where it is, and a development build's version warning.
+            said = str(detail.get("warning") or "")
+            tip = f"{detail.get('host')}, solprop {detail.get('solprop')}"
         self.connection.setText(said)
-        self.connection.setToolTip("" if detail is None else str(detail))
+        self.connection.setToolTip(tip)
         slurm = not machine.local and machine.launcher == "slurm"
         self.resources.setVisible(slurm)
         if slurm:

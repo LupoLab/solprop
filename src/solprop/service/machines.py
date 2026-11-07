@@ -298,6 +298,27 @@ def _said(drainer: threading.Thread, errors: list[bytes]) -> str:
     return b"".join(errors).decode("utf-8", "replace").strip()
 
 
+def _development(version: str) -> bool:
+    """Return whether a solprop version is a development build's.
+
+    Parameters
+    ----------
+    version : str
+        The version.
+
+    Returns
+    -------
+    bool
+        True for a ``.dev`` release or one with a local part.
+
+    Examples
+    --------
+    >>> _development("0.2.0"), _development("0.2.1.dev17+g8077f26c3.d20261107")
+    (False, True)
+    """
+    return ".dev" in version or "+" in version
+
+
 class Connection:
     """A window's session with one machine's helper, which reconnects by itself.
 
@@ -505,9 +526,18 @@ class Connection:
                 f"{self.machine.name} speaks protocol {hello.get('protocol')}, "
                 f"this window {PROTOCOL}: install solprop {self._version} there"
             )
-        if hello.get("solprop") != self._version:
+        theirs = str(hello.get("solprop"))
+        if theirs != self._version:
+            if _development(theirs) or _development(self._version):
+                # A development build's version names its commit and checkout, so two
+                # builds of one change rarely agree: allowed, and said.
+                hello["warning"] = (
+                    f"{self.machine.name} has solprop {theirs}, this window "
+                    f"{self._version}"
+                )
+                return None
             return (
-                f"{self.machine.name} has solprop {hello.get('solprop')}, this window "
+                f"{self.machine.name} has solprop {theirs}, this window "
                 f"{self._version}: install solprop {self._version} there"
             )
         return None

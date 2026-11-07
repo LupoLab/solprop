@@ -204,13 +204,30 @@ def test_a_running_run_is_neither_removed_nor_lost_with_its_helper(
 
 def test_another_solprop_or_none_is_refused_and_not_retried(window: Window):
     other = Connection(
-        Machine(LOCAL), window.on_frame, window.on_state, version="0.0.0"
+        Machine(LOCAL),
+        window.on_frame,
+        window.on_state,
+        version="0.0.0",
+        command=fake("release"),
     )
     other.open()
     window.wait(lambda: "refused" in window.kinds())
     reason = dict(window.states)["refused"]
-    assert "has solprop" in str(reason) and "install solprop 0.0.0" in str(reason)
+    assert "has solprop 0.1.0" in str(reason) and "install solprop 0.0.0" in str(reason)
     other.close()
+
+    # A development build on either side: allowed, with a warning.
+    dev = Window()
+    near = Connection(
+        Machine(LOCAL), dev.on_frame, dev.on_state, version="0.2.1.dev3+gabc"
+    )
+    near.open()
+    dev.wait(lambda: "up" in dev.kinds())
+    assert (
+        near.hello is not None
+        and "this window 0.2.1.dev3+gabc" in near.hello["warning"]
+    )
+    near.close()
 
     missing = Window()
     command = [sys.executable, "-c", "import sys; sys.exit('No module named solprop')"]
