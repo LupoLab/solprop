@@ -1,6 +1,6 @@
 # solprop-gui
 
-`solprop-gui` is a desktop front end for [solprop](https://solprop.readthedocs.io/en/latest/),
+`solprop-gui` is a desktop front end for [solprop](https://solprop.readthedocs.io/en/stable/),
 a Python package for ultrafast nonlinear pulse propagation. It sets up, runs and reads
 solprop simulations without a script. Setups are described in physics terms: a capillary's
 core radius, a gas and its pressure, a pulse's wavelength, duration and energy.
@@ -49,9 +49,9 @@ runs it in separate processes and shows what it returns. It is drawn with Qt for
 
 ## Documentation
 
-- [The user guide's chapter on the front end](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html),
+- [The user guide's chapter on the front end](https://solprop.readthedocs.io/en/stable/guide/front-end/index.html),
   which also opens offline from the window's **Help** menu
-- [The solprop manual](https://solprop.readthedocs.io/en/latest/)
+- [The solprop manual](https://solprop.readthedocs.io/en/stable/)
 - [The front end's design](https://solprop.readthedocs.io/en/latest/dev/gui/design.html)
 
 The source is the

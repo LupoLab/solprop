@@ -7,6 +7,13 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Changed
+
+- The README, the package metadata, the desktop front end's Help and the native backend's
+  error messages now link the manual of the newest release (`/en/stable/`) rather than the
+  development version (`/en/latest/`), and the installation page's advice for a platform
+  without a native wheel now allows for the yanked 0.1.0.
+
 ### Fixed
 
 - The boundary monitor's record counts each committed step once: a step left unchecked and then checked at its saved plane is no longer counted among both the checked (`steps`) and the skipped steps, so the two add up to the committed steps. Under interpolated planes, a plane that no check read since the previous one, as a later plane inside one step, records its collar and guard occupancies as unmeasured (`None`) rather than the previous collar reading and empty guards (#133).
