@@ -76,7 +76,7 @@ function create_modal(c, host)
         node_forward=spectral ? plan(c, plan_rfft, nodes, 1) : nothing,
         absorber_spec_band=dzeros(c, C, spectral && in_stage ? nw : 0, spectral && in_stage ? nm : 0),
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
+        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
         raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),

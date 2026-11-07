@@ -349,3 +349,54 @@ def test_julia_vector_maths_is_within_an_ulp_or_two(runtime):
     assert np.isnan(specials[0])
     assert specials[1:].tolist() == [np.inf, 0.0, np.inf]
     assert np.isnan(float(apply(runtime.vlog, np.array([np.nan]))[0]))
+
+
+def _march(configuration, march):
+    """Run a window with the named march; return the field, history and ledger."""
+    os.environ["SOLPROP_JULIA_MARCH"] = march
+    try:
+        simulation = build(configuration)
+        problem = simulation.translate()
+        engine = select(
+            "julia",
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+    finally:
+        del os.environ["SOLPROP_JULIA_MARCH"]
+    assert engine._adams.native == (march == "julia")
+    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    engine.propagate_to(float(configuration["stop"]))
+    field = engine.observe(field=True).field
+    ledger = engine._adams.ledger
+    record = (
+        [tuple(attempt[:4]) for attempt in engine._history],
+        (ledger.startup, ledger.predictor, ledger.rejected, ledger.accepted_steps),
+        (ledger.rejected_steps, ledger.restarts, ledger.failure_restarts),
+        list(ledger.orders),
+    )
+    engine.close()
+    return field, record
+
+
+@pytest.mark.parametrize(
+    ("case", "fraction"),
+    [("rdw", 0.002), ("argon_blueshift", 0.002), ("ctc_reduced", 0.002)],
+)
+def test_julia_march_is_the_python_march(runtime, monkeypatch, case, fraction):
+    """Julia's Adams march takes the Python march's decisions on the same engine.
+
+    The same attempts, ledger and accepted orders, and the same field bit for bit;
+    estimated FFT plans, since a measured plan may differ from one process to the next.
+    """
+    del runtime
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
+    configuration = CASES[case].configuration(
+        "default", 2, "julia", fraction=fraction, noise="none"
+    )
+    field, record = _march(configuration, "julia")
+    reference, reference_record = _march(configuration, "host")
+    assert record == reference_record
+    np.testing.assert_array_equal(field, reference)

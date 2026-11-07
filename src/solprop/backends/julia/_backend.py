@@ -17,6 +17,7 @@ from solprop._process import _BlasLease
 from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame
 from solprop.backends.julia._helpers import JULIA
+from solprop.backends.julia._march import JuliaAdamsMarch
 from solprop.backends.julia._runtime import (
     call_julia,
     runtime,
@@ -52,6 +53,7 @@ from solprop.translate.stage import terms
 from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
 __all__ = ["JuliaBackend"]
+
 
 logger = logging.getLogger(__name__)
 _SPECIES_STATS = frozenset(
@@ -484,9 +486,37 @@ class JuliaBackend(StepDriver[object]):
             self._low_storage = LowStorageMarch(self, problem.stepper.integrator)
 
         if isinstance(problem.stepper.integrator, Multistep):
-            from solprop.backends.multistep import AdamsMarch  # noqa: PLC0415
+            self._adams = JuliaAdamsMarch(self, problem.stepper.integrator)
+            if self._adams.native:
+                self._warm_march(self._adams)
 
-            self._adams = AdamsMarch(self, problem.stepper.integrator)
+    def _warm_march(self, march: JuliaAdamsMarch) -> None:
+        """Run one attempt of Julia's march over a sliver of the span, then reset.
+
+        The engine's buffers are zeroed again: the march compiles here, not in the
+        first window.
+
+        Parameters
+        ----------
+        march : solprop.backends.julia._march.JuliaAdamsMarch
+            The run's march, which Julia's steps.
+        """
+        march._configure()
+        z0 = float(self._problem.initial.z)
+        limits, flags = march._bounds(z0 + 1e-9 * (march._policy.z_end - z0))
+        call_julia(
+            self._jl.march_run_b,
+            self._engine,
+            np.array([z0, self._proposal]),
+            np.array([1, 0, 0, 0], dtype=np.int64),
+            np.empty(0),
+            np.zeros(0, dtype=bool),
+            np.zeros(0, dtype=np.int64),
+            np.zeros(7, dtype=np.int64),
+            limits,
+            flags,
+        )
+        call_julia(self._jl.reset_work_b, self._engine)
 
     def _warm_bridge(self) -> None:
         """Call each bridge entry the march reaches with the arguments it will pass.

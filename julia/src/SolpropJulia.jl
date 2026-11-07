@@ -43,6 +43,7 @@ include("dopri.jl")
 include("rk4.jl")
 include("adams.jl")
 include("helpers.jl")
+include("march.jl")
 include("stages.jl")
 include("observe.jl")
 
@@ -117,6 +118,13 @@ function warm!(engine)
     column_energy(engine)
     w.edge[] = nothing
     w.plasma === nothing || population_snapshot(engine, nothing)
+    reset_work!(engine)
+end
+
+"""Zero the state and every buffer a warm-up wrote, and the engine's counters."""
+function reset_work!(engine)
+    c, w = engine.config, engine.work
+    a = w.adams
     buffers = (w.y, w.candidate, w.lab, w.source, w.error, w.stages, w.forward, w.inverse)
     a === nothing || (buffers = (buffers..., a.store, a.states, a.rates, a.moments, a.carried, a.endpoint))
     foreach(buffer -> fill!(buffer, 0), buffers)
@@ -204,5 +212,6 @@ const bind_edge_b = bind_edge!
 const trial_b = trial!
 const commit_b = commit!
 const evaluate_b = evaluate!
+const reset_work_b = reset_work!
 
 end
