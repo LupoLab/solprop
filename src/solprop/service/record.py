@@ -32,7 +32,7 @@ import sys
 import tempfile
 import threading
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Final
@@ -517,6 +517,15 @@ class EventLog:
         The run's folder, which exists.
     run_id : str
         The run.
+    job : Callable or None, optional
+        Makes the run's ``job.json`` record, written first by the writer, so that
+        stamping the process (a ``ps`` off Linux) and syncing the file stay off the
+        run's own path; the record is :attr:`job` once written.
+
+    Attributes
+    ----------
+    job : Job or None
+        The run's ``job.json``, once the writer has written it.
 
     Examples
     --------
@@ -532,10 +541,14 @@ class EventLog:
     'finished'
     """
 
-    def __init__(self, folder: Path, run_id: str) -> None:
+    def __init__(
+        self, folder: Path, run_id: str, job: Callable[[], Job] | None = None
+    ) -> None:
         """Open the record for appending and start its writer."""
         self.folder = folder
         self.run_id = run_id
+        self.job: Job | None = None
+        self._make_job = job
         self._queue: queue.SimpleQueue[Event | None] = queue.SimpleQueue()
         self._last_progress = -float("inf")
         self._status: dict[str, Any] = {"run_id": run_id, "updated": time.time()}
@@ -617,7 +630,11 @@ class EventLog:
             write_json(self.folder / STATUS, self._status)
 
     def _write(self) -> None:
-        """Write events until the record is closed."""
+        """Write the run's ``job.json``, then its events until the record is closed."""
+        if self._make_job is not None:
+            self.job = self._make_job()
+            with contextlib.suppress(OSError):
+                write_job(self.folder, self.job)
         while True:
             try:
                 event = self._queue.get(timeout=HEARTBEAT)

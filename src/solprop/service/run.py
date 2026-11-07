@@ -605,7 +605,7 @@ def execute(
     output = folder / OUTPUT
     stop = threading.Event()
     done = threading.Event()
-    record, job = _open_record(spec, folder, stop, done)
+    record = _open_record(spec, folder, stop, done)
     outbox = Outbox(copy_to=None if record is None else record.put)
     observer = LiveObserver(spec.run_id, Reducer(_display(spec, output)), outbox)
     sender: threading.Thread | None = None
@@ -636,9 +636,10 @@ def execute(
         outbox.put(Event(spec.run_id, kind, data))
         outbox.close()
         done.set()
-        if record is not None and job is not None:
+        if record is not None:
             record.close()
-            write_job(folder, replace(job, ended=time.time()))
+            if record.job is not None:
+                write_job(folder, replace(record.job, ended=time.time()))
         if sender is not None:
             sender.join(timeout=10.0)
         detach()
@@ -646,7 +647,7 @@ def execute(
 
 def _open_record(
     spec: RunSpec, folder: Path, stop: threading.Event, done: threading.Event
-) -> tuple[EventLog | None, Job | None]:
+) -> EventLog | None:
     """Start a run's record, when its spec asks for one.
 
     Parameters
@@ -662,16 +663,19 @@ def _open_record(
 
     Returns
     -------
-    tuple
-        Its record and its ``job.json``; both ``None`` for a run without a record.
+    solprop.service.record.EventLog or None
+        Its record, which writes its ``job.json`` first; ``None`` for a run without
+        one.
     """
     if not spec.record:
-        return None, None
+        return None
     clear_stop(folder)
-    job = Job.here(spec.run_id, spec.launcher, spec.threads)
-    write_job(folder, job)
     watch_stop(folder, stop, done)
-    return EventLog(folder, spec.run_id), job
+    return EventLog(
+        folder,
+        spec.run_id,
+        job=lambda: Job.here(spec.run_id, spec.launcher, spec.threads),
+    )
 
 
 def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]:
