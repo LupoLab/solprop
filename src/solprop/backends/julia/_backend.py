@@ -185,7 +185,6 @@ def _refuse(problem: KernelProblem) -> None:
         "planar transforms": transform.geometry is not None
         and transform.geometry.kind not in {"radial", "free"},
         "nonseparable longitudinal tables": not terms(problem).device_ready,
-        "multiple plasma channels": len(response.plasma_channels) > 1,
         # Several components sum into one kernel (each term weighted by its density
         # and fraction); they must agree on the third harmonic.
         "Raman components that disagree on the third harmonic": len(
@@ -414,11 +413,13 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         )
 
     if responses.plasma_channels:
-        channel = responses.plasma_channels[0]
-        table = channel.rate
-        config.update(
-            plasma_coefficients=table.coefficients.copy(),
-            plasma_parameters=np.array(
+        # Each channel's rate table and constants; the first unsuffixed, later ones _k.
+        config["plasma_count"] = len(responses.plasma_channels)
+        for k, channel in enumerate(responses.plasma_channels, start=1):
+            suffix = "" if k == 1 else f"_{k}"
+            table = channel.rate
+            config[f"plasma_coefficients{suffix}"] = table.coefficients.copy()
+            config[f"plasma_parameters{suffix}"] = np.array(
                 [
                     table.field_min,
                     table.field_max,
@@ -430,7 +431,8 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
                     float(channel.density(0.0)),
                     float(channel.preionisation(0.0)),
                 ]
-            ),
+            )
+        config.update(
             plasma_taps=responses.plasma_integral.taps.copy(),
             plasma_floor=responses.plasma_integral.policy == "band",
             dt=grids.dt_fine,
@@ -819,9 +821,10 @@ class JuliaBackend(StepDriver[object]):
         kerr = responses.kerr_coefficients
         if kerr is not None:
             tables["kerr"] = responses.density if kerr.density is None else kerr.density
-        for channel in responses.population_channels[:1]:
-            tables["plasma"] = channel.density
-            tables["preionisation"] = channel.preionisation
+        for k, channel in enumerate(responses.population_channels, start=1):
+            suffix = "" if k == 1 else f"_{k}"
+            tables[f"plasma{suffix}"] = channel.density
+            tables[f"preionisation{suffix}"] = channel.preionisation
         if problem.transform.taper_scale is not None:
             # A tapered guide's scale: the synthesis takes it, the projection its
             # reciprocal.
@@ -1349,7 +1352,10 @@ class JuliaBackend(StepDriver[object]):
             # The engine reads the state it holds, which is the one observed.
             del state
             raw = call_julia(self._jl.population_snapshot, self._engine, None)
-            fractions, peaks = (np.asarray(raw[i], dtype=float)[None] for i in (0, 1))
+            # A row a channel.
+            fractions, peaks = (
+                np.atleast_2d(np.asarray(raw[i], dtype=float)) for i in (0, 1)
+            )
             parts = np.asarray(raw[2], dtype=float)
         else:
             fractions = peaks = np.zeros((0, self._problem.transform.n_nodes))

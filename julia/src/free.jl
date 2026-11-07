@@ -325,7 +325,9 @@ function population_free_snapshot(engine, input)
         each!(c, size(modal)...) do t, m
             @inbounds projected[t, m] = scale * modal[t, m]
         end
-        maxima .= max.(maxima, population_parts!(p, projected, c, first, count))
+        each_channel(p) do q, _
+            maxima .= max.(maxima, population_parts!(q, projected, c, first, count))
+        end
     end
-    (Vector{Float64}(Array(p.fractions)), Vector{Float64}(Array(p.peaks)), maxima)
+    (channel_rows(p.fractions_all), channel_rows(p.peaks_all), maxima)
 end

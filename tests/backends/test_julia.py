@@ -478,6 +478,65 @@ def test_julia_free_space_raman_matches_the_reference(runtime, grid_kind, thg):
     assert float(np.linalg.norm(field - expected)) <= 1e-10 * scale
 
 
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@binary64
+def test_julia_two_plasma_channels_match_the_reference(runtime):
+    """Air's two ionising species: each channel's rates and currents, summed, and each
+    species' populations, as the reference forms them."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+
+    length, observed = 0.004, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            simulation = Simulation.from_capillary(
+                50e-6,
+                length,
+                {"N2": 0.79, "O2": 0.21},
+                1.0,
+                wavelength=800e-9,
+                wavelength_limits=(200e-9, 3e-6),
+                trange=300e-15,
+                fwhm=10e-15,
+                energy=60e-6,
+                n_save=2,
+                backend=name,
+                integrator=RungeKutta(),
+                schedule=FixedSchedule.uniform(0.0, length, length / 16),
+                absorber_scheme="split_step",
+                noise=None,
+                raman=False,
+            )
+            problem = simulation.translate()
+            assert len(problem.responses.plasma_channels) == 2
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(length)
+            observed[name] = (
+                engine.observe(field=True).field,
+                engine.stats(problem.stats_spec),
+            )
+    (field, statistics), (expected, reference) = (
+        observed["julia"],
+        observed["numpy_ref"],
+    )
+    scale = float(np.linalg.norm(expected))
+    assert float(np.linalg.norm(field - expected)) <= 1e-10 * scale
+    for statistic, value in reference.items():
+        if statistic in ROUNDING_ESTIMATES or statistic not in statistics:
+            continue
+        largest = float(np.max(np.abs(value), initial=0.0))
+        np.testing.assert_allclose(
+            statistics[statistic],
+            value,
+            rtol=1e-9,
+            atol=1e-9 * largest,
+            err_msg=statistic,
+        )
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""

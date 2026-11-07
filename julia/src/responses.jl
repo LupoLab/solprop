@@ -83,11 +83,19 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
     # the spectral modal path), the modes' where they are projected first.
     by_node = c.free || (haskey(c, :spectral) && c.spectral)
     columns = by_node ? 0 : nm
+    # Several channels (a mixture's species): each its rate table and constants, the
+    # first's also as the workspace's own fields, so that one channel runs as before.
+    count = host.has("plasma_count") ? host.int("plasma_count") : 1
+    suffix(k) = k == 1 ? "" : "_$k"
+    channels = [(coefficients=upload(c, host.array("plasma_coefficients" * suffix(k), T)),
+                 parameters=host.array("plasma_parameters" * suffix(k), Float64)) for k in 1:count]
+    fractions_all, peaks_all = dzeros(c, T, nn, count), dzeros(c, T, nn, count)
     (
-        coefficients=upload(c, host.array("plasma_coefficients", T)),
+        channels=channels, fractions_all=fractions_all, peaks_all=peaks_all,
+        coefficients=channels[1].coefficients,
         # Field range, rate cap, log-table origin and step, charge-mass ratio and
         # ionisation potential; density and preionisation are a stage's (stages.jl).
-        parameters=host.array("plasma_parameters", Float64),
+        parameters=channels[1].parameters,
         taps=upload(c, host.array("plasma_taps", T)), floor=host.flag("plasma_floor"),
         dt=T(host.real("dt")), field_scale=T(c.scale),
         inverse_omega=upload(c, T.(inv.(host.array("omega", Float64)))),
@@ -103,7 +111,8 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
         coarse=dzeros(c, T, nt, columns), coarse_edge=dzeros(c, T, nt, columns),
         spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, by_node ? chunk : nm),
         edge_spectrum=dzeros(c, Complex{T}, nt ÷ 2 + 1, by_node ? chunk : nm),
-        fractions=dzeros(c, T, nn), peaks=dzeros(c, T, nn), parts=dzeros(c, T, 6, chunk),
+        fractions=view(fractions_all, :, 1), peaks=view(peaks_all, :, 1),
+        parts=dzeros(c, T, 6, chunk),
     )
 end
 
@@ -174,7 +183,7 @@ end
 """The gated and edge currents of a column: the free current plus the loss current,
 formed everywhere and kept where the rate and the field are live."""
 @noinline function currents_column!(gated, edge, nodes, rate, fraction, current, window,
-                                    derivative, node, potential, density)
+                                    derivative, node, potential, density, add=false)
     none = zero(potential)
     @inbounds @simd for t in axes(nodes, 1)
         field, value = nodes[t, node], rate[t, node]
@@ -182,8 +191,13 @@ formed everywhere and kept where the rate and the field are live."""
         loss = ifelse((value > 0) & (squared > 0),
                       (potential * value * (1 - fraction[t, node]) / squared) * field, none)
         total = density * (current[t, node] + loss)
-        gated[t, node] = window[t] * total
-        edge[t, node] = derivative[t] * total
+        if add
+            gated[t, node] += window[t] * total
+            edge[t, node] += derivative[t] * total
+        else
+            gated[t, node] = window[t] * total
+            edge[t, node] = derivative[t] * total
+        end
     end
 end
 """The rate inside the table's span, `lower <= x < upper` (or NaN)."""
@@ -327,9 +341,27 @@ pass is a sample a thread and the two running integrals are column-wise scans: t
 sums are reassociated, which SEP 25 permits and the tests bound, as native's
 two-level device scans do.
 """
-plasma_current!(p, nodes, c, count) =
-    oncpu(c) && !SAMPLE_PLASMA[] ? plasma_columns!(p, nodes, c, count) :
-    plasma_samples!(p, nodes, c, count)
+plasma_current!(p, nodes, c, count) = each_channel(p) do q, add
+    oncpu(c) && !SAMPLE_PLASMA[] ? plasma_columns!(q, nodes, c, count, add) :
+    plasma_samples!(q, nodes, c, count, add)
+end
+
+"""Call `f(q, add)` for each plasma channel: `q` the workspace with the channel's rate
+table, constants and population tables in place of the first's, `add` whether its
+currents add to those the channels before it formed."""
+function each_channel(f::F, p) where {F}
+    for (k, channel) in enumerate(p.channels)
+        q = k == 1 ? p :
+            merge(p, (coefficients=channel.coefficients, parameters=channel.parameters,
+                      fractions=view(p.fractions_all, :, k), peaks=view(p.peaks_all, :, k)))
+        f(q, k > 1)
+    end
+end
+
+"""The channels' population tables for the host: a vector for one channel, a
+(channel, node) matrix for several."""
+channel_rows(a) = size(a, 2) == 1 ? Vector{Float64}(Array(a)[:, 1]) :
+                  Matrix{Float64}(permutedims(Array(a)))
 # SOLPROP_JULIA_PLASMA=samples takes the GPU's path on a CPU too.
 const SAMPLE_PLASMA = Ref(false)
 
@@ -348,7 +380,7 @@ function integrate_samples!(out, values, taps, dt, c, count)
     nothing
 end
 
-function plasma_samples!(p, nodes, c, count)
+function plasma_samples!(p, nodes, c, count, add=false)
     T = typeof(p.dt)
     (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative) = p
     window, floor = c.window, p.floor
@@ -376,13 +408,18 @@ function plasma_samples!(p, nodes, c, count)
             loss = rate[t, n] > 0 && squared > 0 ?
                    (potential * rate[t, n] * (1 - fraction[t, n]) / squared) * field : none
             total = density * (current[t, n] + loss)
-            gated[t, n] = window[t] * total
-            edge[t, n] = derivative[t] * total
+            if add
+                gated[t, n] += window[t] * total
+                edge[t, n] += derivative[t] * total
+            else
+                gated[t, n] = window[t] * total
+                edge[t, n] = derivative[t] * total
+            end
         end
     end
 end
 
-function plasma_columns!(p, nodes, c, count)
+function plasma_columns!(p, nodes, c, count, add=false)
     T = typeof(p.dt)
     (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative, live, scratch, knots) = p
     window, floor = c.window, p.floor
@@ -395,7 +432,8 @@ function plasma_columns!(p, nodes, c, count)
         peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args, live, scratch, knots)
         # With exactly zero rates and no initial electrons both currents vanish.
         if iszero(peak) && iszero(initial)
-            @inbounds for t in 1:nt
+            # (A later channel adds nothing.)
+            add || @inbounds for t in 1:nt
                 gated[t, node] = 0
                 edge[t, node] = 0
             end
@@ -404,7 +442,7 @@ function plasma_columns!(p, nodes, c, count)
         fraction_column!(fraction, integrand, nodes, node, initial, charge, floor)
         integrate_column!(current, integrand, node, taps, dt)
         currents_column!(gated, edge, nodes, rate, fraction, current, window, derivative,
-                         node, potential, density)
+                         node, potential, density, add)
         nothing
     end
 end

@@ -14,7 +14,11 @@ function path_workspace(c, host)
     (phi=upload(c, phi), prefactor=upload(c, pre),
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
      delta_device=dzeros(c, wide_eltype(c), size(phi, 3), stages),
-     weights_device=dzeros(c, c.T, size(pre, 3), stages), material=[zeros(3, stages); ones(1, stages)],
+     weights_device=dzeros(c, c.T, size(pre, 3), stages),
+     # Kerr, the first channel's density and preionisation, the taper, then each later
+     # channel's density and preionisation.
+     material=[zeros(3, stages); ones(1, stages);
+               zeros(2 * ((host.has("plasma_count") ? host.int("plasma_count") : 1) - 1), stages)],
      tables=Dict{String,Any}(), constants=zeros(4))
 end
 
@@ -49,6 +53,10 @@ function material_stage!(engine, stage)
     if w.plasma !== nothing
         w.plasma.parameters[8] = p.material[2, stage]
         w.plasma.parameters[9] = p.material[3, stage]
+        for k in 2:length(w.plasma.channels)
+            parameters = w.plasma.channels[k].parameters
+            parameters[8], parameters[9] = p.material[3+2(k-1), stage], p.material[4+2(k-1), stage]
+        end
     end
 end
 
@@ -124,8 +132,10 @@ function configure_stages_at!(engine, z0, positions)
     column(name) = haskey(tables, name) ? stage_values(tables[name], zs)[:, 1] : zeros(n)
     density = column("kerr")
     taper = haskey(tables, "taper") ? stage_values(tables["taper"], zs)[:, 1] : ones(n)
+    later = [column(name * "_$k") for k in 2:(size(path.material, 1) - 2) ÷ 2
+             for name in ("plasma", "preionisation")]
     material = permutedims(hcat([kerr * d * scale2 for d in density],
-                                column("plasma"), column("preionisation"), taper))
+                                column("plasma"), column("preionisation"), taper, later...))
     configure_stages!(engine, delta, weights, material)
 end
 

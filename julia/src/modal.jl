@@ -423,7 +423,9 @@ function population_snapshot(engine, input)
         last = min(first + chunk - 1, nn)
         count = last - first + 1
         gemm!(@view(w.nodes[:, 1:count]), w.modal, @view(c.synthesis[:, first:last]), engine.taper, false, c)
-        maxima .= max.(maxima, population_parts!(p, w.nodes, c, first, count))
+        each_channel(p) do q, _
+            maxima .= max.(maxima, population_parts!(q, w.nodes, c, first, count))
+        end
     end
-    (Vector{Float64}(Array(p.fractions)), Vector{Float64}(Array(p.peaks)), maxima)
+    (channel_rows(p.fractions_all), channel_rows(p.peaks_all), maxima)
 end
