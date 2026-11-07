@@ -363,8 +363,14 @@ class SpatialPulse(Displayed):
                 plane_sample(medium, z, side),
             )
             exponent = operator * self.propz
-        total = np.zeros((spectrum.size, jones.size, grid.n_omega), complex)
-        for member in _members(self.temporal):
+        members = _members(self.temporal)
+        # One member is the sum: it needs no zeroed total of its own.
+        total = (
+            None
+            if len(members) == 1
+            else np.zeros((spectrum.size, jones.size, grid.n_omega), complex)
+        )
+        for member in members:
             temporal = member.build(grid)
             if temporal.shape != (1, 1, grid.n_omega):
                 msg = "SpatialPulse requires a scalar single-column temporal pulse"
@@ -382,8 +388,27 @@ class SpatialPulse(Displayed):
                 field = field * np.exp(exponent)[:, None, :]
             if aligner is not None:
                 field = aligner.apply(field)
-            field = _hard_masked(field, live, space.spectral_weights, grid)
-            field = _normalised(member, temporal, field, flux, admittance, grid)
+            # The mask's judgement and the energy both read each column's norm over
+            # the polarisations: summed once, before the mask, where the bins it
+            # zeroes have no admittance and so add nothing to the energy.
+            column_norms = np.empty((spectrum.size, grid.n_omega))
+            field = _hard_masked(
+                field, live, space.spectral_weights, grid, column_norms=column_norms
+            )
+            field = _normalised(
+                member,
+                temporal,
+                field,
+                flux,
+                admittance,
+                grid,
+                column_norms=column_norms,
+            )
+            if total is None:
+                # What adding it to zeros gave: the same numbers, a negative zero
+                # made positive.
+                _add_rows(field, None)
+                return np.asarray(field, dtype=np.complex128)
             _add_rows(total, field)
         # Each member is a finite field scaled by the finite factor of a finite,
         # positive measured flux (_normalising_factor refuses the rest), so the sum
@@ -1273,6 +1298,8 @@ def _hard_masked(
     live: np.ndarray,
     weights: np.ndarray,
     grid: TimeGrid,
+    *,
+    column_norms: np.ndarray | None = None,
 ) -> np.ndarray:
     """Zero a beam's bins without forward admittance, refusing real content there.
 
@@ -1291,6 +1318,9 @@ def _hard_masked(
         Transverse Parseval weights, ``(n_modes,)``.
     grid : solprop.grid.TimeGrid
         Temporal grid.
+    column_norms : numpy.ndarray or None, optional
+        Filled, when given, with each column's ``sum |field|^2`` over the
+        polarisations before the mask, ``(n_modes, n_omega)``.
 
     Returns
     -------
@@ -1318,7 +1348,10 @@ def _hard_masked(
         tuple of float
             The block's two sums.
         """
-        norm = weights[rows, None] * np.sum(np.abs(field[rows]) ** 2, axis=1)
+        squares = np.sum(np.abs(field[rows]) ** 2, axis=1)
+        if column_norms is not None:
+            column_norms[rows] = squares
+        norm = weights[rows, None] * squares
         return float(np.sum(norm[outside[rows]])), float(np.sum(norm[:, band]))
 
     def mask(rows: slice) -> None:
@@ -1387,15 +1420,16 @@ def _separable_field(
     return field
 
 
-def _add_rows(total: np.ndarray, part: np.ndarray) -> None:
+def _add_rows(total: np.ndarray, part: np.ndarray | None) -> None:
     """Add `part` to `total` in place, row by row, in threads.
 
     Parameters
     ----------
     total : numpy.ndarray
         The sum so far.
-    part : numpy.ndarray
-        What to add, of the same shape.
+    part : numpy.ndarray or None
+        What to add, of the same shape; ``None`` adds zero, which leaves every
+        number as it is but makes a negative zero positive.
     """
 
     def work(rows: slice) -> None:
@@ -1406,7 +1440,7 @@ def _add_rows(total: np.ndarray, part: np.ndarray) -> None:
         rows : slice
             The block of the first axis.
         """
-        total[rows] += part[rows]
+        total[rows] += 0.0 if part is None else part[rows]
 
     parallel_rows(total.shape[0], total.nbytes, work)
 
@@ -1462,6 +1496,8 @@ def _normalising_factor(
     beam: np.ndarray,
     plane: _Plane,
     grid: TimeGrid,
+    *,
+    column_norms: np.ndarray | None = None,
 ) -> float:
     """Return the factor giving a beam its requested physical energy or peak power.
 
@@ -1477,6 +1513,10 @@ def _normalising_factor(
         Its measure at the launch plane.
     grid : solprop.grid.TimeGrid
         Temporal grid.
+    column_norms : numpy.ndarray or None, optional
+        Each column's ``sum |beam|^2`` over the polarisations, ``(n_modes,
+        n_omega)``, where the caller has it: wherever it differs from the beam's own,
+        the admittance must be zero.
 
     Returns
     -------
@@ -1501,11 +1541,16 @@ def _normalising_factor(
             rows : slice
                 The block of the first axis.
             """
+            squares = (
+                np.sum(np.abs(beam[rows]) ** 2, axis=1)
+                if column_norms is None
+                else column_norms[rows]
+            )
             terms[rows] = (
                 plane.weights[rows, None]
                 * energy_weights
                 * np.real(plane.admittance[rows])
-                * np.sum(np.abs(beam[rows]) ** 2, axis=1)
+                * squares
             )
 
         parallel_rows(beam.shape[0], beam.nbytes, work)
@@ -1529,13 +1574,15 @@ def _normalising_factor(
     return math.sqrt(target / measured)
 
 
-def _normalised(
+def _normalised(  # noqa: PLR0913 - the request, the beam, its measure and its norms
     pulse: Pulse,
     temporal: np.ndarray,
     field: np.ndarray,
     flux: SpatialFlux,
     admittance: np.ndarray,
     grid: TimeGrid,
+    *,
+    column_norms: np.ndarray | None = None,
 ) -> np.ndarray:
     """Scale a spatial beam in place to its requested physical energy or peak power.
 
@@ -1553,6 +1600,8 @@ def _normalised(
         Its admittance, ``(n_modes, n_omega)``.
     grid : solprop.grid.TimeGrid
         Temporal grid.
+    column_norms : numpy.ndarray or None, optional
+        Passed to :func:`_normalising_factor`.
 
     Returns
     -------
@@ -1564,7 +1613,9 @@ def _normalised(
         admittance=admittance,
         scale=flux.energy_scale,
     )
-    factor = _normalising_factor(pulse, temporal, field, plane, grid)
+    factor = _normalising_factor(
+        pulse, temporal, field, plane, grid, column_norms=column_norms
+    )
 
     def scale(rows: slice) -> None:
         """Scale one block.
