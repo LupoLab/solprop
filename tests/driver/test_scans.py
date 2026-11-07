@@ -630,6 +630,7 @@ def test_linux_allocation_uses_affinity_slurm_and_cgroup(tmp_path, monkeypatch):
     )
     monkeypatch.delenv("SOLPROP_THREADS", raising=False)
     monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+    monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
     memory = tmp_path / "memory.max"
     memory.write_text(str(1024**3))
     missing = tmp_path / "missing"

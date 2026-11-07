@@ -1987,3 +1987,23 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** native Runge–Kutta trajectories moved once at rounding level (phase 2); the
   split collar's crossing limit sums in one sequential order (Q7); the driver's protected
   surface gained `_account_step`, `_statistics_step` and `_watched_step` for `_skip_step`.
+
+## ADR-070 — On a chip with cores of several kinds, the budget is the fastest kind's cores
+
+- **Status:** accepted (maintainer), 2026-11-07; amends ADR-052 and ADR-056.
+- **Context:** the budget counted every core of an Apple M5 Max, 6 top-tier and 12 second-tier
+  (macOS performance levels 0 and 1). A parallel pass splits its work evenly and waits for its
+  slowest thread, so a team spanning both kinds runs at the second tier's pace. Native 2 %
+  windows on that chip (#333, 2026-11-07, every width in one session): five of six cases took
+  1.17–1.49 times as long at the default 18 threads as at 6, and already lost at 8; only the
+  Cartesian beam was faster at 18 (0.94) and at 12. Waiting policy did not change this. The
+  Julia backend experiment (#559, #560) was also fastest on 6 threads in most cases.
+- **Decision:** where macOS reports more than one performance level, the budget also counts the
+  cores of level 0 (`hw.perflevel0.physicalcpu`), unless `SOLPROP_THREADS` is set, as with the
+  physical cores (ADR-056). The limit is recorded as `thread_budget_source = "top-tier cores"`.
+  Linux and Windows are not read: no measurement there on a chip with two kinds of core.
+- **Why:** the narrower team is the best or near the best for every case measured, and the
+  wider budget stays one variable away for the problems that use it.
+- **Consequences:** a default run on an M5 Max takes 6 threads, not 18. Scheduling that lets a
+  wider team pay on such chips (dynamic chunks, a capped second tier) is measured separately
+  and does not change this default.

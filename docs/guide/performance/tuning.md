@@ -71,6 +71,12 @@ Every thread pool stays within the process's **thread budget**, the smallest of:
   second hardware thread shares its arithmetic units, and on 36 cores of two Intel Xeon
   Gold 6240 one thread per core ran every benchmark case 6 to 31 % faster than two
   (read on Linux and Windows; Apple silicon has one thread per core);
+- on a Mac whose chip has cores of more than one kind, the cores of the fastest kind
+  (`sysctl hw.perflevel0.physicalcpu`), unless `SOLPROP_THREADS` is set: a parallel
+  pass splits its work evenly and waits for its slowest thread, and on an Apple M5 Max
+  (6 top-tier and 12 second-tier cores) five of six cases took 1.17 to 1.49 times as
+  long on all 18 as on the 6. Set `SOLPROP_THREADS=18` to use every core, which can pay
+  on large Cartesian runs;
 - the tightest Linux control-group CPU quota on its path (containers), rounded **down**:
   a quota limits CPU time, and a team of threads that exceeds it is throttled whole, so
   a quota of 1.5 CPUs runs one thread;

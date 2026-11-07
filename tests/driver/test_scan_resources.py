@@ -31,6 +31,7 @@ from solprop.exceptions import DriverError
 def _fake_cpus_are_cores(monkeypatch):
     """Count the faked CPU lists as cores, whatever this machine's hardware threads."""
     monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+    monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
 
 
 @pytest.mark.parametrize("value", ["max", "0", "4294967296"])

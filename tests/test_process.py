@@ -19,6 +19,12 @@ NATIVE_BUDGET = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _one_kind_of_core(monkeypatch):
+    """Fake topologies stand alone: this machine's kinds of core do not enter them."""
+    monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
+
+
 @pytest.fixture
 def granted(monkeypatch):
     """A process granted CPUs 0-17 at import."""
@@ -228,6 +234,7 @@ def native_budget(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "_native_budget", module)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "top_tier_cores", lambda: None)
     return module
 
 
@@ -511,9 +518,73 @@ def test_parallel_rows_covers_each_row_once_in_threads_when_it_pays(monkeypatch)
     ]
 
 
+def test_a_small_pass_reads_no_budget(monkeypatch):
+    """Below the threshold no pass threads, so the topology is not walked (#556)."""
+
+    def unread():
+        raise AssertionError("a small pass read the thread budget")
+
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
+    monkeypatch.setattr(_process, "thread_budget", unread)
+    assert _process.parallel_rows(10, 99, lambda part: part) == [slice(0, 10)]
+    assert _process.parallel_rows(1, 100, lambda part: part) == [slice(0, 1)]
+
+
 def test_parallel_rows_takes_one_call_when_threads_would_not_pay(monkeypatch):
     monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
     monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
     assert _process.parallel_rows(10, 99, lambda part: part) == [slice(0, 10)]
     monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=1))
     assert _process.parallel_rows(10, 100, lambda part: part) == [slice(0, 10)]
+
+
+def _perf_levels(levels, top):
+    """A ``sysctl`` reader for a chip with ``levels`` kinds of core, ``top`` fastest."""
+    values = {"hw.nperflevels": levels, "hw.perflevel0.physicalcpu": top}
+    return values.get
+
+
+@pytest.mark.parametrize(
+    ("platform", "levels", "top", "expected"),
+    [
+        ("darwin", 2, 6, 6),  # an Apple M5 Max: 6 top-tier and 12 second-tier cores
+        ("darwin", 1, 8, None),  # one kind of core: no limit
+        ("darwin", None, None, None),  # an older kernel without performance levels
+        ("linux", 2, 6, None),  # not read elsewhere
+    ],
+)
+def test_top_tier_cores_read_the_fastest_performance_level(
+    native_budget, monkeypatch, platform, levels, top, expected
+):
+    for module in (_process, native_budget):
+        monkeypatch.undo()
+        monkeypatch.setattr(module.sys, "platform", platform)
+        monkeypatch.setattr(module, "_sysctl_int", _perf_levels(levels, top))
+        reader = getattr(module.top_tier_cores, "__wrapped__", module.top_tier_cores)
+        assert reader() == expected
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        (None, ("top-tier cores", 6)),
+        # Asking for threads lifts the top tier too: the second tier stays reachable.
+        ("12", ("SOLPROP_THREADS", 12)),
+    ],
+)
+def test_the_budget_keeps_to_the_top_tier_unless_threads_are_asked_for(
+    monkeypatch, native_budget, variable, expected
+):
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(18)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module, "top_tier_cores", lambda: 6)
+    if variable is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", variable)
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(18, None)
+    assert (ours.source, ours.threads) == expected
+    assert (theirs.source, theirs.threads) == expected
