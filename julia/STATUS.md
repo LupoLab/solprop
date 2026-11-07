@@ -114,7 +114,7 @@ On the M5 Max the engine is faster than native on the CPU, and runs on its GPU. 
 ledger has the rows.
 
 - **CPU, binary64.** 2 % windows on 1, 6 and 18 threads: 0.83 over native (16 of 21
-  rows faster). Whole runs on 6 threads: 0.82 (`ctc_reduced` 0.71, `h2_raman_6ps` 0.82
+  rows faster); on 6 threads with 30 s idle between workers 0.79. Whole runs on 6 threads: 0.82 (`ctc_reduced` 0.71, `h2_raman_6ps` 0.82
   over 63 s, the Cartesian beam 1.02), the same steps, fields to 1e-11. On one thread
   the two are close (0.84 to 1.23); the gap opens with threads, as native's OpenMP
   regions slow on the 12 second-tier cores (eight threads already slower than six, 18
@@ -133,9 +133,10 @@ ledger has the rows.
   result rounded once to binary32. `SOLPROP_JULIA_WIDE=df32` takes it on any device;
   binary64 runs keep their arithmetic exactly. Its phi functions agree with binary64's
   to within 2^-36, its propagator pair to 8 binary32 ulps up to a 1e6 rad phase.
-- **Measurement.** On the Mac a heavy process slows the next one's windows by 10 to
-  80 % (no thermal warning): a Julia worker compiles for seconds before its window, so
-  the A/Bs ran both arms warm. `benchmarks ab --cooldown` idles between workers.
+- **Measurement.** Absolute times on the Mac moved by up to 40 % over a day of
+  benchmarks, with no thermal warning; the ratio did not (0.79 to 0.88 over every
+  variant: windows, whole runs, 30 s idle between workers, single-backend passes back
+  to back). Quote ratios from interleaved arms, not absolute times from different runs.
 
 ## Floating point (2026-11-07)
 
@@ -220,6 +221,6 @@ planes are refused by name; so is binary64 on Metal.
 - On the M5 Max native is slower on 8 and on 18 threads than on 6, on most cases: its
   parallel regions wait for the second-tier cores. OpenMP's `active` waiting does not
   change it. Not filed yet.
-- On the Mac a heavy process slows the next process's windows by 10 to 80 %, so an
-  A/B of a compiling arm (Julia) against a quick one runs both warm; `benchmarks ab
-  --cooldown` (this branch) idles between workers.
+- On the Mac absolute times drift by up to 40 % over a day of sustained benchmarking
+  (no thermal warning recorded); only interleaved ratios are comparable across runs.
+  `benchmarks ab --cooldown` (this branch) idles between workers; 30 s did not undo it.

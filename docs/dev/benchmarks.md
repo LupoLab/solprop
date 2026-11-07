@@ -3140,13 +3140,14 @@ The same M5 Max, later commits:
   `h2_raman_6ps` and `line`, and on 12 for `kerr_beam_192` and `ctc_reduced`; eight
   threads, two of them second-tier, are already slower than six, and 18 take 1.4 to 1.5
   times six's time (`h2_raman_6ps` 0.61 -> 0.91 s).
-- **The machine's state between workers.** Native's six-thread windows ran 10 to 80 %
-  slower right after a heavy process than in a run of native workers alone (`rdw`
-  0.062 s alone, 0.083 s after Julia workers, 0.092 s after 15 s of every core busy;
-  `line` 0.067, 0.119 and 0.123 s), with no thermal warning recorded. A Julia worker
-  compiles for 7 to 30 s before its window, so every native-against-Julia A/B above
-  ran both arms in that state: the ratios hold, the absolute times are slow. Commit
-  `d872cb59` adds `benchmarks ab --cooldown`.
+- **The machine's state.** Absolute times on the Mac moved by up to 40 % over the day
+  with no thermal warning recorded: native's six-thread `rdw` window took 0.062 s in
+  the thread scan and 0.083 to 0.092 s in every later run, native alone (two A/A
+  passes), beside Julia workers, after 15 s of every core busy, or with 30 s idle before
+  each worker (`benchmarks ab --cooldown`, commit `d872cb59`). A suspicion: sustained
+  load slows the whole machine. Interleaved arms share the state, and the ratio held
+  through all of it: with the cooldown 0.79 (`line` 0.62 to the Cartesian beam 0.93),
+  and back-to-back single-backend passes 0.72 to 0.92 by case.
 
 **NVIDIA A40** (DMOG, driver 595.71), commit `ecbcafbe`, `--device`: the device tests
 pass (34, binary32 in both wide types). `julia` binary32 with the double-float wide
