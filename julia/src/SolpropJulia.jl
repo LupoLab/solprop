@@ -66,7 +66,7 @@ function create(input)
     FFTW.set_num_threads(1)
     BLAS.set_num_threads(1)
     c = (
-        backend=backend, T=T, tasks=host.int("threads"),
+        backend=backend, T=T, tasks=host.int("threads"), scratch=Dict{Any,Any}(),
         fft_threads=host.int("fft_threads"),
         raman_fft_threads=host.has("raman_fft_threads") ? host.int("raman_fft_threads") : host.int("fft_threads"),
         transverse_fft_threads=host.has("transverse_fft_threads") ? host.int("transverse_fft_threads") : host.int("fft_threads"),

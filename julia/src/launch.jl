@@ -97,10 +97,15 @@ function each_on!(f::F, backend, tasks, nt, nm, heavy) where {F}
     nothing
 end
 
+"""A device scratch array the engine keeps (`c.scratch`), by its use, type and shape: a
+GPU's pool allocations a trial were dozens."""
+scratch(c, use::Symbol, T, dims...) =
+    get!(() -> KA.allocate(c.backend, T, dims...), c.scratch, (use, T, dims))
+
 """`f(t, m)` at every sample, into a device scratch matrix of `out`'s element type, for
 a device reduction over its rows or columns."""
-function reduce_terms(f::F, c, out, nt, nm) where {F}
-    scratch = KA.allocate(c.backend, eltype(out), nt, nm)
+function reduce_terms(f::F, c, out, nt, nm; use=:terms) where {F}
+    scratch = SolpropJulia.scratch(c, use, eltype(out), nt, nm)
     each!(c, nt, nm) do t, m
         @inbounds scratch[t, m] = f(t, m)
     end
@@ -141,11 +146,9 @@ function rowsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
         # A thread a row looped over every column (36864 for a Cartesian plane): the
         # terms fill a scratch matrix in parallel and the device's reduction sums it.
         scratch = reduce_terms(f, c, out, nt, nm)
-        total = KA.allocate(c.backend, eltype(out), nt, 1)
+        total = SolpropJulia.scratch(c, :rows, eltype(out), nt, 1)
         sum!(total, scratch)
         out .+= vec(total)
-        KA.unsafe_free!(scratch)
-        KA.unsafe_free!(total)
     end
     nothing
 end
@@ -176,14 +179,12 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
         # A heavy body a thread: AK's reduction gives each thread several elements
         # (six blocks for rdw's 10244, its predictor 539 us a trial on an A40), so the
         # bodies run as an elementwise kernel into scratch and only the sums reduce.
-        scratch = KA.allocate(c.backend, typeof(neutral), nt * nm)
+        scratch = SolpropJulia.scratch(c, :heavy, typeof(neutral), nt * nm)
         each!(c, nt, nm) do t, m
             @inbounds scratch[t+(m-1)*nt] = f(t, m)
         end
-        total = AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral,
-                             neutral=neutral)
-        KA.unsafe_free!(scratch)
-        return total
+        return AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral,
+                            neutral=neutral)
     end
     AK.mapreduce(op, 1:nt*nm; backend=c.backend, init=neutral, neutral=neutral) do i
         m = (i - 1) ÷ nt + 1

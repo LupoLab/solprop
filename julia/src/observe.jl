@@ -169,7 +169,6 @@ function colsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
         # A thread a column left most of the device idle: a parallel fill and a sum.
         scratch = reduce_terms(f, c, out, nt, nm)
         sum!(reshape(out, 1, :), scratch)
-        KA.unsafe_free!(scratch)
         return nothing
     end
     each_column!(c, nm) do m
@@ -429,10 +428,10 @@ function spatial_local!(engine, dt, conversion)
             fluxes = reduce_terms(c, fluence, nt, width) do t, n
                 @inbounds flux * real(signal[t, n] * conj(other[t, n])) * factor
             end
-            products = reduce_terms(c, fluence, nt, width) do t, n
+            products = reduce_terms(c, fluence, nt, width; use=:products) do t, n
                 @inbounds abs(signal[t, n]) * abs(other[t, n]) * factor
             end
-            totals, sizes, highest = (KA.allocate(c.backend, T, 1, width) for _ in 1:3)
+            totals, sizes, highest = (scratch(c, use, T, 1, width) for use in (:totals, :sizes, :peaks))
             sum!(totals, fluxes)
             sum!(sizes, products)
             maximum!(highest, fluxes)
@@ -443,7 +442,6 @@ function spatial_local!(engine, dt, conversion)
                     peaks[first+n-1] = highest[1, n]
                 end
             end
-            foreach(KA.unsafe_free!, (fluxes, products, totals, sizes, highest))
         end
     end
     (Vector{Float64}(Array(fluence)), Vector{Float64}(Array(magnitudes)),

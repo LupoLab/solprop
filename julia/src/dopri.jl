@@ -161,7 +161,7 @@ end
 """The collar's half-step factor a sample, `exp(half rate[t]) inverse`, formed once a
 sample rather than once an element (384 modes each took the same exponential)."""
 function collar_factor(rate, half, inverse, c)
-    factor = similar(rate)
+    factor = oncpu(c) ? similar(rate) : scratch(c, :collar, eltype(rate), length(rate))
     each!(c, length(rate), 1) do t, _
         @inbounds factor[t] = exp(half * rate[t]) * inverse
     end
