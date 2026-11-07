@@ -1,8 +1,8 @@
 # The Julia experiment
 
 `backend="julia"` is an experiment on this branch, not a supported backend: it asks how
-fast one compact Julia source can run solprop's routes on a CPU and on an NVIDIA GPU,
-in binary64 or binary32. Use the [native backend](native.md) for results. The design,
+fast one compact Julia source can run solprop's routes on a CPU and on NVIDIA, AMD and
+Apple GPUs, in binary64 or binary32. Use the [native backend](native.md) for results. The design,
 the measurements and what is left are in the branch's `julia/STATUS.md`.
 
 ## What it runs
@@ -16,7 +16,7 @@ refuses by name what it does not run.
 | routes | resolved and mode-averaged capillaries (constant radius, separable longitudinal profiles), radial, Cartesian and line free space | planar and general modal guides, tapers, coupled flows |
 | responses | Kerr (with THG), one field-grid plasma channel, one constant Raman term (modal) | envelope plasma, several channels or Raman terms, varying Raman, dispersive Kerr, TDSE, noise |
 | steppers | DOPRI5 with FSAL, the exponential Adams march (not Cartesian), RK4IP (Cartesian) | the interaction Adams formulation, the carrier frame, interpolated planes |
-| execution | CPU threads; an NVIDIA GPU (`SOLPROP_JULIA_DEVICE=cuda`); `precision="double"` or `"single"` | vector polarisation, batches |
+| execution | CPU threads; an NVIDIA GPU (`SOLPROP_JULIA_DEVICE=cuda`), an AMD GPU (`rocm`) or an Apple GPU (`metal`, binary32 only); `precision="double"` or `"single"` | vector polarisation, batches; binary64 on an Apple GPU |
 
 ## Trying it
 
@@ -24,7 +24,7 @@ From a checkout of the branch:
 
 ```sh
 uv sync --extra julia
-uv run --no-sync python julia/bootstrap.py                 # add --cuda for a GPU
+uv run --no-sync python julia/bootstrap.py                 # add --cuda, --rocm or --metal for a GPU
 SOLPROP_JULIA_THREADS=16 uv run --no-sync python my_run.py   # with backend="julia"
 ```
 
@@ -45,15 +45,25 @@ made a run slower on four threads than on one. The plasma's columns use branch-f
 vectorised `exp` and `log` within one ulp, and the exponential Adams march itself runs
 in the engine, as native's compiled march does. In binary32 the state is held as
 `a / s` for SEP 33's power-of-two scale `s`, and the operator stays binary64, so
-propagators and the longitudinal root are formed in binary64 and rounded once.
+propagators and the longitudinal root are formed in binary64 and rounded once. Where the
+device has no binary64 (an Apple GPU), or on request (`SOLPROP_JULIA_WIDE=df32`), they
+are formed in double-float instead, a value as two binary32s (about 48 bits), and still
+rounded once. On macOS the products use Apple's Accelerate.
 
 ## How fast it is
 
-Indicative only: short windows of the benchmark cases, measured with `python -m
-benchmarks ab` against native on the same machine. The branch's ledger
+Indicative only: the seven focus cases, measured with `python -m benchmarks ab`
+against native on the same machine, as julia's time over native's (below one, julia is
+faster). The branch's ledger
 ([benchmarks](../../dev/benchmarks.md#julia-backend-experiment)) has the numbers, the
-machines and the commits. On a 16-core Xeon the julia backend takes 1.0 to 2.1 times
-native's time (geometric mean 1.4), at parity on the `rdw` and `ctc_reduced` capillary
-windows; on an NVIDIA A40 in binary64, 1.3 to 3.9 times native's CUDA build. What is
-left is mostly the GPU's transforms and launches, and on a CPU the radial and
-Cartesian routes' many threads.
+machines and the commits.
+
+| machine | geometric mean | notes |
+|---|---:|---|
+| Apple M5 Max CPU, 6 threads | 0.82 | whole runs; 0.68 to 1.02 by case |
+| Intel Xeon Gold 6240, 16 threads | 1.13 | 2 % windows; 0.78 to 1.26 |
+| NVIDIA A40, binary64 | 1.97 | host-bound |
+| NVIDIA H200 / AMD MI325X, binary64 | 2.39 / 2.48 | host-bound; before later fixes |
+| Apple M5 Max GPU, binary32 | 1.95 against native's 6 CPU threads; 1.25 against `mlx` | the Cartesian beam 0.33 and 0.71 |
+
+On GPUs what is left is the host: the launches, copies and waits of each step.

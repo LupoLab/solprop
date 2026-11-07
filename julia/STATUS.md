@@ -203,6 +203,34 @@ The cheapest step with the most information is to replace `mlx` first: profile M
 on the losing cases, add `mlx`'s features, run SEP 33's qualification on `df32`, and
 compare again.
 
+## Next steps
+
+Measured or diagnosed, not yet done, roughly in order of what they would tell.
+
+1. **Metal's waits.** Fuse the per-step reductions the host reads (the trial's norms,
+   the quadrature alarm, the monitor) into fewer readbacks, about 0.2 ms each on the
+   M5 Max. Profile with `SOLPROP_JULIA_TIMING=1 SOLPROP_JULIA_DEVICE=metal python
+   julia/profile.py PLAN.json ROW` (a plan's rows need `"backend": "native"` to be
+   picked).
+2. **`mlx`'s coverage on Metal.** Envelope plasma, tapers, batches, several plasma
+   channels and Raman terms; then SEP 33's drift and envelope qualification of the
+   double-float path. With 1, enough to decide whether Julia can replace `mlx`.
+3. **Metal start latency.** Record the device's specialisations into a trace as
+   `src/precompile_trace.jl` was, or try a PackageCompiler system image.
+4. **Binary32 on x86.** Two to three times binary64 on the Xeon, and not subnormals.
+   Profile one thread, `rdw`, binary32 against binary64 section by section.
+5. **The GPU host on CUDA and ROCm.** CUDA graphs or fused trials (launches about 75 a
+   trial); re-measure an H200 or MI325X afterwards, not before.
+6. **Native.** #333 (default budget on Apple silicon: the top-tier cores) and #560's
+   ideas, which these measurements feed.
+
+The working setups: on the Mac a worktree with native built on the NEON FFTW prefix
+(`~/buildtools/fftw-3.3.11-neon`) and `uv sync --extra julia --extra mlx`; on DMOG
+`/mnt/data/shared/jt52/solprop-julia-20261106` (`jl13-a40.sbatch` reuses a native CUDA
+wheel and runs the tests and two A/Bs); on the Xeon
+`~/awork/solprop-julia-ftz-20261107` (a venv without native, for Julia-only A/Bs).
+The raw data are in the private `solprop-dev/benchmarks/julia-m5-2026-11-07`.
+
 ## Not run
 
 Vector polarisation, batches, noise, envelope plasma, several plasma channels or Raman

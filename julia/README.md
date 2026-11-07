@@ -69,6 +69,13 @@ uv run --no-sync python -m benchmarks ab --baseline-backend native --candidate-b
   --baseline-python .venv/bin/python --case rdw --threads 1,16 --length 0.02 --noise none
 ```
 
+`--device` runs both arms on the GPU that `SOLPROP_JULIA_DEVICE` names; `--device-arm
+candidate` runs only that arm there, against a CPU arm. `--cooldown 30` idles before each
+worker. On the Mac absolute times drift by up to 40 % over a day, so compare only
+interleaved arms. An arm can take its own environment through a wrapper script given as
+`--candidate-python` (for example one that sets `SOLPROP_JULIA_WIDE=df32`, or
+`SOLPROP_JULIA_ROOT` to another tree's sources).
+
 `python julia/profile.py PLAN.json ROW...` times one plan row's complete run, warmed,
 with `SOLPROP_JULIA_TIMING=1` for the sections or `SOLPROP_JULIA_PROFILE=1` for Julia's
 sampling profile. `julia/bench/launch.jl` is the launch-strategy measurement the device
@@ -77,7 +84,8 @@ layer rests on.
 ## Testing
 
 ```sh
-uv run --no-sync pytest tests/backends/test_julia.py -n 4   # SOLPROP_JULIA_DEVICE=cuda on a GPU
+uv run --no-sync pytest tests/backends/test_julia.py -n 4   # CPU
+SOLPROP_JULIA_DEVICE=metal uv run --no-sync pytest tests/backends/test_julia.py -m gpu   # or cuda, rocm
 ```
 
 Seven focus windows against `numpy_ref`: the same steps, and the field to `1e-10` in
