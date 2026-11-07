@@ -76,7 +76,7 @@ class Display:
     n_time: int = 2048
     bandpass: tuple[float, float] | None = None
 
-    def within(self, keywords: Mapping[str, object]) -> Display:
+    def within(self, keywords: Mapping[str, object]) -> "Display":  # noqa: UP037 - the runtime type hook resolves it in the class body
         """Return the display with the run's wavelength window where it has none.
 
         Parameters

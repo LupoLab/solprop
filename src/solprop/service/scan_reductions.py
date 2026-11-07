@@ -15,7 +15,8 @@ these (:data:`~solprop.service.recipes.BEAM_ROUTES`).
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import Final
+from dataclasses import dataclass
+from typing import Any, Final
 
 import numpy as np
 
@@ -116,6 +117,144 @@ def _band(spec: Spec) -> tuple[float, float]:
     return min(float(low), float(high)), max(float(low), float(high))
 
 
+def _energy_in_band(output: Output, spec: Spec, where: Mapping[str, Any]) -> np.ndarray:
+    """Return the energy within the band.
+
+    Parameters
+    ----------
+    output : solprop.output.Output
+        The point's run.
+    spec : Mapping
+        The reduction's spec, with its ``band``.
+    where : Mapping
+        The plane read (:func:`_where`).
+
+    Returns
+    -------
+    numpy.ndarray
+        The energy within the band.
+    """
+    low, high = _band(spec)
+    x, density = get_spectral_density(output, "wavelength", modes="sum", **where)
+    inside = (np.asarray(x) >= low) & (np.asarray(x) <= high)
+    values = np.asarray(density)[inside]
+    return np.asarray(
+        np.trapezoid(values, np.asarray(x)[inside]) if values.size > 1 else 0.0
+    )
+
+
+def _peak_power_in_band(
+    output: Output, spec: Spec, where: Mapping[str, Any]
+) -> np.ndarray:
+    """Return the peak power of the pulse filtered to the band.
+
+    Parameters
+    ----------
+    output : solprop.output.Output
+        The point's run.
+    spec : Mapping
+        The reduction's spec, with its ``band``.
+    where : Mapping
+        The plane read.
+
+    Returns
+    -------
+    numpy.ndarray
+        The peak power of the pulse filtered to the band.
+    """
+    _t, power = get_power(
+        output,
+        modes="sum",
+        bandpass=_band(spec),
+        oversampling=TIME_OVERSAMPLING,
+        **where,
+    )
+    return np.asarray(float(np.max(power)))
+
+
+def _spectrum(output: Output, on: np.ndarray, where: Mapping[str, Any]) -> np.ndarray:
+    """Return the spectral energy density on a fixed axis.
+
+    Parameters
+    ----------
+    output : solprop.output.Output
+        The point's run.
+    on : numpy.ndarray
+        The axis, m.
+    where : Mapping
+        The plane read.
+
+    Returns
+    -------
+    numpy.ndarray
+        The spectral energy density on the axis.
+    """
+    x, density = get_spectral_density(output, "wavelength", modes="sum", **where)
+    order = np.argsort(x)
+    return np.interp(on, np.asarray(x)[order], np.asarray(density)[order], 0.0, 0.0)
+
+
+def _pulse(output: Output, on: np.ndarray, where: Mapping[str, Any]) -> np.ndarray:
+    """Return the power on a fixed time axis.
+
+    Parameters
+    ----------
+    output : solprop.output.Output
+        The point's run.
+    on : numpy.ndarray
+        The axis, s.
+    where : Mapping
+        The plane read.
+
+    Returns
+    -------
+    numpy.ndarray
+        The power on the axis.
+    """
+    t, power = get_power(output, modes="sum", oversampling=TIME_OVERSAMPLING, **where)
+    return np.interp(on, np.asarray(t), np.asarray(power), 0.0, 0.0)
+
+
+@dataclass(frozen=True)
+class _Reader:
+    """What a reduction computes from a point's run: picklable, for a ``Pool``.
+
+    Attributes
+    ----------
+    spec : dict
+        ``kind``, and ``band`` or ``z`` as it takes them.
+    axis : numpy.ndarray or None
+        A spectrum's or a pulse's fixed axis.
+    """
+
+    spec: dict[str, Any]
+    axis: np.ndarray | None = None
+
+    def __call__(self, output: Output) -> np.ndarray:
+        """Return the reduction's value for a point's run.
+
+        Parameters
+        ----------
+        output : solprop.output.Output
+            The point's run.
+
+        Returns
+        -------
+        numpy.ndarray
+            The value.
+        """
+        kind = str(self.spec["kind"])
+        where = _where(self.spec)
+        on: np.ndarray = np.zeros(0) if self.axis is None else self.axis
+        if kind == "energy_in_band":
+            return _energy_in_band(output, self.spec, where)
+        if kind == "peak_power_in_band":
+            return _peak_power_in_band(output, self.spec, where)
+        if kind == "spectrum":
+            return _spectrum(output, on, where)
+        return _pulse(output, on, where)
+
+
 def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarray]:
     """Return what a reduction computes from a point's run.
 
@@ -129,99 +268,17 @@ def _reader(spec: Spec, axis: np.ndarray | None) -> Callable[[Output], np.ndarra
     Returns
     -------
     callable
-        From the point's output to its value.
+        From the point's output to its value; picklable, so a ``Pool``'s workers can
+        take it.
+
+    Raises
+    ------
+    KeyError
+        For a kind that is not one of :data:`KINDS`.
     """
-    kind = str(spec["kind"])
-    where = _where(spec)
-    on: np.ndarray = np.zeros(0) if axis is None else axis
-
-    def energy_in_band(output: Output) -> np.ndarray:
-        """Return the energy within the band.
-
-        Parameters
-        ----------
-        output : solprop.output.Output
-            The point's run.
-
-        Returns
-        -------
-        numpy.ndarray
-            The energy within the band.
-        """
-        low, high = _band(spec)
-        x, density = get_spectral_density(output, "wavelength", modes="sum", **where)  # pyright: ignore[reportArgumentType]
-        inside = (np.asarray(x) >= low) & (np.asarray(x) <= high)
-        values = np.asarray(density)[inside]
-        return np.asarray(
-            np.trapezoid(values, np.asarray(x)[inside]) if values.size > 1 else 0.0
-        )
-
-    def peak_power_in_band(output: Output) -> np.ndarray:
-        """Return the peak power of the pulse filtered to the band.
-
-        Parameters
-        ----------
-        output : solprop.output.Output
-            The point's run.
-
-        Returns
-        -------
-        numpy.ndarray
-            The peak power of the pulse filtered to the band.
-        """
-        _t, power = get_power(
-            output,
-            modes="sum",
-            bandpass=_band(spec),
-            oversampling=TIME_OVERSAMPLING,
-            **where,  # pyright: ignore[reportArgumentType]
-        )  # pyright: ignore[reportArgumentType]
-        return np.asarray(float(np.max(power)))
-
-    def spectrum(output: Output) -> np.ndarray:
-        """Return the spectral energy density on the fixed axis.
-
-        Parameters
-        ----------
-        output : solprop.output.Output
-            The point's run.
-
-        Returns
-        -------
-        numpy.ndarray
-            The spectral energy density on the fixed axis.
-        """
-        x, density = get_spectral_density(output, "wavelength", modes="sum", **where)  # pyright: ignore[reportArgumentType]
-        order = np.argsort(x)
-        return np.interp(on, np.asarray(x)[order], np.asarray(density)[order], 0.0, 0.0)
-
-    def pulse(output: Output) -> np.ndarray:
-        """Return the power on the fixed axis.
-
-        Parameters
-        ----------
-        output : solprop.output.Output
-            The point's run.
-
-        Returns
-        -------
-        numpy.ndarray
-            The power on the fixed axis.
-        """
-        t, power = get_power(
-            output,
-            modes="sum",
-            oversampling=TIME_OVERSAMPLING,
-            **where,  # pyright: ignore[reportArgumentType]
-        )  # pyright: ignore[reportArgumentType]
-        return np.interp(on, np.asarray(t), np.asarray(power), 0.0, 0.0)
-
-    return {
-        "energy_in_band": energy_in_band,
-        "peak_power_in_band": peak_power_in_band,
-        "spectrum": spectrum,
-        "pulse": pulse,
-    }[kind]
+    if str(spec["kind"]) not in KINDS:
+        raise KeyError(spec["kind"])
+    return _Reader(dict(spec), axis)
 
 
 def reductions(specs: Sequence[Spec], recipe: Recipe) -> list[Reduction]:

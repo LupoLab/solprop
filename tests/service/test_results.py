@@ -194,8 +194,7 @@ def test_a_spatial_plane_has_its_fluence_map(beam: str, monkeypatch):
 @pytest.fixture(scope="module")
 def scanned(tmp_path_factory: pytest.TempPathFactory) -> str:
     """Return a three-point pressure scan's results file, with statistics."""
-    from test_design import SCAN  # noqa: PLC0415
-
+    from service.test_design import SCAN  # noqa: PLC0415
     from solprop.driver.scan import run_scan  # noqa: PLC0415 - only here
 
     text = SCAN.replace('"1 bar"]', '"1 bar", "1.5 bar"]').replace(

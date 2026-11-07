@@ -17,6 +17,8 @@ carries both back, so the window can drop a reply that a later edit made stale.
 from dataclasses import dataclass, field
 from typing import Any, Final, Literal
 
+from solprop.exceptions import SolpropError
+
 __all__ = [
     "PROTOCOL",
     "REPLACEABLE",
@@ -26,7 +28,13 @@ __all__ = [
     "Event",
     "Reply",
     "Request",
+    "ServiceError",
 ]
+
+
+class ServiceError(SolpropError, RuntimeError):
+    """The front end's service refused a message, a run's record or a machine."""
+
 
 PROTOCOL: Final = 1
 """The version of these messages; a peer of another version is refused."""

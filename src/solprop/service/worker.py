@@ -157,10 +157,10 @@ def spec_from_value(value: Mapping[str, object]) -> RunSpec:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the data names a field a spec does not have.
     """
-    from solprop.exceptions import ServiceError  # noqa: PLC0415 - light, rare
+    from solprop.service.messages import ServiceError  # noqa: PLC0415 - light, rare
 
     fields = dict(value)
     display = fields.pop("display", None)

@@ -20,7 +20,6 @@ from pathlib import Path
 import pytest
 
 from service.cases import TINY
-from solprop.exceptions import ServiceError
 from solprop.service import launch, runs
 from solprop.service.job import main as job_main
 from solprop.service.launch import (
@@ -34,6 +33,7 @@ from solprop.service.launch import (
     start_direct,
     submit_slurm,
 )
+from solprop.service.messages import ServiceError
 from solprop.service.record import (
     JOB,
     STATUS,

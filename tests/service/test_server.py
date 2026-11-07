@@ -11,7 +11,7 @@ import threading
 import time
 from collections.abc import Callable, Iterator
 from multiprocessing import Pipe
-from multiprocessing.connection import Client
+from multiprocessing.connection import Client, Connection, Listener
 from pathlib import Path
 
 import pytest
@@ -177,13 +177,16 @@ def test_a_hang_up_wakes_its_reader_and_an_acceptor_ends_with_its_listener():
     server.hang_up(Other())
     assert closed == [True]
 
-    class Gone:
-        def accept(self) -> None:
+    class Gone(Listener):
+        def __init__(self) -> None:  # a closed listener: no socket at all
+            pass
+
+        def accept(self) -> Connection:
             raise OSError("closed")
 
     closing = threading.Event()
     closing.set()
-    server._accept(Gone(), server.Service(), closing)  # pyright: ignore[reportArgumentType]
+    server._accept(Gone(), server.Service(), closing)
 
 
 def test_a_service_in_its_own_process_answers(tmp_path: Path, monkeypatch):

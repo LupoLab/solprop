@@ -198,7 +198,7 @@ def beam_slice(
     }
 
 
-def profile_row(reading: Mapping[str, object]) -> dict[str, np.ndarray]:
+def profile_row(reading: Mapping[str, object]) -> dict[str, object]:
     """Return a reading's fluence profile as a row carries it.
 
     Parameters
@@ -220,7 +220,7 @@ def profile_row(reading: Mapping[str, object]) -> dict[str, np.ndarray]:
     """
     profile: Mapping[str, object] = reading["profile"]  # pyright: ignore[reportAssignmentType]
     return {
-        "axis": profile["axis"],  # pyright: ignore[reportReturnType]
+        "axis": profile["axis"],
         "x": np.asarray(profile["x"], dtype=np.float32),
         "y": np.asarray(profile["y"], dtype=np.float32),
     }

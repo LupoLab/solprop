@@ -299,13 +299,12 @@ def test_a_solid_core_curve_finds_the_zero_nearest_the_pump() -> None:
     )
 
 
-def test_a_curve_with_no_window_reaches_around_the_pump() -> None:
-    assert _curve_range(_NoWindow(), 800e-9) == pytest.approx((120e-9, 1600e-9))  # pyright: ignore[reportArgumentType]
-
-
-class _NoWindow:
-    def keywords(self) -> dict[str, object]:
-        return {}
+def test_a_curve_with_no_window_reaches_around_the_pump(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    recipe = Recipe.loads(TINY)
+    monkeypatch.setattr(Recipe, "keywords", lambda self: {})
+    assert _curve_range(recipe, 800e-9) == pytest.approx((120e-9, 1600e-9))
 
 
 def test_the_run_options_are_solprop_s() -> None:

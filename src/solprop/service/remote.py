@@ -74,7 +74,7 @@ class RemoteRun:
         What it runs.
     """
 
-    def __init__(self, connection: ServiceConnection, spec: RunSpec) -> None:
+    def __init__(self, connection: "ServiceConnection", spec: RunSpec) -> None:  # noqa: UP037 - defined below
         """Hold the connection and the run's spec."""
         self._connection = connection
         self.spec = spec

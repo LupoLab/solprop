@@ -289,6 +289,15 @@ class ServiceBridge(QObject):
         }
 
         def started(value: object, error: object) -> None:
+            """Say a run that could not be started on its machine failed.
+
+            Parameters
+            ----------
+            value : object
+                The start's summary, unused.
+            error : object
+                Why it failed, or ``None``.
+            """
             del value
             if error is not None:
                 data = {"path": f"{spec.folder}/run.h5", "message": str(error)}

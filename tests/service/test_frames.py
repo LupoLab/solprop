@@ -6,11 +6,11 @@
 
 import io
 import struct
+from typing import Any
 
 import numpy as np
 import pytest
 
-from solprop.exceptions import ServiceError
 from solprop.service import frames
 from solprop.service.frames import (
     MAGIC,
@@ -20,6 +20,7 @@ from solprop.service.frames import (
     split_frames,
     write_frame,
 )
+from solprop.service.messages import ServiceError
 
 
 def test_plain_data_and_arrays_come_back_as_they_went():
@@ -39,7 +40,8 @@ def test_plain_data_and_arrays_come_back_as_they_went():
         "mask": np.array([True, False]),
         "strided": np.arange(10.0)[::3],
     }
-    back, used = decode(encode(value))
+    decoded, used = decode(encode(value))
+    back: Any = decoded
     assert used == len(encode(value))
     assert back["none"] is None and back["flag"] is True and back["count"] == 3
     assert back["text"] == "λ" and back["pair"] == [1, 2.5] and back["scalar"] == 1.5

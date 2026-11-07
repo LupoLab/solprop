@@ -18,7 +18,7 @@ from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
 
-from solprop.exceptions import ServiceError
+from solprop.service.messages import ServiceError
 from solprop.service.worker import SPEC, spec_from_value
 
 __all__ = ["main"]

@@ -6,6 +6,7 @@
 
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
@@ -198,8 +199,19 @@ def test_every_label_names_a_keyword_of_a_route():
     # The registry's labels must not drift from solprop's keywords (design 12.1).
     keywords: set[str] = set()
     for route in ("capillary", "waveguide", "gnlse"):
-        described = HANDLERS["describe"]({"route": route})
+        described: Any = HANDLERS["describe"]({"route": route})
         keywords |= {entry["name"] for entry in described["parameters"]}
         for entries in described["types"].values():
             keywords |= {entry["name"] for entry in entries}
     assert set(LABELS) <= keywords
+
+
+def test_a_remote_run_folder_keeps_a_workspace_given_in_full():
+    from datetime import datetime  # noqa: PLC0415 - only here
+
+    from solprop_gui.model.workspace import remote_run_folder  # noqa: PLC0415
+
+    when = datetime(2026, 11, 7, 9, 0, 1)
+    found = remote_run_folder("/scratch/runs", "/home/me", None, when)
+    assert found.startswith("/scratch/runs/2026-11-07-") and found.endswith("-090001")
+    assert remote_run_folder("~", "/home/me/", "t", when).startswith("/home/me/2026")

@@ -29,7 +29,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
 
-from solprop.exceptions import ServiceError
+from solprop.service.messages import ServiceError
 from solprop.service.record import process_stamp, write_json
 from solprop.service.worker import SPEC, RunSpec, spec_value
 
@@ -77,7 +77,7 @@ def prepare(spec: RunSpec) -> Path:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the folder already holds a run that has not been continued.
     """
     folder = Path(spec.folder).expanduser()
@@ -127,29 +127,30 @@ def start_direct(
     -------
     int
         Its process number.
+
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        If it could not be started, with why.
     """
     command = _job_command(python or sys.executable, folder)
     env = {**os.environ, **(environment or {})}
-    with (folder / JOB_OUTPUT).open("ab") as output:
-        if sys.platform == "win32":  # pragma: no cover - Windows only
-            flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                env=env,
-                creationflags=flags,
-            )
-        else:
-            process = subprocess.Popen(
-                command,
-                stdin=subprocess.DEVNULL,
-                stdout=output,
-                stderr=subprocess.STDOUT,
-                env=env,
-                start_new_session=True,
-            )
+    # Started through a short-lived Python that starts the job and leaves at once:
+    # the job is then no child of this process, so it leaves no zombie behind a
+    # long-lived helper, and outlives it (a session of its own; detached on Windows).
+    result = subprocess.run(
+        [sys.executable, "-c", _DETACH, str(folder / JOB_OUTPUT), *command],
+        capture_output=True,
+        text=True,
+        env=env,
+        check=False,
+        timeout=60,
+    )
+    if result.returncode != 0 or not result.stdout.strip().isdigit():
+        said = result.stderr.strip() or f"status {result.returncode}"
+        msg = f"the run could not be started: {said}"
+        raise ServiceError(msg)
+    pid = int(result.stdout.strip())
     import socket  # noqa: PLC0415 - light, only here
 
     write_json(
@@ -157,12 +158,30 @@ def start_direct(
         {
             "launcher": "direct",
             "host": socket.gethostname(),
-            "pid": process.pid,
-            "stamp": process_stamp(process.pid),
+            "pid": pid,
+            "stamp": process_stamp(pid),
             "submitted": time.time(),
         },
     )
-    return process.pid
+    return pid
+
+
+_DETACH: Final = """\
+import os, subprocess, sys
+output, command = sys.argv[1], sys.argv[2:]
+options = {"stdin": subprocess.DEVNULL, "stderr": subprocess.STDOUT}
+if sys.platform == "win32":
+    options["creationflags"] = (
+        subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.DETACHED_PROCESS
+    )
+else:
+    options["start_new_session"] = True
+with open(output, "ab") as stream:
+    process = subprocess.Popen(command, stdout=stream, **options)
+print(process.pid, flush=True)
+os._exit(0)
+"""
+"""The starter's code: it starts the job, says its process, and leaves."""
 
 
 @dataclass(frozen=True)
@@ -220,7 +239,7 @@ class SlurmResources:
         return " · ".join(part for part in parts if part)
 
     @classmethod
-    def from_value(cls, value: Mapping[str, object]) -> SlurmResources:
+    def from_value(cls, value: Mapping[str, object]) -> "SlurmResources":  # noqa: UP037 - the runtime type hook resolves it in the class body
         """Return resources from their plain form (:func:`dataclasses.asdict`).
 
         Parameters
@@ -321,7 +340,7 @@ def _run(
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the command is not there or takes too long.
     """
     try:
@@ -359,7 +378,7 @@ def submit_slurm(
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If ``sbatch`` refuses the job, with what it said.
     """
     script = folder / SLURM_SCRIPT
@@ -457,7 +476,7 @@ def cancel_slurm(job: str) -> None:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If ``scancel`` refuses, with what it said.
     """
     result = _run(["scancel", job])

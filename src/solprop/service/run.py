@@ -699,6 +699,7 @@ def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]
     logging.getLogger("solprop").setLevel(logging.INFO)
 
     def detach() -> None:
+        """Take the handlers off and close the log."""
         for logger in loggers:
             logger.removeHandler(log_file)
             logger.removeHandler(forward)

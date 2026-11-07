@@ -52,14 +52,13 @@ import threading
 import time
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import Any, BinaryIO, Final
+from typing import Any, Final
 
 import numpy as np
 
-from solprop.exceptions import ServiceError
-from solprop.service.frames import read_frame, write_frame
+from solprop.service.frames import Readable, Writable, read_frame, write_frame
 from solprop.service.machines import CHUNK
-from solprop.service.messages import PROTOCOL, Reply, Request
+from solprop.service.messages import PROTOCOL, Reply, Request, ServiceError
 from solprop.service.record import read_events, request_stop
 from solprop.service.worker import spec_from_value
 
@@ -121,11 +120,11 @@ class Agent:
 
     Parameters
     ----------
-    output : BinaryIO
+    output : solprop.service.frames.Writable
         Where its frames go: the real standard output.
     """
 
-    def __init__(self, output: BinaryIO) -> None:
+    def __init__(self, output: Writable) -> None:
         """Hold the output; no kernel until one is asked for."""
         self._output = output
         self._lock = threading.Lock()
@@ -205,7 +204,7 @@ class Agent:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             For a launcher that is not known.
         """
         from dataclasses import replace  # noqa: PLC0415 - light
@@ -333,7 +332,7 @@ class Agent:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             If the run has no job this machine can end.
         """
         from solprop.service.launch import cancel_slurm  # noqa: PLC0415 - light
@@ -363,7 +362,7 @@ class Agent:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             If the run has not ended, or the folder holds no run.
         """
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
@@ -455,7 +454,7 @@ class Agent:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             If ``sinfo`` fails.
         """
         del body
@@ -591,14 +590,14 @@ REQUESTS: Final[dict[str, Callable[[Agent, Mapping[str, Any]], object]]] = {
 """The requests a helper answers, by kind."""
 
 
-def serve(stream_in: BinaryIO, stream_out: BinaryIO) -> None:
+def serve(stream_in: Readable, stream_out: Writable) -> None:
     """Answer requests from a stream until it ends.
 
     Parameters
     ----------
-    stream_in : BinaryIO
+    stream_in : solprop.service.frames.Readable
         Where requests come from.
-    stream_out : BinaryIO
+    stream_out : solprop.service.frames.Writable
         Where frames go.
     """
     agent = Agent(stream_out)

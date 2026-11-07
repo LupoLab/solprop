@@ -269,6 +269,7 @@ class RunsWindow(QWidget):
         future = self._local.submit(list_runs, workspace, None)
 
         def read() -> None:
+            """Show the listing once it is read, looking again shortly if not."""
             if future.done():
                 error = future.exception()
                 value = None if error is not None else future.result()
@@ -393,6 +394,15 @@ class RunsWindow(QWidget):
         machine, run = chosen
 
         def done(value: object, error: object) -> None:
+            """Say what came of the request, and list again.
+
+            Parameters
+            ----------
+            value : object
+                The call's value.
+            error : object
+                Why it failed, or ``None``.
+            """
             del value
             if error is not None:
                 self.note.setText(f"{run['run_id']}: {error}")
@@ -465,10 +475,28 @@ class RunsWindow(QWidget):
         dialog.setMinimumDuration(300)
 
         def progress(have: int, total: int) -> None:
+            """Show how far the copy has got, on the window's thread.
+
+            Parameters
+            ----------
+            have : int
+                The bytes copied.
+            total : int
+                The file's size, bytes.
+            """
             share = int(1000 * have / total) if total else 1000
             QTimer.singleShot(0, lambda: dialog.setValue(share))
 
         def done(value: object, error: object) -> None:
+            """Say what came of the request, and list again.
+
+            Parameters
+            ----------
+            value : object
+                The call's value.
+            error : object
+                Why it failed, or ``None``.
+            """
             dialog.reset()
             if error is not None:
                 self.note.setText(f"{run['run_id']}: {error}")

@@ -22,7 +22,6 @@ import numpy as np
 import pytest
 
 from service.cases import TINY
-from solprop.exceptions import ServiceError
 from solprop.service import agent, machines
 from solprop.service.agent import Agent, hello, serve
 from solprop.service.frames import encode, split_frames
@@ -33,6 +32,7 @@ from solprop.service.machines import (
     agent_command,
     ssh_hosts,
 )
+from solprop.service.messages import ServiceError
 from solprop.service.worker import RunSpec, spec_value
 
 WAIT = 120.0
@@ -110,7 +110,9 @@ def test_a_run_is_started_followed_to_its_end_and_removed(
         for event in frame["events"]
         if event["kind"] == "row"
     ]
-    assert len(rows) == 6 and isinstance(rows[0]["data"]["density"], np.ndarray)
+    assert len(rows) == 6 and isinstance(
+        rows[0]["data"]["density"]["wavelength"], np.ndarray
+    )
     listed = connection.call("list_runs", {"workspace": str(workspace)})
     assert [(run["run_id"], run["state"]) for run in listed] == [("r1", "finished")]
     connection.call("unfollow", {"folder": str(workspace / "r1")})
@@ -268,12 +270,13 @@ def test_the_helper_serves_a_stream_and_ignores_what_is_not_a_request():
     output = io.BytesIO()
     serve(requests, output)
     time.sleep(0.2)  # the request's own thread
-    frames, _ = split_frames(output.getvalue())
+    frames: list[Any] = split_frames(output.getvalue())[0]
     assert frames[0]["kind"] == "hello"
     assert {"kind": "reply", "id": 1, "value": None} in frames
     ended = io.BytesIO()
     serve(io.BytesIO(b""), ended)
-    assert split_frames(ended.getvalue())[0][0]["kind"] == "hello"
+    first: Any = split_frames(ended.getvalue())[0][0]
+    assert first["kind"] == "hello"
 
 
 def test_sinfo_s_partitions(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):

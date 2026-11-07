@@ -382,6 +382,15 @@ class MachinesDialog(QDialog):
         name = self._shown
 
         def listed(value: object, error: object) -> None:
+            """Offer the partitions the machine listed.
+
+            Parameters
+            ----------
+            value : object
+                The partitions.
+            error : object
+                Why it failed, or ``None``.
+            """
             if error is not None:
                 self.status.setText(f"No partitions: {error}")
                 return

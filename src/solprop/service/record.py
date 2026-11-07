@@ -37,9 +37,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Final
 
-from solprop.exceptions import ServiceError
 from solprop.service.frames import encode, split_frames
-from solprop.service.messages import TERMINAL, Event
+from solprop.service.messages import TERMINAL, Event, ServiceError
 
 __all__ = [
     "EVENTS",
@@ -299,7 +298,7 @@ class Job:
     threads: int | None = None
 
     @classmethod
-    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> Job:
+    def here(cls, run_id: str, launcher: str, threads: int | None = None) -> "Job":  # noqa: UP037 - the runtime type hook resolves it in the class body
         """Return the record of a run starting in this process.
 
         Parameters
@@ -443,6 +442,7 @@ def watch_stop(
     """
 
     def watch() -> None:
+        """Look for the stop file until the run ends."""
         while not done.wait(STOP_PERIOD):
             if stop_requested(folder):
                 stop.set()
@@ -487,7 +487,7 @@ def read_events(folder: Path, offset: int = 0) -> tuple[list[Event], int]:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the record is not a run's events.
     """
     try:

@@ -36,14 +36,19 @@ import tempfile
 import threading
 import time
 from multiprocessing.connection import Client, Connection, Listener
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from multiprocessing.connection import PipeConnection  # Windows only
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from solprop.service.client import KernelClient, ReplyFilter, RunClient
 from solprop.service.messages import Control, Envelope, Event, Reply, Request
+
+if TYPE_CHECKING:
+    from multiprocessing.connection import PipeConnection  # Windows only
+
+    _Socket = Connection | PipeConnection
+else:
+    # What the runtime type hook checks: PipeConnection exists only on Windows.
+    _Socket = Connection
 
 __all__ = [
     "IDLE_SECONDS",
@@ -139,7 +144,7 @@ class _Session:
         Its socket (a ``PipeConnection`` on Windows).
     """
 
-    def __init__(self, connection: Connection | PipeConnection) -> None:
+    def __init__(self, connection: _Socket) -> None:
         """Hold the socket and a lock for sending on it."""
         self.connection = connection
         self.lock = threading.Lock()

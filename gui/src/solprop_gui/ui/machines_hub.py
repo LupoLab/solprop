@@ -22,9 +22,8 @@ from pathlib import Path
 from typing import Any
 
 from PySide6.QtCore import QObject, QSettings, Signal
-from solprop.exceptions import ServiceError
 from solprop.service.machines import CHUNK, LOCAL, Connection, Machine
-from solprop.service.messages import Event, Reply, Request
+from solprop.service.messages import Event, Reply, Request, ServiceError
 
 __all__ = ["MachineHub", "MachineRun", "MachineStore"]
 
@@ -306,6 +305,7 @@ class MachineHub(QObject):
             self._callbacks[token] = done
 
         def ask() -> None:
+            """Send the request and hand its answer to the window's thread."""
             connection = self.connections.get(name)
             try:
                 if connection is None:
@@ -356,6 +356,15 @@ class MachineHub(QObject):
         }
 
         def failed(value: object, error: object) -> None:
+            """Answer a kernel request that never reached the machine with its error.
+
+            Parameters
+            ----------
+            value : object
+                The call's value, unused.
+            error : object
+                Why it failed, or ``None``.
+            """
             if error is not None:
                 self.replied.emit(
                     Reply(
@@ -443,6 +452,7 @@ class MachineHub(QObject):
         cancelled = threading.Event()
 
         def copy() -> None:
+            """Copy the file piece by piece, resuming a partial copy."""
             connection = self.connections.get(name)
             partial = local.with_name(local.name + ".part")
             try:

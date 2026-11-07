@@ -30,9 +30,8 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, BinaryIO, Final, cast
 
-from solprop.exceptions import ServiceError
 from solprop.service.frames import read_frame, write_frame
-from solprop.service.messages import PROTOCOL
+from solprop.service.messages import PROTOCOL, ServiceError
 
 __all__ = [
     "CHUNK",
@@ -185,7 +184,7 @@ class Machine:
         return asdict(self)
 
     @classmethod
-    def from_value(cls, value: Mapping[str, object]) -> Machine:
+    def from_value(cls, value: Mapping[str, object]) -> "Machine":  # noqa: UP037 - the runtime type hook resolves it in the class body
         """Return a machine from its plain data, ignoring fields it does not know.
 
         Parameters
@@ -261,6 +260,22 @@ def agent_command(
     return ["ssh", *options, str(machine.destination), remote], environment
 
 
+def _drain(stream: BinaryIO, into: list[bytes]) -> None:
+    """Read a stream to its end, keeping what it said, and close it.
+
+    Parameters
+    ----------
+    stream : BinaryIO
+        The stream: a session's error output.
+    into : list of bytes
+        Where what it said goes.
+    """
+    with contextlib.suppress(OSError, ValueError):
+        into.append(stream.read())
+    with contextlib.suppress(OSError):
+        stream.close()
+
+
 class Connection:
     """A window's session with one machine's helper, which reconnects by itself.
 
@@ -311,6 +326,7 @@ class Connection:
         self._closing = threading.Event()
         self._thread: threading.Thread | None = None
         self._was_up = False
+        self._drainer: threading.Thread | None = None
 
     def open(self) -> None:
         """Start the session, and keep it up until :meth:`close`."""
@@ -375,16 +391,36 @@ class Connection:
             return f"could not start {command[0]}: {error}"
         self._process = process
         errors: list[bytes] = []
-        threading.Thread(
-            target=lambda: errors.append(cast("BinaryIO", process.stderr).read()),
-            daemon=True,
-        ).start()
+        self._drainer = threading.Thread(
+            target=_drain, args=(cast("BinaryIO", process.stderr), errors), daemon=True
+        )
+        self._drainer.start()
         stream = cast("BinaryIO", process.stdout)
+        try:
+            return self._read(stream, errors)
+        finally:
+            stream.close()
+
+    def _read(self, stream: BinaryIO, errors: list[bytes]) -> str:
+        """Read a session's frames until it ends.
+
+        Parameters
+        ----------
+        stream : BinaryIO
+            The session's output.
+        errors : list of bytes
+            What it writes to its error stream, as it comes.
+
+        Returns
+        -------
+        str
+            Why it ended.
+        """
         try:
             greeting = read_frame(stream, skip_preface=True)
         except (EOFError, ServiceError) as error:
-            process.wait(timeout=5)
-            said = b"".join(errors).decode("utf-8", "replace").strip()
+            self._stop_process()
+            said = self._said(errors)
             return self._no_helper(said or str(error) or "the session ended")
         refusal = self._refusal(greeting)
         if refusal is not None:
@@ -398,11 +434,27 @@ class Connection:
             try:
                 frame = read_frame(stream)
             except (EOFError, ServiceError) as error:
-                said = b"".join(errors).decode("utf-8", "replace").strip()
                 self._stop_process()
-                return said or str(error) or "the session ended"
+                return self._said(errors) or str(error) or "the session ended"
             if isinstance(frame, dict):
                 self._deliver(cast("dict[str, Any]", frame))
+
+    def _said(self, errors: list[bytes]) -> str:
+        """Return what an ended session wrote to its error stream.
+
+        Parameters
+        ----------
+        errors : list of bytes
+            Where its error stream was read to.
+
+        Returns
+        -------
+        str
+            The text, once the stream has been read to its end.
+        """
+        if self._drainer is not None:
+            self._drainer.join(timeout=5)
+        return b"".join(errors).decode("utf-8", "replace").strip()
 
     def _no_helper(self, said: str) -> str:
         """Return why a session gave no hello, as the user should read it.
@@ -515,7 +567,7 @@ class Connection:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             If the machine is not connected, the request fails, or no answer comes.
         """
         identity, event, box = self.send(kind, body)
@@ -549,7 +601,7 @@ class Connection:
 
         Raises
         ------
-        solprop.exceptions.ServiceError
+        solprop.service.messages.ServiceError
             If the machine is not connected.
         """
         process = self._process

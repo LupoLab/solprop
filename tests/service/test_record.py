@@ -14,9 +14,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from solprop.exceptions import ServiceError
 from solprop.service import record
-from solprop.service.messages import Event
+from solprop.service.messages import Event, ServiceError
 from solprop.service.record import (
     EVENTS,
     JOB,

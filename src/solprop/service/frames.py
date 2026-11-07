@@ -21,16 +21,70 @@ import json
 import math
 import struct
 from collections.abc import Mapping
-from typing import Any, BinaryIO, Final
+from typing import Any, Final, Protocol, runtime_checkable
 
 import numpy as np
 
-from solprop.exceptions import ServiceError
+from solprop.service.messages import ServiceError
 
-__all__ = ["MAGIC", "decode", "encode", "read_frame", "split_frames", "write_frame"]
+__all__ = [
+    "MAGIC",
+    "Readable",
+    "Writable",
+    "decode",
+    "encode",
+    "read_frame",
+    "split_frames",
+    "write_frame",
+]
 
 MAGIC: Final = b"SPf1"
 """The four bytes every frame starts with: the format and its version."""
+
+
+@runtime_checkable
+class Readable(Protocol):
+    """A binary stream frames are read from: a pipe, a file, an SSH session's output."""
+
+    def read(self, size: int = -1, /) -> bytes:
+        """Return up to ``size`` bytes; empty at the stream's end.
+
+        Parameters
+        ----------
+        size : int, optional
+            The most bytes; -1 for all there are.
+
+        Returns
+        -------
+        bytes
+            The bytes.
+        """
+        ...
+
+
+@runtime_checkable
+class Writable(Protocol):
+    """A binary stream frames are written to."""
+
+    def write(self, data: bytes, /) -> int:
+        """Write bytes.
+
+        Parameters
+        ----------
+        data : bytes
+            The bytes.
+
+        Returns
+        -------
+        int
+            How many were written.
+        """
+        ...
+
+    def flush(self) -> None:
+        """Send what is buffered."""
+        ...
+
 
 _PREAMBLE: Final = struct.Struct("<4sIQ")
 _ARRAY: Final = "__ndarray__"
@@ -56,7 +110,7 @@ def _plain(value: object, arrays: list[np.ndarray]) -> object:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         For a value that is not plain data.
     """
     if value is None or isinstance(value, bool | int | str):
@@ -67,7 +121,8 @@ def _plain(value: object, arrays: list[np.ndarray]) -> object:
         if value.dtype.hasobject:
             msg = "a frame carries numeric arrays only, not object arrays"
             raise ServiceError(msg)
-        arrays.append(np.ascontiguousarray(value))
+        # Not ascontiguousarray, which makes a 0-d array 1-d.
+        arrays.append(value if value.flags.c_contiguous else value.copy(order="C"))
         return {_ARRAY: len(arrays) - 1}
     if isinstance(value, np.generic):
         return _plain(value.item(), arrays)
@@ -101,7 +156,7 @@ def encode(value: object) -> bytes:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         For a value that is not plain data.
 
     Examples
@@ -170,7 +225,7 @@ def _lengths(preamble: bytes) -> tuple[int, int]:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the bytes are not a frame's preamble.
     """
     magic, header, body = _PREAMBLE.unpack_from(preamble)
@@ -224,7 +279,7 @@ def decode(data: bytes) -> tuple[object, int]:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the bytes do not start with a whole frame.
 
     Examples
@@ -260,7 +315,7 @@ def split_frames(data: bytes) -> tuple[list[object], int]:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the bytes are not frames.
 
     Examples
@@ -282,12 +337,12 @@ def split_frames(data: bytes) -> tuple[list[object], int]:
     return values, used
 
 
-def _read_exactly(stream: BinaryIO, size: int) -> bytes | None:
+def _read_exactly(stream: Readable, size: int) -> bytes | None:
     """Return the next bytes of a stream, or ``None`` at its end.
 
     Parameters
     ----------
-    stream : BinaryIO
+    stream : Readable
         The stream.
     size : int
         How many bytes.
@@ -299,7 +354,7 @@ def _read_exactly(stream: BinaryIO, size: int) -> bytes | None:
 
     Raises
     ------
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If the stream ends part of the way.
     """
     chunks: list[bytes] = []
@@ -316,12 +371,12 @@ def _read_exactly(stream: BinaryIO, size: int) -> bytes | None:
     return b"".join(chunks)
 
 
-def read_frame(stream: BinaryIO, *, skip_preface: bool = False) -> object:
+def read_frame(stream: Readable, *, skip_preface: bool = False) -> object:
     r"""Return the next frame's value from a stream, waiting for it.
 
     Parameters
     ----------
-    stream : BinaryIO
+    stream : Readable
         A binary stream (a pipe, an SSH session's output).
     skip_preface : bool, optional
         Skip any bytes before the first frame's magic, as a remote shell's greeting.
@@ -335,7 +390,7 @@ def read_frame(stream: BinaryIO, *, skip_preface: bool = False) -> object:
     ------
     EOFError
         If the stream ends before a frame starts.
-    solprop.exceptions.ServiceError
+    solprop.service.messages.ServiceError
         If what comes is not a frame, or ends inside one.
 
     Examples
@@ -369,12 +424,12 @@ def read_frame(stream: BinaryIO, *, skip_preface: bool = False) -> object:
     return _value(content[:header], content[header:])
 
 
-def write_frame(stream: BinaryIO, value: object) -> None:
+def write_frame(stream: Writable, value: object) -> None:
     """Write one frame to a stream and flush it.
 
     Parameters
     ----------
-    stream : BinaryIO
+    stream : Writable
         The stream.
     value : object
         The value (:func:`encode`).
