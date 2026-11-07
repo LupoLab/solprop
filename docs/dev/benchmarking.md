@@ -196,6 +196,11 @@ so that their rows stay one series:
   --config-setting build-dir=…`), so that the checkout stays clean. ROCm 10 builds
   the HIP backend only with `-DSOLPROP_NATIVE_WARNINGS_AS_ERRORS=OFF` at 0.1.0 (fixed
   after it).
+- **The A40's memory domains.** The 0.1.0 job held a whole node, so its host threads
+  could run in all 8 NUMA domains and its rows record 8. At 0.2.0 every A40 node was
+  partly busy: the job held 16 cores of a shared node, they spanned 3 domains, and
+  those rows start a new series (their device times were 9 % faster than 0.1.0's in
+  geometric mean). An exclusive job returns to the 0.1.0 series.
 - **The instance type separates the operating systems.** The hardware name carries
   no operating system, so Linux and Windows on one cloud shape differ only by
   `--instance-type`. Google Cloud allowed a 32-vCPU C4D only in `us-central1` at
