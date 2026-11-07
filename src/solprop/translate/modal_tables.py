@@ -832,6 +832,8 @@ class DenseModalTable(Displayed):
         h = self._interpolate("magnetic", omega, z)
         metric = flux_product(e, h, self.nodes.weights)
         reference = self.samples[0][0]
+        # flux_metric() and generator() repeat this arithmetic for their one output,
+        # so a caller reading only that gets this sample's bits: keep them in step.
         backward_electric = backward_magnetic = reciprocal = None
         if reference.reciprocal_gram is not None:
             backward_electric = self._interpolate("backward_electric", omega, z)
@@ -859,6 +861,52 @@ class DenseModalTable(Displayed):
             backward_magnetic=backward_magnetic,
             reciprocal_gram=reciprocal,
         )
+
+    def flux_metric(
+        self, omega: float, z: float
+    ) -> Complex[np.ndarray, "n_modes n_modes"]:
+        """Return the flux Gram of the interpolated fields, as ``evaluate`` does.
+
+        The same interpolation and product as the evaluated sample's ``flux_metric``,
+        without the reciprocal partners, the residual or the sample's validation, which
+        a caller sampling the Gram at every bin of a run's grid does not read.
+
+        Parameters
+        ----------
+        omega : float
+            Angular frequency in rad/s inside the knot interval.
+        z : float
+            Position in m inside the knot interval, or the snapshot position.
+
+        Returns
+        -------
+        numpy.ndarray
+            Dimensionless Hermitian flux metric, shape (n_modes, n_modes).
+        """
+        return flux_product(
+            self._interpolate("electric", omega, z),
+            self._interpolate("magnetic", omega, z),
+            self.nodes.weights,
+        )
+
+    def generator(
+        self, omega: float, z: float
+    ) -> Complex[np.ndarray, "n_modes n_modes"]:
+        """Return the interpolated generator, as ``evaluate`` does.
+
+        Parameters
+        ----------
+        omega : float
+            Angular frequency in rad/s inside the knot interval.
+        z : float
+            Position in m inside the knot interval, or the snapshot position.
+
+        Returns
+        -------
+        numpy.ndarray
+            Generator in 1/m, shape (n_modes, n_modes).
+        """
+        return self._interpolate("generator", omega, z)
 
     def generator_derivative(
         self, omega: float, z: float
@@ -2069,6 +2117,18 @@ def modal_transform_tables(
         else None
     )
     for row, position in enumerate(positions):
+        if snapshot and row:
+            # Every row of a snapshot is the one solve at the table's own position:
+            # copy the first row's numbers rather than interpolate them again.
+            stack[row] = stack[0]
+            magnetic[row] = magnetic[0]
+            dual[row] = dual[0]
+            if backward[0] is not None and backward[1] is not None:
+                backward[0][row] = backward[0][0]
+                backward[1][row] = backward[1][0]
+            if gram is not None:
+                gram[row] = gram[0]
+            continue
         at = float(table.z[0]) if snapshot else float(position)
         for column in np.flatnonzero(inside):
             sample = table.evaluate(float(coarse[column]), at)
