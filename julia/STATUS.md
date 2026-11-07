@@ -103,10 +103,17 @@ the harness fix (#557) counted 0.18 s of metadata on both arms and are not compa
   an H200 or an MI325X. Binary32 with the double-float wide type (below) takes it out of
   the operator and the phi functions, and the windows barely move (0.99): the host is
   what is left there too.
-- **Metal.** The capillary windows are launch-bound (a few modes, thousands of bins);
-  `argon_blueshift`'s plasma takes the per-sample GPU path, and `h2_raman_6ps`'s Raman
-  convolution and `line` lose most to `mlx`. Not yet profiled. Construction compiles
-  the Metal kernels (about 28 s), with no precompiled trace for the device.
+- **Metal.** The capillary windows are bound by waits on the device. On the M5 Max a
+  queued kernel launch costs 4.8 us, but each value the host waits for costs about
+  0.2 ms: a launch and `synchronize` 160 us, a reduction read back 210 us, a 40 kB copy
+  to the host 190 us (CUDA's are tens of microseconds). The trial's norms, the
+  quadrature alarm, the monitor and the statistics each wait; fewer of them a step (the
+  sums fused and read once, or kept on the device until the march needs them) is the
+  next lever. The section timers put `commit` (its alarm's transforms and reduction)
+  at about 1.2 ms a step on `rdw` and `argon_blueshift`. `h2_raman_6ps`'s strided
+  products are fixed (0.76); its Raman products and projections are still its largest
+  share. Construction compiles the Metal kernels (about 28 s), with no precompiled
+  trace for the device.
 
 ## Apple silicon and Metal (2026-11-07)
 
