@@ -1267,8 +1267,8 @@ tables and norms and take the same steps.
 ## 12. The Runge–Kutta march
 
 *Normative from [SEP 45](seps/sep-0045-native-rk-march.md) phase 3. `native` executes it
-(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s weak norm on a CPU
-build; a weighted norm, a controller with its own methods and a device build step the
+(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
+not, on a CPU build; a controller with its own methods and a device build step the
 reference, with a `HostMarchWarning` naming the reason.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
@@ -1341,7 +1341,10 @@ squarings admitted, the sections' row sums, the certificate and the rounding all
 a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
 positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
 after the quiet interval and before the split cap, the call returns before a step would
-carry past the next read, and solprop takes the monitor's checks by its distance test.
+carry past the next read, and solprop takes the monitor's checks by its distance test. *A
+weighted norm:* the per-bin scale `rtol w_i max(|y|, |y_new|) + atol`, the two norms' sums
+in order, and the scaled residual's partials summed in order, by one native function both
+loops call.
 
 **Rounding.** The decisions are compiled without contraction or fast-math, call no
 elementary function but `pow`, and take every power of `1/e` as the reference does, so
