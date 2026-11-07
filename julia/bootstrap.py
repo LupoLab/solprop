@@ -78,8 +78,17 @@ def main() -> None:
     # --cuda (--rocm) also prepares the GPU environment, which adds CUDA.jl (AMDGPU.jl)
     # to the engine's.
     projects = ["julia"] + [
-        f"julia/{gpu}" for gpu in ("cuda", "rocm") if f"--{gpu}" in sys.argv[1:]
+        f"julia/{gpu}"
+        for gpu in ("cuda", "rocm")
+        if f"--{gpu}" in sys.argv[1:] or (gpu == "cuda" and "--cuda-local" in sys.argv)
     ]
+    # --cuda-local: CUDA.jl takes the system toolkit rather than its own, needed where
+    # native is built against a system CUDA in the same process, whose cuBLAS would
+    # otherwise meet CUDA.jl's own (an undefined cublasLt symbol, CUDA 13.1 on an H200).
+    if "--cuda-local" in sys.argv[1:]:
+        (ROOT / "julia/cuda/LocalPreferences.toml").write_text(
+            '[CUDA_Runtime_jll]\nlocal = "true"\n', encoding="utf-8"
+        )
     for project in projects:
         subprocess.run(
             [

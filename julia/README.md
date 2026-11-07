@@ -35,6 +35,7 @@ checksummed release):
 uv sync --extra julia
 export SOLPROP_JULIA_EXE=$(julia +1.13 -e 'print(joinpath(Sys.BINDIR, "julia"))')
 uv run --no-sync python julia/bootstrap.py          # --cuda or --rocm for a GPU environment too
+# --cuda-local: CUDA.jl on the system toolkit, beside a native build linked to it
 ```
 
 The bootstrap instantiates `julia/Manifest.toml` into `.julia-depot/`

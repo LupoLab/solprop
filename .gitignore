@@ -53,3 +53,4 @@ docs/introduction/lessons/searchindex
 .julia-runtime/
 .julia-depot/
 julia/LocalPreferences.toml
+julia/cuda/LocalPreferences.toml
