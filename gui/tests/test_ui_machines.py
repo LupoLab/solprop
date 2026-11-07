@@ -174,18 +174,20 @@ def test_the_setup_dialog_shows_its_script_before_running_it(
     dialog = SetupDialog(SLURM, "0.2.1.dev3+gabc")
     qtbot.addWidget(dialog)
     assert "development build" in dialog.note.text()
+    assert not dialog.run_button.isEnabled()  # PyPI has no such build
     assert '"solprop==0.2.1.dev3+gabc"' in dialog.script.toPlainText()
     dialog.root.setText("/scratch/envs")
     dialog.add_wheels([tmp_path / "solprop-0.2.1-py3-none-any.whl"])
     assert "--find-links /scratch/envs/wheels" in dialog.script.toPlainText()
     assert "copied first" in dialog.wheel_label.text()
+    assert dialog.run_button.isEnabled()
     dialog._finished(None, "no route to host")
     assert dialog.python is None and "Not set up: no route" in dialog.log.toPlainText()
     dialog._finished("/scratch/envs/x/bin/python", None)
     assert dialog.python == "/scratch/envs/x/bin/python"
     released = SetupDialog(SLURM, "0.3.0")
     qtbot.addWidget(released)
-    assert released.note.text() == ""
+    assert released.note.text() == "" and released.run_button.isEnabled()
 
 
 def test_a_copy_is_fetched_in_pieces_and_resumed(

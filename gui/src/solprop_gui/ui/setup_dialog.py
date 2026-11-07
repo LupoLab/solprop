@@ -93,12 +93,14 @@ class SetupDialog(QDialog):
         self.note = QLabel()
         self.note.setObjectName("note")
         self.note.setWordWrap(True)
-        if ".dev" in version or "+" in version:
+        self.development = ".dev" in version or "+" in version
+        if self.development:
             self.note.setText(
                 f"This window runs a development build of solprop ({version}), "
-                "which PyPI does not have: add its wheels (solprop's and "
-                "solprop-native's for the machine), or close this and name a Python "
-                "on the machine that has it."
+                "which PyPI does not have, so it cannot be set up from PyPI. Add its "
+                "wheels (solprop's, and solprop-native's built for the machine), or "
+                "close this and give the machine's own Python with this build as "
+                "solprop's Python there."
             )
         self.script = QPlainTextEdit()
         self.script.setReadOnly(True)
@@ -144,6 +146,8 @@ class SetupDialog(QDialog):
             self.wheel_label.setText(f"from {names}, copied first, then PyPI")
         else:
             self.wheel_label.setText("from PyPI")
+        # A development build is on no index: only its own wheels can install it.
+        self.run_button.setEnabled(bool(self.wheels) or not self.development)
 
     def _pick_wheels(self) -> None:
         """Choose wheels to copy to the machine and install from."""
@@ -200,7 +204,7 @@ class SetupDialog(QDialog):
         error : object
             Why it failed, or ``None``.
         """
-        self.run_button.setEnabled(True)
+        self.run_button.setEnabled(bool(self.wheels) or not self.development)
         if error is not None:
             self.log.appendPlainText(f"\nNot set up: {error}")
             return
