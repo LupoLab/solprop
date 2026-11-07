@@ -563,6 +563,12 @@ class JuliaBackend(StepDriver[object]):
             # The Poynting transforms' plan is measured here, not at the first plane.
             axis = None if self._modes is None else self._on_axis_synthesis(self._modes)
             self._bind_poynting(axis)
+            # A varying guide's weight is bound again at each plane: compiled here too.
+            call_julia(
+                jl.rebind_weight_b,
+                engine,
+                np.ascontiguousarray(self._weight[:, 0, :].T),
+            )
             for flux in (False, axis is not None):
                 np.asarray(call_julia(jl.poynting_b, engine, flux)[0])
         call_julia(jl.bind_monitor_b, engine, None, None)
@@ -1244,12 +1250,16 @@ class JuliaBackend(StepDriver[object]):
         """
         if self._poynting_weight is self._weight:
             return
-        call_julia(
-            self._jl.bind_poynting_b,
-            self._engine,
-            np.ascontiguousarray(self._weight[:, 0, :].T),
-            None if axis is None else np.ascontiguousarray(axis),
-        )
+        weight = np.ascontiguousarray(self._weight[:, 0, :].T)
+        if self._poynting_weight is None:
+            call_julia(
+                self._jl.bind_poynting_b,
+                self._engine,
+                weight,
+                None if axis is None else np.ascontiguousarray(axis),
+            )
+        else:
+            call_julia(self._jl.rebind_weight_b, self._engine, weight)
         self._poynting_weight = self._weight
 
     def _populations(self, spec: StatsSpec, state: np.ndarray) -> dict[str, np.ndarray]:

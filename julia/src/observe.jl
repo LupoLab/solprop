@@ -226,7 +226,14 @@ function bind_poynting!(engine, weight, axis)
              host_power=zeros(T, nt, nm), host_flux=zeros(T, rows === nothing ? 0 : nt))
         w.statistics[] = s
     end
-    copyto!(s.weight, T.(Matrix{Float64}(weight)))
+    rebind_weight!(engine, weight)
+end
+
+"""A new power weight (n_omega, n_modes) for the bound Poynting buffers: a varying
+guide's, at each plane."""
+function rebind_weight!(engine, weight)
+    target = engine.work.statistics[].weight
+    copyto!(target, eltype(target).(Matrix{Float64}(weight)))
     nothing
 end
 
@@ -286,6 +293,7 @@ function poynting!(engine, flux)
 end
 
 const bind_poynting_b = bind_poynting!
+const rebind_weight_b = rebind_weight!
 const poynting_b = poynting!
 
 # --- the spatial routes' local statistics --------------------------------------------
