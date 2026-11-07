@@ -166,10 +166,17 @@ def test_the_stash_on_the_planar_route_is_the_fresh_scan():
 
 
 class WithoutTheSaving(NativeBackend):
-    """Native with the recycled stage refused, for the comparison."""
+    """Native with the recycled stage refused, for the comparison.
+
+    On solprop's loop, whose accepted-step hook this overrides: the native march
+    (SEP 45) promotes the stage in its own accept.
+    """
 
     def _on_accepted_step(self):
         self._native_state.clear_fsal()
+
+    def _rk_march(self):
+        return None
 
 
 def test_the_saving_does_not_change_the_answer():

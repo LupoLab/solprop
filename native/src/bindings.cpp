@@ -8,6 +8,7 @@
 #include "solprop_native/crossing.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/rk_march.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
 
@@ -43,6 +44,8 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -915,6 +918,169 @@ march::Policy march_policy_from(const nb::dict values) {
   return policy;
 }
 
+// solprop SEP 45 phase 1: the boundary watch's policy and state, from and to solprop's
+// `BoundaryMonitor.watch_policy` and `.watch_state`.
+native::watch::Policy watch_policy_from(const nb::dict values) {
+  native::watch::Policy policy;
+  try {
+    policy.split = nb::cast<bool>(values["split"]);
+    policy.crossing = nb::cast<bool>(values["crossing"]);
+    const auto regions = nb::cast<std::vector<double>>(values["floor_regions"]);
+    if (regions.size() != 4)
+      throw std::invalid_argument("the boundary watch's floor regions are four");
+    for (std::size_t index = 0; index < 4; ++index)
+      policy.floor_regions[index] = regions[index];
+    policy.launch_floor = nb::cast<double>(values["launch_floor"]);
+    policy.activity = nb::cast<double>(values["activity"]);
+    policy.warn = nb::cast<double>(values["warn"]);
+    policy.stop = nb::cast<double>(values["stop"]);
+    policy.quiet_share = nb::cast<double>(values["quiet_share"]);
+    policy.quiet_checks = nb::cast<std::uint64_t>(values["quiet_checks"]);
+    policy.quiet_collar = nb::cast<bool>(values["quiet_collar"]);
+    policy.cadence = nb::cast<std::uint64_t>(values["cadence"]);
+    policy.interval = nb::cast<double>(values["interval"]);
+    policy.share = nb::cast<double>(values["share"]);
+    policy.bucket_limits = nb::cast<std::vector<double>>(values["bucket_limits"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the boundary watch's policy has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the boundary watch's policy lacks a field");
+  }
+  native::watch::validate(policy);
+  return policy;
+}
+
+native::watch::State watch_state_from(const nb::dict values) {
+  native::watch::State state;
+  try {
+    state.has_last = nb::cast<bool>(values["has_last"]);
+    state.last_z = nb::cast<double>(values["last_z"]);
+    state.since = nb::cast<std::uint64_t>(values["since"]);
+    state.busy = nb::cast<bool>(values["busy"]);
+    state.quiet_run = nb::cast<std::uint64_t>(values["quiet_run"]);
+    state.quiet = nb::cast<bool>(values["quiet"]);
+    state.warned = nb::cast<bool>(values["warned"]);
+    state.cap = nb::cast<double>(values["cap"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the boundary watch's state has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the boundary watch's state lacks a field");
+  }
+  return state;
+}
+
+nb::dict watch_state_to(const native::watch::State& state) {
+  nb::dict out;
+  out["has_last"] = state.has_last;
+  out["last_z"] = state.last_z;
+  out["since"] = state.since;
+  out["busy"] = state.busy;
+  out["quiet_run"] = state.quiet_run;
+  out["quiet"] = state.quiet;
+  out["warned"] = state.warned;
+  out["cap"] = state.cap;
+  return out;
+}
+
+/** Python's `format(value, f".{precision}g")`, which follows C's `%g`. */
+std::string py_g(const double value, const int precision) {
+  std::array<char, 64> buffer{};
+  std::snprintf(buffer.data(), buffer.size(), "%.*g", precision, value);
+  return buffer.data();
+}
+
+// solprop SEP 45 phase 3: the Runge-Kutta march's policy and state, from and to
+// solprop's `rk_march_policy` and `_NativeRungeKuttaMarch._state`.
+native::rk::Policy rk_policy_from(const nb::dict values) {
+  native::rk::Policy policy;
+  try {
+    auto& landings = policy.landings;
+    landings.dz_min = nb::cast<double>(values["dz_min"]);
+    landings.dz_max = nb::cast<double>(values["dz_max"]);
+    landings.stretch = nb::cast<double>(values["stretch"]);
+    landings.z_end = nb::cast<double>(values["z_end"]);
+    landings.save_planes = nb::cast<std::vector<double>>(values["save_planes"]);
+    landings.hard_kinks = nb::cast<std::vector<double>>(values["hard_kinks"]);
+    landings.breakpoints = nb::cast<std::vector<double>>(values["breakpoints"]);
+    landings.landing_ulps = nb::cast<int>(values["landing_ulps"]);
+    landings.interpolate = nb::cast<bool>(values["interpolate"]);
+    landings.has_quiet_interval = !values["quiet_interval"].is_none();
+    landings.quiet_interval =
+        landings.has_quiet_interval ? nb::cast<double>(values["quiet_interval"]) : 0.0;
+    policy.safety = nb::cast<double>(values["safety"]);
+    policy.beta1 = nb::cast<double>(values["beta1"]);
+    policy.beta2 = nb::cast<double>(values["beta2"]);
+    policy.min_factor = nb::cast<double>(values["min_factor"]);
+    policy.max_factor = nb::cast<double>(values["max_factor"]);
+    policy.lag = nb::cast<std::size_t>(values["lag"]);
+    policy.reject_free = nb::cast<bool>(values["reject_free"]);
+    policy.power = nb::cast<double>(values["power"]);
+    policy.exponent = nb::cast<double>(values["exponent"]);
+    policy.start_growth = nb::cast<double>(values["start_growth"]);
+    policy.auto_init = nb::cast<bool>(values["auto_init"]);
+    policy.dz_min = landings.dz_min;
+    policy.dz_max = landings.dz_max;
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's policy has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's policy lacks a field");
+  }
+  if (policy.landings.breakpoints.size() < 2 || !(policy.dz_max >= policy.dz_min))
+    throw std::invalid_argument("the Runge-Kutta march's landings are invalid");
+  return policy;
+}
+
+native::rk::State rk_state_from(const nb::dict values) {
+  native::rk::State state;
+  try {
+    state.z = nb::cast<double>(values["z"]);
+    state.proposal = nb::cast<double>(values["proposal"]);
+    for (const auto value : nb::cast<nb::list>(values["norms"]))
+      state.norms.push_back(nb::cast<double>(value));
+    if (values.contains("watch"))
+      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
+    if (values.contains("cursor"))
+      state.cursor = nb::cast<std::uint64_t>(values["cursor"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's state has the wrong types");
+  }
+  return state;
+}
+
+nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& state) {
+  const auto& result = out.march;
+  nb::dict values;
+  values["reason"] = static_cast<int>(result.reason);
+  const std::size_t n_rows = result.rows.size() / march::row_columns;
+  std::vector<double> rows = result.rows;
+  values["rows"] = n_rows == 0 ? nb::cast(nb::list())
+                               : nb::cast(real_output(std::move(rows), n_rows));
+  values["floor_proposal"] = result.floor_proposal;
+  values["floor_site"] = static_cast<int>(out.floor_site);
+  values["pending_equivalent"] = out.pending_equivalent;
+  values["replay_dz"] = result.replay_dz;
+  values["replay_end"] = result.replay_end;
+  values["replay_norm"] = result.replay_norm;
+  values["stage"] = static_cast<int>(result.stage);
+  values["category"] = static_cast<int>(result.category);
+  values["message"] = result.message;
+  const std::size_t n_readings = result.reading_rows.size();
+  std::vector<double> readings = result.readings;
+  values["readings"] = n_readings == 0
+                           ? nb::cast(nb::list())
+                           : nb::cast(real_output(std::move(readings), n_readings));
+  values["reading_rows"] = result.reading_rows;
+  values["verdict"] = static_cast<int>(result.verdict);
+  nb::dict held;
+  held["z"] = state.z;
+  held["proposal"] = state.proposal;
+  held["norms"] = std::vector<double>(state.norms.begin(), state.norms.end());
+  held["watch"] = watch_state_to(state.watch);
+  held["cursor"] = state.cursor;
+  values["state"] = held;
+  return values;
+}
+
 march::State march_state_from(const nb::dict values) {
   march::State state;
   try {
@@ -942,6 +1108,8 @@ march::State march_state_from(const nb::dict values) {
     state.ledger.failure_restarts = nb::cast<std::uint64_t>(ledger["failure_restarts"]);
     state.ledger.dense_observations =
         nb::cast<std::uint64_t>(ledger["dense_observations"]);
+    if (values.contains("watch"))
+      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Adams march's state has the wrong types");
   }
@@ -974,6 +1142,7 @@ nb::dict march_state_to(const march::State& state) {
   ledger["failure_restarts"] = state.ledger.failure_restarts;
   ledger["dense_observations"] = state.ledger.dense_observations;
   out["ledger"] = ledger;
+  out["watch"] = watch_state_to(state.watch);
   return out;
 }
 
@@ -989,13 +1158,20 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.last_check = nb::cast<double>(values["last_check"]);
     bounds.has_read_at = !values["read_at"].is_none();
     bounds.read_at = bounds.has_read_at ? nb::cast<double>(values["read_at"]) : 0.0;
-    bounds.read_spacing =
-        bounds.has_read_at ? nb::cast<double>(values["read_spacing"]) : 0.0;
+    // The Adams march reads the spacing only with a read (`read_capped`); the
+    // Runge-Kutta march takes it as the edge's ceiling, infinite without an edge.
+    bounds.read_spacing = nb::cast<double>(values["read_spacing"]);
     bounds.step_cap = nb::cast<double>(values["step_cap"]);
     bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
     bounds.replay = nb::cast<bool>(values["replay"]);
     bounds.slack = nb::cast<double>(values["slack"]);
+    // The march's own boundary checks (solprop SEP 45), when the host asks for them.
+    if (values.contains("watch") && !values["watch"].is_none()) {
+      bounds.watch = true;
+      bounds.watch_policy = watch_policy_from(nb::cast<nb::dict>(values["watch"]));
+      bounds.watch_capacity = nb::cast<std::size_t>(values["watch_capacity"]);
+    }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Adams march's bounds have the wrong types");
   } catch (const nb::python_error&) {
@@ -1030,6 +1206,13 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
       result.step_nodes.begin(),
       result.step_nodes.begin() + static_cast<std::ptrdiff_t>(result.step_order));
   out["step_carrier"] = result.step_carrier;
+  const std::size_t n_readings = result.reading_rows.size();
+  std::vector<double> readings = result.readings;
+  out["readings"] = n_readings == 0
+                        ? nb::cast(nb::list())
+                        : nb::cast(real_output(std::move(readings), n_readings));
+  out["reading_rows"] = result.reading_rows;
+  out["verdict"] = static_cast<int>(result.verdict);
   out["state"] = march_state_to(state);
   return out;
 }
@@ -1148,6 +1331,8 @@ public:
             carrier_.begin() + static_cast<std::ptrdiff_t>(1 + 2 * order)};
   }
 
+  std::vector<double> reading() override { return state_.monitor_reading(); }
+
 private:
   void inject(const march::Stage stage) {
     if (!fault_ || fault_->stage != stage)
@@ -1174,6 +1359,44 @@ private:
   std::optional<MarchFault>& fault_;
   /** The last trial's carrier rotations, `_trial_carrier`. */
   std::vector<double> carrier_;
+};
+
+// The resident Runge-Kutta engine (solprop SEP 45 phase 3): a staged trial, its norm
+// by the native weak scale, and the accept's recycled stage and finish.
+class ResidentRungeKutta final : public native::rk::Engine {
+public:
+  using Trial = std::function<std::vector<double>(double, double)>;
+  ResidentRungeKutta(native::GeneralState& state, Trial trial, const double rtol,
+                     const double atol, const std::vector<double>& weights)
+      : state_(state), trial_(std::move(trial)), rtol_(rtol), atol_(atol),
+        weights_(weights) {}
+  double trial(const double z, const double dz) override {
+    const auto partials = trial_(z, dz);
+    if (!weights_.empty())
+      return weighted_norm(state_, partials, rtol_, atol_, weights_);
+    return native::rk::score(partials.data(), partials.size() / 3, rtol_, atol_);
+  }
+  // solprop SEP 45 phase 4: a weighted controller's norm, `_score_trial`'s weighted
+  // path with its sums in order.
+  static double weighted_norm(native::GeneralState& state,
+                              const std::vector<double>& partials, const double rtol,
+                              const double atol, const std::vector<double>& weights) {
+    const auto scale = native::rk::weighted_scale(partials.data(), partials.size() / 3,
+                                                  rtol, atol, weights);
+    return native::rk::weighted_score(state.weighted_error(scale));
+  }
+  void accept(const double dz) override {
+    state_.promote_fsal();
+    state_.finish(dz);
+  }
+  std::vector<double> reading() override { return state_.monitor_reading(); }
+
+private:
+  native::GeneralState& state_;
+  Trial trial_;
+  double rtol_;
+  double atol_;
+  const std::vector<double>& weights_;
 };
 
 // A script of norms in place of the field arithmetic, logging what the march asked:
@@ -1266,6 +1489,62 @@ private:
   std::size_t used_ = 0;
 };
 
+// The scripted Runge-Kutta march solprop's decision-trace tests drive (SEP 45 phase 3):
+// each trial returns its script's norm, or with `h0` the script's noise times the model
+// norm `(dz / h0) ** power`, as solprop's harness forms it.
+class ScriptedRungeKutta final : public native::rk::Engine {
+public:
+  ScriptedRungeKutta(const std::vector<double>& norms, std::size_t& next,
+                     const double h0, const double power, nb::list& log)
+      : norms_(norms), next_(next), h0_(h0), power_(power), log_(log) {}
+  double trial(const double z, const double dz) override {
+    if (next_ >= norms_.size())
+      throw std::out_of_range("the script ran out of norms");
+    nb::dict event;
+    event["z"] = z;
+    event["dz"] = dz;
+    log_.append(event);
+    const double noise = norms_[next_++];
+    return h0_ > 0.0 ? noise * std::pow(dz / h0_, power_) : noise;
+  }
+  void accept(double /*dz*/) override {}
+  std::vector<double> reading() override {
+    throw std::logic_error("a scripted march takes no boundary readings");
+  }
+
+private:
+  const std::vector<double>& norms_;
+  std::size_t& next_;
+  double h0_;
+  double power_;
+  nb::list& log_;
+};
+
+class ScriptedRkMarch {
+public:
+  ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0,
+                  const RealInput steps, const RealInput edges)
+      : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0),
+        schedule_{real_vector(steps), real_vector(edges)} {}
+  nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
+    auto state = rk_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
+    const auto result = native::rk::run(policy_, state, engine, bounds, schedule_);
+    return rk_result_to(result, state);
+  }
+  nb::list log() const { return log_; }
+  [[nodiscard]] std::size_t used() const { return next_; }
+
+private:
+  native::rk::Policy policy_;
+  std::vector<double> norms_;
+  double h0_;
+  march::Schedule schedule_;
+  std::size_t next_ = 0;
+  nb::list log_;
+};
+
 class BoundState {
 public:
   explicit BoundState(const nb::dict& problem) : BoundState(problem_from(problem)) {}
@@ -1293,6 +1572,131 @@ public:
     require_open();
     general_state_->set_initial(field, noise);
   }
+  // solprop SEP 45 phase 2: a Runge-Kutta trial whose stage rows the state forms from
+  // the uploaded tables, at the positions `z + c_i dz` and the step's end.
+  std::vector<double> rk_trial(const double z, const double dz,
+                               const std::vector<double>& nodes,
+                               const bool prepare_only) {
+    if (!stage_tables_)
+      throw std::logic_error("a staged Runge-Kutta trial needs the stage tables");
+    if (nodes.size() != stages_)
+      throw std::invalid_argument("the trial's nodes are the tableau's stages");
+    const auto scalars = native::stage::rows(*stage_tables_, stage_anchor_, z,
+                                             native::rk::positions(z, dz, nodes));
+    if (stage_tables_->flow.present())
+      guarded_flow_actions(scalars.flow_section, dz, nodes);
+    return trial_step(dz, scalars, prepare_only);
+  }
+  // solprop SEP 45 phase 4: `_flow_trial`'s guards, transcribed. A set of actions is
+  // held for one (section, step); a length whose exponent needs too many squarings is
+  // refused before forming, and a measured conditioning above the section's
+  // certificate after, each as solprop's `_flow_squarings` and
+  // `_check_flow_conditioning` refuse them, with their constants handed over.
+  void flow_guard_configure(std::vector<double> row_sum,
+                            std::vector<double> condition_bound,
+                            const double taylor_scale, const int max_squarings,
+                            const double allowance) {
+    open_state();
+    const std::size_t sections = row_sum.size();
+    if (sections == 0 || condition_bound.size() % sections != 0)
+      throw std::invalid_argument("the flow guard's certificate is one row a section");
+    flow_guard_ = FlowGuard{std::move(row_sum), std::move(condition_bound),
+                            taylor_scale, max_squarings, allowance};
+    flow_key_.reset();
+  }
+  void guarded_flow_actions(const std::size_t section, const double dz,
+                            const std::vector<double>& nodes) {
+    if (!flow_guard_)
+      throw std::logic_error("a staged trial beside a coupled flow needs its guard");
+    if (flow_key_ && flow_key_->first == section && flow_key_->second == dz)
+      return;
+    // Forgotten first: a refusal below leaves no set of actions behind a key.
+    flow_key_.reset();
+    const auto& guard = *flow_guard_;
+    if (section >= guard.row_sum.size())
+      throw std::out_of_range("the trial's flow section is past the guard's");
+    std::vector<double> fractions(nodes);
+    fractions.push_back(1.0);
+    for (const double fraction : fractions) {
+      if (fraction == 0.0)
+        continue;
+      const double largest = fraction * dz * guard.row_sum[section];
+      int squarings = 0;
+      if (largest > guard.taylor_scale)
+        squarings =
+            static_cast<int>(std::ceil(std::log2(largest / guard.taylor_scale)));
+      if (squarings > guard.max_squarings)
+        throw native::BackendRefusal(
+            "native cannot take a coupled flow action whose exponent has row-sum "
+            "norm " +
+            py_g(largest, 4) + ": it would need " + std::to_string(squarings) +
+            " squarings, above the " + std::to_string(guard.max_squarings) +
+            " this backend admits. Cap dz_max");
+    }
+    const auto measured = general_state_->form_flow_actions(section, dz, fractions);
+    const std::size_t width = guard.condition_bound.size() / guard.row_sum.size();
+    if (!measured.empty()) {
+      if (measured.size() != width)
+        throw std::logic_error("the measured conditioning is one value an active bin");
+      const double* declared = guard.condition_bound.data() + section * width;
+      // NumPy's argmax: the first largest, or the first NaN.
+      std::size_t worst = 0;
+      double largest = measured[0] / (declared[0] * guard.allowance);
+      for (std::size_t bin = 1; bin < width && !std::isnan(largest); ++bin) {
+        const double excess = measured[bin] / (declared[bin] * guard.allowance);
+        if (std::isnan(excess) || excess > largest) {
+          largest = excess;
+          worst = bin;
+        }
+      }
+      if (largest > 1.0)
+        throw native::BackendRefusal(
+            "native measured a coupled flow conditioning of " +
+            py_g(measured[worst], 12) + " over a step of " + py_g(dz, 4) +
+            " m, above the " + py_g(declared[worst], 12) +
+            " the certificate declares at active bin " + std::to_string(worst) +
+            " of section " + std::to_string(section) + " -- exceeding it by a factor " +
+            py_g(largest, 12) +
+            " of the rounding allowance: the inverse action carries the nonlinear "
+            "source back by the measured factor. Lower dz_max, which is what the "
+            "bound was declared over");
+    }
+    flow_key_ = std::make_pair(section, dz);
+  }
+  // solprop SEP 45 phase 3: the native Runge-Kutta march over the staged trial.
+  void rk_march_configure(native::rk::Policy policy, std::vector<double> nodes,
+                          const double rtol, const double atol,
+                          std::vector<double> steps, std::vector<double> edges) {
+    open_state();
+    if (!stage_tables_)
+      throw std::logic_error("the native Runge-Kutta march needs the stage tables");
+    if (nodes.size() != stages_)
+      throw std::invalid_argument("the march's nodes are the tableau's stages");
+    rk_policy_ = std::move(policy);
+    rk_nodes_ = std::move(nodes);
+    rk_rtol_ = rtol;
+    rk_atol_ = atol;
+    rk_schedule_ = {std::move(steps), std::move(edges)};
+  }
+  nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
+    if (!rk_policy_)
+      throw std::logic_error("the native Runge-Kutta march is not configured");
+    auto state = rk_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    auto& general = open_state();
+    ResidentRungeKutta engine(
+        general,
+        [this](const double z, const double dz) {
+          return rk_trial(z, dz, rk_nodes_, false);
+        },
+        rk_rtol_, rk_atol_, rk_weights_);
+    native::rk::Result result;
+    {
+      const nb::gil_scoped_release release;
+      result = native::rk::run(*rk_policy_, state, engine, bounds, rk_schedule_);
+    }
+    return rk_result_to(result, state);
+  }
   std::vector<double> trial_step(const double dz, const native::TrialScalars& scalars,
                                  const bool prepare_only = false) {
     require_open();
@@ -1306,6 +1710,7 @@ public:
                         const std::vector<native::Complex>& inverse,
                         const std::vector<unsigned char>& identity) {
     require_open();
+    flow_key_.reset();
     general_state_->set_flow_actions(forward, inverse, identity);
   }
   std::vector<native::Complex> flow_actions_to_host(const bool inverse) {
@@ -1315,11 +1720,26 @@ public:
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
                                         const std::vector<double>& fractions) {
     require_open();
+    flow_key_.reset();
     return general_state_->form_flow_actions(section, dz, fractions);
   }
   std::vector<double> weighted_error(const std::vector<double>& scale) {
     require_open();
     return general_state_->weighted_error(scale);
+  }
+  // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
+  // trial's partials, for both Runge-Kutta loops.
+  void rk_weights_configure(std::vector<double> weights) {
+    open_state();
+    rk_weights_ = std::move(weights);
+  }
+  double rk_weighted_score(const double* partials, const std::size_t slots,
+                           const double rtol, const double atol) {
+    if (rk_weights_.empty())
+      throw std::logic_error("no weighted controller's weights were configured");
+    const std::vector<double> values(partials, partials + 3 * slots);
+    return ResidentRungeKutta::weighted_norm(open_state(), values, rtol, atol,
+                                             rk_weights_);
   }
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities) {
@@ -1646,6 +2066,21 @@ private:
   native::stage::Anchor stage_anchor_;
   native::stage::ZSlots z_slots_;
   std::optional<march::Policy> march_policy_;
+  struct FlowGuard {
+    std::vector<double> row_sum;
+    std::vector<double> condition_bound;
+    double taylor_scale;
+    int max_squarings;
+    double allowance;
+  };
+  std::optional<FlowGuard> flow_guard_;
+  std::optional<std::pair<std::size_t, double>> flow_key_;
+  std::optional<native::rk::Policy> rk_policy_;
+  std::vector<double> rk_nodes_;
+  double rk_rtol_ = 0.0;
+  double rk_atol_ = 0.0;
+  march::Schedule rk_schedule_;
+  std::vector<double> rk_weights_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -2054,12 +2489,58 @@ nb::dict build_record() {
 
 NB_MODULE(_core, module_) {
   nb::exception<native::EnvelopeConvergenceError>(module_, "EnvelopeConvergenceError");
+  nb::exception<native::BackendRefusal>(module_, "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
               "threaded_fft_min_samples"_a = 0, "band_tiles"_a = -1);
   module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
   module_.def("register_host_blas", &register_host_blas);
+  // solprop SEP 45 phase 1: the boundary watch's predictions, for solprop's tests to
+  // hold against its monitor on drawn readings.
+  module_.def(
+      "watch_check",
+      [](const nb::dict policy, const nb::dict state, const RealInput reading,
+         const double z) {
+        const auto rules = watch_policy_from(policy);
+        auto held = watch_state_from(state);
+        const auto values = real_vector(reading);
+        if (values.size() < native::watch::reading_head ||
+            (rules.crossing &&
+             values.size() < native::watch::reading_head + native::watch::buckets))
+          throw std::invalid_argument("a boundary reading is too short for its policy");
+        const auto verdict = native::watch::check(rules, held, values.data(), z);
+        nb::dict out;
+        out["verdict"] = static_cast<int>(verdict);
+        out["state"] = watch_state_to(held);
+        return out;
+      },
+      "policy"_a, "state"_a, "reading"_a, "z"_a);
+  module_.def(
+      "rk_score",
+      [](const RealInput partials, const double rtol, const double atol) {
+        if (partials.ndim() != 2 || partials.shape(0) != 3)
+          throw std::invalid_argument("a trial's partials have shape (3, slots)");
+        return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
+      },
+      "partials"_a, "rtol"_a, "atol"_a);
+  module_.def(
+      "watch_due",
+      [](const nb::dict policy, const nb::dict state, const double z) {
+        return native::watch::due(watch_policy_from(policy), watch_state_from(state),
+                                  z);
+      },
+      "policy"_a, "state"_a, "z"_a);
+  module_.def(
+      "watch_split_limit",
+      [](const nb::dict policy, const RealInput occupancy) {
+        const auto rules = watch_policy_from(policy);
+        const auto values = real_vector(occupancy);
+        if (values.size() != native::watch::buckets)
+          throw std::invalid_argument("an occupancy has 128 buckets");
+        return native::watch::split_limit(rules, values.data());
+      },
+      "policy"_a, "occupancy"_a);
   module_.def("available_device_memory", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA)
     std::size_t free_bytes = 0;
@@ -2121,6 +2602,12 @@ NB_MODULE(_core, module_) {
            "edges"_a.noconvert())
       .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
       .def("log", &ScriptedMarch::log);
+  nb::class_<ScriptedRkMarch>(module_, "ScriptedRkMarch")
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "h0"_a, "steps"_a.noconvert(), "edges"_a.noconvert())
+      .def("run", &ScriptedRkMarch::run, "state"_a, "bounds"_a)
+      .def("log", &ScriptedRkMarch::log)
+      .def("used", &ScriptedRkMarch::used);
   nb::class_<BoundState>(module_, "State")
       .def(nb::init<const nb::dict&>())
       .def(
@@ -2131,6 +2618,19 @@ NB_MODULE(_core, module_) {
             self.set_initial(complex_span(field), complex_span(noise));
           },
           "field"_a.noconvert(), "noise"_a.noconvert())
+      .def(
+          "rk_trial",
+          [](BoundState& self, const double z, const double dz,
+             const std::vector<double>& nodes, const bool prepare_only) {
+            std::vector<double> partials;
+            {
+              const nb::gil_scoped_release release;
+              partials = self.rk_trial(z, dz, nodes, prepare_only);
+            }
+            return prepare_only ? nb::object(nb::none())
+                                : nb::cast(real_output(std::move(partials), 3));
+          },
+          "z"_a, "dz"_a, "nodes"_a, "prepare_only"_a = false)
       .def(
           "trial_step",
           [](BoundState& self, const double dz, const RealInput phi_delta,
@@ -2575,6 +3075,30 @@ NB_MODULE(_core, module_) {
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())
       .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
+      .def(
+          "rk_march_configure",
+          [](BoundState& self, const nb::dict policy, const std::vector<double>& nodes,
+             const double rtol, const double atol, const RealInput steps,
+             const RealInput edges) {
+            self.rk_march_configure(rk_policy_from(policy), nodes, rtol, atol,
+                                    real_vector(steps), real_vector(edges));
+          },
+          "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
+          "edges"_a.noconvert())
+      .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("rk_weights_configure", &BoundState::rk_weights_configure, "weights"_a)
+      .def(
+          "rk_weighted_score",
+          [](BoundState& self, const RealInput partials, const double rtol,
+             const double atol) {
+            if (partials.ndim() != 2 || partials.shape(0) != 3)
+              throw std::invalid_argument("a trial's partials have shape (3, slots)");
+            return self.rk_weighted_score(partials.data(), partials.shape(1), rtol,
+                                          atol);
+          },
+          "partials"_a.noconvert(), "rtol"_a, "atol"_a)
+      .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
+           "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)
       // A test hook: fail the resident engine's `stage` after `after` more calls.
       .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
            "category"_a)

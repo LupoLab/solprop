@@ -102,6 +102,8 @@ __all__ = [
     "STAGE_SCALARS_FIELDS",
     "STAGE_TERMS_FIELDS",
     "TRANSFORM_FIELDS",
+    "WATCH_POLICY_FIELDS",
+    "WATCH_STATE_FIELDS",
     "BuildInfo",
     "NativeBackend",
     "NativeBatchBackend",
@@ -171,6 +173,7 @@ if not any(
 _core.register_host_blas()
 
 DRIVER_SURFACE: tuple[str, ...] = (
+    "_account_step",
     "_adams_adopt",
     "_adams_block",
     "_adams_engine",
@@ -186,7 +189,9 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_bind_monitor",
     "_boundary_energies",
     "_collar_changed",
+    "_controller_policy",
     "_delta_phi",
+    "_dense_record",
     "_dense_stages",
     "_edge_reading",
     "edge_memory",
@@ -196,19 +201,23 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_march_to",
     "_natural_stop",
     "_natural_stop_due",
+    "_observe_inside",
     "_observed_field",
     "_on_accepted_step",
     "_on_axis_synthesis",
     "_poll_stop",
     "_record_attempt",
+    "_replay_to",
     "_require_grid",
     "_require_state",
-    "_skip_step",
     "_stage_bundles",
     "_stage_scalars",
+    "_start_up",
+    "_statistics_step",
     "_take_step_stats",
     "_trial_step",
     "_unitary_phase",
+    "_watched_step",
     "available_device_memory",
     "metadata",
     "set_initial",
@@ -270,6 +279,41 @@ MARCH_POLICY_FIELDS: tuple[str, ...] = (
 The native Adams march reads every number of its algorithm from this record (solprop
 SEP 39 section 4.2), so a field solprop adds is one the native march would not honour:
 :func:`check_build` refuses a solprop whose record differs in either direction."""
+
+WATCH_POLICY_FIELDS: tuple[str, ...] = (
+    "split",
+    "crossing",
+    "floor_regions",
+    "launch_floor",
+    "activity",
+    "warn",
+    "stop",
+    "quiet_share",
+    "quiet_checks",
+    "quiet_collar",
+    "cadence",
+    "interval",
+    "share",
+    "bucket_limits",
+)
+"""``BoundaryMonitor.watch_policy``'s fields, exactly (solprop SEP 45 section 4.8).
+
+The native march predicts the monitor's checks from these numbers alone, so a field
+solprop adds is one it would not honour: the adapter refuses a policy that differs in
+either direction."""
+
+WATCH_STATE_FIELDS: tuple[str, ...] = (
+    "has_last",
+    "last_z",
+    "since",
+    "busy",
+    "quiet_run",
+    "quiet",
+    "warned",
+    "cap",
+)
+"""``BoundaryMonitor.watch_state``'s fields, exactly: what the predictions read and
+change, compared with solprop's monitor after every drain (SEP 45 section 4.8)."""
 
 ADAMS_MARCH_SURFACE: tuple[str, ...] = (
     "_budget_error",

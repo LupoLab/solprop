@@ -135,6 +135,10 @@ def test_batch_names_the_member_behind_an_invalid_norm(monkeypatch, kind, norm):
             monkeypatch.setattr(passes, "error_norm", lambda *args: norm)
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))
         else:
+            # The patched scorer is solprop's loop's; the native march (SEP 45) scores
+            # its trials itself.
+            backend_module = pytest.importorskip("solprop_native.backend")
+            monkeypatch.setattr(backend_module, "_RK_MARCH", "host")
             for one in (member, solo):
                 monkeypatch.setattr(one, "_score_trial", lambda *_: norm)
             runner = select_batch(cast(Sequence[Backend], [healthy, member]))

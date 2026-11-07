@@ -911,7 +911,15 @@ DRIVER_SURFACE = {
     "_record_attempt": (
         "(self, z: float, dz: float, norm: float, accepted: bool, wall: float) -> None"
     ),
-    "_skip_step": "(self, z: float) -> None",
+    "_account_step": (
+        "(self, z: float, cursor: int, "
+        "energies: solprop.monitor.BoundaryEnergies | None = None) -> None"
+    ),
+    "_watched_step": (
+        "(self, z: float, cursor: int, "
+        "energies: solprop.monitor.BoundaryEnergies | None) -> None"
+    ),
+    "_statistics_step": "(self) -> None",
     "_take_step_stats": "(self) -> None",
     "_natural_stop": "(self, target: float) -> bool",
     "_natural_stop_due": "(self, target: float) -> bool",
@@ -962,7 +970,13 @@ DRIVER_SURFACE = {
     ),
     "_check_open": "(self) -> None",
     "_collar_changed": "(self) -> None",
+    "_controller_policy": "(self) -> solprop.backends.rk_core.RungeKuttaPolicy",
+    "_dense_record": (
+        "(self, z: float, dz: float) -> tuple[float, float, list[numpy.ndarray]]"
+    ),
     "_march_to": "(self, target: float) -> None",
+    "_observe_inside": "(self, position: float) -> None",
+    "_start_up": "(self, norm: float) -> None",
     "_monitor_plane": "(self) -> None",
     "_noise_at": (
         "(self, bundle: solprop.translate.stage.StageScalars) -> "
@@ -1015,6 +1029,8 @@ DRIVER_ATTRIBUTES = (
     "_accepted_norms",
     "_accepted_steps",
     "_clock",
+    "_dense_ahead",
+    "_dense_step",
     "_collar_quiet",
     "_history",
     "_monitor",

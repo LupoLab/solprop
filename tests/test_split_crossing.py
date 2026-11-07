@@ -518,3 +518,22 @@ def test_a_factored_coupled_flow_is_refused_under_the_split() -> None:
     table = dataclasses.replace(linear, coupled_flow=factored)
     with pytest.raises(TranslationError, match="factored"):
         _channel_rate(table, 0.0, False, None)
+
+
+def test_the_limit_sums_its_occupancy_in_one_sequential_order() -> None:
+    # SEP 45 section 4.8 (Q7): the total is the cumulative sum's last element, so a
+    # compiled march summing in order picks the same bucket. In this near-tie NumPy's
+    # pairwise total selects bucket 1 and a sequential one bucket 0, steps about 1.18
+    # times apart; the limit now takes the sequential bucket.
+    occupancy = np.full(SPLIT_RATE_BUCKETS, 2.0**-54)
+    occupancy[0] = float.fromhex("0x1.0c6f8ba2f9813p-20")
+    occupancy[1] = 1.0
+    crossing = SplitCrossing(np.zeros((1, 1), dtype=np.uint8), 1e-13)
+    total = 0.0
+    for value in occupancy:
+        total += float(value)
+    assert total != float(occupancy.sum())  # the two orders differ here
+    rates = split_bucket_rates(crossing.fastest)
+    expected = split_crossing_step(float(rates[0]), crossing.width, crossing.factor)
+    assert crossing.limit(occupancy) == expected
+    assert math.isinf(crossing.limit(np.zeros(SPLIT_RATE_BUCKETS)))

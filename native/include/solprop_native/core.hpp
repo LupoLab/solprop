@@ -166,6 +166,13 @@ public:
   using std::runtime_error::runtime_error;
 };
 
+/** Refuse a step solprop's reference refuses with `BackendError` (solprop SEP 45
+    phase 4): a coupled flow's action past its squarings or its certificate. */
+class BackendRefusal : public std::runtime_error {
+public:
+  using std::runtime_error::runtime_error;
+};
+
 /** Below this many real-side samples per execution a modal or spatial FFTW plan runs
     on one thread (`ThreadPolicy::threaded_fft_min_samples` unless set at start). The
     crossover is platform-dependent. On Linux at 32768 the four-mode RDW's 32000-sample

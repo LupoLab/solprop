@@ -37,12 +37,14 @@ from jaxtyping import Complex, Float
 
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
+from solprop.backends import rk_core
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
     StepStats,
     StepSummary,
 )
+from solprop.backends.rk_core import rk_policy
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -53,12 +55,7 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import (
-    START_GROWTH,
-    ControlRecord,
-    PIController,
-    limit_step,
-)
+from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
@@ -1530,7 +1527,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Position to reach, m.
         """
         settings = self._problem.stepper
-        controller = settings.controller
+        policy = self._controller_policy()
         dense = settings.interpolate_planes
         if dense and self._dense_ahead is not None:
             # The march is ahead of the last interpolated plane; resume it there.
@@ -1574,10 +1571,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # the history records, is the error the executed step actually committed,
             # so a short landing step that was accurate is neither thrown away nor
             # written up as a failure.
-            equivalent = controller.equivalent_norm(
-                norm, dz_taken=stop.dz, dz_proposed=self._proposal
-            )
-            accepted = controller.accepts(norm)
+            equivalent, accepted = rk_core.decide(policy, norm, stop.dz, self._proposal)
             # A landing snaps to its target rather than accumulating z + dz, so that a
             # save plane is hit exactly however many steps have gone before.
             end = stop.z_target if stop.z_target is not None else self._z + stop.dz
@@ -1592,29 +1586,21 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     self._state = finished
                     self._z = end
                 self._accepted_norms.append(equivalent)
-                if settings.auto_init and len(self._accepted_norms) == 1:
+                if policy.auto_init and len(self._accepted_norms) == 1:
                     self._start_up(equivalent)
                 # The next proposal grows or shrinks once per accepted step, from the
                 # history the step completed. A rejected step is retried at the step
                 # rejection_factor left: applying this factor again there undid the
                 # shrink, and with a growth cap above about 1.27 a step whose norm sat
                 # just above one was rejected unchanged forever.
-                self._proposal = limit_step(
-                    self._proposal,
-                    controller.propose(self._accepted_norms),
-                    settings.dz_min,
-                    settings.dz_max,
+                self._proposal = rk_core.propose(
+                    policy, self._proposal, self._accepted_norms
                 )
                 self._take_step_stats()
                 if self._natural_stop(target):
                     return
             else:
-                self._proposal = limit_step(
-                    self._proposal,
-                    controller.rejection_factor(equivalent),
-                    settings.dz_min,
-                    settings.dz_max,
-                )
+                self._proposal = rk_core.reject(policy, self._proposal, equivalent)
 
         if dense and not reached(target, self._z):
             self._observe_inside(target)
@@ -1698,6 +1684,16 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         msg = f"{self.name} does not observe densely"
         raise BackendError(msg)
 
+    def _controller_policy(self) -> rk_core.RungeKuttaPolicy:
+        """Return the Runge-Kutta march's controller policy (SEP 45).
+
+        Returns
+        -------
+        solprop.backends.rk_core.RungeKuttaPolicy
+            The run's controller, floor, cap and start-up flag.
+        """
+        return rk_policy(self._problem.stepper)
+
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
 
@@ -1719,17 +1715,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         norm : float
             The first accepted step's norm at its proposed length.
         """
-        settings = self._problem.stepper
-        controller = settings.controller
-        first = self._proposal
-        factor = controller.start_factor(norm)
-        self._proposal = limit_step(first, factor, settings.dz_min, settings.dz_max)
-        self._accepted_norms[-1] = (
-            0.0
-            if factor >= START_GROWTH
-            else controller.equivalent_norm(
-                norm, dz_taken=first, dz_proposed=self._proposal
-            )
+        self._proposal, self._accepted_norms[-1] = rk_core.start_up(
+            self._controller_policy(), self._proposal, norm
         )
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
@@ -2200,13 +2187,53 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         plane : bool, optional
             True for a saved plane's check of a step the monitor already skipped.
         """
-        monitor.step(
-            self._boundary_energies(self._require_state()), self._z, plane=plane
+        self._check_at(
+            monitor,
+            self._boundary_energies(self._require_state()),
+            self._z,
+            self._schedule_index,
+            plane=plane,
         )
-        self._set_collar_quiet(monitor.collar_quiet)
-        self._refuse_scheduled_crossing(monitor)
 
-    def _refuse_scheduled_crossing(self, monitor: BoundaryMonitor) -> None:
+    def _check_at(
+        self,
+        monitor: BoundaryMonitor,
+        energies: BoundaryEnergies,
+        z: float,
+        cursor: int,
+        *,
+        plane: bool = False,
+    ) -> None:
+        """Book a reading of the step committed at `z` with the monitor (SEP 45 4.10).
+
+        A native march that took the reading itself hands it back with the step's
+        position and replay cursor, which are not the driver's own once the call has
+        moved past the step; the host loops pass their current ones.
+
+        Parameters
+        ----------
+        monitor : solprop.monitor.BoundaryMonitor
+            The attached monitor.
+        energies : solprop.monitor.BoundaryEnergies
+            The reading of the committed state.
+        z : float
+            The step's end, m.
+        cursor : int
+            The replay cursor after the step.
+        plane : bool, optional
+            True for a saved plane's check of a step the monitor already skipped.
+        """
+        monitor.step(energies, z, plane=plane)
+        self._set_collar_quiet(monitor.collar_quiet)
+        self._refuse_scheduled_crossing(monitor, cursor=cursor, z=z)
+
+    def _refuse_scheduled_crossing(
+        self,
+        monitor: BoundaryMonitor,
+        *,
+        cursor: int | None = None,
+        z: float | None = None,
+    ) -> None:
         """Stop a fixed schedule whose steps before the next check pass the cap.
 
         Translation admitted the schedule on the launch's occupancy; light that has
@@ -2221,6 +2248,10 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         monitor : solprop.monitor.BoundaryMonitor
             The attached monitor, just read.
+        cursor : int or None, optional
+            The replay cursor after the step read; ``None`` for the driver's own.
+        z : float or None, optional
+            The step's end, m; ``None`` for the driver's position.
 
         Raises
         ------
@@ -2228,15 +2259,16 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Naming the cap and the step.
         """
         schedule = self._problem.stepper.schedule
-        if schedule is None or self._schedule_index >= schedule.n_steps:
+        first = self._schedule_index if cursor is None else cursor
+        position = self._z if z is None else z
+        if schedule is None or first >= schedule.n_steps:
             return
-        first = self._schedule_index
         ahead = schedule.steps[first : first + monitor.steps_to_check()]
         step = float(np.max(ahead))
         cap = monitor.step_cap
         if step > cap:
             msg = (
-                f"at z = {self._z:.6e} m the split temporal collar's crossing limit "
+                f"at z = {position:.6e} m the split temporal collar's crossing limit "
                 f"fell to {cap:.3e} m, below the fixed schedule's step {step:.3e} m "
                 "before the next check: light has spread into bins that walk faster "
                 "than the launch's, and a step that long could carry it through the "
@@ -2358,15 +2390,77 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         what that plane records; a second implementation of a statistic could drift
         from the first.
         """
+        self._monitor_step()
+        self._statistics_step()
+
+    def _monitor_step(self) -> None:
+        """Check or skip the step just committed, as the monitor's cadence asks.
+
+        The boundary monitor's part of :meth:`_take_step_stats`: a quiet window is
+        checked every few steps, without reading the state in between
+        (:data:`solprop.monitor.CADENCE`), and the transverse edge read where due.
+        """
         monitor = self._monitor
         if monitor is not None:
-            # A quiet window is checked every few steps, without reading the state
-            # in between (`solprop.monitor.CADENCE`).
             if monitor.due(self._z):
                 self._check_boundaries(monitor)
             else:
                 monitor.skip(self._z)
             self._read_transverse(monitor, plane=False)
+
+    def _watched_step(
+        self, z: float, cursor: int, energies: BoundaryEnergies | None
+    ) -> None:
+        """Book a step whose check a native march decided (SEP 45 section 4.10).
+
+        Parameters
+        ----------
+        z : float
+            The step's end, m.
+        cursor : int
+            The replay cursor after the step.
+        energies : solprop.monitor.BoundaryEnergies or None
+            The reading the march took of the step, or ``None`` for a step it left
+            unchecked.
+        """
+        monitor = self._monitor
+        if monitor is None:
+            return
+        if energies is None:
+            monitor.skip(z)
+        else:
+            self._check_at(monitor, energies, z, cursor)
+
+    def _account_step(
+        self, z: float, cursor: int, energies: BoundaryEnergies | None = None
+    ) -> None:
+        """Account an accepted step on which no other host work falls (SEP 45 4.10).
+
+        What :meth:`_take_step_stats` and :meth:`_natural_stop` do for such a step:
+        the boundary monitor checks it on the march's reading or skips it, and the
+        statistics rows and natural stops count it, each once. A native march returns
+        to its host before any step on which a row or a stop would act.
+
+        Parameters
+        ----------
+        z : float
+            The step's end, m.
+        cursor : int
+            The replay cursor after the step.
+        energies : solprop.monitor.BoundaryEnergies or None, optional
+            The reading the march took of the step, or ``None`` for a step it left
+            unchecked.
+        """
+        self._watched_step(z, cursor, energies)
+        if self._row_spec is not None:
+            self._accepted_steps += 1
+        self._natural_count += 1
+
+    def _statistics_step(self) -> None:
+        """Take the statistics row of the step just committed when it is due.
+
+        The statistics part of :meth:`_take_step_stats`, at the driver's position.
+        """
         if self._row_spec is None:
             return
         self._accepted_steps += 1
@@ -2400,26 +2494,6 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Seconds since the last observation, as :meth:`_record` measures it.
         """
         self._history.append((z, dz, norm, accepted, wall))
-
-    def _skip_step(self, z: float) -> None:
-        """Account an accepted step on which no host work falls (SEP 39 section 4.8).
-
-        What :meth:`_take_step_stats` and :meth:`_natural_stop` do for such a step: the
-        boundary monitor skips it, and the statistics rows and natural stops count it.
-        A native Adams march returns to its host before any step on which either would
-        act.
-
-        Parameters
-        ----------
-        z : float
-            The step's end, m.
-        """
-        monitor = self._monitor
-        if monitor is not None:
-            monitor.skip(z)
-        if self._row_spec is not None:
-            self._accepted_steps += 1
-        self._natural_count += 1
 
     def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         """Append one step to the history since the last observation.

@@ -1233,15 +1233,119 @@ one attempt, of seven and of none to one set of bits.
   (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
+**The boundary checks inside the march** ([SEP 45](seps/archive/sep-0045-native-rk-march.md)
+§4.8, normative since its phase 1). Unless the run's monitor reads a transverse edge, a
+call also takes the monitor's checks: the bounds carry the monitor's watch policy
+(`BoundaryMonitor.watch_policy`, exactly `WATCH_POLICY_FIELDS`: the scaled floor
+regions, the launch floor, the activity, warning and stop thresholds, the quiet
+collar's share, count and opt-in, the cadence, the interval, the crossing share and
+each bucket's step limit) and the most readings one call buffers; the state carries the
+monitor's watch state (`WATCH_STATE_FIELDS`). After each accepted step that reaches its
+statistics the march applies `due`, and on a due step takes the reading, buffers it
+against the attempt's row and predicts `BoundaryMonitor.step`: the split cap, which
+then caps the next step, the cadence, the quiet verdict, a first warning or a stop. It
+returns (`Reason::watch`, with the verdict) on a stop, a first warning, a change of the
+quiet verdict, a replayed schedule passing the cap, or a split that found nothing; and
+(`Reason::capacity`) when the buffer fills where no other event falls. The host's
+monitor-cadence and distance returns are then not asked for.
+
 **What solprop does with a call** (`_NativeAdamsMarch`): before the call it polls the
 run's stop flag, which native code cannot read, as the reference polls before an attempt;
 inside one `committing()` it makes the call, adopts the state and books each row, an
-accepted row on which the driver has no work through `StepDriver._skip_step` and the rest
-through `StepDriver._record_attempt`; after the commit it reports progress per attempt,
-takes the event step's statistics and natural stop, and raises the error the reason
-names, with the reference's message.
+accepted row on which the driver has no work through `StepDriver._account_step` (with
+the reading the march took of it, replayed through the monitor) and every row through
+`StepDriver._record_attempt`; after the commit it reports progress per attempt, takes
+the event step's monitor work (its buffered reading) and statistics and its natural
+stop, holds the monitor's watch state to the march's (`BackendError` on a difference),
+and raises the error the reason names, with the reference's message.
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as
 solprop's Python does; on one build the native and reference marches read the same
 tables and norms and take the same steps.
+
+## 12. The Runge–Kutta march
+
+*Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
+(`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
+not, on CPU and device builds; a controller with its own methods steps the reference, with
+a `HostMarchWarning` naming the reason.*
+
+The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
+reference implementation, solprop's `StepDriver._march_to` and the controller core it
+calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
+as §11's Adams march is executed. It then receives every number the algorithm reads in
+one record and holds no default and no constant of its own (`native/AGENTS.md`).
+[SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
+its interface.
+
+**The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run
+by `rk_policy`, with the landings of the run):
+
+| field | meaning |
+|---|---|
+| the controller's `safety`, `beta1`, `beta2`, `min_factor`, `max_factor`, `lag`, `reject_free`, `estimator_order` | `PIController`'s gains, factors and acceptance rule (§7) |
+| `START_GROWTH` | the start-up rule's cap on the second proposal (100) |
+| `RungeKuttaPolicy.auto_init` | whether the first accepted step takes the start-up rule |
+| `RungeKuttaPolicy.dz_min`, `RungeKuttaPolicy.dz_max` | the floor and the cap on a proposal, m |
+| the landings: `stretch`, `z_end`, `save_planes`, `hard_kinks`, `breakpoints`, `landing_ulps` | as §11's, shared with the Adams march |
+| the tableau's nodes | the stage positions $z + c_i\,\Delta z$, with the whole step at $z + \Delta z$ |
+| the norm's scale | `rtol`, `atol` and the region of §7, applied by the engine's scorer; a weighted norm keeps the reference march |
+| the quiet collar's interval | the monitor's, or none |
+
+**The state**: the position; the controller's proposal; the accepted-norm history, at
+most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
+continuation between the calls of one march only. `StepDriver.set_initial` resets it, on
+a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
+
+**One attempt**, in order (SEP 45 §4.3):
+
+1. the landing candidate: the proposal capped by the quiet collar's interval, the
+   transverse edge's ceiling and the split collar's crossing cap, in that order; the
+   proposal itself is unchanged;
+2. the landing;
+3. the trial, its stage scalars at each node and the whole step, and its scaled norm;
+4. the equivalent norm, from the uncapped proposal, and the acceptance, from the
+   executed norm (`rk_core.decide`);
+5. the attempt's row, recorded before the branch;
+6. on acceptance: the recycled stage promoted, the state finished and committed, the
+   equivalent norm appended, the start-up rule on the first accepted step
+   (`rk_core.start_up`), the next proposal (`rk_core.propose`), then the step's
+   boundary check, statistics row and natural stop;
+7. on rejection: the proposal shrunk (`rk_core.reject`).
+
+The floor is raised at three sites: after a rejected attempt is recorded; in the
+start-up rule, before the history's last value is rewritten; and after an accepted step's
+commit and append, before its boundary check and statistics.
+
+**What a native call takes and returns** is §11's, with this march's policy and state:
+the call's bounds (the target, the accepted steps after which the driver has work, the
+call's own bound of 256 attempts or 0.1 s), and per attempt one row of end, step, norm
+(non-finite as infinity), accepted and wall time, the reason it returned and the state.
+The call takes the boundary monitor's checks inside the march as §11's does, with the
+monitor's watch policy and state, and returns its readings by the row they follow; on a
+floor it returns the site (`rejection`, `start_up`, `proposal`) with the state as the
+reference holds it there.
+
+**Coverage** (SEP 45 phase 4). *Interpolated planes:* the landings step across the save
+planes to the run's end, and the call returns the accepted step that crosses its target
+unfinished (`dense`), with its equivalent norm; solprop records the step's extension from
+the state before it and finishes it with the reference's acceptance. *Replay:*
+`StepDriver._replay_to`, a call of steps at a time from the schedule's cursor: never a
+rejection, each step recorded after its commit with its raw norm, the edges within the
+replay's slack; a non-finite norm returns `diverged`, the step uncommitted. *A coupled
+flow:* the stage rows carry the anchor's section and each stage's residual weights, and the
+state forms the step's actions for one (section, step) at a time behind
+`_flow_squarings` and `_check_flow_conditioning`, transcribed, with the Taylor scale, the
+squarings admitted, the sections' row sums, the certificate and the rounding allowance in
+a record; a refusal returns as `BackendError`. *A z table:* the state loads the stages'
+positions into the one slot cache. *The transverse edge:* its ceiling caps every candidate
+after the quiet interval and before the split cap, the call returns before a step would
+carry past the next read, and solprop takes the monitor's checks by its distance test. *A
+weighted norm:* the per-bin scale `rtol w_i max(|y|, |y_new|) + atol`, the two norms' sums
+in order, and the scaled residual's partials summed in order, by one native function both
+loops call.
+
+**Rounding.** The decisions are compiled without contraction or fast-math, call no
+elementary function but `pow`, and take every power of `1/e` as the reference does, so
+that on one build the native and reference marches take the same steps.
