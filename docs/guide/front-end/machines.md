@@ -45,6 +45,16 @@ have, installs from wheels: **Add wheels…** copies them over first.
 The machine's solprop must be the window's version, or the window refuses it and says
 so. A development build on either side is allowed, with a note on the Runs on line.
 
+## Runs on this computer, too
+
+Every run works this way, on your own computer as well: it is a process of its own
+with its record in its folder, and the window follows it. So a run goes on when the
+window closes, or crashes, and a new window takes it up again, as **Runs** finds it.
+Closing the window over a run asks whether to **keep it running**, **stop it** (it can
+be resumed) or **kill it**. **Run → Tie runs to this window** makes runs on this
+computer stop by themselves, resumably, if the window goes for any reason, a crash
+included.
+
 ## Running there
 
 Pick the machine on the **Runs on** line, then **Run**, as on your own computer. The run

@@ -30,7 +30,7 @@ from pathlib import Path
 from typing import Final
 
 from solprop.service.messages import ServiceError
-from solprop.service.record import process_stamp, write_json
+from solprop.service.record import process_stamp, set_aside, write_json
 from solprop.service.worker import SPEC, RunSpec, spec_value
 
 __all__ = [
@@ -79,12 +79,19 @@ def prepare(spec: RunSpec) -> Path:
     ------
     solprop.service.messages.ServiceError
         If the folder already holds a run that has not been continued.
+
+    Notes
+    -----
+    A continued run's earlier record is set aside
+    (:func:`~solprop.service.record.set_aside`).
     """
     folder = Path(spec.folder).expanduser()
     folder.mkdir(parents=True, exist_ok=True)
     if spec.resume is None and (folder / "run.h5").exists():
         msg = f"{folder} already holds a run; a new run needs a folder of its own"
         raise ServiceError(msg)
+    if spec.resume is not None:
+        set_aside(folder)
     write_json(folder / SPEC, spec_value(spec))
     return folder
 

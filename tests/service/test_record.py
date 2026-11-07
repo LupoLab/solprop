@@ -160,3 +160,45 @@ def test_the_record_s_files_live_in_the_run_s_folder(tmp_path):
         "events.bin",
         "status.json",
     ]
+
+
+def test_a_continued_run_sets_its_earlier_records_aside(tmp_path):
+    from solprop.service.record import STATUS, set_aside  # noqa: PLC0415
+
+    for _ in range(2):
+        (tmp_path / EVENTS).write_bytes(b"x")
+        (tmp_path / STATUS).write_text("{}", encoding="utf-8")
+        request_stop(tmp_path)
+        set_aside(tmp_path)
+    names = sorted(path.name for path in tmp_path.iterdir())
+    assert names == ["events-1.bin", "events-2.bin"]
+
+
+def test_a_run_tied_to_a_window_stops_when_the_window_goes(tmp_path, monkeypatch):
+    monkeypatch.setattr(record, "STOP_PERIOD", 0.01)
+    monkeypatch.setattr(record, "OWNER_PERIOD", 0.02)
+    child = subprocess.Popen([sys.executable, "-c", "pass"])
+    stamp = process_stamp(child.pid)
+    child.wait()
+    stop, done = threading.Event(), threading.Event()
+    watch_stop(tmp_path, stop, done, owner=(child.pid, stamp or "gone"))
+    assert stop.wait(5.0) and stop_requested(tmp_path)
+    clear_stop(tmp_path)
+    alive_stop, alive_done = threading.Event(), threading.Event()
+    me = (os.getpid(), process_stamp(os.getpid()))
+    thread = watch_stop(tmp_path, alive_stop, alive_done, owner=me)
+    time.sleep(0.2)
+    assert not alive_stop.is_set()  # its window lives: the run goes on
+    alive_done.set()
+    thread.join(5.0)
+
+
+def test_a_job_record_that_cannot_be_made_costs_nothing_else(tmp_path):
+    def broken() -> Job:
+        raise OSError("no ps")
+
+    log = EventLog(tmp_path, "r1", job=broken)
+    log.put(Event("r1", "finished", {}))
+    log.close()
+    assert log.job is None and read_job(tmp_path) is None
+    assert [event.kind for event in read_events(tmp_path)[0]] == ["finished"]

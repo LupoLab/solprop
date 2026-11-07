@@ -50,7 +50,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"no run to start in {folder}: {error}", file=sys.stderr)  # noqa: T201
         return 2
     launcher = "slurm" if os.environ.get("SLURM_JOB_ID") else "direct"
-    spec = replace(spec, folder=str(folder), record=True, launcher=launcher)
+    spec = replace(spec, folder=str(folder), launcher=launcher)
     if spec.threads is not None:
         os.environ["SOLPROP_THREADS"] = str(spec.threads)
     from solprop.service.run import execute  # noqa: PLC0415 - after the threads

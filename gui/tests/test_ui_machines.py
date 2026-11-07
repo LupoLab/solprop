@@ -94,7 +94,7 @@ def test_the_machines_dialog_adds_edits_and_removes(qtbot: QtBot):
 
 
 def test_a_request_about_a_machine_s_run_goes_to_its_kernel(qtbot: QtBot):
-    bridge = ServiceBridge(service=False)
+    bridge = ServiceBridge()
     bridge.know_folder("cluster", "/runs/a")
     assert bridge.machine_of({"path": "/runs/a/run.h5"}) == "cluster"
     assert bridge.machine_of({"path": "/runs/ab/run.h5"}) is None
@@ -152,7 +152,7 @@ def test_the_runs_window_lists_and_opens_this_computer_s_runs(
 def test_a_run_is_started_and_followed_through_a_machine(qtbot: QtBot, tmp_path: Path):
     from conftest import TINY  # noqa: PLC0415 - only here
 
-    bridge = ServiceBridge(service=False)
+    bridge = ServiceBridge()
     events: list[object] = []
     bridge.run_event.connect(events.append)
     spec = RunSpec("r1", str(tmp_path / "r1"), recipe=TINY)
@@ -234,3 +234,69 @@ def test_a_copy_is_fetched_in_pieces_and_resumed(
     qtbot.waitUntil(lambda: bool(missing), timeout=WAIT_MS)
     assert "is not on local" in str(missing[0][1])
     hub.close()
+
+
+class FakeRun:
+    """A run's handle that remembers how it was asked to end."""
+
+    def __init__(self) -> None:
+        self.ended: list[bool] = []
+
+    def end_now(self, *, kill: bool = False) -> None:
+        self.ended.append(kill)
+
+
+def test_closing_over_a_run_asks_whether_to_keep_stop_or_kill_it(
+    qtbot: QtBot, tmp_path: Path
+):
+    from solprop.service.states import ExecutionState  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui.workflow_window import WorkflowWindow  # noqa: PLC0415
+
+    for answer, expected, closes in (
+        ("cancel", [], False),
+        ("keep", [], True),
+        ("stop", [False], True),
+        ("kill", [True], True),
+    ):
+        window = WorkflowWindow(workspace=tmp_path / "runs")
+        qtbot.addWidget(window)
+        asked: list[str] = []
+
+        def confirm(
+            title: str, text: str, answer: str = answer, asked: list[str] = asked
+        ) -> str:
+            asked.append(title)
+            return answer if title.startswith("Closing") else "discard"
+
+        window.confirm = confirm
+        run = FakeRun()
+        window.run_panel.run_id = "r1"
+        window.run_panel.state = ExecutionState.RUNNING
+        window.run_panel.client = run  # type: ignore[assignment]
+        window.show()
+        assert window.close() is closes
+        assert asked[0] == "Closing with a run going" and run.ended == expected
+        if not closes:
+            window.run_panel.state = ExecutionState.COMPLETE
+            window.close()
+
+
+def test_runs_can_be_tied_to_the_window(qtbot: QtBot, tmp_path: Path):
+    import os  # noqa: PLC0415 - only here
+
+    from solprop_gui.ui.workflow_window import WorkflowWindow  # noqa: PLC0415
+
+    window = WorkflowWindow(workspace=tmp_path / "runs")
+    qtbot.addWidget(window)
+    window.confirm = lambda _title, _text: "discard"
+    assert not window.run_panel.tie_to_window and window.run_panel._owner() is None
+    window._tie_runs(True)
+    owner = window.run_panel._owner()
+    assert owner is not None and owner[0] == os.getpid()
+    assert app_settings().value("tie-runs") == "true"
+    window.run_panel.run_machine = SLURM  # a run elsewhere cannot see this window
+    assert window.run_panel._owner() is None
+    window.run_panel.run_machine = None
+    window._tie_runs(False)
+    window.close()

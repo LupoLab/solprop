@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
-     width="1200" height="1824.0" viewBox="0 0 1200 1824.0">
+     width="1200" height="1808.5" viewBox="0 0 1200 1808.5">
 <defs>
 </defs>
 <style>
@@ -69,7 +69,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 .edge-x { stroke: var(--x-edge); }
 .ink-x { fill: var(--x-edge); }
 </style>
-<rect x="0" y="0" width="1200" height="1824.0" class="ground" />
+<rect x="0" y="0" width="1200" height="1808.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">The layers of solprop, and every module in each</text>
 <text x="32" y="64.0" font-size="12" class="dim">Bands and colours from architecture.md §3 and decisions.md ADR-001; modules from src/solprop. Arrows point from the layer that imports to the layer it imports.</text>
 <rect x="32" y="75.5" width="16" height="16" rx="7" ry="7" class="fill-p" />
@@ -234,14 +234,14 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="1313.0" font-size="12" class="dim">provenance · quantity · registry</text>
 <rect x="554.8" y="1244.5" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="564.8" y="1266.5" font-size="15" class="bold ink-d">cli.py</text>
-<rect x="32" y="1385.0" width="1010.0" height="307.5" rx="7" ry="7" class="plain" />
-<rect x="46" y="1521.75" width="34" height="34" rx="7" ry="7" class="fill-x" />
-<text x="63" y="1544.75" font-size="19" class="bold mid ink-x">X</text>
-<text x="90" y="1521.25" font-size="15" class="bold ink-x">processing / plotting</text>
-<text x="90" y="1538.75" font-size="12" class="dim">may import</text>
-<text x="168" y="1538.75" font-size="12" class="dim">numpy, scipy</text>
-<text x="168" y="1554.25" font-size="12" class="dim">matplotlib, D (outputs)</text>
-<text x="168" y="1569.75" font-size="12" class="dim">T (table identities)</text>
+<rect x="32" y="1385.0" width="1010.0" height="292.0" rx="7" ry="7" class="plain" />
+<rect x="46" y="1514.0" width="34" height="34" rx="7" ry="7" class="fill-x" />
+<text x="63" y="1537.0" font-size="19" class="bold mid ink-x">X</text>
+<text x="90" y="1513.5" font-size="15" class="bold ink-x">processing / plotting</text>
+<text x="90" y="1531.0" font-size="12" class="dim">may import</text>
+<text x="168" y="1531.0" font-size="12" class="dim">numpy, scipy</text>
+<text x="168" y="1546.5" font-size="12" class="dim">matplotlib, D (outputs)</text>
+<text x="168" y="1562.0" font-size="12" class="dim">T (table identities)</text>
 <rect x="307.0" y="1398.0" width="224.60000000000002" height="97.0" rx="7" ry="7" class="fill-x" />
 <text x="317.0" y="1420.0" font-size="15" class="bold ink-x">processing/</text>
 <text x="317.0" y="1435.5" font-size="12" class="dim">beams · axes · fields · spectra</text>
@@ -256,18 +256,17 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="786.2" y="1420.0" font-size="15" class="bold ink-x">sol.py</text>
 <rect x="855.7" y="1398.0" width="143.75" height="97.0" rx="7" ry="7" class="fill-x" />
 <text x="865.7" y="1420.0" font-size="15" class="bold ink-x">capabilities.py</text>
-<rect x="307.0" y="1505.0" width="251.00000000000003" height="174.5" rx="7" ry="7" class="fill-x" />
+<rect x="307.0" y="1505.0" width="251.00000000000003" height="159.0" rx="7" ry="7" class="fill-x" />
 <text x="317.0" y="1527.0" font-size="15" class="bold ink-x">service/</text>
 <text x="317.0" y="1542.5" font-size="12" class="dim">agent · beam · beams · client</text>
 <text x="317.0" y="1558.0" font-size="12" class="dim">design · explore · figures · frames</text>
 <text x="317.0" y="1573.5" font-size="12" class="dim">handlers · install · job · kernel</text>
 <text x="317.0" y="1589.0" font-size="12" class="dim">launch · machines · messages</text>
-<text x="317.0" y="1604.5" font-size="12" class="dim">outbox · postprocess · recipes</text>
-<text x="317.0" y="1620.0" font-size="12" class="dim">record · reduce · remote · results</text>
-<text x="317.0" y="1635.5" font-size="12" class="dim">run · runs · scan_reductions</text>
-<text x="317.0" y="1651.0" font-size="12" class="dim">server · sheet · states · waveguide</text>
-<text x="317.0" y="1666.5" font-size="12" class="dim">worker</text>
-<rect x="568.0" y="1505.0" width="110.75000000000001" height="174.5" rx="7" ry="7" class="planned" />
+<text x="317.0" y="1604.5" font-size="12" class="dim">postprocess · recipes · record</text>
+<text x="317.0" y="1620.0" font-size="12" class="dim">reduce · results · run · runs</text>
+<text x="317.0" y="1635.5" font-size="12" class="dim">scan_reductions · sheet · states</text>
+<text x="317.0" y="1651.0" font-size="12" class="dim">waveguide · worker</text>
+<rect x="568.0" y="1505.0" width="110.75000000000001" height="159.0" rx="7" ry="7" class="planned" />
 <text x="578.0" y="1527.0" font-size="15" class="bold dim">processing/</text>
 <text x="578.0" y="1542.5" font-size="12" class="dim">windows</text>
 <path d="M326.0,566.0 L326.0,530.0" class="arrow" />
@@ -294,13 +293,13 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M1048.0,319.25 L1057.0,315.65 L1057.0,322.85 Z" class="head" />
 <rect x="1123.0" y="594.0" width="18" height="18" rx="7" ry="7" class="card" />
 <text x="1132.0" y="607.0" font-size="12" class="bold mid dim">3</text>
-<path d="M1046.0,1538.75 L1164.0,1538.75 L1164.0,671.25 L1048.0,671.25" class="arrow" />
+<path d="M1046.0,1531.0 L1164.0,1531.0 L1164.0,671.25 L1048.0,671.25" class="arrow" />
 <path d="M1048.0,671.25 L1057.0,667.65 L1057.0,674.85 Z" class="head" />
-<rect x="1155.0" y="1096.0" width="18" height="18" rx="7" ry="7" class="card" />
-<text x="1164.0" y="1109.0" font-size="12" class="bold mid dim">4</text>
-<text x="32" y="1730.0" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
-<text x="32" y="1745.5" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
-<text x="32" y="1761.0" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
-<text x="32" y="1776.5" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
-<text x="32" y="1792.0" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
+<rect x="1155.0" y="1092.125" width="18" height="18" rx="7" ry="7" class="card" />
+<text x="1164.0" y="1105.125" font-size="12" class="bold mid dim">4</text>
+<text x="32" y="1714.5" font-size="12" class="dim">1   Simulation calls translate.assemble</text>
+<text x="32" y="1730.0" font-size="12" class="dim">2   the driver builds the grid, the modes, the pulse and the responses</text>
+<text x="32" y="1745.5" font-size="12" class="dim">3   the statistics path: a backend is handed grid, modes and profiles at construction: the one import of P that architecture.md §3 allows B, types and constants, never a physics object</text>
+<text x="32" y="1761.0" font-size="12" class="dim">4   processing.modal takes the run's own ModalTransformTables beside the handler: a general modal file records what its reference is and not the arrays, so the reference is rebuilt in T and read in X</text>
+<text x="32" y="1776.5" font-size="12" class="dim">The package-wide modules carry no layer letter:  __init__.py  ·  exceptions.py</text>
 </svg>

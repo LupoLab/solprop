@@ -2,14 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The window's side of the service: start the kernel and the workers, talk to them.
+"""The window's side of its kernel: start it, send requests, take the replies.
 
-:class:`KernelClient` and :class:`RunClient` own a child process each and a reader
-thread that hands every message to a callback; the window's Qt adapter turns those
-calls into signals (design 13.3). They import no Qt and no solprop.
+:class:`KernelClient` owns the kernel process and a reader thread that hands every
+reply to a callback; the window's Qt adapter turns those calls into signals (design
+13.3). It imports no Qt and no heavy solprop. Runs are not its business: each is a job
+of its own, followed from its record (13.4).
 
-Children are started with ``spawn`` on every platform, so a child imports what it needs
-and nothing of the window: no Qt, no open files, no threads.
+The kernel is started with ``spawn`` on every platform, so it imports what it needs and
+nothing of the window: no Qt, no open files, no threads.
 """
 
 import itertools
@@ -17,16 +18,11 @@ import multiprocessing
 import threading
 from collections.abc import Callable, Iterator, Mapping
 from multiprocessing.connection import Connection
-from typing import Any
 
-from solprop.service import kernel, worker
-from solprop.service.messages import Control, Event, Reply, Request
-from solprop.service.worker import RunSpec
+from solprop.service import kernel
+from solprop.service.messages import Reply, Request
 
-__all__ = ["POLL_PERIOD", "KernelClient", "ReplyFilter", "RunClient"]
-
-POLL_PERIOD = 0.5
-"""How often a run's reader looks whether its worker is still alive, s."""
+__all__ = ["KernelClient", "ReplyFilter"]
 
 
 class ReplyFilter:
@@ -256,143 +252,3 @@ class KernelClient:
         # is done before the window, which receives it, can go.
         if self._reader is not threading.current_thread():
             self._reader.join(timeout)
-
-
-class RunClient:
-    """Start one run's worker and receive its events.
-
-    Parameters
-    ----------
-    spec : RunSpec
-        What to run.
-    on_event : callable
-        Called with each :class:`Event`, from the reader thread. If the worker ends
-        without a terminal event, a ``lost`` event with its exit code is made here.
-    target : callable, optional
-        The child's entry point, called with the spec and the two pipe ends;
-        :func:`solprop.service.worker.main` by default.
-    """
-
-    def __init__(
-        self,
-        spec: RunSpec,
-        on_event: Callable[[Event], None],
-        *,
-        target: Callable[[RunSpec, Connection, Connection], Any] = worker.main,
-    ) -> None:
-        """Start the worker and its reader thread."""
-        context = multiprocessing.get_context("spawn")
-        self._events, events_child = context.Pipe(duplex=False)
-        control_child, self._control = context.Pipe(duplex=False)
-        self.spec = spec
-        self._process = context.Process(
-            target=target,
-            args=(spec, events_child, control_child),
-            daemon=False,
-            name=f"solprop-run-{spec.run_id}",
-        )
-        self._process.start()
-        events_child.close()
-        control_child.close()
-        self._on_event = on_event
-        self.ended = threading.Event()
-        self._reader = threading.Thread(target=self._read, daemon=True)
-        self._reader.start()
-
-    @property
-    def alive(self) -> bool:
-        """Return whether the worker process is running.
-
-        Returns
-        -------
-        bool
-            True while it is.
-        """
-        return self._process.is_alive()
-
-    def _read(self) -> None:
-        """Deliver events until the terminal one, or until the worker is gone."""
-        terminal = False
-        while not terminal:
-            try:
-                if not self._events.poll(POLL_PERIOD):
-                    # A worker killed before it took its end of the pipe never
-                    # closes it (Windows): its death is the end of the stream.
-                    if self._process.is_alive():
-                        continue
-                    break
-                event: Event = self._events.recv()
-            except EOFError, OSError:
-                break
-            terminal = event.terminal
-            self._on_event(event)
-        if not terminal:
-            self._process.join(5.0)
-            self._on_event(
-                Event(
-                    self.spec.run_id,
-                    "lost",
-                    {"exitcode": self._process.exitcode},
-                )
-            )
-        self.ended.set()
-
-    def _control_send(self, request: Control) -> bool:
-        """Send a control request, if the worker can still hear it.
-
-        Parameters
-        ----------
-        request : Control
-            The request.
-
-        Returns
-        -------
-        bool
-            Whether it was sent.
-        """
-        try:
-            self._control.send(request)
-        except BrokenPipeError, EOFError, OSError:
-            return False
-        return True
-
-    def stop(self) -> bool:
-        """Ask the run to stop through solprop's stop flag.
-
-        Returns
-        -------
-        bool
-            Whether the request reached the worker.
-        """
-        return self._control_send(Control("stop"))
-
-    def subscribe(self, from_plane: int = 0) -> bool:
-        """Ask the worker to replay its rows from a plane on.
-
-        Parameters
-        ----------
-        from_plane : int, optional
-            The first plane.
-
-        Returns
-        -------
-        bool
-            Whether the request reached the worker.
-        """
-        return self._control_send(Control("subscribe", from_plane=from_plane))
-
-    def kill(self) -> None:
-        """End the worker at once; its file may hold no restart state."""
-        self._process.kill()
-
-    def join(self, timeout: float | None = None) -> None:
-        """Wait for the worker to end and its events to be delivered.
-
-        Parameters
-        ----------
-        timeout : float or None, optional
-            The most seconds to wait.
-        """
-        self.ended.wait(timeout)
-        self._process.join(timeout)
-        self._control.close()

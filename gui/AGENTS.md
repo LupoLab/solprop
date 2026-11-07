@@ -34,12 +34,11 @@ them is corrected.
   both rules, statically and by what a fresh interpreter loads.
 - **Never block the window.** Anything that can take more than about 50 ms happens in
   another process.
-- **Two transports, one interface** (design 13.3). By default a kernel child and a worker
-  child per run end with the window (option B); with `SOLPROP_GUI_SERVICE=1` the
-  window speaks to this user's solprop service (`solprop.service.server`, option C) over a
-  socket only the user can open, whose address and token are in
-  `~/.solprop-gui/service.json`; the service owns the kernel and the runs and ends
-  itself when idle.
+- **One way to run** (design 13.4, D21). The window's kernel is a child of the window's;
+  every run, on this computer or another, is a job of its own that keeps its record in
+  its folder, started through a machine's helper (this computer has one too) and
+  followed from that record. A run outlives the window unless it is tied to it (Run →
+  Tie runs to this window).
 
 ## Commands
 
@@ -48,7 +47,6 @@ them is corrected.
 | Sync | `uv sync --extra gui --group gui-test`, which also builds the native backend (a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
 | Run the workflow window being built (design, section 16) | `uv run solprop-gui --workflow` |
-| Run it with the solprop service (runs outlive the window, a new window re-attaches) | `SOLPROP_GUI_SERVICE=1 uv run solprop-gui` |
 | Run a prepared run folder with no window (what a machine's job runs) | `uv run python -m solprop.service.job FOLDER` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |
 | Lint, format, spelling, licences | the repository's: `uv run ruff check .`, `uv run ruff format .`, `uv run codespell`, `uv run poe reuse` |

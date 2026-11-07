@@ -1,4 +1,4 @@
-The desktop front end runs simulations and scans on other machines over SSH: a
+The desktop front end runs every simulation and scan as a process of its own, which outlives the window and is followed from its record, and runs them on other machines over SSH too: a
 workstation, a Slurm cluster or a rented machine, picked on the Runs on line. Each run
 keeps its record in its folder there, so it survives a closed window or a dropped network
 and is found again on reconnecting; a Runs window lists every run on every machine, a

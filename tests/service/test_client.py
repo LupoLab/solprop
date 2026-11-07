@@ -5,14 +5,10 @@
 """The window's clients, over real child processes."""
 
 import threading
-from pathlib import Path
-
-import pytest
 
 from service import targets
-from solprop.service.client import KernelClient, ReplyFilter, RunClient
-from solprop.service.messages import Event, Reply, Request
-from solprop.service.worker import RunSpec
+from solprop.service.client import KernelClient, ReplyFilter
+from solprop.service.messages import Reply, Request
 
 
 def test_the_filter_drops_stale_and_superseded_replies():
@@ -97,46 +93,3 @@ def test_a_kernel_that_will_not_end_is_terminated():
     client = KernelClient(lambda _reply: None, target=targets.deaf_kernel)
     client.close(timeout=0.5)
     assert not client.alive
-
-
-def test_a_worker_that_ends_without_an_ending_is_lost(tmp_path: Path):
-    events: list[Event] = []
-    client = RunClient(
-        RunSpec("r", str(tmp_path)), events.append, target=targets.silent_worker
-    )
-    client.join(60)
-    assert [event.kind for event in events] == ["lost"]
-    assert events[0].data["exitcode"] == 0
-    assert not client.alive
-    assert not client.stop() and not client.subscribe(0)
-
-
-def test_a_killed_worker_is_lost(tmp_path: Path):
-    events: list[Event] = []
-    client = RunClient(
-        RunSpec("r", str(tmp_path)), events.append, target=targets.deaf_worker
-    )
-    client.kill()
-    client.join(60)
-    assert events[-1].kind == "lost" and events[-1].data["exitcode"] != 0
-
-
-def test_a_worker_that_dies_holding_the_pipe_open_is_lost(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-):
-    # As on Windows, where a worker killed early never closes its end of the pipe.
-    events: list[Event] = []
-    client = RunClient(
-        RunSpec("r", str(tmp_path)), events.append, target=targets.deaf_worker
-    )
-    looked = threading.Event()
-
-    def nothing_yet(_timeout: float = 0) -> bool:
-        looked.set()
-        return False
-
-    monkeypatch.setattr(client._events, "poll", nothing_yet)
-    assert looked.wait(30)  # the reader has found the worker alive and waits on
-    client.kill()
-    client.join(60)
-    assert events[-1].kind == "lost"

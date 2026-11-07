@@ -10,10 +10,11 @@ setup and moves between the stages; each stage only shows. It is built beside th
 window, which stays runnable until every route has moved here.
 """
 
+import contextlib
 from collections.abc import Mapping, Sequence
 from pathlib import Path, PurePosixPath
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -123,13 +124,6 @@ class WorkflowWindow(QMainWindow):
         bar = self.statusBar()
         bar.messageChanged.connect(lambda text: bar.setVisible(bool(text)))
         bar.hide()
-        # Before any request: the first may find the service out of reach.
-        self.bridge.service_failed.connect(
-            lambda reason: self.notify(
-                f"The solprop service is not available ({reason}): runs end with "
-                "the window."
-            )
-        )
         self.confirm: Confirm = self._ask
         self.stage = Stage.HOME
         self.problem: ProblemClass | None = None
@@ -248,7 +242,6 @@ class WorkflowWindow(QMainWindow):
         self.session.described.connect(self._file_described)
         self.session.setup_found.connect(self._file_has_setup)
         self.bridge.kernel_lost.connect(self._kernel_lost)
-        self.bridge.runs_listed.connect(self._runs_listed)
         self.bridge.replied.connect(self._on_reply)
 
         self.setWindowTitle("solprop")
@@ -261,8 +254,10 @@ class WorkflowWindow(QMainWindow):
         self._show_machines(str(self.settings.value("machine") or LOCAL))
         self.refresh_home()
         self.show_stage(Stage.HOME)
-        # With the service, a run the last window left going is taken over.
-        self.bridge.list_runs()
+        # This computer's helper, warm before the first run; then a run the last
+        # window left going is taken over, found from its record.
+        self.bridge.hub.ensure(Machine(LOCAL))
+        self._find_going_run()
 
     # ------------------------------------------------------------------ the frame
 
@@ -346,7 +341,7 @@ class WorkflowWindow(QMainWindow):
         drawer.hide()
         return drawer
 
-    def _make_menus(self) -> None:
+    def _make_menus(self) -> None:  # noqa: PLR0915 - one action after another
         """Repeat the actions, with their shortcuts, in the platform's menu bar."""
         file_menu = self.menuBar().addMenu("&File")
         home = QAction("&Home", self)
@@ -379,6 +374,16 @@ class WorkflowWindow(QMainWindow):
         runs = QAction("&Runs…", self)
         runs.triggered.connect(self.show_runs)
         run_menu.addAction(runs)
+        tie = QAction("&Tie runs to this window", self)
+        tie.setCheckable(True)
+        tie.setToolTip(
+            "Runs on this computer stop (resumably) if this window goes, even by a "
+            "crash; otherwise they go on, and Runs finds them again."
+        )
+        tie.setChecked(self.settings.value("tie-runs", "false") in {True, "true"})
+        tie.toggled.connect(self._tie_runs)
+        self.run_panel.tie_to_window = tie.isChecked()
+        run_menu.addAction(tie)
         machines = QAction("&Machines…", self)
         # Through a lambda: `triggered` would pass its checked state as the machine.
         machines.triggered.connect(lambda: self.edit_machines())  # noqa: PLW0108
@@ -548,9 +553,25 @@ class WorkflowWindow(QMainWindow):
         Returns
         -------
         str
-            ``"save"``, ``"discard"``, ``"stop"`` or ``"cancel"``.
+            ``"save"``, ``"discard"``, ``"stop"`` or ``"cancel"``; on closing with a
+            run going, ``"keep"``, ``"stop"``, ``"kill"`` or ``"cancel"``.
         """
         box = QMessageBox(QMessageBox.Icon.Question, title, text, parent=self)
+        if title == _CLOSING:
+            answers = {
+                box.addButton("Keep it running", QMessageBox.ButtonRole.AcceptRole): (
+                    "keep"
+                ),
+                box.addButton("Stop it", QMessageBox.ButtonRole.DestructiveRole): (
+                    "stop"
+                ),
+                box.addButton("Kill it", QMessageBox.ButtonRole.DestructiveRole): (
+                    "kill"
+                ),
+                box.addButton(QMessageBox.StandardButton.Cancel): "cancel",
+            }
+            box.exec()
+            return answers.get(box.clickedButton(), "cancel")  # pyright: ignore[reportArgumentType, reportCallIssue]
         stop = "run is going" in text
         answers = {
             box.addButton(
@@ -1227,19 +1248,40 @@ class WorkflowWindow(QMainWindow):
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
 
-    def _runs_listed(self, runs: Sequence[Mapping[str, object]]) -> None:
-        """Take over the latest run the service holds that is still going.
+    def _find_going_run(self) -> None:
+        """Look, on a thread, for a run on this computer still going, and follow it."""
+        import threading  # noqa: PLC0415 - only here
 
-        Parameters
-        ----------
-        runs : Sequence of Mapping
-            The service's runs, oldest first.
-        """
-        going = [run for run in runs if run.get("alive")]
-        if going and self.run_panel.attach(going[-1]):
-            self.has_run = True
-            self.show_stage(Stage.RUN)
-            self.notify(f"Re-attached to {going[-1]['run_id']}.")
+        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
+
+        workspace = self.run_panel.workspace.expanduser()
+        found: list[list[dict[str, object]]] = []
+
+        def look() -> None:
+            """List the workspace's runs."""
+            with contextlib.suppress(OSError, ValueError):
+                found.append(list_runs(workspace, None))
+
+        thread = threading.Thread(target=look, daemon=True)
+        thread.start()
+
+        def check() -> None:
+            """Take over the newest run still going, once the list is read."""
+            if thread.is_alive():
+                QTimer.singleShot(100, check)
+                return
+            runs = found[0] if found else []
+            going = [
+                run
+                for run in runs
+                if run.get("state") in {"starting", "running"} and run.get("record")
+            ]
+            if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
+                self.has_run = True
+                self.show_stage(Stage.RUN)
+                self.notify(f"Following {going[0]['run_id']}, still going.")
+
+        QTimer.singleShot(100, check)
 
     # ------------------------------------------------------------------ machines
 
@@ -1319,6 +1361,17 @@ class WorkflowWindow(QMainWindow):
         self.sheet.run_options.show_machine(machine, state, detail)
         if state == "up":
             self._ask_kernel("run_options", {"machine": name}, "run options")
+
+    def _tie_runs(self, tied: bool) -> None:
+        """Tie new runs on this computer to this window, or not, and remember it.
+
+        Parameters
+        ----------
+        tied : bool
+            Whether a run stops when the window's process has gone.
+        """
+        self.run_panel.tie_to_window = tied
+        self.settings.setValue("tie-runs", "true" if tied else "false")
 
     def edit_machines(self, current: str | None = None) -> None:
         """Open the machines dialog, and keep what it leaves.
@@ -1452,22 +1505,20 @@ class WorkflowWindow(QMainWindow):
         event : PySide6.QtGui.QCloseEvent
             The close.
         """
-        if self.run_panel.active and not self.bridge.service:
-            answer = self.confirm("Run going", "A run is going. Stop it and close?")
-            if answer != "stop":
+        client = self.run_panel.client
+        if self.run_panel.active and client is not None:
+            answer = self.confirm(
+                _CLOSING,
+                f"{self.run_panel.run_id} is still going. Keep it running (Runs "
+                "finds it again), stop it (it can be resumed), or kill it?",
+            )
+            if answer not in {"keep", "stop", "kill"}:
                 event.ignore()
                 return
-            self._leaving_run = True
-            self.run_panel.stop()
-            client = self.run_panel.client
-            if client is not None:
-                # A run stops at its next plane, which may be far: a window being
-                # closed waits a moment, then ends the worker.
-                client.join(_STOP_WAIT_S)
-                if not client.ended.is_set():
-                    client.kill()
-                    client.join(_STOP_WAIT_S)
-        # Closing has dealt with the run: kept by the service, or stopped above.
+            if answer != "keep":
+                # Said now, not queued: the connections close with the window.
+                client.end_now(kill=answer == "kill")
+        # Closing has dealt with the run: kept going, or asked to end.
         guard, self.document.guard = self.document.guard, lambda: True
         try:
             discard = self.document.may_discard()
@@ -1487,8 +1538,8 @@ _WARM_EXAMPLES = ("rdw", "filament")
 (about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
 kernel's, not the first click's."""
 
-_STOP_WAIT_S = 3.0
-"""How long a closing window waits for a stopped run to end before ending it."""
+_CLOSING = "Closing with a run going"
+"""The title of the question a window asks when closed over a run that goes on."""
 
 _SINGLE_RTOL = 1e-6
 """The smallest ``rtol`` solprop accepts in single precision."""

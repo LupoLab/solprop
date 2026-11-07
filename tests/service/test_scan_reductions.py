@@ -16,7 +16,6 @@ from service.test_service import Collector
 from solprop.driver.scan import run_scan
 from solprop.recipe import Recipe
 from solprop.service import results
-from solprop.service.messages import Control
 from solprop.service.run import _plain
 from solprop.service.scan_reductions import (
     AXIS_POINTS,
@@ -112,7 +111,7 @@ def test_a_range_is_written_as_numbers_and_reductions_reach_the_worker(
         reductions=({"kind": "peak_power_in_band", "band": [600e-9, 900e-9]},),
     )
     collector = Collector(spec).start()
-    collector.collect(until="point", then=Control("stop"))
+    collector.collect(until="point", then="stop")
     started = next(e.data for e in collector.events if e.kind == "scan_started")
     assert started["values"] == [["5e-05", "0.0001"]]
     assert _plain("x") == "x"

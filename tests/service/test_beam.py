@@ -19,7 +19,6 @@ from solprop.recipe import Recipe
 from solprop.service import handlers
 from solprop.service import run as worker
 from solprop.service.beam import across
-from solprop.service.outbox import Outbox
 from solprop.service.reduce import TIME_OVERSAMPLING, Display, Reducer
 from solprop.service.worker import RunSpec
 
@@ -89,9 +88,10 @@ def test_a_continued_free_space_run_sends_no_rows():
     class Plane:
         basis = "spatial"
 
-    observer = worker.LiveObserver("r", Reducer(Display()), Outbox())
+    sent: list[object] = []
+    observer = worker.LiveObserver("r", Reducer(Display()), sent.append)
     observer.observe_plane(0.0, Plane())  # no grids kept: nothing measured
-    assert observer.rows == []
+    assert sent == []
     observer.measure(object())  # no transverse grid: measured by its modes
     assert observer.space is None
 

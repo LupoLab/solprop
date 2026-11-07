@@ -2,29 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The messages between the window and the service's processes.
+"""The messages between a window, its kernel and its runs.
 
 Every message is a frozen dataclass of plain data (numbers, strings, lists, dicts and
-NumPy arrays), so it pickles across a pipe today and can be encoded for a socket later
-(design 13.3). The window sends a :class:`Request` to the kernel and receives a
-:class:`Reply`; it sends a :class:`Control` to a run's worker and receives its
-:class:`Event` stream.
+NumPy arrays), so it pickles across the kernel's pipe and encodes as a frame
+(:mod:`solprop.service.frames`) for a run's record and a machine's helper (design 13.3,
+13.4). The window sends a :class:`Request` to a kernel and receives a :class:`Reply`;
+it follows a run's :class:`Event` stream from the run's record.
 
 Each request carries an id and the recipe revision it was made for, and each reply
 carries both back, so the window can drop a reply that a later edit made stale.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, Final, Literal
+from typing import Any, Final
 
 from solprop.exceptions import SolpropError
 
 __all__ = [
     "PROTOCOL",
-    "REPLACEABLE",
     "TERMINAL",
-    "Control",
-    "Envelope",
     "Event",
     "Reply",
     "Request",
@@ -41,9 +38,6 @@ PROTOCOL: Final = 1
 
 TERMINAL: Final = frozenset({"finished", "stopped", "failed", "lost"})
 """The event kinds that end a run's stream: never coalesced, never dropped."""
-
-REPLACEABLE: Final = frozenset({"progress"})
-"""The event kinds a later one of the same kind replaces while undelivered."""
 
 
 @dataclass(frozen=True)
@@ -162,57 +156,3 @@ class Event:
             True for :data:`TERMINAL` kinds.
         """
         return self.kind in TERMINAL
-
-    @property
-    def replaceable(self) -> bool:
-        """Return whether a later event of its kind replaces it while undelivered.
-
-        Returns
-        -------
-        bool
-            True for :data:`REPLACEABLE` kinds.
-        """
-        return self.kind in REPLACEABLE
-
-
-@dataclass(frozen=True)
-class Control:
-    """A request to a run's worker.
-
-    Attributes
-    ----------
-    kind : {'stop', 'subscribe'}
-        Stop the run through solprop's stop flag, or replay the reduced rows from a
-        plane on.
-    from_plane : int
-        For ``"subscribe"``, the first plane to replay.
-
-    Examples
-    --------
-    >>> Control("subscribe", from_plane=3).from_plane
-    3
-    """
-
-    kind: Literal["stop", "subscribe"]
-    from_plane: int = 0
-
-
-@dataclass(frozen=True)
-class Envelope:
-    """One message between a window and the solprop service, over its socket.
-
-    It lives here, in a module only ever imported, and not in the service's own
-    module: the service runs as ``python -m solprop.service.server``, where that
-    module is ``__main__``, and a class defined there would not be the class a window
-    pickles, so every message would fail the service's ``isinstance`` check.
-
-    Attributes
-    ----------
-    kind : str
-        What it is (:mod:`solprop.service.server` lists the kinds).
-    body : object
-        Its content.
-    """
-
-    kind: str
-    body: object = None

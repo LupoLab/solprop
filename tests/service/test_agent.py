@@ -631,7 +631,8 @@ def test_the_helper_s_files_and_refusals_in_this_process(tmp_path: Path):
     data = np.frombuffer(b"abcdef", dtype=np.uint8)
     assert helper.put({"path": str(path), "data": data}) == 6
     assert helper.put({"path": str(path), "data": data, "append": True}) == 12
-    assert helper.stat({"path": str(path)})["size"] == 12
+    found = helper.stat({"path": str(path)})
+    assert found is not None and found["size"] == 12
     assert (
         helper.fetch({"path": str(path), "offset": 3, "size": 4}).tobytes() == b"defa"
     )

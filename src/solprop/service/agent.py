@@ -62,10 +62,21 @@ from solprop.service.messages import PROTOCOL, Reply, Request, ServiceError
 from solprop.service.record import read_events, request_stop
 from solprop.service.worker import spec_from_value
 
-__all__ = ["CHUNK", "FOLLOW_PERIOD", "REQUESTS", "Agent", "hello", "main"]
+__all__ = [
+    "CHUNK",
+    "FOLLOW_LIMITS",
+    "FOLLOW_PERIOD",
+    "REQUESTS",
+    "Agent",
+    "hello",
+    "main",
+]
 
 FOLLOW_PERIOD: Final = 0.5
-"""How often a followed run's record is read for new events, s."""
+"""How often a followed run's record is read for new events by default, s."""
+
+FOLLOW_LIMITS: Final = (0.02, 5.0)
+"""The shortest and longest period a window may ask a record to be read at, s."""
 
 
 def hello() -> dict[str, object]:
@@ -219,7 +230,7 @@ class Agent:
         from solprop.service.runs import summarise  # noqa: PLC0415 - light
 
         spec = spec_from_value(body["spec"])
-        spec = replace(spec, folder=str(Path(spec.folder).expanduser()), record=True)
+        spec = replace(spec, folder=str(Path(spec.folder).expanduser()))
         folder = prepare(spec)
         python = str(Path(str(body.get("python") or sys.executable)).expanduser())
         launcher = body.get("launcher", "direct")
@@ -239,7 +250,10 @@ class Agent:
         Parameters
         ----------
         body : Mapping
-            ``folder``, and ``offset`` (bytes into its record; 0 for all).
+            ``folder``, ``offset`` (bytes into its record; 0 for all), and
+            optionally ``period``, how often to read it (s; :data:`FOLLOW_PERIOD` by
+            default, from :data:`FOLLOW_LIMITS`): a window on the same computer
+            follows faster than one across a network.
 
         Returns
         -------
@@ -250,18 +264,20 @@ class Agent:
         key = str(body["folder"])
         folder = _folder(body)
         offset = int(body.get("offset", 0))
+        low, high = FOLLOW_LIMITS
+        period = min(max(float(body.get("period", FOLLOW_PERIOD)), low), high)
         previous = self._following.pop(key, None)
         if previous is not None:
             previous.set()
         done = threading.Event()
         self._following[key] = done
         threading.Thread(
-            target=self._follow, args=(folder, key, offset, done), daemon=True
+            target=self._follow, args=(folder, key, offset, period, done), daemon=True
         ).start()
         return offset
 
     def _follow(
-        self, folder: Path, key: str, offset: int, done: threading.Event
+        self, folder: Path, key: str, offset: int, period: float, done: threading.Event
     ) -> None:
         """Read a run's record and send what is new, until it ends or is unfollowed.
 
@@ -273,6 +289,8 @@ class Agent:
             The folder as the window named it, which its frames carry.
         offset : int
             Where to start, bytes.
+        period : float
+            How often to read the record, s.
         done : threading.Event
             Set to stop following.
         """
@@ -302,7 +320,7 @@ class Agent:
                 )
                 if any(event.terminal for event in events):
                     return
-            done.wait(FOLLOW_PERIOD)
+            done.wait(period)
 
     def unfollow(self, body: Mapping[str, Any]) -> None:
         """Stop sending a run's events (``unfollow``).
@@ -329,12 +347,14 @@ class Agent:
     def cancel(self, body: Mapping[str, Any]) -> None:
         """End a run's job: ``scancel``, or ``SIGTERM`` to its process (``cancel``).
 
-        Either way solprop writes where the run stood, so it can be resumed.
+        Either way solprop writes where the run stood, so it can be resumed. With
+        ``force``, a process of this machine is killed outright (``SIGKILL``), for a run
+        that does not end on ``SIGTERM``; its file may then hold no restart state.
 
         Parameters
         ----------
         body : Mapping
-            ``folder``.
+            ``folder``, and optionally ``force``.
 
         Raises
         ------
@@ -353,7 +373,8 @@ class Agent:
         job = read_job(folder)
         if job is not None and job.host == socket.gethostname():
             if alive(job.pid, job.stamp):
-                os.kill(job.pid, signal.SIGTERM)
+                hard = getattr(signal, "SIGKILL", signal.SIGTERM)
+                os.kill(job.pid, hard if body.get("force") else signal.SIGTERM)
             return
         msg = f"{folder.name} has no process or job on this machine to end"
         raise ServiceError(msg)

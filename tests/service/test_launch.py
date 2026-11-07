@@ -312,7 +312,7 @@ def test_a_job_without_threads_leaves_the_budget_alone(tmp_path, monkeypatch):
     folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
     assert job_main([str(folder)]) == 0
     (spec,) = seen
-    assert spec.threads is None and spec.launcher == "direct" and spec.record
+    assert spec.threads is None and spec.launcher == "direct"
 
 
 def test_a_run_ended_by_a_signal_ends_stopped(tmp_path, monkeypatch):
@@ -326,7 +326,7 @@ def test_a_run_ended_by_a_signal_ends_stopped(tmp_path, monkeypatch):
 
     monkeypatch.setattr(run_module, "_march", terminated)
     folder = tmp_path / "r1"
-    run_module.execute(RunSpec("r1", str(folder), recipe=TINY, record=True))
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY))
     (ending,) = [e for e in read_events(folder)[0] if e.terminal]
     assert ending.kind == "stopped" and ending.data["terminated"]
     assert ending.data["message"] == "terminated by SIGTERM"
@@ -340,7 +340,7 @@ def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
         '\n[scan]\nname = "pressure"\npressure = ["0.5 bar", "1 bar"]\n'
     )
     folder = tmp_path / "s1"
-    spec = RunSpec("s1", str(folder), recipe=scan, record=True, launcher="direct")
+    spec = RunSpec("s1", str(folder), recipe=scan)
     run_module.execute(spec)
     events = read_events(folder)[0]
     ends = [e for e in events if e.kind == "point" and e.data.get("status")]
@@ -349,3 +349,36 @@ def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
     summary = summarise(folder)
     assert summary["state"] == "finished" and summary["scan"]
     assert (summary["points"], summary["done"]) == (2, 2)
+
+
+def test_a_continued_run_s_folder_starts_a_new_record(tmp_path):
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    (folder / "events.bin").write_bytes(b"old")
+    (folder / "run.h5").write_bytes(b"")
+    prepare(RunSpec("r1", str(folder), resume=True))
+    assert (folder / "events-1.bin").read_bytes() == b"old"
+    assert not (folder / "events.bin").exists()
+
+
+def test_a_spec_tied_to_a_window_survives_its_json(tmp_path):
+    from solprop.service.worker import spec_from_value, spec_value  # noqa: PLC0415
+
+    spec = RunSpec("r1", str(tmp_path), recipe=TINY, owner=(123, "Sat 7 Nov"))
+    text = json.dumps(spec_value(spec))
+    assert spec_from_value(json.loads(text)) == spec
+    untied = RunSpec("r2", str(tmp_path), owner=(1, None))
+    assert spec_from_value(json.loads(json.dumps(spec_value(untied)))) == untied
+
+
+def test_a_run_whose_job_record_fails_still_ends(tmp_path, monkeypatch):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    def refused(*args, **kwargs):
+        raise OSError("no process table")
+
+    monkeypatch.setattr(run_module.Job, "here", refused)
+    monkeypatch.setattr(run_module, "_march", lambda *args: ("finished", {}))
+    folder = tmp_path / "r1"
+    run_module.execute(RunSpec("r1", str(folder), recipe=TINY))
+    assert not (folder / JOB).exists()
+    assert [e.kind for e in read_events(folder)[0]] == ["finished"]

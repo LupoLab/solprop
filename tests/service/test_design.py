@@ -17,7 +17,6 @@ from service.test_service import Collector
 from solprop.exceptions import SolpropError
 from solprop.recipe import Recipe
 from solprop.service import handlers
-from solprop.service.messages import Control
 from solprop.service.worker import RunSpec
 
 PINNED = TINY.replace('pressure = "1 bar"\n', "") + (
@@ -221,7 +220,7 @@ def test_a_scan_runs_point_by_point_and_stops(tmp_path: Path):
     # Stopped after its first point, the rest are not run.
     spec = RunSpec("s2", str(tmp_path / "s2"), recipe=SCAN, base=str(tmp_path))
     collector = Collector(spec).start()
-    collector.collect(until="point", then=Control("stop"))
+    collector.collect(until="point", then="stop")
     assert collector.kinds()[-1] == "stopped"
 
 

@@ -2,14 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The worker's run: build, run or resume, observe, and stream (design 13.3).
+"""A run's job: build, run, continue or scan, observe, and record (design 13.4).
 
-Three threads share the worker. The march runs in the main thread, and its plane
-observer (:class:`LiveObserver`) only reduces each plane and hands the row to an
-:class:`~solprop.service.outbox.Outbox`. A sender thread writes the outbox to the
-events pipe; a broken pipe marks the window disconnected and never touches the run. A
-control thread sets solprop's stop flag on ``stop``, and replays the rows kept in
-memory on ``subscribe``.
+Every run is a job of its own (:mod:`solprop.service.job`), on this computer or
+another, and streams to nothing but its record (:mod:`solprop.service.record`): the
+window follows the record. The march runs in the main thread, and its plane observer
+(:class:`LiveObserver`) only reduces each plane and hands the row to the record, whose
+own thread writes it. The run's stop file sets solprop's stop flag.
 
 Whether a run *stopped* comes from the worker's own flag and the run's clean return,
 never from solprop's outcome, which records a stop as a failure.
@@ -23,7 +22,6 @@ import time
 import traceback
 from collections.abc import Callable, Mapping
 from dataclasses import replace
-from multiprocessing.connection import Connection
 from pathlib import Path
 
 import numpy as np
@@ -36,9 +34,15 @@ from solprop.log import NullReporter, ScanReporter
 from solprop.output import open_file
 from solprop.recipe import Recipe, resume_file
 from solprop.service.beam import beam_reading, profile_row
-from solprop.service.messages import Control, Event
-from solprop.service.outbox import Outbox
-from solprop.service.record import EventLog, Job, clear_stop, watch_stop, write_job
+from solprop.service.messages import Event
+from solprop.service.record import (
+    EventLog,
+    Job,
+    clear_stop,
+    set_aside,
+    watch_stop,
+    write_job,
+)
 from solprop.service.reduce import (
     SPECTRAL_AXES,
     TIME_OVERSAMPLING,
@@ -64,25 +68,23 @@ class LiveObserver(NullReporter):
         The run.
     reducer : solprop.service.reduce.Reducer
         The display's bins.
-    outbox : solprop.service.outbox.Outbox
-        Where its events go.
+    emit : Callable
+        Where its events go: the run's record.
 
     Attributes
     ----------
-    rows : list of Event
-        Every row event made, in plane order, kept for replay.
     axes : Event or None
         The axes event, once the first plane has fixed the bins.
     """
 
-    def __init__(self, run_id: str, reducer: Reducer, outbox: Outbox) -> None:
+    def __init__(
+        self, run_id: str, reducer: Reducer, emit: Callable[[Event], None]
+    ) -> None:
         """Start with no planes seen."""
         self.run_id = run_id
         self.reducer = reducer
-        self.outbox = outbox
-        self.rows: list[Event] = []
+        self.emit = emit
         self.axes: Event | None = None
-        self._lock = threading.Lock()
         self._steps = 0
         self._rejected = 0
         self._z_end = float("nan")
@@ -103,7 +105,7 @@ class LiveObserver(NullReporter):
             self.space = (grid, space, simulation.medium)  # pyright: ignore[reportAttributeAccessIssue]
 
     def _put(self, kind: str, **data: object) -> None:
-        """Hand one event to the outbox.
+        """Hand one event to the record.
 
         Parameters
         ----------
@@ -112,7 +114,7 @@ class LiveObserver(NullReporter):
         **data : object
             Its content.
         """
-        self.outbox.put(Event(self.run_id, kind, data))
+        self.emit(Event(self.run_id, kind, data))
 
     def started(self, z_start: float, z_end: float, n_planes: int) -> None:
         """Report the run's span.
@@ -191,11 +193,11 @@ class LiveObserver(NullReporter):
                 modes="sum", bandpass=bandpass, oversampling=TIME_OVERSAMPLING
             )  # pyright: ignore[reportAttributeAccessIssue]
         reduced_density, reduced_power = self.reducer.reduce(spectra, t, power)  # pyright: ignore[reportArgumentType]
-        with self._lock:
-            if self.axes is None:
-                self.axes = Event(self.run_id, "axes", dict(self.reducer.axes()))
-                self.outbox.put(self.axes)
-            row = Event(
+        if self.axes is None:
+            self.axes = Event(self.run_id, "axes", dict(self.reducer.axes()))
+            self.emit(self.axes)
+        self.emit(
+            Event(
                 self.run_id,
                 "row",
                 {
@@ -209,24 +211,7 @@ class LiveObserver(NullReporter):
                     **({} if profile is None else {"profile": profile}),
                 },
             )
-            self.rows.append(row)
-        self.outbox.put(row)
-
-    def replay(self, from_plane: int) -> None:
-        """Hand over the axes and every row kept from a plane on.
-
-        Parameters
-        ----------
-        from_plane : int
-            The first plane index to replay.
-        """
-        with self._lock:
-            axes = self.axes
-            rows = [row for row in self.rows if int(row.data["index"]) >= from_plane]  # pyright: ignore[reportArgumentType]
-        if axes is not None:
-            self.outbox.put(axes, copy=False)
-        for row in rows:
-            self.outbox.put(row, copy=False)
+        )
 
 
 class ScanObserver(ScanReporter):
@@ -236,14 +221,14 @@ class ScanObserver(ScanReporter):
     ----------
     run_id : str
         The scan's identity.
-    outbox : solprop.service.outbox.Outbox
-        Where its events go.
+    emit : Callable
+        Where its events go: the run's record.
     """
 
-    def __init__(self, run_id: str, outbox: Outbox) -> None:
+    def __init__(self, run_id: str, emit: Callable[[Event], None]) -> None:
         """Hold where the events go."""
         self.run_id = run_id
-        self.outbox = outbox
+        self.emit = emit
         self.points = 0
         self.done = 0
         self.shape: tuple[int, ...] = ()
@@ -259,7 +244,7 @@ class ScanObserver(ScanReporter):
             The points to run.
         """
         self.points = n_points
-        self.outbox.put(
+        self.emit(
             Event(
                 self.run_id,
                 "scan_started",
@@ -286,7 +271,7 @@ class ScanObserver(ScanReporter):
         # A keyword's value is read in SI; a nested path's is the quantity as written.
         plain = {str(k): _plain(v) for k, v in dict(values).items()}  # pyright: ignore[reportUnknownArgumentType]
         place = [int(i) for i in getattr(point, "multi_index", ())]
-        self.outbox.put(
+        self.emit(
             Event(
                 self.run_id,
                 "point",
@@ -307,7 +292,7 @@ class ScanObserver(ScanReporter):
             Its wall time, s.
         """
         self.done += 1
-        self.outbox.put(
+        self.emit(
             Event(
                 self.run_id,
                 "point",
@@ -326,21 +311,21 @@ class ScanObserver(ScanReporter):
 
 
 class EventHandler(logging.Handler):
-    """Forward log records to the window as ``log`` events.
+    """Forward log records to the run's record as ``log`` events.
 
     Parameters
     ----------
     run_id : str
         The run.
-    outbox : solprop.service.outbox.Outbox
-        Where the events go.
+    send : Callable
+        Where the events go: the run's record.
     """
 
-    def __init__(self, run_id: str, outbox: Outbox) -> None:
+    def __init__(self, run_id: str, send: Callable[[Event], None]) -> None:
         """Forward records of every level from here on."""
         super().__init__()
         self.run_id = run_id
-        self.outbox = outbox
+        self.send = send
 
     def emit(self, record: logging.LogRecord) -> None:
         """Send one record.
@@ -350,7 +335,7 @@ class EventHandler(logging.Handler):
         record : logging.LogRecord
             The record.
         """
-        self.outbox.put(
+        self.send(
             Event(
                 self.run_id,
                 "log",
@@ -361,57 +346,6 @@ class EventHandler(logging.Handler):
                 },
             )
         )
-
-
-def _send(outbox: Outbox, events: Connection) -> None:
-    """Write the outbox to the pipe until it is closed and empty.
-
-    A broken pipe means the window has gone: the events are then taken and
-    discarded, so the run never waits on it.
-
-    Parameters
-    ----------
-    outbox : solprop.service.outbox.Outbox
-        The run's events.
-    events : multiprocessing.connection.Connection
-        The pipe to the window.
-    """
-    connected = True
-    while True:
-        event = outbox.get(timeout=0.5)
-        if event is None:
-            if outbox.closed and not len(outbox):
-                return
-            continue
-        if not connected:
-            continue
-        try:
-            events.send(event)
-        except BrokenPipeError, EOFError, OSError:
-            connected = False
-
-
-def _listen(control: Connection, stop: threading.Event, observer: LiveObserver) -> None:
-    """Act on the window's control requests until it closes the pipe.
-
-    Parameters
-    ----------
-    control : multiprocessing.connection.Connection
-        The pipe from the window.
-    stop : threading.Event
-        The run's stop flag, solprop's.
-    observer : LiveObserver
-        The run's observer, whose rows a subscription replays.
-    """
-    while True:
-        try:
-            request: Control = control.recv()
-        except EOFError, OSError:
-            return
-        if request.kind == "stop":
-            stop.set()
-        else:  # subscribe
-            observer.replay(request.from_plane)
 
 
 def _ending(output: Path, stopped: bool) -> tuple[str, dict[str, object]]:
@@ -501,16 +435,14 @@ def _scan(
     recipe: Recipe,
     folder: Path,
     spec: RunSpec,
-    outbox: Outbox,
+    emit: Callable[[Event], None],
     stop: threading.Event,
 ) -> tuple[str, dict[str, object]]:
     """Run a recipe's ``[scan]`` (``Recipe.scan`` and ``run_scan``) into its folder.
 
-    A scan a window runs goes point by point in its worker, as ``run_scan`` does by
-    default. A scan run as a job of its own (``spec.launcher`` other than
-    ``"window"``), on a machine or in a Slurm allocation, runs its points in a
-    :class:`~solprop.driver.executors.Pool` that sizes itself to the CPUs and memory
-    it was given (design 13.4).
+    Its points run in a :class:`~solprop.driver.executors.Pool` that sizes itself to
+    the CPUs and memory the run was given: this computer's, a machine's or a Slurm
+    allocation's (design 13.4).
 
     Parameters
     ----------
@@ -519,10 +451,10 @@ def _scan(
     folder : pathlib.Path
         The scan's folder.
     spec : solprop.service.worker.RunSpec
-        The run: its identity for its events, how it was started, and what it records
-        at each point beyond its statistics.
-    outbox : solprop.service.outbox.Outbox
-        Where its events go.
+        The run: its identity for its events, and what it records at each point
+        beyond its statistics.
+    emit : Callable
+        Where its events go: its record.
     stop : threading.Event
         Its stop flag: the points not yet started are not run.
 
@@ -534,7 +466,7 @@ def _scan(
     """
     scan = recipe.scan()
     output = folder / SCAN_OUTPUT
-    observer = ScanObserver(spec.run_id, outbox)
+    observer = ScanObserver(spec.run_id, emit)
     observer.shape = tuple(int(n) for n in scan.scan.shape)
     observer.names = list(scan.scan.variables)
     observer.values = _written(recipe, scan.scan.variables)
@@ -545,7 +477,7 @@ def _scan(
         progress=observer,
         stop=stop,
         reductions=reductions(spec.reductions, recipe),
-        **({"executor": Pool()} if spec.launcher != "window" else {}),
+        executor=Pool(),
         **scan.keywords,  # pyright: ignore[reportArgumentType]
     )
     failed = int(np.count_nonzero(np.asarray(result.status) == "failed"))
@@ -580,48 +512,42 @@ def _display(spec: RunSpec, output: Path) -> Display:
         return spec.display
 
 
-def execute(
-    spec: RunSpec, events: Connection | None = None, control: Connection | None = None
-) -> None:
-    """Run, or continue, one run and stream its events until its terminal one.
+def execute(spec: RunSpec) -> None:
+    """Run, or continue, one run, recording its events until its terminal one.
 
-    A run with a record (``spec.record``) also appends its events to its folder and
-    obeys its stop file; a run started with no window (:mod:`solprop.service.job`)
-    has no pipes, and its record is all it streams to. A signal that ends the run
-    (``SIGTERM``, as Slurm sends at a time limit or ``scancel``) leaves the file
-    resumable, so it ends the run as stopped.
+    The run appends its events to its record and obeys its stop file
+    (:mod:`solprop.service.record`). A signal that ends the run (``SIGTERM``, as Slurm
+    sends at a time limit or ``scancel``, and as Kill sends) leaves the file resumable,
+    so it ends the run as stopped. A run tied to a window (``spec.owner``) stops, in
+    the same way as Stop, when that window's process has gone.
 
     Parameters
     ----------
     spec : solprop.service.worker.RunSpec
         What to run.
-    events : multiprocessing.connection.Connection or None, optional
-        Where the events go; ``None`` for none.
-    control : multiprocessing.connection.Connection or None, optional
-        Where stop and subscribe requests come from; ``None`` for none.
     """
     folder = Path(spec.folder)
     folder.mkdir(parents=True, exist_ok=True)
     output = folder / OUTPUT
     stop = threading.Event()
     done = threading.Event()
-    record = _open_record(spec, folder, stop, done)
-    outbox = Outbox(copy_to=None if record is None else record.put)
-    observer = LiveObserver(spec.run_id, Reducer(_display(spec, output)), outbox)
-    sender: threading.Thread | None = None
-    if events is not None:
-        sender = threading.Thread(target=_send, args=(outbox, events), daemon=True)
-        sender.start()
-    if control is not None:
-        threading.Thread(
-            target=_listen, args=(control, stop, observer), daemon=True
-        ).start()
-    detach = _attach_log(folder, spec.run_id, outbox)
+    if spec.resume is not None:
+        set_aside(folder)  # as the launcher did, for a run continued by hand
+    clear_stop(folder)
+    owner = None if spec.owner is None else (int(spec.owner[0]), spec.owner[1])
+    watch_stop(folder, stop, done, owner=owner)
+    record = EventLog(
+        folder,
+        spec.run_id,
+        job=lambda: Job.here(spec.run_id, spec.launcher, spec.threads),
+    )
+    observer = LiveObserver(spec.run_id, Reducer(_display(spec, output)), record.put)
+    detach = _attach_log(folder, spec.run_id, record.put)
 
     kind = "failed"
     data: dict[str, object] = {"path": str(output)}
     try:
-        kind, data = _march(spec, folder, outbox, observer, stop)
+        kind, data = _march(spec, folder, record.put, observer, stop)
     except RunTerminated as error:
         # solprop wrote the state a resume needs before raising.
         kind, data = "stopped", {"path": str(output), "terminated": True}
@@ -633,52 +559,17 @@ def execute(
             "detail": traceback.format_exc(),
         }
     finally:
-        outbox.put(Event(spec.run_id, kind, data))
-        outbox.close()
+        record.put(Event(spec.run_id, kind, data))
         done.set()
-        if record is not None:
-            record.close()
-            if record.job is not None:
-                write_job(folder, replace(record.job, ended=time.time()))
-        if sender is not None:
-            sender.join(timeout=10.0)
+        record.close()
+        if record.job is not None:
+            write_job(folder, replace(record.job, ended=time.time()))
         detach()
 
 
-def _open_record(
-    spec: RunSpec, folder: Path, stop: threading.Event, done: threading.Event
-) -> EventLog | None:
-    """Start a run's record, when its spec asks for one.
-
-    Parameters
-    ----------
-    spec : solprop.service.worker.RunSpec
-        The run.
-    folder : pathlib.Path
-        Its folder.
-    stop : threading.Event
-        Its stop flag, which its stop file sets.
-    done : threading.Event
-        Set when it ends.
-
-    Returns
-    -------
-    solprop.service.record.EventLog or None
-        Its record, which writes its ``job.json`` first; ``None`` for a run without
-        one.
-    """
-    if not spec.record:
-        return None
-    clear_stop(folder)
-    watch_stop(folder, stop, done)
-    return EventLog(
-        folder,
-        spec.run_id,
-        job=lambda: Job.here(spec.run_id, spec.launcher, spec.threads),
-    )
-
-
-def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]:
+def _attach_log(
+    folder: Path, run_id: str, emit: Callable[[Event], None]
+) -> Callable[[], None]:
     """Send solprop's log to the run's ``run.log``, and its warnings as events.
 
     Parameters
@@ -687,8 +578,8 @@ def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]
         The run's folder.
     run_id : str
         The run.
-    outbox : solprop.service.outbox.Outbox
-        Where its events go.
+    emit : Callable
+        Where its events go: its record.
 
     Returns
     -------
@@ -699,7 +590,7 @@ def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]
     log_file.setFormatter(
         logging.Formatter("%(asctime)s %(levelname)s %(name)s: %(message)s")
     )
-    forward = EventHandler(run_id, outbox)
+    forward = EventHandler(run_id, emit)
     forward.setLevel(logging.WARNING)
     logging.captureWarnings(True)
     loggers = [logging.getLogger("solprop"), logging.getLogger("py.warnings")]
@@ -721,7 +612,7 @@ def _attach_log(folder: Path, run_id: str, outbox: Outbox) -> Callable[[], None]
 def _march(
     spec: RunSpec,
     folder: Path,
-    outbox: Outbox,
+    emit: Callable[[Event], None],
     observer: LiveObserver,
     stop: threading.Event,
 ) -> tuple[str, dict[str, object]]:
@@ -733,8 +624,8 @@ def _march(
         The run.
     folder : pathlib.Path
         Its folder.
-    outbox : solprop.service.outbox.Outbox
-        Where a scan's events go.
+    emit : Callable
+        Where a scan's events go: its record.
     observer : LiveObserver
         The run's reporter.
     stop : threading.Event
@@ -758,7 +649,7 @@ def _march(
         recipe = Recipe.loads(spec.recipe, base=Path(spec.base) if spec.base else None)
         (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
         if "scan" in recipe.to_dict():
-            return _scan(recipe, folder, spec, outbox, stop)
+            return _scan(recipe, folder, spec, emit, stop)
         # Built here and kept: a free-space run's planes are measured with its
         # grids and medium; run as Recipe.run would.
         simulation = recipe.build()

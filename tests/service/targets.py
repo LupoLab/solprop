@@ -8,7 +8,6 @@ import time
 from multiprocessing.connection import Connection
 
 from solprop.service import kernel
-from solprop.service.worker import RunSpec
 
 
 def echo_kernel(connection: Connection) -> None:
@@ -29,15 +28,4 @@ def ending_kernel(connection: Connection) -> None:
 def deaf_kernel(connection: Connection) -> None:
     """A kernel that ignores the pipe's closing."""
     del connection
-    time.sleep(60)
-
-
-def silent_worker(spec: RunSpec, events: Connection, control: Connection) -> None:
-    """A worker that ends without a terminal event."""
-    del spec, events, control
-
-
-def deaf_worker(spec: RunSpec, events: Connection, control: Connection) -> None:
-    """A worker that never answers."""
-    del spec, events, control
     time.sleep(60)

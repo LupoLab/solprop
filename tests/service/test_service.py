@@ -6,6 +6,7 @@
 
 import logging
 import threading
+import time
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -16,8 +17,8 @@ import pytest
 from service.cases import TINY, pipe
 from solprop.recipe import Recipe
 from solprop.service import handlers, kernel, run
-from solprop.service.messages import PROTOCOL, Control, Event, Reply, Request
-from solprop.service.outbox import Outbox
+from solprop.service.messages import PROTOCOL, Event, Reply, Request
+from solprop.service.record import read_events, request_stop, set_aside
 from solprop.service.reduce import Display, Reducer
 from solprop.service.worker import LOG, OUTPUT, RECIPE, RunSpec
 
@@ -223,30 +224,32 @@ def test_a_file_from_a_script_has_no_recipe_and_its_own_band(tmp_path: Path):
 
 
 class Collector:
-    """The window's end of the pipes, for a run executed in a thread."""
+    """A run executed in a thread, followed from its record as a window follows it."""
 
     def __init__(self, spec: RunSpec) -> None:
-        self.events_in, events_out = pipe(duplex=False)
-        control_in, self.control_out = pipe(duplex=False)
+        self.folder = Path(spec.folder)
+        if spec.resume is not None:
+            set_aside(self.folder)  # as the launcher does, before anyone follows
         self.events: list[Event] = []
-        self.thread = threading.Thread(
-            target=run.execute, args=(spec, events_out, control_in), daemon=True
-        )
+        self.thread = threading.Thread(target=run.execute, args=(spec,), daemon=True)
 
     def start(self) -> Collector:
         self.thread.start()
         return self
 
-    def collect(self, until: str | None = None, *, then: Control | None = None) -> None:
-        """Receive events to the end, sending ``then`` after the first ``until``."""
-        while True:
-            event: Event = self.events_in.recv()
-            self.events.append(event)
-            if until is not None and event.kind == until and then is not None:
-                self.control_out.send(then)
-                then = None
-            if event.terminal:
-                break
+    def collect(self, until: str | None = None, *, then: str | None = None) -> None:
+        """Read events to the end; ``then="stop"`` stops it at the first ``until``."""
+        offset = 0
+        deadline = time.monotonic() + 120
+        while not (self.events and self.events[-1].terminal):
+            assert time.monotonic() < deadline, "the run did not end"
+            events, offset = read_events(self.folder, offset)
+            for event in events:
+                self.events.append(event)
+                if until is not None and event.kind == until and then == "stop":
+                    request_stop(self.folder)
+                    then = None
+            time.sleep(0.01)
         self.thread.join(30)
 
     def kinds(self) -> list[str]:
@@ -278,7 +281,7 @@ def test_a_run_reduced_on_both_axes_within_a_band(tmp_path: Path):
     collector.collect()
     axes = next(e for e in collector.events if e.kind == "axes").data
     assert axes["f"][0] < 3e14 < axes["f"][-1]  # down to the plane's lowest
-    assert axes["bandpass"] == (7.9e-7, 8.1e-7)
+    assert axes["bandpass"] == [7.9e-7, 8.1e-7]  # a frame's tuple is a list
     whole = ask("overview", {"path": str(tmp_path / "rf" / OUTPUT)})
     rows = [e.data for e in collector.events if e.kind == "row"]
     assert set(rows[0]["density"]) == {"wavelength", "f"}
@@ -288,7 +291,7 @@ def test_a_run_reduced_on_both_axes_within_a_band(tmp_path: Path):
 def test_a_stopped_run_returns_and_resumes(tmp_path: Path):
     folder = tmp_path / "r2"
     collector = Collector(RunSpec("r2", str(folder), recipe=TINY)).start()
-    collector.collect(until="row", then=Control("stop"))
+    collector.collect(until="row", then="stop")
     assert collector.kinds()[-1] == "stopped"
     assert "stop flag" in str(collector.events[-1].data["message"])
     found = ask("check_resume", {"path": str(folder / OUTPUT)})
@@ -299,14 +302,6 @@ def test_a_stopped_run_returns_and_resumes(tmp_path: Path):
     first = {e.data["index"] for e in collector.events if e.kind == "row"}
     second = {e.data["index"] for e in again.events if e.kind == "row"}
     assert max(first) < min(second) and max(second) == 5
-
-
-def test_rows_are_replayed_on_subscribe(tmp_path: Path):
-    collector = Collector(RunSpec("r3", str(tmp_path / "r3"), recipe=TINY)).start()
-    collector.collect(until="row", then=Control("subscribe", from_plane=0))
-    rows = [e.data["index"] for e in collector.events if e.kind == "row"]
-    assert rows.count(0) == 2  # the first row, and its replay
-    assert collector.kinds().count("axes") == 2
 
 
 def test_a_run_that_fails_says_why(tmp_path: Path):
@@ -348,29 +343,14 @@ def test_a_run_whose_outcome_is_not_complete_failed(
     assert kind == "failed" and data["status"] is None
 
 
-def test_the_window_going_away_never_touches_the_run(tmp_path: Path):
-    spec = RunSpec("r6", str(tmp_path / "r6"), recipe=TINY)
-    events_in, events_out = pipe(duplex=False)
-    control_in, control_out = pipe(duplex=False)
-    events_in.close()  # the window is gone before the run starts
-    control_out.close()
-    run.execute(spec, events_out, control_in)
-    assert (
-        ask("describe_output", {"path": str(Path(spec.folder) / OUTPUT)})["outcome"][
-            "status"
-        ]
-        == "complete"
-    )
-
-
 def test_a_display_that_cannot_be_read_from_the_recipe_is_the_specs(tmp_path: Path):
     spec = RunSpec("r7", str(tmp_path), recipe="not a recipe", display=Display())
     assert run._display(spec, tmp_path / OUTPUT) is spec.display
 
 
 def test_the_observer_reports_progress_on_a_period(monkeypatch: pytest.MonkeyPatch):
-    outbox = Outbox()
-    observer = run.LiveObserver("r", Reducer(Display()), outbox)
+    observed: list[Event] = []
+    observer = run.LiveObserver("r", Reducer(Display()), observed.append)
     observer.started(0.0, 1.0, 3)
     clock = iter([10.0, 10.1, 10.5])
     monkeypatch.setattr(run.time, "monotonic", lambda: next(clock))
@@ -378,51 +358,24 @@ def test_the_observer_reports_progress_on_a_period(monkeypatch: pytest.MonkeyPat
     observer.step(0.15, 0.05, False)
     observer.step(0.2, 0.1, True)
     observer.step(0.3, 0.1, True)
-    observed = []
-    while (event := outbox.get(timeout=0)) is not None:
-        observed.append(event)
     progress = [e for e in observed if e.kind == "progress"]
-    assert len(progress) == 1  # coalesced: the last one stands
-    assert progress[0].data == {
+    assert len(progress) == 2  # the first, and the one a period later
+    assert progress[-1].data == {
         "z": 0.3,
         "dz": 0.1,
         "z_end": 1.0,
         "steps": 4,
         "rejected": 1,
     }
-    observer.replay(0)  # nothing yet: no axes, no rows
-    assert len(outbox) == 0
 
 
 def test_log_records_become_events():
-    outbox = Outbox()
-    handler = run.EventHandler("r", outbox)
+    sent: list[Event] = []
+    handler = run.EventHandler("r", sent.append)
     handler.emit(
         logging.LogRecord("solprop", logging.WARNING, "", 0, "hi %s", ("x",), None)
     )
-    event = outbox.get(timeout=0)
-    assert event is not None and event.data["message"] == "hi x"
-
-
-def test_the_sender_drops_events_once_the_pipe_is_broken():
-    reader, writer = pipe(duplex=False)
-    reader.close()
-    outbox = Outbox()
-    outbox.put(Event("r", "row"))
-    outbox.put(Event("r", "row"))
-    outbox.close()
-    run._send(outbox, writer)
-
-
-def test_the_sender_waits_for_events_until_closed():
-    reader, writer = pipe(duplex=False)
-    outbox = Outbox()
-    sender = threading.Thread(target=run._send, args=(outbox, writer))
-    sender.start()
-    threading.Timer(0.7, outbox.close).start()  # past one empty wait
-    sender.join(5)
-    assert not sender.is_alive()
-    reader.close()
+    assert sent[0].data["message"] == "hi x"
 
 
 def test_a_reply_round_trips_through_a_pipe():
@@ -457,28 +410,3 @@ def test_summaries_and_previews_of_other_routes_and_modes():
     assert gnlse["design"] == {} and gnlse["design_error"] is None
     rdw = ask("preview_input", {"text": example("rdw")})
     assert rdw["spectral_power"].ndim == 1  # summed over the two modes
-
-
-def test_the_worker_entry_sets_the_thread_budget(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
-    import os  # noqa: PLC0415 - only here
-
-    from solprop.service import worker  # noqa: PLC0415 - only here
-
-    monkeypatch.setenv("SOLPROP_THREADS", "8")
-    spec = RunSpec("r8", str(tmp_path / "r8"), threads=1)
-    events_in, events_out = pipe(duplex=False)
-    control_in, control_out = pipe(duplex=False)
-    worker.main(spec, events_out, control_in)  # no recipe: fails at once
-    assert os.environ["SOLPROP_THREADS"] == "1"
-    assert events_in.recv().kind == "failed"
-    control_out.close()
-    # Without a budget, solprop's default stands.
-    monkeypatch.setenv("SOLPROP_THREADS", "8")
-    events_in, events_out = pipe(duplex=False)
-    control_in, control_out = pipe(duplex=False)
-    worker.main(RunSpec("r9", str(tmp_path / "r9")), events_out, control_in)
-    assert os.environ["SOLPROP_THREADS"] == "8"
-    assert events_in.recv().kind == "failed"
-    control_out.close()

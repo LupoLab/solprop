@@ -14,6 +14,7 @@ runs nothing at all.
 The machines themselves are kept in the window's settings (:class:`MachineStore`).
 """
 
+import contextlib
 import json
 import threading
 from collections.abc import Callable, Mapping
@@ -126,9 +127,38 @@ class MachineRun:
         """
         del from_plane
 
-    def kill(self) -> None:
-        """End the run's job; solprop still writes where it stood."""
+    def cancel(self) -> None:
+        """End the run's job (``SIGTERM``, ``scancel``); solprop saves where it was."""
         self.hub.call(self.machine, "cancel", {"folder": self.folder})
+
+    def kill(self) -> None:
+        """Kill the run's process outright, as a last resort; or cancel a Slurm job."""
+        self.hub.call(self.machine, "cancel", {"folder": self.folder, "force": True})
+
+    def end_now(self, *, kill: bool = False) -> None:
+        """Stop, or kill, the run now, waiting for the machine to take the request.
+
+        For a window closing: what it asks must reach the machine before the window's
+        connections close.
+
+        Parameters
+        ----------
+        kill : bool, optional
+            Kill the run's process outright, rather than stop it at its next step.
+        """
+        connection = self.hub.connections.get(self.machine)
+        if connection is None:
+            return
+        kind, body = (
+            ("cancel", {"folder": self.folder, "force": True})
+            if kill
+            else (
+                "stop",
+                {"folder": self.folder},
+            )
+        )
+        with contextlib.suppress(ServiceError):
+            connection.call(kind, body, timeout=10.0)
 
     def join(self, timeout: float | None = None) -> None:
         """Wait for the run's ending to arrive.
@@ -178,6 +208,7 @@ class MachineHub(QObject):
         self.connections: dict[str, Connection] = {}
         self.states: dict[str, str] = {}
         self._offsets: dict[tuple[str, str], int] = {}
+        self._periods: dict[tuple[str, str], float] = {}
         self._runs: dict[tuple[str, str], MachineRun] = {}
         self._pool = ThreadPoolExecutor(
             max_workers=8, thread_name_prefix="solprop-machine"
@@ -249,7 +280,9 @@ class MachineHub(QObject):
             # Back: follow again, from where each run's record was read to.
             for (machine, folder), offset in list(self._offsets.items()):
                 if machine == name:
-                    self.call(name, "follow", {"folder": folder, "offset": offset})
+                    period = self._periods.get((machine, folder), 0.5)
+                    body = {"folder": folder, "offset": offset, "period": period}
+                    self.call(name, "follow", body)
         self.state_changed.emit(name, state, detail)
 
     def _frame(self, name: str, frame: Mapping[str, Any]) -> None:
@@ -398,7 +431,15 @@ class MachineHub(QObject):
 
         self.call(name, "kernel", body, failed)
 
-    def follow(self, name: str, folder: str, offset: int = 0) -> MachineRun:
+    def follow(
+        self,
+        name: str,
+        folder: str,
+        offset: int = 0,
+        *,
+        period: float = 0.5,
+        send: bool = True,
+    ) -> MachineRun:
         """Follow a run's events from a place in its record on.
 
         Parameters
@@ -409,6 +450,11 @@ class MachineHub(QObject):
             The run's folder there.
         offset : int, optional
             Where to start, bytes; 0 for its whole history.
+        period : float, optional
+            How often the machine reads the record, s.
+        send : bool, optional
+            Ask the machine now; False leaves it to :meth:`begin`, as for a run not
+            started yet.
 
         Returns
         -------
@@ -416,10 +462,27 @@ class MachineHub(QObject):
             The run's handle.
         """
         self._offsets[(name, folder)] = offset
+        self._periods[(name, folder)] = period
         run = MachineRun(self, name, folder)
         self._runs[(name, folder)] = run
-        self.call(name, "follow", {"folder": folder, "offset": offset})
+        if send:
+            self.begin(name, folder)
         return run
+
+    def begin(self, name: str, folder: str) -> None:
+        """Ask a machine to send a run's events, from where the hub has read to.
+
+        Parameters
+        ----------
+        name : str
+            The machine.
+        folder : str
+            The run's folder there.
+        """
+        offset = self._offsets.get((name, folder), 0)
+        period = self._periods.get((name, folder), 0.5)
+        body = {"folder": folder, "offset": offset, "period": period}
+        self.call(name, "follow", body)
 
     def unfollow(self, name: str, folder: str) -> None:
         """Stop following a run.

@@ -44,6 +44,7 @@ __all__ = [
     "EVENTS",
     "HEARTBEAT",
     "JOB",
+    "OWNER_PERIOD",
     "RECORD_PROGRESS_PERIOD",
     "STATUS",
     "STOP",
@@ -56,6 +57,7 @@ __all__ = [
     "read_job",
     "read_status",
     "request_stop",
+    "set_aside",
     "stop_requested",
     "watch_stop",
     "write_job",
@@ -82,6 +84,9 @@ HEARTBEAT: Final = 30.0
 
 STOP_PERIOD: Final = 0.25
 """How often a run looks for its stop file, s."""
+
+OWNER_PERIOD: Final = 2.0
+"""How often a run tied to a window checks that the window's process lives, s."""
 
 
 def write_json(path: Path, value: Mapping[str, object]) -> None:
@@ -404,6 +409,38 @@ def stop_requested(folder: Path) -> bool:
     return (folder / STOP).exists()
 
 
+def set_aside(folder: Path) -> None:
+    """Keep a continued run's earlier record apart, so its new one starts empty.
+
+    A window following the continued run reads its new events from the start, not the
+    ending of the part before (``events.bin`` becomes ``events-1.bin``, then
+    ``events-2.bin``, ...); its summary and stop file start afresh too. A folder with
+    no record is left as it is.
+
+    Parameters
+    ----------
+    folder : pathlib.Path
+        The run's folder.
+
+    Examples
+    --------
+    >>> import tempfile
+    >>> folder = Path(tempfile.mkdtemp())
+    >>> _ = (folder / EVENTS).write_bytes(b"")
+    >>> set_aside(folder)
+    >>> sorted(path.name for path in folder.iterdir())
+    ['events-1.bin']
+    """
+    events = folder / EVENTS
+    if events.exists():
+        count = 1
+        while (folder / f"events-{count}.bin").exists():
+            count += 1
+        events.replace(folder / f"events-{count}.bin")
+    (folder / STATUS).unlink(missing_ok=True)
+    clear_stop(folder)
+
+
 def clear_stop(folder: Path) -> None:
     """Remove a run's stop file, as a run does when it starts or continues.
 
@@ -416,7 +453,11 @@ def clear_stop(folder: Path) -> None:
 
 
 def watch_stop(
-    folder: Path, stop: threading.Event, done: threading.Event
+    folder: Path,
+    stop: threading.Event,
+    done: threading.Event,
+    *,
+    owner: tuple[int, str | None] | None = None,
 ) -> threading.Thread:
     """Set a run's stop flag when its stop file appears, from a thread of its own.
 
@@ -428,6 +469,10 @@ def watch_stop(
         The run's stop flag (solprop's ``stop=``).
     done : threading.Event
         Set when the run ends, which ends the watch.
+    owner : tuple or None, optional
+        A window's process (its number and start) the run is tied to: when it has
+        gone, the run stops as it does on its stop file. Checked every
+        :data:`OWNER_PERIOD` seconds.
 
     Returns
     -------
@@ -436,11 +481,18 @@ def watch_stop(
     """
 
     def watch() -> None:
-        """Look for the stop file until the run ends."""
+        """Look for the stop file, and the owner, until the run ends."""
+        checked = time.monotonic()
         while not done.wait(STOP_PERIOD):
             if stop_requested(folder):
                 stop.set()
                 return
+            if owner is not None and time.monotonic() - checked >= OWNER_PERIOD:
+                checked = time.monotonic()
+                if not alive(*owner):
+                    request_stop(folder)
+                    stop.set()
+                    return
 
     thread = threading.Thread(target=watch, name="solprop-stop-file", daemon=True)
     thread.start()
@@ -632,8 +684,10 @@ class EventLog:
     def _write(self) -> None:
         """Write the run's ``job.json``, then its events until the record is closed."""
         if self._make_job is not None:
-            self.job = self._make_job()
-            with contextlib.suppress(OSError):
+            # A job.json that cannot be made or written costs the record its job, never
+            # its events.
+            with contextlib.suppress(OSError, ValueError):
+                self.job = self._make_job()
                 write_job(self.folder, self.job)
         while True:
             try:

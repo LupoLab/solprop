@@ -33,7 +33,6 @@ LIGHT = (
     "solprop.service.recipes",
     "solprop.service.reduce",
     "solprop.service.record",
-    "solprop.service.remote",
     "solprop.service.runs",
     "solprop.service.states",
     "solprop.service.worker",

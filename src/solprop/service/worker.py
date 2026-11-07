@@ -2,21 +2,19 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The worker process: one per run, from a recipe revision to a results folder.
+"""What a run runs: its spec, fixed when it starts, and the files of its folder.
 
-The window starts a worker with a :class:`RunSpec`, an immutable copy of the recipe
-revision it runs, so editing the setup afterwards never changes a running run. The
-worker writes ``recipe.toml``, ``run.h5`` and ``run.log`` into the run's folder and
-streams events back (:mod:`solprop.service.run`).
+A run is started with a :class:`RunSpec`, an immutable copy of the recipe revision it
+runs, so editing the setup afterwards never changes a running run. The spec is written
+to the run's folder (``spec.json``) and run there as a job of its own
+(:mod:`solprop.service.job`), which writes ``recipe.toml``, ``run.h5``, ``run.log`` and
+its record.
 
-This module is imported in the window's process (it is the child's entry point), so it
-imports nothing heavy; :func:`main` imports the run code in the child.
+This module is imported in the window's process, so it imports nothing heavy.
 """
 
-import os
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, field
-from multiprocessing.connection import Connection
 
 from solprop.service.reduce import Display
 
@@ -27,7 +25,6 @@ __all__ = [
     "SCAN_OUTPUT",
     "SPEC",
     "RunSpec",
-    "main",
     "spec_from_value",
     "spec_value",
 ]
@@ -74,12 +71,12 @@ class RunSpec:
     reductions : tuple of Mapping
         What a scan records at each point beyond its statistics
         (:func:`solprop.service.scan_reductions.reductions`).
-    record : bool
-        Keep the run's record in its folder (:mod:`solprop.service.record`): its
-        events, its summary and ``job.json``, and a stop file it obeys.
+    owner : tuple or None
+        The process of the window the run is tied to, as its number and start
+        (:func:`~solprop.service.record.process_stamp`): the run stops itself, as Stop
+        does, when that process has gone. ``None`` for a run that outlives windows.
     launcher : str
-        How it was started, as its ``job.json`` says: ``"window"``, ``"direct"`` or
-        ``"slurm"``.
+        How it was started, as its ``job.json`` says: ``"direct"`` or ``"slurm"``.
 
     Examples
     --------
@@ -95,27 +92,8 @@ class RunSpec:
     display: Display = field(default_factory=Display)
     threads: int | None = None
     reductions: tuple[Mapping[str, object], ...] = ()
-    record: bool = False
-    launcher: str = "window"
-
-
-def main(spec: RunSpec, events: Connection, control: Connection) -> None:
-    """Run one recipe revision in this process, streaming its events.
-
-    Parameters
-    ----------
-    spec : RunSpec
-        What to run.
-    events : multiprocessing.connection.Connection
-        Where the run's events go.
-    control : multiprocessing.connection.Connection
-        Where stop and subscribe requests come from.
-    """
-    if spec.threads is not None:
-        os.environ["SOLPROP_THREADS"] = str(spec.threads)
-    from solprop.service.run import execute  # noqa: PLC0415 - child only
-
-    execute(spec, events, control)
+    owner: tuple[int, str | None] | None = None
+    launcher: str = "direct"
 
 
 def spec_value(spec: RunSpec) -> dict[str, object]:
@@ -170,6 +148,9 @@ def spec_from_value(value: Mapping[str, object]) -> RunSpec:
             for key, item in display.items()  # pyright: ignore[reportUnknownVariableType]
         }
         fields["display"] = Display(**shown)  # pyright: ignore[reportArgumentType]
+    owner = fields.pop("owner", None)
+    if isinstance(owner, list | tuple):
+        fields["owner"] = (int(owner[0]), None if owner[1] is None else str(owner[1]))  # pyright: ignore[reportUnknownArgumentType]
     reductions = fields.pop("reductions", ())
     fields["reductions"] = tuple(dict(entry) for entry in reductions)  # pyright: ignore[reportGeneralTypeIssues, reportUnknownArgumentType, reportUnknownVariableType]
     try:

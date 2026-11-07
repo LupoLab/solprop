@@ -2,16 +2,13 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The layers without solprop calls: messages, outbox, reduction, states, registry."""
-
-import threading
+"""The layers without solprop calls: messages, reduction, states, explorer."""
 
 import numpy as np
 import pytest
 
 from solprop.grid import EnvelopeGrid
-from solprop.service.messages import PROTOCOL, Control, Event, Reply, Request
-from solprop.service.outbox import Outbox
+from solprop.service.messages import PROTOCOL, Event, Reply, Request
 from solprop.service.reduce import Display, Reducer, bin_max
 from solprop.service.states import ACTIVE, ExecutionState, advance
 
@@ -24,62 +21,9 @@ def test_messages_carry_their_identity():
     assert Reply("check", 4, 2, value=[]).ok
     assert not Reply("check", 4, 2, error="no").ok
     assert not Reply("check", 4, 2, superseded=True).ok
-    assert Event("r", "progress").replaceable
-    assert not Event("r", "row").replaceable
     assert all(
         Event("r", kind).terminal for kind in ("finished", "stopped", "failed", "lost")
     )
-    assert Control("stop").from_plane == 0
-
-
-# ---------------------------------------------------------------------- outbox
-
-
-def test_outbox_coalesces_progress_and_keeps_order():
-    box = Outbox(capacity=4)
-    box.put(Event("r", "row", {"index": 0}))
-    box.put(Event("r", "progress", {"z": 1}))
-    box.put(Event("r", "progress", {"z": 2}))
-    box.put(Event("other", "progress", {"z": 3}))
-    assert len(box) == 3
-    taken = [box.get(timeout=0) for _ in range(3)]
-    assert [(e.run_id, e.kind, e.data) for e in taken if e is not None] == [
-        ("r", "row", {"index": 0}),
-        ("r", "progress", {"z": 2}),
-        ("other", "progress", {"z": 3}),
-    ]
-    assert box.get(timeout=0) is None
-
-
-def test_outbox_drops_rows_when_full_but_never_a_terminal_event():
-    box = Outbox(capacity=2)
-    assert box.put(Event("r", "row", {"index": 0}))
-    assert box.put(Event("r", "row", {"index": 1}))
-    assert not box.put(Event("r", "row", {"index": 2}))
-    assert box.dropped == 1
-    assert box.put(Event("r", "finished"))
-    box.close()
-    assert box.closed
-    assert not box.put(Event("r", "row", {"index": 3}))
-    kinds = []
-    while (event := box.get(timeout=0)) is not None:
-        kinds.append(event.kind)
-    assert kinds == ["row", "row", "finished"]
-
-
-def test_outbox_wakes_a_waiting_reader():
-    box = Outbox()
-    got: list[Event | None] = []
-    reader = threading.Thread(target=lambda: got.append(box.get()))
-    reader.start()
-    box.put(Event("r", "row"))
-    reader.join(5)
-    assert got and got[0] is not None and got[0].kind == "row"
-
-
-def test_outbox_refuses_a_capacity_below_one():
-    with pytest.raises(ValueError, match="at least 1"):
-        Outbox(capacity=0)
 
 
 # ---------------------------------------------------------------------- reduction

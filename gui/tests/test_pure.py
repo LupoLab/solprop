@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The layers without solprop calls: messages, outbox, reduction, states, registry."""
+"""The layers without solprop calls: the registry, the workspace and the help."""
 
 from datetime import date
 from pathlib import Path
@@ -19,9 +19,6 @@ from solprop_gui.registry.pages import LABELS, PAGES, label, page_of
 from solprop_gui.registry.routes import CARDS, card, card_of
 
 # ---------------------------------------------------------------------- messages
-
-
-# ---------------------------------------------------------------------- outbox
 
 
 # ---------------------------------------------------------------------- reduction
