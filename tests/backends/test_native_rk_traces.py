@@ -88,6 +88,10 @@ class _NativeHarness(_Harness):
         self.pending = {"z": event["z"], "dz": event["dz"]}
         self._record(z, dz, norm, accepted)
 
+    def _poll_stop(self) -> None:
+        # Before a call adopts its state: the last attempt's effect is complete.
+        self.close()
+
     def events_of_attempts(self) -> list[dict[str, Any]]:
         return [one for one in self.events if "end" in one]
 
