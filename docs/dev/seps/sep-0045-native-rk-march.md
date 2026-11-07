@@ -15,7 +15,7 @@
 | **Requires** | [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march, its call protocol and ADR-060); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 21](archive/sep-0021-absorbing-boundaries.md) and [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) (the boundary monitor) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march` ([#567](https://github.com/LupoLab/solprop/pull/567)), based on #563 and #566: started 2026-11-07; phase 0 complete |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march` ([#567](https://github.com/LupoLab/solprop/pull/567)), based on #563 and #566: started 2026-11-07; phases 0 and 1 complete |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -959,6 +959,92 @@ changes at rounding level, and step choices differing by a few steps, are accept
   policy and state, the reading through the engine), the drain with `_account_step` and
   `_check_at`, the watch corpus, and the frozen driver surface.
 
+### Phase 1 report — the boundary checks inside the native Adams march
+
+- **Scope:** phase 1, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commit `6d1855c6`.
+- **Delivered:**
+  - `native/include/solprop_native/watch.hpp`, `native/src/watch.cpp` (strict, with
+    the #135 pragma) and `native/tests/native/test_watch.cpp`: the predictions and
+    their unit tests, the #135 witness among them.
+  - `native/include/solprop_native/adams_march.hpp`, `native/src/adams_march.cpp`:
+    `Engine::reading`, `Reason::watch` and `Reason::capacity`, the watch in the
+    bounds, state and result, the check after each accepted step, the watch's cap
+    under the split scheme.
+  - `native/src/bindings.cpp`: the watch's converters, the readings in the result,
+    the resident engine's reading, and `watch_check`, `watch_due` and
+    `watch_split_limit`.
+  - `native/src/solprop_native/__init__.py`: `WATCH_POLICY_FIELDS`,
+    `WATCH_STATE_FIELDS`, and `DRIVER_SURFACE` with `_account_step`,
+    `_statistics_step` and `_watched_step` for `_skip_step`.
+  - `native/src/solprop_native/backend.py`: `_NativeAdamsMarch._watching`,
+    `_watch_policy`, `_readings`, `_verify_watch`, and the drain of §4.10.
+  - `src/solprop/monitor.py`: `watch_policy`, `watch_state`.
+  - `src/solprop/backends/driver.py`: `_check_at`, `_monitor_step`, `_watched_step`,
+    `_statistics_step`, `_account_step`; `_refuse_scheduled_crossing` takes the row's
+    cursor and position.
+  - Tests: `tests/backends/test_monitor_watch.py` (the watch corpus: Hypothesis draws
+    and the thresholds' neighbours against a real monitor),
+    `tests/driver/test_native_march_watch.py` (busy runs against the Python march);
+    the frozen surface in `tests/backends/test_driver.py`, the trace harness's hook,
+    and the floating-point licence's strict files.
+  - Documents: kernel contract §11, `docs/dev/stepper.md`, `docs/dev/backends.md`,
+    `docs/guide/numerics/boundaries.md`, and the release-note fragment.
+- **Deviations from the proposal:**
+  - *The watch policy travels with each call's bounds*, not with the march's
+    configuration: it depends on the launch's floor and energy and is a few hundred
+    numbers, so sending it per call costs nothing measurable and keeps
+    reconfiguration out of the adapter.
+  - *A buffer's capacity ends a call only where no host event does.* Checked before
+    the host step at first, it preempted a statistics row when the call's bound was
+    one attempt, which `test_native_march_call_bound.py` caught.
+  - *The watch corpus is a test module*, not a data file: the native predictions are
+    compared with a live monitor on drawn readings, which needs no recorded oracle.
+- **Decisions:** the verdicts are `none`, `stop`, `warn`, `quiet`, `refuse` and
+  `error`, the first that applies, `stop` before the warning latch; a step's reading
+  happens after its replay cursor advances, so a scheduled crossing is read with the
+  row's own cursor.
+- **Verification:**
+  - Native unit tests in a Release `znver3` build on an AMD EPYC 7763: all pass, the
+    watch's and the march's #135 witnesses run, not skipped.
+  - The watch corpus and the busy runs pass: on a busy monitor (the 0.65-window
+    walker at the default budget), in both formulations and both collar schemes,
+    the native march's steps, fields, monitor record and warnings equal the Python
+    march's bit for bit, while it returns at under a quarter as many points as it
+    checks.
+  - `tests/backends` and `tests/driver` with the monitor, split-crossing and
+    transverse modules on an AMD EPYC 7763 node: 6189 passed, 20 skipped, 1 xfailed,
+    and two failures: the floating-point licence's pinned CMake line (fixed in this
+    commit) and `test_dense_planes_interpolate_through_the_table[runge_kutta]`, whose
+    envelope (1.17e-9 against 1.03e-9) also fails on a tree of `main` without SEP 45
+    and passes on some runs: a marginal bound on this hardware, not this phase.
+- **Benchmarks** (`benchmarks ab`, an idle AMD EPYC 7763 node, exclusive, complete
+  runs, three rounds, phase 0's head against this phase's; ratio below one is
+  faster; the A/A control's ratios lay within 0.996–1.007):
+
+  | case | 1 thread | 16 threads |
+  |---|---:|---:|
+  | `argon_blueshift_envelope` | 0.881 | 0.837 |
+  | `argon_blueshift_averaged` | 0.930 | 0.910 |
+  | `h2_raman_averaged` | 0.935 | 0.922 |
+  | `he_rdw_averaged` | 0.979 | 0.968 |
+  | `gnlse_soliton` (Runge–Kutta, unchanged) | 1.002 | 1.009 |
+
+  Every configuration took the same steps; the fields differ by up to 1e-12, as
+  the A/A control's do, from FFTW's measured plans. The averaged capillaries gain
+  because their monitor's every-eighth-step checks no longer return either.
+- **The Python share** (the phase 0 ledger's method, one thread): on the complete
+  `argon_blueshift_envelope` run the native calls fall from 1910 to 17 (11 planes,
+  6 call bounds) and the Python time outside the native calls from 14.5 % to 3.3 % of
+  the run, of which the replayed `monitor.step` is 2.1 % (11 µs a check on the idle
+  node); `argon_blueshift_averaged` (0.3) 1.8 %, `he_rdw_averaged` 0.9 %. The 5 %
+  target is met.
+- **Limitations:** a transverse edge keeps returning per check (SEP 44), as do
+  lockstep batches, which do not take the native march.
+- **Handoff to phase 2:** the staged rows for the Runge–Kutta trial and the shared
+  scorer; the driver's `_monitor_step` and `_statistics_step` are the pieces the
+  native RK march's drain will reuse.
+
 ## Part III — History
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
@@ -978,6 +1064,7 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - 2026-11-07: Implementation started (Opus 5.5 for John Travers) on
   `feature/sep-0045-native-rk-march`.
 - 2026-11-07: Phase 0 reported (Part II).
+- 2026-11-07: Phase 1 reported (Part II).
 
 ### AI review — 2026-11-07
 
