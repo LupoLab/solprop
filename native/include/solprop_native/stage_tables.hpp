@@ -476,6 +476,57 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
 }
 
 /**
+ * Return a Runge-Kutta trial's arrays from its stages' positions (solprop SEP 45 phase
+ * 2): `positions` holds each stage's `z + c_i dz`, then the step's end. Each stage's
+ * row is `row(tables, anchor, z0, position)`, the increment's last row the whole
+ * step's, as the native backend's `_trial_arrays` packs the bundles of
+ * `_stage_bundles`. A coupled flow's rows are formed on the host, so the tables must
+ * hold none.
+ */
+inline TrialScalars rows(const Tables& tables, Anchor& anchor, const double z0,
+                         const std::vector<double>& positions) {
+  const std::size_t stages = tables.n_stages;
+  if (positions.size() != stages + 1)
+    throw std::invalid_argument("a trial's positions are its stages' and its end");
+  if (tables.flow.present())
+    throw std::logic_error("a coupled flow's trial rows are formed on the host");
+  TrialScalars out;
+  for (std::size_t stage = 0; stage < stages; ++stage) {
+    const Row one = row(tables, anchor, z0, positions[stage]);
+    out.phi_delta.insert(out.phi_delta.end(), one.phi_delta.begin(),
+                         one.phi_delta.end());
+    out.phi_at.insert(out.phi_at.end(), one.phi_at.begin(), one.phi_at.end());
+    out.prefactor.insert(out.prefactor.end(), one.prefactor.begin(),
+                         one.prefactor.end());
+    out.density.push_back(one.density);
+    out.taper.push_back(one.taper);
+    out.preionisation.push_back(
+        one.plasma_preionisation.size() == 1 ? one.plasma_preionisation[0] : 0.0);
+    out.raman_rates.insert(out.raman_rates.end(), one.raman_rates.begin(),
+                           one.raman_rates.end());
+    out.kerr_density.push_back(one.kerr_density);
+    out.plasma_densities.insert(out.plasma_densities.end(),
+                                one.plasma_densities.begin(),
+                                one.plasma_densities.end());
+    out.plasma_preionisation.insert(out.plasma_preionisation.end(),
+                                    one.plasma_preionisation.begin(),
+                                    one.plasma_preionisation.end());
+    out.raman_densities.insert(out.raman_densities.end(), one.raman_densities.begin(),
+                               one.raman_densities.end());
+    out.dispersive_densities.insert(out.dispersive_densities.end(),
+                                    one.dispersive_densities.begin(),
+                                    one.dispersive_densities.end());
+    out.transform_weights.insert(out.transform_weights.end(),
+                                 one.transform_weights.begin(),
+                                 one.transform_weights.end());
+  }
+  const Row whole = row(tables, anchor, z0, positions[stages]);
+  out.phi_delta.insert(out.phi_delta.end(), whole.phi_delta.begin(),
+                       whole.phi_delta.end());
+  return out;
+}
+
+/**
  * Return a trial's lab-frame sample's arrays: the step's with the increment of `Phi`
  * zeroed (`_resident_sample`), or, beside a coupled flow, whose section follows the
  * anchor, a stage anchored at the step's end.

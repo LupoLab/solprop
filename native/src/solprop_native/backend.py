@@ -335,6 +335,9 @@ class NativeBackend(StepDriver[_core.State]):
         super().__init__(problem, grid=grid, modes=modes, profiles=profiles)
         self._z_tables = None if problem.device_ready else _ZTables(problem)
         self._flow = _host_flow(problem)
+        # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
+        self._rk_staged: bool | None = None
+        self._rk_nodes: list[float] = []
         self._flow_key: tuple[int, float] | None = None
         tables = problem.transform.modal_tables
         self._moving_maps = (
@@ -846,10 +849,37 @@ class NativeBackend(StepDriver[_core.State]):
         partials = self._prepare_trial(z, dz)
         return self._score_trial(partials), self._native_state
 
+    def _staged_rows(self) -> bool:
+        """Whether the native state forms a Runge-Kutta trial's stage rows itself.
+
+        solprop SEP 45 phase 2: where every row a trial reads is one of the uploaded
+        stage tables' -- no coupled flow, whose rows the host forms, and no z table,
+        whose slots a trial loads together -- the tables are uploaded once and the state
+        evaluates each stage's scalars at ``z + c_i dz`` natively, as `_trial_arrays`
+        packs them from `_stage_bundles`.
+        """
+        staged = self._rk_staged
+        if staged is None:
+            tables = None
+            if self._flow is None and self._z_tables is None:
+                tables = self._stage_tables()
+            if tables is not None:
+                self._native_state.adams_stage_tables(tables | _chord_tables(None))
+                self._rk_nodes = [
+                    float(node) for node in self._problem.stepper.tableau.nodes
+                ]
+            staged = self._rk_staged = tables is not None
+        return staged
+
     def _prepare_trial(
         self, z: float, dz: float, *, defer_update: bool = False
     ) -> RealArray:
         """Prepare member stages, optionally deferring the shared accepted update."""
+        if _RK_ROWS != "host" and self._staged_rows():
+            with _envelope_errors():
+                return self._native_state.rk_trial(
+                    z, dz, self._rk_nodes, prepare_only=defer_update
+                )
         self._hoist(z)
         tableau = self._problem.stepper.tableau
         # Every stage's scalars and the whole step's, each table read once (solprop
@@ -1085,7 +1115,19 @@ class NativeBackend(StepDriver[_core.State]):
         return {"flow_section": section, "flow_weights": weights}
 
     def _score_trial(self, partials: RealArray) -> float:
-        """Reduce one member's partials in the established singleton order."""
+        """Reduce one member's partials to the trial's scaled error norm.
+
+        solprop's own weak scale is formed natively, the partials summed in order
+        (solprop SEP 45 phase 2, Q1); a controller with weights, or one whose ``scale``
+        is not ``PIController.scale``, keeps the host's reduction and its own scale.
+        """
+        controller = self._problem.stepper.controller
+        if (
+            _RK_ROWS != "host"
+            and type(controller).scale is PIController.scale
+            and controller.weights is None
+        ):
+            return float(_core.rk_score(partials, controller.rtol, controller.atol))
         old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
         new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
         residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
@@ -2617,6 +2659,9 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
 
 
 _ADAMS_MARCH = os.environ.get("SOLPROP_ADAMS_MARCH", "native")
+_RK_ROWS = os.environ.get("SOLPROP_RK_ROWS", "native")
+"""``host`` packs a Runge-Kutta trial's rows and reduces its norm on the host, as before
+solprop SEP 45 phase 2: a private switch for comparisons, read at import."""
 """Which march steps an admitted exponential ``Multistep()`` run: ``"native"``, or
 ``"host"`` for solprop's Python march (solprop SEP 39 section 5). A private switch for
 the benchmark harness's A/B comparisons, read once at import."""

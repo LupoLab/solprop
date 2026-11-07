@@ -8,6 +8,7 @@
 #include "solprop_native/crossing.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/rk_march.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
 
@@ -1375,6 +1376,19 @@ public:
     require_open();
     general_state_->set_initial(field, noise);
   }
+  // solprop SEP 45 phase 2: a Runge-Kutta trial whose stage rows the state forms from
+  // the uploaded tables, at the positions `z + c_i dz` and the step's end.
+  std::vector<double> rk_trial(const double z, const double dz,
+                               const std::vector<double>& nodes,
+                               const bool prepare_only) {
+    if (!stage_tables_)
+      throw std::logic_error("a staged Runge-Kutta trial needs the stage tables");
+    if (nodes.size() != stages_)
+      throw std::invalid_argument("the trial's nodes are the tableau's stages");
+    const auto scalars = native::stage::rows(*stage_tables_, stage_anchor_, z,
+                                             native::rk::positions(z, dz, nodes));
+    return trial_step(dz, scalars, prepare_only);
+  }
   std::vector<double> trial_step(const double dz, const native::TrialScalars& scalars,
                                  const bool prepare_only = false) {
     require_open();
@@ -2163,6 +2177,14 @@ NB_MODULE(_core, module_) {
       },
       "policy"_a, "state"_a, "reading"_a, "z"_a);
   module_.def(
+      "rk_score",
+      [](const RealInput partials, const double rtol, const double atol) {
+        if (partials.ndim() != 2 || partials.shape(0) != 3)
+          throw std::invalid_argument("a trial's partials have shape (3, slots)");
+        return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
+      },
+      "partials"_a, "rtol"_a, "atol"_a);
+  module_.def(
       "watch_due",
       [](const nb::dict policy, const nb::dict state, const double z) {
         return native::watch::due(watch_policy_from(policy), watch_state_from(state),
@@ -2250,6 +2272,19 @@ NB_MODULE(_core, module_) {
             self.set_initial(complex_span(field), complex_span(noise));
           },
           "field"_a.noconvert(), "noise"_a.noconvert())
+      .def(
+          "rk_trial",
+          [](BoundState& self, const double z, const double dz,
+             const std::vector<double>& nodes, const bool prepare_only) {
+            std::vector<double> partials;
+            {
+              const nb::gil_scoped_release release;
+              partials = self.rk_trial(z, dz, nodes, prepare_only);
+            }
+            return prepare_only ? nb::object(nb::none())
+                                : nb::cast(real_output(std::move(partials), 3));
+          },
+          "z"_a, "dz"_a, "nodes"_a, "prepare_only"_a = false)
       .def(
           "trial_step",
           [](BoundState& self, const double dz, const RealInput phi_delta,
