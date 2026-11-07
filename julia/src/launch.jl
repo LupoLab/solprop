@@ -292,12 +292,51 @@ function gemm!(C, A, B, alpha, beta, c)
     if eltype(C) <: Complex && eltype(A) <: Complex && eltype(B) <: Real
         return gemm!(real_rows(C), real_rows(A), B, alpha, beta, c)
     end
+    if oncpu(c) && eltype(C) <: Real && (size(B, 2) <= THIN || size(B, 1) <= THIN)
+        return thin_gemm!(C, A, B, alpha, beta, c)
+    end
     blocks = oncpu(c) ? min(c.tasks, cld(length(C), PARALLEL_SAMPLES ÷ 4)) : 1
     blocks <= 1 && return mul!(C, A, B, alpha, beta)
     rows = cld(size(C, 1), blocks)
     @batch for b in 1:blocks
         r = (b-1)*rows+1:min(b * rows, size(C, 1))
         mul!(view(C, r, :), view(A, r, :), B, alpha, beta)
+    end
+    C
+end
+
+"""A product's thin side, at most this many columns or inner terms: a loop, not BLAS."""
+const THIN = 8
+
+"""`C = alpha A B + beta C` for real matrices with a thin `B`: as the pool's tasks over
+blocks of rows, each a column of `C` at a time, a contiguous axpy per inner term.
+A capillary's one mode made each projection sixteen BLAS calls of a vector each,
+whose overheads were most of argon's 0.25 ms a source."""
+function thin_gemm!(C, A, B, alpha, beta, c)
+    rows, inner = size(A)
+    columns = size(B, 2)
+    blocks = max(1, min(c.tasks, cld(rows * (inner + columns), PARALLEL_SAMPLES ÷ 4)))
+    span = cld(rows, blocks)
+    a, b = eltype(C)(alpha), eltype(C)(beta)
+    @batch for block in 1:blocks
+        r = (block-1)*span+1:min(block * span, rows)
+        @inbounds for j in 1:columns
+            if iszero(b)
+                @simd for t in r
+                    C[t, j] = 0
+                end
+            elseif !isone(b)
+                @simd for t in r
+                    C[t, j] *= b
+                end
+            end
+            for p in 1:inner
+                weight = a * B[p, j]
+                @simd for t in r
+                    C[t, j] += A[t, p] * weight
+                end
+            end
+        end
     end
     C
 end
