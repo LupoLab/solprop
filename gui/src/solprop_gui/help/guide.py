@@ -13,8 +13,8 @@ from typing import Final
 
 __all__ = ["MANUAL", "guide_url"]
 
-MANUAL: Final = "https://solprop.readthedocs.io/en/latest/"
-"""The online manual."""
+MANUAL: Final = "https://solprop.readthedocs.io/en/stable/"
+"""The online manual of the newest release."""
 
 
 def guide_url(anchor: str, manual: str = MANUAL) -> str:
@@ -36,9 +36,9 @@ def guide_url(anchor: str, manual: str = MANUAL) -> str:
     Examples
     --------
     >>> guide_url("guide/setup/recipes.md#pins")
-    'https://solprop.readthedocs.io/en/latest/guide/setup/recipes.html#pins'
+    'https://solprop.readthedocs.io/en/stable/guide/setup/recipes.html#pins'
     >>> guide_url("")
-    'https://solprop.readthedocs.io/en/latest/'
+    'https://solprop.readthedocs.io/en/stable/'
     """
     page, _, section = anchor.partition("#")
     if not page:

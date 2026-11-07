@@ -102,8 +102,8 @@ def test_the_guide_reads_offline_and_follows_its_links(
         "openUrl",
         lambda url: opened.append(url.toString()),
     )
-    window.follow(QUrl("https://solprop.readthedocs.io/en/latest/"))
-    assert opened == ["https://solprop.readthedocs.io/en/latest/"]
+    window.follow(QUrl("https://solprop.readthedocs.io/en/stable/"))
+    assert opened == ["https://solprop.readthedocs.io/en/stable/"]
 
 
 def test_a_window_with_no_guide_points_online(
