@@ -8,7 +8,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Please [search the issues](https://github.com/LupoLab/solprop/issues?q=is%3Aissue) first. Differences from Luna.jl that are deliberate are listed in [Noteworthy differences from Luna](https://solprop.readthedocs.io/en/latest/guide/workflows/luna.html).
+        Please [search the issues](https://github.com/LupoLab/solprop/issues?q=is%3Aissue) first. Differences from Luna.jl that are deliberate are listed in [Noteworthy differences from Luna](https://solprop.readthedocs.io/en/stable/guide/workflows/luna.html).
   - type: textarea
     id: script
     attributes:

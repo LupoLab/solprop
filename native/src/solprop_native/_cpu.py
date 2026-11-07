@@ -91,7 +91,7 @@ VARIANTS_RECORD = "_cpu_variants.txt"
 VARIANT_SETTING = "SOLPROP_NATIVE_CPU_VARIANT"
 CPUINFO = Path("/proc/cpuinfo")
 BUILD_GUIDE = (
-    "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
+    "https://solprop.readthedocs.io/en/stable/guide/performance/building-native.html"
 )
 ISSUES = "https://github.com/LupoLab/solprop/issues"
 
