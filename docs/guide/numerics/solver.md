@@ -60,7 +60,7 @@ longest step and `dz_init` is informational.
 ## The Runge–Kutta integrator
 
 On the native backend the adaptive Runge–Kutta loop runs in compiled code, with solprop's own
-loop as its reference ([SEP 45](../../dev/seps/sep-0045-native-rk-march.md)): a run's
+loop as its reference ([SEP 45](../../dev/seps/archive/sep-0045-native-rk-march.md)): a run's
 metadata says which stepped it (`rk_march`). A controller with methods of its own runs
 solprop's loop, with a `HostMarchWarning` that names the reason.
 

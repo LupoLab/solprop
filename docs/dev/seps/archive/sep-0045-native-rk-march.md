@@ -6,17 +6,17 @@
 | **Title** | A native Runge–Kutta march, and boundary checks inside the compiled marches |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-07) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-07 |
-| **Resolution** | Accepted 2026-11-07 by John Travers, after his human review of Part I, the GPT-6 AI review and the response to it, and his decisions Q1–Q7 (§12), in [LupoLab/solprop#563](https://github.com/LupoLab/solprop/pull/563) |
-| **Requires** | [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march, its call protocol and ADR-060); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 21](archive/sep-0021-absorbing-boundaries.md) and [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) (the boundary monitor) |
+| **Resolution** | Accepted 2026-11-07 by John Travers, after his human review of Part I, the GPT-6 AI review and the response to it, and his decisions Q1–Q7 (§12), in [LupoLab/solprop#563](https://github.com/LupoLab/solprop/pull/563). **Final** 2026-11-07 by John Travers, after phase 5 on an NVIDIA A40, in the implementation's pull request ([#567](https://github.com/LupoLab/solprop/pull/567)) |
+| **Requires** | [SEP 39](sep-0039-native-adams-march.md) (the native Adams march, its call protocol and ADR-060); [SEP 25](sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 21](sep-0021-absorbing-boundaries.md) and [SEP 40](sep-0040-transverse-absorbing-boundaries.md) (the boundary monitor) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march` ([#567](https://github.com/LupoLab/solprop/pull/567)), based on #563 and #566: started 2026-11-07; phases 0 and 1 complete |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march` ([#567](https://github.com/LupoLab/solprop/pull/567)), based on #563 and #566: started 2026-11-07; phases 0–5 complete (2026-11-07; phase 5 on an NVIDIA A40) |
+| **Manual pages** | [The Runge–Kutta integrator](../../../guide/numerics/solver.md#the-rungekutta-integrator) |
 
 ## Part I — Proposal
 
@@ -28,7 +28,7 @@ It sits in two places:
 1. **Boundary checks force the native Adams march back to Python.** While the boundary
    monitor is busy (a guard or the collar holds more than $(0.1\,\mathrm{budget})^2$ of
    the field above the floor), it asks for a check at every committed step, and the
-   native march of [SEP 39](archive/sep-0039-native-adams-march.md) returns to solprop
+   native march of [SEP 39](sep-0039-native-adams-march.md) returns to solprop
    at every one. Each return costs 100–250 µs of Python on an Intel Xeon Gold 6240. On
    the tracking case `argon_blueshift_envelope` the march returns at 1910 of its 2227
    attempts and spends 17–21 % of the run in Python.
@@ -1288,6 +1288,9 @@ changes at rounding level, and step choices differing by a few steps, are accept
   three adapted tests, the landings reusing `march::Policy`) and ADR-069 as worded.
 - 2026-11-07: Phase 4 reported (Part II).
 - 2026-11-07: Phase 5 reported (Part II); every phase implemented.
+- 2026-11-07: Final (John Travers): every phase implemented and reported, Q1–Q7 decided
+  and none left open. The marginal z-table envelope phases 1 and 3 met on an AMD EPYC 7763
+  fails on `main` too and is not this SEP's.
 
 ### AI review — 2026-11-07
 

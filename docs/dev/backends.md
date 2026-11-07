@@ -212,7 +212,7 @@ the steps to one of these loops:
 | `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
 | `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
 | `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
-| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
+| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
 
 Only the last two loops are compiled. The driver's Runge-Kutta march is the reference for the
 compiled Runge-Kutta march, which holds to it through kernel contract §12 (ADR-069), and for the
@@ -802,7 +802,7 @@ absorber's transform pair for a state that is thrown away.
 
 Under Runge–Kutta the driver's loop is the reference, and on `native` one call executes all
 seven stages of a trial (§4), its rows formed natively from the uploaded stage tables and its
-norm reduced natively ([SEP 45](seps/sep-0045-native-rk-march.md) phase 2). An earlier
+norm reduced natively ([SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
 measurement on the retired `numba_cpu` backend found the loop's Python cheap (about 50 calls a
 step cost 1.69 % of a step at 1024 bins on the GNLSE soliton), but the host's whole per-step
 work, the stage scalars and the packing with the loop, came to about 200 µs a step on an Intel
@@ -1853,7 +1853,7 @@ comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
 the resident engine -- stage scalars and tables evaluated natively from the run's
 uploaded expansions, the trial, the decision, the accept, and the boundary monitor's
-checks ([SEP 45](seps/sep-0045-native-rk-march.md) §4.8) -- until a host event, and
+checks ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- until a host event, and
 returns the
 march's state, one row per attempt (its end, step, norm, verdict, order and wall
 time) and the readings its checks took, which the driver replays through solprop's

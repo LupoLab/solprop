@@ -1964,7 +1964,7 @@ Withdrawn (development-process record, not a design decision).
 ## ADR-069 — The Runge–Kutta march and the boundary checks run natively, solprop's as reference
 
 - **Status:** accepted (maintainer), 2026-11-07, with
-  [SEP 45](seps/sep-0045-native-rk-march.md). Extends ADR-060 to the adaptive Runge–Kutta march
+  [SEP 45](seps/archive/sep-0045-native-rk-march.md). Extends ADR-060 to the adaptive Runge–Kutta march
   and to the boundary monitor's checks.
 - **Context:** after SEP 39 the native Adams march still returned to Python at every check of a
   busy boundary monitor, 100–250 µs each, and the Runge–Kutta march, the default of the fibre

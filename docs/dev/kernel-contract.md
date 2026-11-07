@@ -1233,7 +1233,7 @@ one attempt, of seven and of none to one set of bits.
   (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
-**The boundary checks inside the march** ([SEP 45](seps/sep-0045-native-rk-march.md)
+**The boundary checks inside the march** ([SEP 45](seps/archive/sep-0045-native-rk-march.md)
 §4.8, normative since its phase 1). Unless the run's monitor reads a transverse edge, a
 call also takes the monitor's checks: the bounds carry the monitor's watch policy
 (`BoundaryMonitor.watch_policy`, exactly `WATCH_POLICY_FIELDS`: the scaled floor
@@ -1266,7 +1266,7 @@ tables and norms and take the same steps.
 
 ## 12. The Runge–Kutta march
 
-*Normative from [SEP 45](seps/sep-0045-native-rk-march.md) phase 3. `native` executes it
+*Normative from [SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
 not, on CPU and device builds; a controller with its own methods steps the reference, with
 a `HostMarchWarning` naming the reason.*
@@ -1276,7 +1276,7 @@ reference implementation, solprop's `StepDriver._march_to` and the controller co
 calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
 as §11's Adams march is executed. It then receives every number the algorithm reads in
 one record and holds no default and no constant of its own (`native/AGENTS.md`).
-[SEP 45](seps/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
+[SEP 45](seps/archive/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
 its interface.
 
 **The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run

@@ -406,7 +406,7 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
-**The native Runge–Kutta march** (ADR-069, [SEP 45](seps/sep-0045-native-rk-march.md)):
+**The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
 `StepDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
 (`backends/rk_core.py`), held to a decision corpus recorded before the refactor
 (`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
@@ -431,7 +431,7 @@ replayed schedules from that record on its resident engine
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop), a boundary check whose verdict needs
 solprop, the call's bound, the budget, the floor or a native error. The march takes the
-boundary monitor's checks itself ([SEP 45](seps/sep-0045-native-rk-march.md) §4.8),
+boundary monitor's checks itself ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8),
 buffers their readings and predicts the monitor's verdict; a run with a transverse
 edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
