@@ -12,7 +12,7 @@ stops, and how it stopped -- at a call's bound of one attempt, seven, and the de
 so that where a call returns moves no decision. A one-attempt call books each attempt's
 state, compared whole; longer calls are compared on the attempts and the end.
 
-A replayed schedule steps the host's replay loop, and is left to that loop's own test.
+A replayed schedule runs through the march's replay (phase 4).
 """
 
 from __future__ import annotations
@@ -30,6 +30,7 @@ from tests.backends.rk_traces import Scenario, _Harness, same_trace
 from solprop.backends import available
 from solprop.backends.driver import reached
 from solprop.exceptions import BackendError, ConvergenceError
+from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -38,14 +39,11 @@ backend_module = pytest.importorskip("solprop_native.backend")
 core = pytest.importorskip("solprop_native._core")
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
-UNTAKEN = ("replay", "replay_diverged")
-"""A replayed schedule steps the host's replay loop."""
 
 
 def _entries() -> list[dict[str, Any]]:
     with gzip.open(CORPUS, "rt") as handle:
-        entries = json.load(handle)["scenarios"]
-    return [one for one in entries if one["scenario"]["name"] not in UNTAKEN]
+        return json.load(handle)["scenarios"]
 
 
 ENTRIES = _entries()
@@ -116,7 +114,16 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     probe = _NativeHarness(scenario, None)
     policy = _policy_free(probe)
     norms = np.ascontiguousarray(scenario.norms, dtype=np.float64)
-    runner = core.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0)
+    schedule = (
+        None
+        if scenario.schedule is None
+        else FixedSchedule(np.array(scenario.schedule, dtype=np.float64))
+    )
+    steps = edges = np.empty(0, dtype=np.float64)
+    if schedule is not None:
+        steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+        edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
+    runner = core.ScriptedRkMarch(policy, norms, scenario.h0 or 0.0, steps, edges)
     harness = _NativeHarness(scenario, runner)
     march = backend_module._NativeRungeKuttaMarch(harness, runner=runner)
     march.MAX_ATTEMPTS = max_attempts
@@ -131,7 +138,10 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
     try:
         for target in targets:
             while True:
-                march.march_to(target)
+                if schedule is None:
+                    march.march_to(target)
+                else:
+                    march.replay_to(schedule, target)
                 harness.close()
                 harness.events.append({"target": target, **harness.snapshot()})
                 if reached(harness._z, target):

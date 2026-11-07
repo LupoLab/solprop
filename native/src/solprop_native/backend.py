@@ -117,7 +117,7 @@ from solprop.stepper.multistep import (
     integrated_weights,
     lagrange_coefficients,
 )
-from solprop.stepper.schedule import LANDING_ULPS
+from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -456,6 +456,13 @@ class NativeBackend(StepDriver[_core.State]):
                 super()._march_to(target)
         finally:
             self._check_quadrature(target)
+
+    def _replay_to(self, schedule: FixedSchedule, target: float) -> None:
+        """Replay on the native Runge-Kutta march where it steps this run (SEP 45)."""
+        if (march := self._rk_march()) is not None:
+            march.replay_to(schedule, target)
+        else:
+            super()._replay_to(schedule, target)
 
     def _rk_march(self) -> _NativeRungeKuttaMarch | None:
         """Return the native Runge-Kutta march when it steps this run (SEP 45).
@@ -3274,6 +3281,7 @@ class _NativeRungeKuttaMarch:
         self._driver: Any = backend
         self._runner = runner
         self._configured: tuple[float | None] | None = None
+        self._replaying: FixedSchedule | None = None
 
     @staticmethod
     def refusal(backend: NativeBackend) -> tuple[str | None, bool]:
@@ -3355,12 +3363,20 @@ class _NativeRungeKuttaMarch:
         interval = None if monitor is None else float(monitor.interval)
         if self._configured == (interval,) or self._runner is not None:
             return
-        controller = backend._problem.stepper.controller
+        stepper = backend._problem.stepper
+        controller = stepper.controller
+        schedule = stepper.schedule
+        steps = edges = _NO_SCHEDULE
+        if schedule is not None:
+            steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
+            edges = np.ascontiguousarray(schedule.edges, dtype=np.float64)
         backend._native_state.rk_march_configure(
             self._policy(),
             list(backend._rk_nodes),
             float(controller.rtol),
             float(controller.atol),
+            steps,
+            edges,
         )
         self._configured = (interval,)
 
@@ -3400,7 +3416,45 @@ class _NativeRungeKuttaMarch:
         if dense and not reached(target, backend._z):
             backend._observe_inside(target)
 
-    def _bounds(self, target: float, watching: bool) -> dict[str, object]:
+    def replay_to(self, schedule: FixedSchedule, target: float) -> None:
+        """Replay the contract's schedule to `target` on the native march.
+
+        ``StepDriver._replay_to``, a call of steps at a time: the steps as given, never
+        rejected, the edges hit exactly.
+
+        Parameters
+        ----------
+        schedule : solprop.stepper.schedule.FixedSchedule
+            The schedule to replay.
+        target : float
+            Position to reach, m.
+
+        Raises
+        ------
+        BackendError
+            If the schedule runs out before the target is reached.
+        ConvergenceError
+            If a step's error norm is not finite.
+        """
+        backend = self._driver
+        self._replaying = schedule
+        self._configure()
+        slack = replay_tolerance(schedule, target)
+        while (
+            backend._schedule_index < schedule.n_steps and backend._z < target - slack
+        ):
+            if self._call(target, slack):
+                return
+        if backend._z < target - slack:
+            msg = (
+                f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
+                f"cannot reach z = {target:.6g} m"
+            )
+            raise BackendError(msg)
+
+    def _bounds(
+        self, target: float, watching: bool, slack: float | None = None
+    ) -> dict[str, object]:
         """Return a call's bounds: the target and the steps the driver has work on."""
         backend = self._driver
         steps: list[int] = []
@@ -3440,12 +3494,12 @@ class _NativeRungeKuttaMarch:
             "step_cap": math.inf if monitor is None else float(monitor.step_cap),
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
-            "replay": False,
-            "slack": 0.0,
             "watch": _watch_policy_of(monitor)
             if watching and monitor is not None
             else None,
             "watch_capacity": self.MAX_ATTEMPTS,
+            "replay": slack is not None,
+            "slack": 0.0 if slack is None else float(slack),
         }
 
     def _state(self, watching: bool) -> dict[str, object]:
@@ -3455,17 +3509,18 @@ class _NativeRungeKuttaMarch:
             "z": float(backend._z),
             "proposal": float(backend._proposal),
             "norms": [float(norm) for norm in backend._accepted_norms],
+            "cursor": int(backend._schedule_index),
         }
         if watching:
             state["watch"] = backend._monitor.watch_state()
         return state
 
-    def _call(self, target: float) -> bool:
+    def _call(self, target: float, slack: float | None = None) -> bool:
         """Make one native call and drain it; return whether a natural stop is due."""
         backend = self._driver
         backend._poll_stop()
         watching = self._watching()
-        bounds = self._bounds(target, watching)
+        bounds = self._bounds(target, watching, slack)
         started = time.perf_counter() - backend._clock
         cursor = int(backend._schedule_index)
         position = float(backend._z)
@@ -3475,6 +3530,7 @@ class _NativeRungeKuttaMarch:
             backend._flow_key = None
             state = result["state"]
             backend._z = float(state["z"])
+            backend._schedule_index = int(state["cursor"])
             backend._proposal = float(state["proposal"])
             backend._accepted_norms.clear()
             backend._accepted_norms.extend(float(norm) for norm in state["norms"])
@@ -3558,6 +3614,23 @@ class _NativeRungeKuttaMarch:
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""
+        if reason == _DIVERGED:
+            backend = self._driver
+            schedule = self._replaying
+            n_steps = 0 if schedule is None else schedule.n_steps
+            dz, norm = float(result["replay_dz"]), float(result["replay_norm"])
+            msg = (
+                f"{backend.name}: replayed step {backend._schedule_index + 1} of "
+                f"{n_steps}, {dz:.4g} m from z = {backend._z:.6g} m, has a "
+                f"non-finite error norm ({norm!r}): the field has diverged. A "
+                "replayed schedule takes its steps as given and cannot reject "
+                "one, so a step beyond an explicit stability limit -- the "
+                "in-stage temporal collar's or a coupled flow's advisory step -- "
+                "grows until it overflows; the translation refuses a declared step "
+                "past the collar's limit and warns on one past the flow's. Take "
+                "shorter steps, or let the controller choose them"
+            )
+            raise ConvergenceError(msg)
         if reason == _FLOOR:
             proposed = float(result["floor_proposal"])
             dz_min = float(self._driver._problem.stepper.dz_min)

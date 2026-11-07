@@ -134,7 +134,7 @@ double limited(const Policy& policy, const double dz, const double factor) {
 }
 
 Result run(const Policy& policy, State& state, Engine& engine,
-           const march::Bounds& bounds) {
+           const march::Bounds& bounds, const march::Schedule& schedule) {
   using Clock = std::chrono::steady_clock;
   const auto started = Clock::now();
   Result out;
@@ -162,8 +162,125 @@ Result run(const Policy& policy, State& state, Engine& engine,
     while (state.norms.size() > policy.lag + 2)
       state.norms.pop_front();
   };
+  // The step's boundary check, as the Adams march takes it (SEP 45 4.8); true when the
+  // call returns.
+  const auto watched = [&]() {
+    if (!bounds.watch)
+      return false;
+    const auto& rules = bounds.watch_policy;
+    watch::Verdict verdict = watch::Verdict::none;
+    if (!watch::due(rules, state.watch, state.z)) {
+      watch::skip(state.watch);
+    } else {
+      std::vector<double> reading;
+      try {
+        reading = engine.reading();
+        if (reading.size() < watch::reading_head ||
+            (rules.crossing && reading.size() < watch::reading_head + watch::buckets))
+          throw std::invalid_argument("a boundary reading is too short for its policy");
+      } catch (const std::exception& error) {
+        fail(result, march::Stage::accept, error);
+        return true;
+      }
+      result.reading_size = reading.size();
+      result.readings.insert(result.readings.end(), reading.begin(), reading.end());
+      result.reading_rows.push_back(result.rows.size() / march::row_columns - 1);
+      verdict = watch::check(rules, state.watch, reading.data(), state.z);
+    }
+    if (verdict == watch::Verdict::none)
+      return false;
+    result.reason = march::Reason::watch;
+    result.verdict = verdict;
+    return true;
+  };
+  // The host's events after a committed step, the next step being `ahead`; true when
+  // the call returns.
+  const auto host_event = [&](const double ahead) {
+    // The transverse edge is read on the host before a step would carry past its
+    // next read (`TransverseEdge.due`, solprop SEP 40 section 5.3).
+    const bool read_due =
+        bounds.has_read_at &&
+        state.z + ahead >= bounds.read_at - 1e-12 * py_max(std::abs(state.z), 1.0);
+    if ((bounds.host_step > 0 && accepted == bounds.host_step) || read_due) {
+      result.reason = march::Reason::host_step;
+      return true;
+    }
+    // Beside a transverse edge solprop takes the monitor's checks itself, by its
+    // distance test (`BoundaryMonitor.due`).
+    if (!bounds.watch && bounds.monitor &&
+        (bounds.first_check || state.z - bounds.last_check >= bounds.check_interval)) {
+      result.reason = march::Reason::monitor;
+      return true;
+    }
+    return false;
+  };
+  // The call's own bound, and the readings' buffer; true when the call returns.
+  const auto bounded = [&]() {
+    if (result.rows.size() / march::row_columns >= bounds.max_attempts ||
+        elapsed() >= bounds.max_seconds) {
+      result.reason = march::Reason::bound;
+      return true;
+    }
+    if (bounds.watch && result.reading_rows.size() >= bounds.watch_capacity) {
+      result.reason = march::Reason::capacity;
+      return true;
+    }
+    return false;
+  };
   if (bounds.watch)
     watch::validate(bounds.watch_policy);
+  if (bounds.replay) {
+    // `StepDriver._replay_to` (SEP 45 phase 4): the schedule's steps as given, never
+    // rejected, each recorded after its commit with its raw norm; a non-finite norm
+    // stops the run, the step uncommitted.
+    const std::size_t n_steps = schedule.steps.size();
+    if (schedule.edges.size() != n_steps + 1)
+      throw std::invalid_argument("a schedule has one edge more than its steps");
+    const auto running = [&]() {
+      return state.cursor < n_steps && state.z < target - bounds.slack;
+    };
+    while (running()) {
+      const double dz = schedule.steps[state.cursor];
+      double norm = 0.0;
+      try {
+        norm = engine.trial(state.z, dz);
+      } catch (const std::exception& error) {
+        fail(result, march::Stage::trial, error);
+        return out;
+      }
+      const double end = schedule.edges[state.cursor + 1];
+      if (!std::isfinite(norm)) {
+        result.reason = march::Reason::diverged;
+        result.replay_dz = dz;
+        result.replay_end = end;
+        result.replay_norm = norm;
+        return out;
+      }
+      try {
+        engine.accept(dz);
+      } catch (const std::exception& error) {
+        fail(result, march::Stage::accept, error);
+        return out;
+      }
+      ++state.cursor;
+      state.z = end;
+      record(end, dz, norm, true);
+      remember(norm);
+      ++accepted;
+      if (watched())
+        return out;
+      if (!running()) {
+        result.reason = march::Reason::reached;
+        return out;
+      }
+      // A replay's next step is its schedule's (`StepDriver._next_step`).
+      if (host_event(state.cursor < n_steps ? schedule.steps[state.cursor] : 0.0) ||
+          bounded())
+        return out;
+    }
+    result.reason = march::Reason::reached;
+    return out;
+  }
   // Interpolated planes are stepped across: the march lands on the run's end and its
   // kinks (`StepDriver._march_to`), and returns the step that crosses the target.
   const bool dense = policy.landings.interpolate;
@@ -236,67 +353,17 @@ Result run(const Policy& policy, State& state, Engine& engine,
       }
       state.proposal = next;
       ++accepted;
-      if (bounds.watch) {
-        // The step's boundary check, as the Adams march takes it (SEP 45 4.8).
-        const auto& rules = bounds.watch_policy;
-        watch::Verdict verdict = watch::Verdict::none;
-        if (!watch::due(rules, state.watch, state.z)) {
-          watch::skip(state.watch);
-        } else {
-          std::vector<double> reading;
-          try {
-            reading = engine.reading();
-            if (reading.size() < watch::reading_head ||
-                (rules.crossing &&
-                 reading.size() < watch::reading_head + watch::buckets))
-              throw std::invalid_argument(
-                  "a boundary reading is too short for its policy");
-          } catch (const std::exception& error) {
-            fail(result, march::Stage::accept, error);
-            return out;
-          }
-          result.reading_size = reading.size();
-          result.readings.insert(result.readings.end(), reading.begin(), reading.end());
-          result.reading_rows.push_back(result.rows.size() / march::row_columns - 1);
-          verdict = watch::check(rules, state.watch, reading.data(), state.z);
-        }
-        if (verdict != watch::Verdict::none) {
-          result.reason = march::Reason::watch;
-          result.verdict = verdict;
-          return out;
-        }
-      }
+      if (watched())
+        return out;
       if (march::reached(state.z, target, ulps)) {
         result.reason = march::Reason::reached;
         return out;
       }
-      // The transverse edge is read on the host before a step would carry past its
-      // next read (`TransverseEdge.due`, solprop SEP 40 section 5.3).
-      const bool read_due = bounds.has_read_at &&
-                            state.z + state.proposal >=
-                                bounds.read_at - 1e-12 * py_max(std::abs(state.z), 1.0);
-      if ((bounds.host_step > 0 && accepted == bounds.host_step) || read_due) {
-        result.reason = march::Reason::host_step;
+      if (host_event(state.proposal))
         return out;
-      }
-      // Beside a transverse edge solprop takes the monitor's checks itself, by its
-      // distance test (`BoundaryMonitor.due`).
-      if (!bounds.watch && bounds.monitor &&
-          (bounds.first_check ||
-           state.z - bounds.last_check >= bounds.check_interval)) {
-        result.reason = march::Reason::monitor;
-        return out;
-      }
     }
-    if (result.rows.size() / march::row_columns >= bounds.max_attempts ||
-        elapsed() >= bounds.max_seconds) {
-      result.reason = march::Reason::bound;
+    if (bounded())
       return out;
-    }
-    if (bounds.watch && result.reading_rows.size() >= bounds.watch_capacity) {
-      result.reason = march::Reason::capacity;
-      return out;
-    }
   }
   result.reason = march::Reason::reached;
   return out;

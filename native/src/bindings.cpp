@@ -1039,6 +1039,8 @@ native::rk::State rk_state_from(const nb::dict values) {
       state.norms.push_back(nb::cast<double>(value));
     if (values.contains("watch"))
       state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
+    if (values.contains("cursor"))
+      state.cursor = nb::cast<std::uint64_t>(values["cursor"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Runge-Kutta march's state has the wrong types");
   }
@@ -1056,6 +1058,9 @@ nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& st
   values["floor_proposal"] = result.floor_proposal;
   values["floor_site"] = static_cast<int>(out.floor_site);
   values["pending_equivalent"] = out.pending_equivalent;
+  values["replay_dz"] = result.replay_dz;
+  values["replay_end"] = result.replay_end;
+  values["replay_norm"] = result.replay_norm;
   values["stage"] = static_cast<int>(result.stage);
   values["category"] = static_cast<int>(result.category);
   values["message"] = result.message;
@@ -1071,6 +1076,7 @@ nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& st
   held["proposal"] = state.proposal;
   held["norms"] = std::vector<double>(state.norms.begin(), state.norms.end());
   held["watch"] = watch_state_to(state.watch);
+  held["cursor"] = state.cursor;
   values["state"] = held;
   return values;
 }
@@ -1503,13 +1509,15 @@ private:
 
 class ScriptedRkMarch {
 public:
-  ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0)
-      : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0) {}
+  ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0,
+                  const RealInput steps, const RealInput edges)
+      : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0),
+        schedule_{real_vector(steps), real_vector(edges)} {}
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
     auto state = rk_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
-    const auto result = native::rk::run(policy_, state, engine, bounds);
+    const auto result = native::rk::run(policy_, state, engine, bounds, schedule_);
     return rk_result_to(result, state);
   }
   nb::list log() const { return log_; }
@@ -1519,6 +1527,7 @@ private:
   native::rk::Policy policy_;
   std::vector<double> norms_;
   double h0_;
+  march::Schedule schedule_;
   std::size_t next_ = 0;
   nb::list log_;
 };
@@ -1643,7 +1652,8 @@ public:
   }
   // solprop SEP 45 phase 3: the native Runge-Kutta march over the staged trial.
   void rk_march_configure(native::rk::Policy policy, std::vector<double> nodes,
-                          const double rtol, const double atol) {
+                          const double rtol, const double atol,
+                          std::vector<double> steps, std::vector<double> edges) {
     open_state();
     if (!stage_tables_)
       throw std::logic_error("the native Runge-Kutta march needs the stage tables");
@@ -1653,6 +1663,7 @@ public:
     rk_nodes_ = std::move(nodes);
     rk_rtol_ = rtol;
     rk_atol_ = atol;
+    rk_schedule_ = {std::move(steps), std::move(edges)};
   }
   nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
     if (!rk_policy_)
@@ -1669,7 +1680,7 @@ public:
     native::rk::Result result;
     {
       const nb::gil_scoped_release release;
-      result = native::rk::run(*rk_policy_, state, engine, bounds);
+      result = native::rk::run(*rk_policy_, state, engine, bounds, rk_schedule_);
     }
     return rk_result_to(result, state);
   }
@@ -2041,6 +2052,7 @@ private:
   std::vector<double> rk_nodes_;
   double rk_rtol_ = 0.0;
   double rk_atol_ = 0.0;
+  march::Schedule rk_schedule_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -2563,8 +2575,8 @@ NB_MODULE(_core, module_) {
       .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
       .def("log", &ScriptedMarch::log);
   nb::class_<ScriptedRkMarch>(module_, "ScriptedRkMarch")
-      .def(nb::init<nb::dict, RealInput, double>(), "policy"_a, "norms"_a.noconvert(),
-           "h0"_a)
+      .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
+           "norms"_a.noconvert(), "h0"_a, "steps"_a.noconvert(), "edges"_a.noconvert())
       .def("run", &ScriptedRkMarch::run, "state"_a, "bounds"_a)
       .def("log", &ScriptedRkMarch::log)
       .def("used", &ScriptedRkMarch::used);
@@ -3038,10 +3050,13 @@ NB_MODULE(_core, module_) {
       .def(
           "rk_march_configure",
           [](BoundState& self, const nb::dict policy, const std::vector<double>& nodes,
-             const double rtol, const double atol) {
-            self.rk_march_configure(rk_policy_from(policy), nodes, rtol, atol);
+             const double rtol, const double atol, const RealInput steps,
+             const RealInput edges) {
+            self.rk_march_configure(rk_policy_from(policy), nodes, rtol, atol,
+                                    real_vector(steps), real_vector(edges));
           },
-          "policy"_a, "nodes"_a, "rtol"_a, "atol"_a)
+          "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
+          "edges"_a.noconvert())
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
       .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
            "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)

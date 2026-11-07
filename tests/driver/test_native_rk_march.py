@@ -26,6 +26,7 @@ from solprop.backends import available
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.runge_kutta import RungeKutta
+from solprop.stepper.schedule import FixedSchedule
 from test_monitor import TRANGE, walker
 
 pytestmark = pytest.mark.skipif(
@@ -142,6 +143,23 @@ def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
     build = lambda: walk_off(  # noqa: E731
         "native", RungeKutta(), n_save=7, interpolate_planes=dense
     )
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
+def _replayed(route: str, steps: int) -> Any:
+    simulation = _route(route)
+    stepper = simulation.translate().stepper
+    end = float(stepper.z_end)
+    schedule = FixedSchedule.uniform(
+        0.0, end, end / steps, save_planes=np.asarray(stepper.save_planes).tolist()
+    )
+    return _route(route, schedule=schedule)
+
+
+@pytest.mark.parametrize("route", ["gnlse", "capillary (coherent wall)"])
+def test_a_replay_is_the_host_loop_s(route, monkeypatch):
+    """A fixed schedule's steps, taken as given (``StepDriver._replay_to``)."""
+    build = lambda: _replayed(route, 400)  # noqa: E731
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 

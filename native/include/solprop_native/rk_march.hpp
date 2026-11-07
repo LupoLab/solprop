@@ -71,6 +71,8 @@ struct State {
   /** The accepted steps' equivalent norms, oldest first, at most `lag + 2`. */
   std::deque<double> norms;
   watch::State watch;
+  /** A replay's next step: the driver's schedule index (SEP 45 phase 4). */
+  std::uint64_t cursor = 0;
 };
 
 /** The field arithmetic a Runge-Kutta march hands its trials to. */
@@ -114,6 +116,6 @@ struct Result {
 
 /** Advance `state` by the algorithm of SEP 45 section 4.3 to an event (adaptive). */
 Result run(const Policy& policy, State& state, Engine& engine,
-           const march::Bounds& bounds);
+           const march::Bounds& bounds, const march::Schedule& schedule = {});
 
 } // namespace solprop_native::rk

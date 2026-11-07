@@ -231,7 +231,13 @@ class State:
     ) -> dict[str, Any]: ...
     def adams_march_fault(self, stage: str, after: int, category: str) -> None: ...
     def rk_march_configure(
-        self, policy: dict[str, object], nodes: list[float], rtol: float, atol: float
+        self,
+        policy: dict[str, object],
+        nodes: list[float],
+        rtol: float,
+        atol: float,
+        steps: npt.NDArray[np.float64],
+        edges: npt.NDArray[np.float64],
     ) -> None: ...
     def rk_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
