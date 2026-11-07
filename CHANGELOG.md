@@ -7,6 +7,10 @@ All notable changes to solprop are recorded here. The format follows
 
 ## Unreleased
 
+### Fixed
+
+- The boundary monitor's record counts each committed step once: a step left unchecked and then checked at its saved plane is no longer counted among both the checked (`steps`) and the skipped steps, so the two add up to the committed steps. Under interpolated planes, a plane that no check read since the previous one, as a later plane inside one step, records its collar and guard occupancies as unmeasured (`None`) rather than the previous collar reading and empty guards (#133).
+
 ## [0.2.0] - 2026-11-07
 
 solprop 0.2.0 adds a desktop front end, describes every run as a recipe that can be
