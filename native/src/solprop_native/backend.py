@@ -197,6 +197,8 @@ class _envelope_errors:
         del kind, traceback
         if isinstance(error, _core.EnvelopeConvergenceError):
             raise ConvergenceError(str(error)) from error
+        if isinstance(error, _core.BackendRefusal):
+            raise BackendError(str(error)) from error
 
 
 ADAMS_MAX_CHANNELS = 16
@@ -882,21 +884,32 @@ class NativeBackend(StepDriver[_core.State]):
         """Whether the native state forms a Runge-Kutta trial's stage rows itself.
 
         solprop SEP 45 phase 2: where every row a trial reads is one of the uploaded
-        stage tables' -- no coupled flow, whose rows the host forms, and no z table,
-        whose slots a trial loads together -- the tables are uploaded once and the state
-        evaluates each stage's scalars at ``z + c_i dz`` natively, as `_trial_arrays`
-        packs them from `_stage_bundles`.
+        stage tables' -- no z table, whose slots a trial loads together -- the tables
+        are uploaded once and the state evaluates each stage's scalars at
+        ``z + c_i dz`` natively, as `_trial_arrays` packs them from `_stage_bundles`.
+        Beside a coupled flow (phase 4) the state also forms the step's flow actions
+        behind `_flow_trial`'s guards, transcribed with their constants.
         """
         staged = self._rk_staged
         if staged is None:
             tables = None
-            if self._flow is None and self._z_tables is None:
+            if self._z_tables is None:
                 tables = self._stage_tables()
             if tables is not None:
                 self._native_state.adams_stage_tables(tables | _chord_tables(None))
                 self._rk_nodes = [
                     float(node) for node in self._problem.stepper.tableau.nodes
                 ]
+                flow = self._flow
+                if flow is not None:
+                    modes = int(flow.vectors.shape[-1])
+                    self._native_state.flow_guard_configure(
+                        [float(value) for value in flow.row_sum],
+                        [float(value) for value in np.ravel(flow.condition_bound)],
+                        _TAYLOR_SCALE,
+                        _MAX_FLOW_SQUARINGS,
+                        _flow_allowance(modes),
+                    )
             staged = self._rk_staged = tables is not None
         return staged
 
@@ -905,6 +918,8 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> RealArray:
         """Prepare member stages, optionally deferring the shared accepted update."""
         if _RK_ROWS != "host" and self._staged_rows():
+            # The state's guard forms the flow's actions; the host's key is stale.
+            self._flow_key = None
             with _envelope_errors():
                 return self._native_state.rk_trial(
                     z, dz, self._rk_nodes, prepare_only=defer_update
@@ -2731,7 +2746,7 @@ _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "er
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
 """Why a native march call returned (``march::Reason``)."""
 
-_CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
+_CONVERGENCE, _BACKEND, _VALUE, _REFUSED = 1, 2, 3, 4
 """Which error a native failure maps to (``march::Category``)."""
 
 
@@ -3231,6 +3246,8 @@ class _NativeAdamsMarch(AdamsMarch):
                 raise ConvergenceError(message)
             if category == _VALUE:
                 raise ValueError(message)
+            if category == _REFUSED:
+                raise BackendError(message)
             raise RuntimeError(message)
 
 
@@ -3291,8 +3308,7 @@ class _NativeRungeKuttaMarch:
             ),
             (
                 _RK_ROWS == "host" or not driver._staged_rows(),
-                "a coupled flow or a z table, whose stage rows the host forms "
-                "(SEP 45 phase 4)",
+                "a z table, whose stage rows the host forms (SEP 45 phase 4)",
             ),
         )
         for failed, reason in reasons:
@@ -3434,6 +3450,8 @@ class _NativeRungeKuttaMarch:
         position = float(backend._z)
         with committing():
             result = self._native_run(self._state(watching), bounds)
+            # The state's guard formed the flow's actions; the host's key is stale.
+            backend._flow_key = None
             state = result["state"]
             backend._z = float(state["z"])
             backend._proposal = float(state["proposal"])
@@ -3502,6 +3520,8 @@ class _NativeRungeKuttaMarch:
                 raise ConvergenceError(message)
             if category == _VALUE:
                 raise ValueError(message)
+            if category == _REFUSED:
+                raise BackendError(message)
             raise RuntimeError(message)
 
 
@@ -4121,6 +4141,11 @@ def _flow_squarings(largest: float) -> None:
         )
 
 
+def _flow_allowance(modes: int) -> float:
+    """Return the rounding allowance on two spectral norms of `modes` channels."""
+    return 1.0 + 64.0 * modes * float(np.finfo(float).eps)
+
+
 def _check_flow_conditioning(
     flow: _HostFlow,
     section: int,
@@ -4138,8 +4163,7 @@ def _check_flow_conditioning(
     if not measured.size:
         return
     declared = flow.condition_bound[section]
-    modes = int(flow.vectors.shape[-1])
-    allowance = 1.0 + 64.0 * modes * float(np.finfo(float).eps)
+    allowance = _flow_allowance(int(flow.vectors.shape[-1]))
     excess = measured / (declared * allowance)
     worst = int(np.argmax(excess))
     if excess[worst] > 1.0:

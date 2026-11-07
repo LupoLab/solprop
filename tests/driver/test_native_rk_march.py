@@ -39,8 +39,12 @@ ROUTED = (
     "capillary (multimode)",
     "capillary (pressure gradient)",
     "general guide (constant)",
+    "general guide (moving)",
+    "capillary (coherent wall)",
+    "capillary (taper coupling)",
 )
-"""Routes the native march takes: staged rows, no coupled flow, no transverse edge."""
+"""Routes the native march takes: staged rows, with or without a coupled flow (phase 4),
+and no transverse edge."""
 
 
 def _route(route: str) -> Any:

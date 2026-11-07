@@ -55,7 +55,10 @@ def launched(route: str, **settings):
     return backend
 
 
-@pytest.mark.parametrize("route", ["gnlse", "capillary (multimode)", "radial"])
+@pytest.mark.parametrize(
+    "route",
+    ["gnlse", "capillary (multimode)", "radial", "capillary (coherent wall)"],
+)
 def test_the_default_loop_is_native_without_a_warning(route):
     backend = launched(route)
     try:
@@ -70,7 +73,6 @@ def test_the_default_loop_is_native_without_a_warning(route):
 @pytest.mark.parametrize(
     ("route", "settings", "reason"),
     [
-        ("capillary (coherent wall)", {}, "coupled flow"),
         (
             "gnlse",
             {"controller": _Scaled(rtol=1e-6, atol=0.0)},
@@ -78,7 +80,7 @@ def test_the_default_loop_is_native_without_a_warning(route):
         ),
         ("gnlse", {"interpolate_planes": True}, "interpolated planes"),
     ],
-    ids=["coupled flow", "own scale", "interpolated planes"],
+    ids=["own scale", "interpolated planes"],
 )
 def test_an_uncovered_run_takes_the_host_loop_and_says_why(route, settings, reason):
     backend = launched(route, **settings)

@@ -69,6 +69,8 @@ void fail(march::Result& result, const march::Stage stage,
   result.message = error.what();
   if (dynamic_cast<const EnvelopeConvergenceError*>(&error) != nullptr)
     result.category = march::Category::convergence;
+  else if (dynamic_cast<const BackendRefusal*>(&error) != nullptr)
+    result.category = march::Category::refused;
   else if (dynamic_cast<const std::invalid_argument*>(&error) != nullptr)
     result.category = march::Category::value;
   else

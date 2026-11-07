@@ -21,6 +21,7 @@ import pytest
 
 from capability_routes import ROUTES
 from solprop.backends import available
+from solprop.exceptions import BackendError
 from solprop.stepper.controller import PIController
 
 pytestmark = [
@@ -43,16 +44,16 @@ ROWS = (
     "cartesian",
     "line",
     "planar",
-)
-"""The routes whose trial rows are all the stage tables': every operator and prefactor
-form but a z table's, with no coupled flow."""
-
-HOST = (
     "general guide (moving)",
     "capillary (coherent wall)",
     "capillary (taper coupling)",
 )
-"""The routes beside a coupled flow, whose rows the host forms."""
+"""The routes whose trial rows are all the stage tables': every operator and prefactor
+form but a z table's, and beside a coupled flow (SEP 45 phase 4), whose actions the
+state forms behind the transcribed guards."""
+
+FLOWS = ("general guide (moving)", "capillary (coherent wall)")
+"""Routes beside a coupled flow, with a frozen residual and without."""
 
 
 def runge_kutta(route: str, controller: PIController | None = None):
@@ -99,11 +100,61 @@ def test_a_staged_trial_is_the_host_packed_trial(route, monkeypatch):
         backend.close()
 
 
-@pytest.mark.parametrize("route", HOST)
-def test_a_coupled_flow_s_rows_stay_the_host_s(route):
-    backend, _ = runge_kutta(route)
+def _refusal(call) -> str:
+    with pytest.raises(BackendError) as caught:
+        call()
+    return str(caught.value)
+
+
+@pytest.mark.parametrize("route", FLOWS)
+def test_the_native_flow_guards_refuse_as_the_host_s(route, monkeypatch):
+    """Each transcribed guard refuses where solprop's does, with its message.
+
+    The guards are reached by handing the state a certificate, or a Taylor scale, the
+    step exceeds: the conditioning measured and the squarings counted are the host's.
+    """
+    backend, problem = runge_kutta(route)
     try:
-        assert not backend._staged_rows()
+        assert backend._staged_rows()
+        flow = backend._flow
+        state = backend._native_state
+        z, dz = steps(problem)[0]
+        nodes = backend._rk_nodes
+        modes = int(flow.vectors.shape[-1])
+        allowance = backend_module._flow_allowance(modes)
+        section = int(backend._stage_scalars(z, z + dz).flow_section)
+        fractions = np.array([*nodes, 1.0])
+        measured = np.asarray(state.form_flow_actions(section, dz, fractions))[0]
+        if measured.size:
+            halved = dataclasses.replace(flow, condition_bound=flow.condition_bound / 2)
+            expected = _refusal(
+                lambda: backend_module._check_flow_conditioning(
+                    halved, section, measured, dz
+                )
+            )
+            state.flow_guard_configure(
+                [float(v) for v in flow.row_sum],
+                [float(v) for v in np.ravel(halved.condition_bound)],
+                backend_module._TAYLOR_SCALE,
+                backend_module._MAX_FLOW_SQUARINGS,
+                allowance,
+            )
+            assert _refusal(lambda: backend._prepare_trial(z, dz)) == expected
+        tiny = 1e-12
+        # Both refuse at the first stage length past the scale, in the nodes' order.
+        first = next(
+            float(f) * dz * float(flow.row_sum[section]) for f in fractions if f
+        )
+        monkeypatch.setattr(backend_module, "_TAYLOR_SCALE", tiny)
+        expected = _refusal(lambda: backend_module._flow_squarings(first))
+        state.flow_guard_configure(
+            [float(v) for v in flow.row_sum],
+            [float(v) for v in np.ravel(flow.condition_bound)],
+            tiny,
+            backend_module._MAX_FLOW_SQUARINGS,
+            allowance,
+        )
+        assert _refusal(lambda: backend._prepare_trial(z, dz)) == expected
     finally:
         backend.close()
 

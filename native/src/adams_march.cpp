@@ -379,6 +379,8 @@ void fail(Result& result, const Stage stage, const std::exception& error) {
   result.message = error.what();
   if (dynamic_cast<const EnvelopeConvergenceError*>(&error) != nullptr)
     result.category = Category::convergence;
+  else if (dynamic_cast<const BackendRefusal*>(&error) != nullptr)
+    result.category = Category::refused;
   else if (dynamic_cast<const std::invalid_argument*>(&error) != nullptr)
     result.category = Category::value;
   else

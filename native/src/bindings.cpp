@@ -44,6 +44,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
 #include <functional>
 #include <limits>
 #include <memory>
@@ -981,6 +982,13 @@ nb::dict watch_state_to(const native::watch::State& state) {
   return out;
 }
 
+/** Python's `format(value, f".{precision}g")`, which follows C's `%g`. */
+std::string py_g(const double value, const int precision) {
+  std::array<char, 64> buffer{};
+  std::snprintf(buffer.data(), buffer.size(), "%.*g", precision, value);
+  return buffer.data();
+}
+
 // solprop SEP 45 phase 3: the Runge-Kutta march's policy and state, from and to
 // solprop's `rk_march_policy` and `_NativeRungeKuttaMarch._state`.
 native::rk::Policy rk_policy_from(const nb::dict values) {
@@ -1551,7 +1559,85 @@ public:
       throw std::invalid_argument("the trial's nodes are the tableau's stages");
     const auto scalars = native::stage::rows(*stage_tables_, stage_anchor_, z,
                                              native::rk::positions(z, dz, nodes));
+    if (stage_tables_->flow.present())
+      guarded_flow_actions(scalars.flow_section, dz, nodes);
     return trial_step(dz, scalars, prepare_only);
+  }
+  // solprop SEP 45 phase 4: `_flow_trial`'s guards, transcribed. A set of actions is
+  // held for one (section, step); a length whose exponent needs too many squarings is
+  // refused before forming, and a measured conditioning above the section's
+  // certificate after, each as solprop's `_flow_squarings` and
+  // `_check_flow_conditioning` refuse them, with their constants handed over.
+  void flow_guard_configure(std::vector<double> row_sum,
+                            std::vector<double> condition_bound,
+                            const double taylor_scale, const int max_squarings,
+                            const double allowance) {
+    open_state();
+    const std::size_t sections = row_sum.size();
+    if (sections == 0 || condition_bound.size() % sections != 0)
+      throw std::invalid_argument("the flow guard's certificate is one row a section");
+    flow_guard_ = FlowGuard{std::move(row_sum), std::move(condition_bound),
+                            taylor_scale, max_squarings, allowance};
+    flow_key_.reset();
+  }
+  void guarded_flow_actions(const std::size_t section, const double dz,
+                            const std::vector<double>& nodes) {
+    if (!flow_guard_)
+      throw std::logic_error("a staged trial beside a coupled flow needs its guard");
+    if (flow_key_ && flow_key_->first == section && flow_key_->second == dz)
+      return;
+    // Forgotten first: a refusal below leaves no set of actions behind a key.
+    flow_key_.reset();
+    const auto& guard = *flow_guard_;
+    if (section >= guard.row_sum.size())
+      throw std::out_of_range("the trial's flow section is past the guard's");
+    std::vector<double> fractions(nodes);
+    fractions.push_back(1.0);
+    for (const double fraction : fractions) {
+      if (fraction == 0.0)
+        continue;
+      const double largest = fraction * dz * guard.row_sum[section];
+      int squarings = 0;
+      if (largest > guard.taylor_scale)
+        squarings =
+            static_cast<int>(std::ceil(std::log2(largest / guard.taylor_scale)));
+      if (squarings > guard.max_squarings)
+        throw native::BackendRefusal(
+            "native cannot take a coupled flow action whose exponent has row-sum "
+            "norm " +
+            py_g(largest, 4) + ": it would need " + std::to_string(squarings) +
+            " squarings, above the " + std::to_string(guard.max_squarings) +
+            " this backend admits. Cap dz_max");
+    }
+    const auto measured = general_state_->form_flow_actions(section, dz, fractions);
+    const std::size_t width = guard.condition_bound.size() / guard.row_sum.size();
+    if (!measured.empty()) {
+      if (measured.size() != width)
+        throw std::logic_error("the measured conditioning is one value an active bin");
+      const double* declared = guard.condition_bound.data() + section * width;
+      // NumPy's argmax: the first largest, or the first NaN.
+      std::size_t worst = 0;
+      double largest = measured[0] / (declared[0] * guard.allowance);
+      for (std::size_t bin = 1; bin < width && !std::isnan(largest); ++bin) {
+        const double excess = measured[bin] / (declared[bin] * guard.allowance);
+        if (std::isnan(excess) || excess > largest) {
+          largest = excess;
+          worst = bin;
+        }
+      }
+      if (largest > 1.0)
+        throw native::BackendRefusal(
+            "native measured a coupled flow conditioning of " +
+            py_g(measured[worst], 12) + " over a step of " + py_g(dz, 4) +
+            " m, above the " + py_g(declared[worst], 12) +
+            " the certificate declares at active bin " + std::to_string(worst) +
+            " of section " + std::to_string(section) + " -- exceeding it by a factor " +
+            py_g(largest, 12) +
+            " of the rounding allowance: the inverse action carries the nonlinear "
+            "source back by the measured factor. Lower dz_max, which is what the "
+            "bound was declared over");
+    }
+    flow_key_ = std::make_pair(section, dz);
   }
   // solprop SEP 45 phase 3: the native Runge-Kutta march over the staged trial.
   void rk_march_configure(native::rk::Policy policy, std::vector<double> nodes,
@@ -1598,6 +1684,7 @@ public:
                         const std::vector<native::Complex>& inverse,
                         const std::vector<unsigned char>& identity) {
     require_open();
+    flow_key_.reset();
     general_state_->set_flow_actions(forward, inverse, identity);
   }
   std::vector<native::Complex> flow_actions_to_host(const bool inverse) {
@@ -1607,6 +1694,7 @@ public:
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
                                         const std::vector<double>& fractions) {
     require_open();
+    flow_key_.reset();
     return general_state_->form_flow_actions(section, dz, fractions);
   }
   std::vector<double> weighted_error(const std::vector<double>& scale) {
@@ -1938,6 +2026,15 @@ private:
   native::stage::Anchor stage_anchor_;
   native::stage::ZSlots z_slots_;
   std::optional<march::Policy> march_policy_;
+  struct FlowGuard {
+    std::vector<double> row_sum;
+    std::vector<double> condition_bound;
+    double taylor_scale;
+    int max_squarings;
+    double allowance;
+  };
+  std::optional<FlowGuard> flow_guard_;
+  std::optional<std::pair<std::size_t, double>> flow_key_;
   std::optional<native::rk::Policy> rk_policy_;
   std::vector<double> rk_nodes_;
   double rk_rtol_ = 0.0;
@@ -2350,6 +2447,7 @@ nb::dict build_record() {
 
 NB_MODULE(_core, module_) {
   nb::exception<native::EnvelopeConvergenceError>(module_, "EnvelopeConvergenceError");
+  nb::exception<native::BackendRefusal>(module_, "BackendRefusal");
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
@@ -2943,6 +3041,8 @@ NB_MODULE(_core, module_) {
           },
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a)
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("flow_guard_configure", &BoundState::flow_guard_configure, "row_sum"_a,
+           "condition_bound"_a, "taylor_scale"_a, "max_squarings"_a, "allowance"_a)
       // A test hook: fail the resident engine's `stage` after `after` more calls.
       .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
            "category"_a)

@@ -1185,6 +1185,8 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - 2026-11-07: Phase 0 reported (Part II).
 - 2026-11-07: Phase 1 reported (Part II).
 - 2026-11-07: Phases 2 and 3 reported (Part II).
+- 2026-11-07: John Travers approved the phase 3 choices (the interim warning filter, the
+  three adapted tests, the landings reusing `march::Policy`) and ADR-069 as worded.
 
 ### AI review — 2026-11-07
 

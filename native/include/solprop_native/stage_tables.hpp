@@ -480,16 +480,15 @@ inline TrialScalars trial(const Tables& tables, const Row& stage) {
  * 2): `positions` holds each stage's `z + c_i dz`, then the step's end. Each stage's
  * row is `row(tables, anchor, z0, position)`, the increment's last row the whole
  * step's, as the native backend's `_trial_arrays` packs the bundles of
- * `_stage_bundles`. A coupled flow's rows are formed on the host, so the tables must
- * hold none.
+ * `_stage_bundles`. Beside a coupled flow (SEP 45 phase 4) the trial's section is the
+ * anchor's, as the whole step's bundle reads it, and a frozen residual's weights are
+ * each stage's, as `_flow_trial` stacks them.
  */
 inline TrialScalars rows(const Tables& tables, Anchor& anchor, const double z0,
                          const std::vector<double>& positions) {
   const std::size_t stages = tables.n_stages;
   if (positions.size() != stages + 1)
     throw std::invalid_argument("a trial's positions are its stages' and its end");
-  if (tables.flow.present())
-    throw std::logic_error("a coupled flow's trial rows are formed on the host");
   TrialScalars out;
   for (std::size_t stage = 0; stage < stages; ++stage) {
     const Row one = row(tables, anchor, z0, positions[stage]);
@@ -519,10 +518,13 @@ inline TrialScalars rows(const Tables& tables, Anchor& anchor, const double z0,
     out.transform_weights.insert(out.transform_weights.end(),
                                  one.transform_weights.begin(),
                                  one.transform_weights.end());
+    out.flow_weights.insert(out.flow_weights.end(), one.flow_weights.begin(),
+                            one.flow_weights.end());
   }
   const Row whole = row(tables, anchor, z0, positions[stages]);
   out.phi_delta.insert(out.phi_delta.end(), whole.phi_delta.begin(),
                        whole.phi_delta.end());
+  out.flow_section = whole.flow_section;
   return out;
 }
 

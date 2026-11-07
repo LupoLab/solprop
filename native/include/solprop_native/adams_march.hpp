@@ -258,7 +258,13 @@ enum class Reason : int {
 enum class Stage : int { none = 0, startup = 1, trial = 2, accept = 3 };
 
 /** What class of solprop error a failure maps to. */
-enum class Category : int { none = 0, convergence = 1, backend = 2, value = 3 };
+enum class Category : int {
+  none = 0,
+  convergence = 1,
+  backend = 2,
+  value = 3,
+  refused = 4
+};
 
 /** The host's bounds for one call (SEP 39 section 4.8). */
 struct Bounds {

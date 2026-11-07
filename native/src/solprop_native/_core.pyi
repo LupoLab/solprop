@@ -236,6 +236,14 @@ class State:
     def rk_march_run(
         self, state: dict[str, object], bounds: dict[str, object]
     ) -> dict[str, Any]: ...
+    def flow_guard_configure(
+        self,
+        row_sum: list[float],
+        condition_bound: list[float],
+        taylor_scale: float,
+        max_squarings: int,
+        allowance: float,
+    ) -> None: ...
     def adams_stage_rate(self, z: float) -> list[float]: ...
     def adams_exponential_accept(
         self, dz: float, free: int, dense: npt.NDArray[np.uint64], interpolate: bool
@@ -467,6 +475,7 @@ class BatchState:
 def available_device_memory() -> int | None: ...
 
 class EnvelopeConvergenceError(RuntimeError): ...
+class BackendRefusal(RuntimeError): ...
 
 class ScriptedMarch:
     def __init__(
