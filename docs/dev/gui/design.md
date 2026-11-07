@@ -140,8 +140,8 @@ Principles, in priority order:
    defaults of its own; where it needs one that solprop doesn't expose, the fix is a
    solprop change (section 15), not a copy in the GUI.
 2. **Same machine first.** The local desktop experience must not be compromised by
-   remote ambitions. Remote use, in the short term, is the exported recipe or script run
-   on the remote machine by hand.
+   remote ambitions. Other machines are reached as section 13.4 describes, and a local
+   run stays exactly as interactive as one with no remote support at all.
 3. **The setup is a document.** A setup is a recipe (TOML) that can be saved, diffed,
    versioned, reopened, run headless and turned into a Python script. Results files carry
    the recipe that made them.
@@ -158,8 +158,7 @@ Principles, in priority order:
    after it, solprop's warnings — never silently.
 
 Non-goals (for now): editing arbitrary Python responses or callables in the GUI; a
-general plotting package; running on remote machines from the GUI (section 13 keeps the
-door open); replacing scripts for production campaigns.
+general plotting package; replacing scripts for production campaigns.
 
 ## 2. Decisions so far
 
@@ -170,7 +169,7 @@ door open); replacing scripts for production campaigns.
 | D3 | Designed for both newcomers and experts through layered pages (principle 5). | 2026-10-31 |
 | D4 | Parameter scans are designed in now (data model, results browser) and built after single runs. | 2026-10-31 |
 | D5 | A TOML recipe is the saved form of a setup, embedded in every results file; "Export as Python" produces an equivalent plain solprop script. | 2026-10-31 |
-| D6 | Same machine first; remote work stays scripted in the short term. | 2026-10-31 |
+| D6 | Same machine first; remote work stays scripted in the short term. **Superseded by D19.** | 2026-10-31 |
 | D7 | solprop's API and way of working may change to help the GUI (nothing is public yet, so without aliases). | 2026-10-31 |
 | D8 | The recipe lives in solprop (`solprop.recipe`, change S1): its format, builders, Python export and `solprop run`; the GUI adds only presentation. Q1 closed. | 2026-10-31 |
 | D9 | This design is a living page under `docs/dev/gui/`, not a SEP; the work is a tracking issue and one issue and branch per milestone of section 16. A change to solprop the GUI needs follows solprop's own rules (an issue, or a SEP for a major change) and is merged on its own. | 2026-11-02 |
@@ -183,6 +182,8 @@ door open); replacing scripts for production campaigns.
 | D16 | The main user is a physicist who does not script: physics language by default, solprop's terms under Advanced. The usual work is one run at a time; comparison is rare, and scans are a mode of their own. | 2026-11-04 |
 | D17 | Design a waveguide is a workflow of its own, needing no pulse, and it never replaces a setup. Tuning a setup is the sheet's job. | 2026-11-04 |
 | D18 | The look is calm and light, with white plots, in IBM Plex Sans, carried in the package under the Open Font License. A filament's first screen is its fluence r-z map with its spectrum and spatio-spectral views. The beam is set by waist and focus, with a lens as an option. | 2026-11-04 |
+| D19 | Runs on other machines (13.4). A machine is this computer or an SSH host, reached through the system's OpenSSH client and the user's own configuration. Each run's folder on its machine is the record of that run: the run itself writes its live rows and events there and reads a stop file, so it needs no connection to anything. The window talks to a helper that holds no state, over one SSH session per machine, and can rebuild everything from the folders after any disconnection. A run goes straight to the machine or into Slurm. Analysis of a run on another machine is done on that machine, and a copy can be fetched. A scan on Slurm is first one job with a worker pool; scans across many nodes come later. Nothing in the window knows any particular site. A local run takes on the same record only if it costs nothing measurable on macOS, Linux and Windows. | 2026-11-07 |
+| D20 | The service layer (13.3) moves from `solprop_gui.service` into solprop, as `solprop.service`, so a server needs only solprop: no Qt and no front end. It is front-end support rather than user interface, kept out of solprop's stability promise, and nothing else in solprop imports it. D2 still holds for the window, `ui` and `views`, whose Qt modules were the reason for it. A second distribution was weighed and rejected as more infrastructure than the split is worth. | 2026-11-07 |
 
 ## 3. Users and the work they do
 
@@ -239,9 +240,10 @@ serves.
   writer still alive), and whether the file can be rebuilt from itself. A changed grid, a
   wider time window included, is always a new run.
 - **Workspace.** A folder the user picks (default `~/solprop-runs`), holding one folder
-  per run: `<date>-<title>/` with `run.h5`, `recipe.toml`, `run.log` and a thumbnail. The
+  per run: `<date>-<title>/` with `run.h5`, `recipe.toml`, `run.log` and a thumbnail, and
+  for a run with a record (13.4) `job.json`, its live rows and events, and its stop file. The
   GUI keeps an index for fast browsing but the folder is the truth: copying a run folder
-  elsewhere loses nothing.
+  elsewhere loses nothing. Each machine (13.4) has a workspace of its own.
 - **Project file.** Just a recipe saved by the user wherever they like ("Save setup
   as…"). Opening a results file offers "Open setup from this run", which loads its
   embedded recipe as a new, unsaved project.
@@ -1140,12 +1142,79 @@ needed before C (Q4).
 and warns when concurrent runs would oversubscribe the machine. The kernel runs with one
 or two threads.
 
-### 13.4 Remote, later
+### 13.4 Other machines: SSH and Slurm
 
-The recommended route needs no new design: the same service runs on the workstation and
-the GUI connects through an SSH tunnel, or (for clusters) the service submits workers
-with solprop's `Slurm` executor. Until then, remote work is "Export recipe" or "Export as
-Python", run by hand, then "Open results".
+The first plan was to run this service on another machine and reach its socket through an
+SSH tunnel. That plan fails in exactly the cases that matter: the service keeps its runs and
+their rows in memory, so a service that dies or is killed on a login node takes them with it;
+the compute nodes of a cluster often cannot reach a socket on its login node; and a run lives
+only as long as something holds its pipe. The design below (D19) replaces it.
+
+**Machines.** A machine is *this computer* or an SSH host. Hosts are offered from the user's
+`~/.ssh/config` (each concrete `Host`, resolved with `ssh -G`, so includes and jump hosts
+apply) or typed as `user@host[:port]`. The window uses the system's OpenSSH client on all
+three platforms, so the user's keys, agent and configuration apply unchanged; on macOS and
+Linux it multiplexes its connections. It remembers each machine (its name, its workspace
+folder there, its Python, how runs start there and the defaults for Slurm) but never a
+password: a host that asks for one, or for a one-time code, is answered through a dialog
+of the window's own, once per connection.
+
+**The helper.** The window runs `ssh <host> <python> -m solprop.service.agent`, one session
+for each machine, and speaks to it on its standard input and output; on this computer the
+same command runs without SSH. There are no ports, tunnels or socket files to manage. The
+messages are length-prefixed frames, each a JSON header followed by raw array blocks, so no
+pickle crosses the network. The first exchange gives the protocol and solprop versions, the
+platform, the backends and thread budget there, and whether Slurm is present; a different
+version is refused, with an offer to set the machine up at the window's version. The helper
+lists runs, starts, follows, stops, cancels, resumes and removes them, copies files both
+ways (a copy of the results, or a data file a recipe reads), reports what Slurm offers, and
+forwards kernel requests to a kernel it hosts, so that a run on that machine is analysed
+there and only display-sized answers cross the network. It holds nothing that cannot be
+rebuilt: when the connection drops the window reconnects and rebuilds its view from the
+folders.
+
+**The record.** Beside `recipe.toml`, `run.h5` and `run.log`, the run writes `job.json`
+(how it was started: its process or Slurm job, its times, resources and versions), and
+appends its reduced rows and its events (progress, log, a scan's points, the ending) to two
+files. It reads a stop file a few times a second from a thread of its own and passes it to
+solprop's stop flag. Its state is derived from these, never kept by a daemon: an ending in
+the events says finished, stopped or failed; Slurm says queued (with its reason), running,
+cancelled or out of time; a process gone with no ending is lost, and solprop says whether it
+can be resumed. Re-attaching reads the rows and events from the start and then follows them,
+which works for a scan as well as a run. On this computer the run also keeps its pipe to the
+window, so the live view does not wait on a file.
+
+**Starting a run.** Directly, as a detached process that outlives the SSH session, with the
+thread count of the Runs on line; or through Slurm, as a job from the machine's template,
+which the user edits: partition (offered from `sinfo`), time, CPUs, memory, GPUs, further
+`#SBATCH` lines and setup lines such as module loads. The job asks for a signal before its
+time limit, so a run that hits it leaves a checkpoint to resume from. Stop writes the stop
+file; Cancel is `scancel`; Resume is a new job. A compute node writes only files on the
+shared filesystem, so a run waiting in the queue needs no connection at all.
+
+**Scans.** A scan is one run that executes `run_scan` with a `Pool` sized to its allocation,
+which reads the Slurm and cgroup limits already, keeps Stop, and writes one `scan.h5`. A
+scan over many nodes, with solprop's `Slurm` executor and a shared queue, comes later: it
+cannot be stopped from outside and its queue is not yet qualified on network filesystems
+(#297).
+
+**Setting a machine up.** With the user's confirmation, and showing the commands, the
+window installs `uv` in the home folder when it is missing, makes an environment for its
+own version under a folder the user may choose, and installs solprop there at that version,
+from PyPI or from wheels it uploads (for a machine without the internet, or a development
+build). A machine can instead name a Python that already has solprop.
+
+**In the window.** The Runs on line names the machine first: this computer, the remembered
+machines, or *Add machine…*. On a Slurm machine it shows the resources in one line, with
+*Change…*. A Runs panel lists every run on every machine with its state (queued and why,
+running and how far, finished, stopped, failed, lost) and offers Open, Stop, Cancel, Resume,
+Fetch a copy and Remove; a machine that cannot be reached says when it was last seen and is
+retried in the background. A Machines dialog adds, tests and sets up machines. Setup,
+checks and previews stay on this computer.
+
+**On this computer.** A local run takes on the record only if measured to cost nothing on
+macOS, Linux and Windows (run time within noise, the live view as quick as now); if it does
+cost something anywhere, local runs stay as they are and only other machines use the record.
 
 ### 13.5 Code structure
 
@@ -1157,7 +1226,8 @@ gui/                      the distribution solprop-gui (D2)
     model/      the editable recipe model over solprop.recipe (undo, dirty state, pins)
     registry/   routes and parameters (presentation over solprop's metadata)
     classes/    the problem classes: sheets, derived numbers, pages (data; added by W1)
-    service/    the service interface; kernel and worker processes; transports
+    service/    the window's side of the service: the bridge's transports (the service
+                itself is solprop.service, D20)
     ui/         the window, its stages, sheets and rail, widgets (quantity field, profile editor)
     views/      pyqtgraph views and their matplotlib export counterparts
     help/       page help text and the map to solprop guide pages
@@ -1311,6 +1381,7 @@ Propagate step into its own mode (12.7).
 | M5 Free space (in progress, local) | Radial, Cartesian, line; spatial views. Built so far: the Cartesian free-space and planar-hybrid cards, starting from `cartesian_beam` and `planar_hybrid`, their `[build]` tables edited in the registered types' rows (M3); on a spatial file the Plane view draws the plane's fluence (`node_fluence` on the transverse grid rebuilt from the run's recipe, a map in x and y or a profile in r or x), labels the power and spectrum as the coordinate quantities `capabilities.output` says they are, and disables compression with solprop's reason. Still to do: the radial card (needs a radial example, #405), far field and beam-radius views beyond the recorded statistics, spatial maps along z (r-t, r-lambda), physical spatial power (#406). |
 | M6 Scans (built; moved to its own stage after W6) | Scan setup, runs, scan browser. Since W6: a Scan stage beside Setup, Run and Analyse holds the `[scan]` editor, the scan's progress point by point, and its results, a recorded quantity over the first variable with a line for each value of the second (failed points marked, quantities the scan does not move left out). *Scan this…* on a sheet row opens it with that keyword as a variable. A run from the sheet leaves `[scan]` out and runs the setup once; *Run scan* runs the scan; a `scan.h5` opened from Home comes to this stage. After the first hand review: a progress bar per variable, outermost first, with the value it is at, and one for the whole scan; what is also recorded at each point, as solprop reductions the front end declares (energy and peak power within a band, and over one variable the spectrum or the pulse at a distance, held on axes fixed by the recipe so the points line up and drawn as a map); and a point of a profile given as a list (`pressure[0]` of a gradient) offered as a variable, its values read back in their unit. Not built since W6 either: a map over two variables, a third variable's slider, a cost estimate, and opening a point's run. Built first in the step window as: a Scan section on the Propagate step edits the recipe's `[scan]` table (its name; each variable a path, offered from the route's keywords or typed, with a list of values or a range of start, stop, number and spacing; the number of points), as one undo step; Run runs a recipe with a scan through `Recipe.scan` and `run_scan` in the run's worker, a `ScanReporter` streaming each point's start (its values) and end, Stop leaving the points not started; the scan browser draws any result the points recorded (`ScanOutput.as_grid`, each point's value at its last plane summed over its modes) as a line over one variable or a map over two, failed points marked. Every numeric field's context menu has *Scan this…*, which makes it a variable from its value. Not built: nested fields' scan toggle, reductions chosen in the editor, opening a point's run from the browser (fields are not retained by default), executors other than `Local`. In its place, a right click on the results offers *Open this point as a setup*: the recipe the scan's file records, without `[scan]` and with the nearest point's values (the third variable on at its first), opened as a new sheet to run or change. |
 | M7 Service out of process (first part, local) | Option C, re-attach, then SSH-tunnel remote. Built as: `service/server.py`, a process of its own that owns one kernel and the run workers and speaks the same requests, replies, runs and events in `Envelope` messages over a Unix socket (a named pipe on Windows) guarded by a random token in a private state file; `service/remote.py`, a window's connection that finds the service or starts it detached; the bridge uses it with `SOLPROP_GUI_SERVICE=1` (opt-in while it is new; option B stays the default), a window that closes leaves its run going, and a new window lists the service's runs at start and re-attaches to the latest one going (its rows replayed by the worker; also Run → Re-attach). The service ends itself after ten idle minutes. Not built: several windows controlling one run (the last attached sees its events alongside the starter), the remote service over SSH with Slurm submission (deferred to #480), a service started at login. |
+| M7 Other machines (second part, #480, in progress) | The design of 13.4 (D19, D20). In order: the service moves into solprop as `solprop.service`; the run's record, and its cost measured locally on three platforms; SSH machines with the helper, analysis on the machine and a copy fetched; Slurm; setting a machine up; scans in one job. Later: scans across many nodes (#297). |
 | M8 Distribution | Standalone installers. Deferred from the first release (#475): it needs a packaging tool chosen first. |
 
 ## 17. Lessons from the prototypes
