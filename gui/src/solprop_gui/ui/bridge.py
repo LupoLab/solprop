@@ -284,7 +284,6 @@ class ServiceBridge(QObject):
         body = {
             "spec": spec_value(spec),
             "launcher": machine.launcher,
-            "python": machine.python,
             "resources": dict(resources or machine.resources),
         }
 

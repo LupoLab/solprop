@@ -194,8 +194,9 @@ class Agent:
         ----------
         body : Mapping
             ``spec`` (:func:`~solprop.service.worker.spec_value`), ``launcher``
-            (``"direct"`` or ``"slurm"``), and optionally ``python`` (the job's,
-            this helper's own by default) and ``resources`` (for Slurm).
+            (``"direct"`` or ``"slurm"``), and optionally ``python`` (the job's;
+            this helper's own interpreter by default, with its environment, which
+            a job inherits) and ``resources`` (for Slurm).
 
         Returns
         -------
@@ -220,7 +221,7 @@ class Agent:
         spec = spec_from_value(body["spec"])
         spec = replace(spec, folder=str(Path(spec.folder).expanduser()), record=True)
         folder = prepare(spec)
-        python = str(body.get("python") or sys.executable)
+        python = str(Path(str(body.get("python") or sys.executable)).expanduser())
         launcher = body.get("launcher", "direct")
         if launcher == "direct":
             start_direct(folder, python)
