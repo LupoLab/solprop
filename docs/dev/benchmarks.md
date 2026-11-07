@@ -2994,6 +2994,13 @@ Geometric means 2.32 and 2.03. One binary32 `argon_blueshift` round hung until t
 worker's timeout (the other ran at 2.39); `rdw`'s binary64 field differed from native's
 by 1.8e-11, the reordered reduction of the Adams norms, with the same steps.
 
+At `50158fa6` (the GPU's device reductions) binary64 gave 2.19 and binary32 1.99, and at
+`3fd4a09f` (radial on the engine's march, the GPU's scratch kept) 2.27 and 2.03 on
+another A40 node. Radial's window rose from 0.479 s to 0.530 s there, outside both
+spreads, while `rdw` and `line`, which those commits did not change, rose too (0.129 to
+0.136 s, 0.247 to 0.258 s): whether the march costs radial on a GPU is not established.
+Binary32 `h2_raman_6ps` at 0.61. No window hung in either.
+
 **NVIDIA H200** (a rented droplet, CUDA 13.1, driver 580.196), native's CUDA build
 (HOPPER90) against `julia` with CUDA.jl on the system toolkit (`bootstrap.py
 --cuda-local`), `--device`, two rounds, binary64, commit `50158fa6`; every row took
