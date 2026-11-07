@@ -1,7 +1,7 @@
 # solprop
 
 [![CI](https://github.com/LupoLab/solprop/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/LupoLab/solprop/actions/workflows/ci.yml)
-[![Documentation](https://readthedocs.org/projects/solprop/badge/?version=latest)](https://solprop.readthedocs.io/en/latest/)
+[![Documentation](https://readthedocs.org/projects/solprop/badge/?version=stable)](https://solprop.readthedocs.io/en/stable/)
 [![codecov](https://codecov.io/gh/LupoLab/solprop/graph/badge.svg)](https://codecov.io/gh/LupoLab/solprop)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
 [![basedpyright](https://img.shields.io/badge/basedpyright-checked-42b983)](https://docs.basedpyright.com)
@@ -13,7 +13,7 @@
 
 > **New: a desktop GUI (experimental).** Set up, run and explore simulations in a window,
 > with no script: `pip install "solprop[gui]"`, then `solprop-gui`. See
-> [the desktop GUI](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html)
+> [the desktop GUI](https://solprop.readthedocs.io/en/stable/guide/front-end/index.html)
 > and its section below.
 
 **Ultrafast nonlinear pulse propagation in Python** — from few-cycle pulses in
@@ -22,7 +22,7 @@ gas-filled hollow-core fibres to multimode solid-core fibres and free-space beam
 **Everything, fast, with rigour.** solprop aims to be one unified, highly accurate code
 for nonlinear pulse propagation, scaling from a laptop to a GPU cluster, with every model
 derived, cited and verified against analytic and independent references
-([About solprop](https://solprop.readthedocs.io/en/latest/introduction/about.html)).
+([About solprop](https://solprop.readthedocs.io/en/stable/introduction/about.html)).
 
 It solves the unidirectional pulse propagation equation (UPPE) and the generalised
 nonlinear Schrödinger equation (GNLSE), for the full electric field or its envelope, in
@@ -78,13 +78,13 @@ prop_2d(run, "wavelength")
   third-harmonic nonlinearity; photoionisation with optmat's atomic and molecular rate
   models, and plasma on field and envelope grids; rotational and vibrational
   Raman responses, scalar and vector; quantum shot noise; multi-colour inputs.
-  An optional [helium TDSE atomic response](https://solprop.readthedocs.io/en/latest/guide/media/tdse.html), for research,
+  An optional [helium TDSE atomic response](https://solprop.readthedocs.io/en/stable/guide/media/tdse.html), for research,
   replaces Kerr and plasma by a microscopic atomic current; its native backend is not
   yet publicly available.
 - **Accurate numerics**: two adaptive integrators, a low-call exponential Adams method
   (the default of capillary, radial and planar runs) and an embedded Runge–Kutta pair
   (the default of GNLSE, waveguide and Cartesian runs;
-  [the defaults](https://solprop.readthedocs.io/en/latest/guide/numerics/choosing-a-stepper.html#the-defaults)), with the linear propagation
+  [the defaults](https://solprop.readthedocs.io/en/stable/guide/numerics/choosing-a-stepper.html#the-defaults)), with the linear propagation
   integrated exactly, absorbing boundaries as rates, and every backend tested against a
   reference implementation within derived error bounds.
 - **Workflows**: HDF5 output with resume, statistics along the fibre, parameter scans on
@@ -124,7 +124,7 @@ solprop-gui
   builds it, and every solprop results file opens in the window.
 
 Its interface may still change between releases.
-[The desktop GUI](https://solprop.readthedocs.io/en/latest/guide/front-end/index.html) chapter of the user guide walks through it; the window's Help
+[The desktop GUI](https://solprop.readthedocs.io/en/stable/guide/front-end/index.html) chapter of the user guide walks through it; the window's Help
 menu opens the same pages offline.
 
 ## Fast CPUs and GPUs: the native backend
@@ -140,9 +140,9 @@ installs it and solprop uses it automatically; your scripts do not change.
 reference. It is unthreaded and roughly 6 to 40 times slower than threaded native, so it
 is for checking a result and for the few supported features native does not run yet, the
 TDSE response among them
-([which backend to use](https://solprop.readthedocs.io/en/latest/guide/performance/backends.html#which-backend-to-use)). See
-[The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html) and
-[Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html).
+([which backend to use](https://solprop.readthedocs.io/en/stable/guide/performance/backends.html#which-backend-to-use)). See
+[The native backend](https://solprop.readthedocs.io/en/stable/guide/performance/native.html) and
+[Performance tuning](https://solprop.readthedocs.io/en/stable/guide/performance/tuning.html).
 
 ## Installation
 
@@ -157,7 +157,7 @@ This installs a precompiled wheel of the native backend, with no extra, on macOS
 silicon (osx-arm64), Linux on x86-64 (linux-64), Linux on aarch64 (linux-aarch64), Windows
 on x86-64 (win-64) and Windows on Arm (win-arm64). On any other platform the installer
 reports that it found no matching distribution:
-[Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html) explains that error and how to
+[Installation](https://solprop.readthedocs.io/en/stable/introduction/installation.html) explains that error and how to
 report the platform, and covers environment checks and a first run. For GPUs, build the
 native backend from source (below).
 
@@ -174,32 +174,32 @@ pip install . ./native          # solprop and the native backend, for this machi
 The native build needs a C++20 compiler, CMake, FFTW and, for speed, a BLAS. A GPU
 build (NVIDIA with CUDA, AMD with HIP, on Linux) is always compiled from source, with the
 device enabled through CMake options. [Building the native
-backend](https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html) gives the requirements, the
+backend](https://solprop.readthedocs.io/en/stable/guide/performance/building-native.html) gives the requirements, the
 commands for Linux, macOS, CUDA and HIP, and every build option. To work on solprop
 itself, see [Contributing](https://solprop.readthedocs.io/en/latest/dev/contributing.html).
 
 ## Documentation
 
-The manual is at [solprop.readthedocs.io](https://solprop.readthedocs.io/en/latest/):
+The manual is at [solprop.readthedocs.io](https://solprop.readthedocs.io/en/stable/):
 
-- [Introduction](https://solprop.readthedocs.io/en/latest/introduction/index.html) — installation, capabilities, spatial
+- [Introduction](https://solprop.readthedocs.io/en/stable/introduction/index.html) — installation, capabilities, spatial
   descriptions, and first propagation calculations.
-- [User guide](https://solprop.readthedocs.io/en/latest/guide/index.html) — simulation setup, waveguides and free space,
+- [User guide](https://solprop.readthedocs.io/en/stable/guide/index.html) — simulation setup, waveguides and free space,
   materials and nonlinear responses, numerical methods, results, workflows, and
   performance, including the detailed equations and approximation limits.
-- [Examples](https://solprop.readthedocs.io/en/latest/examples/index.html) — introductory lessons, focused demonstrations,
+- [Examples](https://solprop.readthedocs.io/en/stable/examples/index.html) — introductory lessons, focused demonstrations,
   and full worked simulations, organised by what they teach.
 - [Developer’s guide](https://solprop.readthedocs.io/en/latest/dev/index.html) — contributing, architecture, implementation
   contracts, testing, tooling, proposals, and project history.
-- [API](https://solprop.readthedocs.io/en/latest/api/index.html) — the complete reference for functions, classes, and modules.
+- [API](https://solprop.readthedocs.io/en/stable/api/index.html) — the complete reference for functions, classes, and modules.
 
 Users of solprop's predecessor, [Luna.jl](https://github.com/LupoLab/Luna.jl), can
-start with [noteworthy differences from Luna](https://solprop.readthedocs.io/en/latest/guide/workflows/luna.html).
+start with [noteworthy differences from Luna](https://solprop.readthedocs.io/en/stable/guide/workflows/luna.html).
 
 ## About
 
 solprop continues more than two decades of pulse-propagation codes by John Travers and
-colleagues, most recently [Luna.jl](https://github.com/LupoLab/Luna.jl); [About solprop](https://solprop.readthedocs.io/en/latest/introduction/about.html) tells the story. solprop
+colleagues, most recently [Luna.jl](https://github.com/LupoLab/Luna.jl); [About solprop](https://solprop.readthedocs.io/en/stable/introduction/about.html) tells the story. solprop
 itself is developed almost entirely by AI coding agents under the lead developer's
 direction, within a strict harness of derivations, reference comparisons, convergence
 checks and complete test coverage; the same page explains how, and what that means for

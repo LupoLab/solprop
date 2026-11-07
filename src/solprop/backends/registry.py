@@ -281,7 +281,7 @@ def resolve_name(name: str = "auto") -> str:
 
 
 _NATIVE_BUILD_GUIDE: Final = (
-    "https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html"
+    "https://solprop.readthedocs.io/en/stable/guide/performance/building-native.html"
 )
 """The manual's page on building solprop-native from source."""
 
@@ -294,7 +294,7 @@ _REQUIRED_DEVICES: Final = {"cuda": {"cuda"}, "hip": {"hip"}, "any": {"cuda", "h
 _NATIVE_MISSING = (
     'backend="auto" needs the native backend, and solprop-native is not installed. '
     "Install it with pip install solprop, or with uv sync in a checkout "
-    "(https://solprop.readthedocs.io/en/latest/introduction/installation.html). "
+    "(https://solprop.readthedocs.io/en/stable/introduction/installation.html). "
     "A contributor's lightweight setup has none, so name the backend there, "
     'backend="numpy_ref"'
 )
