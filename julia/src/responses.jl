@@ -90,6 +90,7 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
         # A CPU column's live samples, by index, and their fields (`exposure_column!`).
         live=zeros(Int32, oncpu(c) ? nt : 0, oncpu(c) ? chunk : 0),
         scratch=zeros(T, oncpu(c) ? nt : 0, oncpu(c) ? chunk : 0),
+        knots=zeros(Int32, oncpu(c) ? nt : 0, oncpu(c) ? chunk : 0),
         integrand=dzeros(c, T, nt, chunk), current=dzeros(c, T, nt, chunk),
         gated=dzeros(c, T, nt, chunk), edge=dzeros(c, T, nt, chunk),
         projected=dzeros(c, T, nt, columns), edge_projected=dzeros(c, T, nt, columns),
@@ -110,12 +111,20 @@ end
 # The vectorised passes are functions of their own: inside a column's closure the
 # loops stayed scalar. The table's lookup is a pass between them, since a gather keeps
 # LLVM from vectorising a loop: argon's live rates 39 ns a sample -> 10 ns.
-@noinline function live_rates!(scratch, node, count, table, cap, origin, step)
+@noinline function live_rates!(scratch, knots, node, count, table, cap, origin, step)
+    last = Int32(size(table, 2))
+    # The logarithm, then each sample's knot and its distance past it, vectorised; only
+    # the table's four loads and the cubic stay scalar (`log_rate`'s values, bit for bit).
     @inbounds @simd for i in 1:count
-        scratch[i, node] = vlog(scratch[i, node])
+        logarithm = vlog(scratch[i, node])
+        j = clamp(unsafe_trunc(Int32, floor((logarithm - origin) / step)) + Int32(1),
+                  Int32(1), last)
+        knots[i, node] = j
+        scratch[i, node] = logarithm - (origin + (j - 1) * step)
     end
     @inbounds for i in 1:count
-        scratch[i, node] = log_rate(scratch[i, node], table, origin, step)
+        j, s = knots[i, node], scratch[i, node]
+        scratch[i, node] = ((table[1, j] * s + table[2, j]) * s + table[3, j]) * s + table[4, j]
     end
     @inbounds @simd for i in 1:count
         scratch[i, node] = min(vexp(scratch[i, node]), cap)
@@ -273,7 +282,7 @@ logarithm and exponential scalar and discarded them in flight (argon's rates 2.1
 -> 0.7 ms a source on one thread, its plasma 4.7 ms -> 2.9 ms). A NaN field is live
 and stays NaN.
 """
-@inline function exposure_column!(rate, exposure, nodes, node, taps, dt, args, live, scratch)
+@inline function exposure_column!(rate, exposure, nodes, node, taps, dt, args, live, scratch, knots)
     scale, table, lower, upper, cap = args[1], args[2], args[3], args[4], args[5]
     origin, step = args[6], args[7]
     none = zero(dt)
@@ -285,7 +294,7 @@ and stays NaN.
         scratch[live_count+1, node] = x
         live_count += !(x < lower) & !(x >= upper)
     end
-    live_rates!(scratch, node, live_count, table, cap, origin, step)
+    live_rates!(scratch, knots, node, live_count, table, cap, origin, step)
     @inbounds for i in 1:live_count
         rate[live[i, node], node] = scratch[i, node]
     end
@@ -361,7 +370,7 @@ end
 
 function plasma_columns!(p, nodes, c, count)
     T = typeof(p.dt)
-    (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative, live, scratch) = p
+    (; rate, fraction, integrand, current, gated, edge, taps, dt, derivative, live, scratch, knots) = p
     window, floor = c.window, p.floor
     args = rate_arguments(p)
     charge, potential = T(p.parameters[6]), T(p.parameters[7])
@@ -369,7 +378,7 @@ function plasma_columns!(p, nodes, c, count)
     nt = size(nodes, 1)
     none = zero(T)
     each_column!(c, count) do node
-        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args, live, scratch)
+        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args, live, scratch, knots)
         # With exactly zero rates and no initial electrons both currents vanish.
         if iszero(peak) && iszero(initial)
             @inbounds for t in 1:nt
@@ -468,13 +477,13 @@ end
 
 function population_columns!(p, nodes, c, first, count)
     T = typeof(p.dt)
-    (; rate, fraction, taps, dt, fractions, peaks, parts, live, scratch) = p
+    (; rate, fraction, taps, dt, fractions, peaks, parts, live, scratch, knots) = p
     floor, args = p.floor, rate_arguments(p)
     initial = T(p.parameters[9])
     nt, reach = size(nodes, 1), 2 * (length(taps) - 1)
     none = zero(T)
     each_column!(c, count) do node
-        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args, live, scratch)
+        peak = exposure_column!(rate, fraction, nodes, node, taps, dt, args, live, scratch, knots)
         dip = rise = paid = early = largest = none
         before = product_before = start = none
         @inbounds for t in 1:nt
