@@ -97,6 +97,16 @@ function each_on!(f::F, backend, tasks, nt, nm, heavy) where {F}
     nothing
 end
 
+"""`f(t, m)` at every sample, into a device scratch matrix of `out`'s element type, for
+a device reduction over its rows or columns."""
+function reduce_terms(f::F, c, out, nt, nm) where {F}
+    scratch = KA.allocate(c.backend, eltype(out), nt, nm)
+    each!(c, nt, nm) do t, m
+        @inbounds scratch[t, m] = f(t, m)
+    end
+    scratch
+end
+
 """Call `f(m)` for each of `nm` columns, whose body runs sequentially down one."""
 function each_column!(f::F, c, nm::Integer) where {F}
     CHECK[] && check_body(F)
@@ -128,13 +138,14 @@ function rowsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
             end
         end
     else
-        AK.foreachindex(1:nt; backend=c.backend) do t
-            total = zero(eltype(out))
-            for m in 1:nm
-                total += f(t, m)
-            end
-            @inbounds out[t] += total
-        end
+        # A thread a row looped over every column (36864 for a Cartesian plane): the
+        # terms fill a scratch matrix in parallel and the device's reduction sums it.
+        scratch = reduce_terms(f, c, out, nt, nm)
+        total = KA.allocate(c.backend, eltype(out), nt, 1)
+        sum!(total, scratch)
+        out .+= vec(total)
+        KA.unsafe_free!(scratch)
+        KA.unsafe_free!(total)
     end
     nothing
 end

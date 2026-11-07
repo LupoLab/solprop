@@ -112,6 +112,34 @@ function columns_into!(target, source, first, count, c)
 end
 
 """The state's spectral energy in each of the split crossing's rate buckets."""
+# A device's histogram a workgroup at a time in local memory, then added: every sample's
+# atomic add on the few global buckets a crossing uses contended (747 us a radial
+# occupancy on an AMD Instinct MI325X).
+KA.@kernel function bucket_kernel!(histogram, @Const(y), @Const(buckets), @Const(columns), nw, n)
+    i = KA.@index(Global, Linear)
+    local_index = KA.@index(Local, Linear)
+    groupsize = KA.@groupsize()[1]
+    shared = KA.@localmem eltype(histogram) (128,)
+    b = local_index
+    while b <= 128
+        @inbounds shared[b] = 0
+        b += groupsize
+    end
+    KA.@synchronize
+    if i <= n
+        m = (i - 1) ÷ nw + 1
+        f = i - (m - 1) * nw
+        @inbounds Atomix.@atomic shared[buckets[f, m]] += abs2(y[f, m]) * columns[m]
+    end
+    KA.@synchronize
+    b = local_index
+    while b <= 128
+        @inbounds value = shared[b]
+        !iszero(value) && (@inbounds Atomix.@atomic histogram[b] += value)
+        b += groupsize
+    end
+end
+
 function occupancy(engine)
     c, w = engine.config, engine.work
     (; buckets, columns, histogram) = w.monitor
@@ -127,11 +155,8 @@ function occupancy(engine)
             end
         end
     else
-        AK.foreachindex(1:nw*nm; backend=c.backend) do i
-            m = (i - 1) ÷ nw + 1
-            f = i - (m - 1) * nw
-            @inbounds Atomix.@atomic histogram[buckets[f, m], 1] += abs2(y[f, m]) * columns[m]
-        end
+        bucket_kernel!(c.backend, 256)(view(histogram, :, 1), y, buckets, columns, nw,
+                                       nw * nm; ndrange=nw * nm)
     end
     vec(sum(Array{Float64}(Array(histogram)); dims=2)) .* engine.config.scale^2
 end
@@ -140,6 +165,13 @@ end
 
 """Set `out[m]` to the sum over `t` of `f(t, m)`: one column's reduction each."""
 function colsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
+    if !oncpu(c)
+        # A thread a column left most of the device idle: a parallel fill and a sum.
+        scratch = reduce_terms(f, c, out, nt, nm)
+        sum!(reshape(out, 1, :), scratch)
+        KA.unsafe_free!(scratch)
+        return nothing
+    end
     each_column!(c, nm) do m
         total = zero(eltype(out))
         @inbounds for t in 1:nt
@@ -375,21 +407,43 @@ function spatial_local!(engine, dt, conversion)
             end
             s.inverse * target
         end
-        each_column!(c, count) do n
-            total, magnitude, peak = start, start, lowest
-            @inbounds for t in 1:nt
-                e, h = signal[t, n], other[t, n]
-                intensity = flux * real(e * conj(h)) * factor
-                total += intensity
-                magnitude += abs(e) * abs(h) * factor
-                peak = max(peak, intensity)
+        if oncpu(c)
+            each_column!(c, count) do n
+                total, magnitude, peak = start, start, lowest
+                @inbounds for t in 1:nt
+                    e, h = signal[t, n], other[t, n]
+                    intensity = flux * real(e * conj(h)) * factor
+                    total += intensity
+                    magnitude += abs(e) * abs(h) * factor
+                    peak = max(peak, intensity)
+                end
+                @inbounds begin
+                    fluence[first+n-1] = step * total
+                    magnitudes[first+n-1] = flux * step * magnitude
+                    peaks[first+n-1] = peak
+                end
+                nothing
             end
-            @inbounds begin
-                fluence[first+n-1] = step * total
-                magnitudes[first+n-1] = flux * step * magnitude
-                peaks[first+n-1] = peak
+        else
+            # A device's reductions over a parallel fill, not a thread a node.
+            fluxes = reduce_terms(c, fluence, nt, width) do t, n
+                @inbounds flux * real(signal[t, n] * conj(other[t, n])) * factor
             end
-            nothing
+            products = reduce_terms(c, fluence, nt, width) do t, n
+                @inbounds abs(signal[t, n]) * abs(other[t, n]) * factor
+            end
+            totals, sizes, highest = (KA.allocate(c.backend, T, 1, width) for _ in 1:3)
+            sum!(totals, fluxes)
+            sum!(sizes, products)
+            maximum!(highest, fluxes)
+            each!(c, count, 1) do n, _
+                @inbounds begin
+                    fluence[first+n-1] = step * totals[1, n]
+                    magnitudes[first+n-1] = flux * step * sizes[1, n]
+                    peaks[first+n-1] = highest[1, n]
+                end
+            end
+            foreach(KA.unsafe_free!, (fluxes, products, totals, sizes, highest))
         end
     end
     (Vector{Float64}(Array(fluence)), Vector{Float64}(Array(magnitudes)),
