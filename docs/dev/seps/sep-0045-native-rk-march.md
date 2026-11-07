@@ -1164,6 +1164,76 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - **Handoff to phase 4:** interpolated planes, replay, z tables, moving maps, coupled
   flows and the transverse edge; then remove the test-wide warning filter.
 
+### Phase 4 report — coverage
+
+- **Scope:** phase 4, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commit `972ecb93`.
+- **Delivered**, each with its tests in `tests/driver/test_native_rk_march.py` (native
+  against host, bit for bit) and, where it moved a decision, the corpus:
+  - *A coupled flow.* `stage::rows` carries the anchor's section and each stage's residual
+    weights; `BoundState::guarded_flow_actions` forms a step's actions for one (section,
+    step) behind `_flow_squarings` and `_check_flow_conditioning`, transcribed, with the
+    Taylor scale, the squarings admitted, the row sums, the certificate and the rounding
+    allowance handed over (`flow_guard_configure`); `native::BackendRefusal` and
+    `Category::refused` carry a refusal back as `BackendError`. Each loop resets the other's
+    key, so the one set of actions stays coherent. Tested on the moving guide, the coherent
+    wall and the taper coupling, with each guard's refusal held to the reference's message.
+  - *Interpolated planes.* The landings step across the save planes to the run's end, and
+    the march returns the accepted step that crosses its target unfinished
+    (`Reason::dense`, with its equivalent norm); `_finish_crossing` completes it with the
+    reference's acceptance, so `_dense_record` reads the state before the step.
+  - *A z table.* The state loads the stages' positions into the one slot cache, stage by
+    stage: the slots differ from the host's, the values in them do not, and the trial's
+    partials are the host-packed trial's bit for bit on the walk-off fibre.
+  - *The transverse edge.* Its ceiling caps the candidate between the quiet interval and
+    the split cap, the call returns before a step would carry past the next read, and
+    solprop takes the monitor's checks by its distance test, as for the Adams march. The
+    corpus's `transverse_cap` and `caps_at_landings` now run natively.
+  - *Replay.* `StepDriver._replay_to` in the march, from the schedule's cursor, with the
+    replay's crossing refusal (`_refuse_scheduled_crossing`) as the Adams march takes it;
+    a non-finite norm returns `diverged`. The corpus's `replay` and `replay_diverged` run
+    natively.
+  - *A weighted norm.* `rk::weighted_scale` and `rk::weighted_score`, called by both loops
+    through `BoundState::rk_weighted_score`: weighted runs move once at rounding level, as
+    the weak norm did in phase 2 (Q1).
+  - The interim warning filter is gone (`pyproject.toml`); the native package's surface
+    test lists the watch tuples; the CI skip check allows the alarm test's native skip.
+- **Deviations from the proposal:** the weighted norm was not in phase 4's list in §11,
+  but §6.6 leaves only lockstep batches and an overriding controller on the host by Final,
+  so it is covered here. Tests that probe solprop's loop by patching its hooks
+  (`_on_accepted_step`, `_stage_bundles`, `_score_trial`) now pin that loop with the private
+  switches, as `test_source_evaluations.py` does: the recycled-stage comparison, the frozen
+  moving maps, the invalid-norm batch, and a test that simulates a device build. The native
+  replay's stop flag is polled between calls, so `test_stop.py` allows the replay to run to
+  its next saved plane on native.
+- **Decisions:** what still steps the reference, with a `HostMarchWarning`: a device build
+  (phase 5) and a controller overriding any of its six methods. Lockstep batches keep their
+  own loop.
+- **Verification:**
+  - Native unit tests in a Release `znver3` build on an AMD EPYC 7763: the 13 Runge–Kutta,
+    watch and Adams march tests pass.
+  - The corpus: all 29 scenarios at bounds 1, 7 and 256.
+  - Native against host, bit for bit in steps, norms, fields and the monitor's record: ten
+    routes (the coupled flows and the spatial routes with their edge among them), three with
+    interpolated planes, the z table landed and interpolated, two replays, a weighted
+    norm, and the busy monitor in both collar schemes.
+  - The whole suite on an AMD EPYC 7763 node: 17976 passed before the fixes above, with 21
+    failures, every one of which passes in a rerun of their files; CI runs the full gate.
+- **Benchmarks** (`benchmarks ab`, an idle AMD EPYC 7763 node, exclusive, complete runs,
+  three rounds, phase 3's head against this phase's):
+
+  | case | 1 thread | 16 threads |
+  |---|---:|---:|
+  | `dense_output` (interpolated planes) | 0.880 | 0.879 |
+  | `moving_solid_guide` (coupled flow) | 1.007 | 0.992 |
+  | `gnlse_soliton` (control) | 1.005 | 1.000 |
+
+  The same steps in each; the fields differ by up to 2.6e-14. `moving_solid_guide`'s 262
+  steps take 0.7 s each, so its host share was already negligible.
+- **Limitations:** a device build (phase 5); an overriding controller; lockstep batches.
+- **Handoff to phase 5:** `pytest -m gpu` and `benchmarks ab --device` on an NVIDIA A40, then
+  admit device builds.
+
 ## Part III — History
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
@@ -1187,6 +1257,7 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - 2026-11-07: Phases 2 and 3 reported (Part II).
 - 2026-11-07: John Travers approved the phase 3 choices (the interim warning filter, the
   three adapted tests, the landings reusing `march::Policy`) and ADR-069 as worded.
+- 2026-11-07: Phase 4 reported (Part II).
 
 ### AI review — 2026-11-07
 
