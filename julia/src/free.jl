@@ -241,13 +241,14 @@ function split_free!(engine, dz, monitored)
     # Both unnormalised inverses' 1/(nc n_x n_y) is folded into the collar's factor.
     inverse = inv(T(c.nc) * T(nm))
     monitored && fill!(w.monitor.split, 0)
+    factor = collar_factor(rate, half, inverse, c)
     for first in 1:chunk:nm
         count = min(chunk, nm - first + 1)
         columns_into!(coarse_spec, physical, first, count, c)
         mul!(coarse, w.coarse_inverse, coarse_spec)
         monitored && add_power!(w.monitor.split, coarse, w.monitor.columns, first, count, c)
         each!(c, size(coarse)...) do t, m
-            @inbounds coarse[t, m] *= exp(half * rate[t]) * inverse
+            @inbounds coarse[t, m] *= factor[t]
         end
         mul!(coarse_spec, w.coarse_forward, coarse)
         each!(c, nw, count) do f, m

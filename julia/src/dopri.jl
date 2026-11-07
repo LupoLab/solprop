@@ -151,10 +151,21 @@ function split_modal!(engine, dz, monitored)
     T = real_type(engine)
     # The unnormalised inverse's 1/nc is folded into the collar's factor.
     half, inverse = T(-0.5 * dz), inv(T(c.nc))
+    factor = collar_factor(rate, half, inverse, c)
     each!(c, size(coarse)...) do t, m
-        @inbounds coarse[t, m] *= exp(half * rate[t]) * inverse
+        @inbounds coarse[t, m] *= factor[t]
     end
     mul!(w.candidate, w.coarse_forward, coarse)
+end
+
+"""The collar's half-step factor a sample, `exp(half rate[t]) inverse`, formed once a
+sample rather than once an element (384 modes each took the same exponential)."""
+function collar_factor(rate, half, inverse, c)
+    factor = similar(rate)
+    each!(c, length(rate), 1) do t, _
+        @inbounds factor[t] = exp(half * rate[t]) * inverse
+    end
+    factor
 end
 
 """The embedded coarse quadrature's relative defect in the last stage's source."""
