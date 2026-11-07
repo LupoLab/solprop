@@ -95,8 +95,14 @@ def test_a_set_flag_stops_the_run_which_returns_and_resumes(
     assert outcome is not None
     assert outcome.status == "failed"
     assert "stopped by the caller's stop flag" in (outcome.message or "")
-    # The flag is polled before each trial: the run stops within one step of it.
-    assert 15 * LENGTH / STEPS <= outcome.z <= 16 * LENGTH / STEPS + 1e-15
+    # solprop's replay polls the flag before each trial, so the run stops within one
+    # step of it; the native march polls it between its calls, each of which runs to
+    # the driver's next event, here the next saved plane (SEP 45 phase 4).
+    upper = 16 * LENGTH / STEPS
+    if backend == "native":
+        planes = np.linspace(0.0, LENGTH, N_SAVE)[1:]
+        upper = float(min(plane for plane in planes if plane >= upper - 1e-15))
+    assert 15 * LENGTH / STEPS <= outcome.z <= upper + 1e-15
     assert reporter.interrupted_at is not None
     assert isinstance(reporter.interrupted_at[1], StopRequested)
     _scheduled(build_simulation, backend).run(path, resume=True)
@@ -135,7 +141,8 @@ for a march it steps from Python."""
 
 LENGTHS = {"runge_kutta": 0.02, "low_storage": 0.02}
 """The marches stepped from Python run a tenth of :data:`ONE_PLANE_LENGTH`, m: they stop
-at once, and only their resume runs the whole length."""
+at once, and only their resume runs the whole length. On native the Runge-Kutta march
+is compiled (SEP 45) and runs the whole length, as the Adams marches do."""
 
 FLAGGED_AT = 20
 """The accepted step whose report sets the flag."""
@@ -149,8 +156,10 @@ ONE_PLANE_RTOL = 1e-6
 """An adaptive one-plane run's relative tolerance."""
 
 
-def _length(march):
-    """Return `march`'s one-plane run's length, m."""
+def _length(march, backend):
+    """Return `march`'s one-plane run's length on `backend`, m."""
+    if backend == "native" and march == "runge_kutta":
+        return ONE_PLANE_LENGTH
     return LENGTHS.get(march, ONE_PLANE_LENGTH)
 
 
@@ -160,7 +169,7 @@ def _one_plane(march, backend, *, rtol=ONE_PLANE_RTOL):
     Nothing but a native call's own bound returns a native Adams march to Python here:
     no plane, statistics row or monitor check falls due before the end of the run.
     """
-    length = _length(march)
+    length = _length(march, backend)
     grid = EnvelopeGrid.from_limits(
         length, 835e-9, (500e-9, 2e-6), 1e-12, **LEGACY_GRID
     )
@@ -193,13 +202,16 @@ def _one_plane(march, backend, *, rtol=ONE_PLANE_RTOL):
 def _steps_after_the_flag(march, backend):
     """Return the most accepted steps a march can report after the flag's report.
 
-    Each Python march polls before every trial, so it takes none. A native Adams march
-    polls each time a native call returns, and the rest of that call's attempts report
-    after the one that set the flag.
+    Each Python march polls before every trial, so it takes none. A native Adams or
+    Runge-Kutta march polls each time a native call returns, and the rest of that call's
+    attempts report after the one that set the flag.
     """
     if backend == "native" and march.startswith("adams"):
         native = pytest.importorskip("solprop_native.backend")
         return native._NativeAdamsMarch.MAX_ATTEMPTS - 1
+    if backend == "native" and march == "runge_kutta":
+        native = pytest.importorskip("solprop_native.backend")
+        return native._NativeRungeKuttaMarch.MAX_ATTEMPTS - 1
     return 0
 
 
@@ -220,7 +232,7 @@ def test_a_flag_stops_a_one_plane_run_within_its_march_s_bound(
     assert reporter.interrupted_at is not None
     assert isinstance(reporter.interrupted_at[1], StopRequested)
     assert saved == 1  # the entrance alone: the run never reached its plane
-    assert 0.0 < outcome.z < _length(march)
+    assert 0.0 < outcome.z < _length(march, backend)
     assert reporter.accepted >= FLAGGED_AT
     assert reporter.accepted - FLAGGED_AT <= _steps_after_the_flag(march, backend)
 
@@ -243,7 +255,7 @@ def test_a_stopped_one_plane_run_resumes_to_its_end(
     finished, saved, field = _read(part)
     assert finished is not None
     assert finished.status == "complete"
-    assert finished.z == _length(march)
+    assert finished.z == _length(march, backend)
     assert saved == 2
     if march in REPLAY_STEPS:
         # A replayed schedule resumed is the uninterrupted computation, to rounding

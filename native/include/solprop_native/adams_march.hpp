@@ -8,8 +8,11 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <stdexcept>
 #include <string>
 #include <vector>
+
+#include "solprop_native/watch.hpp"
 
 /*
  * The exponential Adams march executed natively (solprop SEP 39 phase 2).
@@ -108,6 +111,8 @@ struct State {
   Ledger ledger;
   /** A replay's next step: the driver's schedule index. */
   std::size_t cursor = 0;
+  /** The boundary monitor's state, which the march's checks carry (SEP 45 4.8). */
+  watch::State watch;
 };
 
 /** A replayed schedule's steps and their edges, one more than the steps (SEP 39 4.3).
@@ -227,6 +232,11 @@ public:
   /** The last trial's carrier rotations over its `order` newest rows, for a dense
       observation of the step; empty without a carrier frame. */
   virtual std::vector<double> step_carrier(std::size_t /*order*/) { return {}; }
+  /** The committed state's boundary reading (`monitor_reading`), for a check the march
+      takes itself (SEP 45 section 4.8). */
+  virtual std::vector<double> reading() {
+    throw std::logic_error("this engine takes no boundary readings");
+  }
 };
 
 /** Why a call returned to solprop (SEP 39 section 4.8). */
@@ -239,13 +249,24 @@ enum class Reason : int {
   floor = 5,     ///< a proposal fell below the floor
   error = 6,     ///< a native failure; the steps committed before it stand
   diverged = 7,  ///< a replayed step's norm is not finite: it cannot be rejected
+  watch = 8,     ///< a check the march took needs solprop: a stop, a first warning,
+                 ///< a change of the quiet verdict, a refused crossing (SEP 45 4.8)
+  capacity = 9,  ///< the checks' readings fill the call's buffer
+  dense = 10, ///< an accepted Runge-Kutta step crosses an interpolated plane: solprop
+              ///< finishes it, holding its extension (SEP 45 phase 4)
 };
 
 /** Where a native failure happened. */
 enum class Stage : int { none = 0, startup = 1, trial = 2, accept = 3 };
 
 /** What class of solprop error a failure maps to. */
-enum class Category : int { none = 0, convergence = 1, backend = 2, value = 3 };
+enum class Category : int {
+  none = 0,
+  convergence = 1,
+  backend = 2,
+  value = 3,
+  refused = 4
+};
 
 /** The host's bounds for one call (SEP 39 section 4.8). */
 struct Bounds {
@@ -273,6 +294,12 @@ struct Bounds {
   /** A replay: the schedule's steps are taken as given, its edges within `slack`. */
   bool replay = false;
   double slack = 0.0;
+  /** The boundary checks the march takes itself (SEP 45 section 4.8): whether it takes
+   *  them, their policy, and the most readings one call buffers. Under them the split
+   *  collar's cap is the watch's, not `step_cap`. */
+  bool watch = false;
+  watch::Policy watch_policy;
+  std::size_t watch_capacity = 256;
 };
 
 /** Columns of one attempt's row. */
@@ -308,6 +335,12 @@ struct Result {
   std::size_t step_order = 0;
   std::array<double, max_history> step_nodes{};
   std::vector<double> step_carrier;
+  /** The checks the march took: each reading, `reading_size` doubles, and the row of
+      the attempt it was taken after; and the verdict of a watch return. */
+  std::size_t reading_size = 0;
+  std::vector<double> readings;
+  std::vector<std::size_t> reading_rows;
+  watch::Verdict verdict = watch::Verdict::none;
 };
 
 /** Advance `state` under `policy` by the algorithm of SEP 39 section 4, to an event;

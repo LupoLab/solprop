@@ -74,6 +74,8 @@ def test_public_surface_is_exact() -> None:
         "STAGE_SCALARS_FIELDS",
         "STAGE_TERMS_FIELDS",
         "TRANSFORM_FIELDS",
+        "WATCH_POLICY_FIELDS",
+        "WATCH_STATE_FIELDS",
         "BuildInfo",
         "NativeBackend",
         "NativeBatchBackend",

@@ -5,7 +5,7 @@
 """The native Adams march's statistics rows are the Python march's (SEP 39 4.8).
 
 A native call returns to the host at every accepted step on which a periodic row falls
-due, and books the steps between as skipped (``StepDriver._skip_step``): the rows are
+due, and books the steps between as skipped (``StepDriver._account_step``): the rows are
 taken at the same steps, from the same states, as the Python march takes them.
 """
 

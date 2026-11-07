@@ -176,23 +176,23 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="90" y="884.75" font-size="15" class="bold ink-b">backends</text>
 <text x="90" y="902.25" font-size="12" class="dim">may import</text>
 <text x="168" y="902.25" font-size="12" class="dim">numpy; the native package in native/</text>
-<rect x="307.0" y="830.5" width="218.00000000000003" height="112.5" rx="7" ry="7" class="fill-b" />
+<rect x="307.0" y="830.5" width="251.00000000000003" height="112.5" rx="7" ry="7" class="fill-b" />
 <text x="317.0" y="852.5" font-size="15" class="bold ink-b">backends/</text>
 <text x="317.0" y="868.0" font-size="12" class="dim">protocol · registry · driver</text>
 <text x="317.0" y="883.5" font-size="12" class="dim">batch · spatial · populations</text>
 <text x="317.0" y="899.0" font-size="12" class="dim">memory · multistep</text>
 <text x="317.0" y="914.5" font-size="12" class="dim">multistep_general · adams_core</text>
-<text x="317.0" y="930.0" font-size="12" class="dim">exponential · low_storage</text>
-<rect x="535.0" y="830.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
-<text x="545.0" y="852.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
-<text x="545.0" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
-<text x="545.0" y="883.5" font-size="12" class="dim">transforms · single · admission</text>
-<text x="545.0" y="899.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
-<text x="545.0" y="914.5" font-size="12" class="dim">tdse</text>
-<rect x="769.6" y="830.5" width="211.4" height="112.5" rx="7" ry="7" class="fill-b" />
-<text x="779.6" y="852.5" font-size="15" class="bold ink-b">backends/mlx_gpu/</text>
-<text x="779.6" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
-<text x="779.6" y="883.5" font-size="12" class="dim">arithmetic · envelope · adams</text>
+<text x="317.0" y="930.0" font-size="12" class="dim">rk_core · exponential · low_storage</text>
+<rect x="568.0" y="830.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-b" />
+<text x="578.0" y="852.5" font-size="15" class="bold ink-b">backends/numpy_ref/</text>
+<text x="578.0" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
+<text x="578.0" y="883.5" font-size="12" class="dim">transforms · single · admission</text>
+<text x="578.0" y="899.0" font-size="12" class="dim">envelope_plasma · general_modal</text>
+<text x="578.0" y="914.5" font-size="12" class="dim">tdse</text>
+<rect x="802.6" y="830.5" width="211.4" height="112.5" rx="7" ry="7" class="fill-b" />
+<text x="812.6" y="852.5" font-size="15" class="bold ink-b">backends/mlx_gpu/</text>
+<text x="812.6" y="868.0" font-size="12" class="dim">backend · batch · passes</text>
+<text x="812.6" y="883.5" font-size="12" class="dim">arithmetic · envelope · adams</text>
 <rect x="32" y="1002.0" width="1010.0" height="337.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="1153.5" width="34" height="34" rx="7" ry="7" class="fill-d" />
 <text x="63" y="1176.5" font-size="19" class="bold mid ink-d">D</text>

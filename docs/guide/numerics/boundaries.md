@@ -715,7 +715,9 @@ edge, the guards, and in the collar:
 of the budget (as a field amplitude), every committed step is checked. While the edges
 are quiet, a step is checked every eighth step or after `length / 256` of the guide,
 whichever comes first, and the state of every saved plane is checked regardless. The
-collar itself stays in every stage.
+collar itself stays in every stage. On the native backend the Adams march takes these
+checks inside its compiled loop, so a busy monitor no longer costs a return to Python
+at every step; the record, the warning and a stop are the same, at the same step.
 
 **The quiet collar, on request.** `BoundaryCheck(quiet_collar=True)` also leaves the
 in-stage temporal collar's term, whose transform is a stage's largest cost after the

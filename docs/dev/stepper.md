@@ -406,6 +406,18 @@ corrector, carry and defect norms are native passes over its resident eigenbasis
 frozen-residual flow's generator applied once per sample. The general
 path (PECE and the comparison variants) keeps host arrays.
 
+**The native Runge–Kutta march** (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)):
+`StepDriver._march_to`'s decisions are pure functions of a `RungeKuttaPolicy`
+(`backends/rk_core.py`), held to a decision corpus recorded before the refactor
+(`tests/data/rk_traces.json.gz`), and `native` executes them (`native/src/rk_march.cpp`) on
+its staged trial and native norm, a call of attempts at a time, returning only at a host
+event and taking the boundary checks itself; the kernel contract's section 12 is the
+interface. It covers interpolated planes (the step across a plane returns to solprop, which
+holds its extension), a replayed schedule, a coupled flow (its guards transcribed), a z table
+the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
+(reduced natively in both loops), on CPU and device builds alike; a controller with its own
+methods still steps the driver's loop, with a `HostMarchWarning` naming the reason.
+
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
 growth factors, the restart and hysteresis constants, the collar's and the carrier's
@@ -417,11 +429,15 @@ executes `Multistep()` in either formulation, the one-order-higher PEC compariso
 replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
-has work (a statistics row, a natural stop, a monitor check), the call's bound, the
-budget, the floor or a native error. The run's stop flag is polled before each call
+has work (a statistics row, a natural stop), a boundary check whose verdict needs
+solprop, the call's bound, the budget, the floor or a native error. The march takes the
+boundary monitor's checks itself ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8),
+buffers their readings and predicts the monitor's verdict; a run with a transverse
+edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
 what either waits for. The driver books the call's attempts through
-`_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
+`_record_attempt` and `_account_step`, inside one commit, replaying each buffered
+reading through the monitor at its own step. `AdamsMarch` is the reference
 and steps every configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's

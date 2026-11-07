@@ -49,6 +49,11 @@ def test_python_counter_tracks_dispatch_through_rejection(
         dz_init=0.001,
         auto_init=False,
     )
+    if backend_class.name == "native":
+        # The scripted norms below replace solprop's loop's trial; the native march
+        # (SEP 45) takes its norms itself.
+        native = pytest.importorskip("solprop_native.backend")
+        monkeypatch.setattr(native, "_RK_MARCH", "host")
     with closing(backend_class(problem, grid=narrow_grid)) as engine:
         engine.set_initial(problem.initial.field0, None)
         calls = []

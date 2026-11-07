@@ -80,7 +80,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop import fourier
-from solprop.boundaries import SplitCrossing
+from solprop.boundaries import SplitCrossing, split_bucket_rates, split_crossing_step
 from solprop.exceptions import BackendError, BoundaryError, BoundaryWarning
 from solprop.fourier import GridKind
 from solprop.grid import TimeGrid
@@ -1040,6 +1040,73 @@ class BoundaryMonitor:
         self._skipped += 1
         self._since_check += 1
         self._stale = True
+
+    def watch_policy(self) -> dict[str, object]:
+        """Return the numbers a compiled march predicts this monitor's checks with.
+
+        Every threshold is formed here, as :meth:`step` forms it, so that a march
+        holds no constant and repeats no power (SEP 45 section 4.8): the floor's
+        regions times their margins, the launch floor, the activity, warning and stop
+        thresholds, the quiet collar's share, count and opt-in, the cadence and the
+        interval, and under the split scheme the crossing share and each bucket's step
+        limit.
+
+        Returns
+        -------
+        dict
+            The fields of ``solprop_native.WATCH_POLICY_FIELDS``.
+        """
+        check = self.check
+        crossing = self.crossing
+        limits = (
+            []
+            if crossing is None
+            else [
+                split_crossing_step(float(rate), crossing.width, crossing.factor)
+                for rate in split_bucket_rates(crossing.fastest)
+            ]
+        )
+        regions = self._floor_regions * np.array(
+            [FLOOR_MARGIN, FLOOR_MARGIN, FLOOR_MARGIN, 1.0]
+        )
+        return {
+            "split": self.split,
+            "crossing": crossing is not None,
+            "floor_regions": [float(value) for value in regions],
+            "launch_floor": _FLOOR * self._launch,
+            "activity": (ACTIVE * check.budget) ** 2,
+            "warn": check.budget,
+            "stop": check.stop_factor * check.budget,
+            "quiet_share": QUIET,
+            "quiet_checks": QUIET_CHECKS,
+            "quiet_collar": check.quiet_collar,
+            "cadence": CADENCE,
+            "interval": self.interval,
+            "share": 0.0 if crossing is None else crossing.share,
+            "bucket_limits": limits,
+        }
+
+    def watch_state(self) -> dict[str, object]:
+        """Return what a compiled march's predictions read and change of this monitor.
+
+        Returns
+        -------
+        dict
+            The fields of ``solprop_native.WATCH_STATE_FIELDS``: whether a check has
+            been made and where, the steps since it, the cadence's busy flag, the
+            quiet run and flag, whether the warning was given, and the crossing cap.
+        """
+        last = self._last
+        return {
+            "has_last": last is not None,
+            "last_z": 0.0 if last is None else float(last[0]),
+            "since": self._since_check,
+            "busy": self._busy,
+            "quiet_run": self._quiet_run,
+            "quiet": self._quiet,
+            "warned": self._warned,
+            "cap": self._cap,
+        }
 
     def steps_to_check(self) -> int:
         """Return after how many more committed steps the cadence makes a check due.

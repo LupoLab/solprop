@@ -146,7 +146,7 @@ class _NativeHarness(_Harness):
         self.pending = event
         self._record(z, dz, norm, accepted)
 
-    def _skip_step(self, z: float) -> None:
+    def _account_step(self, z: float, cursor: int, energies: Any = None) -> None:
         self._take_step_stats()
 
 

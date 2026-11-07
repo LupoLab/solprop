@@ -714,6 +714,7 @@ MODULES = {
                 "multistep",
                 "multistep_general",
                 "adams_core",
+                "rk_core",
                 "exponential",
                 "low_storage",
             ),

@@ -212,9 +212,11 @@ the steps to one of these loops:
 | `LowStorageMarch.replay_to`, in `backends/low_storage.py` | low-storage, always on a schedule | a `LowStorageEngine`: `HostLowStorage`, `MlxLowStorage`, or `native`'s `_ResidentLowStorage`, whose step is one native call |
 | `LockstepRunner._replay_to`, in `backends/batch.py` | a batch's members on one schedule | `_trial_step` under Runge-Kutta; each member's own march otherwise |
 | `_NativeAdamsMarch.march_to`, with `native/src/adams_march.cpp` | Adams, adaptive and replayed, compiled (ADR-060) | the resident engine; it returns to Python only at a host event |
+| `_NativeRungeKuttaMarch.march_to`, with `native/src/rk_march.cpp` | Runge-Kutta, adaptive and replayed, compiled (ADR-069, [SEP 45](seps/archive/sep-0045-native-rk-march.md)) | the staged trial and native norm; it returns to Python only at a host event |
 
-Only the last loop is compiled. The driver's Runge-Kutta march is the reference for the march's
-bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
+Only the last two loops are compiled. The driver's Runge-Kutta march is the reference for the
+compiled Runge-Kutta march, which holds to it through kernel contract §12 (ADR-069), and for the
+march's bookkeeping. `AdamsMarch` is the reference for the compiled Adams march, which holds to it
 through kernel contract §11 (ADR-060), and steps every configuration the compiled march doesn't
 cover. A new compiled loop needs a contract that specifies it in full and a reference to compare
 it with.
@@ -798,14 +800,16 @@ scalars and combines the terms it holds over them (§1); the driver applies the 
 treatments of `_finish` to a step it keeps, so a rejected step does not pay the temporal
 absorber's transform pair for a state that is thrown away.
 
-Under Runge–Kutta the driver stays Python, and on `native` one nanobind call executes all
-seven stages of a trial (§4). The per-call overhead did not justify a compiled loop even on
-a backend that made far more calls: measured on the retired `numba_cpu` backend, about 50
-Python-level calls a step cost 1.69 % of a step at 1024 bins, 0.62 % at 4096 and 0.30 % at
-8192 on the GNLSE soliton. The march itself is compiled only where the kernel contract
-specifies it in full, with solprop's implementation as the reference: `native` steps
-`Multistep()` itself (ADR-060, §8) and makes one native call a step under the low-storage
-march (§9).
+Under Runge–Kutta the driver's loop is the reference, and on `native` one call executes all
+seven stages of a trial (§4), its rows formed natively from the uploaded stage tables and its
+norm reduced natively ([SEP 45](seps/archive/sep-0045-native-rk-march.md) phase 2). An earlier
+measurement on the retired `numba_cpu` backend found the loop's Python cheap (about 50 calls a
+step cost 1.69 % of a step at 1024 bins on the GNLSE soliton), but the host's whole per-step
+work, the stage scalars and the packing with the loop, came to about 200 µs a step on an Intel
+Xeon Gold 6240: a fifth of a small-grid fibre run (SEP 45 §3.4). The march is compiled where
+the kernel contract specifies it in full, with solprop's implementation as the reference:
+`native` steps `Multistep()` itself (ADR-060, §8), the Runge–Kutta march (ADR-069),
+and makes one native call a step under the low-storage march (§9).
 
 ### 3.6 Propagator factors
 
@@ -1848,10 +1852,12 @@ that the total is within the documented budget for the standard cases.
 comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
 the resident engine -- stage scalars and tables evaluated natively from the run's
-uploaded expansions, the trial, the decision, the accept -- until a host event, and
+uploaded expansions, the trial, the decision, the accept, and the boundary monitor's
+checks ([SEP 45](seps/archive/sep-0045-native-rk-march.md) §4.8) -- until a host event, and
 returns the
-march's state and one row per attempt (its end, step, norm, verdict, order and wall
-time). The decisions are compiled without contraction in their own translation unit,
+march's state, one row per attempt (its end, step, norm, verdict, order and wall
+time) and the readings its checks took, which the driver replays through solprop's
+monitor and holds the march's predictions to (`BackendError` on a difference). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
 steps. A configuration it does not cover runs solprop's march on the same engine with a
 `HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The
