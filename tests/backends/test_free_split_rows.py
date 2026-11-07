@@ -187,10 +187,8 @@ def test_a_devices_choices_on_any_build(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     # Flows recomputed under "auto" and input through tiles of team scratch, with a
-    # short last block's plan, at the reference's numbers. A device build's
-    # Runge-Kutta run steps solprop's loop (SEP 45 phase 5), quietly here.
+    # short last block's plan, at the reference's numbers.
     monkeypatch.setattr(native_backend, "_on_device", lambda: True)
-    monkeypatch.setattr(native_backend, "_RK_MARCH", "host")
     _check_block(reference, 5)
 
 

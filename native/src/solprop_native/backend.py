@@ -3321,7 +3321,6 @@ class _NativeRungeKuttaMarch:
             if getattr(type(controller), name) is not getattr(PIController, name)
         ]
         reasons = (
-            (_on_device(), "a device build (SEP 45 phase 5)"),
             (
                 bool(overridden),
                 "a controller with its own " + ", ".join(overridden),

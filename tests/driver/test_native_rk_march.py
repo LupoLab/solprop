@@ -185,3 +185,14 @@ def test_a_busy_monitor_s_checks_stay_in_the_native_rk_march(scheme, monkeypatch
         n_save=6,
     )
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
+@pytest.mark.gpu
+@pytest.mark.parametrize("route", ["gnlse", "capillary (multimode)"])
+def test_a_device_build_s_march_is_the_host_loop_s(route, monkeypatch):
+    """On a device the march drives the resident engine from the host (SEP 45)."""
+    if not backend_module._on_device():
+        pytest.skip("the installed solprop-native build has no accelerator backend")
+    build = lambda: _route(route)  # noqa: E731
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
