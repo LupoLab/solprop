@@ -17,8 +17,8 @@ to current main and rewrites the engine:
   the driver's bundle cache, the general-leaf and carrier-frame refusals, SEP 21's split
   collar and SEP 44's transverse edge read through the engine.
 - **One source for CPU and GPU, binary64 and binary32.** Every state-sized operation is a
-  scalar body run by the device layer (`src/launch.jl`); arrays are `Array`s or
-  `CuArray`s (the CUDA package extension) of `Float64` or `Float32`. The kernel bodies
+  scalar body run by the device layer (`src/launch.jl`); arrays are `Array`s, `CuArray`s
+  or `ROCArray`s (the CUDA and AMDGPU package extensions) of `Float64` or `Float32`. The kernel bodies
   capture only values and arrays, which `SOLPROP_JULIA_CHECK` enforces on a CPU.
 - **Julia 1.13.3**, CUDA.jl 6.5, FFTW.jl, Polyester, KernelAbstractions and
   AcceleratedKernels; numba is gone from the tooling, which is now solprop's own harness.
@@ -47,6 +47,12 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | The exponential Adams march in the engine (`src/march.jl`, native's SEP 39 march transcribed) | `argon_blueshift` on 16 threads 0.42 s -> 0.34 s; the Python march's decisions bit for bit |
 | Radial and free planes' local statistics in the engine; the plane's admittance kept | radial on 16 threads 0.65 s -> 0.44 s, `line` 0.27 s -> 0.18 s (native's 0.20 s) |
 | State-sized copies as the pool's tasks | a Cartesian 192² window on 16 threads 1.01 s -> 0.78 s (native's 0.85 s): one thread's copy of its 226 MB state took 45 ms, and a step made seven |
+| A heavy pass splits from a few hundred elements | `argon_blueshift`'s Adams predictor on 16 threads 50 ms -> 5 ms (its 1601 elements ran serially) |
+| Products with a thin side (at most eight columns or terms) as blocked loops, not BLAS | `argon_blueshift`'s plasma projections on 16 threads 54 ms -> 22 ms |
+| The collar's half-step factor once a sample, not once an element | radial commits on 16 threads 31 ms -> 17 ms |
+| A varying guide's power weight rebound alone, warmed at construction | `rdw`'s 12 planes 37 ms of binding -> none |
+| GPU: heavy reductions a thread an element; batched transforms; one kernel a trapezoid increment | the A40's binary64 geometric mean 2.77 -> 2.32 |
+| GPU: column and row sums, local sums and occupancy by device reductions | (from the MI325X's trace; measured in the ledger) |
 
 The vectorised functions paid only once the live samples were gathered and each pass
 was a function of its own: in the column's branchy loop, and inside its closure, LLVM
@@ -56,23 +62,24 @@ rate is a vectorised `log`, the lookup and a vectorised `exp`, three passes.
 ## Where it stands
 
 Julia's window time over native's, 2 % of each case, both arms in one interpreter, the
-same steps and fields equal to rounding (1e-13 or better); the ledger has the seconds.
+same steps and binary64 fields equal to rounding (1e-13 or better); the ledger has the
+seconds, the machines and the earlier rows.
 
-| case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 |
-|---|---:|---:|---:|---:|
-| rdw | 1.41 | 1.03 | 3.13 | 3.38 |
-| argon_blueshift | 2.41 | 1.79 | 3.85 | 2.72 |
-| h2_raman_6ps | 1.02 | 1.13 | 1.26 | 0.96 |
-| ctc_reduced | 1.75 | 1.01 | 1.87 | 1.71 |
-| radial_filament_256 | 1.08 | 2.14 | 3.73 | 3.24 |
-| kerr_beam_192 | 1.14 | 1.67 | 3.58 | 3.50 |
-| line | 1.30 | 1.78 | 3.30 | 3.12 |
+| case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 | MI325X, binary64 |
+|---|---:|---:|---:|---:|---:|
+| rdw | 1.54 | 1.14 | 2.53 | 3.27 | 2.03 |
+| argon_blueshift | 1.77 | 1.30 | 2.89 | 2.39 | 2.33 |
+| h2_raman_6ps | 1.25 | 0.86 | 1.14 | 0.65 | 1.71 |
+| ctc_reduced | 1.85 | 1.01 | 1.56 | 1.53 | 2.27 |
+| radial_filament_256 | 1.02 | 1.52 | 2.97 | 2.37 | 4.85 |
+| kerr_beam_192 | 1.12 | 1.11 | 3.28 | 3.52 | 3.44 |
+| line | 1.20 | 1.17 | 2.84 | 2.20 | 1.89 |
 
-Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine) and NVIDIA A40 against
-native's CUDA build, both at commit `7c7ac9b7`; geometric means 1.42, 2.77 and 2.45. The
-next commit's Julia march takes `argon_blueshift` on 16 threads from 0.42 s to 0.34 s.
-Binary32 is against native's binary64. Ratios measured before the harness fix (#557)
-counted 0.18 s of metadata on both arms and are not comparable.
+Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine) at commit `50158fa6`,
+geometric mean 1.25; NVIDIA A40 against native's CUDA build at `cfa14ce7`, 2.32 and
+2.03; AMD Instinct MI325X against native's HIP build at `196baa51`, 2.48, before the
+GPU's column reductions. Binary32 is against native's binary64. Ratios measured before
+the harness fix (#557) counted 0.18 s of metadata on both arms and are not comparable.
 
 ## What is left, measured
 

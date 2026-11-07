@@ -2937,6 +2937,24 @@ before the vectorised plasma and the batched transforms, the same plan gave 1.64
 next commit, `207add18`, runs the Adams march in the engine: `argon_blueshift` on 16
 threads 0.42 s -> 0.34 s and `rdw` 0.157 -> 0.148 s (single profiled runs, socket 0).
 
+Later, the same plan at commit `50158fa6` (the Julia march, the spatial statistics, the
+pooled copies, the thin products and the rest of the CPU changes), three rounds, the
+machine quiet at the start and at load 11 to 14 by the end:
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.418 | 0.681 | 1.54 | 0.189 | 0.216 | 1.14 |
+| `argon_blueshift` | 0.545 | 0.961 | 1.77 | 0.186 | 0.249 | 1.30 |
+| `h2_raman_6ps` | 3.385 | 4.254 | 1.25 | 2.871 | 1.743 | 0.86 |
+| `ctc_reduced` | 1.012 | 1.871 | 1.85 | 0.377 | 0.381 | 1.01 |
+| `radial_filament_256` | 2.163 | 2.222 | 1.02 | 0.368 | 0.564 | 1.52 |
+| `kerr_beam_192` | 5.147 | 5.824 | 1.12 | 0.996 | 1.119 | 1.11 |
+| `line` | 0.679 | 0.821 | 1.20 | 0.185 | 0.212 | 1.17 |
+
+Geometric mean 1.25 (1.42 at `7c7ac9b7`). The load spread some rounds widely
+(`h2_raman_6ps` 0.59 to 0.88 and `kerr_beam_192` 0.67 to 1.35 on 16 threads); the
+ratios are medians of paired rounds, both arms under the same load.
+
 **NVIDIA A40** (driver 595.71), native's CUDA build (AMPERE86) against `julia` with
 `SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, commit `7c7ac9b7`:
 
@@ -2958,3 +2976,42 @@ Systems (`rdw`, commit `7c7ac9b7`): the device is busy for about 124 ms of the 0
 window. Nine transforms a source at 96 us each (over four modes, so a few blocks each:
 latency, not work) are a third; the Adams predictor's reduction, heavy binary64 work a
 sample on too few threads, 539 us a trial; then the plasma and Kerr passes.
+
+At commit `cfa14ce7` (the Julia march; the GPU's heavy reductions a thread an element and
+its transforms in batches) the same plan gave, binary64 then binary32:
+
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.054 | 0.137 | 2.53 | 0.182 | 3.27 |
+| `argon_blueshift` | 0.117 | 0.338 | 2.89 | 0.280 | 2.39 |
+| `h2_raman_6ps` | 1.040 | 1.180 | 1.14 | 0.674 | 0.65 |
+| `ctc_reduced` | 0.207 | 0.323 | 1.56 | 0.317 | 1.53 |
+| `radial_filament_256` | 0.173 | 0.513 | 2.97 | 0.408 | 2.37 |
+| `kerr_beam_192` | 0.198 | 0.648 | 3.28 | 0.673 | 3.52 |
+| `line` | 0.095 | 0.271 | 2.84 | 0.213 | 2.20 |
+
+Geometric means 2.32 and 2.03. One binary32 `argon_blueshift` round hung until the
+worker's timeout (the other ran at 2.39); `rdw`'s binary64 field differed from native's
+by 1.8e-11, the reordered reduction of the Adams norms, with the same steps.
+
+**AMD Instinct MI325X** (a rented droplet, ROCm 10.0), native's HIP build (gfx942)
+against `julia` with `SOLPROP_JULIA_DEVICE=rocm` (AMDGPU.jl 2.11), `--device`, two
+rounds, commit `196baa51`. The first run of the AMDGPU extension: the device tests
+pass (binary64 against `numpy_ref` to 1e-10, binary32 to 1e-4), and every binary64 row
+took native's steps with its fields to rounding.
+
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.027 | 0.055 | 2.03 | 0.088 | 3.27 |
+| `argon_blueshift` | 0.057 | 0.134 | 2.33 | 0.124 | 2.16 |
+| `h2_raman_6ps` | 0.231 | 0.395 | 1.71 | 0.364 | 1.57 |
+| `ctc_reduced` | 0.061 | 0.138 | 2.27 | 0.129 | 2.09 |
+| `radial_filament_256` | 0.046 | 0.224 | 4.85 | 0.188 | 3.99 |
+| `kerr_beam_192` | 0.076 | 0.260 | 3.44 | 0.347 | 4.50 |
+| `line` | 0.056 | 0.106 | 1.89 | 0.112 | 2.04 |
+
+Geometric means 2.48 (binary64) and 2.62 (binary32 against native's binary64). A
+`rocprofv3` trace of the radial window found the column-at-a-thread passes (the local
+statistics' sums, the monitor's row and column sums) and the occupancy's atomics on a
+crossing's few buckets the largest kernels; commit `50158fa6` forms them as device
+reductions.
