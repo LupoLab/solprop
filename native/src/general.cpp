@@ -20,6 +20,7 @@
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
 #include <KokkosFFT.hpp>
+#include <Kokkos_Profiling_ScopedRegion.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <fftw3.h>
 #if defined(__SSE2__)
@@ -9800,12 +9801,15 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   // transform destroys it. In place, that transform gives the filtered field.
   if (dispersive_)
     dispersive_->prepare(stage);
-  if (problem_.family == FieldFamily::field_real)
-    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                   KokkosFFT::Normalization::none);
-  else if (!retained_synthesis_)
-    graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                   KokkosFFT::Normalization::none);
+  {
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.inverse");
+    if (problem_.family == FieldFamily::field_real)
+      graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                     KokkosFFT::Normalization::none);
+    else if (!retained_synthesis_)
+      graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                     KokkosFFT::Normalization::none);
+  }
   // A single node's synthesis and projection are folded into its response column.
   const bool folded = folds_single_node();
   if (!folded)
@@ -9851,10 +9855,14 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       convolve_raman(stage, node_count);
     if (dispersive_)
       dispersive_->respond(chunk, first_node, node_count);
-    if (held_plasma())
+    if (held_plasma()) {
+      const Kokkos::Profiling::ScopedRegion region("solprop_native.held.response");
       held_response(stage, first_node, node_count);
-    if (stage_projects && !folded && !held_radial())
+    }
+    if (stage_projects && !folded && !held_radial()) {
+      const Kokkos::Profiling::ScopedRegion region("solprop_native.projection");
       project(first_node, node_count, first_chunk);
+    }
     if (problem_.envelope_plasma)
       envelope_response(stage, first_node, node_count);
     first_chunk = false;
@@ -9863,6 +9871,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (dispersive_)
     dispersive_->finish();
   if (!held_radial() && (!dispersive_ || !dispersive_->replaces_transform())) {
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.forward");
     if (problem_.family == FieldFamily::envelope) {
       graph::execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
                      KokkosFFT::Normalization::none);
@@ -9882,6 +9891,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
     dispersive_->combine();
   if (absorbing()) {
     form_absorber();
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.absorber");
     if (problem_.family == FieldFamily::envelope)
       graph::execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
                      KokkosFFT::Normalization::none);
@@ -12455,6 +12465,7 @@ void GeneralWorkspace::transform_forward_pack() {
 }
 
 void GeneralWorkspace::held_transform(const bool coarse_only, const bool transformed) {
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.held_streams");
   // The packed rows are every transform this call takes when it takes the fine ones
   // and, where there are coarse rows, those too. The stage's forward pack, when it
   // took them, has transformed the streams' rows already.
@@ -14745,6 +14756,7 @@ void GeneralWorkspace::finish(const double dz) {
 }
 
 void GeneralWorkspace::finish_quadrature() {
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.quadrature.finish");
   if (!coarse_pending_)
     return;
   if (problem_.family == FieldFamily::envelope)
