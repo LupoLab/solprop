@@ -25,6 +25,7 @@ from solprop import transverse_monitor
 from solprop._helpers import Helpers
 from solprop._interrupts import committing
 from solprop._process import acquire_host_blas, thread_budget
+from solprop.backends import rk_core
 from solprop.backends.driver import StepDriver, reached, replay_tolerance
 from solprop.backends.exponential import (
     CarrierReference,
@@ -2741,7 +2742,8 @@ _MARCH_COUNTERS = (
     _DIVERGED,
     _WATCH,
     _CAPACITY,
-) = range(10)
+    _DENSE,
+) = range(11)
 _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
 """Why a native march call returned (``march::Reason``)."""
@@ -3296,7 +3298,6 @@ class _NativeRungeKuttaMarch:
         monitor = driver._monitor
         reasons = (
             (_on_device(), "a device build (SEP 45 phase 5)"),
-            (stepper.interpolate_planes, "interpolated planes (SEP 45 phase 4)"),
             (
                 bool(overridden),
                 "a controller with its own " + ", ".join(overridden),
@@ -3330,7 +3331,11 @@ class _NativeRungeKuttaMarch:
             "dz_max": float(stepper.dz_max),
             "stretch": float(stepper.stretch),
             "z_end": float(stepper.z_end),
-            "save_planes": [float(z) for z in stepper.save_planes],
+            # Interpolated planes are stepped across (SEP 14 section 4.3).
+            "save_planes": []
+            if stepper.interpolate_planes
+            else [float(z) for z in stepper.save_planes],
+            "interpolate": bool(stepper.interpolate_planes),
             "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
             "breakpoints": [float(z) for z in breakpoints],
             "landing_ulps": LANDING_ULPS,
@@ -3386,12 +3391,19 @@ class _NativeRungeKuttaMarch:
             trial fails.
         """
         backend = self._driver
+        dense = backend._problem.stepper.interpolate_planes
+        if dense and backend._dense_ahead is not None:
+            # The march is ahead of the last interpolated plane; resume it there.
+            backend._adams_restore(*backend._dense_ahead)
+            backend._dense_ahead = None
         if backend._natural_stop_due(target):
             return
         self._configure()
         while not reached(backend._z, target):
             if self._call(target):
                 return
+        if dense and not reached(target, backend._z):
+            backend._observe_inside(target)
 
     def _bounds(self, target: float, watching: bool) -> dict[str, object]:
         """Return a call's bounds: the target and the steps the driver has work on."""
@@ -3464,9 +3476,9 @@ class _NativeRungeKuttaMarch:
             last = len(rows) - 1
             for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
                 backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
-                if accepted:
+                if accepted and not (index == last and reason == _DENSE):
                     position = end
-                final = index == last and (event or reason == _FLOOR)
+                final = index == last and (event or reason in (_FLOOR, _DENSE))
                 if accepted and not final:
                     try:
                         backend._account_step(end, cursor, readings.get(index))
@@ -3491,8 +3503,40 @@ class _NativeRungeKuttaMarch:
                 return True
         elif watching:
             _verify_watch_of(backend._monitor, result)
+        if reason == _DENSE:
+            end, dz = float(rows[-1, 0]), float(rows[-1, 1])
+            return self._finish_crossing(
+                target, end, dz, float(result["pending_equivalent"])
+            )
         self._raise(reason, result)
         return False
+
+    def _finish_crossing(
+        self, target: float, end: float, dz: float, equivalent: float
+    ) -> bool:
+        """Finish the accepted step across an interpolated plane, as the reference.
+
+        `StepDriver._march_to`'s acceptance, line for line: the accepted-step hook
+        `_record` makes, the step's extension from the state before it, the finish and
+        the commit, the norm, the start-up rule, the proposal, the statistics and the
+        natural stop. The native march returned the step accepted and unfinished.
+        """
+        backend = self._driver
+        policy = backend._controller_policy()
+        backend._on_accepted_step()
+        backend._dense_step = backend._dense_record(backend._z, dz)
+        finished = backend._finish(backend._state, dz)
+        with committing():
+            backend._state = finished
+            backend._z = end
+        backend._accepted_norms.append(equivalent)
+        if policy.auto_init and len(backend._accepted_norms) == 1:
+            backend._start_up(equivalent)
+        backend._proposal = rk_core.propose(
+            policy, backend._proposal, backend._accepted_norms
+        )
+        backend._take_step_stats()
+        return bool(backend._natural_stop(target))
 
     def _native_run(
         self, state: dict[str, object], bounds: dict[str, object]

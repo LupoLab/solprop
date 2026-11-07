@@ -97,6 +97,9 @@ enum class FloorSite : int { none = 0, rejection = 1, start_up = 2, proposal = 3
 struct Result {
   march::Result march;
   FloorSite floor_site = FloorSite::none;
+  /** A `dense` return's pending step's equivalent norm: the last row is the step,
+      accepted and not yet finished (SEP 45 phase 4). */
+  double pending_equivalent = 0.0;
 };
 
 // The controller, solprop.stepper.controller's functions and limit_step.

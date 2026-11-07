@@ -1003,7 +1003,7 @@ native::rk::Policy rk_policy_from(const nb::dict values) {
     landings.hard_kinks = nb::cast<std::vector<double>>(values["hard_kinks"]);
     landings.breakpoints = nb::cast<std::vector<double>>(values["breakpoints"]);
     landings.landing_ulps = nb::cast<int>(values["landing_ulps"]);
-    landings.interpolate = false;
+    landings.interpolate = nb::cast<bool>(values["interpolate"]);
     landings.has_quiet_interval = !values["quiet_interval"].is_none();
     landings.quiet_interval =
         landings.has_quiet_interval ? nb::cast<double>(values["quiet_interval"]) : 0.0;
@@ -1055,6 +1055,7 @@ nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& st
                                : nb::cast(real_output(std::move(rows), n_rows));
   values["floor_proposal"] = result.floor_proposal;
   values["floor_site"] = static_cast<int>(out.floor_site);
+  values["pending_equivalent"] = out.pending_equivalent;
   values["stage"] = static_cast<int>(result.stage);
   values["category"] = static_cast<int>(result.category);
   values["message"] = result.message;

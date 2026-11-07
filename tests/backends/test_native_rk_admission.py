@@ -59,8 +59,9 @@ def launched(route: str, **settings):
     "route",
     ["gnlse", "capillary (multimode)", "radial", "capillary (coherent wall)"],
 )
-def test_the_default_loop_is_native_without_a_warning(route):
-    backend = launched(route)
+@pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
+def test_the_default_loop_is_native_without_a_warning(route, dense):
+    backend = launched(route, interpolate_planes=dense)
     try:
         with warnings.catch_warnings():
             warnings.simplefilter("error", HostMarchWarning)
@@ -78,9 +79,8 @@ def test_the_default_loop_is_native_without_a_warning(route):
             {"controller": _Scaled(rtol=1e-6, atol=0.0)},
             "controller with its own scale",
         ),
-        ("gnlse", {"interpolate_planes": True}, "interpolated planes"),
     ],
-    ids=["own scale", "interpolated planes"],
+    ids=["own scale"],
 )
 def test_an_uncovered_run_takes_the_host_loop_and_says_why(route, settings, reason):
     backend = launched(route, **settings)

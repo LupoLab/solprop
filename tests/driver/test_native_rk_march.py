@@ -51,12 +51,12 @@ UNCHECKED = {"general guide (moving)"}
 """Routes whose window the launch check refuses when run whole: built to translate."""
 
 
-def _route(route: str) -> Any:
+def _route(route: str, **options: Any) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
     settings = dataclasses.replace(
-        simulation.settings, integrator=RungeKutta(), backend="native"
+        simulation.settings, integrator=RungeKutta(), backend="native", **options
     )
     if route in UNCHECKED:
         settings = dataclasses.replace(settings, boundary_check=None)
@@ -81,13 +81,14 @@ def _run(build, march: str, monkeypatch) -> dict[str, Any]:
         "norm": np.asarray(run["step_history/norm"]),
         "accepted": np.asarray(run["step_history/accepted"]),
         "field": run.plane_field(run.n_saved - 1, "fft"),
+        "fields": np.stack([run.plane_field(i, "fft") for i in range(run.n_saved)]),
     }
 
 
 def _same(native: dict[str, Any], host: dict[str, Any]) -> None:
     assert native["march"] == "native"
     assert host["march"].startswith("host")
-    for name in ("z", "h", "norm", "accepted", "field"):
+    for name in ("z", "h", "norm", "accepted", "field", "fields"):
         np.testing.assert_array_equal(native[name], host[name], name)
     assert native["record"] == host["record"]
 
@@ -95,6 +96,15 @@ def _same(native: dict[str, Any], host: dict[str, Any]) -> None:
 @pytest.mark.parametrize("route", ROUTED)
 def test_the_native_march_takes_the_host_loop_s_steps(route, monkeypatch):
     build = lambda: _route(route)  # noqa: E731
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
+@pytest.mark.parametrize(
+    "route", ["gnlse", "capillary (mode-averaged)", "capillary (coherent wall)"]
+)
+def test_interpolated_planes_are_the_host_loop_s(route, monkeypatch):
+    """The step across a plane returns to solprop, which holds its extension."""
+    build = lambda: _route(route, interpolate_planes=True)  # noqa: E731
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 

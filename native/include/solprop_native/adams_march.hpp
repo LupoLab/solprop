@@ -252,6 +252,8 @@ enum class Reason : int {
   watch = 8,     ///< a check the march took needs solprop: a stop, a first warning,
                  ///< a change of the quiet verdict, a refused crossing (SEP 45 4.8)
   capacity = 9,  ///< the checks' readings fill the call's buffer
+  dense = 10, ///< an accepted Runge-Kutta step crosses an interpolated plane: solprop
+              ///< finishes it, holding its extension (SEP 45 phase 4)
 };
 
 /** Where a native failure happened. */

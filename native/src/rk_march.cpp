@@ -164,6 +164,10 @@ Result run(const Policy& policy, State& state, Engine& engine,
   };
   if (bounds.watch)
     watch::validate(bounds.watch_policy);
+  // Interpolated planes are stepped across: the march lands on the run's end and its
+  // kinks (`StepDriver._march_to`), and returns the step that crosses the target.
+  const bool dense = policy.landings.interpolate;
+  const double z_end = dense ? policy.landings.z_end : target;
   while (!march::reached(state.z, target, ulps)) {
     // The landing candidate: the proposal capped by the quiet collar's interval and
     // the split collar's cap, in that order; the proposal itself is unchanged.
@@ -173,7 +177,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     march::Landing stop;
     double norm = 0.0;
     try {
-      stop = march::landing(policy.landings, state.z, candidate, target);
+      stop = march::landing(policy.landings, state.z, candidate, z_end);
       norm = engine.trial(state.z, stop.dz);
     } catch (const std::exception& error) {
       fail(result, march::Stage::trial, error);
@@ -192,6 +196,13 @@ Result run(const Policy& policy, State& state, Engine& engine,
       }
       state.proposal = next;
     } else {
+      if (dense && !march::reached(target, end, ulps)) {
+        // solprop records the step's extension from the state before it, then
+        // finishes and commits it with the reference's own code.
+        result.reason = march::Reason::dense;
+        out.pending_equivalent = equivalent_norm;
+        return out;
+      }
       try {
         engine.accept(stop.dz);
       } catch (const std::exception& error) {
