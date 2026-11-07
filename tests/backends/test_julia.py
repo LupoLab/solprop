@@ -376,6 +376,8 @@ def _march(configuration, march):
         (ledger.startup, ledger.predictor, ledger.rejected, ledger.accepted_steps),
         (ledger.rejected_steps, ledger.restarts, ledger.failure_restarts),
         list(ledger.orders),
+        engine._split_removed,
+        None if engine._split_found is None else engine._split_found.tolist(),
     )
     engine.close()
     return field, record
@@ -383,12 +385,18 @@ def _march(configuration, march):
 
 @pytest.mark.parametrize(
     ("case", "fraction"),
-    [("rdw", 0.002), ("argon_blueshift", 0.002), ("ctc_reduced", 0.002)],
+    [
+        ("rdw", 0.002),
+        ("argon_blueshift", 0.002),
+        ("ctc_reduced", 0.002),
+        ("radial_filament_256", 0.002),
+    ],
 )
 def test_julia_march_is_the_python_march(runtime, monkeypatch, case, fraction):
     """Julia's Adams march takes the Python march's decisions on the same engine.
 
-    The same attempts, ledger and accepted orders, and the same field bit for bit;
+    The same attempts, ledger and accepted orders, the same split collar sums (radial),
+    and the same field bit for bit;
     estimated FFT plans, since a measured plan may differ from one process to the next.
     """
     del runtime

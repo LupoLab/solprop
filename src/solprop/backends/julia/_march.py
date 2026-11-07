@@ -14,9 +14,10 @@ new run are the reference's own. The call protocol, the bounds and the adoption 
 native's ``_NativeAdamsMarch``.
 
 A configuration the Julia march does not cover runs the Python march
-(:attr:`JuliaAdamsMarch.refusal`): a replayed schedule, a split collar, interpolated
-planes, the carrier frame, a compensated trial without an expansion's rate table, or
-``SOLPROP_JULIA_MARCH=host``.
+(:attr:`JuliaAdamsMarch.refusal`): a replayed schedule, interpolated planes, the
+carrier frame, a compensated trial without an expansion's rate table, or
+``SOLPROP_JULIA_MARCH=host``. A split collar's sums are formed from the power each
+accepted step's commit found, by the adapter, as its own commit does.
 """
 
 import logging
@@ -77,7 +78,7 @@ class JuliaAdamsMarch(AdamsMarch):
         # The driver's protected bookkeeping, which this march books into exactly as
         # solprop's does (``DRIVER_SURFACE``), as native's march reaches it.
         self._driver: Any = backend
-        self._configured: tuple[float | None] | None = None
+        self._configured: tuple[float | None, bool] | None = None
         self.refusal = self._refusal()
         """Why the Python march steps the run, or ``None`` when Julia's does."""
 
@@ -88,15 +89,12 @@ class JuliaAdamsMarch(AdamsMarch):
 
     def _refusal(self) -> str | None:
         """Return why the Julia march does not step the run, or ``None``."""
-        from solprop.backends.julia._backend import _splits  # noqa: PLC0415 - cycle
-
         problem = self._driver._problem
         engine: Any = self._engine
         reasons = (
             (os.environ.get("SOLPROP_JULIA_MARCH") == "host", "asked for"),
             (self._exponential is None, "not the exponential formulation"),
             (problem.stepper.schedule is not None, "a replayed schedule"),
-            (_splits(problem), "a split collar"),
             (self._interpolate, "interpolated planes"),
             (self._policy.carrier, "the carrier frame"),
             (
@@ -127,9 +125,14 @@ class JuliaAdamsMarch(AdamsMarch):
 
     def _configure(self) -> None:
         """Hand the engine the run's policy, again when the monitor's interval moved."""
+        from solprop.backends.julia._backend import _splits  # noqa: PLC0415 - cycle
+
         monitor = self._driver._monitor
         interval = None if monitor is None else float(monitor.interval)
-        if self._configured == (interval,):
+        split = bool(
+            _splits(self._driver._problem) and self._driver._split_monitor is not None
+        )
+        if self._configured == (interval, split):
             return
         policy = self._policy
         backend = self._driver
@@ -174,12 +177,13 @@ class JuliaAdamsMarch(AdamsMarch):
             len(problem.stepper.tableau.nodes),
             bool(backend._varying),
             bool(engine.compensated),
+            split,
             np.ascontiguousarray(edges, dtype=np.float64),
             np.ascontiguousarray(coefficients, dtype=np.float64)
             if engine.compensated
             else np.zeros((0, 0, 0)),
         )
-        self._configured = (interval,)
+        self._configured = (interval, split)
 
     def _bounds(self, target: float) -> tuple[np.ndarray, np.ndarray]:
         """Return a call's bounds: the target, and the steps the driver has work on.
@@ -330,6 +334,20 @@ class JuliaAdamsMarch(AdamsMarch):
             setattr(ledger, name, int(value))
         orders = np.asarray(result.orders).tolist()
         ledger.orders.extend(int(order) for order in orders)
+        steps = np.asarray(result.split_steps).tolist()
+        if steps:
+            # Each accepted step's split sums from the power its commit found, by the
+            # operations `JuliaBackend._finish` performs, step by step.
+            powers = np.asarray(result.split_powers)
+            monitor = backend._split_monitor
+            rate = monitor.weights[3]
+            for index, dz in enumerate(steps):
+                power = np.ascontiguousarray(powers[:, index])
+                half = power * np.exp(-0.5 * rate * dz)
+                backend._split_removed += float(power @ -np.expm1(-rate * dz))
+                backend._split_found = np.concatenate(
+                    [[half.sum()], monitor.weights[:3] @ half]
+                )
         if orders:
             # The accepted steps' commits, which the engine made: what `_finish` sets.
             backend._alarm = float(result.alarm)

@@ -59,6 +59,7 @@ struct MarchConfig{R}
     stages::Int
     varying::Bool
     compensated::Bool
+    split::Bool
     rate::R
 end
 
@@ -226,17 +227,18 @@ function march_trial!(engine, m::MarchConfig, z, dz, s)
     adams_trial!(engine, dz)
 end
 
-"""Adopt the held trial into row `free`, commit it; return its quadrature alarm."""
-function march_accept!(engine, dz, free)
+"""Adopt the held trial into row `free`, commit it; return its quadrature alarm. With
+a split collar the commit also forms the power the split finds (`split_power`)."""
+function march_accept!(engine, dz, free, split)
     adams_accept!(engine, free)
-    commit!(engine, Float64(dz), false)
+    commit!(engine, Float64(dz), split)
 end
 
 # --- the run ---------------------------------------------------------------------------
 
 """Hold a run's march configuration: the policy's numbers as `MarchPolicy` gives them."""
 function configure_march!(engine, numbers, real_intervals, save_planes, hard_kinks,
-                          breakpoints, stages, varying, compensated, rate_edges, rate_c)
+                          breakpoints, stages, varying, compensated, split, rate_edges, rate_c)
     f = Vector{Float64}(numbers)
     policy = Policy(Int(f[1]), f[2] != 0, f[3], f[4], f[5], f[6], f[7], Int(f[8]), f[9],
                     Vector{Float64}(real_intervals), f[10], f[11] != 0, Int(f[12]),
@@ -246,7 +248,7 @@ function configure_march!(engine, numbers, real_intervals, save_planes, hard_kin
     rate = compensated ? (edges=Vector{Float64}(rate_edges), c=Array{Float64,3}(rate_c)) :
            nothing
     engine.work.march[] = MarchConfig(policy, Int(stages), Bool(varying), Bool(compensated),
-                                      rate)
+                                      Bool(split), rate)
     nothing
 end
 
@@ -281,6 +283,8 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
     rows, orders = Float64[], Int[]
     reason, cost, floor_proposal, stage, category, message = REACHED, 0, 0.0, STAGE_NONE, 0, ""
     alarm, alarm_z, first_alarm = NaN, NaN, NaN
+    # Each accepted step's split power and length, for the adapter's split sums.
+    split_powers, split_steps = Vector{Float64}[], Float64[]
     accepted = 0
     elapsed() = time() - started
     record(finish, dz, norm, kept, o) =
@@ -363,7 +367,11 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
             end
             failed = false
             try
-                alarm = march_accept!(engine, step.dz, free)
+                alarm = march_accept!(engine, step.dz, free, m.split)
+                if m.split
+                    push!(split_powers, split_power(engine))
+                    push!(split_steps, step.dz)
+                end
             catch error
                 fail(ACCEPT, error)
                 failed = true
@@ -418,7 +426,9 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
      history_z=hz, history_predicted=hp, history_row=hr, ledger=ledger, rows=rows,
      orders=orders, reason=reason, cost=cost, floor_proposal=floor_proposal, stage=stage,
      category=category, message=message, alarm=alarm, alarm_z=alarm_z,
-     first_alarm=first_alarm)
+     first_alarm=first_alarm,
+     split_powers=isempty(split_powers) ? zeros(0, 0) : reduce(hcat, split_powers),
+     split_steps=split_steps)
 end
 
 const configure_march_b = configure_march!
