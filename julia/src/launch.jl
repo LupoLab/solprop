@@ -19,9 +19,18 @@ oncpu(c) = c.backend isa KA.CPU
 
 """Put a host array on the engine's device, owning it on the CPU too."""
 upload(::KA.CPU, a::Array) = a
-upload(backend, a::Array) = copyto!(KA.allocate(backend, eltype(a), size(a)), a)
+upload(backend, a::Array) = (tally!(:upload); copyto!(KA.allocate(backend, eltype(a), size(a)), a))
 upload(c::NamedTuple, a::Array) = upload(c.backend, a)
 dzeros(c, T, dims...) = KA.zeros(c.backend, T, dims...)
+
+# Development counters (SOLPROP_JULIA_COUNT=1 when the module loads): a device's kernel
+# launches, the values the host waits for, uploads, products and scratch allocations,
+# by kind. Off, `tally!` costs one branch.
+const COUNT = Ref(false)
+const COUNTS = Dict{Symbol,Int}()
+@inline tally!(kind::Symbol, n=1) = (COUNT[] && (COUNTS[kind] = get(COUNTS, kind, 0) + n); nothing)
+counts() = Dict(String(k) => v for (k, v) in COUNTS)
+clear_counts() = (empty!(COUNTS); nothing)
 
 # Below this many samples one pass is faster on one thread than split over tasks
 # (julia/bench/launch.jl: a Kerr pass over 10240 x 4 takes 8.5 us on one thread of the
@@ -93,6 +102,7 @@ KA.@kernel inbounds = true function each_kernel!(f)
     f(t, m)
 end
 function each_on!(f::F, backend, tasks, nt, nm, heavy) where {F}
+    tally!(:launch)
     each_kernel!(backend, (256, 1))(f; ndrange=(nt, nm))
     nothing
 end
@@ -100,7 +110,7 @@ end
 """A device scratch array the engine keeps (`c.scratch`), by its use, type and shape: a
 GPU's pool allocations a trial were dozens."""
 scratch(c, use::Symbol, T, dims...) =
-    get!(() -> KA.allocate(c.backend, T, dims...), c.scratch, (use, T, dims))
+    get!(() -> (tally!(:scratch_alloc); KA.allocate(c.backend, T, dims...)), c.scratch, (use, T, dims))
 
 """`f(t, m)` at every sample, into a device scratch matrix of `out`'s element type, for
 a device reduction over its rows or columns."""
@@ -120,6 +130,7 @@ function each_column!(f::F, c, nm::Integer) where {F}
             @inline f(m)
         end
     else
+        tally!(:launch)
         AK.foreachindex(f, 1:Int(nm); backend=c.backend, block_size=64)
     end
     nothing
@@ -147,6 +158,7 @@ function rowsum!(f::F, c, out, nt::Integer, nm::Integer) where {F}
         # terms fill a scratch matrix in parallel and the device's reduction sums it.
         scratch = reduce_terms(f, c, out, nt, nm)
         total = SolpropJulia.scratch(c, :rows, eltype(out), nt, 1)
+        tally!(:launch, 2)
         sum!(total, scratch)
         out .+= vec(total)
     end
@@ -175,6 +187,7 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
         end
         return foldl(op, partials; init=neutral)
     end
+    tally!(:readback)
     if heavy
         # A heavy body a thread: AK's reduction gives each thread several elements
         # (six blocks for rdw's 10244, its predictor 539 us a trial on an A40), so the
@@ -309,6 +322,7 @@ function gemm!(C, A, B, alpha, beta, c)
         return gemm!(real_rows(C), real_rows(A), B, alpha, beta, c)
     end
     if !oncpu(c)
+        tally!(:gemm)
         A, B = dense(c, A, :gemm_a), dense(c, B, :gemm_b)
     end
     if oncpu(c) && eltype(C) <: Real && (size(B, 2) <= THIN || size(B, 1) <= THIN)
@@ -329,9 +343,20 @@ scratch: Metal.jl's product of one takes a generic kernel, about 240 us for 1638
 x 8 on the M5 Max against 65 to 140 us copied first."""
 function dense(c, X::SubArray{<:Any,2}, use)
     strides(X) == (1, size(X, 1)) && return X
+    tally!(:dense_copy)
     copyto!(scratch(c, use, eltype(X), size(X)...), X)
 end
 dense(c, X, use) = X
+
+"""Rows `first:last` of a constant table (a projection), for a product: a view on a CPU;
+on a GPU a contiguous copy, made once and kept in `c.scratch`, since a product with a
+strided operand there takes a generic kernel or a copy every call (`dense`)."""
+function table_rows(c, table, first, last)
+    oncpu(c) && return @view(table[first:last, :])
+    first == 1 && last == size(table, 1) && return table
+    get!(() -> (tally!(:scratch_alloc); copy(@view(table[first:last, :]))),
+         c.scratch, (:table_rows, objectid(table), first, last))
+end
 
 """A product's thin side, at most this many columns or inner terms: a loop, not BLAS."""
 const THIN = 8

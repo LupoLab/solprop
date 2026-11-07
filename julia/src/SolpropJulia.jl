@@ -53,6 +53,7 @@ real_type(engine) = real(eltype(engine.work.y))
 # Read at load, not at precompilation: a constant would be baked into the cache.
 function __init__()
     TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"
+    COUNT[] = get(ENV, "SOLPROP_JULIA_COUNT", "0") == "1"
     CHECK[] = get(ENV, "SOLPROP_JULIA_CHECK", "0") == "1"
     SAMPLE_PLASMA[] = get(ENV, "SOLPROP_JULIA_PLASMA", "columns") == "samples"
     nothing
@@ -188,6 +189,7 @@ function reset_work!(engine)
     foreach(buffer -> fill!(buffer, 0), buffers)
     engine.fsal_valid, engine.calls, engine.propagator_dz = false, 0, NaN
     TIMING[] && empty!(TIMES)
+    COUNT[] && empty!(COUNTS)
     nothing
 end
 

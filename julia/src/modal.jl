@@ -132,9 +132,9 @@ function source!(engine, lab; quadrature=false)
             end
             products && @section :raman raman_nodal!(w.raman, first, last, c)
             node_response!(engine, count)
-            @section :projection gemm!(w.projected, nodes, @view(c.projection[first:last, :]), true, true, c)
+            @section :projection gemm!(w.projected, nodes, table_rows(c, c.projection, first, last), true, true, c)
             quadrature && c.embedded &&
-                gemm!(w.projected_coarse, nodes, @view(c.projection_coarse[first:last, :]), true, true, c)
+                gemm!(w.projected_coarse, nodes, table_rows(c, c.projection_coarse, first, last), true, true, c)
         end
     end
     if w.plasma === nothing
@@ -257,9 +257,9 @@ function source_spectral!(engine, lab, quadrature)
         @section :forward_fft mul!(node_fine, w.node_forward, nodes)
         @section :plasma_spectrum spectral_plasma!(node_band, node_fine, w.plasma, w.node_forward, c)
         @section :projection begin
-            gemm!(band_source, band, @view(c.projection[first:last, :]), true, true, c)
+            gemm!(band_source, band, table_rows(c, c.projection, first, last), true, true, c)
             quadrature && c.embedded &&
-                gemm!(band_coarse, band, @view(c.projection_coarse[first:last, :]), true, true, c)
+                gemm!(band_coarse, band, table_rows(c, c.projection_coarse, first, last), true, true, c)
         end
     end
     loss = nothing

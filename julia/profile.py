@@ -46,6 +46,7 @@ def profile(row: dict) -> None:
         Main.seval("using Profile; Profile.init(n=10^7, delay=0.0005)")
         Main.seval("Profile.clear(); Profile.start_timer()")
     jl.clear_timings()
+    jl.clear_counts()
     record, _ = timed_run(
         simulation, problem, engine, retention, simulation._boundary_monitor()
     )
@@ -63,6 +64,11 @@ def profile(row: dict) -> None:
     )
     for name in sorted(times, key=lambda n: -float(times[n])):
         sys.stdout.write(f"  {name:>18} {float(times[name]):8.4f} s\n")
+    # SOLPROP_JULIA_COUNT=1: the device's launches, waits and allocations a step.
+    counts = {str(k): int(v) for k, v in jl.counts().items()}
+    steps = max(int(record["accepted"]), 1)
+    for name in sorted(counts):
+        sys.stdout.write(f"  {name:>18} {counts[name] / steps:8.1f} a step ({counts[name]})\n")
     engine.close()
 
 

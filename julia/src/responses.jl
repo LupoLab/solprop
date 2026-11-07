@@ -337,6 +337,7 @@ function integrate_samples!(out, values, taps, dt, c, count)
         @inbounds out[t, n] = t == 1 ? none :
                               half * (filtered(values, t, n, taps) + filtered(values, t - 1, n, taps))
     end
+    tally!(:scan)
     AK.accumulate!(+, @view(out[:, 1:count]); dims=1, init=zero(dt), backend=c.backend)
     nothing
 end
@@ -409,9 +410,9 @@ function project_plasma!(p, c, first, last, quadrature)
     count = last - first + 1
     for (values, full, coarse) in ((p.gated, p.projected, p.coarse), (p.edge, p.edge_projected, p.coarse_edge))
         block = @view values[:, 1:count]
-        gemm!(full, block, @view(c.projection[first:last, :]), true, true, c)
+        gemm!(full, block, table_rows(c, c.projection, first, last), true, true, c)
         quadrature && c.embedded &&
-            gemm!(coarse, block, @view(c.projection_coarse[first:last, :]), true, true, c)
+            gemm!(coarse, block, table_rows(c, c.projection_coarse, first, last), true, true, c)
     end
 end
 
