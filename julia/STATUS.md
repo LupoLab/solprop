@@ -65,20 +65,22 @@ Julia's window time over native's, 2 % of each case, both arms in one interprete
 same steps and binary64 fields equal to rounding (1e-13 or better); the ledger has the
 seconds, the machines and the earlier rows.
 
-| case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 | MI325X, binary64 |
-|---|---:|---:|---:|---:|---:|
-| rdw | 1.54 | 1.14 | 2.53 | 3.27 | 2.03 |
-| argon_blueshift | 1.77 | 1.30 | 2.89 | 2.39 | 2.33 |
-| h2_raman_6ps | 1.25 | 0.86 | 1.14 | 0.65 | 1.71 |
-| ctc_reduced | 1.85 | 1.01 | 1.56 | 1.53 | 2.27 |
-| radial_filament_256 | 1.02 | 1.52 | 2.97 | 2.37 | 4.85 |
-| kerr_beam_192 | 1.12 | 1.11 | 3.28 | 3.52 | 3.44 |
-| line | 1.20 | 1.17 | 2.84 | 2.20 | 1.89 |
+| case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 | H200 | MI325X |
+|---|---:|---:|---:|---:|---:|---:|
+| rdw | 1.54 | 1.14 | 2.39 | 3.05 | 2.02 | 2.03 |
+| argon_blueshift | 1.77 | 1.30 | 2.78 | 2.24 | 2.56 | 2.33 |
+| h2_raman_6ps | 1.25 | 0.86 | 1.08 | 0.66 | 1.96 | 1.71 |
+| ctc_reduced | 1.85 | 1.01 | 1.48 | 1.49 | 1.98 | 2.27 |
+| radial_filament_256 | 1.02 | 1.52 | 2.81 | 2.27 | 4.42 | 4.85 |
+| kerr_beam_192 | 1.12 | 1.11 | 3.13 | 3.63 | 1.69 | 3.44 |
+| line | 1.20 | 1.17 | 2.60 | 2.24 | 2.92 | 1.89 |
 
-Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine) at commit `50158fa6`,
-geometric mean 1.25; NVIDIA A40 against native's CUDA build at `cfa14ce7`, 2.32 and
-2.03; AMD Instinct MI325X against native's HIP build at `196baa51`, 2.48, before the
-GPU's column reductions. Binary32 is against native's binary64. Ratios measured before
+Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine), the NVIDIA A40 and the
+NVIDIA H200 (binary64) against native's CUDA builds, all at commit `50158fa6`: geometric
+means 1.25, 2.19 (binary32 1.99) and 2.39; the AMD Instinct MI325X (binary64) against
+native's HIP build at `196baa51`, before the GPU's column reductions, 2.48. On GPUs with
+full-rate binary64 the windows are host-bound (the launches, copies and allocations a
+step), which is what is left there. Binary32 is against native's binary64. Ratios measured before
 the harness fix (#557) counted 0.18 s of metadata on both arms and are not comparable.
 
 ## What is left, measured

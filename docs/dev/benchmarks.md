@@ -2994,6 +2994,27 @@ Geometric means 2.32 and 2.03. One binary32 `argon_blueshift` round hung until t
 worker's timeout (the other ran at 2.39); `rdw`'s binary64 field differed from native's
 by 1.8e-11, the reordered reduction of the Adams norms, with the same steps.
 
+**NVIDIA H200** (a rented droplet, CUDA 13.1, driver 580.196), native's CUDA build
+(HOPPER90) against `julia` with CUDA.jl on the system toolkit (`bootstrap.py
+--cuda-local`), `--device`, two rounds, binary64, commit `50158fa6`; every row took
+native's steps with its fields to rounding:
+
+| case | native, s | julia, s | ratio |
+|---|---:|---:|---:|
+| `rdw` | 0.036 | 0.073 | 2.02 |
+| `argon_blueshift` | 0.066 | 0.169 | 2.56 |
+| `h2_raman_6ps` | 0.217 | 0.426 | 1.96 |
+| `ctc_reduced` | 0.067 | 0.134 | 1.98 |
+| `radial_filament_256` | 0.058 | 0.257 | 4.42 |
+| `kerr_beam_192` | 0.181 | 0.307 | 1.69 |
+| `line` | 0.058 | 0.170 | 2.92 |
+
+Geometric mean 2.39. On a GPU with full-rate binary64 the windows are host-bound: Nsight
+Systems finds radial's kernels about 26 ms of its 0.257 s window, against 4800 launches,
+670 device-to-host copies and 2300 pool allocations for two runs, and radial's split
+collar keeps the Python march. Without `--cuda-local` CUDA.jl's own cuBLAS met the
+system one native had loaded and every modal window crashed.
+
 **AMD Instinct MI325X** (a rented droplet, ROCm 10.0), native's HIP build (gfx942)
 against `julia` with `SOLPROP_JULIA_DEVICE=rocm` (AMDGPU.jl 2.11), `--device`, two
 rounds, commit `196baa51`. The first run of the AMDGPU extension: the device tests
