@@ -333,3 +333,18 @@ def test_a_basis_with_no_plain_energy_gives_its_physical_one(
     monkeypatch.setattr(results, "physical_energy", lambda *_a, **_k: 1.5e-9)
     reply = results.plane({"path": str(path), "index": 1})
     assert reply["energy"] == 1.5e-9
+
+
+def test_figures_can_come_back_as_bytes(run: str, tmp_path: Path):
+    given = ask(
+        "result_figure",
+        {"path": run, "file": str(tmp_path / "f.svg"), "plot": "spec_1d", "bytes": 1},
+    )
+    assert [figure["name"] for figure in given] == ["f.svg"]
+    assert bytes(given[0]["data"][:5]) in {b"<?xml", b"<svg "}
+    assert not (tmp_path / "f.svg").exists()  # given back, not written
+    several = ask(
+        "result_figure",
+        {"path": run, "file": str(tmp_path / "s"), "plot": "plot_stats", "bytes": True},
+    )
+    assert all(figure["data"].size for figure in several)

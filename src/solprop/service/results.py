@@ -723,34 +723,47 @@ def _energy_of(handler: Output, index: int, modes: ModeSelection) -> float:
         return float(physical_energy(handler, plane=index))
 
 
-def figure(payload: Payload) -> list[str]:
-    """Write one of solprop's plots of a file as figures.
+def figure(payload: Payload) -> list[str] | list[dict[str, object]]:
+    """Draw one of solprop's plots of a file as figures, written or given back.
 
     Parameters
     ----------
     payload : Mapping
         ``path`` (the results file), ``file`` (the figure, ``.png``, ``.svg`` or
-        ``.pdf``), and the plot's own keys (:func:`_drawn`).
+        ``.pdf``), the plot's own keys (:func:`_drawn`), and optionally ``bytes``:
+        give the figures back rather than write them, so a window can save a figure
+        of a file on another machine where it likes.
 
     Returns
     -------
-    list of str
+    list of str or list of dict
         The figures written: the file, or for several figures the file's name
-        numbered (``maps-1.pdf``, ``maps-2.pdf``).
+        numbered (``maps-1.pdf``, ``maps-2.pdf``); with ``bytes``, each figure's
+        ``name`` (so numbered) and ``data`` (its bytes, as ``uint8``).
     """
+    import io  # noqa: PLC0415 - only here
+
     target = Path(str(payload["file"]))
     with open_file(str(payload["path"])) as handler:
         drawn = _drawn(handler, payload)
-    written = []
+    written: list[str] = []
+    given: list[dict[str, object]] = []
     for number, one in enumerate(drawn, start=1):
         path = (
             target
             if len(drawn) == 1
             else target.with_name(f"{target.stem}-{number}{target.suffix}")
         )
-        one.savefig(path, dpi=200)
-        written.append(str(path))
-    return written
+        if payload.get("bytes"):
+            buffer = io.BytesIO()
+            kind = path.suffix.lstrip(".").lower() or "png"
+            one.savefig(buffer, dpi=200, format=kind)
+            data = np.frombuffer(buffer.getvalue(), dtype=np.uint8)
+            given.append({"name": path.name, "data": data})
+        else:
+            one.savefig(path, dpi=200)
+            written.append(str(path))
+    return given if payload.get("bytes") else written
 
 
 def scan_overview(payload: Payload) -> dict[str, object]:

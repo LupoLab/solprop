@@ -9,11 +9,12 @@ nothing that builds), so the window's process may use them as freely as the kern
 """
 
 import re
+from collections.abc import Mapping
 from typing import Final
 
 from solprop.recipe.document import dump_text, parse_text
 
-__all__ = ["BEAM_ROUTES", "split", "without_table"]
+__all__ = ["BEAM_ROUTES", "data_files", "split", "without_table"]
 
 BEAM_ROUTES: Final = frozenset({"radial", "free", "planar"})
 """The routes of a beam in free space, whose files solprop reads by its spatial readers
@@ -76,3 +77,46 @@ def without_table(text: str, table: str) -> str:
         return text
     tables = {name: values for name, values in document.items() if name != table}
     return dump_text(tables)
+
+
+def data_files(text: str) -> list[str]:
+    r"""Return the data files a recipe reads, as it names them.
+
+    A data file is written in a recipe as a table of its ``file`` (relative to the
+    recipe's folder) and its ``sha256``; a run on another machine needs a copy of each
+    beside its recipe (design 13.4).
+
+    Parameters
+    ----------
+    text : str
+        The recipe.
+
+    Returns
+    -------
+    list of str
+        Each file once, in the order the recipe gives them.
+
+    Examples
+    --------
+    >>> text = '[recipe]\nformat = 1\nroute = "gnlse"\n\n[build]\n'
+    >>> text += 'pulses = [{ type = "load_spectrum", path = '
+    >>> text += '{ file = "spectrum.txt", sha256 = "%s" } }]\n' % ("0" * 64)
+    >>> data_files(text)
+    ['spectrum.txt']
+    """
+    found: list[str] = []
+
+    def walk(value: object) -> None:
+        """Add the references inside a value, depth first."""
+        if isinstance(value, Mapping):
+            file = value.get("file")
+            if "sha256" in value and isinstance(file, str) and file not in found:
+                found.append(file)
+            for item in value.values():
+                walk(item)
+        elif isinstance(value, list):
+            for item in value:
+                walk(item)
+
+    walk(dict(parse_text(text)))
+    return found

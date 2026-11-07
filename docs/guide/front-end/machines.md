@@ -71,9 +71,16 @@ They come from the run's record on the machine, so nothing is lost while you are
 - A Slurm job is sent `SIGTERM` two minutes before its time limit, so solprop writes
   where the run stood. **Resume** then continues it as a new job.
 
+A data file the setup reads (a measured spectrum, say) is copied beside the run on the
+machine before it starts, and the run reads it from there. It has to be in the setup's
+own folder, as a run on your computer requires.
+
 Setting up, checking and the sheet's numbers stay on your computer. A results file on
 the machine is read there: the Analyse pages ask the machine and get back only what
-they draw, so a large file is never copied to look at it.
+they draw, so a large file is never copied to look at it. **Export → Publication
+figure…** draws the figure on the machine and saves it on your computer, and **Export
+→ A copy of the results file…** copies the file itself to your computer, as it does a
+run of your own.
 
 A scan run on a machine runs its points in a pool of processes, sized to the CPUs and
 memory the machine or the Slurm job gives it. One job on a cluster node of 64 cores
@@ -90,9 +97,11 @@ when it started:
 | **starting** | Started, and nothing recorded yet |
 | **running** | Going; *stopping* once asked to stop |
 | **finished**, **stopped**, **failed** | Ended, as the run recorded |
-| **lost** | Ended without saying how: its process went, or its job ended or was cancelled first. Its file may still be resumable |
+| **lost** | Ended without saying how: its process went, or its job ended or was cancelled first. Its file may still be resumable: **Resume** asks solprop |
 
 **Open** follows a run that is going, or reads the results of one that has ended.
+**Resume** continues a run that stopped, or ended early, from where solprop says it
+can, on its machine, and follows it.
 **Stop** asks a run to stop. **Cancel job** ends its Slurm job or its process at once;
 solprop still writes where the run stood. **Fetch a copy** copies a run's results file
 to your computer, under a folder named for the machine in your workspace, and opens

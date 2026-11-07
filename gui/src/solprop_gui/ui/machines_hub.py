@@ -22,6 +22,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from PySide6.QtCore import QObject, QSettings, Signal
 from solprop.service.machines import CHUNK, LOCAL, Connection, Machine
 from solprop.service.messages import Event, Reply, Request, ServiceError
@@ -29,6 +30,29 @@ from solprop.service.messages import Event, Reply, Request, ServiceError
 __all__ = ["MachineHub", "MachineRun", "MachineStore"]
 
 _KEY = "machines"
+
+
+def _copy_to(connection: Connection, local: Path, remote: str) -> None:
+    """Copy one file to a machine through its helper, piece by piece.
+
+    Parameters
+    ----------
+    connection : solprop.service.machines.Connection
+        The machine's connection.
+    local : pathlib.Path
+        The file here.
+    remote : str
+        Where it goes there.
+    """
+    with local.open("rb") as stream:
+        append = False
+        while True:
+            data = stream.read(CHUNK)
+            piece = np.frombuffer(data, dtype=np.uint8)
+            connection.call("put", {"path": remote, "data": piece, "append": append})
+            append = True
+            if len(data) < CHUNK:
+                return
 
 
 class MachineStore:
@@ -357,6 +381,50 @@ class MachineHub(QObject):
 
         self._pool.submit(ask)
 
+    def call_after_copies(
+        self,
+        name: str,
+        copies: list[tuple[Path, str]],
+        kind: str,
+        body: Mapping[str, object],
+        done: Callable[[object, object], None],
+    ) -> None:
+        """Copy files to a machine, piece by piece, then send a request.
+
+        Parameters
+        ----------
+        name : str
+            The machine.
+        copies : list of tuple
+            Each file here, and where it goes there.
+        kind : str
+            The request sent once every file is there.
+        body : Mapping
+            Its body.
+        done : Callable
+            Called on the window's thread with the request's value and ``None``, or
+            ``None`` and the error's text (a copy's or the request's).
+        """
+        token = next(self._tokens)
+        self._callbacks[token] = done
+
+        def work() -> None:
+            """Copy each file, then ask."""
+            connection = self.connections.get(name)
+            try:
+                if connection is None:
+                    msg = f"{name} is not a machine the window uses"
+                    raise ServiceError(msg)
+                for local, remote in copies:
+                    _copy_to(connection, local, remote)
+                value = connection.call(kind, body)
+            except (ServiceError, OSError) as error:
+                self._answered(token, None, str(error))
+                return
+            self._answered(token, value, None)
+
+        self._pool.submit(work)
+
     def _answered(self, token: int, value: object, error: object) -> None:
         """Hand an answer to the window's thread, unless the hub has closed.
 
@@ -571,6 +639,38 @@ class MachineHub(QObject):
 
         self._pool.submit(copy)
         return cancelled
+
+    def copy_here(
+        self, source: Path, target: Path, done: Callable[[object, object], None]
+    ) -> None:
+        """Copy a file of this computer's on a thread of the hub's.
+
+        Parameters
+        ----------
+        source : pathlib.Path
+            The file.
+        target : pathlib.Path
+            Where the copy goes.
+        done : Callable
+            Called on the window's thread with the copy's path and ``None``, or
+            ``None`` and the error's text.
+        """
+        import shutil  # noqa: PLC0415 - only here
+
+        token = next(self._tokens)
+        self._callbacks[token] = done
+
+        def copy() -> None:
+            """Copy the file."""
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(source, target)
+            except OSError as error:
+                self._answered(token, None, str(error))
+                return
+            self._answered(token, str(target), None)
+
+        self._pool.submit(copy)
 
     def close(self) -> None:
         """Close every connection, now; the machines' runs go on."""

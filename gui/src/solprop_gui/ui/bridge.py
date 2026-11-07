@@ -22,17 +22,26 @@ them as signals, which Qt queues to the window's thread. The window never waits.
 
 import itertools
 from collections.abc import Mapping
+from dataclasses import replace
+from pathlib import Path, PurePosixPath
 from typing import Final
 
 from PySide6.QtCore import QObject, Signal
 from solprop.service.client import KernelClient, ReplyFilter
 from solprop.service.machines import Machine
-from solprop.service.messages import Event, Reply, Request
+from solprop.service.messages import Event, Reply, Request, ServiceError
+from solprop.service.recipes import data_files
 from solprop.service.worker import RunSpec, spec_value
 
 from solprop_gui.ui.machines_hub import MachineHub, MachineRun
 
-__all__ = ["HERE_PERIOD", "THERE_PERIOD", "ServiceBridge", "follow_period"]
+__all__ = [
+    "HERE_PERIOD",
+    "THERE_PERIOD",
+    "ServiceBridge",
+    "data_copies",
+    "follow_period",
+]
 
 HERE_PERIOD: Final = 0.1
 """How often a run on this computer is read for new events, s: about one read in ten
@@ -40,6 +49,48 @@ frames of the live view, at a few hundredths of a percent of a core."""
 
 THERE_PERIOD: Final = 0.5
 """How often a run on another machine is read for new events, s."""
+
+
+def data_copies(spec: RunSpec) -> list[tuple[Path, str]]:
+    """Return the data files a run's recipe reads, and where each goes on its machine.
+
+    Each file is copied beside the run's recipe, in its folder there, under the name
+    the recipe gives it.
+
+    Parameters
+    ----------
+    spec : solprop.service.worker.RunSpec
+        The run; its ``base`` is where its files are here, its folder is there.
+
+    Returns
+    -------
+    list of tuple
+        Each file here, and its path there.
+
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        For a file that is not here, or that the recipe names outside its folder.
+
+    Examples
+    --------
+    >>> data_copies(RunSpec("r1", "/runs/r1", recipe=None))
+    []
+    """
+    if spec.recipe is None:
+        return []
+    base = Path(spec.base or ".").expanduser().resolve()
+    copies: list[tuple[Path, str]] = []
+    for name in data_files(spec.recipe):
+        local = (base / name).resolve()
+        if not local.is_relative_to(base) or Path(name).is_absolute():
+            msg = f"the data file {name!r} is outside the recipe's folder: copy it in"
+            raise ServiceError(msg)
+        if not local.is_file():
+            msg = f"the data file {name!r} is not in {base}"
+            raise ServiceError(msg)
+        copies.append((local, str(PurePosixPath(spec.folder) / PurePosixPath(name))))
+    return copies
 
 
 def follow_period(machine: Machine) -> float:
@@ -238,9 +289,18 @@ class ServiceBridge(QObject):
             Its handle, whose events arrive through :attr:`run_event`.
         """
         self.hub.ensure(machine)
+        copies: list[tuple[Path, str]] = []
         if not machine.local:
             # A run of this computer's is read by the window's own kernel.
             self.remote_folders[spec.folder] = machine.name
+            try:
+                copies = data_copies(spec)
+            except ServiceError as error:
+                data = {"path": f"{spec.folder}/run.h5", "message": str(error)}
+                self.run_event.emit(Event(spec.run_id, "failed", data))
+                return self.hub.follow(machine.name, spec.folder, send=False)
+            # Its data files go beside it, and it reads them from there.
+            spec = replace(spec, base=spec.folder)
         body = {
             "spec": spec_value(spec),
             "launcher": machine.launcher,
@@ -268,7 +328,7 @@ class ServiceBridge(QObject):
         run = self.hub.follow(
             machine.name, spec.folder, period=follow_period(machine), send=False
         )
-        self.hub.call(machine.name, "start", body, started)
+        self.hub.call_after_copies(machine.name, copies, "start", body, started)
         self.runs[spec.run_id] = run
         return run
 

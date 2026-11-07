@@ -142,11 +142,15 @@ class RunsWindow(QWidget):
     ----------
     open_wanted : Signal
         Emitted with a machine and a run's summary when the run is to be opened.
+    resume_wanted : Signal
+        Emitted with a machine and a run's summary when an ended run is to be
+        continued.
     fetched : Signal
         Emitted with a copy's path once a run's results are copied here.
     """
 
     open_wanted = Signal(object, object)
+    resume_wanted = Signal(object, object)
     fetched = Signal(str)
 
     def __init__(
@@ -191,6 +195,7 @@ class RunsWindow(QWidget):
         row = QHBoxLayout()
         for name, action in (
             ("Open", self._open),
+            ("Resume", self._resume),
             ("Stop", self._stop),
             ("Cancel job", self._cancel),
             ("Fetch a copy", self._fetch),
@@ -369,6 +374,8 @@ class RunsWindow(QWidget):
         going = run.get("state") in _GOING
         remote = chosen is not None and not chosen[0].local
         self.buttons["Open"].setEnabled(chosen is not None)
+        resumable = run.get("state") in {"stopped", "lost", "failed"}
+        self.buttons["Resume"].setEnabled(resumable and bool(run.get("output")))
         self.buttons["Stop"].setEnabled(going and run.get("record", False))
         self.buttons["Cancel job"].setEnabled(going and run.get("record", False))
         self.buttons["Fetch a copy"].setEnabled(remote and bool(run.get("output")))
@@ -379,6 +386,12 @@ class RunsWindow(QWidget):
         chosen = self.selected()
         if chosen is not None:
             self.open_wanted.emit(*chosen)
+
+    def _resume(self) -> None:
+        """Continue the selected run, which has ended, on its machine."""
+        chosen = self.selected()
+        if chosen is not None:
+            self.resume_wanted.emit(*chosen)
 
     def _act(self, kind: str) -> None:
         """Send a request about the selected run to its machine.

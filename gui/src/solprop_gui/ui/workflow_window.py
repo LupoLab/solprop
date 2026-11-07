@@ -1399,6 +1399,7 @@ class WorkflowWindow(QMainWindow):
                 self,
             )
             self.runs_window.open_wanted.connect(self.open_run)
+            self.runs_window.resume_wanted.connect(self.resume_run)
             self.runs_window.fetched.connect(self.open_results)
         self.runs_window.show()
         self.runs_window.raise_()
@@ -1457,6 +1458,23 @@ class WorkflowWindow(QMainWindow):
             self.bridge.hub.ensure(machine)
             self.bridge.know_folder(machine.name, str(run["folder"]))
         self.open_results(str(output))
+
+    def resume_run(self, machine: Machine, run: Mapping[str, object]) -> None:
+        """Continue a run of the Runs window, and follow it.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            Its machine.
+        run : Mapping
+            Its summary.
+        """
+        if not self._may_leave_run():
+            return
+        if self.run_panel.resume_on(machine, run):
+            self.has_run = True
+            self._own_run = False
+            self.show_stage(Stage.RUN)
 
     def notify(self, text: str) -> None:
         """Show a passing notice at the foot of the window.

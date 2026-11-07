@@ -131,6 +131,8 @@ class RunPanel(QWidget):
         # Whether a run on this computer stops when the window's process has gone
         # (a crash or a kill included); by default it goes on, found again later.
         self.tie_to_window = False
+        # Continue the run once solprop says it can (Resume from the Runs window).
+        self._resume_when_checked = False
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
@@ -569,6 +571,38 @@ class RunPanel(QWidget):
         self._update_buttons()
         return True
 
+    def resume_on(self, machine: Machine, run: Mapping[str, object]) -> bool:
+        """Continue an ended run of a machine's, once solprop there says it can.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            Its machine, this computer included.
+        run : Mapping
+            The run, as the machine lists it: ``run_id``, ``folder`` and ``output``.
+
+        Returns
+        -------
+        bool
+            Whether it was asked; not while a run of the panel's own goes.
+        """
+        if self.active or not run.get("output"):
+            return False
+        self.run_machine = None if machine.local else machine
+        self.run_id = str(run["run_id"])
+        self.folder = self._place(str(run["folder"]))
+        self.state = ExecutionState.STOPPED  # an ended run, the panel's now
+        if not machine.local:
+            self.bridge.know_folder(machine.name, str(run["folder"]))
+            self.bridge.hub.ensure(machine)
+        self._resume_when_checked = True
+        self.state_label.setText(f"{self.run_id}: asking whether it can continue")
+        request = self.bridge.request(
+            "check_resume", {"path": str(run["output"])}, key="panel-resume"
+        )
+        self._pending[request] = "check_resume"
+        return True
+
     def stop(self) -> None:
         """Ask the run to stop at its next step, through solprop's stop flag."""
         if self.client is None or not self.active:
@@ -789,15 +823,22 @@ class RunPanel(QWidget):
             self._show_estimate(reply)
         elif kind == "check_resume":
             value = reply.value if reply.ok else None
+            resume, self._resume_when_checked = self._resume_when_checked, False
             if isinstance(value, dict) and value.get("resumable"):
                 self.resume_mode = value.get("mode")
                 self.resume_action.setToolTip(
                     f"Continue from z = {value.get('z'):.4g} m."
                 )
+                if resume:
+                    self.view.clear()
+                    self.log.clear()
+                    self.resume()
             else:
                 self.resume_mode = None
                 reason = value.get("reason") if isinstance(value, dict) else reply.error
                 self.resume_action.setToolTip(f"Cannot resume: {reason}")
+                if resume:
+                    self.state_label.setText(f"{self.run_id} cannot continue: {reason}")
             self._update_buttons()
 
     def _show_estimate(self, reply: Reply) -> None:
