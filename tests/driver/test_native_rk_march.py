@@ -47,13 +47,20 @@ ROUTED = (
 and no transverse edge."""
 
 
+UNCHECKED = {"general guide (moving)"}
+"""Routes whose window the launch check refuses when run whole: built to translate."""
+
+
 def _route(route: str) -> Any:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
-    simulation.settings = dataclasses.replace(
+    settings = dataclasses.replace(
         simulation.settings, integrator=RungeKutta(), backend="native"
     )
+    if route in UNCHECKED:
+        settings = dataclasses.replace(settings, boundary_check=None)
+    simulation.settings = settings
     return simulation
 
 
