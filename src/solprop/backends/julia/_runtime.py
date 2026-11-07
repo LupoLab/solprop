@@ -75,6 +75,10 @@ def call_julia(function: Any, *args: object, nogil: bool = False) -> Any:
 
 # JuliaCall exposes dynamically compiled Julia modules, so Any is confined to its
 # boundary. Numerical arrays are converted to owned NumPy arrays by the adapter.
+_GPU_PACKAGES = {"cuda": "CUDA", "rocm": "AMDGPU"}
+"""Each GPU device's Julia package, loaded before the engine."""
+
+
 @functools.cache
 def runtime() -> Any:
     """Load the experimental Julia module from this source checkout.
@@ -138,8 +142,9 @@ def runtime() -> Any:
     import juliacall  # noqa: PLC0415 - Julia must never initialize on package import
 
     module = juliacall.newmodule("SolpropBackend")
-    if device == "cuda":
-        call_julia(module.seval, "using CUDA")
+    if device != "cpu":
+        # The GPU package first, so that SolpropJulia loads with its extension.
+        call_julia(module.seval, f"using {_GPU_PACKAGES[device]}")
     digest = source_digest()
     call_julia(module.seval, "using SolpropJulia")
     module.SolpropJulia.record_digest(digest)
