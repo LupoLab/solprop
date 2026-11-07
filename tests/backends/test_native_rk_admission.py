@@ -70,7 +70,11 @@ def test_the_default_loop_is_native_without_a_warning(route):
     ("route", "settings", "reason"),
     [
         ("capillary (coherent wall)", {}, "coupled flow"),
-        ("gnlse", {"controller": _Scaled()}, "controller with its own scale"),
+        (
+            "gnlse",
+            {"controller": _Scaled(rtol=1e-6, atol=0.0)},
+            "controller with its own scale",
+        ),
         ("gnlse", {"interpolate_planes": True}, "interpolated planes"),
     ],
     ids=["coupled flow", "own scale", "interpolated planes"],
