@@ -308,6 +308,9 @@ function gemm!(C, A, B, alpha, beta, c)
     if eltype(C) <: Complex && eltype(A) <: Complex && eltype(B) <: Real
         return gemm!(real_rows(C), real_rows(A), B, alpha, beta, c)
     end
+    if !oncpu(c)
+        A, B = dense(c, A, :gemm_a), dense(c, B, :gemm_b)
+    end
     if oncpu(c) && eltype(C) <: Real && (size(B, 2) <= THIN || size(B, 1) <= THIN)
         return thin_gemm!(C, A, B, alpha, beta, c)
     end
@@ -320,6 +323,15 @@ function gemm!(C, A, B, alpha, beta, c)
     end
     C
 end
+
+"""On a GPU, an operand that is a strided view (a range of a matrix's rows) copied into
+scratch: Metal.jl's product of one takes a generic kernel, about 240 us for 16384 x 36
+x 8 on the M5 Max against 65 to 140 us copied first."""
+function dense(c, X::SubArray{<:Any,2}, use)
+    strides(X) == (1, size(X, 1)) && return X
+    copyto!(scratch(c, use, eltype(X), size(X)...), X)
+end
+dense(c, X, use) = X
 
 """A product's thin side, at most this many columns or inner terms: a loop, not BLAS."""
 const THIN = 8

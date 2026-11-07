@@ -3174,3 +3174,9 @@ spread on one thread and on 16 (radial 0.89 on 16 the largest move). The binary3
 windows here take 2 to 3 times binary64's (`rdw` on one thread 1.43 s, 0.63 s in
 binary64 at `a6722029`), and flushing subnormals does not change that: they are not
 the cause.
+- **Metal, strided products copied first** (commit after `be94de60`, two rounds,
+  `--device`, pow2): on a GPU `gemm!` copies an operand that is a row range of a matrix
+  into scratch before the product, since Metal.jl takes a generic kernel for one (about
+  240 us for 16384 x 36 x 8 against 65 to 140 us copied). `h2_raman_6ps` 1.92 -> 1.45 s
+  (0.76; its Raman nodal products and projections), radial 0.91, the rest within their
+  rounds; the same steps. Against `mlx`'s 0.92 s, `h2_raman_6ps` is about 1.6, not 2.1.
