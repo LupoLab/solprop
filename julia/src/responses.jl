@@ -121,14 +121,38 @@ end
         scratch[i, node] = min(vexp(scratch[i, node]), cap)
     end
 end
-"""Every sample's fraction and the free current's integrand, vectorised (`vexp`)."""
+"""Every sample's fraction and the free current's integrand, vectorised (`vexp`).
+
+Before the column's support the exposure is exactly zero, and past it exactly its
+last value: each run takes the one fraction its exposure gives, formed once, so only
+the samples between take an exponential each (the values are the same bit for bit).
+"""
 @noinline function fraction_column!(fraction, integrand, nodes, node, initial, charge, floor)
     none = zero(initial)
-    @inbounds @simd for t in axes(nodes, 1)
-        exposure = floor ? max(fraction[t, node], none) : fraction[t, node]
-        value = 1 - (1 - initial) * vexp(-exposure)
+    nt = size(nodes, 1)
+    fraction_of(exposure) = 1 - (1 - initial) * vexp(-(floor ? max(exposure, none) : exposure))
+    head = 0
+    @inbounds while head < nt && iszero(fraction[head+1, node])
+        head += 1
+    end
+    tail = nt + 1
+    @inbounds last = fraction[nt, node]
+    @inbounds while tail > head + 1 && fraction[tail-1, node] === last
+        tail -= 1
+    end
+    before, after = fraction_of(none), fraction_of(last)
+    @inbounds @simd for t in 1:head
+        fraction[t, node] = before
+        integrand[t, node] = before * charge * nodes[t, node]
+    end
+    @inbounds @simd for t in head+1:tail-1
+        value = fraction_of(fraction[t, node])
         fraction[t, node] = value
         integrand[t, node] = value * charge * nodes[t, node]
+    end
+    @inbounds @simd for t in tail:nt
+        fraction[t, node] = after
+        integrand[t, node] = after * charge * nodes[t, node]
     end
 end
 """The gated and edge currents of a column: the free current plus the loss current,
