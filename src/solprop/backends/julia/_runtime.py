@@ -82,8 +82,8 @@ def runtime() -> Any:
     ``SOLPROP_JULIA_EXE`` names the Julia 1.13 executable (default: the one
     ``julia/bootstrap.py`` downloads), ``SOLPROP_JULIA_DEPOT`` its package depot
     (default ``.julia-depot``) and ``SOLPROP_JULIA_ROOT`` the checkout (`checkout`).
-    ``SOLPROP_JULIA_DEVICE=cuda`` loads the CUDA environment, so that the engine's CUDA
-    extension is available.
+    ``SOLPROP_JULIA_DEVICE=cuda`` (or ``rocm``) loads the CUDA (or AMDGPU) environment,
+    so that the engine's GPU extension is available.
 
     Returns
     -------
@@ -112,12 +112,12 @@ def runtime() -> Any:
             "follow julia/README.md"
         )
     device = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
-    if device not in {"cpu", "cuda"}:
-        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu or cuda")
-    # A GPU run's environment adds CUDA.jl to the engine's, resolved with it, so
-    # that a CPU run never resolves or loads the GPU packages.
-    if device == "cuda":
-        project = project / "cuda"
+    if device not in {"cpu", "cuda", "rocm"}:
+        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu, cuda or rocm")
+    # A GPU run's environment adds CUDA.jl or AMDGPU.jl to the engine's, resolved
+    # with it, so that a CPU run never resolves or loads the GPU packages.
+    if device != "cpu":
+        project = project / device
     settings = {
         "PYTHON_JULIACALL_EXE": str(executable),
         "PYTHON_JULIACALL_PROJECT": str(project),
@@ -182,6 +182,8 @@ def source_digest() -> str:
             root / "julia/Manifest.toml",
             root / "julia/cuda/Project.toml",
             root / "julia/cuda/Manifest.toml",
+            root / "julia/rocm/Project.toml",
+            root / "julia/rocm/Manifest.toml",
         ]
     )
     adapter = sorted(Path(__file__).parent.glob("*.py"))

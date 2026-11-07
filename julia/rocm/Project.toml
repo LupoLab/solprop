@@ -1,0 +1,7 @@
+[deps]
+AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
+PythonCall = "6099a3de-0909-46bc-b1f4-468b9a2dfc0d"
+SolpropJulia = "bc9db228-6fd1-46b1-b175-748485922872"
+
+[sources]
+SolpropJulia = {path = ".."}

@@ -21,8 +21,10 @@ controller and the output are solprop's own. The engine is the Julia package in
 | `dopri.jl`, `rk4.jl`, `adams.jl` | the DOPRI5 trial and commit, SEP 24's RK4IP and SEP 16's exponential Adams |
 | `helpers.jl` | the shared code's Chebyshev rows and Adams basis (SEP 29 section 6.6), and an Adams trial's tables |
 | `stages.jl` | the longitudinal expansions' stage weights, and the stage scalars from the engine's own tables |
+| `march.jl` | the exponential Adams march itself (native's SEP 39 march, transcribed), run by the engine between host events |
 | `observe.jl` | what the driver reads between steps: the state, the boundary monitor's and the transverse edge's sums, the Poynting statistics' power |
 | `../ext/SolpropJuliaCUDAExt.jl` | CUDA: the engine's arrays become `CuArray`s |
+| `../ext/SolpropJuliaAMDGPUExt.jl` | AMD GPUs: the engine's arrays become `ROCArray`s |
 
 ## Setting up
 
@@ -32,7 +34,7 @@ checksummed release):
 ```sh
 uv sync --extra julia
 export SOLPROP_JULIA_EXE=$(julia +1.13 -e 'print(joinpath(Sys.BINDIR, "julia"))')
-uv run --no-sync python julia/bootstrap.py          # --cuda for the GPU environment too
+uv run --no-sync python julia/bootstrap.py          # --cuda or --rocm for a GPU environment too
 ```
 
 The bootstrap instantiates `julia/Manifest.toml` into `.julia-depot/`
@@ -42,7 +44,8 @@ solprop is installed without `-e`. A run then takes `backend="julia"`:
 | Variable | Meaning |
 |---|---|
 | `SOLPROP_JULIA_THREADS` | the engine's threads (default 1); the benchmark harness sets it to the width |
-| `SOLPROP_JULIA_DEVICE` | `cpu` (default) or `cuda`, which loads `julia/cuda`: CUDA.jl resolved with the engine |
+| `SOLPROP_JULIA_DEVICE` | `cpu` (default), `cuda` or `rocm`, which load `julia/cuda` or `julia/rocm`: CUDA.jl or AMDGPU.jl resolved with the engine |
+| `SOLPROP_JULIA_MARCH` | `host`: the Python Adams march in place of the engine's (`src/march.jl`) |
 | `SOLPROP_FFTW_PLAN` | `estimate`, `measure` (default) or `patient` |
 | `SOLPROP_JULIA_TIMING` | `1`: the engine's section timers (`julia/profile.py` prints them) |
 | `SOLPROP_JULIA_CHECK` | `1`: refuse any kernel body a GPU could not take, on any device (the tests set it) |

@@ -98,7 +98,11 @@ def runtime(backend: str, device: bool = False) -> Record:
     if backend == "julia":
         # The Julia experiment runs on its CUDA device under --device; its sources
         # are identified by digest, as a native build is by its extension's.
-        os.environ["SOLPROP_JULIA_DEVICE"] = "cuda" if device else "cpu"
+        # A GPU run takes the GPU the environment names (rocm on AMD), else CUDA.
+        named = os.environ.get("SOLPROP_JULIA_DEVICE")
+        os.environ["SOLPROP_JULIA_DEVICE"] = (
+            (named if named in {"cuda", "rocm"} else "cuda") if device else "cpu"
+        )
         from solprop.backends.julia import source_digest  # noqa: PLC0415
 
         info["julia_build"] = source_digest()
