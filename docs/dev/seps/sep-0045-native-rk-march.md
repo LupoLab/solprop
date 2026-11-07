@@ -40,12 +40,14 @@ It sits in two places:
 The proposal has two parts, in this order:
 
 - **B. Boundary checks inside the compiled march.** The native march decides when a
-  check is due, takes the reading, applies the monitor's comparisons with thresholds
-  solprop computed, and buffers each reading. It returns only at the existing events
-  or when a check's verdict needs Python (a warning, a stop, a change of the quiet
-  verdict). solprop replays every buffered check through the unchanged
-  `BoundaryMonitor.step` when it drains the call, so the monitor's record and its
-  arithmetic stay in one place.
+  check is due, takes the reading, predicts the monitor's verdict from thresholds
+  solprop computed, and buffers each reading. It no longer returns for a check; it
+  returns at the other host events, at its call bound, or when a check's verdict needs
+  Python (a warning, a stop, a change of the quiet verdict). solprop replays every
+  buffered check through the unchanged `BoundaryMonitor.step` when it drains the call,
+  so the monitor's record and its arithmetic stay in one place, and verifies the
+  prediction against it. The replay still costs Python time per checked step; what B
+  removes is the crossing and the state adoption per check (§4.1).
 - **A. A native Runge–Kutta march.** The adaptive (and later replayed) DOPRI5 loop runs
   in `solprop-native` under SEP 39's design: solprop hands over one policy record and
   the events at which to return, native executes an algorithm this SEP and the kernel
@@ -56,11 +58,12 @@ busy check would save little, and `gnlse_soliton`'s monitor asks for a check at 
 third of its steps (§3.4).
 
 Success means: with B, the native Adams march takes the same steps and writes a
-bitwise identical boundary-monitor record as before, and returns only at planes,
-statistics rows and verdict changes; with A, the native RK march takes the same steps
-as solprop's Python march on the same build; and the Python share of a warm run falls
-below 5 % on `argon_blueshift_envelope` and below 4 % on `gnlse_soliton`, with no case
-of the tracking set slower beyond the A/B spread.
+bitwise identical boundary-monitor record as before, and no longer returns for a busy
+monitor's checks; with A, the native RK march takes the same steps as solprop's Python
+march on the same build; no case of the tracking set is slower beyond its A/A spread;
+and the Python share of a warm run falls to the targets phase 0 sets from the measured
+cost of what stays in Python (§7.6). The provisional targets are 5 % on
+`argon_blueshift_envelope` and 4 % on `gnlse_soliton`.
 
 ### 2. Motivation and scope
 
@@ -266,17 +269,26 @@ that the native code can be written against it and checked against solprop's.
 Write a warm run's wall time as
 
 $$T = \sum_{\text{attempts}} t_{\text{trial}} + N_{\text{returns}}\, h_{\text{return}}
-+ N_{\text{attempts}}\, h_{\text{attempt}} + T_{\text{fixed}},$$
++ N_{\text{attempts}}\, h_{\text{row}} + N_{\text{checks}}\, h_{\text{check}}
++ N_{\text{attempts}}\, h_{\text{loop}} + T_{\text{fixed}},$$
 
-with $t_{\text{trial}}$ the native trial, $h_{\text{return}}$ the Python cost of one
-return (adopting the state, booking rows, the event's statistics and check), and
-$h_{\text{attempt}}$ the per-attempt Python cost of a host loop. Today the RK march has
-$h_{\text{attempt}} \approx 200$ µs and $N_{\text{returns}} = N_{\text{attempts}}$; the
-Adams march has $h_{\text{attempt}} \approx 1$–$3$ µs and $N_{\text{returns}}$ equal to
-the number of host events, which a busy monitor drives to the number of steps. B makes
-$N_{\text{returns}}$ the number of planes, statistics rows and verdict changes; A makes
-the RK march's $h_{\text{attempt}}$ that of the Adams march. The share removed is largest
-where $t_{\text{trial}}$ is smallest: small grids, many threads and devices.
+with $t_{\text{trial}}$ the native trial; $h_{\text{return}}$ the Python cost of one
+return (the bounds, the state's adoption, the event step's statistics); $h_{\text{row}}$
+the booking of one attempt (its history row, its counters, its progress callback);
+$h_{\text{check}}$ one `BoundaryMonitor.step` on a reading; and $h_{\text{loop}}$ the
+per-attempt Python of a host loop. Today the RK march has $h_{\text{loop}} \approx
+200$ µs and returns at every attempt; the Adams march has $h_{\text{loop}} \approx 0$ and
+$N_{\text{returns}}$ equal to the number of host events, which a busy monitor drives to
+the number of steps, each return also paying a native reading through Python.
+
+B leaves $N_{\text{returns}}$ the planes, statistics rows, natural stops, call bounds
+(256 attempts or 0.1 s, SEP 39 Q3), watch-buffer capacity and verdict changes; it keeps
+$h_{\text{row}}$ and $h_{\text{check}}$, now paid in the drain. A makes the RK march's
+$h_{\text{loop}}$ zero, as the Adams march's is. The share removed is largest where
+$t_{\text{trial}}$ is smallest: small grids, many threads and devices. Phase 0 measures
+$h_{\text{row}}$ and $h_{\text{check}}$ (a cProfile of the envelope case attributes about
+35 µs to `monitor.step` and 30 µs to the reading's round trip, inflated by the profiler)
+and sets §7.6's targets from them.
 
 #### 4.2 The RK march's policy and state
 
@@ -293,34 +305,51 @@ stepper settings:
 
 The **state** crossing each call is: the position $z$, the proposal, the accepted-norm
 history (at most `lag + 2` values), the accepted count, and the replay cursor. The RK
-march keeps no field history, so nothing else crosses (resume restores the same five).
+march keeps no field history, so nothing else crosses. This is a continuation between
+the calls of one march, not a resume: `StepDriver.set_initial` resets the proposal to
+`dz_init`, clears the norm history and restarts the statistics and natural-plane
+counters, on a fresh launch and on a resume alike, and `march_snapshot()` stays `None`
+for the RK march. A disk resume therefore starts the controller afresh, as today, and
+takes the start-up rule again (`StepDriver._start_up`). Every `set_initial` also resets
+the watch state (§4.8), clears the recycled FSAL stage and any dense step, and the march
+is configured again after the run's monitor (a resumed one included) is attached.
 
 #### 4.3 One RK attempt
 
-Given the state, one attempt is, in order, exactly as `StepDriver._march_to` does it:
+Given the state, one attempt is, in order, exactly as `StepDriver._march_to` does it.
+$p$ is the controller's proposal, its state; it is never replaced by a capped or landed
+length.
 
-1. $p \leftarrow$ the proposal capped by the quiet collar, the transverse ceiling and the
-   split crossing cap (each a `min`, in that order).
-2. $(\Delta z, z_{\text{target}}) \leftarrow \mathrm{landing}(z, p, \text{targets})$.
+1. $\hat p \leftarrow$ the landing candidate: $p$ capped by the quiet collar, the transverse
+   ceiling and the split crossing cap, in that order (`_quiet_capped`,
+   `_transverse_capped`, `_split_capped`). $p$ is unchanged.
+2. $(\Delta z, z_{\text{target}}) \leftarrow \mathrm{landing}(z, \hat p, \text{targets})$.
 3. The trial at $z, \Delta z$: stage scalars at $z + c_i \Delta z$ and the whole-step
    row (§4.7), one native trial, and the scaled norm $e$ (§4.4).
-4. $\tilde e \leftarrow \mathrm{equivalent}(e, \Delta z, p)$ and
-   $a \leftarrow \mathrm{accepts}(e)$.
+4. $\tilde e \leftarrow \mathrm{equivalent}(e, \Delta z, p)$, from the uncapped
+   proposal $p$, and $a \leftarrow \mathrm{accepts}(e)$, from the executed norm.
 5. The row (end, step, $e$, $a$) is recorded **before** the branch; the end is
    $z_{\text{target}}$ when the step landed, else $z + \Delta z$.
 6. On acceptance: `promote_fsal` (which also scores the quadrature alarm), `finish`,
    commit $z \leftarrow$ end; append $\tilde e$ to the history; if `auto_init` and this
-   is the first accepted step, apply the start-up rule (§4.5); then
+   is the first accepted step, apply the start-up rule (§4.5) to $p$; then
    $p \leftarrow \mathrm{limit}(p, \mathrm{propose}(\text{history}))$; then the step's
-   boundary check (§4.8), statistics row and natural stop, any of which may end the
-   call.
-7. On rejection: $p \leftarrow \mathrm{limit}(p, \mathrm{rejection}(\tilde e))$.
+   boundary check (§4.8), statistics row and natural stop, in that order (§4.10), any of
+   which may end the call.
+7. On rejection: $p \leftarrow \mathrm{limit}(p, \mathrm{rejection}(\tilde e))$, the
+   uncapped proposal shrunk, as for an uncapped step.
+
+A cap therefore shortens the executed step and, through the equivalent norm, tells the
+controller what its own proposal would have scored; it never becomes the controller's
+state. With proposal 0.01 m, a cap of 0.005 m, an executed norm of 0.5 and $q = 4$, the
+history receives 16, not 0.5.
 
 The floor (`limit_step` raising `ConvergenceError` below `dz_min`) can fire in three
 places, each with its own order of effects: after a rejected attempt was recorded; in
 the start-up rule's `limit_step`, before the history's last value is rewritten; and in
 the accepted step's proposal, after the commit and the append, before the step's
-statistics. The native march reports which (§6.4) and solprop raises it there.
+boundary check and statistics. The native march reports which and solprop raises it
+there; §4.10 gives each site's effects in the drain.
 
 Replay (phase 4) follows `StepDriver._replay_to`: it never rejects, records after the
 commit, appends the raw norm, and stops within `replay_tolerance`.
@@ -328,15 +357,30 @@ commit, appends the raw norm, and stops within `replay_tolerance`.
 #### 4.4 The norm and the controller
 
 The trial returns three partials per norm slot: $\sum |y|^2$, $\sum |y_{\text{new}}|^2$
-and $\sum |\varepsilon|^2$ over the in-band mask. The scaled norm is
+and $\sum |\varepsilon|^2$, each over the bins of `problem.grids.norm_mask`, which the
+controller's `region` selects (`"active"`, the default, or `"band"`). With
+$\|y\| = \sqrt{\sum |y|^2}$ and $\|y_{\text{new}}\|$ likewise, both Euclidean, the weak
+norm is
 
-$$e = \frac{\sqrt{\sum|\varepsilon|^2 / n}}{\mathrm{rtol}\,\max\!\left(\|y\|, \|y_{\text{new}}\|\right) + \mathrm{atol}},$$
+$$e = \frac{\sqrt{\sum|\varepsilon|^2}}{\mathrm{rtol}\,\max\!\left(\|y\|, \|y_{\text{new}}\|\right) + \mathrm{atol}}$$
 
-or the weighted form of `weighted_norm_scale`. Today solprop sums the partials with
-NumPy (pairwise above eight terms) and applies `PIController.scale` on the host. This
-SEP moves that reduction and scale into one native scorer used by **both** marches
-(phase 2), so that the two read identical norms by construction rather than by
-transcribing NumPy's summation order.
+(`weak_norm_scale`), with no division by the number of bins. With per-bin weights $w_i$
+the scale is per bin, $s_i = \mathrm{rtol}\, w_i \max(\|y\|, \|y_{\text{new}}\|) +
+\mathrm{atol}$ (`weighted_norm_scale`), and each bin's error is divided by its own scale
+before the Euclidean reduction, $e = \sqrt{\sum_i |\varepsilon_i / s_i|^2}$; the magnitude
+stays global. These are `NativeBackend._score_trial` and `numpy_ref.passes.error_norm`
+today.
+
+Today `_score_trial` sums the partials with NumPy (pairwise above eight terms) and
+calls the controller's own `scale` on the host. Phase 2 moves that reduction and the
+stock scale into one native scorer that **both** marches use, so that the two read
+identical norms by construction rather than by transcribing NumPy's summation order.
+Only the order of a sum changes; the formula does not. A controller whose `scale` is
+not `PIController.scale` keeps today's host `_score_trial`, unchanged, as the Adams
+engine already does (`_ResidentAdams` tests `type(controller).scale is
+PIController.scale`). That retained host scorer is also the independent reference the
+new scorer is tested against, beside `numpy_ref`'s `error_norm`, so that a scaling
+mistake shared by the two marches cannot pass unseen (§7.4).
 
 The controller's functions, with $k = q + 1$ and `max_factor`, `min_factor` the clip:
 
@@ -390,38 +434,75 @@ distinct node and the whole-step row, in the layout `_trial_arrays` builds. A ne
 
 #### 4.8 The boundary check inside a march
 
-Let the monitor's **watch state** be: the last check position (or none), the steps since
-it, `busy`, the quiet run length, `quiet`, `warned` and the crossing cap. Let the
-**watch policy** be numbers solprop computes from the monitor at the call: the floor
-regions scaled by `FLOOR_MARGIN` ($[3,3,3,1]$ times the floor's expectations), the
-launch floor `_FLOOR × launch energy`, the activity threshold $(\texttt{ACTIVE} \cdot
-\mathrm{budget})^2$, the warning and stop thresholds `budget` and
-`stop_factor × budget`, `QUIET` and `QUIET_CHECKS`, `CADENCE`, `interval`, whether the
-quiet collar may rest, and under the split scheme the crossing share and the per-bucket
-step limits. After each committed step, inside the march:
+Let the monitor's **watch state** be what its decisions read and change: the last check
+position (or none), the steps since it, `busy`, the quiet run length, `quiet`, `warned`
+and the crossing cap. Let the **watch policy** be numbers solprop computes from the
+monitor and its check at the call, so that native repeats no `pow` and holds no
+constant: the floor regions already scaled by `FLOOR_MARGIN` (`_floor_regions` times
+$[3, 3, 3, 1]$), the launch floor `_FLOOR * _launch`, the activity threshold
+`(ACTIVE * budget) ** 2`, the stop threshold `stop_factor * budget` and the warning
+threshold `budget`, `QUIET`, `QUIET_CHECKS`, `CADENCE`, `interval`, whether the quiet
+collar may rest, and under the split scheme the crossing share and each bucket's step
+limit (`split_crossing_step` of `split_bucket_rates(fastest)`, 128 values).
 
-1. If no check is due by `due` (busy, `CADENCE`, `interval`, or no check yet), count the
-   step as skipped and continue.
-2. Otherwise read the state (`monitor_reading`, as today), append (row index, reading)
-   to the call's buffer, and evaluate, with the policy's numbers, the comparisons of
-   `_found`, `_above`, `_judge` and `_settle`: the new `busy`, quiet run and `quiet`,
-   whether the worst guard share exceeds the warning (first time) or the stop
-   threshold, and under the split scheme the new crossing cap, which caps the very next
-   proposal.
-3. Return to the host (`Reason::watch`) if the check predicts a stop, the first warning,
-   a change of the quiet verdict, or (on a replayed schedule) a crossing the schedule
-   cannot honour; otherwise continue.
+After each committed step that reaches its statistics (not at a floor exit, §4.3),
+native does what `_take_step_stats` asks of the monitor, in `BoundaryMonitor.step`'s
+order:
 
-When solprop drains a call it walks the rows in order: an unchecked accepted step is
-booked with `_skip_step`, a checked one with `monitor.step` on its buffered reading at
-its own position. `BoundaryMonitor.step` therefore runs exactly as it does today, on the
-same readings at the same steps, and writes the same record; it raises the same error
-and the same warning at the same step. After the drain, solprop compares its monitor's
-watch state with the march's; a difference is a bug and raises `BackendError`.
+1. **Due?** `due(z)`: busy, or the steps since the last check plus one reach
+   `CADENCE`, or no check yet, or `z` at least `interval` past the last check. If not,
+   count the step as skipped (as `skip`) and continue.
+2. **Read** the state (`monitor_reading`, as today) and append (row index, reading) to
+   the call's watch buffer.
+3. **Predict**, operation by operation as the reference performs it, in binary64
+   without contraction:
+   1. under the split scheme, the new crossing cap from the reading's occupancy
+      (`_read_cap` and `SplitCrossing.limit`, with the reduction specified below);
+   2. `_found`, then `_judged`: the total, zero when not positive or not finite;
+   3. if the total is not above the launch floor, `busy` is false, the quiet run counts
+      a calm check and nothing is judged (`_settle(None)`);
+   4. otherwise `above = regions - scaled floor`, its first three clipped at zero
+      (`_above`); `shares = above / total`; `busy` is
+      `max(shares[0], shares[1], shares[2]) > activity`, calm is
+      `regions[2] / total < QUIET`, and the quiet run and `quiet` follow (`_settle`);
+   5. `worst = sqrt(max(shares[0], shares[1], 0.0))`, the correctly rounded square root
+      as `math.sqrt` takes it, with Python's `max` (`py_max`); a **stop** is predicted
+      if `worst > stop threshold`, and otherwise a **first warning** if
+      `worst > warning threshold` and not `warned`, which then sets `warned` (`_judge`).
+      The thresholds are amplitudes and the comparison is on the amplitude: no
+      threshold is squared, since a squared threshold is not equivalent at the doubles
+      beside it.
+4. **Return** (`Reason::watch`) at this row if it predicts a stop, a first warning, a
+   change of the quiet verdict, or, on a replayed schedule under the split scheme, a
+   crossing the schedule cannot honour (`_refuse_scheduled_crossing`, read with the
+   row's own replay cursor). Otherwise continue: the new cap bounds the next landing
+   candidate (§4.3, step 1), as `_split_capped` does in the host loop.
 
-Native evaluates only comparisons and the products and sums that `_above` and the
-crossing limit perform; the thresholds arrive precomputed, so no `pow` and no constant
-is duplicated. The comparisons are compiled without contraction.
+**The split cap's reduction.** `SplitCrossing.limit` takes the total with NumPy's
+pairwise `sum` and the cumulative occupancy with a separate `cumsum`, then the first
+bucket whose cumulative share exceeds `share * total` (`searchsorted(...,
+side="right")`). Disabling contraction does not make a sequential C++ sum equal
+NumPy's pairwise total, and the choice of bucket can turn on the last bit: with bucket 0
+holding `0x1.0c6f8ba2f9813p-20`, bucket 1 holding 1 and every other bucket `2**-54`, at
+the default share of `1e-6`, NumPy's total selects bucket 1 and a sequential one bucket
+0, limits about 1.18 times apart. This SEP proposes (Q7) that phase 0 change the
+reference to take the total as the last element of the cumulative sum, which NumPy
+forms sequentially and native reproduces exactly; the selected bucket can then move one
+place in such a near-tie, a reference change recorded in the release notes. If Q7
+declines it, the split scheme keeps returning to Python at every check, as the
+transverse edge does, and B covers the in-stage scheme only.
+
+**The buffer.** Its capacity is the call's attempt bound (256 rows, each the ten numbers
+and, under the split scheme, the 128 buckets), allocated once with the march and named
+in the memory ledger. A call made without an attempt bound, as the call-bound
+diagnostics of §7.3 do, returns with `Reason::capacity` when the buffer is full; the
+call-bound tests cover that boundary.
+
+When solprop drains a call it replays the buffered readings through the unchanged
+`BoundaryMonitor.step` at their own rows and positions (§4.10), so the monitor writes
+the record it writes today and raises or warns at the same row. After the drain solprop
+compares its monitor's watch state with the march's; any difference, or a verdict the
+march did not predict, raises `BackendError` (Q4).
 
 #### 4.9 What "the same steps" means
 
@@ -430,6 +511,58 @@ As in SEP 39 §4.9: on one build, the native and Python marches read the same no
 binary64 without contraction, and so take the same steps and produce the same fields.
 That is a diagnostic, recorded and tested on short windows, not a promise: across
 builds, compilers and libms the guarantee is SEP 25's agreement to the error bound.
+
+#### 4.10 The drain
+
+A drain books every attempt a call returned, in order, through one driver hook per
+accepted step, so that each accepted step is counted once in **each** of its counters
+(the boundary monitor's checked or skipped, the statistics-row period, the natural-plane
+count) and each buffered reading is consumed once. `_skip_step` today does the counters
+and `monitor.skip`; it becomes `_account_step(z, reading)`, which calls `monitor.step`
+on the buffered reading (through `_check_at`, which books a reading at a given position
+and cursor) or `monitor.skip`, and then the counters. `_take_step_stats` is split into
+its monitor part and its statistics part, so that the final row's monitor work is the
+buffered reading too and is never taken a second time.
+
+| attempt | inside the call's `committing()` | after it |
+|---|---|---|
+| rejected | history row | — |
+| rejected, at the floor | history row | `ConvergenceError` |
+| accepted, not the call's last | history row; `_account_step` (checked or skipped) | progress |
+| accepted, last, at a host event (target, plane, statistics row, natural stop) or a watch exit | history row | monitor part with the buffered reading or a skip; statistics row; natural stop; progress |
+| accepted, last, at the call bound or the buffer's capacity | history row; `_account_step` | progress |
+| accepted, at the floor (Adams; RK's start-up and proposal sites) | history row; no monitor work, no counters, no statistics | `ConvergenceError` |
+| a native fault | the rows before it, as above; the faulted attempt is not booked | the error |
+
+The order after the commit is the reference's: the monitor (which may raise
+`BoundaryError` or warn), then the statistics row, then the natural stop, with no
+second reading. A watch exit puts the row that needs Python last, so a predicted stop
+raises with the state, the history and the monitor record complete to that row, which
+is the run's last committed position, and the terminal checkpoint is written there as
+for any `BoundaryError` today; a predicted warning (or one turned into an error) is
+raised at the same point. A signal during the drain is deferred by `committing()` and
+delivered after it, as in the Adams adapter today. A monitor exception inside the commit
+can only come from a row the march did not predict, and is turned into `BackendError`.
+#133's double count at planes comes from `_monitor_plane`, which this SEP leaves as it
+is.
+
+#### 4.11 Interruptions and callbacks
+
+Two kinds of event reach Python differently.
+
+- **Deterministic events** (the floor, a predicted stop or first warning, a native
+  fault, a natural stop, a scheduled crossing refused) reach Python at exactly the step
+  at which the host loop reaches them, with the same state, history and record.
+- **Asynchronous requests** (the stop flag, a signal) are polled before each call, as
+  for the Adams march (#519). A call ends at its bound: 256 attempts, or the end of the
+  attempt during which 0.1 s elapsed. A request therefore takes effect at a committed
+  step at most 256 attempts later; the time is the call's bound plus one attempt and the
+  drain, not an absolute ceiling. What is promised is a coherent state, history, monitor
+  record and checkpoint at that committed step, not the host loop's step.
+
+Progress callbacks keep their count (one per attempt) and their exception semantics; they
+are delivered after the call's commit, so their timing, not their number, changes, as
+for the Adams march today.
 
 ### 5. Proposed interface
 
@@ -441,11 +574,14 @@ No public name changes. A user sees:
 - `HostMarchWarning` is widened to name the RK march when a configuration it does not
   cover falls back to solprop's loop (§6.6);
 - `boundary_monitor` records unchanged;
-- progress callbacks and a stop request act once per call, at most 256 attempts or
-  0.1 s apart (as for the Adams march today).
+- progress callbacks still one per attempt, delivered after each call's commit, and a
+  stop request or signal honoured at a committed step within one call's bound (§4.11),
+  as for the Adams march today;
+- a disk resume of an RK run starts its controller afresh, as today (§4.2).
 
 The private environment variable `SOLPROP_RK_MARCH=host`, read at import, selects
-solprop's loop for A/B comparison, as `SOLPROP_ADAMS_MARCH=host` does.
+solprop's loop for A/B comparison, as `SOLPROP_ADAMS_MARCH=host` does; after phase 2
+that loop scores with the shared native scorer (§4.4).
 
 ### 6. Implementation strategies
 
@@ -453,11 +589,14 @@ solprop's loop for A/B comparison, as `SOLPROP_ADAMS_MARCH=host` does.
 
 | Option | What moves native | Python per busy step | Risk |
 |---|---|---|---|
-| B1. Native predicts, Python replays (recommended) | `due`, the reading, the comparisons, the crossing cap | none; one drain per call | the comparisons exist twice; checked after every drain |
-| B2. The whole monitor native | everything, including records, ledger, plane rows, summary, resume | none | duplicates the record arithmetic and resume; against SEP 39 §6.5.7 and SEP 44 |
-| B3. Cheaper booking only | nothing; one bulk `_record_attempts` per call | still one return and one `_synchronise` per busy step | low, but removes perhaps half the cost |
+| B1. Native predicts, Python replays (recommended) | `due`, the reading, the prediction, the crossing cap | the replayed `monitor.step` and the row's booking ($h_{\text{check}} + h_{\text{row}}$, §4.1); no crossing, no state adoption, no reading through Python | the predictions exist twice; verified at every drain |
+| B2. The whole monitor native | everything, including records, ledger, plane rows, summary, resume | the row's booking | duplicates the record arithmetic and resume; against SEP 39 §6.5.7 and SEP 44 |
+| B3. Cheaper booking only | nothing; one bulk booking per call | one return, one `_synchronise` and one reading through Python per busy step | low, but removes perhaps half the cost |
 
-B1 is recommended, and includes B3's bulk booking, which every drain benefits from.
+B1 is recommended. It amortises the crossing and the state's adoption, not the replay;
+phase 0 measures what the replay and the booking cost before §7.6's targets are fixed,
+and if the replay dominates, a cheaper `monitor.step` is the next lever, not a native
+record.
 
 #### 6.2 The RK march: three options
 
@@ -471,12 +610,15 @@ B1 is recommended, and includes B3's bulk booking, which every drain benefits fr
 
 B1, then A1 built on A2. Phase 2 (A2) is a step on the way, and gives the Python loop the
 native scorer so that both marches read the same norms. That moves the native RK
-backend's norms at rounding level once, which is recorded (§9).
+backend's norms at rounding level once, by the order of a sum and nothing else, which is
+recorded (§9); a controller with its own `scale` keeps today's host scorer (§4.4).
 
 #### 6.4 Layers and the seam
 
 - **solprop** (`src/solprop/`): `BoundaryMonitor.watch_policy()` and `watch_state()`;
-  `_check_boundaries` split so a buffered reading can be booked at its own position;
+  `_check_at`, which books a reading at a given position and replay cursor;
+  `_account_step` in place of `_skip_step`, and `_take_step_stats` split into its
+  monitor and statistics parts (§4.10);
   a pure `solprop/backends/rk_core.py` holding the RK decisions (caps, start-up,
   propose, reject, the floor sites) that `StepDriver._march_to` and `_replay_to` call,
   extracted with no change in behaviour, as `adams_core.py` was for Adams.
@@ -488,7 +630,8 @@ backend's norms at rounding level once, which is recorded (§9).
   `Column` layout, `Reason`, `fail()` and `MarchFault`.
 - **The seam**: new frozen field tuples `RK_MARCH_POLICY_FIELDS` and
   `WATCH_POLICY_FIELDS` (`native/src/solprop_native/__init__.py`), checked exactly like
-  `MARCH_POLICY_FIELDS`; `DRIVER_SURFACE` gains `_record_attempts` and the split check.
+  `MARCH_POLICY_FIELDS`; `DRIVER_SURFACE` gains `_account_step` and `_check_at` and
+  loses `_skip_step`; `Reason` gains `watch` and `capacity`.
   The frozen tables in `tests/backends/test_driver.py` are rewritten in phases 1 and 3,
   each with a release-note fragment. `KernelProblem` does not change.
 - **Kernel contract**: §11 gains the watch; a new §12 specifies the RK march.
@@ -505,12 +648,19 @@ phase 1.
 - **B** applies to every native Adams run (and, from phase 3, RK run) except one with a
   transverse edge, whose reads stay host events (SEP 44), and lockstep batches. Those
   keep returning at each check, without a warning: the algorithm is the same.
+- **The scorer** (phase 2) replaces `_score_trial` when `type(controller).scale is
+  PIController.scale`; otherwise the host scorer stays, unchanged. **The staged rows**
+  replace `_trial_arrays` when `_stage_tables()` is available; otherwise the host
+  packer stays.
 - **A v1** (phase 3) admits a single native run with `integrator is None`, adaptive
-  stepping, no interpolated planes, staged tables available, no coupled flow and a
-  `PIController` (weak or weighted scale), on a CPU build. Anything else runs solprop's
-  loop with `HostMarchWarning` naming the reason. Phase 4 removes those reasons except
-  lockstep batches and a controller other than `PIController`; phase 5 admits device
-  builds.
+  stepping, no interpolated planes, staged tables available, no coupled flow, a CPU
+  build, and a controller that is a `PIController` whose `scale`, `accepts`, `propose`,
+  `rejection_factor`, `start_factor` and `equivalent_norm` are all `PIController`'s
+  own (`type(controller).<name> is PIController.<name>`, as the Adams engine tests
+  `scale`). Being a `PIController` is not enough: a subclass that overrides one of them
+  runs the host loop with its own methods. Anything outside the predicate runs
+  solprop's loop with `HostMarchWarning` naming the reason. Phase 4 removes the reasons
+  except lockstep batches and an overriding controller; phase 5 admits device builds.
 
 #### 6.7 Device builds
 
@@ -522,8 +672,10 @@ approval of the cost.
 
 #### 6.8 Cost
 
-Memory: the watch buffer holds at most 256 readings of 10 (or 138) doubles per call,
-about 280 kB; the RK march adds no field-sized buffer. Code: about 1500 lines of C++ and
+Memory: the watch buffer holds the call bound's 256 readings of 10 (or 138) doubles,
+about 280 kB, allocated with the march and listed in the memory ledger; the RK march
+adds no field-sized buffer. Python time that stays: the replay and the booking of §4.1,
+measured in phase 0. Code: about 1500 lines of C++ and
 bindings, 500 of Python, and the tests of §7, by comparison with SEP 39.
 
 #### 6.9 Relation to #110
@@ -539,6 +691,9 @@ the shape #110 would unify; it neither decides nor blocks it.
 
 - The policy tuples round-trip exactly, and a missing or extra field refuses by name.
 - After every drain the monitor's watch state equals the march's (§4.8).
+- Every `set_initial` resets the RK state and the watch: a resumed run, two inputs on
+  one runner, reuse after a failed run, and a monitored input followed by an unmonitored
+  one take the host loop's steps and records (§4.2).
 - The landings record reproduces the Adams march's decisions on SEP 39's trace corpus
   unchanged.
 
@@ -546,14 +701,20 @@ the shape #110 would unify; it neither decides nor blocks it.
 
 - **RK corpus**: `tests/data/generate_rk_traces.py` writes scripted-norm traces of
   `_march_to` *before* phase 0's refactor (start-up on and off, `lag` 0–2,
-  `reject_free`, landings at planes and kinks, each floor site). The pure core
-  reproduces them exactly (phase 0); the native march through a scripted engine
-  reproduces them at call bounds of one attempt, seven and none (phase 3), as
-  `tests/backends/test_native_march_traces.py` does for Adams.
-- **Watch corpus**: monitor readings scripted around each threshold (activity, warning,
-  stop, quiet, floor, split crossing), driven through solprop's monitor and the native
-  watch; the predictions agree exactly. A Hypothesis test draws readings and policies and
-  checks the native verdicts against `_settle`, `due` and `_judge`.
+  `reject_free`, landings at planes and kinks, each floor site), including the quiet,
+  transverse and split caps each on its own, a cap coinciding with a clipped or a
+  stretched landing, a capped first step under the start-up rule, and a rejection under
+  a cap. The pure core reproduces them exactly (phase 0); the native march through a
+  scripted engine reproduces them at call bounds of one attempt, seven and none
+  (phase 3), as `tests/backends/test_native_march_traces.py` does for Adams.
+- **Watch corpus**: monitor readings scripted around each threshold, driven through
+  solprop's monitor and the native watch, whose predictions agree exactly: the
+  activity threshold; the warning and stop thresholds exactly and at the doubles on
+  either side, warned and unwarned, with warnings turned into errors; the quiet run;
+  the launch floor; and the split cap, with the near-tie witness of §4.8, exact
+  cumulative-share ties, empty buckets and a zero total. A Hypothesis test draws
+  readings and policies and checks the native predictions against `_read_cap`,
+  `_settle`, `due` and `_judge`.
 
 #### 7.3 Same steps on real problems
 
@@ -562,30 +723,60 @@ On ten-step or short windows of `gnlse_soliton`, `gnlse_raman_shock`,
 against `SOLPROP_ADAMS_MARCH=host` and `SOLPROP_RK_MARCH=host`, the same steps, bitwise
 fields and bitwise `boundary_monitor` records on one build. The existing
 `tests/driver/test_native_march_call_bound.py` (a call's bound changes no number) is
-extended to the watch and the RK march.
+extended to the watch and the RK march, across the watch buffer's capacity return.
+The drain's table (§4.10) is tested case by case: a busy check coinciding with a
+statistics row, with a natural plane, with the floor and with the call bound, and a
+split run with skipped steps and a nonzero removal, each against the host loop's record
+and counters.
+
+These windows must exercise a busy monitor: a launch's first ten steps need not. Phase 0
+chooses windows (the case, its start through a resumed launch or a shortened guide, and
+its length) whose accepted, checked and skipped counts and returns by reason it reports,
+and the same windows serve §7.6.
 
 #### 7.4 Accuracy envelopes
 
-Phase 2 moves native RK norms at rounding level; every RK case of the test suite stays
-inside its SEP 25 envelope against `numpy_ref`, and the release benchmark rows are
-compared within one revision.
+Phase 2 moves native RK norms at rounding level. The new scorer is compared, on
+scripted partials and on real trials, with the retained host scorer and with
+`numpy_ref`'s `error_norm`: nonzero `atol`, non-unit weights, both `region`s, and an
+error confined to the active margin outside the band, so that a scaling or masking
+mistake shared by both marches is caught. A controller subclass whose `scale` (and,
+separately, each of the other five methods) gives a detectably different result runs
+the host loop with its own methods. Every RK case of the test suite stays inside its
+SEP 25 envelope against `numpy_ref`, and the release benchmark rows are compared within
+one revision.
 
 #### 7.5 Lifecycle
 
-Faults injected at each stage (`MarchFault`), SIGINT and SIGTERM between commits, the
-stop flag, the floor at each of its three sites, `BoundaryError` and the first
-`BoundaryWarning` with warnings turned into errors: each reaches Python at the same step
-as on the host loop (`tests/driver/test_native_march_lifecycle.py`, extended).
+Deterministic events (faults injected at each stage with `MarchFault`, the floor at
+each of its three sites, `BoundaryError`, and the first `BoundaryWarning` with warnings
+turned into errors) reach Python at the same step as on the host loop, with the same
+state, history, record and checkpoint. Asynchronous ones (SIGINT and SIGTERM, the stop
+flag) leave a coherent state, history, monitor record and checkpoint at the final
+committed step, at most one call's attempts after the request; and an exception from a
+progress callback propagates as it does today (`tests/driver/test_native_march_lifecycle.py`,
+extended).
 
 #### 7.6 Benchmarks
 
-`python -m benchmarks ab` (interleaved fresh processes, A/A control) on an idle machine,
-one thread and the production width, `--length` windows: `argon_blueshift_envelope`,
-`gnlse_soliton`, `gnlse_raman_shock`, `he_rdw_averaged`, `argon_blueshift_averaged`,
-`rdw`, and the frequent-event shapes of #273. With the main-thread Python share measured
-as in §3.4. Targets: Python share below 5 % on `argon_blueshift_envelope` and below 4 %
-on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
-`docs/dev/benchmarks.md`.
+Two measurements, kept apart:
+
+- **Wall time**, unprofiled: `python -m benchmarks ab` (interleaved fresh processes,
+  three or more rounds, an A/A control giving the spread) on an idle machine, at one
+  thread and the production width, on the windows of §7.3 and complete runs of
+  `argon_blueshift_envelope`, `gnlse_soliton`, `gnlse_raman_shock`, `he_rdw_averaged`,
+  `argon_blueshift_averaged`, `rdw`, and the frequent-event shapes of #273. No
+  configuration may be slower beyond its A/A spread.
+- **The Python share**: Linux `perf` sampling the Python main thread at 1 kHz during a
+  warm repeat, after one untimed repeat, as in §3.4, with the samples in the
+  interpreter and NumPy's and SciPy's extension modules divided by the warm repeat's
+  elapsed wall time, and the unattributed samples (libc, kernel) reported beside it.
+  The command and the per-library sample counts are recorded with each figure.
+
+Phase 0 measures $h_{\text{check}}$ and $h_{\text{row}}$ (§4.1) and the returns by reason
+on these windows, and fixes the share targets from them before phase 1 starts; the
+provisional targets are 5 % on `argon_blueshift_envelope` and 4 % on `gnlse_soliton`.
+Recorded in `docs/dev/benchmarks.md`.
 
 ### 8. Documentation
 
@@ -605,8 +796,12 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
   phase report and the release notes; release history rows compare within a revision.
 - Warnings from the monitor are raised during the drain, at the same step but from a
   different stack frame.
-- Progress and stop requests act per call (at most 256 attempts or 0.1 s), as already
-  for the Adams march.
+- Progress callbacks keep their count and are delivered per call; stop requests and
+  signals take effect within a call's bound (§4.11), as already for the Adams march.
+- A disk resume keeps today's behaviour: the RK controller starts afresh (§4.2).
+- If Q7 is accepted, the split collar's crossing limit takes its total in a different
+  order: in a near-tie its bucket can move one place, which changes the steps of a run
+  under the split scheme at rounding level. Recorded in the release notes.
 
 ### 10. Alternatives considered
 
@@ -621,14 +816,17 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
 
 ### 11. Phases
 
-0. **Baseline, corpora and pure core.** The measurement ledger (§7.6 cases, returns per
-   reason); the RK trace corpus generated before refactoring; the watch corpus;
-   `rk_core.py` extracted with the corpus reproduced exactly; the strict-compilation
-   witness (#135); the contract's §12 drafted.
-1. **B on the Adams march.** Watch policy and state, `watch.cpp`, `Reason::watch`, the
-   drain with `_check_at`, bulk booking. Exit: §7.2 watch corpus, §7.3 bitwise records
-   and steps, returns fall to planes, rows and verdict changes; §7.6 targets on
-   `argon_blueshift_envelope`; #273's rows recorded.
+0. **Baseline, corpora and pure core.** The measurement ledger: the busy windows of
+   §7.3 with their counts and returns by reason, $h_{\text{check}}$ and $h_{\text{row}}$,
+   and §7.6's targets fixed from them; the RK trace corpus generated before
+   refactoring; the watch corpus; `rk_core.py` extracted with the corpus reproduced
+   exactly; with Q7, the split limit's reference total; the strict-compilation witness
+   (#135); the contract's §12 drafted.
+1. **B on the Adams march.** Watch policy and state, `watch.cpp`, `Reason::watch` and
+   `Reason::capacity`, the drain of §4.10 with `_account_step` and `_check_at`. Exit:
+   §7.2 watch corpus; §7.3 bitwise records and steps, and the drain's cases; no return
+   for a busy monitor's checks; §7.6 targets on `argon_blueshift_envelope`; #273's rows
+   recorded.
 2. **Native packer and scorer in the Python loop.** `stage::rows`, the scorer. Exit:
    rows bitwise equal `_trial_arrays`; §7.4 envelopes; the rounding change recorded.
 3. **Native RK march v1.** Exit: §7.2 RK corpus at bounds 1, 7 and none; §7.3 same
@@ -642,9 +840,11 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
 
 ### 12. Open questions
 
-- **Q1.** May phase 2 move native RK numbers at rounding level (§9), or must the scorer
-  reproduce NumPy's pairwise order so that nothing moves? *Recommended:* allow it; it is
-  within SEP 25's guarantee and makes the norms agree by construction.
+- **Q1.** May phase 2 move native RK numbers at rounding level (§9), by the order of the
+  norm's sums alone, or must the scorer reproduce NumPy's pairwise order so that nothing
+  moves? *Recommended:* allow it; it is within SEP 25's guarantee and makes the norms
+  agree by construction, and the retained host scorer and `numpy_ref` check the formula
+  (§7.4). It does not cover Q7.
 - **Q2.** The RK march's call bound: the same 256 attempts or 0.1 s as Adams?
   *Recommended:* yes, one constant for both, in the record.
 - **Q3.** Widen `HostMarchWarning` or add a sibling for the RK march? *Recommended:*
@@ -655,6 +855,13 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
   phase 4; adaptive runs are where the time is.
 - **Q6.** Should #133's double count be fixed first, so that this SEP's tests pin the
   corrected record? *Recommended:* no; keep the record bitwise and fix #133 separately.
+  The drain introduces no new double count (§4.10).
+- **Q7.** May phase 0 change `SplitCrossing.limit` to take its total as the last
+  element of its cumulative sum (§4.8), so that native reproduces the cap exactly, at
+  the cost of moving a near-tie's bucket by one place in the reference? Or should the
+  split scheme stay outside B and keep returning at every check? *Recommended:* change
+  the reference; the rule's intent, the fastest bucket left once `share` of the energy
+  is set aside, is unchanged, and without it a split run gains nothing from B.
 
 ### 13. References
 
@@ -679,6 +886,9 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
 - 2026-11-07: Tracking issue [#562](https://github.com/LupoLab/solprop/issues/562) opened.
 - 2026-11-07: GPT-6 completed the AI review below; Part I is unchanged. The findings
   await the drafting agent's response and the maintainer's decisions.
+- 2026-11-07: Response to the AI review (Opus 5.5): R1–R9 accepted; Part I revised in
+  §§1, 4.1–4.4, 4.8, 4.10 (new), 4.11 (new), 5, 6.1, 6.3, 6.4, 6.6, 6.8, 7, 9, 11 and
+  12, with Q7 added. The maintainer's decisions on Q1–Q7 are still to come.
 
 ### AI review — 2026-11-07
 
@@ -868,3 +1078,67 @@ Bibliographic search records were checked for the cited papers and the publisher
 record for the second edition of Hairer et al.; the complete papers and §II.4 were
 not checked, so this review makes no claim to have independently revalidated their
 coefficients or derivations. No physical constants, models or defaults were changed.
+
+### Response to review — 2026-11-07
+
+By the drafting agent, Opus 5.5. Every finding was checked against the code at
+`f3efb5ce` before it was answered, and every one stands; each is taken, and Part I is
+revised as below. The review's own recommendations on Q1–Q6 are reflected where Part I
+already had a recommendation; the decisions remain the maintainer's.
+
+1. **R1 — taken.** `_score_trial` and `numpy_ref.passes.error_norm` take the Euclidean
+   norm with no division by the number of bins, over `grids.norm_mask` as `region`
+   selects. §4.4 now gives that formula, the per-bin weighted form with the division
+   before the reduction, and the mask; phase 2 changes only the order of the sums.
+   §7.4 compares the new scorer with the retained host scorer and with `numpy_ref`,
+   with nonzero `atol`, non-unit weights, both regions and an error confined to the
+   active margin. Q1 now says it covers the order of the norm's sums and nothing else.
+2. **R2 — taken.** §4.3 names a landing candidate $\hat p$ for the capped length and keeps
+   the controller's proposal $p$ for the equivalent norm, the start-up rule, the
+   proposal and the rejection, as `_march_to` does, with the review's worked numbers.
+   §7.2's corpus adds each cap alone, caps meeting a clipped or stretched landing, a
+   capped first step under the start-up rule, and a rejection under a cap.
+3. **R3 — taken.** §4.8 now transcribes `_judge`: the square root of the larger guard
+   share, compared on the amplitude with strict `>`, the stop before the first-warning
+   latch, no squared threshold. §7.2 tests the thresholds and the doubles beside them,
+   warned and unwarned, with warnings turned into errors.
+4. **R4 — taken, with a question.** §4.8 now specifies the split cap's reduction and
+   gives the review's near-tie witness. A sequential total cannot equal NumPy's pairwise
+   one, so the SEP proposes (new Q7) that phase 0 take the reference total from the
+   cumulative sum, which native reproduces exactly, recorded as a reference change in
+   §9; if Q7 declines it, the split scheme keeps returning at every check. §7.2 adds
+   the witness, exact ties, empty buckets and a zero total.
+5. **R5 — taken.** New §4.10 gives the drain's table: rejected attempts, unchecked and
+   checked accepted steps, the call's last row at an event or at its bound or capacity,
+   the floor sites and native faults, with what runs inside `committing()` and what
+   after. `_skip_step` becomes `_account_step(z, reading)`, which counts each accepted
+   step once in each counter and consumes each reading once, and `_take_step_stats` is
+   split so the final row's monitor work uses its buffered reading and is not repeated.
+   Exceptions, warnings promoted to errors and signals during the drain are covered,
+   and #133's plane behaviour is named as separate. §7.3 tests the coincident cases the
+   review lists.
+6. **R6 — taken.** Today's disk-resume behaviour is kept and said so (§4.2, §5, §9):
+   the RK state is a continuation between calls only, `set_initial` resets it and the
+   watch, clears the FSAL and dense caches, and the march is configured again after the
+   resumed monitor is attached. §7.1 tests a resumed run, two inputs on one runner,
+   reuse after failure, and a monitored then an unmonitored input.
+7. **R7 — taken.** New §4.11 separates deterministic events, which reach Python at the
+   host loop's step, from asynchronous requests, which take effect at a committed step
+   within one call's bound (256 attempts, or the attempt during which 0.1 s elapsed,
+   plus the drain), and keeps progress callbacks one per attempt with their exception
+   semantics, delivered after the commit. §5, §7.5 and §9 now say the same.
+8. **R8 — taken.** §6.6 gives the admission predicates: the native scorer only for
+   `PIController.scale`, the staged rows only where `_stage_tables()` exists, and the
+   native march only for a controller none of whose six decision methods is
+   overridden; otherwise the host implementation runs with the controller's own
+   methods. §7.4 tests a subclass overriding each method. The private host switch keeps
+   working after phase 2, and the retained host scorer gives the comparison Q1 needs.
+9. **R9 — taken.** §4.1's cost model now keeps the replay and the row booking, which B1
+   amortises the crossing for but does not remove, and lists the call bound and the
+   buffer's capacity among the returns; §6.1's table says so. §7.6 separates unprofiled
+   A/B wall times with their A/A spread from the sampled main-thread share, defines the
+   share and asks for the command and counts with each figure; phase 0 chooses busy
+   windows, reports their counts and returns by reason, measures the replay and
+   booking costs and fixes the targets, which are now provisional (§1). The watch
+   buffer is sized to the call's attempt bound, in the memory ledger, with a
+   `Reason::capacity` return when a call has no attempt bound (§4.8, §6.8).
