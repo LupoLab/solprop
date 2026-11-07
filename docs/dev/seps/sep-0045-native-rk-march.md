@@ -1234,6 +1234,35 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - **Handoff to phase 5:** `pytest -m gpu` and `benchmarks ab --device` on an NVIDIA A40, then
   admit device builds.
 
+### Phase 5 report — device builds
+
+- **Scope:** phase 5, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commit `91065af4`.
+- **Delivered:** the device build's refusal is lifted: the march runs on the host and
+  drives the resident engine on the device, as the Adams march does, with the trial's
+  partials, the boundary readings and the weighted norm's partials crossing as numbers.
+  `test_a_device_build_s_march_is_the_host_loop_s` (marked `gpu`) holds the native march to
+  solprop's loop bit for bit on a device build.
+- **Deviations from the proposal:** none.
+- **Verification** (CUDA `AMPERE86` Release builds on an NVIDIA A40 node): the native
+  package's GPU tests (31 passed) and the repository's (253 passed; MLX's two skip, not
+  installed), the new device test among them.
+- **Benchmarks** (`benchmarks ab --device`, a quarter of each run, three rounds, phase 4's
+  head, whose device runs stepped solprop's loop, against this phase's):
+
+  | case | ratio |
+  |---|---:|
+  | `gnlse_soliton` | 0.968 |
+  | `gnlse_raman_shock` | 0.981 |
+  | `dense_output` | 0.926 |
+
+  The same steps and bitwise equal fields. The gains are smaller than a CPU build's because
+  the A40's FP64 rate, about 1/64 of its FP32 rate, makes its steps long; a data-centre card,
+  whose steps are short, is where the host's share is largest, and is measured only with the
+  maintainer's approval of the cost (§6.7).
+- **Limitations:** a controller that overrides one of its methods, and lockstep batches,
+  step solprop's loop.
+
 ## Part III — History
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
@@ -1258,6 +1287,7 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - 2026-11-07: John Travers approved the phase 3 choices (the interim warning filter, the
   three adapted tests, the landings reusing `march::Policy`) and ADR-069 as worded.
 - 2026-11-07: Phase 4 reported (Part II).
+- 2026-11-07: Phase 5 reported (Part II); every phase implemented.
 
 ### AI review — 2026-11-07
 

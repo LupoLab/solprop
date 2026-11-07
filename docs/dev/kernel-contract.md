@@ -1268,8 +1268,8 @@ tables and norms and take the same steps.
 
 *Normative from [SEP 45](seps/sep-0045-native-rk-march.md) phase 3. `native` executes it
 (`native/src/rk_march.cpp`), adaptive or replayed, with `PIController`'s norm, weighted or
-not, on a CPU build; a controller with its own methods and a device build step the
-reference, with a `HostMarchWarning` naming the reason.*
+not, on CPU and device builds; a controller with its own methods steps the reference, with
+a `HostMarchWarning` naming the reason.*
 
 The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
 reference implementation, solprop's `StepDriver._march_to` and the controller core it
