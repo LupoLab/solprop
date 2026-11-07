@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-07) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-07 |
 | **Resolution** | — |
@@ -677,3 +677,194 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
   tracking set (§3.4).
 - 2026-11-07: Tracking issue [#562](https://github.com/LupoLab/solprop/issues/562) opened.
+- 2026-11-07: GPT-6 completed the AI review below; Part I is unchanged. The findings
+  await the drafting agent's response and the maintainer's decisions.
+
+### AI review — 2026-11-07
+
+Reviewer: **GPT-6 (AI)**. Reviewed all of Part I at PR #563 commit `f3efb5ce2b`,
+against SEP 0, the conventions, the current driver, controller, monitor, native
+adapter and march, the kernel contract, SEP 39 and SEP 44, and the PR discussion.
+These are review comments and questions, not revisions to the proposal or acceptance
+decisions. All findings below remain open under
+[#562](https://github.com/LupoLab/solprop/issues/562). R2 and R3 confirm and incorporate
+the two existing automated PR findings so that the response can address them here.
+
+The separation into a native watch, a shared scorer and a native RK march is a
+reasonable approach. Keeping Python's monitor as the owner of its record is useful.
+However, the algorithm as written changes the norm and controller decisions, and the
+buffered drain needs a more complete lifecycle contract. Recommend resolving the
+following before acceptance; this does not prevent merging a Draft for discussion.
+
+1. **R1 — P1: preserve the Euclidean norm and its selected bins (§§4.2, 4.4,
+   6.3, 7.4, 9; phase 2).** The numerator in §4.4 is
+   `sqrt(sum(abs(error)**2) / n)`, whereas both
+   [`NativeBackend._score_trial`](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/native/src/solprop_native/backend.py#L1085)
+   and `numpy_ref.passes.error_norm` use the Euclidean norm without `/ n`.
+   With 16 unit state entries, error entries of 2, `rtol=1` and `atol=0`, a probe
+   of the NumPy oracle gives 2 (reject); the written formula gives 0.5 (accept).
+   This is a factor-of-four change, not the rounding change Q1 asks permission for.
+   Also, the reductions use `problem.grids.norm_mask`, selected by
+   `PIController.region` (default `"active"`), rather than always the in-band
+   mask named here. Please remove the extra normalisation, explicitly retain the
+   selected mask, and write the weighted formula with division by each bin's
+   scale before the Euclidean reduction. Include nonzero `atol`, non-unit weights,
+   both regions and an error confined to the active margin in the scorer tests.
+   Compare the new scorer to the existing scorer and the NumPy oracle: the two
+   marches sharing a new scorer cannot detect a common scaling mistake.
+
+2. **R2 — P1: keep the controller proposal separate from the capped trial
+   length (§§4.3, 4.5, 7.2).** Step 1 overwrites `p` with the capped value, then
+   steps 4, 6 and 7 use it for the equivalent norm and the next proposal. The
+   [current loop](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/src/solprop/backends/driver.py#L1569)
+   caps only the argument to `landing`; its controller retains `_proposal`.
+   For proposal 0.01 m, cap 0.005 m, executed norm 0.5 and estimator order 4,
+   `equivalent_norm` gives 16 from the retained proposal, versus 0.5 from §4.3's
+   capped value. This changes start-up, later growth, rejection and floor behaviour.
+   Please name a separate landing candidate and retain the original proposal
+   throughout the controller update, including the first accepted capped step.
+   Add independent quiet, transverse and split cap traces, caps coinciding with a
+   clipped or stretched landing, and rejection under a cap. This confirms
+   [the existing PR finding](https://github.com/LupoLab/solprop/pull/563#discussion_r4501591694).
+
+3. **R3 — P1: compare guard amplitudes with amplitude thresholds (§4.8,
+   §§7.2, 7.5).** The native watch is told to compare a guard *share* against
+   `budget` and `stop_factor * budget`; the
+   [reference judge](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/src/solprop/monitor.py#L923)
+   compares `sqrt(max(shares[0], shares[1], 0.0))`. A direct monitor probe with
+   total 1 and guard energy `1e-5` warns at the default budget, but comparing
+   the share to `1e-3` does not return to Python. A missed stop would likewise
+   let native advance past the state whose reading raises during the drain.
+   Please specify the reference square root and strict comparisons, with the stop
+   tested before the first-warning latch. Squaring the thresholds is not
+   automatically bitwise equivalent at neighbouring floating-point values.
+   Test the exact thresholds and their adjacent doubles, warned and unwarned
+   states, and warnings promoted to errors. This confirms
+   [the existing PR finding](https://github.com/LupoLab/solprop/pull/563#discussion_r4501591697).
+
+4. **R4 — P2: specify the split crossing reduction, not only its constants
+   (§§4.8, 4.9, 7.1–7.3).**
+   [`SplitCrossing.limit`](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/src/solprop/boundaries.py#L1119)
+   uses a NumPy sum for the total, a separate cumulative sum and
+   `searchsorted(..., side="right")` at `share * total`. Disabling contraction
+   does not make a sequential C++ sum equal that total. A probe with 128 positive
+   occupancies, bucket 0 equal to `float.fromhex("0x1.0c6f8ba2f9813p-20")`,
+   bucket 1 equal to 1 and every other bucket equal to `2**-54`, at the default
+   `share=1e-6`, selects bucket 1 with NumPy's total and bucket 0 with a sequential
+   total. The selected step limits differ by a factor of about 1.176. The exact
+   watch-state comparison would then fail, or the march would have already used
+   a different cap. Please choose how native reproduces this decision: preserve
+   the reference reduction order, or return to Python before using an ambiguous
+   cap. Changing the reference decision needs an explicit compatibility decision;
+   Q1 currently permits only the RK norm's rounding change. Add this witness,
+   exact cumulative-share ties, empty buckets and zero total to the watch corpus.
+
+5. **R5 — P1: specify a complete drain transaction and coincident-event order
+   (§§4.3, 4.8, 6.4, 7.5; phases 1 and 3).** The proposed row walk accounts an
+   unchecked accepted step with `_skip_step` and a checked one with `monitor.step`.
+   Those are not interchangeable bookkeeping operations:
+   [`_skip_step`](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/src/solprop/backends/driver.py#L2398)
+   also increments the periodic-statistics and natural-plane counters;
+   `monitor.step` does neither. Conversely, calling the current `_take_step_stats`
+   after replaying the final checked row can check it again, particularly while
+   busy. Its split reading also drains native's removal accumulator. The blanket
+   instruction to check after every commit conflicts with the accepted floor
+   exits in §4.3, which occur before any step statistics or monitor work.
+   Please give the drain a table of effects for checked and unchecked rows,
+   rejected attempts, all three RK floor sites, watch exits, host events and
+   native faults. Count every eligible accepted step once in *each* counter;
+   consume each buffered reading once; run statistics and natural stops in the
+   reference order without another check; use the row's own replay cursor when
+   testing a scheduled crossing. Keep #133's existing plane behaviour separately
+   identified. State which work is inside `committing()` and how complete history,
+   monitor records and terminal checkpoints are retained if a warning becomes an
+   exception, a callback fails or a signal arrives during the drain. Test a busy
+   check coinciding with a statistics row, a natural plane, a floor and a call
+   bound, plus a split run with skipped steps and nonzero removal.
+
+6. **R6 — P2: distinguish call continuation from disk resume (§4.2, §9;
+   phases 3–4).** The statement that resume restores the same five RK state
+   components does not describe the current implementation.
+   [`StepDriver.set_initial`](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/src/solprop/backends/driver.py#L1254)
+   resets the proposal to `dz_init`, clears accepted norms and restarts the
+   statistics/natural-plane counters, including on resume; `march_snapshot()`
+   returns `None` for RK. `_start_up` explicitly documents starting afresh after
+   resume. Preserving these values across native calls is necessary, but
+   preserving them across disk resume would add behaviour and require a storage
+   design absent from the no-schema-change proposal. Which meaning is intended?
+   Recommend retaining today's disk-resume behaviour and saying so explicitly.
+   Specify reset of the RK state and watch on every `set_initial`, reconfiguration
+   after attaching the resumed monitor, and invalidation of FSAL/dense caches.
+   Test a resumed run and two inputs on one runner, including reuse after failure
+   and changing from a monitored to an unmonitored input.
+
+7. **R7 — P2: make the interruption and callback promises achievable (§§5,
+   7.5, 9; Q2).** §7.5 promises that signals and stop flags reach Python at the
+   same step as the host loop, while §§5 and 9 defer them until a native call
+   returns. The
+   [existing Adams adapter](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/native/src/solprop_native/backend.py#L2649)
+   explicitly permits further accepted steps within that call. Its clock limit
+   is checked after an attempt, so 0.1 s is not an absolute latency ceiling: an
+   attempt and the subsequent drain/callback work can exceed it. Also, the
+   adapter invokes `progress.step` once per recorded attempt during the drain,
+   not once per call as §5 could imply. Please distinguish exact positions for
+   deterministic boundary/floor failures from call-bound latency for asynchronous
+   requests, and distinguish callback count from delivery time. Test coherent
+   state/history/checkpoint at the final committed position and a bounded number
+   of additional attempts, rather than same-step equality for a wall-clock
+   signal. Do callbacks keep their existing per-attempt delivery and exception
+   semantics? Recommend yes, with the deferred timing documented.
+
+8. **R8 — P2: make fallback survive phase 2 and controller overrides (§§6.3,
+   6.6, 7; phases 2–4).** Moving the scorer into the Python loop also changes
+   the path intended to be the fallback. Today `_score_trial` calls the actual
+   `controller.scale`; the
+   [Adams engine](https://github.com/LupoLab/solprop/blob/f3efb5ce2b4700d5f8382f505e7a6857415cadcb/native/src/solprop_native/backend.py#L2075)
+   checks that a `PIController` subclass has not overridden that method before
+   selecting native scaling. Merely being a `PIController` does not establish
+   that its scale, acceptance, proposal, rejection or start-up methods are the
+   formulas in §4. Please state how custom methods retain the current host
+   implementation, including the phase-2 scorer, and how unavailable stage-table
+   representations retain the old packer. Give unsupported cases a precise
+   admission predicate and test them with a controller subclass whose result
+   differs detectably. The private host switch should still work after phase 2;
+   comparisons to the pre-phase-2 baseline are separately needed for Q1.
+
+9. **R9 — P2: make the performance gates measure the work that remains (§§1,
+   3.4, 4.1, 6.1, 7.6; phases 0–3).** B1 still executes `monitor.step` in Python
+   for every checked step, and the current adapter reports progress per attempt.
+   Buffering amortises crossings and state adoption; it does not remove those
+   per-reading and per-row costs. The B1 table's “none” and the assertion that
+   return counts become only planes/rows/verdict changes also omit call-bound
+   returns. Please include deferred checking and row processing in the cost model
+   and measure their amortised cost before committing to the 5 % and 4 % gates.
+   Record runnable profiling commands, warm repetitions/sample counts, the
+   definition of the percentage (sampled main-thread CPU or elapsed wall time),
+   and separate unprofiled A/B wall times with A/A spread. Specify short windows
+   that actually exercise a busy monitor, rather than assuming the launch's
+   first ten steps represent the later busy portion of a full run; report their
+   accepted/checked/skipped counts and returns by reason. How will the fixed
+   watch-buffer capacity behave in the §7.2/§7.3 “no call bound” diagnostic?
+   Recommend a separate capacity return, or an explicitly sized diagnostic
+   buffer, with every persistent buffer in the memory ledger and qualification
+   across its drain boundary.
+
+**Recommendations on Q1–Q6, for the maintainer.** Q1: allowing a bounded rounding
+change in the native RK norm is consistent with SEP 25, once R1 is fixed and the
+old/new scorer and independent accuracy checks are retained; it does not authorise
+R4's monitor change. Q2: reuse the Adams call bounds, with R7's latency definition
+and R9's capacity rule. Q3: widen `HostMarchWarning`, with explicit admission reasons.
+Q4: raise `BackendError` on a watch mismatch; do not continue with an unverified cap.
+Q5: phase 4 is a reasonable place for replay, provided its refusal and host path are
+tested earlier. Q6: keeping #133 separate is reasonable, but it is not permission
+to introduce new double counting in R5. These are recommendations, not decisions.
+
+**Evidence and limits of this review.** The norm, capped-proposal, guard-warning
+and split-reduction counterexamples above were run against this revision's Python
+code with Python 3.14.5 and NumPy 2.5.2; they involve scalar or small-array work,
+not propagation. Native paths, lifecycle behaviour and memory ownership were read,
+not executed. The historical timings and speed-up targets were not reproduced.
+Bibliographic search records were checked for the cited papers and the publisher's
+record for the second edition of Hairer et al.; the complete papers and §II.4 were
+not checked, so this review makes no claim to have independently revalidated their
+coefficients or derivations. No physical constants, models or defaults were changed.
