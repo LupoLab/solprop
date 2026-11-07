@@ -915,6 +915,70 @@ march::Policy march_policy_from(const nb::dict values) {
   return policy;
 }
 
+// solprop SEP 45 phase 1: the boundary watch's policy and state, from and to solprop's
+// `BoundaryMonitor.watch_policy` and `.watch_state`.
+native::watch::Policy watch_policy_from(const nb::dict values) {
+  native::watch::Policy policy;
+  try {
+    policy.split = nb::cast<bool>(values["split"]);
+    policy.crossing = nb::cast<bool>(values["crossing"]);
+    const auto regions = nb::cast<std::vector<double>>(values["floor_regions"]);
+    if (regions.size() != 4)
+      throw std::invalid_argument("the boundary watch's floor regions are four");
+    for (std::size_t index = 0; index < 4; ++index)
+      policy.floor_regions[index] = regions[index];
+    policy.launch_floor = nb::cast<double>(values["launch_floor"]);
+    policy.activity = nb::cast<double>(values["activity"]);
+    policy.warn = nb::cast<double>(values["warn"]);
+    policy.stop = nb::cast<double>(values["stop"]);
+    policy.quiet_share = nb::cast<double>(values["quiet_share"]);
+    policy.quiet_checks = nb::cast<std::uint64_t>(values["quiet_checks"]);
+    policy.quiet_collar = nb::cast<bool>(values["quiet_collar"]);
+    policy.cadence = nb::cast<std::uint64_t>(values["cadence"]);
+    policy.interval = nb::cast<double>(values["interval"]);
+    policy.share = nb::cast<double>(values["share"]);
+    policy.bucket_limits = nb::cast<std::vector<double>>(values["bucket_limits"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the boundary watch's policy has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the boundary watch's policy lacks a field");
+  }
+  native::watch::validate(policy);
+  return policy;
+}
+
+native::watch::State watch_state_from(const nb::dict values) {
+  native::watch::State state;
+  try {
+    state.has_last = nb::cast<bool>(values["has_last"]);
+    state.last_z = nb::cast<double>(values["last_z"]);
+    state.since = nb::cast<std::uint64_t>(values["since"]);
+    state.busy = nb::cast<bool>(values["busy"]);
+    state.quiet_run = nb::cast<std::uint64_t>(values["quiet_run"]);
+    state.quiet = nb::cast<bool>(values["quiet"]);
+    state.warned = nb::cast<bool>(values["warned"]);
+    state.cap = nb::cast<double>(values["cap"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the boundary watch's state has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the boundary watch's state lacks a field");
+  }
+  return state;
+}
+
+nb::dict watch_state_to(const native::watch::State& state) {
+  nb::dict out;
+  out["has_last"] = state.has_last;
+  out["last_z"] = state.last_z;
+  out["since"] = state.since;
+  out["busy"] = state.busy;
+  out["quiet_run"] = state.quiet_run;
+  out["quiet"] = state.quiet;
+  out["warned"] = state.warned;
+  out["cap"] = state.cap;
+  return out;
+}
+
 march::State march_state_from(const nb::dict values) {
   march::State state;
   try {
@@ -942,6 +1006,8 @@ march::State march_state_from(const nb::dict values) {
     state.ledger.failure_restarts = nb::cast<std::uint64_t>(ledger["failure_restarts"]);
     state.ledger.dense_observations =
         nb::cast<std::uint64_t>(ledger["dense_observations"]);
+    if (values.contains("watch"))
+      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Adams march's state has the wrong types");
   }
@@ -974,6 +1040,7 @@ nb::dict march_state_to(const march::State& state) {
   ledger["failure_restarts"] = state.ledger.failure_restarts;
   ledger["dense_observations"] = state.ledger.dense_observations;
   out["ledger"] = ledger;
+  out["watch"] = watch_state_to(state.watch);
   return out;
 }
 
@@ -996,6 +1063,12 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);
     bounds.replay = nb::cast<bool>(values["replay"]);
     bounds.slack = nb::cast<double>(values["slack"]);
+    // The march's own boundary checks (solprop SEP 45), when the host asks for them.
+    if (values.contains("watch") && !values["watch"].is_none()) {
+      bounds.watch = true;
+      bounds.watch_policy = watch_policy_from(nb::cast<nb::dict>(values["watch"]));
+      bounds.watch_capacity = nb::cast<std::size_t>(values["watch_capacity"]);
+    }
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("the Adams march's bounds have the wrong types");
   } catch (const nb::python_error&) {
@@ -1030,6 +1103,13 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
       result.step_nodes.begin(),
       result.step_nodes.begin() + static_cast<std::ptrdiff_t>(result.step_order));
   out["step_carrier"] = result.step_carrier;
+  const std::size_t n_readings = result.reading_rows.size();
+  std::vector<double> readings = result.readings;
+  out["readings"] = n_readings == 0
+                        ? nb::cast(nb::list())
+                        : nb::cast(real_output(std::move(readings), n_readings));
+  out["reading_rows"] = result.reading_rows;
+  out["verdict"] = static_cast<int>(result.verdict);
   out["state"] = march_state_to(state);
   return out;
 }
@@ -1147,6 +1227,8 @@ public:
     return {carrier_.begin(),
             carrier_.begin() + static_cast<std::ptrdiff_t>(1 + 2 * order)};
   }
+
+  std::vector<double> reading() override { return state_.monitor_reading(); }
 
 private:
   void inject(const march::Stage stage) {
@@ -2060,6 +2142,43 @@ NB_MODULE(_core, module_) {
               "threaded_fft_min_samples"_a = 0, "band_tiles"_a = -1);
   module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
   module_.def("register_host_blas", &register_host_blas);
+  // solprop SEP 45 phase 1: the boundary watch's predictions, for solprop's tests to
+  // hold against its monitor on drawn readings.
+  module_.def(
+      "watch_check",
+      [](const nb::dict policy, const nb::dict state, const RealInput reading,
+         const double z) {
+        const auto rules = watch_policy_from(policy);
+        auto held = watch_state_from(state);
+        const auto values = real_vector(reading);
+        if (values.size() < native::watch::reading_head ||
+            (rules.crossing &&
+             values.size() < native::watch::reading_head + native::watch::buckets))
+          throw std::invalid_argument("a boundary reading is too short for its policy");
+        const auto verdict = native::watch::check(rules, held, values.data(), z);
+        nb::dict out;
+        out["verdict"] = static_cast<int>(verdict);
+        out["state"] = watch_state_to(held);
+        return out;
+      },
+      "policy"_a, "state"_a, "reading"_a, "z"_a);
+  module_.def(
+      "watch_due",
+      [](const nb::dict policy, const nb::dict state, const double z) {
+        return native::watch::due(watch_policy_from(policy), watch_state_from(state),
+                                  z);
+      },
+      "policy"_a, "state"_a, "z"_a);
+  module_.def(
+      "watch_split_limit",
+      [](const nb::dict policy, const RealInput occupancy) {
+        const auto rules = watch_policy_from(policy);
+        const auto values = real_vector(occupancy);
+        if (values.size() != native::watch::buckets)
+          throw std::invalid_argument("an occupancy has 128 buckets");
+        return native::watch::split_limit(rules, values.data());
+      },
+      "policy"_a, "occupancy"_a);
   module_.def("available_device_memory", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA)
     std::size_t free_bytes = 0;

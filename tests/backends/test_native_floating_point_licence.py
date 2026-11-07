@@ -154,10 +154,11 @@ def test_the_build_system_asks_for_none_of_the_refused_flags():
         assert flag not in text, flag
     assert "-fno-fast-math" in text
     assert "-ffp-contract=fast" in text
-    # The Adams march's decisions round as Python's do, on every compiler.
+    # The Adams march's decisions and the boundary watch's predictions round as
+    # Python's do, on every compiler (SEP 39, SEP 45).
     assert re.search(
-        r"set_source_files_properties\(src/adams_march\.cpp\s+"
-        r"PROPERTIES COMPILE_OPTIONS"
+        r"set_source_files_properties\(src/adams_march\.cpp\s+src/watch\.cpp\s+"
+        r"PROPERTIES\s+COMPILE_OPTIONS"
         r'\s+"-ffp-contract=off"\)',
         text,
     )

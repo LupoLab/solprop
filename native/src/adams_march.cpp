@@ -418,6 +418,38 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   };
   if (bounds.replay && schedule.edges.size() != n_steps + 1)
     throw std::invalid_argument("a replayed schedule has one more edge than steps");
+  if (bounds.watch)
+    watch::validate(bounds.watch_policy);
+  // The boundary check of the step just committed (SEP 45 section 4.8): `due`, then the
+  // reading, buffered for solprop's monitor, and the prediction of what it will do.
+  const auto take_check = [&]() -> watch::Verdict {
+    const auto& rules = bounds.watch_policy;
+    if (!watch::due(rules, state.watch, state.z)) {
+      watch::skip(state.watch);
+      return watch::Verdict::none;
+    }
+    const std::vector<double> reading = engine.reading();
+    if (reading.size() < watch::reading_head ||
+        (rules.crossing && reading.size() < watch::reading_head + watch::buckets))
+      throw std::invalid_argument("a boundary reading is too short for its policy");
+    result.reading_size = reading.size();
+    result.readings.insert(result.readings.end(), reading.begin(), reading.end());
+    result.reading_rows.push_back(result.rows.size() / row_columns - 1);
+    watch::Verdict verdict = watch::check(rules, state.watch, reading.data(), state.z);
+    if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
+        state.cursor < n_steps) {
+      // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
+      // against the cap this check read.
+      const std::size_t ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
+          watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
+      double longest = schedule.steps[state.cursor];
+      for (std::size_t index = 1; index < ahead; ++index)
+        longest = std::max(longest, schedule.steps[state.cursor + index]);
+      if (longest > state.watch.cap)
+        verdict = watch::Verdict::refuse;
+    }
+    return verdict;
+  };
   while (running()) {
     // The budget, before any call is made (`_afford`).
     const std::uint64_t cost = (state.history.empty() ? 1 : 0) + 1;
@@ -454,7 +486,8 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       }
       proposed = quiet_capped(policy, proposed, bounds.quiet);
       proposed = read_capped(bounds, proposed);
-      proposed = py_min(proposed, bounds.step_cap);
+      // Under the march's own checks the split collar's cap is the last check's.
+      proposed = py_min(proposed, bounds.watch ? state.watch.cap : bounds.step_cap);
       proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
                                 bounds.quiet);
       state.collar_was_quiet = bounds.quiet;
@@ -557,6 +590,20 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       ++accepted;
       if (bounds.replay)
         ++state.cursor;
+      if (bounds.watch) {
+        watch::Verdict verdict = watch::Verdict::none;
+        try {
+          verdict = take_check();
+        } catch (const std::exception& error) {
+          fail(result, Stage::accept, error);
+          return result;
+        }
+        if (verdict != watch::Verdict::none) {
+          result.reason = Reason::watch;
+          result.verdict = verdict;
+          return result;
+        }
+      }
       if (!running()) {
         result.reason = Reason::reached;
         return result;
@@ -571,8 +618,9 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::host_step;
         return result;
       }
-      if (bounds.monitor && (bounds.first_check ||
-                             state.z - bounds.last_check >= bounds.check_interval)) {
+      if (!bounds.watch && bounds.monitor &&
+          (bounds.first_check ||
+           state.z - bounds.last_check >= bounds.check_interval)) {
         result.reason = Reason::monitor;
         return result;
       }
@@ -580,6 +628,11 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
     if (result.rows.size() / row_columns >= bounds.max_attempts ||
         elapsed() >= bounds.max_seconds) {
       result.reason = Reason::bound;
+      return result;
+    }
+    // A full buffer, like the call's bound, ends a call only where no host event does.
+    if (bounds.watch && result.reading_rows.size() >= bounds.watch_capacity) {
+      result.reason = Reason::capacity;
       return result;
     }
   }

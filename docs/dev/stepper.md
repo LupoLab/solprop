@@ -417,11 +417,15 @@ executes `Multistep()` in either formulation, the one-order-higher PEC compariso
 replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
-has work (a statistics row, a natural stop, a monitor check), the call's bound, the
-budget, the floor or a native error. The run's stop flag is polled before each call
+has work (a statistics row, a natural stop), a boundary check whose verdict needs
+solprop, the call's bound, the budget, the floor or a native error. The march takes the
+boundary monitor's checks itself ([SEP 45](seps/sep-0045-native-rk-march.md) §4.8),
+buffers their readings and predicts the monitor's verdict; a run with a transverse
+edge keeps returning at each check. The run's stop flag is polled before each call
 and a signal's handler runs after it, so the call's bound, 256 attempts or 0.1 s, is
 what either waits for. The driver books the call's attempts through
-`_record_attempt` and `_skip_step`, inside one commit. `AdamsMarch` is the reference
+`_record_attempt` and `_account_step`, inside one commit, replaying each buffered
+reading through the monitor at its own step. `AdamsMarch` is the reference
 and steps every configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's

@@ -1848,10 +1848,12 @@ that the total is within the documented budget for the standard cases.
 comparisons and replayed schedules: `_NativeAdamsMarch` hands the native state
 solprop's `MarchPolicy` (and a replay's schedule) once, then each call runs attempts on
 the resident engine -- stage scalars and tables evaluated natively from the run's
-uploaded expansions, the trial, the decision, the accept -- until a host event, and
+uploaded expansions, the trial, the decision, the accept, and the boundary monitor's
+checks ([SEP 45](seps/sep-0045-native-rk-march.md) §4.8) -- until a host event, and
 returns the
-march's state and one row per attempt (its end, step, norm, verdict, order and wall
-time). The decisions are compiled without contraction in their own translation unit,
+march's state, one row per attempt (its end, step, norm, verdict, order and wall
+time) and the readings its checks took, which the driver replays through solprop's
+monitor and holds the march's predictions to (`BackendError` on a difference). The decisions are compiled without contraction in their own translation unit,
 so that they round as solprop's do; within one build the two marches take the same
 steps. A configuration it does not cover runs solprop's march on the same engine with a
 `HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The

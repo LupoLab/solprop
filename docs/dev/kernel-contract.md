@@ -1233,13 +1233,31 @@ one attempt, of seven and of none to one set of bits.
   (convergence, value, backend) and message;
 - the state above, every step before the event committed.
 
+**The boundary checks inside the march** ([SEP 45](seps/sep-0045-native-rk-march.md)
+§4.8, normative since its phase 1). Unless the run's monitor reads a transverse edge, a
+call also takes the monitor's checks: the bounds carry the monitor's watch policy
+(`BoundaryMonitor.watch_policy`, exactly `WATCH_POLICY_FIELDS`: the scaled floor
+regions, the launch floor, the activity, warning and stop thresholds, the quiet
+collar's share, count and opt-in, the cadence, the interval, the crossing share and
+each bucket's step limit) and the most readings one call buffers; the state carries the
+monitor's watch state (`WATCH_STATE_FIELDS`). After each accepted step that reaches its
+statistics the march applies `due`, and on a due step takes the reading, buffers it
+against the attempt's row and predicts `BoundaryMonitor.step`: the split cap, which
+then caps the next step, the cadence, the quiet verdict, a first warning or a stop. It
+returns (`Reason::watch`, with the verdict) on a stop, a first warning, a change of the
+quiet verdict, a replayed schedule passing the cap, or a split that found nothing; and
+(`Reason::capacity`) when the buffer fills where no other event falls. The host's
+monitor-cadence and distance returns are then not asked for.
+
 **What solprop does with a call** (`_NativeAdamsMarch`): before the call it polls the
 run's stop flag, which native code cannot read, as the reference polls before an attempt;
 inside one `committing()` it makes the call, adopts the state and books each row, an
-accepted row on which the driver has no work through `StepDriver._skip_step` and the rest
-through `StepDriver._record_attempt`; after the commit it reports progress per attempt,
-takes the event step's statistics and natural stop, and raises the error the reason
-names, with the reference's message.
+accepted row on which the driver has no work through `StepDriver._account_step` (with
+the reading the march took of it, replayed through the monitor) and every row through
+`StepDriver._record_attempt`; after the commit it reports progress per attempt, takes
+the event step's monitor work (its buffered reading) and statistics and its natural
+stop, holds the monitor's watch state to the march's (`BackendError` on a difference),
+and raises the error the reason names, with the reference's message.
 
 **Rounding.** The decisions are compiled without contraction or fast-math in their own
 translation unit and call no elementary function but `pow`, so that they round as

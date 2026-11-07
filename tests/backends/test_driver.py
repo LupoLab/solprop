@@ -911,7 +911,15 @@ DRIVER_SURFACE = {
     "_record_attempt": (
         "(self, z: float, dz: float, norm: float, accepted: bool, wall: float) -> None"
     ),
-    "_skip_step": "(self, z: float) -> None",
+    "_account_step": (
+        "(self, z: float, cursor: int, "
+        "energies: solprop.monitor.BoundaryEnergies | None = None) -> None"
+    ),
+    "_watched_step": (
+        "(self, z: float, cursor: int, "
+        "energies: solprop.monitor.BoundaryEnergies | None) -> None"
+    ),
+    "_statistics_step": "(self) -> None",
     "_take_step_stats": "(self) -> None",
     "_natural_stop": "(self, target: float) -> bool",
     "_natural_stop_due": "(self, target: float) -> bool",

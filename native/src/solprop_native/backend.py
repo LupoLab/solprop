@@ -153,6 +153,8 @@ from . import (
     PROC_BIND,
     THREAD_BUDGET,
     WAIT_POLICY,
+    WATCH_POLICY_FIELDS,
+    WATCH_STATE_FIELDS,
     _core,
     _host_blas,
     _wisdom,
@@ -2631,7 +2633,20 @@ _MARCH_COUNTERS = (
 )
 """The call ledger's counters the native march keeps."""
 
-_REACHED, _HOST_STEP, _MONITOR, _BOUND, _BUDGET, _FLOOR, _ERROR, _DIVERGED = range(8)
+(
+    _REACHED,
+    _HOST_STEP,
+    _MONITOR,
+    _BOUND,
+    _BUDGET,
+    _FLOOR,
+    _ERROR,
+    _DIVERGED,
+    _WATCH,
+    _CAPACITY,
+) = range(10)
+_VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
+"""A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
 """Why a native march call returned (``march::Reason``)."""
 
 _CONVERGENCE, _BACKEND, _VALUE = 1, 2, 3
@@ -2835,9 +2850,32 @@ class _NativeAdamsMarch(AdamsMarch):
             )
         self._configured = (interval,)
 
-    def _bounds(self, target: float, slack: float | None) -> dict[str, object]:
+    def _watching(self) -> bool:
+        """Whether the march takes the boundary checks itself (solprop SEP 45 4.8).
+
+        Every monitored run but one with a transverse edge, whose reads stay the
+        host's (SEP 44), and a scripted run, whose engine takes no readings.
+        """
+        monitor = self._driver._monitor
+        return (
+            self._runner is None and monitor is not None and monitor.transverse is None
+        )
+
+    def _watch_policy(self) -> dict[str, object]:
+        """Return the monitor's watch policy, refusing one with other fields."""
+        policy = self._driver._monitor.watch_policy()
+        if tuple(policy) != WATCH_POLICY_FIELDS:
+            raise BackendError(
+                "solprop's boundary watch policy has the fields "
+                f"{tuple(policy)}, not the {WATCH_POLICY_FIELDS} this build reads"
+            )
+        return policy
+
+    def _bounds(
+        self, target: float, slack: float | None, watching: bool = False
+    ) -> dict[str, object]:
         """Return a call's bounds: the target, the steps the driver has work on and,
-        for a replay, the edges' slack."""
+        for a replay, the edges' slack; under the march's own checks, their policy."""
         backend = self._driver
         steps: list[int] = []
         if backend._row_spec is not None:
@@ -2850,7 +2888,7 @@ class _NativeAdamsMarch(AdamsMarch):
         checked = None
         read_at = None
         spacing = 0.0
-        if monitor is not None:
+        if monitor is not None and not watching:
             steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
             # The transverse edge is read on the host (solprop SEP 40 section 5.3):
@@ -2881,12 +2919,14 @@ class _NativeAdamsMarch(AdamsMarch):
             "max_seconds": self.MAX_SECONDS,
             "replay": slack is not None,
             "slack": 0.0 if slack is None else float(slack),
+            "watch": self._watch_policy() if watching else None,
+            "watch_capacity": self.MAX_ATTEMPTS,
         }
 
-    def _state(self) -> dict[str, object]:
+    def _state(self, watching: bool = False) -> dict[str, object]:
         """Return the march's state as the native call takes it."""
         backend, ledger = self._driver, self.ledger
-        return {
+        state = {
             "z": float(backend._z),
             "proposal": float(backend._proposal),
             "order": self._order,
@@ -2900,6 +2940,51 @@ class _NativeAdamsMarch(AdamsMarch):
             ],
             "ledger": {name: getattr(ledger, name) for name in _MARCH_COUNTERS},
         }
+        if watching:
+            state["watch"] = backend._monitor.watch_state()
+        return state
+
+    def _readings(self, result: dict[str, Any]) -> dict[int, BoundaryEnergies]:
+        """Return the readings a call's checks took, by the row they follow."""
+        monitor = self._driver._monitor
+        rows = [int(row) for row in result["reading_rows"]]
+        if not rows:
+            return {}
+        values = np.asarray(result["readings"], dtype=np.float64).reshape(len(rows), -1)
+        readings = {}
+        for row, reading in zip(rows, values, strict=True):
+            readings[row] = BoundaryEnergies(
+                float(reading[0]),
+                reading[1:5].copy(),
+                removed=float(reading[5]),
+                found=reading[6:10].copy() if monitor.split else None,
+                occupancy=None
+                if monitor.crossing is None
+                else reading[10 : 10 + SPLIT_RATE_BUCKETS].copy(),
+            )
+        return readings
+
+    def _verify_watch(self, result: dict[str, Any]) -> None:
+        """Hold solprop's monitor, the drain done, to the march's predictions.
+
+        Raises
+        ------
+        BackendError
+            If they disagree: a fault in the native transcription of the monitor's
+            checks, which this run cannot continue past (solprop SEP 45, Q4).
+        """
+        predicted = result["state"]["watch"]
+        actual = self._driver._monitor.watch_state()
+        if any(predicted[name] != actual[name] for name in WATCH_STATE_FIELDS):
+            raise BackendError(
+                "the native march's boundary checks disagree with solprop's monitor: "
+                f"predicted {dict(predicted)}, booked {actual}"
+            )
+        if int(result["reason"]) == _WATCH and int(result["verdict"]) in (1, 4, 5):
+            raise BackendError(
+                "the native march returned to stop the run on a "
+                f"{_VERDICTS[int(result['verdict'])]}, and solprop's monitor did not"
+            )
 
     def _call(self, target: float, slack: float | None = None) -> bool:
         """Make one native call and drain it; return whether a natural stop is due.
@@ -2909,24 +2994,43 @@ class _NativeAdamsMarch(AdamsMarch):
         """
         backend = self._driver
         backend._poll_stop()
-        bounds = self._bounds(target, slack)
+        watching = self._watching()
+        bounds = self._bounds(target, slack, watching)
         started = time.perf_counter() - backend._clock
+        cursor = int(backend._schedule_index)
+        position = float(backend._z)
         with committing():
-            result = self._native_run(self._state(), bounds)
+            result = self._native_run(self._state(watching), bounds)
             self._synchronise(result)
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
+            readings = self._readings(result) if watching else {}
             # Only the last accepted row of an event can have the driver's work; the
-            # others take the skip path, as the reference's would.
-            event = reason in (_REACHED, _HOST_STEP, _MONITOR)
+            # others are accounted, each once, with any reading the march took
+            # (solprop SEP 45 section 4.10).
+            event = reason in (_REACHED, _HOST_STEP, _MONITOR, _WATCH)
             last = len(rows) - 1
             for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
                 backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
                 if slack is not None:
                     backend._accepted_norms.append(norm)
+                if accepted:
+                    position = end
+                    if slack is not None:
+                        cursor += 1
                 final = index == last and (event or reason == _FLOOR)
                 if accepted and not final:
-                    backend._skip_step(end)
+                    try:
+                        backend._account_step(end, cursor, readings.get(index))
+                    except Exception as error:
+                        if not watching:
+                            raise
+                        # The march stops at a check whose verdict needs solprop, so
+                        # a step it went on past cannot be one.
+                        raise BackendError(
+                            "solprop's boundary monitor acted on a check the native "
+                            f"march went on past, at z = {end:.9g} m: {error}"
+                        ) from error
         progress = backend._progress
         for end, dz, norm, accepted, order, _ in rows.tolist():
             progress.step(end, dz, bool(accepted))
@@ -2941,9 +3045,17 @@ class _NativeAdamsMarch(AdamsMarch):
                     "accepted" if accepted else "rejected",
                 )
         if event and rows.size and rows[-1, 3]:
-            backend._take_step_stats()
+            if watching:
+                backend._watched_step(position, cursor, readings.get(last))
+                backend._statistics_step()
+            else:
+                backend._take_step_stats()
+            if watching:
+                self._verify_watch(result)
             if backend._natural_stop(target):
                 return True
+        elif watching:
+            self._verify_watch(result)
         self._raise(reason, result)
         return False
 
