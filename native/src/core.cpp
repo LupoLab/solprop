@@ -12,6 +12,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdlib>
+#include <dlfcn.h>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -35,12 +36,16 @@ std::atomic<int> runtime_width{0};
 //   SOLPROP_NATIVE_EXP_COMPACT=n          the compact team's cap (0: none)
 //   SOLPROP_NATIVE_EXP_STABLE=0|1         the stable kernel team on or off
 //   SOLPROP_NATIVE_EXP_FFT_JOBS=1         FFTW's unscoped loops on a team of their jobs
+//   SOLPROP_NATIVE_EXP_SCOPED_BLOCKTIME=n libomp only: idle threads spin n ms while a
+//                                         native call runs (kmp_set_blocktime), and the
+//                                         process's setting outside
 struct Experiment {
   double scale{1.0};
   bool no_medium{};
   int compact{-1};
   int stable{-1};
   bool fft_jobs{};
+  int scoped_blocktime{-1};
 };
 const Experiment& experiment() {
   static const Experiment value = [] {
@@ -55,6 +60,8 @@ const Experiment& experiment() {
       e.stable = std::stoi(v);
     if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_FFT_JOBS"))
       e.fft_jobs = v[0] == '1';
+    if (const char* v = std::getenv("SOLPROP_NATIVE_EXP_SCOPED_BLOCKTIME"))
+      e.scoped_blocktime = std::stoi(v);
     return e;
   }();
   return value;
@@ -252,7 +259,23 @@ thread_local int blas_saved_default = 0;
 // The calling thread's scopes, and its OpenMP default before the outermost of them.
 thread_local int scope_depth = 0;
 thread_local int scope_saved_default = 0;
+thread_local int scope_saved_blocktime = -1;
 #endif
+
+// libomp's run-time blocktime control, where the loaded runtime has it (looked up by
+// name, so that a GCC build running on libomp through its GOMP layer finds it too).
+using SetBlocktime = void (*)(int);
+using GetBlocktime = int (*)();
+SetBlocktime set_blocktime() {
+  static const auto set =
+      reinterpret_cast<SetBlocktime>(dlsym(RTLD_DEFAULT, "kmp_set_blocktime"));
+  return set;
+}
+GetBlocktime get_blocktime() {
+  static const auto get =
+      reinterpret_cast<GetBlocktime>(dlsym(RTLD_DEFAULT, "kmp_get_blocktime"));
+  return get;
+}
 
 // The outermost scope on a thread sets the thread's OpenMP default width to the
 // runtime's, and its end restores the caller's. Kokkos sets the default only on the
@@ -264,6 +287,12 @@ void enter_runtime_default() noexcept {
 #if defined(KOKKOS_ENABLE_OPENMP)
   if (scope_depth++ != 0)
     return;
+  scope_saved_blocktime = -1;
+  if (const int wanted = experiment().scoped_blocktime;
+      wanted >= 0 && set_blocktime() != nullptr && get_blocktime() != nullptr) {
+    scope_saved_blocktime = get_blocktime()();
+    set_blocktime()(wanted);
+  }
   scope_saved_default = 0;
   const int width = runtime_width.load(std::memory_order_relaxed);
   const int current = omp_get_max_threads();
@@ -275,8 +304,12 @@ void enter_runtime_default() noexcept {
 }
 void leave_runtime_default() noexcept {
 #if defined(KOKKOS_ENABLE_OPENMP)
-  if (--scope_depth == 0 && scope_saved_default != 0)
+  if (--scope_depth != 0)
+    return;
+  if (scope_saved_default != 0)
     omp_set_num_threads(scope_saved_default);
+  if (scope_saved_blocktime >= 0)
+    set_blocktime()(scope_saved_blocktime);
 #endif
 }
 
