@@ -26,6 +26,7 @@ the comparison is exact.
 from __future__ import annotations
 
 import math
+import sys
 from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
@@ -358,3 +359,47 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
     end["in_flight"] = dict(harness.pending)
     end.update(harness.snapshot())
     return {"events": harness.events, "end": end}
+
+
+EXACT_LIBM = sys.platform.startswith("linux")
+"""Whether this platform's ``pow`` is glibc's, which recorded the corpus.
+
+The controller's factors are powers with non-integer exponents, which C libraries
+round differently in the last place; a one-ulp factor moves every later proposal by a
+few ulps. On glibc the corpus holds exactly; elsewhere the decisions -- every
+acceptance, count and stop -- hold exactly and the positions, steps and norms to
+:data:`LIBM_RTOL`.
+"""
+
+LIBM_RTOL = 1e-9
+"""The relative tolerance of a trace's numbers on a C library other than glibc's."""
+
+
+def same_trace(found: Any, expected: Any) -> bool:
+    """Return whether two traces agree, exactly where the C library is glibc."""
+    if EXACT_LIBM:
+        return found == expected
+    return _close(found, expected)
+
+
+def _close(found: Any, expected: Any) -> bool:
+    if isinstance(expected, dict):
+        return (
+            isinstance(found, dict)
+            and found.keys() == expected.keys()
+            and all(_close(found[key], expected[key]) for key in expected)
+        )
+    if isinstance(expected, list):
+        return (
+            isinstance(found, list)
+            and len(found) == len(expected)
+            and all(_close(a, b) for a, b in zip(found, expected, strict=True))
+        )
+    if isinstance(expected, float) and isinstance(found, float):
+        return math.isclose(found, expected, rel_tol=LIBM_RTOL, abs_tol=0.0) or (
+            math.isnan(found) and math.isnan(expected)
+        )
+    if isinstance(expected, str) and isinstance(found, str) and "e-" in expected:
+        # A floor's message formats its proposal to four figures.
+        return found.split(" asked for ")[0] == expected.split(" asked for ")[0]
+    return found == expected

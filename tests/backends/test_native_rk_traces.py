@@ -25,7 +25,7 @@ from typing import Any, cast
 
 import numpy as np
 import pytest
-from tests.backends.rk_traces import Scenario, _Harness
+from tests.backends.rk_traces import Scenario, _Harness, same_trace
 
 from solprop.backends import available
 from solprop.backends.driver import reached
@@ -153,8 +153,8 @@ def test_the_native_march_makes_the_corpus_decisions(entry, max_attempts):
     scenario = Scenario.from_json(entry["scenario"])
     oracle = entry["trace"]
     trace = run_native(scenario, max_attempts)
-    assert _attempts(trace) == _attempts(oracle)
+    assert same_trace(_attempts(trace), _attempts(oracle))
     for name in ("stop", "message", "position", "proposal", "norms", "accepted"):
-        assert trace["end"].get(name) == oracle["end"].get(name), name
+        assert same_trace(trace["end"].get(name), oracle["end"].get(name)), name
     if max_attempts == 1:
-        assert trace == oracle
+        assert same_trace(trace, oracle)

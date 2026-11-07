@@ -8,7 +8,8 @@
 scenario's scripted norms, before SEP 45 refactored it into a pure controller core
 (``tests/backends/rk_traces.py``). The march must reproduce every one exactly: every
 step it asked for, every acceptance, proposal, landing and norm history, the caps and
-the start-up rule, natural stops, and how it stopped.
+the start-up rule, natural stops, and how it stopped. Exactly on glibc, which recorded
+it; elsewhere the numbers to the C library's rounding of ``pow`` (``same_trace``).
 """
 
 from __future__ import annotations
@@ -19,7 +20,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from tests.backends.rk_traces import Scenario, run_scenario
+from tests.backends.rk_traces import Scenario, run_scenario, same_trace
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
 
@@ -52,4 +53,4 @@ def test_the_corpus_reaches_every_decision_it_was_written_for():
 )
 def test_the_march_reproduces_its_trace(entry):
     scenario = Scenario.from_json(entry["scenario"])
-    assert run_scenario(scenario) == entry["trace"]
+    assert same_trace(run_scenario(scenario), entry["trace"])
