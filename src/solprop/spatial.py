@@ -960,6 +960,8 @@ class SpatialFlux:
                 keys, axis=0, return_index=True, return_inverse=True
             )
             if index.size < keys.shape[0]:
+                rate = coefficients.kperp_rate
+                assert rate is not None  # adopted as zeros
                 distinct = SpatialFlux(
                     self.grid,
                     self.space,
@@ -971,9 +973,7 @@ class SpatialFlux:
                         kperp_sq=coefficients.kperp_sq[index],
                         kperp_sq_low=coefficients.kperp_sq_low[index],
                         # Not read by the admittance; sliced so the record validates.
-                        kperp_rate=None
-                        if coefficients.kperp_rate is None
-                        else coefficients.kperp_rate[index],
+                        kperp_rate=rate[index],
                     ),
                 )
                 return distinct._admittance_of(index.size)[np.ravel(inverse)]

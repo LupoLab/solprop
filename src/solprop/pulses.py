@@ -1299,7 +1299,7 @@ def _hard_masked(
     weights: np.ndarray,
     grid: TimeGrid,
     *,
-    column_norms: np.ndarray | None = None,
+    column_norms: np.ndarray,
 ) -> np.ndarray:
     """Zero a beam's bins without forward admittance, refusing real content there.
 
@@ -1318,9 +1318,9 @@ def _hard_masked(
         Transverse Parseval weights, ``(n_modes,)``.
     grid : solprop.grid.TimeGrid
         Temporal grid.
-    column_norms : numpy.ndarray or None, optional
-        Filled, when given, with each column's ``sum |field|^2`` over the
-        polarisations before the mask, ``(n_modes, n_omega)``.
+    column_norms : numpy.ndarray
+        Filled with each column's ``sum |field|^2`` over the polarisations before
+        the mask, ``(n_modes, n_omega)``.
 
     Returns
     -------
@@ -1349,8 +1349,7 @@ def _hard_masked(
             The block's two sums.
         """
         squares = np.sum(np.abs(field[rows]) ** 2, axis=1)
-        if column_norms is not None:
-            column_norms[rows] = squares
+        column_norms[rows] = squares
         norm = weights[rows, None] * squares
         return float(np.sum(norm[outside[rows]])), float(np.sum(norm[:, band]))
 
