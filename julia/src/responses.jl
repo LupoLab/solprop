@@ -39,10 +39,16 @@ function nonlinear_envelope!(nodes, c, factor, raman, count)
     r = raman === nothing ? zero(T) : T(raman.factor)
     drive = raman === nothing ? nodes : raman.drive
     live = raman !== nothing
+    # The third harmonic's term, factor h exp(2 i w0 t) E^2 E, where one is compiled.
+    h, carrier = T(factor) * c.harmonic, c.carrier
+    harmonic = !iszero(h)
     each!(c, size(nodes, 1), count) do t, m
         @inbounds begin
             v = nodes[t, m]
             response = f * abs2(v) * v
+            if harmonic
+                response += h * carrier[t] * (v * v) * v
+            end
             if live
                 response = muladd(r * v, real(drive[t, m]), response)
             end

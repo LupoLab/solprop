@@ -179,11 +179,6 @@ def _refuse(problem: KernelProblem) -> None:
     )
     reasons = {
         "envelope plasma": problem.grid_kind == "envelope" and problem.flags.has_plasma,
-        "resolved modal or radial envelopes": problem.grid_kind == "envelope"
-        and transform.kind not in {"free", "mode_averaged"},
-        "envelope harmonics": problem.grid_kind == "envelope"
-        and response.kerr_coefficients is not None
-        and response.kerr_coefficients.harmonic_factor != 0,
         "single batch and scalar polarisation": problem.shape[0] != 1
         or problem.shape[2] != 1
         or transform.n_pol != 1,
@@ -383,6 +378,11 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         "c": tableau.nodes.copy(),
         "factor": factor,
         "analytic": kerr is not None and kerr.analytic_signal,
+        # The envelope's third-harmonic term: its factor and the carrier exp(2 i w0 t).
+        "harmonic_factor": 0.0 if kerr is None else float(kerr.harmonic_factor),
+        "carrier": np.zeros(0, dtype=complex)
+        if problem.grids.carrier_2w0 is None
+        else problem.grids.carrier_2w0.copy(),
         "analytic_factor": 0.0
         if kerr is None
         else kerr.self_factor + kerr.conjugate_factor,

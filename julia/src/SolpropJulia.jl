@@ -97,6 +97,7 @@ function create(input)
         envelope=host.flag("envelope"), low_storage=host.flag("low_storage"),
         free=host.flag("free"), split=host.flag("split"), analytic=host.flag("analytic"),
         analytic_factor=T(host.real("analytic_factor")), factor=host.real("factor"),
+        harmonic=T(host.has("harmonic_factor") ? host.real("harmonic_factor") : 0.0),
         rtol=host.real("rtol"), atol=host.real("atol"),
         cache_propagators=host.has("cache_propagators") ? host.flag("cache_propagators") : true,
         # A binary32 state is held as a / s, s an exact power of two (SEP 33, rule 2).

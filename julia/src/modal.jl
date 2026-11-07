@@ -19,6 +19,7 @@ function common_tables(c, host)
         mask=upload(c, host.array("mask", Bool)), norm_mask=upload(c, host.array("norm_mask", Bool)),
         weights=upload(c, host.array("weights", T)), uniform=all(==(1), host.array("weights", Float64)),
         window=upload(c, host.array("window", T)), omega_window=upload(c, host.array("omega_window", T)),
+        carrier=upload(c, host.has("carrier") ? host.array("carrier", Complex{T}) : zeros(Complex{T}, 0)),
         rate=host.array("rate", Float64), coarse_rate=host.array("coarse_rate", Float64),
         a=host.array("a", Float64), b=host.array("b", Float64), e=host.array("e", Float64),
         nodes_c=host.array("c", Float64), nt=nt, nf=nf,

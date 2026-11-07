@@ -208,10 +208,16 @@ function source_free!(engine, lab)
             plasma_current!(w.plasma, projected, c, count)
         end
         if c.envelope
+            h, carrier = factor * c.harmonic, c.carrier
+            harmonic = !iszero(h)
             each!(c, size(modal)...) do t, m
                 @inbounds begin
                     v = scale * modal[t, m]
-                    projected[t, m] = factor * a * abs2(v) * v * window[t]
+                    response = factor * a * abs2(v) * v
+                    if harmonic
+                        response += h * carrier[t] * (v * v) * v
+                    end
+                    projected[t, m] = response * window[t]
                 end
             end
         elseif c.analytic

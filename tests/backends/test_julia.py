@@ -325,6 +325,98 @@ def test_julia_window_statistics_match_the_reference(runtime):
         )
 
 
+@pytest.mark.parametrize("thg", [False, True])
+@binary64
+def test_julia_resolved_envelopes_match_the_reference(runtime, thg):
+    """Four resolved modes on the envelope grid, with and without the third harmonic's
+    carrier term."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+
+    length, fields = 0.004, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            simulation = Simulation.from_capillary(
+                50e-6,
+                length,
+                "Ar",
+                1.0,
+                wavelength=800e-9,
+                wavelength_limits=(150e-9, 3e-6),
+                trange=300e-15,
+                fwhm=10e-15,
+                energy=60e-6,
+                n_save=2,
+                backend=name,
+                integrator=RungeKutta(),
+                schedule=FixedSchedule.uniform(0.0, length, length / 16),
+                absorber_scheme="split_step",
+                noise=None,
+                envelope=True,
+                plasma=False,
+                thg=thg,
+                modes=4,
+            )
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(length)
+            fields[name] = engine.observe(field=True).field
+    scale = float(np.linalg.norm(fields["numpy_ref"]))
+    assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
+
+
+@binary64
+def test_julia_radial_envelope_matches_the_reference(runtime):
+    """A self-focusing Kerr beam on the radial route's envelope grid."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from legacy_geometry import LEGACY_GRID, bare_absorber  # noqa: PLC0415
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.driver.simulation import SimulationSettings  # noqa: PLC0415
+    from solprop.grid import EnvelopeGrid, RadialGrid  # noqa: PLC0415
+    from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
+    from solprop.pulses import GaussianPulse, SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import SpatialMedium  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, PIController, RungeKutta  # noqa: PLC0415
+
+    length, fields = 0.1, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            grid = EnvelopeGrid.from_limits(
+                length, 800e-9, (600e-9, 1.2e-6), 150e-15, thg=False, **LEGACY_GRID
+            )
+            settings = SimulationSettings(
+                controller=PIController(rtol=1e-6, atol=0.0),
+                save_planes=[length],
+                dz_max=length,
+                dz_init=length / 10,
+                schedule=FixedSchedule.uniform(0.0, length, length / 10),
+                backend=name,
+                integrator=RungeKutta(),
+                absorber=bare_absorber(grid),
+            )
+            pulse = SpatialPulse(
+                GaussianPulse(wavelength=800e-9, fwhm=50e-15, energy=3e-4), 300e-6
+            )
+            simulation = Simulation.from_radial(
+                grid,
+                RadialGrid(2e-3, 32),
+                SpatialMedium(),
+                [KerrResponse(1e-25, thg=False)],
+                pulse,
+                settings=settings,
+                noise=None,
+            )
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(length)
+            fields[name] = engine.observe(field=True).field
+    scale = float(np.linalg.norm(fields["numpy_ref"]))
+    assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""
