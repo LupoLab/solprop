@@ -1,0 +1,1 @@
+The split collar's crossing limit sums its bucket occupancies in one sequential order, so that a compiled march reproduces it exactly ([SEP 45](docs/dev/seps/sep-0045-native-rk-march.md), Q7). In a near-tie its bucket can move one place, which changes a split-scheme run's steps at rounding level.

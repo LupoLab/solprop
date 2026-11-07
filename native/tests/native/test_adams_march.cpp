@@ -24,6 +24,13 @@ volatile double factor_a = 1.0 + 0x1p-30;
 volatile double factor_b = 1.0 - 0x1p-30;
 volatile double addend = -1.0;
 
+// This file is compiled with the build's contraction: where it optimises for a target
+// with fused multiply-add, this product and sum fuse (solprop #135's control).
+[[gnu::noinline]] double contracting(const double a, const double b, const double c) {
+  const double product = a * b;
+  return product + c;
+}
+
 march::Policy policy() {
   march::Policy policy;
   policy.order = 5;
@@ -69,6 +76,22 @@ public:
 TEST(AdamsMarch, TheDecisionsRoundEveryOperation) {
   // The exact product 1 - 2^-60 rounds to 1: separately rounded, the sum is 0.
   EXPECT_EQ(march::strict_probe(factor_a, factor_b, addend), 0.0);
+}
+
+TEST(AdamsMarch, TheDecisionsStayStrictWhereTheBuildFuses) {
+  // solprop #135: the probe above passes trivially where nothing fuses. Where this
+  // file's own product and sum do fuse, the march's must still round separately.
+#if defined(__OPTIMIZE__) && defined(__FP_FAST_FMA) && !defined(__CUDACC__) &&         \
+    !defined(__HIPCC__)
+  ASSERT_EQ(contracting(factor_a, factor_b, addend), -0x1p-60)
+      << "the control did not fuse, so the witness proves nothing";
+  EXPECT_EQ(march::strict_probe(factor_a, factor_b, addend), 0.0);
+#else
+  const double value = contracting(factor_a, factor_b, addend);
+  EXPECT_TRUE(value == 0.0 || value == -0x1p-60);
+  GTEST_SKIP() << "an unoptimised build, or a target without fused multiply-add, "
+                  "cannot show a contraction";
+#endif
 }
 
 TEST(AdamsMarch, APolicyIsRefusedByTheFieldAtFault) {

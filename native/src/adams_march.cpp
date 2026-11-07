@@ -14,6 +14,16 @@
 
 #include "solprop_native/core.hpp"
 
+// GCC does not take a file's `-ffp-contract=off` as an inlining barrier: under
+// link-time optimisation, with the library's symbols hidden, it would inline a function
+// of this file into a contracting caller and fuse it (solprop #135). The optimize
+// attribute this pragma gives every function below is one: GCC does not inline a
+// function into a caller compiled with other options. Clang carries the file's setting
+// on each instruction.
+#if defined(__GNUC__) && !defined(__clang__)
+#pragma GCC optimize("fp-contract=off")
+#endif
+
 /*
  * The exponential Adams march's decisions and loop (solprop SEP 39 phase 2).
  *
