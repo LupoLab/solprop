@@ -99,9 +99,7 @@ def test_the_native_march_takes_the_host_loop_s_steps(route, monkeypatch):
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 
-@pytest.mark.parametrize(
-    "route", ["gnlse", "capillary (mode-averaged)", "capillary (coherent wall)"]
-)
+@pytest.mark.parametrize("route", ["gnlse", "capillary (mode-averaged)", "radial"])
 def test_interpolated_planes_are_the_host_loop_s(route, monkeypatch):
     """The step across a plane returns to solprop, which holds its extension."""
     build = lambda: _route(route, interpolate_planes=True)  # noqa: E731

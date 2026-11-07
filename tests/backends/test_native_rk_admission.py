@@ -29,6 +29,15 @@ native = pytest.importorskip("solprop_native")
 backend_module = pytest.importorskip("solprop_native.backend")
 
 
+ROUTES_NATIVE = (
+    "gnlse",
+    "capillary (multimode)",
+    "radial",
+    "capillary (coherent wall)",
+)
+FLOWS = ("capillary (coherent wall)",)
+
+
 class _Scaled(PIController):
     """A controller whose scale is its own."""
 
@@ -56,10 +65,13 @@ def launched(route: str, **settings):
 
 
 @pytest.mark.parametrize(
-    "route",
-    ["gnlse", "capillary (multimode)", "radial", "capillary (coherent wall)"],
+    ("route", "dense"),
+    [
+        *((route, False) for route in ROUTES_NATIVE),
+        # Translation refuses interpolated planes beside a coupled flow.
+        *((route, True) for route in ROUTES_NATIVE if route not in FLOWS),
+    ],
 )
-@pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
 def test_the_default_loop_is_native_without_a_warning(route, dense):
     backend = launched(route, interpolate_planes=dense)
     try:
