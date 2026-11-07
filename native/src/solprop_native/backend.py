@@ -3432,13 +3432,7 @@ class _NativeRungeKuttaMarch:
         cursor = int(backend._schedule_index)
         position = float(backend._z)
         with committing():
-            if self._runner is not None:
-                result = self._runner.run(self._state(watching), bounds)
-            else:
-                with _envelope_errors():
-                    result = backend._native_state.rk_march_run(
-                        self._state(watching), bounds
-                    )
+            result = self._native_run(self._state(watching), bounds)
             state = result["state"]
             backend._z = float(state["z"])
             backend._proposal = float(state["proposal"])
@@ -3480,6 +3474,15 @@ class _NativeRungeKuttaMarch:
             _verify_watch_of(backend._monitor, result)
         self._raise(reason, result)
         return False
+
+    def _native_run(
+        self, state: dict[str, object], bounds: dict[str, object]
+    ) -> dict[str, Any]:
+        """Make one native call: the native state's march, or the scripted one."""
+        if self._runner is not None:
+            return self._runner.run(state, bounds)
+        with _envelope_errors():
+            return self._driver._native_state.rk_march_run(state, bounds)
 
     def _raise(self, reason: int, result: dict[str, Any]) -> None:
         """Raise the error a call returned with, if any."""
