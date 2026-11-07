@@ -61,6 +61,13 @@ def runge_kutta(route: str, controller: PIController | None = None):
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
+    return launched(simulation, controller)
+
+
+def launched(simulation, controller: PIController | None = None):
+    """Return a simulation's backend on the Runge-Kutta march, launched."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
         settings = dataclasses.replace(simulation.settings, integrator=None)
         if controller is not None:
             settings = dataclasses.replace(settings, controller=controller)

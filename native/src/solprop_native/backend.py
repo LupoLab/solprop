@@ -885,17 +885,17 @@ class NativeBackend(StepDriver[_core.State]):
         """Whether the native state forms a Runge-Kutta trial's stage rows itself.
 
         solprop SEP 45 phase 2: where every row a trial reads is one of the uploaded
-        stage tables' -- no z table, whose slots a trial loads together -- the tables
-        are uploaded once and the state evaluates each stage's scalars at
-        ``z + c_i dz`` natively, as `_trial_arrays` packs them from `_stage_bundles`.
-        Beside a coupled flow (phase 4) the state also forms the step's flow actions
-        behind `_flow_trial`'s guards, transcribed with their constants.
+        stage tables', the tables are uploaded once and the state evaluates each
+        stage's scalars at ``z + c_i dz`` natively, as `_trial_arrays` packs them from
+        `_stage_bundles`. Phase 4 adds the z table, whose positions the state loads
+        into the one slot cache stage by stage where the host loads a trial's
+        together: the slots differ, the values in them do not. Beside a coupled flow
+        the state also forms the step's flow actions behind `_flow_trial`'s guards,
+        transcribed with their constants.
         """
         staged = self._rk_staged
         if staged is None:
-            tables = None
-            if self._z_tables is None:
-                tables = self._stage_tables()
+            tables = self._stage_tables()
             if tables is not None:
                 self._native_state.adams_stage_tables(tables | _chord_tables(None))
                 self._rk_nodes = [
@@ -3309,7 +3309,7 @@ class _NativeRungeKuttaMarch:
             ),
             (
                 _RK_ROWS == "host" or not driver._staged_rows(),
-                "a z table, whose stage rows the host forms (SEP 45 phase 4)",
+                "a trial whose stage rows the host forms",
             ),
         )
         for failed, reason in reasons:

@@ -19,6 +19,7 @@ from typing import Any
 
 import numpy as np
 import pytest
+from test_native_z_table import walk_off
 
 from capability_routes import ROUTES
 from solprop.backends import available
@@ -99,10 +100,44 @@ def test_the_native_march_takes_the_host_loop_s_steps(route, monkeypatch):
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 
-@pytest.mark.parametrize("route", ["gnlse", "capillary (mode-averaged)", "radial"])
+@pytest.mark.parametrize(
+    "route", ["gnlse", "capillary (mode-averaged)", "capillary (multimode)"]
+)
 def test_interpolated_planes_are_the_host_loop_s(route, monkeypatch):
     """The step across a plane returns to solprop, which holds its extension."""
     build = lambda: _route(route, interpolate_planes=True)  # noqa: E731
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
+def test_a_z_table_s_staged_trial_is_the_host_packed_trial(monkeypatch):
+    """The z table's positions load into other slots, holding the same values."""
+    simulation = walk_off("native", RungeKutta())
+    problem = simulation.translate()
+    assert problem.linear.phi_representation == "table"
+    backend = backend_module.NativeBackend(
+        problem, grid=simulation.grid, modes=simulation.modes
+    )
+    try:
+        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        assert backend._staged_rows()
+        end = float(problem.stepper.z_end)
+        for z in (0.0, 0.37 * end, 0.8 * end):
+            dz = 0.01 * end
+            staged = np.asarray(backend._prepare_trial(z, dz))
+            with monkeypatch.context() as patch:
+                patch.setattr(backend_module, "_RK_ROWS", "host")
+                packed = np.asarray(backend._prepare_trial(z, dz))
+            assert np.array_equal(staged, packed), z
+    finally:
+        backend.close()
+
+
+@pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
+def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
+    """The moving-dispersion fibre, whose operator is a z table."""
+    build = lambda: walk_off(  # noqa: E731
+        "native", RungeKutta(), n_save=7, interpolate_planes=dense
+    )
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 
