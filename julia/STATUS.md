@@ -53,6 +53,8 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | A varying guide's power weight rebound alone, warmed at construction | `rdw`'s 12 planes 37 ms of binding -> none |
 | GPU: heavy reductions a thread an element; batched transforms; one kernel a trapezoid increment | the A40's binary64 geometric mean 2.77 -> 2.32 |
 | GPU: column and row sums, local sums and occupancy by device reductions | (from the MI325X's trace; measured in the ledger) |
+| The split collar on the engine's march; a plasma integral's FIR in one pass | radial off the Python march; `ctc_reduced`'s integral 0.50 ms -> 0.27 ms |
+| Nothing left to compile in a run's first window | radial on 16 threads 0.63 s -> 0.40 s, `line` 0.21 s -> 0.14 s (the worker's warm-up runs without a monitor) |
 
 The vectorised functions paid only once the live samples were gathered and each pass
 was a function of its own: in the column's branchy loop, and inside its closure, LLVM
@@ -67,17 +69,18 @@ seconds, the machines and the earlier rows.
 
 | case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 | H200 | MI325X |
 |---|---:|---:|---:|---:|---:|---:|
-| rdw | 1.54 | 1.14 | 2.39 | 3.05 | 2.02 | 2.03 |
-| argon_blueshift | 1.77 | 1.30 | 2.78 | 2.24 | 2.56 | 2.33 |
-| h2_raman_6ps | 1.25 | 0.86 | 1.08 | 0.66 | 1.96 | 1.71 |
-| ctc_reduced | 1.85 | 1.01 | 1.48 | 1.49 | 1.98 | 2.27 |
-| radial_filament_256 | 1.02 | 1.52 | 2.81 | 2.27 | 4.42 | 4.85 |
-| kerr_beam_192 | 1.12 | 1.11 | 3.13 | 3.63 | 1.69 | 3.44 |
-| line | 1.20 | 1.17 | 2.60 | 2.24 | 2.92 | 1.89 |
+| rdw | 1.52 | 1.04 | 2.86 | 3.05 | 2.02 | 2.03 |
+| argon_blueshift | 1.51 | 1.21 | 2.80 | 2.24 | 2.56 | 2.33 |
+| h2_raman_6ps | 1.24 | 0.89 | 1.02 | 0.66 | 1.96 | 1.71 |
+| ctc_reduced | 1.56 | 0.90 | 1.47 | 1.49 | 1.98 | 2.27 |
+| radial_filament_256 | 0.97 | 1.12 | 2.05 | 2.27 | 4.42 | 4.85 |
+| kerr_beam_192 | 1.10 | 1.26 | 2.75 | 3.63 | 1.69 | 3.44 |
+| line | 1.08 | 0.78 | 1.68 | 2.24 | 2.92 | 1.89 |
 
-Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine), the NVIDIA A40 and the
-NVIDIA H200 (binary64) against native's CUDA builds, all at commit `50158fa6`: geometric
-means 1.25, 2.19 (binary32 1.99) and 2.39; the AMD Instinct MI325X (binary64) against
+Intel Xeon Gold 6240 (16 cores of socket 1, quiet) and the NVIDIA A40 (binary64) at
+commit `a6722029`, geometric means 1.13 and 1.97; the A40's binary32 and the NVIDIA H200
+(binary64) at `50158fa6`, 1.99 and 2.39, before the first window stopped compiling, which
+cost radial and the free-space windows most (radial 0.53 s -> 0.35 s on the A40); the AMD Instinct MI325X (binary64) against
 native's HIP build at `196baa51`, before the GPU's column reductions, 2.48. On GPUs with
 full-rate binary64 the windows are host-bound (the launches, copies and allocations a
 step), which is what is left there. Binary32 is against native's binary64. Ratios measured before

@@ -2955,6 +2955,25 @@ Geometric mean 1.25 (1.42 at `7c7ac9b7`). The load spread some rounds widely
 (`h2_raman_6ps` 0.59 to 0.88 and `kerr_beam_192` 0.67 to 1.35 on 16 threads); the
 ratios are medians of paired rounds, both arms under the same load.
 
+And at commit `a6722029`, three rounds on a quiet machine (load 0.3 to 2.2). Until this
+commit every Julia row above carried compilation inside its window: the worker's
+warm-up runs without a boundary monitor, so the monitor's bindings and radial's split
+collar first ran, and compiled, in the timed run (252 ms of a radial window, 80 ms of
+`line`'s, 97 ms of `kerr_beam_192`'s). The construction now warms them
+(`test_julia_first_window_compiles_nothing`):
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.416 | 0.632 | 1.52 | 0.143 | 0.148 | 1.04 |
+| `argon_blueshift` | 0.544 | 0.839 | 1.51 | 0.181 | 0.219 | 1.21 |
+| `h2_raman_6ps` | 3.395 | 4.216 | 1.24 | 1.923 | 1.714 | 0.89 |
+| `ctc_reduced` | 1.007 | 1.573 | 1.56 | 0.378 | 0.344 | 0.90 |
+| `radial_filament_256` | 2.157 | 2.111 | 0.97 | 0.367 | 0.407 | 1.12 |
+| `kerr_beam_192` | 5.149 | 5.671 | 1.10 | 0.851 | 1.070 | 1.26 |
+| `line` | 0.675 | 0.730 | 1.08 | 0.181 | 0.141 | 0.78 |
+
+Geometric mean 1.13; Julia faster than native in four rows.
+
 **NVIDIA A40** (driver 595.71), native's CUDA build (AMPERE86) against `julia` with
 `SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, commit `7c7ac9b7`:
 
@@ -3000,6 +3019,11 @@ another A40 node. Radial's window rose from 0.479 s to 0.530 s there, outside bo
 spreads, while `rdw` and `line`, which those commits did not change, rose too (0.129 to
 0.136 s, 0.247 to 0.258 s): whether the march costs radial on a GPU is not established.
 Binary32 `h2_raman_6ps` at 0.61. No window hung in either.
+
+At `a6722029` (the first window no longer compiling) binary64 gave 1.97: `rdw` 2.86,
+`argon_blueshift` 2.80, `h2_raman_6ps` 1.02, `ctc_reduced` 1.47, radial 2.05 (0.354 s),
+`kerr_beam_192` 2.75, `line` 1.68. The binary32 arm of the same job was erratic (`rdw`'s
+rounds 2.5 and 20.9 against steady native times), under investigation.
 
 **NVIDIA H200** (a rented droplet, CUDA 13.1, driver 580.196), native's CUDA build
 (HOPPER90) against `julia` with CUDA.jl on the system toolkit (`bootstrap.py
