@@ -472,15 +472,35 @@ function population_samples!(p, nodes, c, first, count)
     each!(c, nt, count) do t, n
         @inbounds edge[t, n] = t == 1 ? none : dt * (gated[t, n] + gated[t-1, n]) / 2
     end
-    steps = @view integrand[:, columns]
-    final, start = @view(fraction[nt, columns]), @view(fraction[1, columns])
-    copyto!(@view(fractions[first:first+count-1]), final)
-    copyto!(@view(peaks[first:first+count-1]), vec(maximum(@view(rate[:, columns]); dims=1)))
-    freed = Array(final) .- Array(start)
-    paid = vec(Array(sum(@view(edge[:, columns]); dims=1)))
-    Float64[max(0, maximum(-, steps)), max(0, maximum(steps)), maximum(abs.(paid .- freed)),
-            maximum(freed), maximum(@view(current[1:min(reach, nt), columns])),
-            maximum(@view(current[:, columns]))]
+    # One column kernel writes each column's final fraction and peak rate into the
+    # device's tables and its six partial maxima into a small matrix, read back once: the
+    # separate reductions and view copies were seven waits and two slow copies a chunk
+    # (each about 0.2 ms on Metal).
+    parts = scratch(c, :population_parts, T, 6, count)
+    head = min(reach, nt)
+    each_column!(c, count) do n
+        @inbounds begin
+            down, up, peak, early, latest, paid = none, none, none, none, none, none
+            for t in 1:nt
+                step = integrand[t, n]
+                down, up = max(down, -step), max(up, step)
+                peak = max(peak, rate[t, n])
+                paid += edge[t, n]
+                value = current[t, n]
+                latest = max(latest, value)
+                t <= head && (early = max(early, value))
+            end
+            freed = fraction[nt, n] - fraction[1, n]
+            fractions[first+n-1] = fraction[nt, n]
+            peaks[first+n-1] = peak
+            parts[1, n], parts[2, n], parts[3, n] = down, up, abs(paid - freed)
+            parts[4, n], parts[5, n], parts[6, n] = freed, early, latest
+        end
+    end
+    host = Array(parts)
+    tally!(:readback)
+    Float64[max(0, maximum(host[1, :])), max(0, maximum(host[2, :])), maximum(host[3, :]),
+            maximum(host[4, :]), maximum(host[5, :]), maximum(host[6, :])]
 end
 
 function population_columns!(p, nodes, c, first, count)
