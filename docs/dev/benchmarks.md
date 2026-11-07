@@ -3219,17 +3219,13 @@ df32 1.51 (1.72 before; `h2_raman_6ps` 0.58, radial 1.29).
 
 **NVIDIA A40, Nsight Systems** at `fbd75c2c` (binary64, one warmed 2 % window inside
 `cudaProfilerStart`/`Stop`, `scripts/prof_case.py` on DMOG): one-chunk and the packed
-tables against `5df088ec` gave 0.95 (`h2_raman_6ps` 0.90, `ctc_reduced` 0.91). The
-profiles show that on the A40 in binary64 Julia is bound by device work, not the host:
-
-| case | native kernels | julia kernels | FFTs a step, native / julia | windows, native / julia |
-|---|---|---|---|---|
-| `rdw` | 15 ms, 592 launches | 80 ms, 2975 launches | 1.7 / 5.4 | 0.054 / 0.130 s |
-| `h2_raman_6ps` | 117 ms | 868 ms | 0.38 / 14.4 | 1.05 / 1.09 s |
-| `radial_filament_256` | 65 ms | 209 ms | | 0.17 / 0.29 s |
-
-Native's `h2_raman_6ps` window is host-bound instead (984 ms of API time for 117 ms of
-kernels), which is why the two windows are level there. Julia's elementwise kernels take
-50 ms of `rdw`'s 80 (one heavy kernel a step, the Adams predictor's phi functions in
-binary64 at the A40's 1/64 rate, 0.28 ms), its FFTs 19 ms; radial's FP64 GEMMs (cutlass)
-58 ms. The gap is native's lighter algorithm per source, not Julia's launches.
+tables against `5df088ec` gave 0.95 (`h2_raman_6ps` 0.90, `ctc_reduced` 0.91). A first
+profile counted native's kernels at a fraction of Julia's (`rdw` 15 ms against 80,
+`h2_raman_6ps` 117 against 868), but native runs each Adams source inside a CUDA graph
+(`graph::Region`, `native/src/general.cpp:8219`), which Nsight traces as one unit by
+default: those counts left out native's sources and are not comparable. A rerun traces
+the graph's nodes (`--cuda-graph-trace=node`). What the code shows directly is that
+native's sources do fewer transforms: the analytic signal by one c2c inverse of the
+doubled one-sided spectrum (Julia: a c2r, then an fft/bfft pair), the forward streams
+packed into one r2c, radial's three streams in one r2c with stacked projections;
+`h2_raman_6ps`'s Raman is an FFT convolution of 2 n_t on both.
