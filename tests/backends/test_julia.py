@@ -182,7 +182,9 @@ def test_julia_double_float_phi_is_binary64s(runtime):
             exact = np.asarray(runtime.phi_snapshot(complex(x), order))
             pair = np.asarray(runtime.phi_snapshot_df(complex(x), order))
             bound = 2.0**-36 * max(1.0, abs(x.imag)) * np.abs(exact) + 1e-300
-            np.testing.assert_array_less(np.abs(pair - exact), bound, err_msg=f"{x} {order}")
+            np.testing.assert_array_less(
+                np.abs(pair - exact), bound, err_msg=f"{x} {order}"
+            )
 
 
 def test_julia_double_float_propagators_round_once(runtime):
@@ -190,7 +192,9 @@ def test_julia_double_float_propagators_round_once(runtime):
     for phases up to 1e6 rad (the mlx backend's measured bound is 5 u)."""
     generator = np.random.default_rng(7)
     re = generator.uniform(-20, 5, 2000)
-    im = np.concatenate([generator.uniform(-10, 10, 1000), generator.uniform(-1e6, 1e6, 1000)])
+    im = np.concatenate(
+        [generator.uniform(-10, 10, 1000), generator.uniform(-1e6, 1e6, 1000)]
+    )
     for z in re + 1j * im:
         forward, back = runtime.exp_pair_snapshot_df(complex(z))
         for value, exact in ((forward, np.exp(z)), (back, np.exp(-z))):

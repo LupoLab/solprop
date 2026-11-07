@@ -100,9 +100,8 @@ def runtime(backend: str, device: bool = False) -> Record:
         # are identified by digest, as a native build is by its extension's.
         # A GPU run takes the GPU the environment names (rocm on AMD), else CUDA.
         named = os.environ.get("SOLPROP_JULIA_DEVICE")
-        os.environ["SOLPROP_JULIA_DEVICE"] = (
-            (named if named in {"cuda", "rocm", "metal"} else "cuda") if device else "cpu"
-        )
+        gpu = named if named in {"cuda", "rocm", "metal"} else "cuda"
+        os.environ["SOLPROP_JULIA_DEVICE"] = gpu if device else "cpu"
         from solprop.backends.julia import source_digest  # noqa: PLC0415
 
         info["julia_build"] = source_digest()
