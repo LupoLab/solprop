@@ -785,6 +785,8 @@ def record_dropped(
     extinction: float,
     absorption: float,
     wavelength: float,
+    *,
+    digest: str | None = None,
 ) -> None:
     """Record, in every open context, the loss a transparent index dropped.
 
@@ -800,11 +802,14 @@ def record_dropped(
         The largest ``4 pi k / lambda`` dropped, 1/m.
     wavelength : float
         The vacuum wavelength in m of that absorption, or NaN.
+    digest : str, optional
+        The model's record digest, when the caller holds it; otherwise it is formed
+        from the model's identity.
     """
     logs = _LOGS.get()
     if not logs:
         return
-    key = (record(model).digest, bound)
+    key = (record(model).digest if digest is None else digest, bound)
     for log in logs:
         log.record_dropped(key, extinction, absorption, wavelength)
 
