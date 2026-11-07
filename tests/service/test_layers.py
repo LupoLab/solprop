@@ -25,10 +25,15 @@ FORBIDDEN = ("PySide6", "shiboken6", "pyqtgraph", "solprop_gui")
 LIGHT = (
     "solprop.service.client",
     "solprop.service.explore",
+    "solprop.service.frames",
+    "solprop.service.launch",
+    "solprop.service.machines",
     "solprop.service.messages",
     "solprop.service.recipes",
     "solprop.service.reduce",
+    "solprop.service.record",
     "solprop.service.remote",
+    "solprop.service.runs",
     "solprop.service.states",
     "solprop.service.worker",
 )

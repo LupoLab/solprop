@@ -11,10 +11,17 @@ time, and copying a run's folder elsewhere loses nothing.
 
 import re
 from dataclasses import dataclass
-from datetime import date
-from pathlib import Path
+from datetime import date, datetime
+from pathlib import Path, PurePosixPath
 
-__all__ = ["DEFAULT_WORKSPACE", "RunEntry", "list_runs", "new_run_folder", "slug"]
+__all__ = [
+    "DEFAULT_WORKSPACE",
+    "RunEntry",
+    "list_runs",
+    "new_run_folder",
+    "remote_run_folder",
+    "slug",
+]
 
 DEFAULT_WORKSPACE = Path.home() / "solprop-runs"
 """The workspace when the user has chosen none."""
@@ -110,6 +117,44 @@ class RunEntry:
             The folder's name.
         """
         return self.folder.name
+
+
+def remote_run_folder(
+    workspace: str, home: str, title: str | None, now: datetime | None = None
+) -> str:
+    """Return a new run's folder on another machine, which cannot be listed first.
+
+    The name is the date, the title's slug and the time of day, so two runs of one
+    title on one day do not meet.
+
+    Parameters
+    ----------
+    workspace : str
+        The machine's workspace, as its settings give it (``~`` for its home).
+    home : str
+        The machine's home folder, as its helper says.
+    title : str or None
+        The run's title.
+    now : datetime.datetime or None, optional
+        The time to name it by; now by default.
+
+    Returns
+    -------
+    str
+        The folder, a POSIX path on that machine, with ``~`` written out.
+
+    Examples
+    --------
+    >>> when = datetime(2026, 11, 7, 14, 5, 9)
+    >>> remote_run_folder("~/runs/", "/home/me", "RDW in helium", when)
+    '/home/me/runs/2026-11-07-rdw-in-helium-140509'
+    """
+    when = datetime.now() if now is None else now
+    base = workspace.rstrip("/") or "~"
+    if base == "~" or base.startswith("~/"):
+        base = home.rstrip("/") + base[1:]
+    name = f"{when:%Y-%m-%d}-{slug(title)}-{when:%H%M%S}"
+    return str(PurePosixPath(base) / name)
 
 
 def list_runs(root: Path) -> list[RunEntry]:

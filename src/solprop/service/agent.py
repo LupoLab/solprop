@@ -58,6 +58,7 @@ import numpy as np
 
 from solprop.exceptions import ServiceError
 from solprop.service.frames import read_frame, write_frame
+from solprop.service.machines import CHUNK
 from solprop.service.messages import PROTOCOL, Reply, Request
 from solprop.service.record import read_events, request_stop
 from solprop.service.worker import spec_from_value
@@ -66,9 +67,6 @@ __all__ = ["CHUNK", "FOLLOW_PERIOD", "REQUESTS", "Agent", "hello", "main"]
 
 FOLLOW_PERIOD: Final = 0.5
 """How often a followed run's record is read for new events, s."""
-
-CHUNK: Final = 4 << 20
-"""The largest piece of a file one ``fetch`` or ``put`` carries, bytes."""
 
 
 def hello() -> dict[str, object]:

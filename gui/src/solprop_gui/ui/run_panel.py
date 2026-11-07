@@ -14,7 +14,7 @@ solprop after every ending, and Resume follows that answer alone.
 """
 
 from collections.abc import Callable, Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePath, PurePosixPath
 
 from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QColor
@@ -30,6 +30,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from solprop.service.client import RunClient
+from solprop.service.machines import Machine
 from solprop.service.messages import Event, Reply
 from solprop.service.reduce import Display
 from solprop.service.remote import RemoteRun
@@ -37,9 +38,10 @@ from solprop.service.states import ACTIVE, ExecutionState, advance, failure_advi
 from solprop.service.worker import OUTPUT, RunSpec
 
 from solprop_gui.model.plot_options import PlotOptions
-from solprop_gui.model.workspace import new_run_folder
+from solprop_gui.model.workspace import new_run_folder, remote_run_folder
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.icons import icon
+from solprop_gui.ui.machines_hub import MachineRun
 from solprop_gui.views.live import OverviewView
 from solprop_gui.views.sparkline import StepSparkline
 
@@ -121,8 +123,15 @@ class RunPanel(QWidget):
         self.recipe = recipe
         self.state = ExecutionState.QUEUED
         self.run_id: str | None = None
-        self.folder: Path | None = None
-        self.client: RunClient | RemoteRun | None = None
+        self.folder: PurePath | None = None
+        self.client: RunClient | RemoteRun | MachineRun | None = None
+        # Where new runs go: another machine, or None for this computer.
+        self.machine: Machine | None = None
+        # The run's own machine, while it is one elsewhere.
+        self.run_machine: Machine | None = None
+        # Whether a run on this computer keeps its record (design 13.4); off until
+        # its cost is measured.
+        self.record_local = False
         self.resume_mode: object = None
         self.can_run = False
         self._pending: dict[int, str] = {}
@@ -359,22 +368,38 @@ class RunPanel(QWidget):
         self._pending[request] = "estimate"
 
     def start(self) -> None:
-        """Run the current recipe in a new folder of the workspace."""
+        """Run the current recipe in a new folder of the workspace, or the machine's."""
         if self.active:
             return
         text, base, title = self.recipe()
-        folder = new_run_folder(self.workspace.expanduser(), title)
+        machine = self.machine
+        if machine is not None and not machine.local:
+            hello = self.bridge.hub.connections.get(machine.name)
+            home = None if hello is None or hello.hello is None else hello.hello["home"]
+            if home is None:
+                self.state_label.setText(
+                    f"{machine.name} is not connected: the run cannot start there yet"
+                )
+                return
+            folder = remote_run_folder(machine.workspace, str(home), title)
+            name = PurePosixPath(folder).name
+        else:
+            machine = None
+            local = new_run_folder(self.workspace.expanduser(), title)
+            folder, name = str(local), local.name
+        self.run_machine = machine
         self.view.clear()
         self.log.clear()
         self._launch(
             RunSpec(
-                folder.name,
-                str(folder),
+                name,
+                folder,
                 recipe=text,
                 base=base,
                 display=self.display(),
                 threads=self.threads,
                 reductions=tuple(self.reductions),
+                record=machine is not None or self.record_local,
             ),
             fresh=True,
         )
@@ -396,6 +421,7 @@ class RunPanel(QWidget):
                 str(self.folder),
                 resume=mode,  # pyright: ignore[reportArgumentType]
                 display=self.display(),
+                record=self.run_machine is not None or self.record_local,
             ),
             fresh=False,
         )
@@ -436,7 +462,7 @@ class RunPanel(QWidget):
         if (
             self.active
             or self.folder is None
-            or not (self.folder / OUTPUT).exists()
+            or (self.run_machine is None and not Path(self.folder, OUTPUT).exists())
             or (self.view.rows and self.view.band == self.options.bandpass)
         ):
             return
@@ -470,7 +496,7 @@ class RunPanel(QWidget):
             Whether it is a new run, rather than a continued one.
         """
         self.run_id = spec.run_id
-        self.folder = Path(spec.folder)
+        self.folder = self._place(spec.folder)
         if fresh:
             self._last_index = -1
         self._z_end = 0.0
@@ -480,7 +506,57 @@ class RunPanel(QWidget):
         self.state = ExecutionState.QUEUED
         self._set_state(advance(self.state, "launch"))
         self.state_label.setText(f"{spec.run_id}: starting")
-        self.client = self.bridge.start_run(spec)
+        if self.run_machine is not None:
+            self.client = self.bridge.start_on(self.run_machine, spec)
+        else:
+            self.client = self.bridge.start_run(spec)
+
+    def _place(self, folder: str) -> PurePath:
+        """Return a run's folder as a path of the machine it is on.
+
+        Parameters
+        ----------
+        folder : str
+            The folder.
+
+        Returns
+        -------
+        pathlib.PurePath
+            A POSIX path on another machine, a path of this computer's otherwise.
+        """
+        return Path(folder) if self.run_machine is None else PurePosixPath(folder)
+
+    def attach_on(self, machine: Machine, run: Mapping[str, object]) -> bool:
+        """Take over a run on another machine: its events, from its record's start.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            The machine.
+        run : Mapping
+            The run, as the machine lists it: ``run_id`` and ``folder``.
+
+        Returns
+        -------
+        bool
+            Whether it was taken over; not while a run of the panel's own goes.
+        """
+        if self.active:
+            return False
+        self.run_machine = None if machine.local else machine
+        run_id, folder = str(run["run_id"]), str(run["folder"])
+        self.client = self.bridge.attach_on(machine, run_id, folder)
+        self.run_id = run_id
+        self.folder = self._place(folder)
+        self._last_index = -1
+        self.view.clear()
+        self.log.clear()
+        self.state = ExecutionState.RUNNING
+        self._set_state(ExecutionState.RUNNING)
+        where = "" if machine.local else f" on {machine.name}"
+        self.state_label.setText(f"{run_id}{where}: following")
+        self._update_buttons()
+        return True
 
     def attach(self, run: Mapping[str, object]) -> bool:
         """Take over a run the service holds: its events, replayed from its start.
@@ -502,6 +578,7 @@ class RunPanel(QWidget):
         if client is None:
             return False
         self.run_id = spec.run_id
+        self.run_machine = None
         self.folder = Path(spec.folder)
         self._last_index = -1
         self.view.clear()
@@ -701,7 +778,11 @@ class RunPanel(QWidget):
             # A scan's points are run again with retry_failed, not resumed.
             self.ended.emit(str(event.data["path"]))
         elif self.folder is not None:
-            path = str(self.folder / OUTPUT)
+            path = (
+                (self.folder / OUTPUT).as_posix()
+                if self.run_machine
+                else str(self.folder / OUTPUT)
+            )
             request = self.bridge.request(
                 "check_resume", {"path": path}, key="panel-resume"
             )

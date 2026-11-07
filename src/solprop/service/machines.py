@@ -35,6 +35,7 @@ from solprop.service.frames import read_frame, write_frame
 from solprop.service.messages import PROTOCOL
 
 __all__ = [
+    "CHUNK",
     "LOCAL",
     "RECONNECT_PAUSES",
     "Connection",
@@ -49,8 +50,8 @@ LOCAL: Final = "local"
 RECONNECT_PAUSES: Final = (1.0, 2.0, 5.0, 10.0, 30.0)
 """The pauses before each try to reconnect, s; the last repeats."""
 
-HELLO_SECONDS: Final = 60.0
-"""How long a new session may take to say hello (a password typed included), s."""
+CHUNK: Final = 4 << 20
+"""The largest piece of a file one ``fetch`` or ``put`` carries, bytes."""
 
 
 def ssh_hosts(config: Path | None = None) -> list[str]:
