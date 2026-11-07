@@ -21,7 +21,7 @@ from __future__ import annotations
 import gzip
 import json
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -63,7 +63,7 @@ class _NativeHarness(_Harness):
         super().__init__(scenario)
         self.runner = runner
         self._history: list[Any] = []
-        self._progress = _Progress()
+        self._progress = cast("Any", _Progress())
         self._clock = 0.0
         self._row_spec = None
         self._row_period = 1

@@ -1045,6 +1045,125 @@ changes at rounding level, and step choices differing by a few steps, are accept
   scorer; the driver's `_monitor_step` and `_statistics_step` are the pieces the
   native RK march's drain will reuse.
 
+### Phase 2 report — the staged Runge–Kutta rows and the native norm
+
+- **Scope:** phase 2, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commit `2bdbb672`.
+- **Delivered:**
+  - `native/include/solprop_native/stage_tables.hpp`: `stage::rows`, a trial's stage
+    rows at `z + c_i dz` and the whole step from the uploaded tables.
+  - `native/include/solprop_native/rk_march.hpp`, `native/src/rk_march.cpp` (strict,
+    with the #135 pragma): `rk::positions`, `rk::score` (each row summed in order, the
+    weak scale `residual / (rtol * max(old, new) + atol)`), and `strict_probe`.
+  - `native/src/bindings.cpp`: `State.rk_trial(z, dz, nodes, prepare_only)` and the
+    module's `rk_score`; stubs in `_core.pyi`.
+  - `native/src/solprop_native/backend.py`: `_staged_rows()`, decided on first use,
+    which uploads the stage tables for a Runge–Kutta run with no coupled flow and no z
+    table; `_prepare_trial` takes `rk_trial` there; `_score_trial` takes `rk_score`
+    for `PIController`'s own scale with no weights. `SOLPROP_RK_ROWS=host` is the
+    private comparison switch.
+  - Tests: `tests/backends/test_native_rk_rows.py`, `native/tests/native/test_rk_march.cpp`.
+- **Deviations from the proposal:** the host's `_last_bundle` is not set on a staged
+  trial. Native never read it (its quadrature alarm comes from the native state), so
+  `test_the_alarm_is_weighted_at_the_stage_it_was_scored_from` now skips native and
+  says why.
+- **Verification:** a staged trial's partials equal the host-packed trial's bit for bit on
+  ten routes, at four anchors each, a breakpoint among them. The native norm equals the
+  host's NumPy reduction exactly below NumPy's pairwise blocking (8 slots) and to
+  `8 n eps` above it. A controller with its own `scale`, or with weights, keeps the
+  host's reduction. Phase 3's benchmarks include this phase: the complete
+  `gnlse_soliton` and `gnlse_raman_shock` runs took the same steps as phase 0's head,
+  with their fields differing by under 1e-12.
+- **Handoff to phase 3:** `BoundState::rk_trial` and `rk::score` are the native
+  march's trial.
+
+### Phase 3 report — the native Runge–Kutta march
+
+- **Scope:** phase 3, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commit `e8ca0a9b`.
+- **Delivered:**
+  - `native/include/solprop_native/rk_march.hpp`, `native/src/rk_march.cpp`: `rk::Policy`,
+    `rk::State` (the position, the proposal, the accepted norms and the watch's state),
+    `rk::Engine` (`trial`, `accept`, `reading`), `rk::Result` with the floor's site, the
+    controller (`equivalent`, `accepts`, `propose`, `rejection_factor`, `start_factor`,
+    `limited`) and `rk::run`, the loop of §4.3 with the boundary watch of phase 1.
+  - `native/src/bindings.cpp`: the policy, state and result converters; the resident
+    engine (the staged trial, `rk::score`, `promote_fsal` then `finish`, the monitor's
+    reading); `State.rk_march_configure` and `State.rk_march_run`, which releases the
+    GIL; `ScriptedRkMarch`, the scripted engine the corpus drives.
+  - `native/src/solprop_native/backend.py`: `_NativeRungeKuttaMarch` (the policy
+    record, the bounds, the drain shared in substance with the Adams adapter's, the
+    floor's message) and its admission, `NativeBackend._rk_march`, the run's
+    metadata `rk_march`, and `SOLPROP_RK_MARCH=host`. The watch helpers are now
+    module functions both adapters call.
+  - `src/solprop/exceptions.py`: `HostMarchWarning` names both marches (Q3).
+  - Tests: `tests/backends/test_native_rk_traces.py` (the corpus through the adapter
+    on the scripted native march, at call bounds of 1, 7 and 256 attempts),
+    `tests/driver/test_native_rk_march.py` (native against host, bit for bit, on six
+    routes and on a busy monitor in both collar schemes),
+    `tests/backends/test_native_rk_admission.py`, and the controller's branches in
+    `native/tests/native/test_rk_march.cpp`.
+  - Docs: kernel contract §12 normative; ADR-069; `backends.md` §§1 and 3.5,
+    `stepper.md`, the solver guide and `native/AGENTS.md`; the changelog fragment.
+- **Deviations from the proposal:**
+  - *The landings reuse `march::Policy`* rather than a factored `march::Landings`: the
+    Runge–Kutta policy holds one, with `interpolate` false. Factoring it out would
+    have touched every Adams site for no behavioural gain; phase 4 can still do it.
+  - *The corpus's replay and transverse scenarios* (`replay`, `replay_diverged`,
+    `transverse_cap`, `caps_at_landings`) are phase 4's and are left to the host
+    loop's own test.
+  - *A test-wide filter* (`pyproject.toml`) ignores the interim `HostMarchWarning`
+    of the Runge–Kutta runs phase 4 covers, so that the many native Runge–Kutta tests
+    on those routes keep running unchanged. The admission tests still assert the
+    warning, and the filter goes with phase 4.
+  - Tests that patch the host loop's trial now pin it with the private switch
+    (`test_source_evaluations.py`). On native, the one-plane stop test runs the
+    Runge–Kutta march for the Adams marches' length and allowance
+    (`test_stop.py`), since it now polls once per call.
+- **Decisions:** the march is refused, with the reason named, for a device build,
+  interpolated planes, a controller overriding any of `scale`, `accepts`, `propose`,
+  `rejection_factor`, `start_factor` or `equivalent_norm`, a weighted norm, a
+  transverse edge, or rows the host forms (a coupled flow, a z table). The floor
+  raises the reference's `limit_step` message.
+- **Verification:**
+  - Native unit tests in a Release `znver3` build on an AMD EPYC 7763: all 13 of the
+    Runge–Kutta, watch and Adams march tests pass.
+  - The corpus: all 25 scenarios the march takes, at each of the three bounds,
+    including every floor site.
+  - Native against host on one build: equal steps, norms, acceptances, final fields
+    and monitor records on the GNLSE, four capillary routes and the constant general
+    guide, and on the busy-monitor walker in both collar schemes.
+  - `tests/backends`, `tests/driver`, the monitor, split-crossing, transverse, stepper,
+    spatial-flux and pulse modules on an AMD EPYC 7763 node: 6790 passed. The 40
+    failures, rerun with this phase's fixes, all pass except
+    `test_dense_planes_interpolate_through_the_table[runge_kutta]`, the marginal
+    envelope on this hardware recorded in phase 1. Of the 40, 35 were the interim
+    warning before its filter, and 4 were the tests above.
+- **Benchmarks** (`benchmarks ab`, an idle AMD EPYC 7763 node, exclusive, complete
+  runs, three rounds, phase 0's head against this phase's, so phases 1–3 together;
+  a ratio below one is faster):
+
+  | case | 1 thread | 16 threads |
+  |---|---:|---:|
+  | `gnlse_soliton` (Runge–Kutta) | 0.784 | 0.787 |
+  | `gnlse_raman_shock` (Runge–Kutta) | 0.962 | 0.938 |
+  | `argon_blueshift_envelope` (Adams, phase 1) | 0.885 | 0.838 |
+
+  Every configuration took the same steps (691, 8469 and 2227); the fields differ by
+  up to 1.1e-12.
+- **The Python share** (the phase 0 ledger's method, one thread, the same node):
+  `gnlse_soliton`'s 691 steps take 11 native calls, one a plane, and the time outside
+  them is 4.2 % of the run (0.403 s). Of that, the drain's per-step accounting is
+  0.9 %, the replayed monitor checks 0.7 % (207 checks at 13 µs), and most of the rest
+  is the 11 planes' observation, part of which is native work outside the march's
+  call; perf would separate it. That leaves the 4 % target met for Python's own share,
+  or at worst within 0.2 % of it. `gnlse_raman_shock` 0.24 % (373 calls, 362 at the call
+  bound); `argon_blueshift_envelope` 4.7 % in this instrumented run, which wraps more
+  functions than phase 1's 3.3 % measurement did.
+- **Limitations:** see the refusals above; lockstep batches keep their own loop.
+- **Handoff to phase 4:** interpolated planes, replay, z tables, moving maps, coupled
+  flows and the transverse edge; then remove the test-wide warning filter.
+
 ## Part III — History
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
@@ -1065,6 +1184,7 @@ changes at rounding level, and step choices differing by a few steps, are accept
   `feature/sep-0045-native-rk-march`.
 - 2026-11-07: Phase 0 reported (Part II).
 - 2026-11-07: Phase 1 reported (Part II).
+- 2026-11-07: Phases 2 and 3 reported (Part II).
 
 ### AI review — 2026-11-07
 

@@ -23,7 +23,7 @@ import pytest
 from solprop.backends import available
 from solprop.exceptions import BoundaryWarning
 from solprop.monitor import BoundaryCheck
-from solprop.stepper.multistep import Multistep
+from solprop.stepper.multistep import Formulation, Multistep
 from test_monitor import TRANGE, walker
 
 pytestmark = pytest.mark.skipif(
@@ -37,7 +37,7 @@ BUSY = BoundaryCheck(stop_factor=1000.0)
 and a stop far beyond what the walk reaches."""
 
 
-def _busy(scheme: str, formulation: str) -> Any:
+def _busy(scheme: str, formulation: Formulation) -> Any:
     return walker(
         0.65 * TRANGE,
         check=BUSY,
