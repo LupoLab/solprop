@@ -7,6 +7,7 @@
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field, replace
+from typing import cast
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Int32
@@ -2116,18 +2117,17 @@ def modal_transform_tables(
         if snapshot
         else None
     )
+    # The arrays with a row per position: every row of a snapshot is the one solve at
+    # the table's own position, so its first row's numbers are copied to the others
+    # rather than interpolated again.
+    per_position = cast(
+        "list[np.ndarray]",
+        [stack, magnetic, dual, *((*backward, gram) if reciprocal else ())],
+    )
     for row, position in enumerate(positions):
         if snapshot and row:
-            # Every row of a snapshot is the one solve at the table's own position:
-            # copy the first row's numbers rather than interpolate them again.
-            stack[row] = stack[0]
-            magnetic[row] = magnetic[0]
-            dual[row] = dual[0]
-            if backward[0] is not None and backward[1] is not None:
-                backward[0][row] = backward[0][0]
-                backward[1][row] = backward[1][0]
-            if gram is not None:
-                gram[row] = gram[0]
+            for array in per_position:
+                array[row] = array[0]
             continue
         at = float(table.z[0]) if snapshot else float(position)
         for column in np.flatnonzero(inside):
