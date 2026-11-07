@@ -676,3 +676,4 @@ on `gnlse_soliton`; no configuration slower beyond its A/A spread. Recorded in
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
   tracking set (§3.4).
+- 2026-11-07: Tracking issue [#562](https://github.com/LupoLab/solprop/issues/562) opened.
