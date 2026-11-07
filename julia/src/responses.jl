@@ -423,8 +423,11 @@ function add_plasma!(destination, p, plan, c; coarse=false, direct=false)
     add_plasma_spectra!(destination, p, c)
 end
 """Add `-i J / omega + edge / omega^2` of the currents' spectra, already transformed."""
-function add_plasma_spectra!(destination, p, c)
-    (; spectrum, edge_spectrum, inverse_omega) = p
+function add_plasma_spectra!(destination, p, c; coarse=false)
+    # The coarse quadrature's currents (a GPU's packed streams), or the source's.
+    spectrum, edge_spectrum = coarse ? (p.coarse_spectrum, p.coarse_edge_spectrum) :
+                                       (p.spectrum, p.edge_spectrum)
+    inverse_omega = p.inverse_omega
     crop, mask = c.crop, c.mask
     each!(c, length(crop), size(destination, 2)) do f, m
         @inbounds if mask[f]

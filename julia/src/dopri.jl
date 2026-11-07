@@ -183,6 +183,8 @@ function alarm_arrays(engine)
     c, w = engine.config, engine.work
     c.embedded || return nothing
     c.spectral && return (w.band_source, w.band_coarse, nothing, c.prefactor, c.omega_window)
+    # A GPU's packed streams: the quadrature source transformed and assembled them.
+    w.pack === nothing || return (w.fine, w.coarse_spec, c.crop, c.prefactor, c.omega_window)
     if w.plasma === nothing
         mul!(w.coarse_spec, w.forward_plan, w.projected_coarse)
     else

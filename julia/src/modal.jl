@@ -79,6 +79,35 @@ function create_modal(c, host)
     # its polarisation's, and the band's projected source (and its coarse quadrature's).
     node_band = dzeros(c, C, spectral ? nw : 0, spectral ? chunk : 0)
     node_fine = dzeros(c, C, spectral ? nf : 0, spectral ? chunk : 0)
+    # On a GPU the forward streams are column blocks of one buffer, as native packs them:
+    # the projected source, the plasma's two currents, then their coarse quadratures.
+    # One transform takes a source's streams (with the quadrature, all six), where the
+    # streams' batches went through staging copies, the quadrature's a second time.
+    plasma = plasma_workspace(c, host, nt, chunk, nm, nn)
+    pack = nothing
+    if !oncpu(c) && !spectral && !c.envelope
+        streams = plasma === nothing ? 2 : 6
+        half = streams ÷ 2
+        pack_in, pack_out = dzeros(c, R, nt, streams * nm), dzeros(c, C, nf, streams * nm)
+        block(a, j) = view(a, :, (j-1)*nm+1:j*nm)
+        fine = block(pack_out, 1)
+        projected, projected_coarse = block(pack_in, 1), block(pack_in, half + 1)
+        coarse_spec = block(pack_out, half + 1)
+        if plasma !== nothing
+            plasma = merge(plasma, (projected=block(pack_in, 2), edge_projected=block(pack_in, 3),
+                                    coarse=block(pack_in, 5), coarse_edge=block(pack_in, 6),
+                                    spectrum=block(pack_out, 2), edge_spectrum=block(pack_out, 3),
+                                    coarse_spectrum=block(pack_out, 5),
+                                    coarse_edge_spectrum=block(pack_out, 6)))
+        end
+        source_in, source_out = view(pack_in, :, 1:half*nm), view(pack_out, :, 1:half*nm)
+        pack = (input=pack_in, output=pack_out, source_in=source_in, source_out=source_out,
+                source=plan(c, plan_rfft, source_in, 1), all=plan(c, plan_rfft, pack_in, 1))
+    else
+        projected = dzeros(c, R, nt, spectral ? 0 : nm)
+        projected_coarse = dzeros(c, R, nt, spectral ? 0 : nm)
+        coarse_spec = similar(fine)
+    end
     work = (
         node_band=node_band, node_fine=node_fine, band_source=dzeros(c, C, spectral ? nw : 0, spectral ? nm : 0),
         band_coarse=dzeros(c, C, spectral ? nw : 0, spectral ? nm : 0),
@@ -87,14 +116,14 @@ function create_modal(c, host)
         absorber_spec_band=dzeros(c, C, spectral && in_stage ? nw : 0, spectral && in_stage ? nm : 0),
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
         monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing), forward_stage=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
-        raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma_workspace(c, host, nt, chunk, nm, nn),
+        raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
         stages=dzeros(c, C, nw, nm, ns), forward=dzeros(c, C, nw, nm, ns), inverse=dzeros(c, C, nw, nm, ns),
         fine=fine, modal=modal, nodes=nodes, analytic=analytic, analytic_modes=analytic_modes,
         analytic_modes_inverse=from_spectrum ? plan(c, plan_bfft!, analytic_modes, 1) : nothing,
-        projected=dzeros(c, R, nt, spectral ? 0 : nm), projected_coarse=dzeros(c, R, nt, spectral ? 0 : nm),
-        coarse_spec=similar(fine), absorber=dzeros(c, R, nt, spectral ? 0 : nm), absorber_spec=similar(fine),
+        projected=projected, projected_coarse=projected_coarse,
+        coarse_spec=coarse_spec, absorber=dzeros(c, R, nt, spectral ? 0 : nm), absorber_spec=similar(fine),
         coarse=coarse,
         inverse_plan=c.envelope ? plan(c, plan_bfft, fine, 1) : plan(c, plan_brfft, fine, nt, 1),
         forward_plan=c.envelope ? plan(c, plan_fft, modal, 1) : plan(c, plan_rfft, modal, 1),
@@ -183,7 +212,18 @@ function source!(engine, lab; quadrature=false)
                 gemm!(w.projected_coarse, nodes, table_rows(c, c.projection_coarse, first, last), true, true, c)
         end
     end
-    if w.plasma === nothing
+    if w.pack !== nothing
+        # One transform: the source's streams, and with the quadrature its coarse ones,
+        # whose spectrum is assembled here for the alarm (`alarm_arrays`).
+        k = w.pack
+        coarse = quadrature && c.embedded
+        @section :forward_fft coarse ? mul!(k.output, k.all, k.input) :
+                                       mul!(k.source_out, k.source, k.source_in)
+        if w.plasma !== nothing
+            @section :plasma_spectrum add_plasma_spectra!(w.fine, w.plasma, c)
+            coarse && add_plasma_spectra!(w.coarse_spec, w.plasma, c; coarse=true)
+        end
+    elseif w.plasma === nothing
         @section :forward_fft mul!(w.fine, w.forward_plan, w.projected)
     else
         # The source's and the currents' transforms as one pool's work.
