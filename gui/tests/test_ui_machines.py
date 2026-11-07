@@ -158,6 +158,12 @@ def test_a_run_is_started_and_followed_through_a_machine(qtbot: QtBot, tmp_path:
     spec = RunSpec("r1", str(tmp_path / "r1"), recipe=TINY)
     handle = bridge.start_on(Machine(LOCAL), spec)
     qtbot.waitUntil(handle.ended.is_set, timeout=WAIT_MS)
+    # The ending is flagged on the connection's thread; its event reaches this one
+    # through Qt's queue.
+    qtbot.waitUntil(
+        lambda: any(getattr(e, "kind", "") == "finished" for e in events),
+        timeout=WAIT_MS,
+    )
     kinds = [getattr(event, "kind", "") for event in events]
     assert kinds.count("row") == 6 and kinds[-1] == "finished"
     again = bridge.attach_on(Machine(LOCAL), "r1", str(tmp_path / "r1"))
