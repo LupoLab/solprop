@@ -167,6 +167,77 @@ def test_julia_modal_low_storage_matches_the_reference(runtime):
     assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
 
 
+# The band reaches below O2's qualified dispersion range; the warning says so and is
+# not this test's subject.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@binary64
+def test_julia_two_raman_components_match_the_reference(runtime):
+    """Two Raman components (air's, split into an N2 and an O2 half) sum into the
+    engine's one kernel and match the reference's two convolutions."""
+    del runtime
+    import dataclasses  # noqa: PLC0415
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+    from solprop.translate.problem import Flags  # noqa: PLC0415
+
+    length = 0.004
+    simulation = Simulation.from_capillary(
+        50e-6,
+        length,
+        {"N2": 0.79, "O2": 0.21},
+        1.0,
+        wavelength=800e-9,
+        wavelength_limits=(200e-9, 3e-6),
+        trange=300e-15,
+        fwhm=10e-15,
+        energy=40e-6,
+        n_save=2,
+        backend="numpy_ref",
+        plasma=False,
+        raman=True,
+        noise=None,
+        integrator=RungeKutta(),
+        absorber_scheme="split_step",
+        schedule=FixedSchedule.uniform(0.0, length, length / 16),
+    )
+    problem = simulation.translate()
+    (term,) = problem.responses.raman_terms
+    terms = tuple(
+        dataclasses.replace(term, fraction=term.fraction / 2, label=label)
+        for label in ("N2", "O2")
+    )
+    responses = dataclasses.replace(problem.responses, raman_terms=terms)
+    problem = dataclasses.replace(
+        problem,
+        responses=responses,
+        flags=Flags.from_content(
+            shape=problem.shape,
+            linear=problem.linear,
+            transform=problem.transform,
+            responses=responses,
+            initial=problem.initial,
+        ),
+    )
+    fields = {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            engine = select(
+                name,
+                problem,
+                grid=simulation.grid,
+                modes=simulation.modes,
+                profiles=simulation.profiles,
+            )
+            cleanup.callback(engine.close)
+            engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+            engine.propagate_to(length)
+            fields[name] = engine.observe(field=True).field
+    scale = float(np.linalg.norm(fields["numpy_ref"]))
+    assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""

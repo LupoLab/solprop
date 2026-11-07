@@ -567,9 +567,12 @@ function raman_workspace(c, host, nt, chunk; modes=0, nodes=0, synthesis=nothing
     T, C = c.T, Complex{c.T}
     rows, rates = host.array("raman_undamped", Float64), host.array("raman_rates", Float64)
     dt = host.real("dt")
+    # Each term weighted by its component's density and fraction (several components,
+    # summed into one kernel), or all by one if the adapter gives none.
+    weights = host.has("raman_weights") ? host.array("raman_weights", Float64) : ones(length(rates))
     kernel = zeros(2nt)
     for term in eachindex(rates), t in 1:2nt
-        kernel[t] += rows[t, term] * exp(-rates[term] * (t - 1) * dt)
+        kernel[t] += weights[term] * rows[t, term] * exp(-rates[term] * (t - 1) * dt)
     end
     kernel .*= host.real("raman_fraction")
     # The inverse transform is unnormalised: its 1/(2 nt) is folded into the kernel.

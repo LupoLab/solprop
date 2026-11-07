@@ -186,7 +186,12 @@ def _refuse(problem: KernelProblem) -> None:
         "nonseparable longitudinal tables": not terms(problem).device_ready,
         "varying radius": transform.taper_scale is not None,
         "multiple plasma channels": len(response.plasma_channels) > 1,
-        "multiple Raman components": len(response.raman_terms) > 1,
+        # Several components sum into one kernel (each term weighted by its density
+        # and fraction); they must agree on the third harmonic.
+        "Raman components that disagree on the third harmonic": len(
+            {r.thg for r in response.raman_terms}
+        )
+        > 1,
         "varying Raman coefficients": any(
             not _constant(r.density or response.density)
             or any(not _constant(v) for v in r.decay_rates)
@@ -430,15 +435,21 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
         )
 
     if responses.raman_terms:
-        raman = responses.raman_terms[0]
+        # Every component's terms in one kernel, each weighted by its density and
+        # fraction (constant: varying coefficients are refused), the mlx backend's sum.
+        rows, rates, weights = [], [], []
+        for raman in responses.raman_terms:
+            density = float((raman.density or responses.density)(0.0))
+            rows.append(raman.undamped.T)
+            rates.extend(float(rate(0.0)) for rate in raman.decay_rates)
+            weights.extend([density * raman.fraction] * len(raman.decay_rates))
         config.update(
-            raman_undamped=raman.undamped.T.copy(),
-            raman_rates=np.array([float(rate(0.0)) for rate in raman.decay_rates]),
-            raman_fraction=raman.fraction,
-            raman_factor=EPS0
-            * float((raman.density or responses.density)(0.0))
-            * scale**2,
-            raman_thg=raman.thg,
+            raman_undamped=np.ascontiguousarray(np.hstack(rows)),
+            raman_rates=np.array(rates),
+            raman_weights=np.array(weights),
+            raman_fraction=1.0,
+            raman_factor=EPS0 * scale**2,
+            raman_thg=responses.raman_terms[0].thg,
             dt=grids.dt_fine,
         )
 
