@@ -651,12 +651,14 @@ def _remove_tree(folder: Path, tries: int = 20) -> None:
     OSError
         If it still cannot be deleted.
     """
-    for left in range(tries - 1, -1, -1):
+    left = tries
+    while True:
         try:
             shutil.rmtree(folder)
         except FileNotFoundError:
             return
         except PermissionError:
+            left -= 1
             if not left:
                 raise
             time.sleep(0.25)

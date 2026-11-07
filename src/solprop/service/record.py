@@ -113,15 +113,17 @@ def write_json(path: Path, value: Mapping[str, object]) -> None:
             os.fsync(stream.fileno())
         # Windows refuses to replace a file another process has open (a reader of
         # the summary): try again for a moment rather than leave it stale.
-        for left in range(REPLACE_TRIES - 1, -1, -1):
+        left = REPLACE_TRIES
+        while True:
             try:
                 temporary.replace(path)
             except PermissionError:
+                left -= 1
                 if not left:
                     raise
                 time.sleep(0.02)
             else:
-                break
+                return
     finally:
         temporary.unlink(missing_ok=True)
 
