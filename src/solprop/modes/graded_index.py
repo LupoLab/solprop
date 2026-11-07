@@ -13,7 +13,7 @@ is refined independently of the radial mesh.
 
 import json
 from collections.abc import Mapping
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Literal, Protocol, cast, runtime_checkable
 
@@ -227,6 +227,10 @@ class _RadialSolution:
     profiles: Float[np.ndarray, "n_radial_profiles n_modes_profiles"]
     beta: Float[np.ndarray, " n_modes_beta"]
     residual: Float[np.ndarray, " n_modes_residual"]
+    norms: dict[tuple[float, float], Float[np.ndarray, " n_modes"]] = field(
+        default_factory=dict, repr=False
+    )
+    """The power norms already integrated, by ``(omega, radius)``."""
 
 
 @dataclass(frozen=True, eq=False, kw_only=True)
@@ -827,10 +831,18 @@ class GradedIndexProvider(Displayed):
         operator = np.zeros_like(mass)
         roots, weights = roots_legendre(8)
         shape = np.array([(1 - roots) / 2, (1 + roots) / 2])
+        # Every element's quadrature points in one material evaluation: each call
+        # costs a material lookup with its validation and bookkeeping, and per element
+        # that was most of a solve. The points are formed exactly as below, so the
+        # permittivities are the same numbers.
+        points = (
+            nodes[:-1, None] + (nodes[1:, None] - nodes[:-1, None]) * (roots + 1) / 2
+        )
+        permittivities = self._eps(omega, points.ravel()).reshape(points.shape)
         for panel, (left, right) in enumerate(pairwise(nodes)):
             x = left + (right - left) * (roots + 1) / 2
             measure = weights * (right - left) / 2
-            eps = self._eps(omega, x)
+            eps = permittivities[panel]
             derivative = np.repeat(
                 np.array([[-1.0], [1.0]]) / (right - left), x.size, axis=1
             )
@@ -1106,21 +1118,30 @@ class GradedIndexProvider(Displayed):
         numpy.ndarray
             Positive power norms in W, shape (n_modes,).
         """
+        key = (omega, radius)
+        if key in solution.norms:
+            return solution.norms[key]
         roots, weights = roots_legendre(8)
         norms = np.zeros(self.count)
         angular = (
             2 * np.pi if self.family != "LP" or self.azimuthal_order == 0 else np.pi
         )
-        for panel, (left, right) in enumerate(pairwise(solution.nodes)):
-            x = left + (right - left) * (roots + 1) / 2
+        nodes = solution.nodes
+        points = (
+            nodes[:-1, None] + (nodes[1:, None] - nodes[:-1, None]) * (roots + 1) / 2
+        )
+        # One material evaluation for every element, as in _matrices.
+        factors = (
+            1 / (omega * EPS0 * self._eps(omega, points.ravel()).reshape(points.shape))
+            if self.family == "TM"
+            else np.full_like(points, EPS0 * C**2 / omega)
+        )
+        for panel, (left, right) in enumerate(pairwise(nodes)):
+            x = points[panel]
             f = (1 - roots[:, None]) / 2 * solution.profiles[panel] + (
                 1 + roots[:, None]
             ) / 2 * solution.profiles[panel + 1]
-            factor = (
-                1 / (omega * EPS0 * self._eps(omega, x))
-                if self.family == "TM"
-                else np.full_like(x, EPS0 * C**2 / omega)
-            )
+            factor = factors[panel]
             norms += (
                 angular
                 * radius**2
@@ -1138,7 +1159,7 @@ class GradedIndexProvider(Displayed):
             if self.family == "TM"
             else EPS0 * C**2 / omega
         )
-        return (
+        total = (
             norms
             + angular
             * radius** 2
@@ -1147,6 +1168,9 @@ class GradedIndexProvider(Displayed):
             * factor
             * self._tail_integral(solution, omega, radius, self.extent)
         )
+        # A solve reads its norms twice, for the tail check and for the fields.
+        solution.norms[key] = total
+        return total
 
     def _tail_integral(
         self, solution: _RadialSolution, omega: float, radius: float, lower: float

@@ -290,6 +290,20 @@ def test_planar_metric_and_launch() -> None:
     assert np.sum(fluence * weights) == pytest.approx(np.sum(modes), rel=1e-6)
 
 
+def test_the_whole_admittance_is_every_column_s() -> None:
+    """Each distinct column's admittance once, copied to the columns sharing it, is
+    the admittance of every column, bit for bit; a slab's wall term forms them all."""
+    grid = _envelope()
+    medium = SpatialMedium("Ar", pressure=1.0)
+    planar = PlanarGrid(
+        [SlabMode(63.5e-6, "Ar", 1.0, order=p) for p in (1, 3)], 1e-3, 16
+    )
+    cartesian = FreeGrid(radius_x=1.5e-3, n_x=48, radius_y=1.5e-3, n_y=48)
+    for space in (planar, cartesian):
+        flux = SpatialFlux.resolve(grid, space, medium)
+        np.testing.assert_array_equal(flux.whole_admittance(), flux.admittance())
+
+
 def test_noise_is_one_photon_per_admitted_bin() -> None:
     """Each admitted column and bin carries hbar omega in the medium's measure."""
     grid = _envelope()

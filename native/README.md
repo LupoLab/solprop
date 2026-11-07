@@ -1,7 +1,7 @@
 # solprop-native
 
 `solprop-native` is the compiled backend of
-[solprop](https://solprop.readthedocs.io/en/latest/), a Python package for ultrafast
+[solprop](https://solprop.readthedocs.io/en/stable/), a Python package for ultrafast
 nonlinear pulse propagation, and a required dependency of it. It implements solprop's
 propagation kernels in C++20 on
 [Kokkos](https://github.com/kokkos/kokkos), bound to Python with
@@ -32,13 +32,13 @@ A build from source is the way past a wheel's limits, for NVIDIA (CUDA) or AMD (
 above all; a new release replaces a source build with its CPU wheel, so rebuild on upgrading.
 The documentation covers both:
 
-- [Installation](https://solprop.readthedocs.io/en/latest/introduction/installation.html)
-- [Building the native backend](https://solprop.readthedocs.io/en/latest/guide/performance/building-native.html):
+- [Installation](https://solprop.readthedocs.io/en/stable/introduction/installation.html)
+- [Building the native backend](https://solprop.readthedocs.io/en/stable/guide/performance/building-native.html):
   requirements, CPU builds on Linux and macOS, build profiles and every CMake option,
   the CUDA and HIP builds, and OpenMP runtimes beside other packages
-- [The native backend](https://solprop.readthedocs.io/en/latest/guide/performance/native.html):
+- [The native backend](https://solprop.readthedocs.io/en/stable/guide/performance/native.html):
   what it runs and running on a GPU
-- [Performance tuning](https://solprop.readthedocs.io/en/latest/guide/performance/tuning.html):
+- [Performance tuning](https://solprop.readthedocs.io/en/stable/guide/performance/tuning.html):
   threads, BLAS settings and profiling with Kokkos Tools
 
 ## Development
@@ -162,7 +162,7 @@ developer's direction, as in solprop. Verification rests on solprop's 100% test
 coverage and systematic comparisons of this backend against its validated NumPy
 reference backend: the results agree within derived floating-point error bounds. See
 solprop's
-[account of AI-assisted development](https://solprop.readthedocs.io/en/latest/introduction/about.html#use-of-ai)
+[account of AI-assisted development](https://solprop.readthedocs.io/en/stable/introduction/about.html#use-of-ai)
 for the wider approach to derivation, testing and review.
 
 ## Licence

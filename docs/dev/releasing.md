@@ -285,7 +285,14 @@ Then, for every release:
    NOTES.md`. Zenodo archives it and gives it a DOI; the concept DOI that `CITATION.cff`
    and the README cite already names every version.
 5. On Read the Docs, check that the `vX.Y.Z` version built (activate it under
-   *Versions* if it did not), and that `/en/stable/` resolves to it.
+   *Versions* if it did not), and that `/en/stable/` serves it. Read the Docs' `stable`
+   follows the newest release tag, with no setting to change, and rebuilds when the tag is
+   pushed: check its build of the tag succeeded, then that
+   `https://solprop.readthedocs.io/en/stable/_static/documentation_options.js` gives
+   `VERSION: 'X.Y.Z'`. `latest` keeps following `main`. The user-facing documentation
+   links (the READMEs, the package metadata, the front end's Help and solprop's error
+   messages) point at `/en/stable/`, so they move with it; links meant for contributors
+   point at `/en/latest/`.
 6. Link the run of the published-install check on the release's tracking issue, green on every
    platform: the run that followed the publish jobs, or one dispatched as in
    [Rechecking a published release](#rechecking-a-published-release).
@@ -294,8 +301,6 @@ Then, for every release:
    and 0.1.0, which did not require the native backend, installs there with no error
    ([#463](https://github.com/LupoLab/solprop/issues/463)). A yanked version still
    installs when it is asked for exactly (`solprop==0.1.0`).
-8. Once `stable` is the new release, move the user-facing documentation links from
-   `/en/latest/` to `/en/stable/`, in a pull request of its own.
 
 ### Rechecking a published release
 
