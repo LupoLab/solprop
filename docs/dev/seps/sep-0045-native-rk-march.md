@@ -245,9 +245,9 @@ Fixed or changed by this SEP:
 - #135 — the no-contraction rule has no working witness. The new strict files share the
   problem; phase 0 adds a witness that can fail where it runs (an optimised build with
   FMA in the target) for all three files.
-- #133 — the monitor counts a step checked at its plane twice. The drain (§4.8) books
-  each step once; this SEP keeps the existing counting so the records stay bitwise, and
-  fixes nothing here unless #133 is fixed first.
+- #133 — the monitor counts a step checked at its plane twice. Resolved first, in its
+  own pull request before phase 1 (Q6), so that this SEP's bitwise record comparisons
+  pin the corrected counts; the drain books each step once (§4.10).
 
 Related, not fixed:
 
@@ -485,12 +485,10 @@ side="right")`). Disabling contraction does not make a sequential C++ sum equal
 NumPy's pairwise total, and the choice of bucket can turn on the last bit: with bucket 0
 holding `0x1.0c6f8ba2f9813p-20`, bucket 1 holding 1 and every other bucket `2**-54`, at
 the default share of `1e-6`, NumPy's total selects bucket 1 and a sequential one bucket
-0, limits about 1.18 times apart. This SEP proposes (Q7) that phase 0 change the
-reference to take the total as the last element of the cumulative sum, which NumPy
-forms sequentially and native reproduces exactly; the selected bucket can then move one
-place in such a near-tie, a reference change recorded in the release notes. If Q7
-declines it, the split scheme keeps returning to Python at every check, as the
-transverse edge does, and B covers the in-stage scheme only.
+0, limits about 1.18 times apart. Phase 0 changes the reference (Q7, decided) to take the total as the last element of
+the cumulative sum, which NumPy forms sequentially and native reproduces exactly; the
+selected bucket can then move one place in such a near-tie, a reference change recorded
+in the release notes.
 
 **The buffer.** Its capacity is the call's attempt bound (256 rows, each the ten numbers
 and, under the split scheme, the 128 buckets), allocated once with the march and named
@@ -543,8 +541,8 @@ for any `BoundaryError` today; a predicted warning (or one turned into an error)
 raised at the same point. A signal during the drain is deferred by `committing()` and
 delivered after it, as in the Adams adapter today. A monitor exception inside the commit
 can only come from a row the march did not predict, and is turned into `BackendError`.
-#133's double count at planes comes from `_monitor_plane`, which this SEP leaves as it
-is.
+#133's double count at planes comes from `_monitor_plane`; it is fixed before phase 1
+(Q6), and the drain is written against the corrected counting.
 
 #### 4.11 Interruptions and callbacks
 
@@ -799,7 +797,7 @@ Recorded in `docs/dev/benchmarks.md`.
 - Progress callbacks keep their count and are delivered per call; stop requests and
   signals take effect within a call's bound (§4.11), as already for the Adams march.
 - A disk resume keeps today's behaviour: the RK controller starts afresh (§4.2).
-- If Q7 is accepted, the split collar's crossing limit takes its total in a different
+- With Q7, the split collar's crossing limit takes its total in a different
   order: in a near-tie its bucket can move one place, which changes the steps of a run
   under the split scheme at rounding level. Recorded in the release notes.
 
@@ -820,8 +818,9 @@ Recorded in `docs/dev/benchmarks.md`.
    §7.3 with their counts and returns by reason, $h_{\text{check}}$ and $h_{\text{row}}$,
    and §7.6's targets fixed from them; the RK trace corpus generated before
    refactoring; the watch corpus; `rk_core.py` extracted with the corpus reproduced
-   exactly; with Q7, the split limit's reference total; the strict-compilation witness
-   (#135); the contract's §12 drafted.
+   exactly; the split limit's reference total (Q7); the strict-compilation witness
+   (#135); the contract's §12 drafted. Before phase 1, #133 is fixed on `main` in its
+   own pull request (Q6).
 1. **B on the Adams march.** Watch policy and state, `watch.cpp`, `Reason::watch` and
    `Reason::capacity`, the drain of §4.10 with `_account_step` and `_check_at`. Exit:
    §7.2 watch corpus; §7.3 bitwise records and steps, and the drain's cases; no return
@@ -840,28 +839,30 @@ Recorded in `docs/dev/benchmarks.md`.
 
 ### 12. Open questions
 
+All seven were decided by John Travers on 2026-11-07, under his general rule that
+changes at rounding level, and step choices differing by a few steps, are acceptable.
+
 - **Q1.** May phase 2 move native RK numbers at rounding level (§9), by the order of the
   norm's sums alone, or must the scorer reproduce NumPy's pairwise order so that nothing
-  moves? *Recommended:* allow it; it is within SEP 25's guarantee and makes the norms
-  agree by construction, and the retained host scorer and `numpy_ref` check the formula
-  (§7.4). It does not cover Q7.
+  moves? *Decided:* allowed. The retained host scorer and `numpy_ref` check the formula
+  (§7.4).
 - **Q2.** The RK march's call bound: the same 256 attempts or 0.1 s as Adams?
-  *Recommended:* yes, one constant for both, in the record.
-- **Q3.** Widen `HostMarchWarning` or add a sibling for the RK march? *Recommended:*
-  widen it; one category to filter.
+  *Decided:* yes, one bound for both, in the record.
+- **Q3.** Widen `HostMarchWarning` or add a sibling for the RK march? *Decided:* widen
+  it; one category to filter, with explicit admission reasons.
 - **Q4.** A drain whose watch state disagrees with the march's: `BackendError`, or a
-  silent fallback to per-check returns? *Recommended:* `BackendError`; it is a bug.
-- **Q5.** Does replay of a fixed schedule come in v1 or phase 4? *Recommended:*
-  phase 4; adaptive runs are where the time is.
+  fallback to per-check returns? *Decided:* `BackendError`; a mismatch is a bug, and the
+  run does not continue with an unverified cap.
+- **Q5.** Does replay of a fixed schedule come in v1 or phase 4? *Decided:* phase 4;
+  until then a replayed run takes the host loop with `HostMarchWarning`, and that
+  refusal and host path are tested from phase 3.
 - **Q6.** Should #133's double count be fixed first, so that this SEP's tests pin the
-  corrected record? *Recommended:* no; keep the record bitwise and fix #133 separately.
-  The drain introduces no new double count (§4.10).
+  corrected record? *Decided:* yes. #133 is fixed in its own pull request before
+  phase 1 (§3.6).
 - **Q7.** May phase 0 change `SplitCrossing.limit` to take its total as the last
   element of its cumulative sum (§4.8), so that native reproduces the cap exactly, at
-  the cost of moving a near-tie's bucket by one place in the reference? Or should the
-  split scheme stay outside B and keep returning at every check? *Recommended:* change
-  the reference; the rule's intent, the fastest bucket left once `share` of the energy
-  is set aside, is unchanged, and without it a split run gains nothing from B.
+  the cost of moving a near-tie's bucket by one place in the reference? *Decided:* yes;
+  the split scheme is inside B.
 
 ### 13. References
 
@@ -889,6 +890,10 @@ Recorded in `docs/dev/benchmarks.md`.
 - 2026-11-07: Response to the AI review (Opus 5.5): R1–R9 accepted; Part I revised in
   §§1, 4.1–4.4, 4.8, 4.10 (new), 4.11 (new), 5, 6.1, 6.3, 6.4, 6.6, 6.8, 7, 9, 11 and
   12, with Q7 added. The maintainer's decisions on Q1–Q7 are still to come.
+- 2026-11-07: John Travers decided Q1–Q7 (§12): rounding-level changes and step choices
+  differing by a few are acceptable (Q1, Q7); the Adams call bound for both marches
+  (Q2); one widened `HostMarchWarning` (Q3); `BackendError` on a watch mismatch (Q4);
+  replay in phase 4 (Q5); #133 fixed first (Q6). Recorded in §§3.6, 4.10, 11 and 12.
 
 ### AI review — 2026-11-07
 
