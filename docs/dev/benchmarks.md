@@ -2909,46 +2909,52 @@ The experimental `julia` backend (`julia/STATUS.md`) against `native`, both arms
 interpreter, `python -m benchmarks ab --baseline-backend native --candidate-backend julia
 --noise none --length 0.02 --stepper default`: 2 % of each case, so ten to two hundred
 steps and the cases' 4 to 12 saved planes; the ratio is `julia`/`native`, below one
-`julia` faster. Every row took the same steps on both arms, with fields equal to 1e-13
-or better, unless said. These are short windows: they carry the planes' host statistics
-and a first-run cost both arms pay (`simulation.metadata()` inside the timed window,
-about 0.18 s on `rdw`), and they are not whole runs.
+`julia` faster. Every binary64 row took the same steps on both arms, with fields equal
+to 1e-13 or better. These are short windows, not whole runs.
+
+Rows before commit `3969a00c`'s harness fix (#557) timed `simulation.metadata()` inside
+the window, about 0.18 s on `rdw`, on both arms: they understate both arms' speed and
+overstate how close `julia` was. Native's `rdw` window on 16 Xeon threads is 0.145 s,
+not 0.314 s; on the A40 0.054 s, not 0.187 s.
 
 **Intel Xeon Gold 6240**, 16 cores of socket 1 with their 16 threads, passive-bound
-threading, a shared machine (load about 3), two rounds, commit `3e2290c0`:
+threading, a shared machine (load 2 to 14 during the run), two rounds, commit
+`7c7ac9b7`:
 
 | case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
 |---|---:|---:|---:|---:|---:|---:|
-| `rdw` | 0.586 | 0.902 | 1.54 | 0.314 | 0.421 | 1.34 |
-| `argon_blueshift` | 0.591 | 1.438 | 2.43 | 0.228 | 0.551 | 2.41 |
-| `h2_raman_6ps` | 3.512 | 4.179 | 1.19 | 2.039 | 2.194 | 1.08 |
-| `ctc_reduced` | 1.075 | 2.865 | 2.67 | 0.451 | 0.642 | 1.42 |
-| `radial_filament_256` | 2.158 | 3.471 | 1.61 | 0.385 | 1.182 | 3.07 |
-| `kerr_beam_192` | 5.135 | 6.751 | 1.31 | 0.843 | 2.697 | 3.20 |
-| `line` | 0.692 | 0.965 | 1.39 | 0.200 | 0.361 | 1.81 |
+| `rdw` | 0.416 | 0.586 | 1.41 | 0.159 | 0.161 | 1.03 |
+| `argon_blueshift` | 0.546 | 1.317 | 2.41 | 0.225 | 0.386 | 1.79 |
+| `h2_raman_6ps` | 3.896 | 3.910 | 1.02 | 2.609 | 2.735 | 1.13 |
+| `ctc_reduced` | 0.995 | 1.743 | 1.75 | 0.377 | 0.379 | 1.01 |
+| `radial_filament_256` | 2.150 | 2.329 | 1.08 | 0.364 | 0.779 | 2.14 |
+| `kerr_beam_192` | 5.177 | 5.907 | 1.14 | 0.851 | 1.424 | 1.67 |
+| `line` | 0.674 | 0.875 | 1.30 | 0.202 | 0.352 | 1.78 |
 
-The geometric mean was 2.30 at commit `8ab6c4b9`, before the transverse edge and the
-state copies moved into the engine and before the first window's compilation moved to
-construction, and 1.78 here. Later commits take a Cartesian 192² window from 1.72 to
-1.10 s and a radial one from 0.97 to 0.86 s (single runs, 16 threads, the same socket).
+Geometric mean 1.42. The rounds of `argon_blueshift` (1.4 to 2.2 on 16 threads) and
+`h2_raman_6ps` (0.8 to 1.4) spread with the machine's load. At commit `09a60bf6`,
+before the vectorised plasma and the batched transforms, the same plan gave 1.64. The
+next commit, `207add18`, runs the Adams march in the engine: `argon_blueshift` on 16
+threads 0.42 s -> 0.34 s and `rdw` 0.157 -> 0.148 s (single profiled runs, socket 0).
 
 **NVIDIA A40** (driver 595.71), native's CUDA build (AMPERE86) against `julia` with
-`SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, binary64:
+`SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, commit `7c7ac9b7`:
 
-| case | native, s | julia, s at `aa6b9478` | ratio | julia, s at `90840a43` | ratio |
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
 |---|---:|---:|---:|---:|---:|
-| `rdw` | 0.187 | 0.585 | 3.13 | 0.356 | 1.84 |
-| `argon_blueshift` | 0.152 | 0.693 | 4.55 | 0.528 | 3.43 |
-| `h2_raman_6ps` | 1.127 | 1.501 | 1.33 | 1.515 | 1.33 |
-| `ctc_reduced` | 0.266 | | | 0.462 | 1.74 |
-| `radial_filament_256` | 0.188 | 0.872 | 4.64 | 0.799 | 4.35 |
-| `kerr_beam_192` | 0.203 | 1.513 | 7.47 | 0.662 | 3.62 |
-| `line` | 0.112 | 0.354 | 3.19 | 0.325 | 2.98 |
+| `rdw` | 0.054 | 0.168 | 3.13 | 0.181 | 3.38 |
+| `argon_blueshift` | 0.115 | 0.444 | 3.85 | 0.313 | 2.72 |
+| `h2_raman_6ps` | 1.040 | 1.310 | 1.26 | 1.005 | 0.96 |
+| `ctc_reduced` | 0.206 | 0.386 | 1.87 | 0.352 | 1.71 |
+| `radial_filament_256` | 0.169 | 0.628 | 3.73 | 0.547 | 3.24 |
+| `kerr_beam_192` | 0.173 | 0.618 | 3.58 | 0.611 | 3.50 |
+| `line` | 0.094 | 0.311 | 3.30 | 0.294 | 3.12 |
 
-Between them: the observation populations a sample a thread (they were 70 % of an
-`rdw` window's GPU time, one 20 ms kernel a column), the bridge's state copies and an
-empty statistics spec's copy. What remains on the A40, from Nsight Systems: binary64
-GEMMs are half of a radial window's device time, the synthesis and projections at
-the fine grid's 1728 real rows; FFTs a third of `argon_blueshift`'s, about eight a
-source; and host work per step and per plane, which the binary64 kernels do not
-explain (`rdw`: 0.14 s on the device in a 0.36 s window).
+Geometric means 2.77 (binary64) and 2.45 (binary32 against native's binary64; its
+fields within 4e-7 to 1.4e-5 of native's, and `rdw`, `ctc_reduced` and the radial
+window take other steps). At `90840a43`, with the metadata inside the window, the
+binary64 mean was 2.54 and `rdw` 0.356 s. What remains on the A40, from Nsight
+Systems (`rdw`, commit `7c7ac9b7`): the device is busy for about 124 ms of the 0.168 s
+window. Nine transforms a source at 96 us each (over four modes, so a few blocks each:
+latency, not work) are a third; the Adams predictor's reduction, heavy binary64 work a
+sample on too few threads, 539 us a trial; then the plasma and Kerr passes.

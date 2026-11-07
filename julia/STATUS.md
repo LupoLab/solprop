@@ -44,6 +44,7 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | The Poynting statistics' transforms and the populations in the engine, without allocating | `rdw` statistics 55 ms -> 40 ms; collector pauses (13 to 83 ms) gone |
 | A plasma column's live samples gathered; vectorised `exp` and `log` (`src/vmath.jl`, 1 ulp) | argon's plasma on one thread 4.7 ms -> 2.9 ms a source |
 | A source's forward transforms, and the quadrature alarm's, as one pool's work | `rdw` on 16 threads: commits 12.3 ms -> 5.8 ms, the source's transforms 8.7 ms -> 3.8 ms |
+| The exponential Adams march in the engine (`src/march.jl`, native's SEP 39 march transcribed) | `argon_blueshift` on 16 threads 0.42 s -> 0.34 s; the Python march's decisions bit for bit |
 
 The vectorised functions paid only once the live samples were gathered and each pass
 was a function of its own: in the column's branchy loop, and inside its closure, LLVM
@@ -53,41 +54,29 @@ rate is a vectorised `log`, the lookup and a vectorised `exp`, three passes.
 ## Where it stands
 
 Julia's window time over native's, 2 % of each case, both arms in one interpreter, the
-same steps and fields equal to rounding (1e-13 or better) unless said.
+same steps and fields equal to rounding (1e-13 or better); the ledger has the seconds.
 
-**Intel Xeon Gold 6240** (commit `3e2290c0`, socket 1, passive-bound threads):
+| case | Xeon, 1 thread | Xeon, 16 threads | A40, binary64 | A40, binary32 |
+|---|---:|---:|---:|---:|
+| rdw | 1.41 | 1.03 | 3.13 | 3.38 |
+| argon_blueshift | 2.41 | 1.79 | 3.85 | 2.72 |
+| h2_raman_6ps | 1.02 | 1.13 | 1.26 | 0.96 |
+| ctc_reduced | 1.75 | 1.01 | 1.87 | 1.71 |
+| radial_filament_256 | 1.08 | 2.14 | 3.73 | 3.24 |
+| kerr_beam_192 | 1.14 | 1.67 | 3.58 | 3.50 |
+| line | 1.30 | 1.78 | 3.30 | 3.12 |
 
-| case | 1 thread | 16 threads |
-|---|---:|---:|
-| rdw | 1.54 | 1.34 |
-| argon_blueshift | 2.43 | 2.41 |
-| h2_raman_6ps | 1.19 | 1.08 |
-| ctc_reduced | 2.67 | 1.42 |
-| radial_filament_256 | 1.61 | 3.07 |
-| kerr_beam_192 | 1.31 | 3.20 |
-| line | 1.39 | 1.81 |
-
-**NVIDIA A40** against native's CUDA build (commit `90840a43`, binary64):
-
-| case | ratio |
-|---|---:|
-| rdw | 1.84 |
-| argon_blueshift | 3.43 |
-| h2_raman_6ps | 1.33 |
-| ctc_reduced | 1.74 |
-| radial_filament_256 | 4.35 |
-| kerr_beam_192 | 3.62 |
-| line | 2.98 |
-
-The AMD EPYC 7763 and binary32 rows are in the ledger.
+Intel Xeon Gold 6240 (16 cores of socket 1, a shared machine) and NVIDIA A40 against
+native's CUDA build, both at commit `7c7ac9b7`; geometric means 1.42, 2.77 and 2.45. The
+next commit's Julia march takes `argon_blueshift` on 16 threads from 0.42 s to 0.34 s.
+Binary32 is against native's binary64. Ratios measured before the harness fix (#557)
+counted 0.18 s of metadata on both arms and are not comparable.
 
 ## What is left, measured
 
-- **The march in Python.** The Adams controller's decisions and the bridge's calls
-  between them: about 0.37 ms a step on the Xeon (`argon_blueshift` on 16 threads:
-  0.08 s of a 0.40 s window, 213 steps; native's whole step is 0.86 ms). A Julia march
-  (native's SEP 39, with its decision-trace tests as the oracle) would remove it; the
-  tables and stage scalars it needs are in the engine already.
+- **The march's host events.** The Adams march runs in the engine (`src/march.jl`)
+  and returns at each plane, monitor check and statistics row; a split collar, a
+  replayed schedule and interpolated planes keep the Python march.
 - **Host statistics per plane.** The spectra and the reductions over the engine's power
   are the shared host functions: about 1.4 ms a plane on `rdw`.
 - **Small states on many threads.** With one mode and 1601 bins the passes are serial
@@ -109,14 +98,15 @@ planes are refused by name.
 ## Findings for main
 
 - `parallel_rows` read the CPU topology from sysfs (a file per CPU) before deciding a
-  pass was too small to thread: 60 ms of a 0.36 s rdw window. Fixed on this branch.
+  pass was too small to thread: 60 ms of a 0.36 s rdw window. Fixed on this branch;
+  #556.
 - `benchmarks.worker.timed_run` evaluated `simulation.metadata()` inside the timed
   window, and its first evaluation costs about 0.18 s on rdw (the plane bases' modal
   identity): every arm's first timed repeat, native's included, paid it. Fixed on this
   branch; ratios measured before it understate both arms' speed (native's `rdw` window
-  on 16 threads is 0.145 s, not 0.314 s).
+  on 16 threads is 0.145 s, not 0.314 s); #557.
 - Julia's LinearAlgebra gave wrong products for concurrent `mul!` calls on views of a
   `Complex{Float32}` matrix times a `Float32` one (relative error 1.5); the engine forms
   them as real GEMMs over the complex array's real view instead.
 - `docs/dev/backends.md` still names `set_held_plane` and `held_observation`, which
-  main removed.
+  main removed; #558.

@@ -41,7 +41,9 @@ running contiguous SIMD loops; on a GPU, a KernelAbstractions kernel a sample a 
 FFTs are AbstractFFTs plans (FFTW or cuFFT) and contractions `mul!` (BLAS or cuBLAS).
 On a CPU one pool runs everything, the transforms as blocks of single-threaded plans and
 the products as blocks of rows, because the libraries' own threads beside the pool's
-made a run slower on four threads than on one. In binary32 the state is held as
+made a run slower on four threads than on one. The plasma's columns use branch-free
+vectorised `exp` and `log` within one ulp, and the exponential Adams march itself runs
+in the engine, as native's compiled march does. In binary32 the state is held as
 `a / s` for SEP 33's power-of-two scale `s`, and the operator stays binary64, so
 propagators and the longitudinal root are formed in binary64 and rounded once.
 
@@ -50,7 +52,8 @@ propagators and the longitudinal root are formed in binary64 and rounded once.
 Indicative only: short windows of the benchmark cases, measured with `python -m
 benchmarks ab` against native on the same machine. The branch's ledger
 ([benchmarks](../../dev/benchmarks.md#julia-backend-experiment)) has the numbers, the
-machines and the commits. On CPUs the julia backend is within one to three times
-native's time; on an NVIDIA A40 within one to four times native's CUDA build. Most of
-what is left is host work per step and per saved plane, which native does in compiled
-code: the Adams march and the statistics.
+machines and the commits. On a 16-core Xeon the julia backend takes 1.0 to 2.1 times
+native's time (geometric mean 1.4), at parity on the `rdw` and `ctc_reduced` capillary
+windows; on an NVIDIA A40 in binary64, 1.3 to 3.9 times native's CUDA build. What is
+left is mostly the GPU's transforms and launches, and on a CPU the radial and
+Cartesian routes' many threads.
