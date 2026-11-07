@@ -153,7 +153,12 @@ def run_native(scenario: Scenario, max_attempts: int) -> dict[str, Any]:
             raise
         end = {"stop": "exhausted"}
     harness.close()
-    end["in_flight"] = {}
+    # A trial the march made and never recorded: a replay's diverged step.
+    logged = runner.log()
+    made = len(harness.events_of_attempts())
+    end["in_flight"] = (
+        {"z": logged[made]["z"], "dz": logged[made]["dz"]} if len(logged) > made else {}
+    )
     end.update(harness.snapshot())
     return {"events": harness.events, "end": end}
 

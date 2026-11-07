@@ -95,8 +95,14 @@ def test_a_set_flag_stops_the_run_which_returns_and_resumes(
     assert outcome is not None
     assert outcome.status == "failed"
     assert "stopped by the caller's stop flag" in (outcome.message or "")
-    # The flag is polled before each trial: the run stops within one step of it.
-    assert 15 * LENGTH / STEPS <= outcome.z <= 16 * LENGTH / STEPS + 1e-15
+    # solprop's replay polls the flag before each trial, so the run stops within one
+    # step of it; the native march polls it between its calls, each of which runs to
+    # the driver's next event, here the next saved plane (SEP 45 phase 4).
+    upper = 16 * LENGTH / STEPS
+    if backend == "native":
+        planes = np.linspace(0.0, LENGTH, N_SAVE)[1:]
+        upper = float(min(plane for plane in planes if plane >= upper - 1e-15))
+    assert 15 * LENGTH / STEPS <= outcome.z <= upper + 1e-15
     assert reporter.interrupted_at is not None
     assert isinstance(reporter.interrupted_at[1], StopRequested)
     _scheduled(build_simulation, backend).run(path, resume=True)
