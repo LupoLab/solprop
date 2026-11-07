@@ -3554,7 +3554,9 @@ class _NativeRungeKuttaMarch:
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
             readings = _readings_of(backend._monitor, result) if watching else {}
-            event = reason in (_REACHED, _HOST_STEP, _WATCH)
+            # Beside a transverse edge the march returns at a check due by distance,
+            # which solprop takes on the event step (`_take_step_stats`).
+            event = reason in (_REACHED, _HOST_STEP, _MONITOR, _WATCH)
             last = len(rows) - 1
             for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
                 backend._record_attempt(end, dz, norm, bool(accepted), started + wall)

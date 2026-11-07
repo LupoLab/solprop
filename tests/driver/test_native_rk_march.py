@@ -187,6 +187,15 @@ def test_a_busy_monitor_s_checks_stay_in_the_native_rk_march(scheme, monkeypatch
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
 
 
+@pytest.mark.parametrize("route", ["radial", "planar"])
+def test_a_check_due_by_distance_beside_the_edge_is_the_host_loop_s(route, monkeypatch):
+    # Beside a transverse edge solprop takes the monitor's checks itself. Steps shorter
+    # than the edge's read spacing but longer than the monitor's interval make a check
+    # due by distance between reads, so the march returns to the host to take it.
+    build = lambda: _route(route, dz_max=3e-6)  # noqa: E731
+    _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
+
+
 @pytest.mark.gpu
 @pytest.mark.parametrize("route", ["gnlse", "capillary (multimode)"])
 def test_a_device_build_s_march_is_the_host_loop_s(route, monkeypatch):

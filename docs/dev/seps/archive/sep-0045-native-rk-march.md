@@ -1290,7 +1290,14 @@ changes at rounding level, and step choices differing by a few steps, are accept
 - 2026-11-07: Phase 5 reported (Part II); every phase implemented.
 - 2026-11-07: Final (John Travers): every phase implemented and reported, Q1–Q7 decided
   and none left open. The marginal z-table envelope phases 1 and 3 met on an AMD EPYC 7763
-  fails on `main` too and is not this SEP's.
+  fails on `main` too and is not this SEP's
+  ([#572](https://github.com/LupoLab/solprop/issues/572)).
+- 2026-11-07: Review fix (from the pull request's automated review): beside a transverse
+  edge the Runge–Kutta adapter now takes a check the march returns for as due by
+  distance (`Reason::monitor`) on the event step, as the Adams adapter does; it had
+  booked the step unchecked. Steps shorter than the edge's read spacing and longer
+  than the monitor's interval reach that return, which phase 4's routes did not;
+  `test_a_check_due_by_distance_beside_the_edge_is_the_host_loop_s` now does.
 
 ### AI review — 2026-11-07
 
