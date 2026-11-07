@@ -1,5 +1,11 @@
 # Handoff: the Julia backend on a Mac (CPU comparison, then Metal)
 
+> **Done, 2026-11-07.** Both steps are complete: the CPU comparison (Julia 0.82 over
+> native's whole runs on the M5 Max) and the Metal extension, with double-float in place
+> of binary64 (`src/dfloat.jl`). The results, the floating-point experiments and an
+> assessment of Julia as a first-class backend are in [STATUS.md](STATUS.md); the rows
+> are in the ledger. What follows is the note as it was written.
+
 For the agent picking this up on the maintainer's Mac (Apple M5 Max). The work is draft
 PR #559, branch `feature/julia-backend-experiment` (do not merge; heads `[skip ci]`).
 Read `AGENTS.md`, then [README.md](README.md) (setup, variables, files) and

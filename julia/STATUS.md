@@ -96,18 +96,111 @@ the harness fix (#557) counted 0.18 s of metadata on both arms and are not compa
 - **Small states on many threads.** With one mode and 1601 bins the passes are serial
   by size, and run 20 to 40 % slower with 16 cores busy than with one (the clock).
 - **Serial plasma integrals.** The two running integrals are sequential by design.
-- **Binary32 on x86.** It runs (fields 1e-6 from binary64), but slower than binary64:
-  the scaled field's tails are subnormal, and flush-to-zero is not allowed. GPUs handle
-  binary32 subnormals at full speed.
+- **Binary32 on x86.** It runs (fields 1e-6 from binary64), but two to three times
+  slower than binary64 on the Xeon. Subnormals are not the cause: flushing them
+  (`SOLPROP_JULIA_FTZ=1`) left every window within its rounds' spread. Not yet found.
 - **The A40's binary64.** It runs at 1/64 of its binary32 rate; the A40 says little about
-  an H200 or an MI325X.
+  an H200 or an MI325X. Binary32 with the double-float wide type (below) takes it out of
+  the operator and the phi functions, and the windows barely move (0.99): the host is
+  what is left there too.
+- **Metal.** The capillary windows are launch-bound (a few modes, thousands of bins);
+  `argon_blueshift`'s plasma takes the per-sample GPU path, and `h2_raman_6ps`'s Raman
+  convolution and `line` lose most to `mlx`. Not yet profiled. Construction compiles
+  the Metal kernels (about 28 s), with no precompiled trace for the device.
+
+## Apple silicon and Metal (2026-11-07)
+
+On the M5 Max the engine is faster than native on the CPU, and runs on its GPU. The
+ledger has the rows.
+
+- **CPU, binary64.** 2 % windows on 1, 6 and 18 threads: 0.83 over native (16 of 21
+  rows faster). Whole runs on 6 threads: 0.82 (`ctc_reduced` 0.71, `h2_raman_6ps` 0.82
+  over 63 s, the Cartesian beam 1.02), the same steps, fields to 1e-11. On one thread
+  the two are close (0.84 to 1.23); the gap opens with threads, as native's OpenMP
+  regions slow on the 12 second-tier cores (eight threads already slower than six, 18
+  at 1.4 to 1.5 times six's time) where Polyester's tasks lose less.
+- **Accelerate.** Apple's BLAS for the products is the default on macOS: radial's
+  window on one thread 1.02 s -> 0.60 s, no case slower.
+- **Metal.** `SolpropJuliaMetalExt` (Metal.jl 1.12), binary32 only. Every binary32
+  window passes against `numpy_ref`. Against native's binary64 on six CPU threads 1.95
+  (the Cartesian beam 0.33, radial 0.92, the capillaries 3 to 6); against `mlx` 1.25
+  (the Cartesian beam 0.71, radial and `ctc_reduced` 0.96, `h2_raman_6ps` 2.1).
+  Metal.jl's FFTs (MPSGraph) cover every plan form the engine uses without MLX's
+  Bluestein cliff; its float32 GEMM is full precision, not TF32.
+- **Double-float.** An Apple GPU has no binary64, so a binary32 run there forms the
+  operator's exponents, the propagators and the Adams phi functions in `DF32`, a value
+  as two binary32s (about 48 bits; `src/dfloat.jl`, the mlx backend's primitives), each
+  result rounded once to binary32. `SOLPROP_JULIA_WIDE=df32` takes it on any device;
+  binary64 runs keep their arithmetic exactly. Its phi functions agree with binary64's
+  to within 2^-36, its propagator pair to 8 binary32 ulps up to a 1e6 rad phase.
+- **Measurement.** On the Mac a heavy process slows the next one's windows by 10 to
+  80 % (no thermal warning): a Julia worker compiles for seconds before its window, so
+  the A/Bs ran both arms warm. `benchmarks ab --cooldown` idles between workers.
+
+## Floating point (2026-11-07)
+
+SEP 25 permits contraction and per-kernel reassociation and forbids umbrella fast-math,
+approximations and flush-to-zero. The engine now contracts its ordinary kernels (the
+stage combinations, the Adams sums, the phi series, the plasma rate's cubic, the FIR
+sums); the protected helpers, the march's decisions, the defects and the norms stay as
+written, and the CPU column scan's order is a choice, not policy. Contraction measured
+0.99 on the M5 Max (`h2_raman_6ps` 0.93 to 0.96 the only steady gain): the engine is
+bound by passes over memory, not by operations.
+
+Flush-to-zero, as an experiment (`SOLPROP_JULIA_FTZ=1`, #561), helped nowhere: 1.00 on
+the M5 Max in binary32, 0.99 on the Xeon in binary32. It is also hazardous embedded in
+Python: Julia's first thread is the interpreter's own, and a flag set there flushed
+NumPy's subnormals too, failing a `math.log` in solprop's translation. The switch flushes
+only inside the engine's entry points.
+
+## Toward a first-class backend
+
+What these measurements say about Julia becoming a supported backend beside, or in
+place of, native and `mlx`.
+
+**For.**
+- **Speed on a CPU.** Faster than native on the M5 Max (0.82 over whole runs), within
+  13 % on the Xeon at 16 threads, faster in some rows there.
+- **One source for every device.** About 3,500 lines of engine (plus the 1,600-line
+  compile trace and a 2,400-line adapter), against about 31,000 of native's C++. The
+  same scalar bodies run on CPUs, NVIDIA, AMD and now Apple GPUs; Kokkos has no Metal
+  backend. Intel GPUs (oneAPI.jl) should take an extension like the others.
+- **A replacement for `mlx`.** Within 25 % of the hand-written `mlx` backend on its own
+  GPU on the first, unprofiled run, faster on the largest case.
+- **Iteration.** Each device extension so far took an hour or two; the double-float
+  path was a day's work and runs on every device.
+
+**Against, or not yet.**
+- **GPU speed.** About twice native on full-rate GPUs (H200 2.39, MI325X 2.48, not
+  re-measured since), host-bound: launches (about 75 a trial), copies and allocations.
+  CUDA graphs or fused trials are the next step, untried.
+- **Coverage.** Julia refuses most of what native runs beyond the seven focus routes
+  (the list below), and several things `mlx` runs (envelope plasma, tapers, batches,
+  several plasma channels or Raman terms). Each is a feature to write and to test
+  against `numpy_ref`.
+- **Distribution and start.** A Julia runtime and a 1.8 GB depot beside the wheel;
+  the first engine in a process compiles for 11 to 14 s on a CPU (after the
+  precompiled trace) and about 28 s on Metal. A PackageCompiler system image, untried,
+  would remove most of it. Native ships as a prebuilt wheel on PyPI.
+- **Qualification.** No CI lane runs it. The double-float path has window tests and
+  unit bounds, not `mlx`'s SEP 33 drift and envelope qualification.
+- **The toolchain's own bugs.** Julia's LinearAlgebra gave wrong concurrent
+  `Complex{Float32}` products (worked around); juliacall shares the interpreter's thread.
+
+**The decisions a SEP would take.** Whether Julia replaces native, sits beside it, or
+replaces only `mlx`; which features it must cover before that; how it ships (system
+image, `juliapkg`, or a separate distribution); which CI lanes run it (a CPU lane, and a
+GPU lane somewhere); and whether the double-float path takes `mlx`'s qualification.
+The cheapest step with the most information is to replace `mlx` first: profile Metal
+on the losing cases, add `mlx`'s features, run SEP 33's qualification on `df32`, and
+compare again.
 
 ## Not run
 
 Vector polarisation, batches, noise, envelope plasma, several plasma channels or Raman
 terms, varying Raman, dispersive Kerr, TDSE, planar and general modal guides, tapers,
 coupled flows, the interaction Adams formulation, the carrier frame and interpolated
-planes are refused by name.
+planes are refused by name; so is binary64 on Metal.
 
 ## Findings for main
 
@@ -124,3 +217,9 @@ planes are refused by name.
   them as real GEMMs over the complex array's real view instead.
 - `docs/dev/backends.md` still names `set_held_plane` and `held_observation`, which
   main removed; #558.
+- On the M5 Max native is slower on 8 and on 18 threads than on 6, on most cases: its
+  parallel regions wait for the second-tier cores. OpenMP's `active` waiting does not
+  change it. Not filed yet.
+- On the Mac a heavy process slows the next process's windows by 10 to 80 %, so an
+  A/B of a compiling arm (Julia) against a quick one runs both warm; `benchmarks ab
+  --cooldown` (this branch) idles between workers.

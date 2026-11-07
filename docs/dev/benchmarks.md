@@ -3117,3 +3117,59 @@ dims (2, 3)) works, without MLX's Bluestein cliff (10240 points as fast as 8192)
 2 to 5e-7; Float32 GEMM is full precision (1.5e-7, not TF32) on real views; the
 two-sum and fused two-product survive compilation. Construction compiles the Metal
 kernels: about 28 s, with no precompiled trace for the device yet.
+
+The same M5 Max, later commits:
+
+- **Whole runs** (commit `3f0d33d6`, the full guides, 6 threads, two rounds): `julia` over
+  native 0.86 (`rdw`, 2.33 s native), 0.74 (`argon_blueshift`, 5.69 s), 0.95 (radial,
+  0.94 s), 1.02 (`kerr_beam_192`, 1.59 s), 0.71 (`ctc_reduced`, 6.12 s), 0.82
+  (`h2_raman_6ps`, 63.2 s) and 0.68 (`line`, 0.14 s); geometric mean 0.82, every round
+  within 0.3 %, the same steps, fields 1e-11 to 1e-15 apart.
+- **Accelerate for Julia's products** (`SOLPROP_JULIA_BLAS=accelerate` against
+  OpenBLAS 0.3.30, commit `e99851d5`, three rounds): radial 0.59 on one thread and 0.82
+  on six, `h2_raman_6ps` 0.88 on six, every other row 0.97 to 1.05 within its rounds'
+  spread; geometric mean 0.94. Commit `d872cb59` makes it the default on macOS.
+- **Contraction** (commit `3f0d33d6`'s fused multiply-adds against `ecbcafbe`, binary64,
+  three rounds): geometric mean 0.99, `h2_raman_6ps` 0.96 and 0.93 the only steady gain;
+  fields 1e-13 apart, the same steps.
+- **Flush-to-zero** (`SOLPROP_JULIA_FTZ=1`, an experiment the policy forbids, #561):
+  binary32 0.997 and binary64 0.99, nothing beyond the rounds' spread but
+  `ctc_reduced` on six threads (0.88). Apple's cores take subnormals at full speed.
+- **Native's thread count.** Native's 2 % windows on 1 to 18 threads (OpenMP default
+  and `active` waiting alike) are fastest on the six top-tier cores for `rdw`, radial,
+  `h2_raman_6ps` and `line`, and on 12 for `kerr_beam_192` and `ctc_reduced`; eight
+  threads, two of them second-tier, are already slower than six, and 18 take 1.4 to 1.5
+  times six's time (`h2_raman_6ps` 0.61 -> 0.91 s).
+- **The machine's state between workers.** Native's six-thread windows ran 10 to 80 %
+  slower right after a heavy process than in a run of native workers alone (`rdw`
+  0.062 s alone, 0.083 s after Julia workers, 0.092 s after 15 s of every core busy;
+  `line` 0.067, 0.119 and 0.123 s), with no thermal warning recorded. A Julia worker
+  compiles for 7 to 30 s before its window, so every native-against-Julia A/B above
+  ran both arms in that state: the ratios hold, the absolute times are slow. Commit
+  `d872cb59` adds `benchmarks ab --cooldown`.
+
+**NVIDIA A40** (DMOG, driver 595.71), commit `ecbcafbe`, `--device`: the device tests
+pass (34, binary32 in both wide types). `julia` binary32 with the double-float wide
+type against binary64, three rounds: geometric mean 0.99, the free-space rows 0.88
+(`kerr_beam_192`) and 0.91 (`line`) from forming the operator's elements once on the
+host, the rest within their rounds. Against native's CUDA build (binary64), two rounds:
+
+| case | native, s | julia binary32 df32, s | ratio |
+|---|---:|---:|---:|
+| `rdw` | 0.054 | 0.230 | 4.26 |
+| `argon_blueshift` | 0.116 | 0.254 | 2.19 |
+| `h2_raman_6ps` | 1.042 | 0.644 | 0.62 |
+| `ctc_reduced` | 0.207 | 0.285 | 1.38 |
+| `radial_filament_256` | 0.169 | 0.246 | 1.46 |
+| `kerr_beam_192` | 0.174 | 0.488 | 2.80 |
+| `line` | 0.094 | 0.127 | 1.35 |
+
+Geometric mean 1.72 (1.99 for binary32 in the binary64 wide type at `50158fa6`): the
+A40's slow binary64 in the operator and phi functions was not what held binary32 back.
+
+**Intel Xeon Gold 6240** (16 cores of a socket, exclusive), flush-to-zero in binary32,
+commit `3f0d33d6`, three rounds: geometric mean 0.99, every row within its rounds'
+spread on one thread and on 16 (radial 0.89 on 16 the largest move). The binary32
+windows here take 2 to 3 times binary64's (`rdw` on one thread 1.43 s, 0.63 s in
+binary64 at `a6722029`), and flushing subnormals does not change that: they are not
+the cause.
