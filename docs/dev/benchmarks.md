@@ -3180,3 +3180,39 @@ the cause.
   240 us for 16384 x 36 x 8 against 65 to 140 us copied). `h2_raman_6ps` 1.92 -> 1.45 s
   (0.76; its Raman nodal products and projections), radial 0.91, the rest within their
   rounds; the same steps. Against `mlx`'s 0.92 s, `h2_raman_6ps` is about 1.6, not 2.1.
+
+**Metal tuning, 2026-11-07 evening** (M5 Max GPU, `julia32` with df32, `--device`, 4 host
+threads, 2 % windows; each change against its parent, three rounds unless said). The
+counters (`SOLPROP_JULIA_COUNT=1`) and probes found the costs: a `copyto!` into or out of
+a view took about 200 us on Metal (a staged FFT batch 1.6 ms against 0.11 ms for three
+transforms), each switch between the engine's kernels and MPS/MPSGraph work about 30 us,
+each value the host waits for about 0.2 ms.
+
+| change | commit | geometric mean | largest effects |
+|---|---|---:|---|
+| a chunk's constant projection rows kept contiguous | `da5559f0` | 0.93 (two rounds) | `ctc_reduced` 0.74, `argon_blueshift` 0.84 |
+| device copies as one kernel, views included | `37aed946` | 0.81 | `rdw` 0.61, `argon_blueshift` 0.71, `ctc_reduced` 0.75 |
+| one value the host waits for a step | `5df088ec` | about 0.95 | `h2_raman_6ps` 0.80, `argon_blueshift` 0.82, `rdw` 0.88 (a loaded machine; reruns) |
+| one chunk of nodes a source on a GPU | `a38097f8` | 0.84 | `ctc_reduced` 0.61, `h2_raman_6ps` 0.72, radial 0.88 |
+| the trial's tables in one upload | `fbd75c2c` | 0.99 | within the rounds |
+
+Against `mlx` at `fbd75c2c` (binary32, `MLX_ENABLE_TF32=0`, pow2, three rounds; this
+morning 1.25):
+
+| case | `mlx`, s | julia Metal, s | ratio |
+|---|---:|---:|---:|
+| `rdw` | 0.405 | 0.166 | 0.41 |
+| `argon_blueshift` | 0.389 | 0.281 | 0.73 |
+| `h2_raman_6ps` | 0.896 | 0.682 | 0.76 |
+| `ctc_reduced` | 0.926 | 0.238 | 0.26 |
+| `radial_filament_256` | 0.203 | 0.185 | 0.91 |
+| `kerr_beam_192` | 0.249 | 0.191 | 0.77 |
+| `line` | 0.132 | 0.199 | 1.49 |
+
+Geometric mean 0.67: Julia faster than `mlx` in six of seven cases, fields 4e-7 to 2e-5
+apart (binary32 against binary32).
+
+**NVIDIA A40** at `5df088ec` (the first three changes): against `ecbcafbe` 0.97 in
+binary64 (the view copies were Metal's problem); against native, binary64 1.88 (1.97
+before; `h2_raman_6ps` 1.00, `ctc_reduced` 1.44, `kerr_beam_192` 2.97) and binary32 with
+df32 1.51 (1.72 before; `h2_raman_6ps` 0.58, radial 1.29).
