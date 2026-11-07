@@ -15,7 +15,7 @@
 | **Requires** | [SEP 39](archive/sep-0039-native-adams-march.md) (the native Adams march, its call protocol and ADR-060); [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) (agreement to the error bound); [SEP 21](archive/sep-0021-absorbing-boundaries.md) and [SEP 40](archive/sep-0040-transverse-absorbing-boundaries.md) (the boundary monitor) |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march`, based on #563 and #566: started 2026-11-07 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0045-native-rk-march` ([#567](https://github.com/LupoLab/solprop/pull/567)), based on #563 and #566: started 2026-11-07; phase 0 complete |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -880,6 +880,85 @@ changes at rounding level, and step choices differing by a few steps, are accept
 
 ## Part II — Implementation record
 
+### Phase 0 report — baseline, corpora and the pure core
+
+- **Scope:** phase 0, 2026-11-07, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0045-native-rk-march` (LupoLab/solprop#567), commits `f84bb72b`,
+  `853245ed`, `801f0def`, `b7ab4194` and `76b358d5`, on top of #563 and #566.
+- **Delivered:**
+  - `tests/backends/rk_traces.py`, `tests/data/generate_rk_traces.py`,
+    `tests/data/rk_traces.json.gz` and `tests/backends/test_rk_traces.py`: the
+    Runge–Kutta decision corpus, 29 scenarios generated from the march before the
+    refactor (`a0d96912`), and the test that replays it.
+  - `src/solprop/backends/rk_core.py`: `RungeKuttaPolicy`, `rk_policy`, `decide`,
+    `start_up`, `propose` and `reject`; `StepDriver._march_to` and `_start_up` call them
+    through `StepDriver._controller_policy`.
+  - `src/solprop/boundaries.py`: `SplitCrossing.limit` takes its total from its
+    cumulative sum (Q7), with the review's near-tie witness in
+    `tests/test_split_crossing.py` and a release-note fragment.
+  - `native/src/adams_march.cpp`: `#pragma GCC optimize("fp-contract=off")` (#135), and
+    `AdamsMarch.TheDecisionsStayStrictWhereTheBuildFuses` in
+    `native/tests/native/test_adams_march.cpp`.
+  - `docs/dev/kernel-contract.md` §12, drafted.
+- **Deviations from the proposal:**
+  - *The scripted norms model the trial.* A scenario's trial returns
+    `noise * (dz / h0) ** (q + 1)`: independent random norms give the controller no
+    equilibrium, so its step drifted to the floor within a few millimetres and never
+    reached a plane or a cap. Scenarios that need a rejection or a floor at a chosen
+    attempt script their norms directly. A native scripted engine computes the same
+    with `pow` on the same build.
+  - *The watch corpus moves to phase 1*, beside the native watch it checks; its
+    readings and thresholds are those §7.2 lists.
+  - *#135 is fixed in the source as well as witnessed.* The pragma makes GCC treat the
+    file's functions as uninlinable into a contracting caller, which is what the issue
+    found missing under link-time optimisation with hidden symbols. The new strict files
+    of phases 1 and 3 take the same pragma and witness.
+- **Decisions:** the policy hook `StepDriver._controller_policy` (so that the scripted
+  harness, which has no `StepperSettings`, passes the runtime type checks);
+  `rk_policy` reads the controller, floor, cap and start-up flag, and the landings stay
+  with the march's targets as before.
+- **Verification:**
+  - The corpus replays exactly against the refactored march; it reaches the three
+    floor sites, natural stops, every cap alone and meeting landings, and completes
+    the default, landing and replay scenarios.
+  - On an AMD EPYC 7763 node (Python-only changes from the tree's `src/` over the
+    branch's native build): `test_rk_traces`, `test_adams_traces`, `test_driver`,
+    `test_split_crossing`, `test_monitor`, `test_dense_output`, `test_native_error_norm`,
+    the native march's call-bound, lifecycle and trace tests and `tests/stepper` pass
+    (713 tests; 14 setup errors in a first run came from moving its checkout during the
+    run and did not recur).
+  - The native unit tests in a Release `znver3` build: the #135 witness runs, not
+    skipped, its control fuses and the march's probe does not.
+- **The ledger** (AMD EPYC 7763, one thread, a shared node at load 80, a warm repeat
+  with `perf_counter` wrappers on the monitor and the march's host functions;
+  per-call costs, not walls):
+
+  | window | attempts | checked / skipped | native calls (reason) | µs per `monitor.step` | µs per reading | Python per call less its native run (µs) |
+  |---|---:|---:|---|---:|---:|---:|
+  | `argon_blueshift_envelope` (0.1) | 44 | 13 / 31 | 22 (11 monitor, 11 reached) | 27 | 27 | 98 |
+  | `argon_blueshift_envelope` (0.3) | 136 | 56 / 80 | 62 (51 monitor, 11 reached) | 30 | 31 | 113 |
+  | `argon_blueshift_envelope` | 2227 | 1906 / 321 | 1910 (1828 host step, 71 monitor, 11 reached) | 26 | 27 | 103 |
+  | `he_rdw_averaged` | 1437 | 233 / 1201 | 243 (230 monitor) | 35 | 89 | 208 |
+  | `argon_blueshift_averaged` (0.3) | 3191 | 393 / 2796 | 403 (392 host step) | 29 | 50 | 162 |
+  | `h2_raman_averaged` (0.2) | 2501 | 307 / 2192 | 316 (305 host step) | 33 | 77 | 204 |
+  | `gnlse_soliton` (RK) | 691 | 207 / 484 | — | 30 | 38 | — |
+  | `gnlse_raman_shock` (0.1, RK) | 1048 | 127 / 921 | — | 90 | 307 | — |
+
+  A row's booking costs about 1 µs (`_record_attempt`) and 2–3 µs (`_skip_step`, of
+  which `monitor.skip` is 1.3 µs). The envelope case is busy only after about a third of
+  its guide, so windows from the entrance do not exercise a busy monitor; §7.3's busy
+  cases are built for it, and §7.6 times the complete envelope run, about 1.4 s.
+- **Targets fixed** (§7.6): B keeps $h_{\text{check}} \approx 30$ µs and
+  $h_{\text{row}} \approx 3$ µs, which projects about 4–5 % Python on the complete
+  `argon_blueshift_envelope` run after phase 1, so its target stays 5 %; the replayed
+  `monitor.step` is then the largest Python cost, and the next lever if the target is
+  missed. `gnlse_soliton` projects about 2 % after phase 3, inside its 4 %.
+- **Limitations:** the ledger's node was shared; the ratios phases 1 and 3 report will
+  come from `benchmarks ab` with an A/A control on an idle node.
+- **Handoff to phase 1:** the native watch (`Reason::watch` and `Reason::capacity`, its
+  policy and state, the reading through the engine), the drain with `_account_step` and
+  `_check_at`, the watch corpus, and the frozen driver surface.
+
 ## Part III — History
 
 - 2026-11-07: Drafted (John Travers, with Opus 5.5), from a profile of warm runs on the
@@ -898,6 +977,7 @@ changes at rounding level, and step choices differing by a few steps, are accept
   Part I is frozen from here, and deviations go in the phase reports.
 - 2026-11-07: Implementation started (Opus 5.5 for John Travers) on
   `feature/sep-0045-native-rk-march`.
+- 2026-11-07: Phase 0 reported (Part II).
 
 ### AI review — 2026-11-07
 
