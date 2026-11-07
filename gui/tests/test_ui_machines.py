@@ -186,3 +186,43 @@ def test_the_setup_dialog_shows_its_script_before_running_it(
     released = SetupDialog(SLURM, "0.3.0")
     qtbot.addWidget(released)
     assert released.note.text() == ""
+
+
+def test_a_copy_is_fetched_in_pieces_and_resumed(
+    qtbot: QtBot, tmp_path: Path, monkeypatch
+):
+    from solprop_gui.ui import machines_hub  # noqa: PLC0415 - only here
+
+    monkeypatch.setattr(machines_hub, "CHUNK", 1000)
+    source = tmp_path / "remote" / "run.h5"
+    source.parent.mkdir()
+    source.write_bytes(bytes(range(256)) * 20)  # 5120 bytes: six pieces
+    target = tmp_path / "copies" / "run.h5"
+    target.parent.mkdir()
+    target.with_name("run.h5.part").write_bytes(source.read_bytes()[:1500])
+    hub = MachineHub()
+    hub.ensure(Machine(LOCAL))
+    seen: list[tuple[int, int]] = []
+    done: list[tuple[object, object]] = []
+    hub.fetch(
+        LOCAL,
+        str(source),
+        target,
+        lambda have, total: seen.append((have, total)),
+        lambda value, error: done.append((value, error)),
+    )
+    qtbot.waitUntil(lambda: bool(done), timeout=WAIT_MS)
+    assert done == [(str(target), None)]
+    assert target.read_bytes() == source.read_bytes()
+    assert seen[0] == (2500, 5120) and seen[-1] == (5120, 5120)  # from the partial
+    missing: list[tuple[object, object]] = []
+    hub.fetch(
+        LOCAL,
+        str(tmp_path / "none.h5"),
+        tmp_path / "none.h5",
+        lambda have, total: None,
+        lambda value, error: missing.append((value, error)),
+    )
+    qtbot.waitUntil(lambda: bool(missing), timeout=WAIT_MS)
+    assert "is not on local" in str(missing[0][1])
+    hub.close()
