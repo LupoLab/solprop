@@ -44,6 +44,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <limits>
 #include <memory>
 #include <mutex>
@@ -980,6 +981,91 @@ nb::dict watch_state_to(const native::watch::State& state) {
   return out;
 }
 
+// solprop SEP 45 phase 3: the Runge-Kutta march's policy and state, from and to
+// solprop's `rk_march_policy` and `_NativeRungeKuttaMarch._state`.
+native::rk::Policy rk_policy_from(const nb::dict values) {
+  native::rk::Policy policy;
+  try {
+    auto& landings = policy.landings;
+    landings.dz_min = nb::cast<double>(values["dz_min"]);
+    landings.dz_max = nb::cast<double>(values["dz_max"]);
+    landings.stretch = nb::cast<double>(values["stretch"]);
+    landings.z_end = nb::cast<double>(values["z_end"]);
+    landings.save_planes = nb::cast<std::vector<double>>(values["save_planes"]);
+    landings.hard_kinks = nb::cast<std::vector<double>>(values["hard_kinks"]);
+    landings.breakpoints = nb::cast<std::vector<double>>(values["breakpoints"]);
+    landings.landing_ulps = nb::cast<int>(values["landing_ulps"]);
+    landings.interpolate = false;
+    landings.has_quiet_interval = !values["quiet_interval"].is_none();
+    landings.quiet_interval =
+        landings.has_quiet_interval ? nb::cast<double>(values["quiet_interval"]) : 0.0;
+    policy.safety = nb::cast<double>(values["safety"]);
+    policy.beta1 = nb::cast<double>(values["beta1"]);
+    policy.beta2 = nb::cast<double>(values["beta2"]);
+    policy.min_factor = nb::cast<double>(values["min_factor"]);
+    policy.max_factor = nb::cast<double>(values["max_factor"]);
+    policy.lag = nb::cast<std::size_t>(values["lag"]);
+    policy.reject_free = nb::cast<bool>(values["reject_free"]);
+    policy.power = nb::cast<double>(values["power"]);
+    policy.exponent = nb::cast<double>(values["exponent"]);
+    policy.start_growth = nb::cast<double>(values["start_growth"]);
+    policy.auto_init = nb::cast<bool>(values["auto_init"]);
+    policy.dz_min = landings.dz_min;
+    policy.dz_max = landings.dz_max;
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's policy has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's policy lacks a field");
+  }
+  if (policy.landings.breakpoints.size() < 2 || !(policy.dz_max >= policy.dz_min))
+    throw std::invalid_argument("the Runge-Kutta march's landings are invalid");
+  return policy;
+}
+
+native::rk::State rk_state_from(const nb::dict values) {
+  native::rk::State state;
+  try {
+    state.z = nb::cast<double>(values["z"]);
+    state.proposal = nb::cast<double>(values["proposal"]);
+    for (const auto value : nb::cast<nb::list>(values["norms"]))
+      state.norms.push_back(nb::cast<double>(value));
+    if (values.contains("watch"))
+      state.watch = watch_state_from(nb::cast<nb::dict>(values["watch"]));
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the Runge-Kutta march's state has the wrong types");
+  }
+  return state;
+}
+
+nb::dict rk_result_to(const native::rk::Result& out, const native::rk::State& state) {
+  const auto& result = out.march;
+  nb::dict values;
+  values["reason"] = static_cast<int>(result.reason);
+  const std::size_t n_rows = result.rows.size() / march::row_columns;
+  std::vector<double> rows = result.rows;
+  values["rows"] = n_rows == 0 ? nb::cast(nb::list())
+                               : nb::cast(real_output(std::move(rows), n_rows));
+  values["floor_proposal"] = result.floor_proposal;
+  values["floor_site"] = static_cast<int>(out.floor_site);
+  values["stage"] = static_cast<int>(result.stage);
+  values["category"] = static_cast<int>(result.category);
+  values["message"] = result.message;
+  const std::size_t n_readings = result.reading_rows.size();
+  std::vector<double> readings = result.readings;
+  values["readings"] = n_readings == 0
+                           ? nb::cast(nb::list())
+                           : nb::cast(real_output(std::move(readings), n_readings));
+  values["reading_rows"] = result.reading_rows;
+  values["verdict"] = static_cast<int>(result.verdict);
+  nb::dict held;
+  held["z"] = state.z;
+  held["proposal"] = state.proposal;
+  held["norms"] = std::vector<double>(state.norms.begin(), state.norms.end());
+  held["watch"] = watch_state_to(state.watch);
+  values["state"] = held;
+  return values;
+}
+
 march::State march_state_from(const nb::dict values) {
   march::State state;
   try {
@@ -1259,6 +1345,31 @@ private:
   std::vector<double> carrier_;
 };
 
+// The resident Runge-Kutta engine (solprop SEP 45 phase 3): a staged trial, its norm
+// by the native weak scale, and the accept's recycled stage and finish.
+class ResidentRungeKutta final : public native::rk::Engine {
+public:
+  using Trial = std::function<std::vector<double>(double, double)>;
+  ResidentRungeKutta(native::GeneralState& state, Trial trial, const double rtol,
+                     const double atol)
+      : state_(state), trial_(std::move(trial)), rtol_(rtol), atol_(atol) {}
+  double trial(const double z, const double dz) override {
+    const auto partials = trial_(z, dz);
+    return native::rk::score(partials.data(), partials.size() / 3, rtol_, atol_);
+  }
+  void accept(const double dz) override {
+    state_.promote_fsal();
+    state_.finish(dz);
+  }
+  std::vector<double> reading() override { return state_.monitor_reading(); }
+
+private:
+  native::GeneralState& state_;
+  Trial trial_;
+  double rtol_;
+  double atol_;
+};
+
 // A script of norms in place of the field arithmetic, logging what the march asked:
 // the decision-trace tests run solprop's corpus through it.
 class ScriptedEngine final : public march::Engine {
@@ -1349,6 +1460,59 @@ private:
   std::size_t used_ = 0;
 };
 
+// The scripted Runge-Kutta march solprop's decision-trace tests drive (SEP 45 phase 3):
+// each trial returns its script's norm, or with `h0` the script's noise times the model
+// norm `(dz / h0) ** power`, as solprop's harness forms it.
+class ScriptedRungeKutta final : public native::rk::Engine {
+public:
+  ScriptedRungeKutta(const std::vector<double>& norms, std::size_t& next,
+                     const double h0, const double power, nb::list& log)
+      : norms_(norms), next_(next), h0_(h0), power_(power), log_(log) {}
+  double trial(const double z, const double dz) override {
+    if (next_ >= norms_.size())
+      throw std::out_of_range("the script ran out of norms");
+    nb::dict event;
+    event["z"] = z;
+    event["dz"] = dz;
+    log_.append(event);
+    const double noise = norms_[next_++];
+    return h0_ > 0.0 ? noise * std::pow(dz / h0_, power_) : noise;
+  }
+  void accept(double /*dz*/) override {}
+  std::vector<double> reading() override {
+    throw std::logic_error("a scripted march takes no boundary readings");
+  }
+
+private:
+  const std::vector<double>& norms_;
+  std::size_t& next_;
+  double h0_;
+  double power_;
+  nb::list& log_;
+};
+
+class ScriptedRkMarch {
+public:
+  ScriptedRkMarch(const nb::dict policy, const RealInput norms, const double h0)
+      : policy_(rk_policy_from(policy)), norms_(real_vector(norms)), h0_(h0) {}
+  nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
+    auto state = rk_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
+    const auto result = native::rk::run(policy_, state, engine, bounds);
+    return rk_result_to(result, state);
+  }
+  nb::list log() const { return log_; }
+  [[nodiscard]] std::size_t used() const { return next_; }
+
+private:
+  native::rk::Policy policy_;
+  std::vector<double> norms_;
+  double h0_;
+  std::size_t next_ = 0;
+  nb::list log_;
+};
+
 class BoundState {
 public:
   explicit BoundState(const nb::dict& problem) : BoundState(problem_from(problem)) {}
@@ -1388,6 +1552,38 @@ public:
     const auto scalars = native::stage::rows(*stage_tables_, stage_anchor_, z,
                                              native::rk::positions(z, dz, nodes));
     return trial_step(dz, scalars, prepare_only);
+  }
+  // solprop SEP 45 phase 3: the native Runge-Kutta march over the staged trial.
+  void rk_march_configure(native::rk::Policy policy, std::vector<double> nodes,
+                          const double rtol, const double atol) {
+    open_state();
+    if (!stage_tables_)
+      throw std::logic_error("the native Runge-Kutta march needs the stage tables");
+    if (nodes.size() != stages_)
+      throw std::invalid_argument("the march's nodes are the tableau's stages");
+    rk_policy_ = std::move(policy);
+    rk_nodes_ = std::move(nodes);
+    rk_rtol_ = rtol;
+    rk_atol_ = atol;
+  }
+  nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
+    if (!rk_policy_)
+      throw std::logic_error("the native Runge-Kutta march is not configured");
+    auto state = rk_state_from(state_values);
+    const auto bounds = march_bounds_from(bounds_values);
+    auto& general = open_state();
+    ResidentRungeKutta engine(
+        general,
+        [this](const double z, const double dz) {
+          return rk_trial(z, dz, rk_nodes_, false);
+        },
+        rk_rtol_, rk_atol_);
+    native::rk::Result result;
+    {
+      const nb::gil_scoped_release release;
+      result = native::rk::run(*rk_policy_, state, engine, bounds);
+    }
+    return rk_result_to(result, state);
   }
   std::vector<double> trial_step(const double dz, const native::TrialScalars& scalars,
                                  const bool prepare_only = false) {
@@ -1742,6 +1938,10 @@ private:
   native::stage::Anchor stage_anchor_;
   native::stage::ZSlots z_slots_;
   std::optional<march::Policy> march_policy_;
+  std::optional<native::rk::Policy> rk_policy_;
+  std::vector<double> rk_nodes_;
+  double rk_rtol_ = 0.0;
+  double rk_atol_ = 0.0;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -2262,6 +2462,12 @@ NB_MODULE(_core, module_) {
            "edges"_a.noconvert())
       .def("run", &ScriptedMarch::run, "state"_a, "bounds"_a)
       .def("log", &ScriptedMarch::log);
+  nb::class_<ScriptedRkMarch>(module_, "ScriptedRkMarch")
+      .def(nb::init<nb::dict, RealInput, double>(), "policy"_a, "norms"_a.noconvert(),
+           "h0"_a)
+      .def("run", &ScriptedRkMarch::run, "state"_a, "bounds"_a)
+      .def("log", &ScriptedRkMarch::log)
+      .def("used", &ScriptedRkMarch::used);
   nb::class_<BoundState>(module_, "State")
       .def(nb::init<const nb::dict&>())
       .def(
@@ -2729,6 +2935,14 @@ NB_MODULE(_core, module_) {
           "policy"_a, "fused"_a, "compensated"_a, "interpolate"_a,
           "steps"_a.noconvert(), "edges"_a.noconvert())
       .def("adams_march_run", &BoundState::march_run, "state"_a, "bounds"_a)
+      .def(
+          "rk_march_configure",
+          [](BoundState& self, const nb::dict policy, const std::vector<double>& nodes,
+             const double rtol, const double atol) {
+            self.rk_march_configure(rk_policy_from(policy), nodes, rtol, atol);
+          },
+          "policy"_a, "nodes"_a, "rtol"_a, "atol"_a)
+      .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
       // A test hook: fail the resident engine's `stage` after `after` more calls.
       .def("adams_march_fault", &BoundState::march_fault, "stage"_a, "after"_a,
            "category"_a)

@@ -109,13 +109,14 @@ from solprop.stats import (
     weight_refusal_for,
     zdw,
 )
-from solprop.stepper.controller import PIController
+from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
     Multistep,
     integrated_weights,
     lagrange_coefficients,
 )
+from solprop.stepper.schedule import LANDING_ULPS
 from solprop.translate.chebyshev import (
     _EDGE_SLACK_FRACTION,  # pyright: ignore[reportPrivateUsage] - the tables' own admitted span
     PiecewiseChebyshev,
@@ -338,6 +339,9 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
         self._rk_staged: bool | None = None
         self._rk_nodes: list[float] = []
+        # solprop SEP 45 phase 3: the native Runge-Kutta march, decided on first use.
+        self._rk_march_state: _NativeRungeKuttaMarch | Literal[False] | None = None
+        self._rk_refusal: str | None = None
         self._flow_key: tuple[int, float] | None = None
         tables = problem.transform.modal_tables
         self._moving_maps = (
@@ -441,12 +445,37 @@ class NativeBackend(StepDriver[_core.State]):
     def _march_to(self, target: float) -> None:
         """Step to `target` with the Adams method when one is set, else Runge-Kutta."""
         try:
-            if self._adams is None:
-                super()._march_to(target)
-            else:
+            if self._adams is not None:
                 self._adams.march_to(target)
+            elif (march := self._rk_march()) is not None:
+                march.march_to(target)
+            else:
+                super()._march_to(target)
         finally:
             self._check_quadrature(target)
+
+    def _rk_march(self) -> _NativeRungeKuttaMarch | None:
+        """Return the native Runge-Kutta march when it steps this run (SEP 45).
+
+        Decided on the first march: a configuration it does not cover runs solprop's
+        loop with a ``HostMarchWarning`` naming the reason.
+        """
+        if self._rk_march_state is None:
+            refusal, warn = _NativeRungeKuttaMarch.refusal(self)
+            self._rk_refusal = refusal
+            if refusal is None:
+                self._rk_march_state = _NativeRungeKuttaMarch(self)
+            else:
+                self._rk_march_state = False
+                if warn:
+                    warnings.warn(
+                        "solprop-native steps this RungeKutta run with solprop's "
+                        f"loop: {refusal}. The native march (SEP 45) covers adaptive "
+                        "runs on staged rows with PIController's weak norm",
+                        HostMarchWarning,
+                        stacklevel=5,
+                    )
+        return self._rk_march_state or None
 
     def _adams_state(self) -> ComplexArray:
         """Return the host copy of the accepted state the Adams march reads.
@@ -1886,6 +1915,11 @@ class NativeBackend(StepDriver[_core.State]):
             # Which march stepped the run (solprop SEP 39 section 5): a timing or a
             # rounding difference is traced to it.
             work["adams_march"] = "native" if march.native else "host"
+        if self._adams is None and self._low_storage is None:
+            # Likewise the Runge-Kutta march (solprop SEP 45 section 5).
+            work["rk_march"] = (
+                "native" if self._rk_march_state else f"host: {self._rk_refusal}"
+            )
         return {
             **work,
             **facts.info,
@@ -2660,6 +2694,9 @@ def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, o
 
 _ADAMS_MARCH = os.environ.get("SOLPROP_ADAMS_MARCH", "native")
 _RK_ROWS = os.environ.get("SOLPROP_RK_ROWS", "native")
+_RK_MARCH = os.environ.get("SOLPROP_RK_MARCH", "native")
+"""``host`` steps a Runge-Kutta run with solprop's loop instead of the native march
+(solprop SEP 45 phase 3): a private switch for comparisons, read at import."""
 """``host`` packs a Runge-Kutta trial's rows and reduces its norm on the host, as before
 solprop SEP 45 phase 2: a private switch for comparisons, read at import."""
 """Which march steps an admitted exponential ``Multistep()`` run: ``"native"``, or
@@ -2704,6 +2741,62 @@ class _MarchRunner(Protocol):
     def run(
         self, state: dict[str, object], bounds: dict[str, object]
     ) -> dict[str, Any]: ...
+
+
+def _watch_policy_of(monitor: BoundaryMonitor) -> dict[str, object]:
+    """Return a monitor's watch policy, refusing one with other fields (SEP 45 4.8)."""
+    policy = monitor.watch_policy()
+    if tuple(policy) != WATCH_POLICY_FIELDS:
+        raise BackendError(
+            "solprop's boundary watch policy has the fields "
+            f"{tuple(policy)}, not the {WATCH_POLICY_FIELDS} this build reads"
+        )
+    return policy
+
+
+def _readings_of(
+    monitor: BoundaryMonitor, result: dict[str, Any]
+) -> dict[int, BoundaryEnergies]:
+    """Return the readings a native call's checks took, by the row they follow."""
+    rows = [int(row) for row in result["reading_rows"]]
+    if not rows:
+        return {}
+    values = np.asarray(result["readings"], dtype=np.float64).reshape(len(rows), -1)
+    readings = {}
+    for row, reading in zip(rows, values, strict=True):
+        readings[row] = BoundaryEnergies(
+            float(reading[0]),
+            reading[1:5].copy(),
+            removed=float(reading[5]),
+            found=reading[6:10].copy() if monitor.split else None,
+            occupancy=None
+            if monitor.crossing is None
+            else reading[10 : 10 + SPLIT_RATE_BUCKETS].copy(),
+        )
+    return readings
+
+
+def _verify_watch_of(monitor: BoundaryMonitor, result: dict[str, Any]) -> None:
+    """Hold solprop's monitor, a drain done, to a native march's predictions.
+
+    Raises
+    ------
+    BackendError
+        If they disagree: a fault in the native transcription of the monitor's
+        checks, which the run cannot continue past (solprop SEP 45, Q4).
+    """
+    predicted = result["state"]["watch"]
+    actual = monitor.watch_state()
+    if any(predicted[name] != actual[name] for name in WATCH_STATE_FIELDS):
+        raise BackendError(
+            "the native march's boundary checks disagree with solprop's monitor: "
+            f"predicted {dict(predicted)}, booked {actual}"
+        )
+    if int(result["reason"]) == _WATCH and int(result["verdict"]) in (1, 4, 5):
+        raise BackendError(
+            "the native march returned to stop the run on a "
+            f"{_VERDICTS[int(result['verdict'])]}, and solprop's monitor did not"
+        )
 
 
 class _NativeAdamsMarch(AdamsMarch):
@@ -2908,13 +3001,7 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def _watch_policy(self) -> dict[str, object]:
         """Return the monitor's watch policy, refusing one with other fields."""
-        policy = self._driver._monitor.watch_policy()
-        if tuple(policy) != WATCH_POLICY_FIELDS:
-            raise BackendError(
-                "solprop's boundary watch policy has the fields "
-                f"{tuple(policy)}, not the {WATCH_POLICY_FIELDS} this build reads"
-            )
-        return policy
+        return _watch_policy_of(self._driver._monitor)
 
     def _bounds(
         self, target: float, slack: float | None, watching: bool = False
@@ -2991,45 +3078,11 @@ class _NativeAdamsMarch(AdamsMarch):
 
     def _readings(self, result: dict[str, Any]) -> dict[int, BoundaryEnergies]:
         """Return the readings a call's checks took, by the row they follow."""
-        monitor = self._driver._monitor
-        rows = [int(row) for row in result["reading_rows"]]
-        if not rows:
-            return {}
-        values = np.asarray(result["readings"], dtype=np.float64).reshape(len(rows), -1)
-        readings = {}
-        for row, reading in zip(rows, values, strict=True):
-            readings[row] = BoundaryEnergies(
-                float(reading[0]),
-                reading[1:5].copy(),
-                removed=float(reading[5]),
-                found=reading[6:10].copy() if monitor.split else None,
-                occupancy=None
-                if monitor.crossing is None
-                else reading[10 : 10 + SPLIT_RATE_BUCKETS].copy(),
-            )
-        return readings
+        return _readings_of(self._driver._monitor, result)
 
     def _verify_watch(self, result: dict[str, Any]) -> None:
-        """Hold solprop's monitor, the drain done, to the march's predictions.
-
-        Raises
-        ------
-        BackendError
-            If they disagree: a fault in the native transcription of the monitor's
-            checks, which this run cannot continue past (solprop SEP 45, Q4).
-        """
-        predicted = result["state"]["watch"]
-        actual = self._driver._monitor.watch_state()
-        if any(predicted[name] != actual[name] for name in WATCH_STATE_FIELDS):
-            raise BackendError(
-                "the native march's boundary checks disagree with solprop's monitor: "
-                f"predicted {dict(predicted)}, booked {actual}"
-            )
-        if int(result["reason"]) == _WATCH and int(result["verdict"]) in (1, 4, 5):
-            raise BackendError(
-                "the native march returned to stop the run on a "
-                f"{_VERDICTS[int(result['verdict'])]}, and solprop's monitor did not"
-            )
+        """Hold solprop's monitor, the drain done, to the march's predictions."""
+        _verify_watch_of(self._driver._monitor, result)
 
     def _call(self, target: float, slack: float | None = None) -> bool:
         """Make one native call and drain it; return whether a natural stop is due.
@@ -3169,6 +3222,273 @@ class _NativeAdamsMarch(AdamsMarch):
                 "translation refuses a declared step past the collar's limit and "
                 "warns on one past the flow's. Take shorter steps, or let the "
                 "controller choose them"
+            )
+            raise ConvergenceError(msg)
+        if reason == _ERROR:
+            message = str(result["message"])
+            category = int(result["category"])
+            if category == _CONVERGENCE:
+                raise ConvergenceError(message)
+            if category == _VALUE:
+                raise ValueError(message)
+            raise RuntimeError(message)
+
+
+class _NativeRungeKuttaMarch:
+    """The Runge-Kutta march stepped by the native state (solprop SEP 45 phase 3).
+
+    The adaptive loop of ``StepDriver._march_to`` -- the landing candidate, the trial
+    on the staged rows, the equivalent norm and acceptance, the start-up rule, the
+    next proposal or the rejection's, and the boundary checks -- runs natively from one
+    policy record, a call of attempts at a time; solprop books each call's attempts
+    and the checks' readings and takes the event step's statistics and natural stop,
+    as it does for the native Adams march. The kernel contract's section 12 is the
+    algorithm's interface.
+    """
+
+    MAX_ATTEMPTS = 256
+    MAX_SECONDS = 0.1
+
+    def __init__(self, backend: NativeBackend, runner: Any = None) -> None:
+        # `runner`, the scripted march of the decision-trace tests, takes the native
+        # state's place.
+        self._driver: Any = backend
+        self._runner = runner
+        self._configured: tuple[float | None] | None = None
+
+    @staticmethod
+    def refusal(backend: NativeBackend) -> tuple[str | None, bool]:
+        """Return why the native march does not step a run, and whether to warn."""
+        if _RK_MARCH == "host":
+            return "the private switch asked for it", False
+        stepper = backend._problem.stepper
+        controller = stepper.controller
+        overridden = [
+            name
+            for name in (
+                "scale",
+                "accepts",
+                "propose",
+                "rejection_factor",
+                "start_factor",
+                "equivalent_norm",
+            )
+            if getattr(type(controller), name) is not getattr(PIController, name)
+        ]
+        monitor = backend._monitor
+        reasons = (
+            (_on_device(), "a device build (SEP 45 phase 5)"),
+            (stepper.interpolate_planes, "interpolated planes (SEP 45 phase 4)"),
+            (
+                not isinstance(controller, PIController) or bool(overridden),
+                "a controller with its own " + ", ".join(overridden or ["type"]),
+            ),
+            (controller.weights is not None, "a weighted error norm"),
+            (
+                monitor is not None and monitor.transverse is not None,
+                "the transverse edge's reads (SEP 45 phase 4)",
+            ),
+            (
+                _RK_ROWS == "host" or not backend._staged_rows(),
+                "a coupled flow or a z table, whose stage rows the host forms "
+                "(SEP 45 phase 4)",
+            ),
+        )
+        for failed, reason in reasons:
+            if failed:
+                return reason, True
+        return None, False
+
+    def _policy(self) -> dict[str, object]:
+        """Return the run's controller and landing record (kernel contract 12)."""
+        backend = self._driver
+        stepper = backend._problem.stepper
+        controller = stepper.controller
+        breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
+        if not stepper.interval_cap:
+            breakpoints = breakpoints[[0, -1]]
+        monitor = backend._monitor
+        return {
+            "dz_min": float(stepper.dz_min),
+            "dz_max": float(stepper.dz_max),
+            "stretch": float(stepper.stretch),
+            "z_end": float(stepper.z_end),
+            "save_planes": [float(z) for z in stepper.save_planes],
+            "hard_kinks": [float(z) for z in backend._problem.linear.hard_kinks],
+            "breakpoints": [float(z) for z in breakpoints],
+            "landing_ulps": LANDING_ULPS,
+            "quiet_interval": None if monitor is None else float(monitor.interval),
+            "safety": float(controller.safety),
+            "beta1": float(controller.beta1),
+            "beta2": float(controller.beta2),
+            "min_factor": float(controller.min_factor),
+            "max_factor": float(controller.max_factor),
+            "lag": int(controller.lag),
+            "reject_free": bool(controller.reject_free),
+            "power": float(controller.estimator_order + 1),
+            "exponent": 1.0 / (controller.estimator_order + 1),
+            "start_growth": float(START_GROWTH),
+            "auto_init": bool(stepper.auto_init),
+        }
+
+    def _configure(self) -> None:
+        """Hand the native state the run's policy, again when the monitor changed."""
+        backend = self._driver
+        monitor = backend._monitor
+        interval = None if monitor is None else float(monitor.interval)
+        if self._configured == (interval,) or self._runner is not None:
+            return
+        controller = backend._problem.stepper.controller
+        backend._native_state.rk_march_configure(
+            self._policy(),
+            list(backend._rk_nodes),
+            float(controller.rtol),
+            float(controller.atol),
+        )
+        self._configured = (interval,)
+
+    def _watching(self) -> bool:
+        """Whether the march takes the boundary checks itself (SEP 45 4.8)."""
+        monitor = self._driver._monitor
+        return (
+            self._runner is None and monitor is not None and monitor.transverse is None
+        )
+
+    def march_to(self, target: float) -> None:
+        """Step the backend's state to `target` on the native march.
+
+        Parameters
+        ----------
+        target : float
+            Position to reach, m.
+
+        Raises
+        ------
+        ConvergenceError
+            If the proposal falls below the contract's ``dz_min``, or a native
+            trial fails.
+        """
+        backend = self._driver
+        if backend._natural_stop_due(target):
+            return
+        self._configure()
+        while not reached(backend._z, target):
+            if self._call(target):
+                return
+
+    def _bounds(self, target: float, watching: bool) -> dict[str, object]:
+        """Return a call's bounds: the target and the steps the driver has work on."""
+        backend = self._driver
+        steps: list[int] = []
+        if backend._row_spec is not None:
+            period = backend._row_period
+            steps.append(period - backend._accepted_steps % period)
+        every = backend._problem.stepper.step_planes
+        if every:
+            steps.append(every - backend._natural_count % every)
+        monitor = backend._monitor
+        if monitor is not None and not watching:
+            steps.append(monitor.steps_to_check())
+        return {
+            "target": float(target),
+            "quiet": bool(backend._collar_quiet),
+            "host_step": int(min(steps)) if steps else 0,
+            "monitor": False,
+            "first_check": False,
+            "check_interval": 0.0,
+            "last_check": 0.0,
+            "read_at": None,
+            "read_spacing": 0.0,
+            "step_cap": math.inf if monitor is None else float(monitor.step_cap),
+            "max_attempts": self.MAX_ATTEMPTS,
+            "max_seconds": self.MAX_SECONDS,
+            "replay": False,
+            "slack": 0.0,
+            "watch": _watch_policy_of(monitor)
+            if watching and monitor is not None
+            else None,
+            "watch_capacity": self.MAX_ATTEMPTS,
+        }
+
+    def _state(self, watching: bool) -> dict[str, object]:
+        """Return the march's state as the native call takes it."""
+        backend = self._driver
+        state: dict[str, object] = {
+            "z": float(backend._z),
+            "proposal": float(backend._proposal),
+            "norms": [float(norm) for norm in backend._accepted_norms],
+        }
+        if watching:
+            state["watch"] = backend._monitor.watch_state()
+        return state
+
+    def _call(self, target: float) -> bool:
+        """Make one native call and drain it; return whether a natural stop is due."""
+        backend = self._driver
+        backend._poll_stop()
+        watching = self._watching()
+        bounds = self._bounds(target, watching)
+        started = time.perf_counter() - backend._clock
+        cursor = int(backend._schedule_index)
+        position = float(backend._z)
+        with committing():
+            if self._runner is not None:
+                result = self._runner.run(self._state(watching), bounds)
+            else:
+                with _envelope_errors():
+                    result = backend._native_state.rk_march_run(
+                        self._state(watching), bounds
+                    )
+            state = result["state"]
+            backend._z = float(state["z"])
+            backend._proposal = float(state["proposal"])
+            backend._accepted_norms.clear()
+            backend._accepted_norms.extend(float(norm) for norm in state["norms"])
+            rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
+            reason = int(result["reason"])
+            readings = _readings_of(backend._monitor, result) if watching else {}
+            event = reason in (_REACHED, _HOST_STEP, _WATCH)
+            last = len(rows) - 1
+            for index, (end, dz, norm, accepted, _, wall) in enumerate(rows.tolist()):
+                backend._record_attempt(end, dz, norm, bool(accepted), started + wall)
+                if accepted:
+                    position = end
+                final = index == last and (event or reason == _FLOOR)
+                if accepted and not final:
+                    try:
+                        backend._account_step(end, cursor, readings.get(index))
+                    except Exception as error:
+                        if not watching:
+                            raise
+                        raise BackendError(
+                            "solprop's boundary monitor acted on a check the native "
+                            f"march went on past, at z = {end:.9g} m: {error}"
+                        ) from error
+        progress = backend._progress
+        for end, dz, _, accepted, _, _ in rows.tolist():
+            progress.step(end, dz, bool(accepted))
+        if event and rows.size and rows[-1, 3]:
+            if watching:
+                backend._watched_step(position, cursor, readings.get(last))
+                backend._statistics_step()
+                _verify_watch_of(backend._monitor, result)
+            else:
+                backend._take_step_stats()
+            if backend._natural_stop(target):
+                return True
+        elif watching:
+            _verify_watch_of(backend._monitor, result)
+        self._raise(reason, result)
+        return False
+
+    def _raise(self, reason: int, result: dict[str, Any]) -> None:
+        """Raise the error a call returned with, if any."""
+        if reason == _FLOOR:
+            proposed = float(result["floor_proposal"])
+            dz_min = float(self._driver._problem.stepper.dz_min)
+            msg = (
+                f"step control asked for {proposed:.3e} m, below the floor dz_min ="
+                f" {dz_min:.3e} m; the tolerance cannot be met here"
             )
             raise ConvergenceError(msg)
         if reason == _ERROR:
