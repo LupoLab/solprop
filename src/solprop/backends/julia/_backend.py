@@ -184,7 +184,6 @@ def _refuse(problem: KernelProblem) -> None:
         "planar transforms": transform.geometry is not None
         and transform.geometry.kind not in {"radial", "free"},
         "nonseparable longitudinal tables": not terms(problem).device_ready,
-        "varying radius": transform.taper_scale is not None,
         "multiple plasma channels": len(response.plasma_channels) > 1,
         # Several components sum into one kernel (each term weighted by its density
         # and fraction); they must agree on the third harmonic.
@@ -818,6 +817,10 @@ class JuliaBackend(StepDriver[object]):
         for channel in responses.population_channels[:1]:
             tables["plasma"] = channel.density
             tables["preionisation"] = channel.preionisation
+        if problem.transform.taper_scale is not None:
+            # A tapered guide's scale: the synthesis takes it, the projection its
+            # reciprocal.
+            tables["taper"] = problem.transform.taper_scale
         for name, table in tables.items():
             call_julia(self._jl.bind_stage_table_b, self._engine, name, *table.packed())
         low, high = (

@@ -131,7 +131,7 @@ function create_modal(c, host)
         coarse_inverse=c.envelope ? plan(c, plan_bfft, band, 1) : plan(c, plan_brfft, band, c.nc, 1),
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
-    Engine(c, work, false, 0, NaN, c.factor, NaN, false)
+    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0)
 end
 
 """The modes' analytic signals from their half spectrum `fine`: the one-sided spectrum
@@ -194,22 +194,22 @@ function source!(engine, lab; quadrature=false)
                 # The nodes' analytic signal by the synthesis, the field its real part.
                 analytic = @view w.analytic[:, 1:count]
                 @section :synthesis gemm!(analytic, w.analytic_modes, @view(c.synthesis[:, first:last]),
-                                          true, false, c)
+                                          engine.taper, false, c)
                 each!(c, size(analytic)...) do t, m
                     @inbounds nodes[t, m] = real(analytic[t, m])
                 end
             else
-                @section :synthesis gemm!(nodes, w.modal, @view(c.synthesis[:, first:last]), true, false, c)
+                @section :synthesis gemm!(nodes, w.modal, @view(c.synthesis[:, first:last]), engine.taper, false, c)
             end
             if w.plasma !== nothing
                 @section :plasma plasma_current!(w.plasma, w.nodes, c, count)
-                @section :plasma_projection project_plasma!(w.plasma, c, first, last, quadrature)
+                @section :plasma_projection project_plasma!(w.plasma, c, first, last, quadrature, 1 / engine.taper)
             end
-            products && @section :raman raman_nodal!(w.raman, first, last, c)
+            products && @section :raman raman_nodal!(w.raman, first, last, c, engine.taper^2)
             node_response!(engine, count)
-            @section :projection gemm!(w.projected, nodes, table_rows(c, c.projection, first, last), true, true, c)
+            @section :projection gemm!(w.projected, nodes, table_rows(c, c.projection, first, last), 1 / engine.taper, true, c)
             quadrature && c.embedded &&
-                gemm!(w.projected_coarse, nodes, table_rows(c, c.projection_coarse, first, last), true, true, c)
+                gemm!(w.projected_coarse, nodes, table_rows(c, c.projection_coarse, first, last), 1 / engine.taper, true, c)
         end
     end
     if w.pack !== nothing
@@ -314,7 +314,7 @@ function source_spectral!(engine, lab, quadrature)
         last = min(first + chunk - 1, nn)
         count = last - first + 1
         band = @view node_band[:, 1:count]
-        @section :synthesis gemm!(band, lab, @view(c.synthesis[:, first:last]), true, false, c)
+        @section :synthesis gemm!(band, lab, @view(c.synthesis[:, first:last]), engine.taper, false, c)
         if c.analytic
             @section :analytic begin
                 each!(c, nt, chunk) do k, m
@@ -345,9 +345,9 @@ function source_spectral!(engine, lab, quadrature)
         @section :forward_fft mul!(node_fine, w.node_forward, nodes)
         @section :plasma_spectrum spectral_plasma!(node_band, node_fine, w.plasma, w.node_forward, c)
         @section :projection begin
-            gemm!(band_source, band, table_rows(c, c.projection, first, last), true, true, c)
+            gemm!(band_source, band, table_rows(c, c.projection, first, last), 1 / engine.taper, true, c)
             quadrature && c.embedded &&
-                gemm!(band_coarse, band, table_rows(c, c.projection_coarse, first, last), true, true, c)
+                gemm!(band_coarse, band, table_rows(c, c.projection_coarse, first, last), 1 / engine.taper, true, c)
         end
     end
     loss = nothing
@@ -421,7 +421,7 @@ function population_snapshot(engine, input)
     for first in 1:chunk:nn
         last = min(first + chunk - 1, nn)
         count = last - first + 1
-        gemm!(@view(w.nodes[:, 1:count]), w.modal, @view(c.synthesis[:, first:last]), true, false, c)
+        gemm!(@view(w.nodes[:, 1:count]), w.modal, @view(c.synthesis[:, first:last]), engine.taper, false, c)
         maxima .= max.(maxima, population_parts!(p, w.nodes, c, first, count))
     end
     (Vector{Float64}(Array(p.fractions)), Vector{Float64}(Array(p.peaks)), maxima)

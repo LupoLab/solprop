@@ -406,13 +406,13 @@ end
 clear_plasma!(::Nothing) = nothing
 clear_plasma!(p) = foreach(a -> fill!(a, 0), (p.projected, p.edge_projected, p.coarse, p.coarse_edge))
 
-function project_plasma!(p, c, first, last, quadrature)
+function project_plasma!(p, c, first, last, quadrature, alpha=true)
     count = last - first + 1
     for (values, full, coarse) in ((p.gated, p.projected, p.coarse), (p.edge, p.edge_projected, p.coarse_edge))
         block = @view values[:, 1:count]
-        gemm!(full, block, table_rows(c, c.projection, first, last), true, true, c)
+        gemm!(full, block, table_rows(c, c.projection, first, last), alpha, true, c)
         quadrature && c.embedded &&
-            gemm!(coarse, block, table_rows(c, c.projection_coarse, first, last), true, true, c)
+            gemm!(coarse, block, table_rows(c, c.projection_coarse, first, last), alpha, true, c)
     end
 end
 
@@ -651,6 +651,6 @@ function raman_products!(r, modal, c; signal=nothing)
 end
 
 """A chunk's convolved node drives, rebuilt from the convolved products."""
-raman_nodal!(r, first, last, c) =
+raman_nodal!(r, first, last, c, alpha=true) =
     gemm!(@view(r.nodal[:, 1:last-first+1]), @view(r.drive[1:size(r.nodal, 1), :]),
-          @view(r.weights[:, first:last]), true, false, c)
+          @view(r.weights[:, first:last]), alpha, false, c)

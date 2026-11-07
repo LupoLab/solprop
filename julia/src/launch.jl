@@ -340,6 +340,8 @@ and in binary32 not safe to run from several tasks (a 1.5 relative error on the 
 LinearAlgebra in Julia 1.13.3).
 """
 function gemm!(C, A, B, alpha, beta, c)
+    # A scale (a taper's) at the arrays' precision: an Apple GPU takes no binary64.
+    alpha isa Bool || (alpha = real(eltype(C))(alpha))
     if eltype(C) <: Complex && eltype(A) <: Complex && eltype(B) <: Real
         return gemm!(real_rows(C), real_rows(A), B, alpha, beta, c)
     end

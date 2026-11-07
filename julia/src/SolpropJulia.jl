@@ -36,6 +36,9 @@ mutable struct Engine{C,W}
     # handed to the commit that follows, so that the commit waits for nothing.
     alarm::Float64
     alarm_ready::Bool
+    # A tapered guide's scale at the stage, tau(z): the synthesis takes it, the
+    # projection its reciprocal (`transform.taper_scale`); one without a taper.
+    taper::Float64
 end
 
 include("launch.jl")

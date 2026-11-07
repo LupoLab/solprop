@@ -238,6 +238,52 @@ def test_julia_two_raman_components_match_the_reference(runtime):
     assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
 
 
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GasFlowWarning")
+@binary64
+def test_julia_taper_matches_the_reference(runtime):
+    """A 20 % radius taper with a pressure gradient: the synthesis scaled by the taper,
+    the projection by its reciprocal, on ten fixed steps (the native test's case)."""
+    del runtime
+    from dataclasses import replace  # noqa: PLC0415
+
+    from solprop.boundaries import absorber  # noqa: PLC0415
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.profiles import Linear  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule  # noqa: PLC0415
+
+    length = 0.1
+
+    def field(backend):
+        simulation = Simulation.from_capillary(
+            Linear(100e-6, 80e-6, length),
+            length,
+            "Ar",
+            (5.0, 0.2),
+            wavelength=800e-9,
+            fwhm=30e-15,
+            energy=10e-6,
+            wavelength_limits=(300e-9, 2e-6),
+            trange=400e-15,
+            noise=None,
+            vacuum_end="floor",
+            plasma=False,
+            n_save=3,
+            backend=backend,
+            schedule=FixedSchedule(np.full(10, length / 10)),
+        )
+        simulation.settings = replace(
+            simulation.settings,
+            absorber=absorber(simulation.grid, boundary_length=10.0),
+            boundary_check=None,
+        )
+        return np.asarray(simulation.run()["field"])[-1]
+
+    expected, ours = field("numpy_ref"), field("julia")
+    scale = float(np.linalg.norm(expected))
+    assert float(np.linalg.norm(ours - expected)) <= 1e-10 * scale
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""
@@ -549,6 +595,7 @@ def test_julia_stage_scalars_are_the_bundles_bit_for_bit(runtime):
                     0.0 if kerr is None else kerr.coefficient * b.kerr_density,
                     b.plasma_densities[0] if b.plasma_densities else 0.0,
                     b.preionisation,
+                    b.taper_scale,
                 ]
                 for b in bundles
             ]

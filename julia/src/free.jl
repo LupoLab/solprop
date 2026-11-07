@@ -83,7 +83,7 @@ function create_free(c, host)
         coarse_inverse=c.envelope ? plan(c, plan_bfft, coarse_spec, 1) : plan(c, plan_brfft, coarse_spec, nc, 1),
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
-    Engine(c, work, false, 0, NaN, c.factor, NaN, false)
+    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0)
 end
 
 # For an exactly real squared longitudinal wave number the principal root is sqrt(x)

@@ -14,7 +14,7 @@ function path_workspace(c, host)
     (phi=upload(c, phi), prefactor=upload(c, pre),
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
      delta_device=dzeros(c, wide_eltype(c), size(phi, 3), stages),
-     weights_device=dzeros(c, c.T, size(pre, 3), stages), material=zeros(3, stages),
+     weights_device=dzeros(c, c.T, size(pre, 3), stages), material=[zeros(3, stages); ones(1, stages)],
      tables=Dict{String,Any}(), constants=zeros(4))
 end
 
@@ -45,6 +45,7 @@ function material_stage!(engine, stage)
         @inbounds prefactor[f, m] = value
     end
     engine.factor = p.material[1, stage]
+    engine.taper = p.material[4, stage]
     if w.plasma !== nothing
         w.plasma.parameters[8] = p.material[2, stage]
         w.plasma.parameters[9] = p.material[3, stage]
@@ -122,8 +123,9 @@ function configure_stages_at!(engine, z0, positions)
     end
     column(name) = haskey(tables, name) ? stage_values(tables[name], zs)[:, 1] : zeros(n)
     density = column("kerr")
+    taper = haskey(tables, "taper") ? stage_values(tables["taper"], zs)[:, 1] : ones(n)
     material = permutedims(hcat([kerr * d * scale2 for d in density],
-                                column("plasma"), column("preionisation")))
+                                column("plasma"), column("preionisation"), taper))
     configure_stages!(engine, delta, weights, material)
 end
 
