@@ -1245,3 +1245,64 @@ names, with the reference's message.
 translation unit and call no elementary function but `pow`, so that they round as
 solprop's Python does; on one build the native and reference marches read the same
 tables and norms and take the same steps.
+
+## 12. The Runge–Kutta march
+
+*Draft ([SEP 45](seps/sep-0045-native-rk-march.md), phase 0). Normative once phase 3
+lands; until then every backend steps the Runge–Kutta march with the reference.*
+
+The adaptive loop of `RungeKutta()` (`integrator is None`, §7) is one algorithm with one
+reference implementation, solprop's `StepDriver._march_to` and the controller core it
+calls (`solprop.backends.rk_core`). A backend may execute the same algorithm natively,
+as §11's Adams march is executed. It then receives every number the algorithm reads in
+one record and holds no default and no constant of its own (`native/AGENTS.md`).
+[SEP 45](seps/sep-0045-native-rk-march.md) §4 is the algorithm in full; this section is
+its interface.
+
+**The policy record** (`solprop.backends.rk_core.RungeKuttaPolicy`, formed once per run
+by `rk_policy`, with the landings of the run):
+
+| field | meaning |
+|---|---|
+| the controller's `safety`, `beta1`, `beta2`, `min_factor`, `max_factor`, `lag`, `reject_free`, `estimator_order` | `PIController`'s gains, factors and acceptance rule (§7) |
+| `START_GROWTH` | the start-up rule's cap on the second proposal (100) |
+| `RungeKuttaPolicy.auto_init` | whether the first accepted step takes the start-up rule |
+| `RungeKuttaPolicy.dz_min`, `RungeKuttaPolicy.dz_max` | the floor and the cap on a proposal, m |
+| the landings: `stretch`, `z_end`, `save_planes`, `hard_kinks`, `breakpoints`, `landing_ulps` | as §11's, shared with the Adams march |
+| the tableau's nodes and its first-same-as-last flag | the stage positions $z + c_i\,\Delta z$ |
+| the norm's scale | `rtol`, `atol`, the weights and the region of §7, applied by the engine's scorer |
+
+**The state**: the position; the controller's proposal; the accepted-norm history, at
+most `lag + 2` values, oldest first; the accepted count; the replay cursor. It is a
+continuation between the calls of one march only. `StepDriver.set_initial` resets it, on
+a fresh launch and on a resume alike, and `march_snapshot()` is `None` for this march.
+
+**One attempt**, in order (SEP 45 §4.3):
+
+1. the landing candidate: the proposal capped by the quiet collar's interval, the
+   transverse edge's ceiling and the split collar's crossing cap, in that order; the
+   proposal itself is unchanged;
+2. the landing;
+3. the trial, its stage scalars at each node and the whole step, and its scaled norm;
+4. the equivalent norm, from the uncapped proposal, and the acceptance, from the
+   executed norm (`rk_core.decide`);
+5. the attempt's row, recorded before the branch;
+6. on acceptance: the recycled stage promoted, the state finished and committed, the
+   equivalent norm appended, the start-up rule on the first accepted step
+   (`rk_core.start_up`), the next proposal (`rk_core.propose`), then the step's
+   boundary check, statistics row and natural stop;
+7. on rejection: the proposal shrunk (`rk_core.reject`).
+
+The floor is raised at three sites: after a rejected attempt is recorded; in the
+start-up rule, before the history's last value is rewritten; and after an accepted step's
+commit and append, before its boundary check and statistics.
+
+**What a native call takes and returns** is §11's, with this march's policy and state:
+the call's bounds (the target, the accepted steps after which the driver has work, the
+call's own bound of 256 attempts or 0.1 s), and per attempt one row of end, step, norm
+(non-finite as infinity), accepted and wall time, the reason it returned and the state.
+Phase 1 adds the boundary checks the call takes inside the march (§11).
+
+**Rounding.** The decisions are compiled without contraction or fast-math, call no
+elementary function but `pow`, and take every power of `1/e` as the reference does, so
+that on one build the native and reference marches take the same steps.
