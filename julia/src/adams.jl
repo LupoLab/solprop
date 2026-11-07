@@ -141,7 +141,7 @@ function configure_adams!(engine, predictor, corrector, defects, slots, spans, c
         h.cdefects[1:count, 1:width] .= Matrix{Float64}(cdefects)
         h.rate .= Vector{Float64}(rate)
     end
-    oncpu(engine.config) || tally!(:upload, length(a.device))
+    a.device.predictor isa Array || tally!(:upload, length(a.device))
     foreach(copyto!, a.device, a.host)
     nothing
 end

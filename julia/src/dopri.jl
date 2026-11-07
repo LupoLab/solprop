@@ -176,7 +176,7 @@ function quadrature_alarm(engine)
     else
         p = w.plasma
         transform_all!(w.forward_plan, (w.coarse_spec, p.spectrum, p.edge_spectrum),
-                       (w.projected_coarse, p.coarse, p.coarse_edge), w.forward_stage)
+                       (w.projected_coarse, p.coarse, p.coarse_edge), w.forward_stage, c)
         add_plasma_spectra!(w.coarse_spec, p, c)
     end
     (; prefactor, omega_window, crop) = c

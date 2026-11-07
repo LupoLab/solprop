@@ -144,7 +144,7 @@ function source!(engine, lab; quadrature=false)
         p = w.plasma
         @section :forward_fft transform_all!(w.forward_plan, (w.fine, p.spectrum, p.edge_spectrum),
                                              (w.projected, p.projected, p.edge_projected),
-                                             w.forward_stage)
+                                             w.forward_stage, c)
         @section :plasma_spectrum add_plasma_spectra!(w.fine, p, c)
     end
     if c.in_stage

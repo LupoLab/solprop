@@ -267,7 +267,7 @@ end
 # four for rdw, 96 us each on an A40): the group goes through one batched plan over a
 # staging buffer instead, the copies a few microseconds each. The staging lives in the
 # engine's workspace (`stage`, a `Ref`), not in a global table of plans.
-function transform_all!(p, outs::Tuple, ins::Tuple, stage::Ref)
+function transform_all!(p, outs::Tuple, ins::Tuple, stage::Ref, c)
     x = first(ins)
     if x isa Array
         foreach((y, x) -> mul!(y, p, x), outs, ins)
@@ -283,15 +283,15 @@ function transform_all!(p, outs::Tuple, ins::Tuple, stage::Ref)
     end
     staged, result, batched = held
     for j in 1:n
-        copyto!(view(staged, :, (j-1)*columns+1:j*columns), ins[j])
+        device_copy!(view(staged, :, (j-1)*columns+1:j*columns), ins[j], c)
     end
     mul!(result, batched, staged)
     for j in 1:n
-        copyto!(outs[j], view(result, :, (j-1)*columns+1:j*columns))
+        device_copy!(outs[j], view(result, :, (j-1)*columns+1:j*columns), c)
     end
     nothing
 end
-transform_all!(p::Blocked, outs::Tuple, ins::Tuple, ::Ref) = transform_all!(p, outs, ins)
+transform_all!(p::Blocked, outs::Tuple, ins::Tuple, ::Ref, c) = transform_all!(p, outs, ins)
 
 function Base.:*(p::Blocked, x)
     @batch for b in eachindex(p.plans)
@@ -303,12 +303,16 @@ end
 """`copyto!(target, source)` for two state-sized arrays of the device: on a CPU as the
 pool's tasks, since one thread's copy of a Cartesian state (226 MB) took 45 ms."""
 function pool_copy!(target, source, c)
-    oncpu(c) || return copyto!(target, source)
     each!(c, size(target)...) do f, m
         @inbounds target[f, m] = source[f, m]
     end
     target
 end
+
+"""`copyto!(target, source)` for two matrices of the device, views included, as one
+kernel: Metal.jl's `copyto!` into or out of a view took about 200 us (a staged FFT batch
+of three 8192 x 4 transforms 1.6 ms against 0.11 ms for three separate ones)."""
+device_copy!(target, source, c) = pool_copy!(target, source, c)
 
 """`C = alpha A B + beta C`: on a CPU, blocks of rows of `C` and `A` as the pool's tasks.
 
@@ -344,7 +348,7 @@ x 8 on the M5 Max against 65 to 140 us copied first."""
 function dense(c, X::SubArray{<:Any,2}, use)
     strides(X) == (1, size(X, 1)) && return X
     tally!(:dense_copy)
-    copyto!(scratch(c, use, eltype(X), size(X)...), X)
+    device_copy!(scratch(c, use, eltype(X), size(X)...), X, c)
 end
 dense(c, X, use) = X
 
