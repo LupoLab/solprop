@@ -285,6 +285,47 @@ def test_julia_taper_matches_the_reference(runtime):
 
 
 @binary64
+def test_julia_window_statistics_match_the_reference(runtime):
+    """The energy and peak power in a band and the zero-dispersion wavelength, which the
+    shared host functions form from the state, as the reference forms them."""
+    del runtime
+    import dataclasses  # noqa: PLC0415
+
+    names = ("energy_window", "peak_power_window", "zdw")
+    configuration = CASES["rdw"].configuration(
+        "default", 2, "julia", fraction=0.002, noise="none"
+    )
+    values = {}
+    for name in ("numpy_ref", "julia"):
+        simulation = build(configuration | {"backend": name})
+        problem = simulation.translate()
+        spec = dataclasses.replace(
+            problem.stats_spec, names=names, energy_windows=np.array([[1.5e15, 3.0e15]])
+        )
+        engine = select(
+            name,
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        engine.propagate_to(float(configuration["stop"]))
+        values[name] = engine.stats(spec)
+        engine.close()
+    for statistic in names:
+        expected = np.asarray(values["numpy_ref"][statistic])
+        largest = float(np.max(np.abs(expected), initial=0.0))
+        np.testing.assert_allclose(
+            values["julia"][statistic],
+            expected,
+            rtol=1e-9,
+            atol=1e-9 * largest,
+            err_msg=statistic,
+        )
+
+
+@binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""
     del runtime

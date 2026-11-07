@@ -78,13 +78,19 @@ _SPECIES_STATS = frozenset(
         "plasma_boundary_level",
     )
 )
+# Beyond the defaults, the statistics the shared host functions form from the state
+# alone (the windows, the zero-dispersion wavelength, a spatial run's temporal ones).
+_HOST_STATS = frozenset(("energy_window", "peak_power_window"))
 _SUPPORTED_STATS = (
     frozenset(default_spec("multimode", with_profiles=True).names)
     | _SPECIES_STATS
-    | {"peak_intensity", "quadrature_error"}
+    | _HOST_STATS
+    | {"peak_intensity", "quadrature_error", "zdw"}
 )
 _SPATIAL_STATS = (
-    frozenset(default_spec("radial", with_profiles=True).names) | _SPECIES_STATS
+    frozenset(default_spec("radial", with_profiles=True).names)
+    | _SPECIES_STATS
+    | _HOST_STATS
 )
 
 
