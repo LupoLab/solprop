@@ -34,6 +34,12 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 45 — A native Runge–Kutta march, and boundary checks inside the compiled marches](seps/sep-0045-native-rk-march.md):
+  boundary checks taken and compared inside the native marches, so that a busy monitor
+  no longer returns the Adams march to Python at every step, then the adaptive
+  interaction-picture Runge–Kutta loop in the native backend under SEP 39's policy-record
+  design, with solprop's loop kept as the reference. Cold start, setup and a single march
+  protocol (#110) are outside it.
 
 ## Draft enhancement proposals
 
@@ -89,9 +95,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 45 — A native Runge–Kutta march, and boundary checks inside the compiled marches](seps/sep-0045-native-rk-march.md):
-  boundary checks taken and compared inside the native marches, so that a busy monitor
-  no longer returns the Adams march to Python at every step, then the adaptive
-  interaction-picture Runge–Kutta loop in the native backend under SEP 39's policy-record
-  design, with solprop's loop kept as the reference. Cold start, setup and a single march
-  protocol (#110) are outside it.
