@@ -45,6 +45,7 @@ Measured step by step on an Intel Xeon Gold 6240 (16 cores of one socket) unless
 | A plasma column's live samples gathered; vectorised `exp` and `log` (`src/vmath.jl`, 1 ulp) | argon's plasma on one thread 4.7 ms -> 2.9 ms a source |
 | A source's forward transforms, and the quadrature alarm's, as one pool's work | `rdw` on 16 threads: commits 12.3 ms -> 5.8 ms, the source's transforms 8.7 ms -> 3.8 ms |
 | The exponential Adams march in the engine (`src/march.jl`, native's SEP 39 march transcribed) | `argon_blueshift` on 16 threads 0.42 s -> 0.34 s; the Python march's decisions bit for bit |
+| Radial and free planes' local statistics in the engine; the plane's admittance kept | radial on 16 threads 0.65 s -> 0.44 s, `line` 0.27 s -> 0.18 s (native's 0.20 s) |
 
 The vectorised functions paid only once the live samples were gathered and each pass
 was a function of its own: in the column's branchy loop, and inside its closure, LLVM
@@ -77,8 +78,8 @@ counted 0.18 s of metadata on both arms and are not comparable.
 - **The march's host events.** The Adams march runs in the engine (`src/march.jl`)
   and returns at each plane, monitor check and statistics row; a split collar, a
   replayed schedule and interpolated planes keep the Python march.
-- **Host statistics per plane.** The spectra and the reductions over the engine's power
-  are the shared host functions: about 1.4 ms a plane on `rdw`.
+- **Host statistics per plane.** The spectra, and the reductions over the engine's
+  power and fluence, are the shared host functions: about 1.4 ms a plane on `rdw`.
 - **Small states on many threads.** With one mode and 1601 bins the passes are serial
   by size, and run 20 to 40 % slower with 16 cores busy than with one (the clock).
 - **Serial plasma integrals.** The two running integrals are sequential by design.

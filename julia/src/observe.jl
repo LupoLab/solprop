@@ -289,3 +289,106 @@ end
 
 const bind_poynting_b = bind_poynting!
 const poynting_b = poynting!
+
+# --- the spatial routes' local statistics --------------------------------------------
+
+"""Hold the spatial local statistics' buffers and tables: the closure's factor, the
+conjugate axial admittance (`closure`, (n_omega, n_modes)), and a modal transform's
+synthesis over the pad scale (`synthesis`, (n_nodes, n_modes)); a free transform's
+nodes are its inverse transverse FFT. `chunk` nodes are transformed at a time."""
+function bind_spatial!(engine, closure, synthesis, chunk)
+    c, w = engine.config, engine.work
+    T = real_type(engine)
+    C = Complex{T}
+    nw, nm = size(w.y)
+    s = w.spatial[]
+    if s === nothing
+        S = synthesis === nothing ? nothing :
+            upload(c, T.(permutedims(Matrix{Float64}(synthesis))))
+        nn = S === nothing ? nm : size(S, 2)
+        width = min(Int(chunk), nn)
+        signal = dzeros(c, C, c.nc, width)
+        s = (closure=dzeros(c, C, nw, nm), S=S, electric=dzeros(c, C, nw, nn),
+             magnetic=dzeros(c, C, nw, nn), weighted=dzeros(c, C, nw, nm), signal=signal,
+             other=dzeros(c, C, c.nc, width), inverse=plan(c, plan_bfft!, signal, 1),
+             fluence=dzeros(c, T, nn), magnitudes=dzeros(c, T, nn), peaks=dzeros(c, T, nn))
+        w.spatial[] = s
+    end
+    copyto!(s.closure, C.(Matrix{ComplexF64}(closure)))
+    nothing
+end
+
+"""The nodes' spectra of a modal-domain matrix `x` (n_omega, n_modes) into `nodes`."""
+function node_spectra!(nodes, x, s, engine)
+    c = engine.config
+    if s.S === nothing
+        copyto!(nodes, x)
+        transverse!(nodes, engine.work.spatial_inverse, c)
+    else
+        gemm!(nodes, x, s.S, true, false, c)
+    end
+end
+
+"""`backends.spatial._local_statistics`'s transforms and sums, by the engine.
+
+Each node's field and closure (the field times the conjugate admittance) as analytic
+signals, their cycle-averaged Poynting flux `I(t) = 0.5 eps0 c Re(E conj(H))`, and per
+node its fluence `dt sum_t I`, the magnitude `0.5 eps0 c dt sum_t |E||H|` and the peak
+of `I`. Returns the three per-node arrays (the reference's own forms the widths)."""
+function spatial_local!(engine, dt, conversion)
+    c, w = engine.config, engine.work
+    s = w.spatial[]
+    T = real_type(engine)
+    y = w.y
+    (; closure, weighted, electric, magnetic, signal, other, fluence, magnitudes, peaks) = s
+    each!(c, size(y)...) do k, m
+        @inbounds weighted[k, m] = y[k, m] * closure[k, m]
+    end
+    node_spectra!(electric, y, s, engine)
+    node_spectra!(magnetic, weighted, s, engine)
+    nw, nn = size(electric)
+    nt, width = size(signal)
+    # numpy's 1/n_t on each inverse, the state's scale, a free transform's 1/N.
+    points = s.S === nothing ? prod(c.spatial_shape) : 1
+    factor = T((c.scale / (nt * points))^2)
+    flux, step = T(conversion), T(dt)
+    envelope, nyquist = c.envelope, nt ÷ 2 + 1
+    two, none, start, lowest = T(2), zero(Complex{T}), zero(T), T(-Inf)
+    for first in 1:width:nn
+        count = min(width, nn - first + 1)
+        for (target, source) in ((signal, electric), (other, magnetic))
+            each!(c, nt, width) do k, n
+                @inbounds begin
+                    value = k <= nw && n <= count ? source[k, first+n-1] : none
+                    if !envelope
+                        value = k == 1 || k == nyquist ? complex(real(value)) :
+                                k < nyquist ? two * value : none
+                    end
+                    target[k, n] = value
+                end
+            end
+            s.inverse * target
+        end
+        each_column!(c, count) do n
+            total, magnitude, peak = start, start, lowest
+            @inbounds for t in 1:nt
+                e, h = signal[t, n], other[t, n]
+                intensity = flux * real(e * conj(h)) * factor
+                total += intensity
+                magnitude += abs(e) * abs(h) * factor
+                peak = max(peak, intensity)
+            end
+            @inbounds begin
+                fluence[first+n-1] = step * total
+                magnitudes[first+n-1] = flux * step * magnitude
+                peaks[first+n-1] = peak
+            end
+            nothing
+        end
+    end
+    (Vector{Float64}(Array(fluence)), Vector{Float64}(Array(magnitudes)),
+     Vector{Float64}(Array(peaks)))
+end
+
+const bind_spatial_b = bind_spatial!
+const spatial_local_b = spatial_local!

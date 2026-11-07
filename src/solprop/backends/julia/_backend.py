@@ -13,6 +13,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Complex
 
+from solprop import fourier
 from solprop._process import _BlasLease
 from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame
@@ -26,7 +27,13 @@ from solprop.backends.julia._runtime import (
 )
 from solprop.backends.multistep import source_absent
 from solprop.backends.numpy_ref.passes import plasma_integration_statistics
-from solprop.backends.spatial import collect_spatial, radial_absorber_matrix
+from solprop.backends.spatial import (
+    _axis_statistics,  # pyright: ignore[reportPrivateUsage] - the reference's own form
+    collect_spatial,
+    fluence_budget,
+    radial_absorber_matrix,
+    signed_fluence_widths,
+)
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError
 from solprop.grid import TimeGrid
@@ -49,6 +56,7 @@ from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.linop import power_weight_at
 from solprop.translate.precision import launch_peak, state_scale
 from solprop.translate.problem import KernelProblem
+from solprop.translate.spatial import axial_admittance
 from solprop.translate.stage import terms
 from solprop.transverse_monitor import TransverseEdge, _EdgeReading
 
@@ -78,6 +86,14 @@ _SUPPORTED_STATS = (
 _SPATIAL_STATS = (
     frozenset(default_spec("radial", with_profiles=True).names) | _SPECIES_STATS
 )
+
+
+_SPATIAL_LOCAL = frozenset(("peak_intensity", "beam_radius", "fwhm_r"))
+_SPATIAL_AXIS = frozenset(
+    ("on_axis_spectrum", "on_axis_intensity", "beam_radius", "fwhm_r")
+)
+_SPATIAL_OWNED = frozenset(("energy",)) | _SPATIAL_LOCAL | _SPATIAL_AXIS
+"""The spatial statistics the backend forms itself (``JuliaBackend._spatial``)."""
 
 
 def _constant(table: PiecewiseChebyshev | None) -> bool:
@@ -453,6 +469,8 @@ class JuliaBackend(StepDriver[object]):
         self._threads = thread_limit("SOLPROP_JULIA_THREADS")
         self._fixed: dict[str, object] | None = None
         self._poynting_weight: np.ndarray | None = None
+        self._admittance: tuple[object, np.ndarray] | None = None
+        self._spatial_plane: object | None = None
         if not 1 <= self._threads <= int(self._jl.runtime()[1]):
             raise BackendError("julia thread count must fit the initialized runtime")
         self._engine = call_julia(
@@ -548,6 +566,11 @@ class JuliaBackend(StepDriver[object]):
             for flux in (False, axis is not None):
                 np.asarray(call_julia(jl.poynting_b, engine, flux)[0])
         call_julia(jl.bind_monitor_b, engine, None, None)
+        zeros = np.zeros((n_modes, 1, n_omega), dtype=np.complex128)
+        owned = self._spatial_owned(self._problem.stats_spec.names, zeros)
+        if owned and self._grid is not None:
+            # The local pass's transforms are planned here, not at the first plane.
+            self._spatial(owned, self._grid, zeros)
         self.metadata()
 
     def _adams_state(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
@@ -961,16 +984,22 @@ class JuliaBackend(StepDriver[object]):
                 names=tuple(n for n in spec.names if n not in _SPECIES_STATS),
                 periodic=(),
             )
-            values = collect_spatial(
-                delegated,
-                grid,
-                self._problem.transform,
-                state,
-                z=self._z,
-                flux=self._problem.flux,
-                profiles=self._profiles,
-                operator=self._problem.linear.separable,
-            )
+            owned = self._spatial_owned(delegated.names, state)
+            values = self._spatial(set(delegated.names) & owned, grid, state)
+            rest = tuple(n for n in delegated.names if n not in owned)
+            if rest:
+                values.update(
+                    collect_spatial(
+                        dataclasses.replace(delegated, names=rest),
+                        grid,
+                        self._problem.transform,
+                        state,
+                        z=self._z,
+                        flux=self._problem.flux,
+                        profiles=self._profiles,
+                        operator=self._problem.linear.separable,
+                    )
+                )
             if _SPECIES_STATS.intersection(spec.names):
                 values.update(self._populations(spec, state))
             return {name: value[None] for name, value in values.items()}
@@ -1073,6 +1102,136 @@ class JuliaBackend(StepDriver[object]):
                 values["peak_intensity"] = np.asarray(
                     0.5 * EPS0 * C * np.max(np.asarray(flux))
                 )
+        return values
+
+    def _spatial_owned(self, names: tuple[str, ...], state: np.ndarray) -> set[str]:
+        """Return the spatial statistics this backend forms, of those asked.
+
+        A radial or free plane's energy, on-axis and local statistics, for a single
+        polarisation with the run's plane measure; the rest are ``collect_spatial``'s.
+
+        Parameters
+        ----------
+        names : tuple of str
+            The statistics asked.
+        state : numpy.ndarray
+            The state, (n_modes, n_pol, n_omega).
+
+        Returns
+        -------
+        set of str
+            The names :meth:`_spatial` forms.
+        """
+        geometry = self._problem.transform.geometry
+        if (
+            geometry is None
+            or geometry.kind not in ("radial", "free")
+            or self._problem.flux is None
+            or state.shape[1] != 1
+        ):
+            return set()
+        return set(names) & _SPATIAL_OWNED
+
+    def _spatial(
+        self, names: set[str], grid: TimeGrid, state: np.ndarray
+    ) -> dict[str, np.ndarray]:
+        """``collect_spatial``'s energy, on-axis and local statistics.
+
+        The local ones' transforms and sums are the engine's (``spatial_local!``). The
+        admittance is the plane's, kept while the plane is the same object (a
+        medium constant in z has one); the energy and the on-axis statistics are the
+        reference's operations, and the local pass's sums the engine's.
+
+        Parameters
+        ----------
+        names : set of str
+            The statistics to form, of :data:`_SPATIAL_OWNED`.
+        grid : solprop.grid.TimeGrid
+            The run's grid.
+        state : numpy.ndarray
+            The state, (n_modes, 1, n_omega).
+
+        Returns
+        -------
+        dict
+            The statistics, keyed by name.
+        """
+        if not names:
+            return {}
+        transform = self._problem.transform
+        geometry = transform.geometry
+        flux = self._problem.flux
+        assert geometry is not None and flux is not None
+        plane = flux.at(self._z)
+        if self._admittance is None or self._admittance[0] is not plane:
+            self._admittance = (
+                plane,
+                axial_admittance(plane, grid.omega, slice(None)),
+            )
+        admittance = self._admittance[1]
+        values: dict[str, np.ndarray] = {}
+        conversion = 0.5 * EPS0 * C
+        chunks = [
+            slice(first, min(first + transform.node_chunk, transform.n_modes))
+            for first in range(0, transform.n_modes, transform.node_chunk)
+        ]
+        if "energy" in names:
+            weights = fourier.energy_weights(grid.n_omega, grid.dt, kind=grid.kind)
+            total = 0.0
+            for columns in chunks:
+                real = np.real(admittance[columns])
+                density = np.sum(np.abs(state[columns]) ** 2, axis=1)
+                total += float(
+                    np.sum(
+                        geometry.spectral_weights[columns, None]
+                        * weights
+                        * real
+                        * density
+                    )
+                )
+            values["energy"] = np.asarray(conversion * total)
+        axis_fluence = 0.0
+        if names & _SPATIAL_AXIS:
+            closure = np.conj(admittance)[:, None] * state
+            axis_values, axis_fluence = _axis_statistics(
+                names,
+                grid,
+                np.einsum("r,rpw->pw", geometry.on_axis, state),
+                np.einsum("r,rpw->pw", geometry.on_axis, closure),
+            )
+            values.update(axis_values)
+        if names & _SPATIAL_LOCAL:
+            if self._spatial_plane is not plane:
+                synthesis = (
+                    None
+                    if geometry.kind == "free"
+                    else np.ascontiguousarray(transform.synthesis / grid.pad_scale)
+                )
+                call_julia(
+                    self._jl.bind_spatial_b,
+                    self._engine,
+                    np.ascontiguousarray(np.conj(admittance).T),
+                    synthesis,
+                    transform.node_chunk,
+                )
+                self._spatial_plane = plane
+            fluence, magnitudes, peaks = (
+                np.asarray(part, dtype=np.float64)
+                for part in call_julia(
+                    self._jl.spatial_local_b, self._engine, grid.dt, conversion
+                )
+            )
+            if "peak_intensity" in names:
+                values["peak_intensity"] = np.asarray(float(np.max(peaks)))
+            if names & {"beam_radius", "fwhm_r"}:
+                budget = fluence_budget(
+                    magnitudes, state.shape[1] * grid.n_t + transform.n_modes
+                )
+                widths = signed_fluence_widths(geometry, fluence, budget, axis_fluence)
+                if "beam_radius" in names:
+                    values["beam_radius"] = np.asarray(widths[:2])
+                if "fwhm_r" in names:
+                    values["fwhm_r"] = np.asarray(widths[2])
         return values
 
     def _bind_poynting(self, axis: np.ndarray | None) -> None:
