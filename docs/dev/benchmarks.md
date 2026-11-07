@@ -3023,7 +3023,10 @@ Binary32 `h2_raman_6ps` at 0.61. No window hung in either.
 At `a6722029` (the first window no longer compiling) binary64 gave 1.97: `rdw` 2.86,
 `argon_blueshift` 2.80, `h2_raman_6ps` 1.02, `ctc_reduced` 1.47, radial 2.05 (0.354 s),
 `kerr_beam_192` 2.75, `line` 1.68. The binary32 arm of the same job was erratic (`rdw`'s
-rounds 2.5 and 20.9 against steady native times), under investigation.
+rounds 2.5 and 20.9 against steady native times); rerun on another node (its host load
+about 12 from other jobs), three rounds, it gave `rdw` 2.48, radial 1.39 (0.233 s),
+`ctc_reduced` 1.37 and `line` 1.59: the Julia arm's host work makes it the more
+sensitive to a busy node.
 
 **NVIDIA H200** (a rented droplet, CUDA 13.1, driver 580.196), native's CUDA build
 (HOPPER90) against `julia` with CUDA.jl on the system toolkit (`bootstrap.py
