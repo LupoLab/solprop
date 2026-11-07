@@ -53,6 +53,10 @@ EXPECTED: tuple[str, ...] = (
     r"this case took the expansion",
     r"this case took the constant fast path",
     r"a process SEP is structured by its subject",
+    # A build whose target or compiler does not fuse (a device build, or a baseline
+    # without fused multiply-add) cannot show a contraction; a distribution wheel for a
+    # fusing baseline fails instead (tests/backends/test_native_strict_witness.py).
+    r"this build does not fuse a product and a sum, so the witness proves nothing",
     # Settings of the lane: ci.yml's coverage lane runs the type checks.
     r"the runtime type checks are off \(SOLPROP_TEST_TYPECHECK=0\)",
     # A record cites a commit that a squash removed from the history.

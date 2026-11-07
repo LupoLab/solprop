@@ -212,7 +212,17 @@ if sys.platform == "linux":
     assert info.blas_threads is not None
 json.dumps(info.__dict__)
 subprocess.run([sys.executable, "-I", "-m", "solprop_native"], check=True, capture_output=True, text=True)
+# solprop #135: the strict files' probes round separately in the wheel, beside a control
+# that fuses (the x86-64-v2 variant, for processors without FMA, cannot fuse).
+from solprop_native import _core
+control, *probes = _core.strict_witness(1.0 + 2.0**-30, 1.0 - 2.0**-30, -1.0)
+assert probes == [0.0, 0.0, 0.0], probes
+assert control == -(2.0**-60) or info.cpu_baseline == "x86-64-v2", (control, info.cpu_baseline)
 PY
+if [[ $(uname -s) == "Linux" ]]; then
+  # No fused multiply-add in the strict files' functions, in every build in the wheel.
+  python3 -I ci/check_strict_fma.py "${wheels[0]}"
+fi
 if [[ -n "${SOLPROP_NATIVE_CHECK_WHEEL_DIR:-}" ]]; then
   mkdir -p "$SOLPROP_NATIVE_CHECK_WHEEL_DIR"
   cp "${wheels[0]}" "$SOLPROP_NATIVE_CHECK_WHEEL_DIR"/
