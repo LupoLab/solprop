@@ -169,10 +169,13 @@ Result run(const Policy& policy, State& state, Engine& engine,
   const bool dense = policy.landings.interpolate;
   const double z_end = dense ? policy.landings.z_end : target;
   while (!march::reached(state.z, target, ulps)) {
-    // The landing candidate: the proposal capped by the quiet collar's interval and
-    // the split collar's cap, in that order; the proposal itself is unchanged.
+    // The landing candidate: the proposal capped by the quiet collar's interval, the
+    // transverse edge's ceiling and the split collar's cap, in that order; the
+    // proposal itself is unchanged.
     const double proposal = state.proposal;
     double candidate = march::quiet_capped(policy.landings, proposal, bounds.quiet);
+    // The transverse edge's ceiling (`TransverseEdge.ceiling`): infinite without one.
+    candidate = py_min(candidate, bounds.read_spacing);
     candidate = py_min(candidate, bounds.watch ? state.watch.cap : bounds.step_cap);
     march::Landing stop;
     double norm = 0.0;
@@ -267,8 +270,21 @@ Result run(const Policy& policy, State& state, Engine& engine,
         result.reason = march::Reason::reached;
         return out;
       }
-      if (bounds.host_step > 0 && accepted == bounds.host_step) {
+      // The transverse edge is read on the host before a step would carry past its
+      // next read (`TransverseEdge.due`, solprop SEP 40 section 5.3).
+      const bool read_due = bounds.has_read_at &&
+                            state.z + state.proposal >=
+                                bounds.read_at - 1e-12 * py_max(std::abs(state.z), 1.0);
+      if ((bounds.host_step > 0 && accepted == bounds.host_step) || read_due) {
         result.reason = march::Reason::host_step;
+        return out;
+      }
+      // Beside a transverse edge solprop takes the monitor's checks itself, by its
+      // distance test (`BoundaryMonitor.due`).
+      if (!bounds.watch && bounds.monitor &&
+          (bounds.first_check ||
+           state.z - bounds.last_check >= bounds.check_interval)) {
+        result.reason = march::Reason::monitor;
         return out;
       }
     }

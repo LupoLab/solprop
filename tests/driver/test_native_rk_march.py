@@ -19,7 +19,7 @@ from typing import Any
 
 import numpy as np
 import pytest
-from test_native_z_table import walk_off
+from tests.driver.test_native_z_table import walk_off
 
 from capability_routes import ROUTES
 from solprop.backends import available
@@ -43,9 +43,13 @@ ROUTED = (
     "general guide (moving)",
     "capillary (coherent wall)",
     "capillary (taper coupling)",
+    "radial",
+    "cartesian",
+    "line",
+    "planar",
 )
-"""Routes the native march takes: staged rows, with or without a coupled flow (phase 4),
-and no transverse edge."""
+"""Routes the native march takes: staged rows, beside a coupled flow or not, and the
+spatial routes with their transverse edge (phase 4)."""
 
 
 UNCHECKED = {"general guide (moving)"}

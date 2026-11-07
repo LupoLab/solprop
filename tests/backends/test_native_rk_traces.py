@@ -12,14 +12,14 @@ stops, and how it stopped -- at a call's bound of one attempt, seven, and the de
 so that where a call returns moves no decision. A one-attempt call books each attempt's
 state, compared whole; longer calls are compared on the attempts and the end.
 
-The scenarios the native march does not take in this phase -- a replayed schedule and a
-transverse edge's ceiling -- are left to the host loop's own test.
+A replayed schedule steps the host's replay loop, and is left to that loop's own test.
 """
 
 from __future__ import annotations
 
 import gzip
 import json
+import math
 from pathlib import Path
 from typing import Any, cast
 
@@ -38,8 +38,8 @@ backend_module = pytest.importorskip("solprop_native.backend")
 core = pytest.importorskip("solprop_native._core")
 
 CORPUS = Path(__file__).parents[1] / "data" / "rk_traces.json.gz"
-UNTAKEN = ("replay", "replay_diverged", "transverse_cap", "caps_at_landings")
-"""Replay, and a transverse edge's ceiling, are phase 4's."""
+UNTAKEN = ("replay", "replay_diverged")
+"""A replayed schedule steps the host's replay loop."""
 
 
 def _entries() -> list[dict[str, Any]]:
@@ -79,6 +79,12 @@ class _NativeHarness(_Harness):
                 return min(ahead) if ahead else 1 << 30
 
             monitor.steps_to_check = steps_to_check  # pyright: ignore[reportAttributeAccessIssue]
+            # Never checked, and an edge never read: only their caps reach the march.
+            monitor.checked_at = None  # pyright: ignore[reportAttributeAccessIssue]
+            edge: Any = monitor.transverse
+            if edge is not None:
+                edge.every_step = False
+                edge.next_read = math.inf
 
     def _record_attempt(
         self, z: float, dz: float, norm: float, accepted: bool, wall: float

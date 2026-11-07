@@ -1152,8 +1152,9 @@ march::Bounds march_bounds_from(const nb::dict values) {
     bounds.last_check = nb::cast<double>(values["last_check"]);
     bounds.has_read_at = !values["read_at"].is_none();
     bounds.read_at = bounds.has_read_at ? nb::cast<double>(values["read_at"]) : 0.0;
-    bounds.read_spacing =
-        bounds.has_read_at ? nb::cast<double>(values["read_spacing"]) : 0.0;
+    // The Adams march reads the spacing only with a read (`read_capped`); the
+    // Runge-Kutta march takes it as the edge's ceiling, infinite without an edge.
+    bounds.read_spacing = nb::cast<double>(values["read_spacing"]);
     bounds.step_cap = nb::cast<double>(values["step_cap"]);
     bounds.max_attempts = nb::cast<std::size_t>(values["max_attempts"]);
     bounds.max_seconds = nb::cast<double>(values["max_seconds"]);

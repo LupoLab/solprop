@@ -3295,7 +3295,6 @@ class _NativeRungeKuttaMarch:
             )
             if getattr(type(controller), name) is not getattr(PIController, name)
         ]
-        monitor = driver._monitor
         reasons = (
             (_on_device(), "a device build (SEP 45 phase 5)"),
             (
@@ -3303,10 +3302,6 @@ class _NativeRungeKuttaMarch:
                 "a controller with its own " + ", ".join(overridden),
             ),
             (controller.weights is not None, "a weighted error norm"),
-            (
-                monitor is not None and monitor.transverse is not None,
-                "the transverse edge's reads (SEP 45 phase 4)",
-            ),
             (
                 _RK_ROWS == "host" or not driver._staged_rows(),
                 "a trial whose stage rows the host forms",
@@ -3416,18 +3411,32 @@ class _NativeRungeKuttaMarch:
         if every:
             steps.append(every - backend._natural_count % every)
         monitor = backend._monitor
+        checked = None
+        read_at = None
+        ceiling = math.inf
         if monitor is not None and not watching:
             steps.append(monitor.steps_to_check())
+            checked = monitor.checked_at
+            # The transverse edge is read on the host (solprop SEP 40 section 5.3):
+            # its ceiling caps every step, the march returns before a step would carry
+            # past its next read, and a collar's current is taken at every step.
+            edge = monitor.transverse
+            if edge is not None:
+                ceiling = float(edge.ceiling(backend._z))
+                if edge.every_step:
+                    steps.append(1)
+                if math.isfinite(edge.next_read):
+                    read_at = float(edge.next_read)
         return {
             "target": float(target),
             "quiet": bool(backend._collar_quiet),
             "host_step": int(min(steps)) if steps else 0,
-            "monitor": False,
+            "monitor": checked is not None,
             "first_check": False,
-            "check_interval": 0.0,
-            "last_check": 0.0,
-            "read_at": None,
-            "read_spacing": 0.0,
+            "check_interval": 0.0 if monitor is None else float(monitor.interval),
+            "last_check": 0.0 if checked is None else float(checked),
+            "read_at": read_at,
+            "read_spacing": ceiling,
             "step_cap": math.inf if monitor is None else float(monitor.step_cap),
             "max_attempts": self.MAX_ATTEMPTS,
             "max_seconds": self.MAX_SECONDS,
