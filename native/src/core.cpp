@@ -21,7 +21,10 @@
 namespace solprop_native {
 namespace {
 ThreadPolicy configured_threads;
-}
+// The runtime's width, which every unscoped OpenMP region on any thread takes
+// (`CpuTeamScope`): Kokkos sets the default only on the thread that initialised it.
+std::atomic<int> runtime_width{0};
+} // namespace
 
 ThreadPolicy thread_policy() {
   if (configured_threads.kernels != 0)
@@ -50,6 +53,7 @@ void configure_thread_policy(ThreadPolicy requested) {
   if (configured_threads.kernels != 0 && configured_threads != requested)
     throw std::runtime_error("native CPU thread policy was already initialized");
   configured_threads = requested;
+  runtime_width = limit;
 }
 
 ExecutionSpace execution_instance(const int threads) {
@@ -138,7 +142,10 @@ void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
                     const int count, void* /*data*/) {
   const int team = fftw_loop_team;
   if (team == 0) {
-#pragma omp parallel for
+    // The runtime's width, named: on a thread other than Kokkos', the OpenMP default
+    // is every CPU (solprop issue #130).
+    const int width = runtime_width.load(std::memory_order_relaxed);
+#pragma omp parallel for num_threads(width > 0 ? width : omp_get_max_threads())
     for (int job = 0; job < count; ++job)
       work(jobs + size * static_cast<std::size_t>(job));
   } else {
@@ -195,7 +202,36 @@ std::atomic<bool> openmp_blas{false};
 thread_local int blas_holds = 0;
 #if defined(KOKKOS_ENABLE_OPENMP)
 thread_local int blas_saved_default = 0;
+// The calling thread's scopes, and its OpenMP default before the outermost of them.
+thread_local int scope_depth = 0;
+thread_local int scope_saved_default = 0;
 #endif
+
+// The outermost scope on a thread sets the thread's OpenMP default width to the
+// runtime's, and its end restores the caller's. Kokkos sets the default only on the
+// thread that initialised it; on any other thread it is every CPU, which an OpenMP
+// OpenBLAS and an unnamed region read, so that a run on a Python thread switched GNU
+// OpenMP between that width and Kokkos' at every pair: 9 to 19 times slower on two
+// Intel Xeon Gold 6240 (solprop issue #130).
+void enter_runtime_default() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  if (scope_depth++ != 0)
+    return;
+  scope_saved_default = 0;
+  const int width = runtime_width.load(std::memory_order_relaxed);
+  const int current = omp_get_max_threads();
+  if (width > 0 && current != width) {
+    scope_saved_default = current;
+    omp_set_num_threads(width);
+  }
+#endif
+}
+void leave_runtime_default() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  if (--scope_depth == 0 && scope_saved_default != 0)
+    omp_set_num_threads(scope_saved_default);
+#endif
+}
 
 // An OpenMP OpenBLAS runs a call serially when the caller's OpenMP default width
 // (`omp_get_max_threads`) is one, before it reads its own count, so the hold sets only
@@ -220,6 +256,7 @@ void register_openmp_blas(const bool registered) noexcept { openmp_blas = regist
 
 CpuTeamScope::CpuTeamScope(const int threads) noexcept
     : saved_(enter_fftw_team(threads)) {
+  enter_runtime_default();
   if (threads != 0 && openmp_blas.load()) {
     holds_blas_ = true;
     if (blas_holds++ == 0)
@@ -230,6 +267,16 @@ CpuTeamScope::~CpuTeamScope() {
   leave_fftw_team(saved_);
   if (holds_blas_ && --blas_holds == 0)
     release_blas();
+  leave_runtime_default();
+}
+
+int scoped_openmp_default() noexcept {
+  const CpuTeamScope scope(0);
+#if defined(KOKKOS_ENABLE_OPENMP)
+  return omp_get_max_threads();
+#else
+  return 1;
+#endif
 }
 
 bool compact_problem(const Problem& problem) noexcept {

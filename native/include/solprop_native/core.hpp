@@ -383,8 +383,9 @@ void register_openmp_blas(bool registered) noexcept;
     the calling thread's OpenMP default width: a compact problem's products are a row
     or two deep, and an OpenBLAS region at the fitted width between the team's narrower
     ones made GNU OpenMP end and restart the surplus threads at every pair (16 cores of
-    a Neoverse V2: about 100,000 thread creations in a short GNLSE window). Scopes
-    nest. */
+    a Neoverse V2: about 100,000 thread creations in a short GNLSE window). The
+    outermost scope on a thread also sets its OpenMP default to the runtime's width
+    and restores it at its end. Scopes nest. */
 class CpuTeamScope {
 public:
   explicit CpuTeamScope(int threads) noexcept;
@@ -400,6 +401,10 @@ private:
   // Whether this scope holds the registered OpenBLAS at one thread.
   bool holds_blas_{};
 };
+
+/** The calling thread's OpenMP default width inside a scope (`CpuTeamScope`): the
+    runtime's, on any thread (solprop issue #130); one without OpenMP. A test hook. */
+[[nodiscard]] int scoped_openmp_default() noexcept;
 
 /** solprop SEP 28 section 4.2's per-evaluation reference, independent of any
     workspace: the seconds of each timed forward-then-backward pair of an in-place,
