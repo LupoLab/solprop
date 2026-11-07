@@ -338,7 +338,7 @@ class JuliaAdamsMarch(AdamsMarch):
         if steps:
             # Each accepted step's split sums from the power its commit found, by the
             # operations `JuliaBackend._finish` performs, step by step.
-            powers = np.asarray(result.split_powers)
+            powers = np.asarray(result.split_powers).reshape(len(steps), -1).T
             monitor = backend._split_monitor
             rate = monitor.weights[3]
             for index, dz in enumerate(steps):

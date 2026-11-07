@@ -190,6 +190,9 @@ function approach(p::Policy, z, stop, target)
 end
 
 proposal(p::Policy, dz, f) = py_min(dz * f, p.dz_max)
+"""`TransverseEdge.due`: read here when the next proposal would carry past the read."""
+read_due(has_read_at, read_at, z, ahead) =
+    has_read_at && z + ahead >= read_at - 1e-12 * py_max(abs(z), 1.0)
 reached(position, target, ulps) =
     position >= target - ulps * ulp(py_max(abs(position), abs(target)))
 
@@ -296,7 +299,6 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
         message = sprint(showerror, error)
         category = error isa ArgumentError ? VALUE : BACKEND
     end
-    read_due(z, ahead) = has_read_at && z + ahead >= read_at - 1e-12 * py_max(abs(z), 1.0)
     while !reached(z, target, p.landing_ulps)
         # The budget, before any call is made (`_afford`).
         need = (isempty(hz) ? 1 : 0) + 1
@@ -406,7 +408,8 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
                 reason = REACHED
                 @goto done
             end
-            if (host_step > 0 && accepted == host_step) || read_due(z, proposed)
+            if (host_step > 0 && accepted == host_step) ||
+               read_due(has_read_at, read_at, z, proposed)
                 reason = HOST_STEP
                 @goto done
             end
@@ -427,8 +430,21 @@ function run_march(engine, m::MarchConfig, zs, counts, hz, hp, hr, ledger, limit
      orders=orders, reason=reason, cost=cost, floor_proposal=floor_proposal, stage=stage,
      category=category, message=message, alarm=alarm, alarm_z=alarm_z,
      first_alarm=first_alarm,
-     split_powers=isempty(split_powers) ? zeros(0, 0) : reduce(hcat, split_powers),
+     # Flat (a step's power after another): a vector's buffer path is compiled already.
+     split_powers=isempty(split_powers) ? Float64[] : reduce(vcat, split_powers),
      split_steps=split_steps)
+end
+
+# The decisions a warm-up's one accepted attempt does not reach compile into the
+# package image, not inside a run's first window (a rejection there took 9 ms).
+for T in (Int,)
+    precompile(rejection, (Policy, Float64, T, T, T))
+    precompile(read_due, (Bool, Float64, Float64, Float64))
+    precompile(choose_order, (Policy, NamedTuple{(:nodes, :rows, :held, :order, :orders),
+                                                  Tuple{Vector{Float64}, Vector{T}, T, T, Vector{T}}},
+                              Vector{Float64}, Float64, Bool))
+    precompile(next_landing, (Policy, Float64, Float64))
+    precompile(collar_reentry, (Policy, Float64, T, Bool, Bool))
 end
 
 const configure_march_b = configure_march!

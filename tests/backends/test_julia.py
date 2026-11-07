@@ -408,3 +408,50 @@ def test_julia_march_is_the_python_march(runtime, monkeypatch, case, fraction):
     reference, reference_record = _march(configuration, "host")
     assert record == reference_record
     np.testing.assert_array_equal(field, reference)
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
+@pytest.mark.parametrize(
+    ("case", "fraction"), [("radial_filament_256", 0.002), ("line", 0.005)]
+)
+def test_julia_first_window_compiles_nothing(runtime, case, fraction):
+    """After the benchmark worker's warm-up, a timed run compiles (almost) nothing.
+
+    The warm-up propagates without a boundary monitor, so the monitor's bindings and
+    the split collar's march first run inside the window: each bridge type compiled
+    there cost up to 0.25 s of a radial window until the construction warmed them.
+    """
+    del runtime
+    from benchmarks.worker import timed_run  # noqa: PLC0415
+    from juliacall import Main  # noqa: PLC0415
+
+    from solprop.driver.run import field_retention  # noqa: PLC0415
+
+    configuration = CASES[case].configuration(
+        "default", 2, "julia", fraction=fraction, noise="none"
+    ) | {"warmup": 0.02}
+    simulation = build(configuration)
+    problem = simulation.translate()
+    engine = select(
+        "julia",
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    retention = field_retention(
+        problem, simulation.settings.fields, simulation.settings.field_planes
+    )
+    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    engine.propagate_to(configuration["warmup"] * configuration["stop"])
+    engine.observe(field=True)
+    engine.stats(problem.stats_spec)
+    Main.seval("Base.cumulative_compile_timing(true)")
+    compiled = Main.seval("() -> Base.cumulative_compile_time_ns()[1]")
+    compiled()
+    before = compiled()
+    timed_run(simulation, problem, engine, retention, simulation._boundary_monitor())
+    # Some tens of milliseconds of inference the compile trace does not list remain
+    # (about 21 on radial); a bridge type left to the window cost 50 to 250.
+    assert (compiled() - before) / 1e6 < 50.0
+    engine.close()

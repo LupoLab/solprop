@@ -547,7 +547,13 @@ class JuliaBackend(StepDriver[object]):
         jl, engine = self._jl, self._engine
         # A crossing's bucket table is read-only, which is part of its bridge type.
         buckets = np.zeros((n_modes, n_omega), dtype=np.uint8)
-        for columns, table in ((None, None), (np.ones(n_modes), buckets.T)):
+        # Every combination a monitor binds: each is a method of its own.
+        for columns, table in (
+            (None, None),
+            (np.ones(n_modes), None),
+            (None, buckets.T),
+            (np.ones(n_modes), buckets.T),
+        ):
             call_julia(jl.bind_monitor_b, engine, columns, table)
         for name in ("state_power", "occupancy", "split_power", "column_energy"):
             np.asarray(call_julia(getattr(jl, name), engine))
@@ -849,13 +855,17 @@ class JuliaBackend(StepDriver[object]):
         if monitor is None:
             return
         crossing = monitor.crossing
+        # Writable copies, as the warm-up passes: a read-only array is another bridge
+        # type, and its method compiled inside the first window (118 ms on radial).
         call_julia(
             self._jl.bind_monitor_b,
             self._engine,
-            None if monitor.columns is None else np.asarray(monitor.columns),
+            None
+            if monitor.columns is None
+            else np.array(monitor.columns, dtype=np.float64, copy=True),
             None
             if crossing is None
-            else np.ascontiguousarray(crossing.buckets, dtype=np.uint8).T,
+            else np.array(crossing.buckets, dtype=np.uint8, copy=True).T,
         )
 
     def _edge_reading(
