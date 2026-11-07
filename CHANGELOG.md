@@ -18,6 +18,7 @@ All notable changes to solprop are recorded here. The format follows
   error messages now link the manual of the newest release (`/en/stable/`) rather than the
   development version (`/en/latest/`), and the installation page's advice for a platform
   without a native wheel now allows for the yanked 0.1.0.
+- Building a graded-index guide and run, and a large free-space launch, take less time: a mode solve evaluates its material once instead of once per finite element, a free-space launch forms each distinct column's admittance once, and neither repeats a table evaluation or a pass over the beam it already made. On the `grin_nonlinear` benchmark the build and translation go from 24 s to 16 s on one core, and on `kerr_beam_384` the launch's build from 12.6 s to 7.1 s. Every number of the translated problem is unchanged.
 
 ### Fixed
 

@@ -65,6 +65,39 @@ stay as what was measured.
   spread beside the ratio; a difference inside the spread is not a result.
 
 (benchmark-reporting)=
+## Graded-index and free-space launch setup
+
+Two setups that are rebuilt for every scan point spent most of their time on repeated work:
+the graded-index mode solve evaluated its material once per finite element, and the
+free-space launch formed the admittance of every column although a Cartesian grid repeats
+each column's transverse squares about eight times.
+
+Measured on an Intel Xeon Gold 6240, one core of a shared machine (load 5 to 13, another
+benchmark running on the same socket), every pool at one thread, two builds in one process,
+`4b22e5c9` against the branch's head; build and translation as the benchmark harness forms
+them (`benchmarks.builders.build`, then `Simulation.translate`):
+
+| case | | first build (s) | second build (s) |
+|---|---|---:|---:|
+| `grin_nonlinear`, build and translation | before | 24.75 | 23.90 |
+| | after | 16.82 | 15.92 |
+| `kerr_beam_384`, build | before | 12.74 | 12.63 |
+| | after | 7.19 | 7.09 |
+| `kerr_beam_384`, translation | before | 4.15 | 4.12 |
+| | after | 4.10 | 4.04 |
+
+The translated problems are bitwise unchanged: a SHA-256 over every array of the
+`KernelProblem`, the general route's modal tables and the launch field included, is the
+same before and after. Not measured: the production width, where the launch's passes
+already run in threads and the saving is smaller.
+
+What is left on `grin_nonlinear` is the launch's coupling (about 6 s, 4 s of it the
+angular admittance check's phase matrix), the knot solves (about 3 s) and the modal
+tables (about 4 s); a translation still solves the guide's knots again, since reusing the
+guide's solve would hide the run's material record of the loss a transparent index drops.
+On `kerr_beam_384` it is the launch's volume passes, the transverse ramp's column power and
+the split collar's occupancy, each a pass or two over a 1.8 GB spectrum.
+
 ## Reporting a performance claim
 
 **The machine record.** Every measurement carries the CPU (or device) model, core count,

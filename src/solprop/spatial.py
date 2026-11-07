@@ -15,7 +15,7 @@ and co-moving frame are those of ``docs/dev/conventions.md``.
 import copy
 import math
 from collections.abc import Callable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from fractions import Fraction
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal, cast
@@ -949,10 +949,55 @@ class SpatialFlux:
         numpy.ndarray
             :meth:`admittance` of every column, shape ``(n_modes, n_omega)``.
         """
-        chunks = self.chunks()
-        admittance = np.empty(
-            (self.space.spectral_weights.size, self.grid.n_omega), dtype=np.complex128
-        )
+        coefficients = cast("SeparableOperator", self.coefficients)
+        if coefficients.kappa_sq is None:
+            # Without a slab's wall term a column's admittance depends on its two
+            # transverse squares alone, and a Cartesian grid repeats each pair about
+            # eight times: form each distinct column once, with the same arithmetic,
+            # and copy it to the columns that share it.
+            keys = np.stack([coefficients.kperp_sq, coefficients.kperp_sq_low], axis=1)
+            _, index, inverse = np.unique(
+                keys, axis=0, return_index=True, return_inverse=True
+            )
+            if index.size < keys.shape[0]:
+                rate = coefficients.kperp_rate
+                assert rate is not None  # adopted as zeros
+                distinct = SpatialFlux(
+                    self.grid,
+                    self.space,
+                    self.medium,
+                    self.z,
+                    self.side,
+                    replace(
+                        coefficients,
+                        kperp_sq=coefficients.kperp_sq[index],
+                        kperp_sq_low=coefficients.kperp_sq_low[index],
+                        # Not read by the admittance; sliced so the record validates.
+                        kperp_rate=rate[index],
+                    ),
+                )
+                return distinct._admittance_of(index.size)[np.ravel(inverse)]
+        return self._admittance_of(self.space.spectral_weights.size)
+
+    def _admittance_of(self, n_columns: int) -> Complex[np.ndarray, "n_modes n_omega"]:
+        """Return the admittance of the coefficients' first `n_columns` columns.
+
+        Parameters
+        ----------
+        n_columns : int
+            The number of columns the coefficients hold.
+
+        Returns
+        -------
+        numpy.ndarray
+            :meth:`admittance` of every column, its chunks formed in threads.
+        """
+        size = max(1, _FLUX_CHUNK // self.grid.n_omega)
+        chunks = [
+            slice(start, min(start + size, n_columns))
+            for start in range(0, n_columns, size)
+        ]
+        admittance = np.empty((n_columns, self.grid.n_omega), dtype=np.complex128)
 
         def work(rows: slice) -> None:
             """Form one block of the chunks' admittance.
