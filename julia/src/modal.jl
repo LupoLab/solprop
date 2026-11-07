@@ -116,7 +116,7 @@ function create_modal(c, host)
         node_forward=spectral ? plan(c, plan_rfft, nodes, 1) : nothing,
         absorber_spec_band=dzeros(c, C, spectral && in_stage ? nw : 0, spectral && in_stage ? nm : 0),
         adams=adams_workspace(c, host, nw, nm), path=path_workspace(c, host),
-        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing), forward_stage=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
+        monitor=monitor_workspace(c, nw, nm, c.nc), edge=Ref{Any}(nothing), held_state=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing), forward_stage=Ref{Any}(nothing), statistics=Ref{Any}(nothing),
         raman=raman_workspace(c, host, nt, chunk; modes=nm, nodes=nn, synthesis=synthesis ./ nt), plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -132,7 +132,7 @@ function create_modal(c, host)
         coarse_inverse=c.envelope ? plan(c, plan_bfft, band, 1) : plan(c, plan_brfft, band, c.nc, 1),
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
-    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0)
+    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0, 0)
 end
 
 """The modes' analytic signals from their half spectrum `fine`: the one-sided spectrum

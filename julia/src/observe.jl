@@ -28,7 +28,18 @@ function copy_between!(target, source, c)
 end
 function copy_state!(engine, buffer)
     @section :observe begin
-        target = copy_between!(host_wrap(buffer, ComplexF64), engine.work.y, engine.config)
+        c, w = engine.config, engine.work
+        target = host_wrap(buffer, ComplexF64)
+        if oncpu(c)
+            copy_between!(target, w.y, c)
+        else
+            # One copy from the device a state, however many readers ask (`version`).
+            held = w.held_state
+            if held[] === nothing || first(held[]) != engine.version
+                held[] = (engine.version, Matrix{ComplexF64}(Array(w.y)))
+            end
+            copyto!(target, last(held[]))
+        end
         scale = engine.config.scale
         scale == 1 || (target .*= scale)
     end

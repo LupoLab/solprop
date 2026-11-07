@@ -39,6 +39,10 @@ mutable struct Engine{C,W}
     # A tapered guide's scale at the stage, tau(z): the synthesis takes it, the
     # projection its reciprocal (`transform.taper_scale`); one without a taper.
     taper::Float64
+    # Bumped by every write of the state, so that a GPU's host copy is made once a
+    # state (`copy_state!`): a plane's observation, statistics, monitor and edge each
+    # asked for it.
+    version::Int
 end
 
 include("launch.jl")
@@ -197,6 +201,7 @@ function reset_work!(engine)
     foreach(buffer -> fill!(buffer, 0), buffers)
     engine.fsal_valid, engine.calls, engine.propagator_dz = false, 0, NaN
     engine.alarm, engine.alarm_ready = NaN, false
+    engine.version += 1
     TIMING[] && empty!(TIMES)
     COUNT[] && empty!(COUNTS)
     nothing
@@ -226,6 +231,7 @@ function compile!(engine)
 end
 
 function reset!(engine)
+    engine.version += 1
     mask!(engine, engine.work.y)
     engine.fsal_valid = false
     engine.calls = 0

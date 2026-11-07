@@ -144,6 +144,7 @@ function commit_step!(engine, dz, monitored)
         engine.fsal_valid = true
     end
     pool_copy!(w.y, w.candidate, c)
+    engine.version += 1
     c.embedded ? quadrature_alarm(engine) : NaN
 end
 

@@ -14,6 +14,7 @@ function rk4!(engine, dz::Float64, key::Float64)
     c.free ? free_propagators!(engine, key / 2) : modal_flow!(engine, key / 2)
     none = zero(T)
     source!(engine, y)
+    engine.version += 1
     each!(c, size(y)...) do f, m
         @inbounds begin
             flow = forward[f, m, 1]

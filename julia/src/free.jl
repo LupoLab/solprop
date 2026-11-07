@@ -66,7 +66,7 @@ function create_free(c, host)
         pack = (input=pack_in, output=pack_out, forward=plan(c, plan_rfft, pack_in, 1))
     end
     work = (
-        adams=nothing, path=nothing, raman=raman_workspace(c, host, nt, chunk), monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
+        adams=nothing, path=nothing, raman=raman_workspace(c, host, nt, chunk), monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), held_state=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
         plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
@@ -83,7 +83,7 @@ function create_free(c, host)
         coarse_inverse=c.envelope ? plan(c, plan_bfft, coarse_spec, 1) : plan(c, plan_brfft, coarse_spec, nc, 1),
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
-    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0)
+    Engine(c, work, false, 0, NaN, c.factor, NaN, false, 1.0, 0)
 end
 
 # For an exactly real squared longitudinal wave number the principal root is sqrt(x)
