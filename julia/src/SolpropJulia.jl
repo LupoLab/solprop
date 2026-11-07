@@ -214,4 +214,20 @@ const commit_b = commit!
 const evaluate_b = evaluate!
 const reset_work_b = reset_work!
 
+
+# The specialisations the benchmark windows compiled (every focus case, binary64, one
+# and sixteen threads), replayed when the package is built so that their native code is
+# in its image: `julia/src/precompile_trace.jl`, recorded with juliacall's
+# `PYTHON_JULIACALL_TRACE_COMPILE`. A statement that no longer resolves is skipped.
+import KernelAbstractions, AcceleratedKernels, FFTW, Polyester, Atomix
+let file = joinpath(@__DIR__, "precompile_trace.jl")
+    if ccall(:jl_generating_output, Cint, ()) == 1 && isfile(file)
+        for line in eachline(file)
+            try
+                Base.eval(@__MODULE__, Meta.parse(line))
+            catch
+            end
+        end
+    end
+end
 end
