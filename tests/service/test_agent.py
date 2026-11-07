@@ -256,7 +256,7 @@ def test_a_session_that_cannot_start_is_retried(monkeypatch: pytest.MonkeyPatch)
     window.wait(lambda: window.kinds().count("down") >= 2)
     assert "could not start" in str(dict(window.states)["down"])
     with pytest.raises(ServiceError, match="is not connected"):
-        broken.call("list_runs", {"workspace": "/tmp"})
+        broken.call("list_runs", {"workspace": "/tmp"}, timeout=0.2)
     broken.close()
 
 
@@ -344,6 +344,9 @@ def test_the_ssh_command_and_its_environment():
     local, _ = agent_command(Machine(LOCAL))
     assert local == [sys.executable, "-m", "solprop.service.agent"]
     assert Machine(LOCAL).local and not Machine("lab", "me@lab").local
+    assert not Machine("typed").local  # a machine whose host is still to come
+    with pytest.raises(ServiceError, match="typed has no SSH host"):
+        agent_command(Machine("typed"))
     machine = Machine("lab", "me@lab", resources={"cpus": 4})
     value = {**machine.value(), "future": 1}
     assert Machine.from_value(value) == machine
@@ -658,3 +661,11 @@ def test_the_helper_s_files_and_refusals_in_this_process(tmp_path: Path):
     helper.unfollow({"folder": str(tmp_path / "empty")})
     time.sleep(1.2 * agent.FOLLOW_PERIOD)
     helper.close()
+
+
+def test_a_machine_with_no_host_is_refused(window: Window):
+    connection = Connection(Machine("typed"), window.on_frame, window.on_state)
+    connection.open()
+    window.wait(lambda: "refused" in window.kinds())
+    assert dict(window.states)["refused"] == "typed has no SSH host"
+    connection.close()

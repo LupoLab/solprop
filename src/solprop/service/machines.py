@@ -172,9 +172,9 @@ class Machine:
         Returns
         -------
         bool
-            True when there is no SSH destination.
+            True for :data:`LOCAL`; any other machine is reached over SSH.
         """
-        return self.destination is None
+        return self.name == LOCAL
 
     def value(self) -> dict[str, object]:
         """Return the machine as plain data, as a window's settings keep it.
@@ -223,6 +223,11 @@ def agent_command(
     tuple
         The command, and the environment to start it in.
 
+    Raises
+    ------
+    solprop.service.messages.ServiceError
+        For a machine other than this computer with no SSH host.
+
     Examples
     --------
     >>> command, _ = agent_command(Machine("lab", "me@lab", python="~/env/bin/python"))
@@ -232,6 +237,9 @@ def agent_command(
     environment = dict(os.environ)
     if machine.local:
         return [sys.executable, "-m", "solprop.service.agent"], environment
+    if not machine.destination:
+        msg = f"{machine.name} has no SSH host"
+        raise ServiceError(msg)
     options = [
         "-o",
         "ServerAliveInterval=15",
@@ -369,6 +377,7 @@ class Connection:
         self._closing = threading.Event()
         self._thread: threading.Thread | None = None
         self._was_up = False
+        self._up = threading.Event()
 
     def open(self) -> None:
         """Start the session, and keep it up until :meth:`close`."""
@@ -390,6 +399,10 @@ class Connection:
             What goes with it.
         """
         self.state = state
+        if state == "up":
+            self._up.set()
+        else:
+            self._up.clear()
         self._on_state(state, detail)
 
     def _run(self) -> None:
@@ -420,7 +433,11 @@ class Connection:
         str
             Why it ended.
         """
-        command, environment = self._command(self.machine)
+        try:
+            command, environment = self._command(self.machine)
+        except ServiceError as error:
+            self._set("refused", str(error))
+            return str(error)
         try:
             process = subprocess.Popen(
                 command,
@@ -584,6 +601,8 @@ class Connection:
     ) -> Any:
         """Send a request and wait for its answer; never from the window's thread.
 
+        A machine still connecting, or reconnecting, is waited for within the time.
+
         Parameters
         ----------
         kind : str
@@ -601,8 +620,12 @@ class Connection:
         Raises
         ------
         solprop.service.messages.ServiceError
-            If the machine is not connected, the request fails, or no answer comes.
+            If the machine is not connected within the time, the request fails, or
+            no answer comes.
         """
+        if self.state in {"connecting", "down"}:
+            # Still coming up, or coming back: wait for it, within the same time.
+            self._up.wait(timeout)
         identity, event, box = self.send(kind, body)
         if not event.wait(timeout):
             with self._lock:

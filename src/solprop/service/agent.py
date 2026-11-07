@@ -246,26 +246,31 @@ class Agent:
         int
             The offset the events start from.
         """
+        # Events name the folder as the window gave it, so it matches them to its run.
+        key = str(body["folder"])
         folder = _folder(body)
         offset = int(body.get("offset", 0))
-        key = str(folder)
         previous = self._following.pop(key, None)
         if previous is not None:
             previous.set()
         done = threading.Event()
         self._following[key] = done
         threading.Thread(
-            target=self._follow, args=(folder, offset, done), daemon=True
+            target=self._follow, args=(folder, key, offset, done), daemon=True
         ).start()
         return offset
 
-    def _follow(self, folder: Path, offset: int, done: threading.Event) -> None:
+    def _follow(
+        self, folder: Path, key: str, offset: int, done: threading.Event
+    ) -> None:
         """Read a run's record and send what is new, until it ends or is unfollowed.
 
         Parameters
         ----------
         folder : pathlib.Path
             The run's folder.
+        key : str
+            The folder as the window named it, which its frames carry.
         offset : int
             Where to start, bytes.
         done : threading.Event
@@ -278,7 +283,7 @@ class Agent:
                 self.send(
                     {
                         "kind": "follow_failed",
-                        "folder": str(folder),
+                        "folder": key,
                         "message": str(error),
                     }
                 )
@@ -287,7 +292,7 @@ class Agent:
                 self.send(
                     {
                         "kind": "events",
-                        "folder": str(folder),
+                        "folder": key,
                         "offset": offset,
                         "events": [
                             {"run_id": e.run_id, "kind": e.kind, "data": e.data}
@@ -307,7 +312,7 @@ class Agent:
         body : Mapping
             ``folder``.
         """
-        done = self._following.pop(str(_folder(body)), None)
+        done = self._following.pop(str(body["folder"]), None)
         if done is not None:
             done.set()
 
