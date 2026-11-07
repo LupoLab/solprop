@@ -195,4 +195,3 @@ def test_a_device_build_s_march_is_the_host_loop_s(route, monkeypatch):
         pytest.skip("the installed solprop-native build has no accelerator backend")
     build = lambda: _route(route)  # noqa: E731
     _same(_run(build, "native", monkeypatch), _run(build, "host", monkeypatch))
-

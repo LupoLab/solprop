@@ -970,7 +970,13 @@ DRIVER_SURFACE = {
     ),
     "_check_open": "(self) -> None",
     "_collar_changed": "(self) -> None",
+    "_controller_policy": "(self) -> solprop.backends.rk_core.RungeKuttaPolicy",
+    "_dense_record": (
+        "(self, z: float, dz: float) -> tuple[float, float, list[numpy.ndarray]]"
+    ),
     "_march_to": "(self, target: float) -> None",
+    "_observe_inside": "(self, position: float) -> None",
+    "_start_up": "(self, norm: float) -> None",
     "_monitor_plane": "(self) -> None",
     "_noise_at": (
         "(self, bundle: solprop.translate.stage.StageScalars) -> "
@@ -1023,6 +1029,8 @@ DRIVER_ATTRIBUTES = (
     "_accepted_norms",
     "_accepted_steps",
     "_clock",
+    "_dense_ahead",
+    "_dense_step",
     "_collar_quiet",
     "_history",
     "_monitor",
