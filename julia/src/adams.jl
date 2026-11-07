@@ -112,13 +112,56 @@ function adams_workspace(c, host, nw, nm)
               defects=zeros(3, 2width), spans=zeros(width), cpredictor=zeros(width),
               ccorrector=zeros(width + 1), cdefects=zeros(3, width), rate=zeros(nphi),
               slots=zeros(Int, slots))
+    tables_on_device = device_tables(c, tables)
     (store=dzeros(c, C, nw, nm, slots), states=held(nw, nm, slots), rates=held(nw, nm, slots),
      moments=dzeros(c, C, nw, nm, width), carried=held(nw, nm, max(width - 1, 0)),
      # The device's tables at the state's precision: a binary64 coefficient beside a
      # binary32 state would widen a trial's every product (and its norms' types).
      endpoint=held(nw, nm), host=tables,
-     device=map(a -> upload(c.backend, eltype(a) <: Integer ? copy(a) : c.T.(a)), tables),
+     device=tables_on_device.device, packed=tables_on_device.packed,
      sizes=zeros(Int, 3), compensated=compensated)
+end
+
+"""The device's copies of the trial's tables: on a CPU an array each; on a GPU the real
+tables views of one device vector (`packed`), refreshed by one copy a trial with the
+integer slots beside it (`upload_tables!`), where nine small uploads a trial were nine
+round trips through the copy engine."""
+function device_tables(c, tables)
+    if oncpu(c)
+        device = map(a -> upload(c.backend, eltype(a) <: Integer ? copy(a) : c.T.(a)), tables)
+        return (device=device, packed=nothing)
+    end
+    reals = Base.structdiff(tables, NamedTuple{(:slots,)})
+    total = sum(length, values(reals))
+    packed = dzeros(c, c.T, total)
+    stops = cumsum(collect(map(length, values(reals))))
+    views = ntuple(k -> reshape(view(packed, stops[k]-length(reals[k])+1:stops[k]), size(reals[k])),
+                   length(reals))
+    device = merge(NamedTuple{keys(reals)}(views), (slots=upload(c.backend, copy(tables.slots)),))
+    (device=device, packed=(device=packed, host=zeros(c.T, total)))
+end
+
+"""Copy the host's trial tables to the device: each on a CPU, one packed copy and the
+slots on a GPU."""
+function upload_tables!(a)
+    packed = hasproperty(a, :packed) ? a.packed : nothing
+    if packed === nothing
+        foreach(copyto!, a.device, a.host)
+        return nothing
+    end
+    staging, offset = packed.host, 0
+    for name in keys(a.host)
+        name === :slots && continue
+        table = getproperty(a.host, name)
+        for k in eachindex(table)
+            @inbounds staging[offset+k] = table[k]
+        end
+        offset += length(table)
+    end
+    tally!(:upload, 2)
+    copyto!(packed.device, staging)
+    copyto!(a.device.slots, a.host.slots)
+    nothing
 end
 
 function configure_adams!(engine, predictor, corrector, defects, slots, spans, cpredictor,
@@ -141,14 +184,13 @@ function configure_adams!(engine, predictor, corrector, defects, slots, spans, c
         h.cdefects[1:count, 1:width] .= Matrix{Float64}(cdefects)
         h.rate .= Vector{Float64}(rate)
     end
-    a.device.predictor isa Array || tally!(:upload, length(a.device))
-    foreach(copyto!, a.device, a.host)
+    upload_tables!(a)
     nothing
 end
 function configure_adams_rate!(engine, rate)
     a = engine.work.adams
     a.host.rate .= Vector{Float64}(rate)
-    copyto!(a.device.rate, a.host.rate)
+    upload_tables!(a)
     nothing
 end
 

@@ -168,8 +168,7 @@ function configure_adams_nodes!(engine, nodes, order, orders, slots, rate)
         h.ccorrector[1:order+1] .= corrector
         h.rate .= Vector{Float64}(rate)
     end
-    a.device.predictor isa Array || tally!(:upload, length(a.device))
-    foreach(copyto!, a.device, a.host)
+    upload_tables!(a)
     nothing
 end
 
