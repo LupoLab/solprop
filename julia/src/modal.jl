@@ -46,9 +46,17 @@ function create_modal(c, host)
     # Raman or an unsplit temporal collar, which read the modes' time signals.
     spectral = !c.envelope && !host.flag("raman") && 2nm >= nn &&
                !(!c.split && any(!iszero, c.rate))
+    # The analytic signal from the spectrum, as native forms it: the modes' doubled
+    # one-sided spectrum and one complex inverse transform, the nodes' analytic signal
+    # by the (real) synthesis, its real part the field. It replaces a real inverse and
+    # a forward and inverse pair over the nodes a source, and matches them to rounding
+    # (the synthesis commutes with the projection onto positive frequencies). An odd
+    # grid keeps the time-domain pair, whose middle-bin rule differs.
+    from_spectrum = !c.envelope && !spectral && iseven(nt) &&
+                    (c.analytic || (host.flag("raman") && !host.flag("raman_thg")))
     # Every inverse transform is unnormalised: its 1/nt is folded into the tables that
     # read the time-domain field, the synthesis and the in-stage absorber.
-    c = merge(c, (spectral=spectral, spectral_absorber=upload(c, T.(spatial)),
+    c = merge(c, (spectral=spectral, from_spectrum=from_spectrum, spectral_absorber=upload(c, T.(spatial)),
         # The operator stays binary64 at either precision, or a double-float where the
         # device lacks binary64: propagators and the Adams flow are formed from it in
         # that wide type and rounded once (SEP 33, 4.1 item 3).
@@ -64,6 +72,7 @@ function create_modal(c, host)
     modal = dzeros(c, R, nt, nm)
     nodes = dzeros(c, R, nt, chunk)
     analytic = dzeros(c, C, nt, chunk)
+    analytic_modes = dzeros(c, C, from_spectrum ? nt : 0, from_spectrum ? nm : 0)
     coarse = dzeros(c, R, c.nc, nm)
     band = dzeros(c, C, nw, nm)
     # The spectral path's buffers: a chunk's node spectra on the band and the fine grid,
@@ -82,7 +91,8 @@ function create_modal(c, host)
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), fsal=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),
         stages=dzeros(c, C, nw, nm, ns), forward=dzeros(c, C, nw, nm, ns), inverse=dzeros(c, C, nw, nm, ns),
-        fine=fine, modal=modal, nodes=nodes, analytic=analytic,
+        fine=fine, modal=modal, nodes=nodes, analytic=analytic, analytic_modes=analytic_modes,
+        analytic_modes_inverse=from_spectrum ? plan(c, plan_bfft!, analytic_modes, 1) : nothing,
         projected=dzeros(c, R, nt, spectral ? 0 : nm), projected_coarse=dzeros(c, R, nt, spectral ? 0 : nm),
         coarse_spec=similar(fine), absorber=dzeros(c, R, nt, spectral ? 0 : nm), absorber_spec=similar(fine),
         coarse=coarse,
@@ -93,6 +103,24 @@ function create_modal(c, host)
         coarse_forward=c.envelope ? plan(c, plan_fft, coarse, 1) : plan(c, plan_rfft, coarse, 1),
     )
     Engine(c, work, false, 0, NaN, c.factor, NaN, false)
+end
+
+"""The modes' analytic signals from their half spectrum `fine`: the one-sided spectrum
+doubled (the zero and Nyquist bins once, their real parts as the real inverse reads
+them), the negative frequencies zero, and one unnormalised complex inverse in place:
+`nt` times each mode's analytic signal, as the real inverse gives `nt` times its field."""
+function analytic_modes!(analytic, fine, inverse, c)
+    nt = size(analytic, 1)
+    half, nf, none = nt ÷ 2, size(fine, 1), zero(eltype(analytic))
+    each!(c, size(analytic)...) do k, m
+        @inbounds begin
+            value = k <= nf ? fine[k, m] : none
+            analytic[k, m] = k == 1 || k == half + 1 ? complex(real(value)) :
+                             k <= half ? 2 * value : none
+        end
+    end
+    inverse * analytic
+    nothing
 end
 
 """Place a band-limited state in the fine spectrum, clearing the padding."""
@@ -113,19 +141,37 @@ function source!(engine, lab; quadrature=false)
     c.spectral && return source_spectral!(engine, lab, quadrature)
     nm = size(lab, 2)
     @section :scatter scatter!(w.fine, lab, c)
-    @section :inverse_fft mul!(w.modal, w.inverse_plan, w.fine)
+    raman = w.raman
+    # The real modes where something reads them: the time-domain analytic signal, the
+    # in-stage absorber, a third-harmonic Raman's products.
+    real_modes = !c.from_spectrum || c.in_stage ||
+                 (raman !== nothing && raman.products && raman.thg)
+    real_modes && @section :inverse_fft mul!(w.modal, w.inverse_plan, w.fine)
+    c.from_spectrum && @section :inverse_fft analytic_modes!(w.analytic_modes, w.fine,
+                                                             w.analytic_modes_inverse, c)
     fill!(w.projected, 0)
     quadrature && fill!(w.projected_coarse, 0)
     clear_plasma!(w.plasma)
     if engine.factor != 0 || w.plasma !== nothing || w.raman !== nothing
         products = w.raman !== nothing && w.raman.products
-        products && @section :raman raman_products!(w.raman, w.modal, c)
+        products && @section :raman raman_products!(w.raman, w.modal, c;
+                                                     signal=c.from_spectrum ? w.analytic_modes : nothing)
         chunk, nn = size(w.nodes, 2), size(c.synthesis, 2)
         for first in 1:chunk:nn
             last = min(first + chunk - 1, nn)
             count = last - first + 1
             nodes = @view w.nodes[:, 1:count]
-            @section :synthesis gemm!(nodes, w.modal, @view(c.synthesis[:, first:last]), true, false, c)
+            if c.from_spectrum
+                # The nodes' analytic signal by the synthesis, the field its real part.
+                analytic = @view w.analytic[:, 1:count]
+                @section :synthesis gemm!(analytic, w.analytic_modes, @view(c.synthesis[:, first:last]),
+                                          true, false, c)
+                each!(c, size(analytic)...) do t, m
+                    @inbounds nodes[t, m] = real(analytic[t, m])
+                end
+            else
+                @section :synthesis gemm!(nodes, w.modal, @view(c.synthesis[:, first:last]), true, false, c)
+            end
             if w.plasma !== nothing
                 @section :plasma plasma_current!(w.plasma, w.nodes, c, count)
                 @section :plasma_projection project_plasma!(w.plasma, c, first, last, quadrature)
@@ -165,7 +211,9 @@ function node_response!(engine, count)
         raman === nothing || raman_drive!(raman, nodes, nodes, c, count)
         nonlinear_envelope!(nodes, c, engine.factor, raman, count)
     elseif c.analytic || (raman !== nothing && !raman.thg && !raman.products)
-        @section :analytic analytic_signal!(w.analytic, nodes, w.analytic_forward, w.analytic_inverse, c, count)
+        # Formed from the spectrum already (`source!`), or here from the nodes.
+        c.from_spectrum ||
+            @section :analytic analytic_signal!(w.analytic, nodes, w.analytic_forward, w.analytic_inverse, c, count)
         raman === nothing || raman.products || @section :raman raman_drive!(raman, nodes, w.analytic, c, count)
         @section :kerr nonlinear_nodes!(nodes, c.analytic ? w.analytic : nodes, c, engine.factor, raman, count)
     else

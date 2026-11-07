@@ -621,7 +621,7 @@ function raman_drive!(r, nodes, analytic, c, count)
 end
 
 """Convolve the modal products once a source: `a_m a_n`, or `Re(a_m conj a_n) / 2`."""
-function raman_products!(r, modal, c)
+function raman_products!(r, modal, c; signal=nothing)
     nt, modes = size(modal)
     (; drive, first, second) = r
     if r.thg
@@ -629,8 +629,11 @@ function raman_products!(r, modal, c)
             @inbounds drive[t, p] = t > nt ? zero(eltype(drive)) : modal[t, first[p]] * modal[t, second[p]]
         end
     else
-        signal = r.signal
-        analytic_signal!(signal, modal, r.signal_forward, r.signal_inverse, c, modes)
+        # The modes' analytic signals: given (formed from the spectrum), or from `modal`.
+        if signal === nothing
+            signal = r.signal
+            analytic_signal!(signal, modal, r.signal_forward, r.signal_inverse, c, modes)
+        end
         each!(c, 2nt, size(drive, 2)) do t, p
             @inbounds begin
                 a, b = signal[t, first[p]], signal[t, second[p]]
