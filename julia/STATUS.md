@@ -203,40 +203,78 @@ The cheapest step with the most information is to replace `mlx` first: profile M
 on the losing cases, add `mlx`'s features, run SEP 33's qualification on `df32`, and
 compare again.
 
+## The evening's work (2026-11-07)
+
+**Metal against `mlx`: 0.66** (1.25 in the morning), Julia faster in six of seven
+cases. The changes, each A/B'd on Metal (the ledger has the rows):
+- A chunk's constant projection rows kept contiguous (`table_rows`).
+- Device copies as one kernel, views included (`device_copy!`): Metal.jl's `copyto!`
+  into a view cost about 200 us.
+- One value the host waits for a step (`sum_device!`, the alarm read with the norms).
+- One chunk of nodes a source on a GPU (`node_chunk`).
+- The trial's tables in one upload (`device_tables`).
+- The population statistics in one parallel reduction and one readback.
+- A source's forward streams packed into one transform (modal and free space).
+- A GPU state copied to the host once a state (`engine.version`, `copy_state!`).
+- The free-space operator's tables on every GPU (binary64 too).
+- The analytic signal from the spectrum (as native forms it; no benchmark case uses
+  it).
+
+**`mlx`'s features: 11 of 13 closed**, each tested against `numpy_ref` (binary64,
+fields within 1e-10, most about 1e-15): lockstep batches, TSIT5, modal RK4IP,
+several Raman components, tapers, the window statistics and `zdw`, resolved and radial
+envelopes, the envelope's third harmonic, Raman in free space, several plasma channels.
+
 ## Next steps
 
-Measured or diagnosed, not yet done, roughly in order of what they would tell.
+Roughly in order of what they would tell.
 
-1. **Metal's waits.** Fuse the per-step reductions the host reads (the trial's norms,
-   the quadrature alarm, the monitor) into fewer readbacks, about 0.2 ms each on the
-   M5 Max. Profile with `SOLPROP_JULIA_TIMING=1 SOLPROP_JULIA_DEVICE=metal python
-   julia/profile.py PLAN.json ROW` (a plan's rows need `"backend": "native"` to be
-   picked).
-2. **`mlx`'s coverage on Metal.** Envelope plasma, tapers, batches, several plasma
-   channels and Raman terms; then SEP 33's drift and envelope qualification of the
-   double-float path. With 1, enough to decide whether Julia can replace `mlx`.
-3. **Metal start latency.** Record the device's specialisations into a trace as
-   `src/precompile_trace.jl` was, or try a PackageCompiler system image.
-4. **Binary32 on x86.** Two to three times binary64 on the Xeon, and not subnormals.
-   Profile one thread, `rdw`, binary32 against binary64 section by section.
-5. **The GPU host on CUDA and ROCm.** CUDA graphs or fused trials (launches about 75 a
-   trial); re-measure an H200 or MI325X afterwards, not before.
-6. **Native.** #333 (default budget on Apple silicon: the top-tier cores) and #560's
-   ideas, which these measurements feed.
+1. **The remaining `mlx` features.** Varying Raman (each term's decay rate and each
+   component's density as stage tables; the kernel rebuilt on the device when the
+   rates change, with a fixed block exponent in binary32), Cartesian Adams (the phi
+   moments from the free-space rate table, which every GPU now holds), envelope plasma
+   (a port of `mlx_gpu/envelope.py`), the on-axis plasma statistics (the populations on
+   an on-axis node). Vector polarisation and tensor Raman are deferred.
+2. **`line` on Metal (1.5 against `mlx`).** About a third of its window is the
+   statistics: `spatial_local!` and the population snapshot read back several arrays
+   a plane. Fold them into one readback; fuse `source_free!`'s elementwise passes.
+3. **The A40 against native (about 1.9 binary64, 1.5 binary32 df32).** Fair profiles
+   need `nsys --cuda-graph-trace=node` (native's sources run in CUDA graphs). What is
+   left:
+   - Host time between launches (the march and the trial tables while the device
+     idles), about twice native's. Kernel launches are cheap (2.5 us), cuFFT 3 us,
+     cuBLAS 14 us, a readback 31 us (DMOG A40, `scripts/launch_cost.jl`).
+   - The Adams predictor kernel, 0.28 ms a step on `rdw`: its phi functions spill to
+     local memory (120 to 230 bytes; `scripts/phi_regs.jl`).
+   - Cartesian transforms: a 2D FFT over the trailing dimensions of the frequency-first
+     state is 3.4 times one over contiguous leading dimensions (16.2 against 4.8 ms at
+     512 x 192 x 192). A transverse-first layout for free space is the fix.
+   - radial's CUTLASS binary64 GEMMs (the A40 has no binary64 tensor cores).
+   - CUDA graph capture would need the kernels to read their changing scalars from
+     device memory, as native's do.
+4. **Metal start latency** (about 28 s of kernel compilation): a recorded trace or a
+   system image.
+5. **Binary32 on x86**, two to three times binary64 on the Xeon, not subnormals.
+6. **Pro GPUs** (H200, MI325X; DigitalOcean, a US$30 cap approved), after 3.
 
 The working setups: on the Mac a worktree with native built on the NEON FFTW prefix
-(`~/buildtools/fftw-3.3.11-neon`) and `uv sync --extra julia --extra mlx`; on DMOG
-`/mnt/data/shared/jt52/solprop-julia-20261106` (`jl13-a40.sbatch` reuses a native CUDA
-wheel and runs the tests and two A/Bs); on the Xeon
-`~/awork/solprop-julia-ftz-20261107` (a venv without native, for Julia-only A/Bs).
-The raw data are in the private `solprop-dev/benchmarks/julia-m5-2026-11-07`.
+(`~/buildtools/fftw-3.3.11-neon`) and `uv sync --extra julia --extra mlx`; an A/B of
+two Julia trees runs the baseline through a wrapper interpreter that sets
+`SOLPROP_JULIA_ROOT` (never edit a tree a benchmark is loading). On DMOG
+`/mnt/data/shared/jt52/solprop-julia-20261106`: `jl17-a40.sbatch` (a tree from `git
+archive`, jl12's native CUDA wheel, the tests, the previous tree against this one, and
+native against both precisions), `jl15-nsys*.sbatch` (Nsight profiles through
+`scripts/prof_case.py`). On the Xeon `~/awork/solprop-julia-ftz-20261107`. The raw data
+are in the private `solprop-dev/benchmarks/julia-m5-2026-11-07` and
+`julia-gpu-2026-11`.
 
 ## Not run
 
-Vector polarisation, batches, noise, envelope plasma, several plasma channels or Raman
-terms, varying Raman, dispersive Kerr, TDSE, planar and general modal guides, tapers,
-coupled flows, the interaction Adams formulation, the carrier frame and interpolated
-planes are refused by name; so is binary64 on Metal.
+Vector polarisation and tensor Raman, noise, envelope plasma, varying Raman
+coefficients, dispersive Kerr, TDSE, planar and general modal guides, coupled flows, the
+interaction Adams formulation, Adams on free space, the carrier frame, interpolated
+planes, low-storage integration with a varying operator, tableaux other than DOPRI5 and
+TSIT5, and the on-axis plasma statistics are refused by name; so is binary64 on Metal.
 
 ## Findings for main
 
