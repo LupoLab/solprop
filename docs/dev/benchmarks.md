@@ -2902,3 +2902,274 @@ a 768 × 768 × 600 envelope launch through a Sellmeier glass with a Kerr respon
 A launch's bits don't change, which `tests/test_pulses.py` and `tests/test_cartesian_precision.py` hold across
 thread counts. The sum that scales the field stays one sum in one order for that reason, so it stays on one thread.
 
+
+## Julia backend experiment
+
+The experimental `julia` backend (`julia/STATUS.md`) against `native`, both arms in one
+interpreter, `python -m benchmarks ab --baseline-backend native --candidate-backend julia
+--noise none --length 0.02 --stepper default`: 2 % of each case, so ten to two hundred
+steps and the cases' 4 to 12 saved planes; the ratio is `julia`/`native`, below one
+`julia` faster. Every binary64 row took the same steps on both arms, with fields equal
+to 1e-13 or better. These are short windows, not whole runs.
+
+Rows before commit `3969a00c`'s harness fix (#557) timed `simulation.metadata()` inside
+the window, about 0.18 s on `rdw`, on both arms: they understate both arms' speed and
+overstate how close `julia` was. Native's `rdw` window on 16 Xeon threads is 0.145 s,
+not 0.314 s; on the A40 0.054 s, not 0.187 s.
+
+**Intel Xeon Gold 6240**, 16 cores of socket 1 with their 16 threads, passive-bound
+threading, a shared machine (load 2 to 14 during the run), two rounds, commit
+`7c7ac9b7`:
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.416 | 0.586 | 1.41 | 0.159 | 0.161 | 1.03 |
+| `argon_blueshift` | 0.546 | 1.317 | 2.41 | 0.225 | 0.386 | 1.79 |
+| `h2_raman_6ps` | 3.896 | 3.910 | 1.02 | 2.609 | 2.735 | 1.13 |
+| `ctc_reduced` | 0.995 | 1.743 | 1.75 | 0.377 | 0.379 | 1.01 |
+| `radial_filament_256` | 2.150 | 2.329 | 1.08 | 0.364 | 0.779 | 2.14 |
+| `kerr_beam_192` | 5.177 | 5.907 | 1.14 | 0.851 | 1.424 | 1.67 |
+| `line` | 0.674 | 0.875 | 1.30 | 0.202 | 0.352 | 1.78 |
+
+Geometric mean 1.42. The rounds of `argon_blueshift` (1.4 to 2.2 on 16 threads) and
+`h2_raman_6ps` (0.8 to 1.4) spread with the machine's load. At commit `09a60bf6`,
+before the vectorised plasma and the batched transforms, the same plan gave 1.64. The
+next commit, `207add18`, runs the Adams march in the engine: `argon_blueshift` on 16
+threads 0.42 s -> 0.34 s and `rdw` 0.157 -> 0.148 s (single profiled runs, socket 0).
+
+Later, the same plan at commit `50158fa6` (the Julia march, the spatial statistics, the
+pooled copies, the thin products and the rest of the CPU changes), three rounds, the
+machine quiet at the start and at load 11 to 14 by the end:
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.418 | 0.681 | 1.54 | 0.189 | 0.216 | 1.14 |
+| `argon_blueshift` | 0.545 | 0.961 | 1.77 | 0.186 | 0.249 | 1.30 |
+| `h2_raman_6ps` | 3.385 | 4.254 | 1.25 | 2.871 | 1.743 | 0.86 |
+| `ctc_reduced` | 1.012 | 1.871 | 1.85 | 0.377 | 0.381 | 1.01 |
+| `radial_filament_256` | 2.163 | 2.222 | 1.02 | 0.368 | 0.564 | 1.52 |
+| `kerr_beam_192` | 5.147 | 5.824 | 1.12 | 0.996 | 1.119 | 1.11 |
+| `line` | 0.679 | 0.821 | 1.20 | 0.185 | 0.212 | 1.17 |
+
+Geometric mean 1.25 (1.42 at `7c7ac9b7`). The load spread some rounds widely
+(`h2_raman_6ps` 0.59 to 0.88 and `kerr_beam_192` 0.67 to 1.35 on 16 threads); the
+ratios are medians of paired rounds, both arms under the same load.
+
+And at commit `a6722029`, three rounds on a quiet machine (load 0.3 to 2.2). Until this
+commit every Julia row above carried compilation inside its window: the worker's
+warm-up runs without a boundary monitor, so the monitor's bindings and radial's split
+collar first ran, and compiled, in the timed run (252 ms of a radial window, 80 ms of
+`line`'s, 97 ms of `kerr_beam_192`'s). The construction now warms them
+(`test_julia_first_window_compiles_nothing`):
+
+| case | native 1 thread, s | julia | ratio | native 16 threads, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.416 | 0.632 | 1.52 | 0.143 | 0.148 | 1.04 |
+| `argon_blueshift` | 0.544 | 0.839 | 1.51 | 0.181 | 0.219 | 1.21 |
+| `h2_raman_6ps` | 3.395 | 4.216 | 1.24 | 1.923 | 1.714 | 0.89 |
+| `ctc_reduced` | 1.007 | 1.573 | 1.56 | 0.378 | 0.344 | 0.90 |
+| `radial_filament_256` | 2.157 | 2.111 | 0.97 | 0.367 | 0.407 | 1.12 |
+| `kerr_beam_192` | 5.149 | 5.671 | 1.10 | 0.851 | 1.070 | 1.26 |
+| `line` | 0.675 | 0.730 | 1.08 | 0.181 | 0.141 | 0.78 |
+
+Geometric mean 1.13; Julia faster than native in four rows.
+
+**NVIDIA A40** (driver 595.71), native's CUDA build (AMPERE86) against `julia` with
+`SOLPROP_JULIA_DEVICE=cuda` (CUDA.jl 6.5), `--device`, two rounds, commit `7c7ac9b7`:
+
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.054 | 0.168 | 3.13 | 0.181 | 3.38 |
+| `argon_blueshift` | 0.115 | 0.444 | 3.85 | 0.313 | 2.72 |
+| `h2_raman_6ps` | 1.040 | 1.310 | 1.26 | 1.005 | 0.96 |
+| `ctc_reduced` | 0.206 | 0.386 | 1.87 | 0.352 | 1.71 |
+| `radial_filament_256` | 0.169 | 0.628 | 3.73 | 0.547 | 3.24 |
+| `kerr_beam_192` | 0.173 | 0.618 | 3.58 | 0.611 | 3.50 |
+| `line` | 0.094 | 0.311 | 3.30 | 0.294 | 3.12 |
+
+Geometric means 2.77 (binary64) and 2.45 (binary32 against native's binary64; its
+fields within 4e-7 to 1.4e-5 of native's, and `rdw`, `ctc_reduced` and the radial
+window take other steps). At `90840a43`, with the metadata inside the window, the
+binary64 mean was 2.54 and `rdw` 0.356 s. What remains on the A40, from Nsight
+Systems (`rdw`, commit `7c7ac9b7`): the device is busy for about 124 ms of the 0.168 s
+window. Nine transforms a source at 96 us each (over four modes, so a few blocks each:
+latency, not work) are a third; the Adams predictor's reduction, heavy binary64 work a
+sample on too few threads, 539 us a trial; then the plasma and Kerr passes.
+
+At commit `cfa14ce7` (the Julia march; the GPU's heavy reductions a thread an element and
+its transforms in batches) the same plan gave, binary64 then binary32:
+
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.054 | 0.137 | 2.53 | 0.182 | 3.27 |
+| `argon_blueshift` | 0.117 | 0.338 | 2.89 | 0.280 | 2.39 |
+| `h2_raman_6ps` | 1.040 | 1.180 | 1.14 | 0.674 | 0.65 |
+| `ctc_reduced` | 0.207 | 0.323 | 1.56 | 0.317 | 1.53 |
+| `radial_filament_256` | 0.173 | 0.513 | 2.97 | 0.408 | 2.37 |
+| `kerr_beam_192` | 0.198 | 0.648 | 3.28 | 0.673 | 3.52 |
+| `line` | 0.095 | 0.271 | 2.84 | 0.213 | 2.20 |
+
+Geometric means 2.32 and 2.03. One binary32 `argon_blueshift` round hung until the
+worker's timeout (the other ran at 2.39); `rdw`'s binary64 field differed from native's
+by 1.8e-11, the reordered reduction of the Adams norms, with the same steps.
+
+At `50158fa6` (the GPU's device reductions) binary64 gave 2.19 and binary32 1.99, and at
+`3fd4a09f` (radial on the engine's march, the GPU's scratch kept) 2.27 and 2.03 on
+another A40 node. Radial's window rose from 0.479 s to 0.530 s there, outside both
+spreads, while `rdw` and `line`, which those commits did not change, rose too (0.129 to
+0.136 s, 0.247 to 0.258 s): whether the march costs radial on a GPU is not established.
+Binary32 `h2_raman_6ps` at 0.61. No window hung in either.
+
+At `a6722029` (the first window no longer compiling) binary64 gave 1.97: `rdw` 2.86,
+`argon_blueshift` 2.80, `h2_raman_6ps` 1.02, `ctc_reduced` 1.47, radial 2.05 (0.354 s),
+`kerr_beam_192` 2.75, `line` 1.68. The binary32 arm of the same job was erratic (`rdw`'s
+rounds 2.5 and 20.9 against steady native times); rerun on another node (its host load
+about 12 from other jobs), three rounds, it gave `rdw` 2.48, radial 1.39 (0.233 s),
+`ctc_reduced` 1.37 and `line` 1.59: the Julia arm's host work makes it the more
+sensitive to a busy node.
+
+**NVIDIA H200** (a rented droplet, CUDA 13.1, driver 580.196), native's CUDA build
+(HOPPER90) against `julia` with CUDA.jl on the system toolkit (`bootstrap.py
+--cuda-local`), `--device`, two rounds, binary64, commit `50158fa6`; every row took
+native's steps with its fields to rounding:
+
+| case | native, s | julia, s | ratio |
+|---|---:|---:|---:|
+| `rdw` | 0.036 | 0.073 | 2.02 |
+| `argon_blueshift` | 0.066 | 0.169 | 2.56 |
+| `h2_raman_6ps` | 0.217 | 0.426 | 1.96 |
+| `ctc_reduced` | 0.067 | 0.134 | 1.98 |
+| `radial_filament_256` | 0.058 | 0.257 | 4.42 |
+| `kerr_beam_192` | 0.181 | 0.307 | 1.69 |
+| `line` | 0.058 | 0.170 | 2.92 |
+
+Geometric mean 2.39. On a GPU with full-rate binary64 the windows are host-bound: Nsight
+Systems finds radial's kernels about 26 ms of its 0.257 s window, against 4800 launches,
+670 device-to-host copies and 2300 pool allocations for two runs, and radial's split
+collar keeps the Python march. Without `--cuda-local` CUDA.jl's own cuBLAS met the
+system one native had loaded and every modal window crashed.
+
+**AMD Instinct MI325X** (a rented droplet, ROCm 10.0), native's HIP build (gfx942)
+against `julia` with `SOLPROP_JULIA_DEVICE=rocm` (AMDGPU.jl 2.11), `--device`, two
+rounds, commit `196baa51`. The first run of the AMDGPU extension: the device tests
+pass (binary64 against `numpy_ref` to 1e-10, binary32 to 1e-4), and every binary64 row
+took native's steps with its fields to rounding.
+
+| case | native, s | julia binary64, s | ratio | julia binary32, s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.027 | 0.055 | 2.03 | 0.088 | 3.27 |
+| `argon_blueshift` | 0.057 | 0.134 | 2.33 | 0.124 | 2.16 |
+| `h2_raman_6ps` | 0.231 | 0.395 | 1.71 | 0.364 | 1.57 |
+| `ctc_reduced` | 0.061 | 0.138 | 2.27 | 0.129 | 2.09 |
+| `radial_filament_256` | 0.046 | 0.224 | 4.85 | 0.188 | 3.99 |
+| `kerr_beam_192` | 0.076 | 0.260 | 3.44 | 0.347 | 4.50 |
+| `line` | 0.056 | 0.106 | 1.89 | 0.112 | 2.04 |
+
+Geometric means 2.48 (binary64) and 2.62 (binary32 against native's binary64). A
+`rocprofv3` trace of the radial window found the column-at-a-thread passes (the local
+statistics' sums, the monitor's row and column sums) and the occupancy's atomics on a
+crossing's few buckets the largest kernels; commit `50158fa6` forms them as device
+reductions.
+
+**Apple M5 Max** (6 top-tier and 12 second-tier cores, 128 GB, macOS 27; native built on
+the NEON FFTW 3.3.11 prefix with Accelerate's BLAS), three rounds on a quiet machine,
+commit `3933d4f3` (the engine as measured above; Julia's BLAS is OpenBLAS). The first
+measurement of the rewritten engine on this machine:
+
+| case | native 1 thread, s | julia | ratio | native 6, s | julia | ratio | native 18, s | julia | ratio |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.196 | 0.222 | 1.17 | 0.085 | 0.072 | 0.88 | 0.110 | 0.067 | 0.61 |
+| `argon_blueshift` | 0.355 | 0.303 | 0.86 | 0.134 | 0.106 | 0.79 | 0.135 | 0.114 | 0.86 |
+| `h2_raman_6ps` | 1.433 | 1.478 | 1.03 | 0.804 | 0.653 | 0.81 | 1.038 | 0.925 | 0.82 |
+| `ctc_reduced` | 0.669 | 0.573 | 0.84 | 0.207 | 0.158 | 0.76 | 0.214 | 0.163 | 0.76 |
+| `radial_filament_256` | 0.914 | 1.030 | 1.12 | 0.322 | 0.291 | 0.90 | 0.302 | 0.260 | 0.86 |
+| `kerr_beam_192` | 1.662 | 1.555 | 0.92 | 0.528 | 0.475 | 0.90 | 0.443 | 0.337 | 0.76 |
+| `line` | 0.219 | 0.266 | 1.23 | 0.114 | 0.078 | 0.68 | 0.183 | 0.070 | 0.38 |
+
+Geometric mean 0.83: Julia faster in 16 of 21 rows, every row on native's steps with
+fields equal to 1e-13 or better. Native is slower on 18 threads than on 6 in four
+cases (`h2_raman_6ps` 0.80 -> 1.04 s, `line` 0.11 -> 0.18 s, `rdw`, `ctc_reduced`): the
+second-tier cores hold back its parallel regions. Julia's tasks lose less there.
+
+**Apple M5 Max GPU** (40 cores, Metal 4; Metal.jl 1.12), `julia` in binary32 with
+`SOLPROP_JULIA_DEVICE=metal` and the double-float wide type (`julia/src/dfloat.jl`),
+commit `ecbcafbe`, `--device-arm candidate`. Against native's binary64 on 6 CPU threads,
+three rounds, the cases' own transform sizes; and against `mlx` (binary32,
+`MLX_ENABLE_TF32=0`), two rounds, `--fft-size pow2`:
+
+| case | native 6 threads, s | julia Metal, s | ratio | mlx, s | julia Metal, s | ratio |
+|---|---:|---:|---:|---:|---:|---:|
+| `rdw` | 0.091 | 0.359 | 3.95 | 0.453 | 0.523 | 1.16 |
+| `argon_blueshift` | 0.137 | 0.868 | 6.35 | 0.530 | 0.890 | 1.68 |
+| `h2_raman_6ps` | 0.797 | 1.574 | 1.97 | 0.916 | 1.939 | 2.12 |
+| `ctc_reduced` | 0.213 | 0.723 | 3.42 | 1.115 | 1.062 | 0.96 |
+| `radial_filament_256` | 0.306 | 0.278 | 0.92 | 0.318 | 0.271 | 0.96 |
+| `kerr_beam_192` | 0.539 | 0.176 | 0.33 | 0.286 | 0.200 | 0.71 |
+| `line` | 0.112 | 0.231 | 2.09 | 0.134 | 0.241 | 1.80 |
+
+Geometric means 1.95 against native's CPU and 1.25 against `mlx`. The binary32 fields
+are 4e-7 to 2e-5 from native's binary64 and 1e-6 to 2e-5 from `mlx`'s. The GPU wins
+where the state is large (the Cartesian beam three times native's six cores, radial at
+par) and loses where it is a capillary's few modes, whose windows are launch-bound;
+`argon_blueshift`'s plasma takes the per-sample GPU path. Metal.jl's probes on this GPU:
+every FFT plan form the engine uses (in-place, dimension 1 of a matrix, odd `brfft`,
+dims (2, 3)) works, without MLX's Bluestein cliff (10240 points as fast as 8192), at
+2 to 5e-7; Float32 GEMM is full precision (1.5e-7, not TF32) on real views; the
+two-sum and fused two-product survive compilation. Construction compiles the Metal
+kernels: about 28 s, with no precompiled trace for the device yet.
+
+The same M5 Max, later commits:
+
+- **Whole runs** (commit `3f0d33d6`, the full guides, 6 threads, two rounds): `julia` over
+  native 0.86 (`rdw`, 2.33 s native), 0.74 (`argon_blueshift`, 5.69 s), 0.95 (radial,
+  0.94 s), 1.02 (`kerr_beam_192`, 1.59 s), 0.71 (`ctc_reduced`, 6.12 s), 0.82
+  (`h2_raman_6ps`, 63.2 s) and 0.68 (`line`, 0.14 s); geometric mean 0.82, every round
+  within 0.3 %, the same steps, fields 1e-11 to 1e-15 apart.
+- **Accelerate for Julia's products** (`SOLPROP_JULIA_BLAS=accelerate` against
+  OpenBLAS 0.3.30, commit `e99851d5`, three rounds): radial 0.59 on one thread and 0.82
+  on six, `h2_raman_6ps` 0.88 on six, every other row 0.97 to 1.05 within its rounds'
+  spread; geometric mean 0.94. Commit `d872cb59` makes it the default on macOS.
+- **Contraction** (commit `3f0d33d6`'s fused multiply-adds against `ecbcafbe`, binary64,
+  three rounds): geometric mean 0.99, `h2_raman_6ps` 0.96 and 0.93 the only steady gain;
+  fields 1e-13 apart, the same steps.
+- **Flush-to-zero** (`SOLPROP_JULIA_FTZ=1`, an experiment the policy forbids, #561):
+  binary32 0.997 and binary64 0.99, nothing beyond the rounds' spread but
+  `ctc_reduced` on six threads (0.88). Apple's cores take subnormals at full speed.
+- **Native's thread count.** Native's 2 % windows on 1 to 18 threads (OpenMP default
+  and `active` waiting alike) are fastest on the six top-tier cores for `rdw`, radial,
+  `h2_raman_6ps` and `line`, and on 12 for `kerr_beam_192` and `ctc_reduced`; eight
+  threads, two of them second-tier, are already slower than six, and 18 take 1.4 to 1.5
+  times six's time (`h2_raman_6ps` 0.61 -> 0.91 s).
+- **The machine's state between workers.** Native's six-thread windows ran 10 to 80 %
+  slower right after a heavy process than in a run of native workers alone (`rdw`
+  0.062 s alone, 0.083 s after Julia workers, 0.092 s after 15 s of every core busy;
+  `line` 0.067, 0.119 and 0.123 s), with no thermal warning recorded. A Julia worker
+  compiles for 7 to 30 s before its window, so every native-against-Julia A/B above
+  ran both arms in that state: the ratios hold, the absolute times are slow. Commit
+  `d872cb59` adds `benchmarks ab --cooldown`.
+
+**NVIDIA A40** (DMOG, driver 595.71), commit `ecbcafbe`, `--device`: the device tests
+pass (34, binary32 in both wide types). `julia` binary32 with the double-float wide
+type against binary64, three rounds: geometric mean 0.99, the free-space rows 0.88
+(`kerr_beam_192`) and 0.91 (`line`) from forming the operator's elements once on the
+host, the rest within their rounds. Against native's CUDA build (binary64), two rounds:
+
+| case | native, s | julia binary32 df32, s | ratio |
+|---|---:|---:|---:|
+| `rdw` | 0.054 | 0.230 | 4.26 |
+| `argon_blueshift` | 0.116 | 0.254 | 2.19 |
+| `h2_raman_6ps` | 1.042 | 0.644 | 0.62 |
+| `ctc_reduced` | 0.207 | 0.285 | 1.38 |
+| `radial_filament_256` | 0.169 | 0.246 | 1.46 |
+| `kerr_beam_192` | 0.174 | 0.488 | 2.80 |
+| `line` | 0.094 | 0.127 | 1.35 |
+
+Geometric mean 1.72 (1.99 for binary32 in the binary64 wide type at `50158fa6`): the
+A40's slow binary64 in the operator and phi functions was not what held binary32 back.
+
+**Intel Xeon Gold 6240** (16 cores of a socket, exclusive), flush-to-zero in binary32,
+commit `3f0d33d6`, three rounds: geometric mean 0.99, every row within its rounds'
+spread on one thread and on 16 (radial 0.89 on 16 the largest move). The binary32
+windows here take 2 to 3 times binary64's (`rdw` on one thread 1.43 s, 0.63 s in
+binary64 at `a6722029`), and flushing subnormals does not change that: they are not
+the cause.

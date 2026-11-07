@@ -1,0 +1,3 @@
+# Private GPU storage: a host scalar access is then an error, not a silent slow path.
+[Metal]
+default_storage = "private"

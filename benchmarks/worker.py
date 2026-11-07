@@ -19,6 +19,7 @@ import dataclasses
 import importlib
 import importlib.metadata
 import logging
+import os
 import sys
 import time
 import traceback
@@ -60,8 +61,25 @@ if TYPE_CHECKING:
 
 
 def emit(kind: str, **values: object) -> None:
-    """Flush a protocol event; the parent reads it after the worker exits."""
-    print(canonical({"event": kind, **values}), flush=True)
+    """Flush a protocol event; the parent reads it after the worker exits.
+
+    An embedded runtime can leave the inherited pipe nonblocking (Julia's libuv
+    does), and a large event then stops short; it is written in blocking mode.
+    """
+    descriptor = None
+    blocking = True
+    try:
+        descriptor = sys.stdout.fileno()
+        blocking = os.get_blocking(descriptor)
+    except OSError, ValueError:
+        pass  # In-memory output capture has no operating-system descriptor.
+    if descriptor is not None and not blocking:
+        os.set_blocking(descriptor, True)
+    try:
+        print(canonical({"event": kind, **values}), flush=True)
+    finally:
+        if descriptor is not None and not blocking:
+            os.set_blocking(descriptor, False)
 
 
 HOST_SPACES = ("OpenMP", "Threads", "Serial")
@@ -75,8 +93,18 @@ def runtime(backend: str, device: bool = False) -> Record:
     other run needs a CPU build.
     """
     info: Record = {}
-    if device and backend != "native":
-        raise SuiteError("only the native backend runs on a device")
+    if device and backend not in {"native", "julia"}:
+        raise SuiteError("only the native and julia backends run on a device")
+    if backend == "julia":
+        # The Julia experiment runs on its CUDA device under --device; its sources
+        # are identified by digest, as a native build is by its extension's.
+        # A GPU run takes the GPU the environment names (rocm on AMD), else CUDA.
+        named = os.environ.get("SOLPROP_JULIA_DEVICE")
+        gpu = named if named in {"cuda", "rocm", "metal"} else "cuda"
+        os.environ["SOLPROP_JULIA_DEVICE"] = gpu if device else "cpu"
+        from solprop.backends.julia import source_digest  # noqa: PLC0415
+
+        info["julia_build"] = source_digest()
     if backend == "native":
         # solprop_native must be imported before any other OpenMP runtime.
         import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -96,7 +124,7 @@ def runtime(backend: str, device: bool = False) -> Record:
     import solprop  # noqa: PLC0415
 
     packages = {}
-    for name in ("solprop", "numpy", "scipy", "optmat", "mlx"):
+    for name in ("solprop", "numpy", "scipy", "optmat", "mlx", "juliacall"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
@@ -201,13 +229,17 @@ def timed_run(
 
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     output = MemoryOutput()
+    # The run's record before the clock starts: its first evaluation builds the planes'
+    # bases (about 0.18 s on rdw), which every arm's first repeat would otherwise pay
+    # inside its window.
+    metadata = simulation.metadata()
     before = source_calls(engine)
     started = time.perf_counter_ns()
     run_problem(
         problem,
         engine,
         output,
-        metadata=simulation.metadata(),
+        metadata=metadata,
         stats_spec=problem.stats_spec,
         progress="none",
         resume_history=simulation.settings.resume_history,
@@ -232,7 +264,7 @@ def timed_run(
 
 def _device_free(configuration: Record) -> int | None:
     """Read the accelerator's free bytes on a device run, else ``None``."""
-    if not configuration.get("device"):
+    if not configuration.get("device") or configuration["backend"] != "native":
         return None
     import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 

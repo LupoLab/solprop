@@ -36,8 +36,9 @@ from benchmarks.system import (
     thread_environment,
 )
 
-BACKENDS = ("numpy_ref", "native", "mlx")
-"""The backends a benchmark can name; ``mlx`` only on an Apple GPU."""
+BACKENDS = ("numpy_ref", "native", "mlx", "julia", "julia32")
+"""The backends a benchmark can name; ``mlx`` only on an Apple GPU, ``julia32`` the
+julia backend in single precision."""
 
 REPEAT_TOLERANCE = 1e-9
 """The relative L2 difference two repeats' final fields may have: rounding only."""

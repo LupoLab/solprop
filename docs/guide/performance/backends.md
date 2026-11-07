@@ -13,6 +13,7 @@ native backend, which `"auto"` selects; `mlx` and `numpy_ref` are for the cases 
 |---|---|---|
 | `native` | the [native backend](native.md), the solprop-native distribution built from the repository's `native/` directory and a required dependency of solprop: OpenMP, FFTW and a vendor BLAS on a CPU, or CUDA/HIP on a GPU | **the one to use**: what `"auto"` selects |
 | `mlx` | the Apple-silicon GPU through Apple's MLX, in **single precision only** ([single precision](single-precision.md)); the `mlx` extra, macOS on Apple silicon; **experimental** in this release | `precision="single"` capillary and fibre runs on a Mac, where it is the `"auto"` choice; it refuses `precision="double"` |
+| `julia` | an **experiment** on this branch only: one Julia source for a CPU or an NVIDIA GPU, binary64 or binary32 ([the Julia experiment](julia.md)); the `julia` extra and a prepared Julia runtime | measuring what a compact single-source engine reaches; not for results |
 | `numpy_ref` | plain NumPy, the numerical **reference**: every other backend is tested against it. It is unthreaded, and roughly 6 to 40 times slower than threaded native | checking a result, and [the features native does not run](#features-that-run-on-the-reference-backend). Also problems a GPU build refuses or runs slowly, in a process that has only that build |
 
 ## Which backend a run uses

@@ -22,4 +22,5 @@ resources
 progress
 tuning
 single-precision
+julia
 ```

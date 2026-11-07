@@ -139,14 +139,16 @@ class Case:
             raise SuiteError(f"{self.name} admits only {', '.join(self.steppers)}")
         if not 0 < fraction <= 1 or not 0 <= warmup < 1:
             raise SuiteError("length fraction must be in (0, 1], warm-up in [0, 1)")
+        # "julia32" is the julia backend in single precision (the Julia experiment).
+        single = backend in ("mlx", "julia32")
         return {
             "case": self.name,
             "revision": self.revision,
             "case_hash": self.digest,
             "stepper": stepper,
             "threads": width,
-            "backend": backend,
-            "precision": "single" if backend == "mlx" else "double",
+            "backend": "julia" if backend == "julia32" else backend,
+            "precision": "single" if single else "double",
             "noise": noise,
             "fft_size": fft_size,
             "device": device,

@@ -102,6 +102,14 @@ MLX's CPU device, and basedpyright on `mlx_gpu`. It is in
 [#85](https://github.com/LupoLab/solprop/issues/85) with the rest of the backend's path
 to full support ([backends.md](backends.md) §4a).
 
+### The `julia` omission
+
+The experimental `julia` backend's package, `solprop/backends/julia`, is left out of the
+coverage lane too (`omit` in `coverage-cpu.ini`). Its tests,
+`tests/backends/test_julia.py`, skip unless `solprop[julia]` is installed and
+`julia/bootstrap.py` has prepared a Julia runtime, which no CI lane does: the backend is
+an experiment, not a release feature (`julia/STATUS.md`).
+
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
 Their example count bounds the work; the per-example wall-clock deadline is disabled
 because imports, JIT compilation and contention on shared machines can exceed it

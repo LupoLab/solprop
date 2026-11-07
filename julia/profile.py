@@ -1,0 +1,80 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""Profile the Julia engine on rows of a benchmark plan, as the harness times them.
+
+``python julia/profile.py PLAN.json ROW...`` builds each matching row's case for the
+julia backend and times a complete run (``benchmarks.worker.timed_run``, observations
+and the boundary monitor included) after a first, warming one. With
+``SOLPROP_JULIA_TIMING=1`` it prints the engine's section timers, synchronised with the
+device on a GPU; with ``SOLPROP_JULIA_PROFILE=1`` Julia's sampling profile instead,
+which needs ``SOLPROP_JULIA_THREADS=1`` (it crashes when Python owns more threads).
+"""
+
+import json
+import os
+import sys
+
+from benchmarks.builders import build
+from benchmarks.worker import timed_run
+
+from solprop.backends import select
+from solprop.driver.run import field_retention
+
+
+def profile(row: dict) -> None:
+    """Time one row's run twice and report the second."""
+    configuration = row["configuration"] | {"backend": "julia"}
+    simulation = build(configuration)
+    problem = simulation.translate()
+    engine = select(
+        "julia",
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    retention = field_retention(
+        problem, simulation.settings.fields, simulation.settings.field_planes
+    )
+    timed_run(simulation, problem, engine, retention, simulation._boundary_monitor())
+    jl = engine._jl
+    sampling = os.environ.get("SOLPROP_JULIA_PROFILE") == "1"
+    if sampling:
+        from juliacall import Main  # noqa: PLC0415 - after the runtime starts
+
+        Main.seval("using Profile; Profile.init(n=10^7, delay=0.0005)")
+        Main.seval("Profile.clear(); Profile.start_timer()")
+    jl.clear_timings()
+    record, _ = timed_run(
+        simulation, problem, engine, retention, simulation._boundary_monitor()
+    )
+    if sampling:
+        Main.seval("Profile.stop_timer()")
+        Main.seval(
+            "Profile.print(IOContext(stdout, :displaysize => (200, 220)); "
+            "format=:flat, sortedby=:count, mincount=20, noisefloor=1)"
+        )
+    times = jl.timings()
+    total = sum(float(times[name]) for name in times)
+    sys.stdout.write(
+        f"{row['id']}: {record['seconds']:.3f} s, {record['accepted']} steps, "
+        f"sections {total:.3f} s\n"
+    )
+    for name in sorted(times, key=lambda n: -float(times[n])):
+        sys.stdout.write(f"  {name:>18} {float(times[name]):8.4f} s\n")
+    engine.close()
+
+
+def main() -> None:
+    """Profile every row of the plan whose id contains one of the arguments."""
+    plan = json.loads(open(sys.argv[1], encoding="utf-8").read())  # noqa: PTH123, SIM115
+    for row in plan["rows"]:
+        if row["configuration"]["backend"] == "native" and any(
+            name in row["id"] for name in sys.argv[2:]
+        ):
+            profile(row)
+
+
+if __name__ == "__main__":
+    main()
