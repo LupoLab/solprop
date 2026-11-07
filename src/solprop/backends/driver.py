@@ -37,12 +37,14 @@ from jaxtyping import Complex, Float
 
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing, poll
+from solprop.backends import rk_core
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
     StepStats,
     StepSummary,
 )
+from solprop.backends.rk_core import rk_policy
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -53,12 +55,7 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
-from solprop.stepper.controller import (
-    START_GROWTH,
-    ControlRecord,
-    PIController,
-    limit_step,
-)
+from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
@@ -1530,7 +1527,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             Position to reach, m.
         """
         settings = self._problem.stepper
-        controller = settings.controller
+        policy = self._controller_policy()
         dense = settings.interpolate_planes
         if dense and self._dense_ahead is not None:
             # The march is ahead of the last interpolated plane; resume it there.
@@ -1574,10 +1571,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             # the history records, is the error the executed step actually committed,
             # so a short landing step that was accurate is neither thrown away nor
             # written up as a failure.
-            equivalent = controller.equivalent_norm(
-                norm, dz_taken=stop.dz, dz_proposed=self._proposal
-            )
-            accepted = controller.accepts(norm)
+            equivalent, accepted = rk_core.decide(policy, norm, stop.dz, self._proposal)
             # A landing snaps to its target rather than accumulating z + dz, so that a
             # save plane is hit exactly however many steps have gone before.
             end = stop.z_target if stop.z_target is not None else self._z + stop.dz
@@ -1592,29 +1586,21 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                     self._state = finished
                     self._z = end
                 self._accepted_norms.append(equivalent)
-                if settings.auto_init and len(self._accepted_norms) == 1:
+                if policy.auto_init and len(self._accepted_norms) == 1:
                     self._start_up(equivalent)
                 # The next proposal grows or shrinks once per accepted step, from the
                 # history the step completed. A rejected step is retried at the step
                 # rejection_factor left: applying this factor again there undid the
                 # shrink, and with a growth cap above about 1.27 a step whose norm sat
                 # just above one was rejected unchanged forever.
-                self._proposal = limit_step(
-                    self._proposal,
-                    controller.propose(self._accepted_norms),
-                    settings.dz_min,
-                    settings.dz_max,
+                self._proposal = rk_core.propose(
+                    policy, self._proposal, self._accepted_norms
                 )
                 self._take_step_stats()
                 if self._natural_stop(target):
                     return
             else:
-                self._proposal = limit_step(
-                    self._proposal,
-                    controller.rejection_factor(equivalent),
-                    settings.dz_min,
-                    settings.dz_max,
-                )
+                self._proposal = rk_core.reject(policy, self._proposal, equivalent)
 
         if dense and not reached(target, self._z):
             self._observe_inside(target)
@@ -1698,6 +1684,16 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         msg = f"{self.name} does not observe densely"
         raise BackendError(msg)
 
+    def _controller_policy(self) -> rk_core.RungeKuttaPolicy:
+        """Return the Runge-Kutta march's controller policy (SEP 45).
+
+        Returns
+        -------
+        solprop.backends.rk_core.RungeKuttaPolicy
+            The run's controller, floor, cap and start-up flag.
+        """
+        return rk_policy(self._problem.stepper)
+
     def _start_up(self, norm: float) -> None:
         """Take the step after the first from the first step's own estimate.
 
@@ -1719,17 +1715,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         norm : float
             The first accepted step's norm at its proposed length.
         """
-        settings = self._problem.stepper
-        controller = settings.controller
-        first = self._proposal
-        factor = controller.start_factor(norm)
-        self._proposal = limit_step(first, factor, settings.dz_min, settings.dz_max)
-        self._accepted_norms[-1] = (
-            0.0
-            if factor >= START_GROWTH
-            else controller.equivalent_norm(
-                norm, dz_taken=first, dz_proposed=self._proposal
-            )
+        self._proposal, self._accepted_norms[-1] = rk_core.start_up(
+            self._controller_policy(), self._proposal, norm
         )
 
     def _replay_to(self, schedule: FixedSchedule, target: float) -> None:

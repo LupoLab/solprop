@@ -33,6 +33,7 @@ from typing import Any
 import numpy as np
 
 from solprop.backends.driver import StepDriver, reached
+from solprop.backends.rk_core import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.controller import PIController
 from solprop.stepper.schedule import FixedSchedule
@@ -220,6 +221,7 @@ class _Harness(StepDriver):
             monitor.step_cap = scenario.split.get(0, math.inf)
         self._monitor = monitor  # pyright: ignore[reportAttributeAccessIssue]
         self.stub_monitor = monitor
+        self.controller = controller
         self.order = controller.estimator_order + 1
         self._stop = None
         self._dense_ahead = None
@@ -254,6 +256,15 @@ class _Harness(StepDriver):
         if h0 is None:
             return noise, "advanced"
         return noise * (dz / h0) ** self.order, "advanced"
+
+    def _controller_policy(self) -> RungeKuttaPolicy:
+        stepper = self.scenario
+        return RungeKuttaPolicy(
+            controller=self.controller,
+            dz_min=stepper.dz_min,
+            dz_max=stepper.dz_max,
+            auto_init=stepper.auto_init,
+        )
 
     def _finish(self, state: Any, dz: float) -> Any:
         return state
