@@ -1131,10 +1131,13 @@ class SplitCrossing:
             holding at most ``share`` of the energy are set aside; ``inf`` for no light.
         """
         occupancy = np.asarray(occupancy, dtype=np.float64)
-        total = float(occupancy.sum())
+        # The total is the cumulative sum's last element, not a separate (pairwise)
+        # sum: one sequential order, which a compiled march reproduces exactly, so
+        # that it picks the same bucket in a near-tie (SEP 45 section 4.8, Q7).
+        cumulative = np.cumsum(occupancy)
+        total = float(cumulative[-1])
         if not total > 0.0:
             return math.inf
-        cumulative = np.cumsum(occupancy)
         index = int(np.searchsorted(cumulative, self.share * total, side="right"))
         rate = float(
             split_bucket_rates(self.fastest)[min(index, SPLIT_RATE_BUCKETS - 1)]
