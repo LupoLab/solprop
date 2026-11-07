@@ -37,7 +37,7 @@ function create_modal(c, host)
     in_stage = any(!iszero, spatial) || (!c.split && any(!iszero, c.rate))
     nw, nm = size(host.array("linear", ComplexF64))
     nn = size(synthesis, 2)
-    chunk = min(host.int("chunk"), nn)
+    chunk = node_chunk(c, host.int("chunk"), nn, nt)
     R = c.envelope ? C : T
     # Synthesis and projection in the frequency domain, on the band's rows (`source_spectral!`),
     # where the nodes are about as many as the modes, as radially: half the GEMM rows of

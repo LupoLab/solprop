@@ -370,6 +370,13 @@ function dense(c, X::SubArray{<:Any,2}, use)
 end
 dense(c, X, use) = X
 
+"""The nodes (or columns) a source evaluates at once: the translation's chunk, sized for a
+CPU's memory budget, on a CPU; on a GPU all of them, up to 2^26 samples a buffer, since
+each chunk repeats the synthesis, the responses and the projections as launches
+(`ctc_reduced`'s 33 nodes were three chunks of 11)."""
+node_chunk(c, chunk, count, nt) =
+    oncpu(c) ? min(chunk, count) : min(count, max(chunk, (1 << 26) ÷ max(nt, 1)))
+
 """Rows `first:last` of a constant table (a projection), for a product: a view on a CPU;
 on a GPU a contiguous copy, made once and kept in `c.scratch`, since a product with a
 strided operand there takes a generic kernel or a copy every call (`dense`)."""

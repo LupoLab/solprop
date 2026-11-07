@@ -42,7 +42,7 @@ function create_free(c, host)
         temporal_rate=upload(c, T.(c.split ? zero(c.rate) : c.rate)), in_stage=in_stage,
         coarse_rate=upload(c, T.(c.coarse_rate)), nc=nc, embedded=false,
     ))
-    chunk = min(host.int("chunk"), nm)
+    chunk = node_chunk(c, host.int("chunk"), nm, nt)
     R = c.envelope ? C : T
     stages = c.low_storage ? 0 : 7
     physical = dzeros(c, C, nw, nm)
