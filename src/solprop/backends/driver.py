@@ -2188,15 +2188,21 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             else crossing.occupancy(field, monitor.columns),
         )
 
-    def _check_boundaries(self, monitor: BoundaryMonitor) -> None:
+    def _check_boundaries(
+        self, monitor: BoundaryMonitor, *, plane: bool = False
+    ) -> None:
         """Account the committed step at the current position with the monitor.
 
         Parameters
         ----------
         monitor : solprop.monitor.BoundaryMonitor
             The attached monitor.
+        plane : bool, optional
+            True for a saved plane's check of a step the monitor already skipped.
         """
-        monitor.step(self._boundary_energies(self._require_state()), self._z)
+        monitor.step(
+            self._boundary_energies(self._require_state()), self._z, plane=plane
+        )
         self._set_collar_quiet(monitor.collar_quiet)
         self._refuse_scheduled_crossing(monitor)
 
@@ -2333,7 +2339,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if monitor is None:
             return
         if monitor.stale:
-            self._check_boundaries(monitor)
+            self._check_boundaries(monitor, plane=True)
         self._read_transverse(monitor, plane=True)
         monitor.plane(self._z)
 

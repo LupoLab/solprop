@@ -364,6 +364,7 @@ class BoundaryMonitor:
     _warned: bool = field(default=False, init=False)
     _collar_now: float = field(default=0.0, init=False)
     _since: list[float] = field(default_factory=lambda: [0.0, 0.0], init=False)
+    _read_since_plane: bool = field(default=False, init=False)
     _planes: dict[str, list[float]] = field(
         default_factory=lambda: {
             name: []
@@ -641,6 +642,7 @@ class BoundaryMonitor:
             # The floor is stationary: its expected density is uniform in time.
             self._floor_regions = self._floor * self.weights.mean(axis=1)
         self._committed = z
+        self._read_since_plane = True
         self._read_cap(energies)
         total, regions = self._judged(energies)
         resuming, self._resuming = self._resuming, False
@@ -767,11 +769,18 @@ class BoundaryMonitor:
             self._planes
         ):
             self._planes = {
-                name: [float(one) for one in cast("list[float]", values)]
-                for name, values in cast("Mapping[str, list[float]]", rows).items()
+                name: [
+                    math.nan if one is None else float(one)
+                    for one in cast("list[float | None]", values)
+                ]
+                for name, values in cast(
+                    "Mapping[str, list[float | None]]", rows
+                ).items()
             }
 
-    def step(self, energies: BoundaryEnergies, z: float) -> None:
+    def step(
+        self, energies: BoundaryEnergies, z: float, *, plane: bool = False
+    ) -> None:
         """Account one committed step, and warn or stop on a guard occupancy.
 
         Parameters
@@ -781,16 +790,23 @@ class BoundaryMonitor:
             took since the previous reading.
         z : float
             Its position, m.
+        plane : bool, optional
+            True for a saved plane's check of a step :meth:`skip` already counted:
+            the state is judged and the record updated, and the step stays counted
+            once, among the skipped ones.
 
         Raises
         ------
         BoundaryError
             When the square root of a guard occupancy exceeds ``stop_factor`` budgets.
         """
+        rechecked = plane and self._stale
         self._commit(z)
+        self._read_since_plane = True
         self._read_cap(energies)
         total, regions = self._judged(self._found(energies))
-        self._steps += 1
+        if not rechecked:
+            self._steps += 1
         self._left_out_checks += int(self._left_out)
         self._since_check = 0
         self._stale = False
@@ -1153,15 +1169,19 @@ class BoundaryMonitor:
             The plane's position, m.
         """
         row = self._planes
+        read, self._read_since_plane = self._read_since_plane, False
         if row["z"] and row["z"][-1] == z:
             # A held row (a resume landing on a recorded plane): the next row's guard
             # maxima still start here.
             self._since = [0.0, 0.0]
             return
         row["z"].append(z)
-        row["collar_occupancy"].append(self._collar_now)
-        row["guard_low"].append(self._since[0])
-        row["guard_high"].append(self._since[1])
+        # A plane no check read since the previous one (a later plane inside one
+        # interpolated step) has no occupancies of its own: NaN, not the last
+        # reading's collar or an empty guard's zero.
+        row["collar_occupancy"].append(self._collar_now if read else math.nan)
+        row["guard_low"].append(self._since[0] if read else math.nan)
+        row["guard_high"].append(self._since[1] if read else math.nan)
         row["removed_fraction"].append(max(self.removed, 0.0))
         self._since = [0.0, 0.0]
 
@@ -1170,7 +1190,9 @@ class BoundaryMonitor:
 
         The row holds the collar occupancy at the plane, each guard's largest
         occupancy over the committed steps since the previous plane, and the removed
-        fraction so far, all above the shot-noise floor (SEP 21 section 6, D5).
+        fraction so far, all above the shot-noise floor (SEP 21 section 6, D5). A
+        plane no check read since the previous one, as a later plane inside one
+        interpolated step, has its occupancies unmeasured: ``None`` in the record.
 
         Parameters
         ----------
@@ -1191,8 +1213,10 @@ class BoundaryMonitor:
             (``launch_energy``), and where the run was resumed (``resumed_at``,
             empty for an uninterrupted one). Launch occupancies, the largest guard
             and collar occupancies and where the guards peaked, the removed fraction
-            of the launched signal and the number of committed steps accounted, all
-            judged above the shot-noise floor; ``None`` for what was never measured
+            of the launched signal, all judged above the shot-noise floor, and the
+            committed steps, ``steps`` checked when committed and ``skipped`` not,
+            which add up to the committed steps (a plane's check of a skipped step
+            leaves it among the skipped); ``None`` for what was never measured
             (a launch a resume could not recover, a guard nothing reached). Beside
             them, the floor's share of the launch energy (``noise_floor``, zero
             without input noise), and the largest guard share and the removed
@@ -1202,8 +1226,9 @@ class BoundaryMonitor:
             the run opted in to :attr:`BoundaryCheck.quiet_collar`). Under
             ``planes``, one row per saved plane from the launch on: ``z``, the
             ``collar_occupancy`` there, each guard's largest occupancy since the
-            previous plane (``guard_low``, ``guard_high``) and the
-            ``removed_fraction`` so far. For a resume to continue from:
+            previous plane (``guard_low``, ``guard_high``), ``None`` where no check
+            read the state since the previous plane, and the ``removed_fraction`` so
+            far. For a resume to continue from:
             ``removed_signed``, the removal unclipped (:attr:`removed`);
             ``floor_removed_fraction``, the floor's expected removal, uncapped;
             ``quiet_checks`` and ``collar_quiet``, the quiet collar's count and flag.
@@ -1251,7 +1276,10 @@ class BoundaryMonitor:
             "raw_guard_max": self._raw_guard_max,
             "raw_removed_fraction": self._raw_removed,
             "collar_left_out_checks": self._left_out_checks,
-            "planes": {name: list(values) for name, values in self._planes.items()},
+            "planes": {
+                name: [finite(value) for value in values]
+                for name, values in self._planes.items()
+            },
         }
         if self.transverse is not None:
             record["transverse"] = self.transverse.summary()
