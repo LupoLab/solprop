@@ -14,12 +14,11 @@ function propagators!(engine, dz)
     c.cache_propagators && engine.propagator_dz == dz && return nothing
     (; linear) = c
     (; forward, inverse) = w
-    steps = ntuple(s -> dz * c.nodes_c[s], Val(7))
+    # Formed on the host in binary64, then split where the wide type is a pair.
+    steps = ntuple(s -> wide_value(c, dz * c.nodes_c[s]), Val(7))
     each!(c, size(linear)...) do f, m
         @inbounds for s in 1:7
-            exponent = steps[s] * linear[f, m]
-            forward[f, m, s] = exp(exponent)
-            inverse[f, m, s] = exp(-exponent)
+            forward[f, m, s], inverse[f, m, s] = wide_exp_pair(steps[s] * linear[f, m])
         end
     end
     engine.propagator_dz = dz

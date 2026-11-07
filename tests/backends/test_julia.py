@@ -25,6 +25,11 @@ os.environ.setdefault("SOLPROP_JULIA_CHECK", "1")
 os.environ.setdefault("PYTHON_JULIACALL_CHECK_BOUNDS", "yes")
 DEVICE = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
 pytestmark = [pytest.mark.medium] + ([pytest.mark.gpu] if DEVICE != "cpu" else [])
+# An Apple GPU has no binary64: on Metal only the binary32 tests run, with the
+# operator's exponents and the Adams flow in double-float (julia/src/dfloat.jl).
+binary64 = pytest.mark.skipif(DEVICE == "metal", reason="Apple GPUs have no binary64")
+# The wide types a binary32 run can form its exponents in on this device.
+WIDE = ["df32"] if DEVICE == "metal" else ["binary64", "df32"]
 
 
 @pytest.fixture(scope="module")
@@ -80,6 +85,7 @@ def _run(name, configuration):
 
 # The Cartesian beam's fused silica is evaluated past Malitson's range, by design of the
 # benchmark case; the warning says so and is not this test's subject.
+@binary64
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 @pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS)
 def test_julia_matches_the_reference(runtime, case, stepper, fraction):
@@ -114,6 +120,7 @@ def test_julia_matches_the_reference(runtime, case, stepper, fraction):
     assert float(np.linalg.norm(field - reference)) <= 1e-10 * scale
 
 
+@binary64
 def test_julia_reports_its_engine(runtime):
     """Metadata names the runtime and the sources; the ledger counts owned arrays."""
     del runtime
@@ -131,15 +138,20 @@ def test_julia_reports_its_engine(runtime):
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.parametrize("wide", WIDE)
 @pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:6])
-def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fraction):
+def test_julia_single_precision_tracks_the_reference(
+    runtime, monkeypatch, case, stepper, fraction, wide
+):
     """Binary32 (SEP 33) agrees with the binary32 reference on the same contract.
 
     A single-precision run's grid is its own, so the reference is numpy_ref's binary32
     path, not the binary64 run. The steps may differ: binary32's error estimate is
-    noisier near rtol's floor.
+    noisier near rtol's floor. The operator's exponents and the Adams flow are formed
+    in binary64 or in double-float (``SOLPROP_JULIA_WIDE``), rounded once either way.
     """
     del runtime
+    monkeypatch.setenv("SOLPROP_JULIA_WIDE", wide)
     configuration = CASES[case].configuration(
         stepper, 2, "julia", fraction=fraction, noise="none"
     ) | {"precision": "single"}
@@ -152,6 +164,40 @@ def test_julia_single_precision_tracks_the_reference(runtime, case, stepper, fra
     assert float(np.linalg.norm(field - reference)) <= 1e-4 * scale
 
 
+def test_julia_double_float_phi_is_binary64s(runtime):
+    """The double-float phi functions agree with the binary64 ones to well inside
+    binary32's rounding, across the series and recurrence branches and a long phase.
+
+    The pair holds about 2^-48; the recurrence past |x| = 3 amplifies an error by up to
+    about k! / |x|^k (4e-13 relative at order 9 just past the join), and the phase's
+    reduction keeps about 2^-48 of the phase. 2^-36 bounds both and is still 2^12
+    inside the binary32 rounding each value then takes.
+    """
+    generator = np.random.default_rng(5)
+    radii = np.concatenate([10.0 ** generator.uniform(-6, 0.5, 40), [2.9, 3.1, 30.0]])
+    angles = generator.uniform(-np.pi, np.pi, radii.size)
+    points = [*(radii * np.exp(1j * angles)), -40 + 2e3j, -1e-3 + 1e4j, 0.0]
+    for order in (1, 3, 6, 9):
+        for x in points:
+            exact = np.asarray(runtime.phi_snapshot(complex(x), order))
+            pair = np.asarray(runtime.phi_snapshot_df(complex(x), order))
+            bound = 2.0**-36 * max(1.0, abs(x.imag)) * np.abs(exact) + 1e-300
+            np.testing.assert_array_less(np.abs(pair - exact), bound, err_msg=f"{x} {order}")
+
+
+def test_julia_double_float_propagators_round_once(runtime):
+    """exp(+-z) by the double-float pair is within a few binary32 ulps of binary64's,
+    for phases up to 1e6 rad (the mlx backend's measured bound is 5 u)."""
+    generator = np.random.default_rng(7)
+    re = generator.uniform(-20, 5, 2000)
+    im = np.concatenate([generator.uniform(-10, 10, 1000), generator.uniform(-1e6, 1e6, 1000)])
+    for z in re + 1j * im:
+        forward, back = runtime.exp_pair_snapshot_df(complex(z))
+        for value, exact in ((forward, np.exp(z)), (back, np.exp(-z))):
+            assert abs(value - exact) <= 8 * 2.0**-24 * abs(exact), (z, value, exact)
+
+
+@binary64
 def test_julia_poynting_statistics_match_the_host(runtime):
     """The engine's analytic signals give the shared host function's statistics."""
     del runtime
@@ -184,6 +230,7 @@ def test_julia_poynting_statistics_match_the_host(runtime):
     engine.close()
 
 
+@binary64
 def test_julia_helpers_are_the_python_forms_bit_for_bit(runtime):
     """The record's Chebyshev rows and Adams basis equal PLAIN's to the last bit."""
     del runtime
@@ -218,6 +265,7 @@ def test_julia_helpers_are_the_python_forms_bit_for_bit(runtime):
                 np.testing.assert_array_equal(ours[1], theirs[1])
 
 
+@binary64
 @pytest.mark.parametrize("compensated", [False, True])
 def test_julia_trial_tables_are_the_shared_ones_bit_for_bit(runtime, compensated):
     """The engine's own trial tables equal backends.multistep.trial_tables'."""
@@ -275,6 +323,7 @@ def test_julia_trial_tables_are_the_shared_ones_bit_for_bit(runtime, compensated
             )
 
 
+@binary64
 def test_julia_stage_scalars_are_the_bundles_bit_for_bit(runtime):
     """The engine's stage scalars, from its own tables, equal scalars_at's.
 
@@ -383,6 +432,7 @@ def _march(configuration, march):
     return field, record
 
 
+@binary64
 @pytest.mark.parametrize(
     ("case", "fraction"),
     [
@@ -410,6 +460,7 @@ def test_julia_march_is_the_python_march(runtime, monkeypatch, case, fraction):
     np.testing.assert_array_equal(field, reference)
 
 
+@binary64
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 @pytest.mark.parametrize(
     ("case", "fraction"), [("radial_filament_256", 0.002), ("line", 0.005)]

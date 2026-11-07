@@ -2,7 +2,7 @@
 
 julia_version = "1.13.3"
 manifest_format = "2.1"
-project_hash = "0ebf08b9c460789dacbdc3ddc7c3310f1b94422b"
+project_hash = "4fa6779d3f296b1c200044814053d5b7a829e045"
 
 [[deps.AbstractFFTs]]
 deps = ["LinearAlgebra"]
@@ -709,10 +709,14 @@ uuid = "bc9db228-6fd1-46b1-b175-748485922872"
 version = "0.0.0"
 
     [deps.SolpropJulia.extensions]
+    SolpropJuliaAMDGPUExt = "AMDGPU"
     SolpropJuliaCUDAExt = "CUDA"
+    SolpropJuliaMetalExt = "Metal"
 
     [deps.SolpropJulia.weakdeps]
+    AMDGPU = "21141c5a-9bdb-4563-92ae-f87d6854732e"
     CUDA = "052768ef-5323-5732-b1bb-66c8b64840ba"
+    Metal = "dde4c033-4e86-420c-a63e-0dd931031962"
 
 [[deps.Static]]
 deps = ["CommonWorldInvalidations", "IfElse", "PrecompileTools", "SciMLPublic"]

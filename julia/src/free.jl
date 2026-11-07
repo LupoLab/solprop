@@ -21,15 +21,21 @@ function create_free(c, host)
     # The separable operator stays binary64 at either precision: the longitudinal root's
     # compensated subtraction decides its branch near grazing (free_element).
     R64, C64 = Float64, ComplexF64
-    op = (
-        k_squared=upload(c, host.array("k_squared", C64)), k_squared_low=upload(c, host.array("k_squared_low", C64)),
-        kperp_sq=upload(c, host.array("kperp_sq", R64)), kperp_sq_low=upload(c, host.array("kperp_sq_low", R64)),
-        frame=upload(c, host.array("frame", R64)), spectral_rate=upload(c, host.array("spectral_rate", R64)),
-        prefactor_numerator=upload(c, host.array("prefactor_numerator", C64)),
-        prefactor_clamped=upload(c, host.array("prefactor_clamped", C64)),
-        active=upload(c, host.array("active", Bool)), kperp_rate=upload(c, host.array("kperp_rate", R64)),
+    separable = (
+        k_squared=host.array("k_squared", C64), k_squared_low=host.array("k_squared_low", C64),
+        kperp_sq=host.array("kperp_sq", R64), kperp_sq_low=host.array("kperp_sq_low", R64),
+        frame=host.array("frame", R64), spectral_rate=host.array("spectral_rate", R64),
+        prefactor_numerator=host.array("prefactor_numerator", C64),
+        prefactor_clamped=host.array("prefactor_clamped", C64),
+        active=host.array("active", Bool), kperp_rate=host.array("kperp_rate", R64),
         evanescent_rate=host.real("evanescent_rate"),
     )
+    # In binary64 the tables go to the device and each element is formed where it is
+    # read. Where the wide type is a double-float, the elements are formed once on the
+    # host in binary64 (the compensated subtraction and the root need it) and held as
+    # a rate table in the wide type and a prefactor at the state's precision.
+    op = wide_eltype(c) === Float64 ? map(v -> v isa Array ? upload(c, v) : v, separable) :
+         free_tables(c, separable, nw, nm)
     c = merge(c, (
         spatial_shape=shape, op=op, field_scale=T(host.real("pad_scale")) * scale,
         absorber_scale=T(-0.5) * scale, spatial_rate=upload(c, T.(spatial_rate)),
@@ -98,6 +104,23 @@ order: near grazing the residual decides the branch, so no reassociation here.
     end
 end
 
+"""The element's rate and prefactor, read from tables formed on the host."""
+@inline free_element(op::NamedTuple{(:rate, :prefactor)}, f, m) =
+    @inbounds (op.rate[f, m], op.prefactor[f, m])
+
+"""Every element's rate (in the wide type) and prefactor (at the state's precision),
+formed on the host in binary64 by `free_element` from the separable tables."""
+function free_tables(c, separable, nw, nm)
+    rate = Matrix{ComplexF64}(undef, nw, nm)
+    prefactor = Matrix{ComplexF64}(undef, nw, nm)
+    Threads.@threads for m in 1:nm
+        for f in 1:nw
+            rate[f, m], prefactor[f, m] = free_element(separable, f, m)
+        end
+    end
+    (rate=upload(c, widen_host(wide_eltype(c), rate)), prefactor=upload(c, Complex{c.T}.(prefactor)))
+end
+
 """Form the propagator pair of one distance in slot one; return the slot."""
 function free_propagators!(engine, h)
     engine.propagator_dz == h && return 1
@@ -107,6 +130,17 @@ function free_propagators!(engine, h)
         # The zero-distance stage is exactly the identity.
         fill!(forward, 1)
         fill!(inverse, 1)
+    elseif wide_eltype(c) !== Float64
+        # The double-float exponent's pair shares one reduced phasor (wide_exp_pair).
+        # (Names of their own: a captured name assigned in two branches is boxed.)
+        rates, pair, length = c.op.rate, !c.low_storage, wide_value(c, Float64(h))
+        each!(c, size(forward, 1), size(forward, 2)) do f, m
+            @inbounds begin
+                there, back = wide_exp_pair(length * rates[f, m])
+                forward[f, m, 1] = there
+                pair && (inverse[f, m, 1] = back)
+            end
+        end
     else
         op, both, distance = c.op, !c.low_storage, Float64(h)
         each!(c, size(forward, 1), size(forward, 2)) do f, m

@@ -8,12 +8,12 @@
 function path_workspace(c, host)
     host.has("phi_terms") || return nothing
     C = Complex{c.T}
-    # Phi's terms stay binary64, as the operator does (modal.jl).
-    phi, pre = host.array("phi_terms", ComplexF64), host.array("prefactor_terms", C)
+    # Phi's terms stay in the wide type, as the operator does (modal.jl).
+    phi, pre = widen_host(wide_eltype(c), host.array("phi_terms", ComplexF64)), host.array("prefactor_terms", C)
     stages = 7
     (phi=upload(c, phi), prefactor=upload(c, pre),
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
-     delta_device=dzeros(c, Float64, size(phi, 3), stages),
+     delta_device=dzeros(c, wide_eltype(c), size(phi, 3), stages),
      weights_device=dzeros(c, c.T, size(pre, 3), stages), material=zeros(3, stages),
      tables=Dict{String,Any}(), constants=zeros(4))
 end
@@ -24,7 +24,7 @@ function configure_stages!(engine, delta, weights, material)
     copyto!(p.delta, Matrix{Float64}(delta))
     copyto!(p.weights, Matrix{Float64}(weights))
     copyto!(p.material, Matrix{Float64}(material))
-    copyto!(p.delta_device, p.delta)
+    copyto!(p.delta_device, widen_host(wide_eltype(engine.config), p.delta))
     copyto!(p.weights_device, real_type(engine).(p.weights))
     material_stage!(engine, 1)
     nothing
@@ -62,8 +62,7 @@ function path_propagators!(engine)
             for term in axes(phi, 3)
                 exponent += phi[f, m, term] * delta[term, stage]
             end
-            forward[f, m, stage] = exp(exponent)
-            inverse[f, m, stage] = exp(-exponent)
+            forward[f, m, stage], inverse[f, m, stage] = wide_exp_pair(exponent)
         end
     end
 end

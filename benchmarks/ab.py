@@ -77,15 +77,27 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         choices=BACKENDS,
         help="the candidate arm's backend; default: --backend",
     )
+    parser.add_argument(
+        "--device-arm",
+        choices=("baseline", "candidate"),
+        help="run only this arm on its device (a GPU against a CPU build); the other "
+        "runs on the host at the row's width",
+    )
 
 
-def arm_configuration(configuration: Record, backend: str) -> Record:
-    """Return one arm's configuration: its backend and that backend's precision."""
+def arm_configuration(
+    configuration: Record, backend: str, device: bool | None = None
+) -> Record:
+    """Return one arm's configuration: its backend and that backend's precision.
+
+    `device`, when given, overrides the row's device flag for this arm alone.
+    """
     return {
         **configuration,
         # "julia32" is the julia backend in single precision (the Julia experiment).
         "backend": "julia" if backend == "julia32" else backend,
         "precision": "single" if backend in ("mlx", "julia32") else "double",
+        **({} if device is None else {"device": device}),
     }
 
 
@@ -204,6 +216,8 @@ def ab(args: argparse.Namespace) -> int:
     """Collect and summarise a paired comparison of two prepared builds."""
     if args.rounds < 1 or args.repeats < 1 or args.timeout <= 0:
         raise SuiteError("rounds, repeats and timeout must be positive")
+    if args.device_arm is not None and args.device:
+        raise SuiteError("--device runs both arms on a device; --device-arm one")
     started = time.perf_counter()
     backends = {
         "baseline": args.baseline_backend or args.backend,
@@ -266,7 +280,9 @@ def ab(args: argparse.Namespace) -> int:
                     pythons[arm],
                     {
                         "configuration": arm_configuration(
-                            row["configuration"], backends[arm]
+                            row["configuration"],
+                            backends[arm],
+                            None if args.device_arm is None else arm == args.device_arm,
                         ),
                         "repeats": args.repeats,
                         "fields": str(

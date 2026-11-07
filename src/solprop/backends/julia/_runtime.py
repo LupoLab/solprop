@@ -75,7 +75,7 @@ def call_julia(function: Any, *args: object, nogil: bool = False) -> Any:
 
 # JuliaCall exposes dynamically compiled Julia modules, so Any is confined to its
 # boundary. Numerical arrays are converted to owned NumPy arrays by the adapter.
-_GPU_PACKAGES = {"cuda": "CUDA", "rocm": "AMDGPU"}
+_GPU_PACKAGES = {"cuda": "CUDA", "rocm": "AMDGPU", "metal": "Metal"}
 """Each GPU device's Julia package, loaded before the engine."""
 
 
@@ -86,7 +86,8 @@ def runtime() -> Any:
     ``SOLPROP_JULIA_EXE`` names the Julia 1.13 executable (default: the one
     ``julia/bootstrap.py`` downloads), ``SOLPROP_JULIA_DEPOT`` its package depot
     (default ``.julia-depot``) and ``SOLPROP_JULIA_ROOT`` the checkout (`checkout`).
-    ``SOLPROP_JULIA_DEVICE=cuda`` (or ``rocm``) loads the CUDA (or AMDGPU) environment,
+    ``SOLPROP_JULIA_DEVICE=cuda`` (``rocm``, ``metal``) loads the CUDA (AMDGPU, Metal)
+    environment,
     so that the engine's GPU extension is available.
 
     Returns
@@ -116,8 +117,8 @@ def runtime() -> Any:
             "follow julia/README.md"
         )
     device = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu")
-    if device not in {"cpu", "cuda", "rocm"}:
-        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu, cuda or rocm")
+    if device not in {"cpu", *_GPU_PACKAGES}:
+        raise BackendError("SOLPROP_JULIA_DEVICE must be cpu, cuda, rocm or metal")
     # A GPU run's environment adds CUDA.jl or AMDGPU.jl to the engine's, resolved
     # with it, so that a CPU run never resolves or loads the GPU packages.
     if device != "cpu":
@@ -189,6 +190,9 @@ def source_digest() -> str:
             root / "julia/cuda/Manifest.toml",
             root / "julia/rocm/Project.toml",
             root / "julia/rocm/Manifest.toml",
+            root / "julia/metal/Project.toml",
+            root / "julia/metal/Manifest.toml",
+            root / "julia/metal/LocalPreferences.toml",
         ]
     )
     adapter = sorted(Path(__file__).parent.glob("*.py"))

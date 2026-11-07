@@ -118,6 +118,41 @@ def _constant(table: PiecewiseChebyshev | None) -> bool:
     )
 
 
+def _wide(single: bool) -> str:
+    """Return the wide type of the operator's exponents and the Adams flow.
+
+    A binary64 run forms them in binary64. A binary32 run forms them in binary64 too,
+    unless ``SOLPROP_JULIA_WIDE=df32`` asks for a double-float (a pair of binary32s,
+    about 48 bits; ``julia/src/dfloat.jl``). On Metal it is always a double-float, since
+    an Apple GPU has no binary64.
+
+    Parameters
+    ----------
+    single : bool
+        Whether the run is in binary32.
+
+    Returns
+    -------
+    str
+        ``"binary64"`` or ``"df32"``.
+
+    Raises
+    ------
+    BackendError
+        If the variable names neither, or binary64 on Metal.
+    """
+    metal = os.environ.get("SOLPROP_JULIA_DEVICE", "cpu") == "metal"
+    wide = os.environ.get("SOLPROP_JULIA_WIDE", "df32" if metal else "binary64")
+    if wide not in {"binary64", "df32"}:
+        raise BackendError("SOLPROP_JULIA_WIDE must be binary64 or df32")
+    if metal and wide != "df32":
+        raise BackendError(
+            "julia on metal requires SOLPROP_JULIA_WIDE=df32: Apple GPUs have no "
+            "binary64 arithmetic"
+        )
+    return wide if single else "binary64"
+
+
 def _refuse(problem: KernelProblem) -> None:
     """Refuse unsupported leaves before starting Julia or allocating its state.
 
@@ -180,6 +215,15 @@ def _refuse(problem: KernelProblem) -> None:
         "non-DOPRI5 tableau": stepper.tableau is not DOPRI5,
         "interpolated planes": stepper.interpolate_planes,
     }
+    if (
+        os.environ.get("SOLPROP_JULIA_DEVICE", "cpu") == "metal"
+        and not problem.precision.single
+    ):
+        raise BackendError(
+            "julia on metal does not support precision='double': Apple GPUs have no "
+            "binary64 arithmetic"
+        )
+    _wide(problem.precision.single)
     for reason, refused in reasons.items():
         if refused:
             raise BackendError(f"julia does not support {reason}")
@@ -275,6 +319,7 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
     factor *= scale**2
     config: dict[str, object] = {
         "precision": "single" if single else "double",
+        "wide": _wide(single),
         "state_scale": scale,
         "adams_order": problem.stepper.integrator.order
         if isinstance(problem.stepper.integrator, Multistep)
@@ -1343,6 +1388,7 @@ class JuliaBackend(StepDriver[object]):
             "julia_version": str(version),
             "julia_source_digest": self._digest,
             "device": str(self._jl.device_name(self._engine)),
+            "julia_wide": _wide(self._problem.precision.single),
             "propagator_cache": (
                 "schedule_run_mean"
                 if self._low_storage is not None

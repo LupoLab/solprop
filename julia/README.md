@@ -25,6 +25,8 @@ controller and the output are solprop's own. The engine is the Julia package in
 | `observe.jl` | what the driver reads between steps: the state, the boundary monitor's and the transverse edge's sums, the Poynting statistics' power |
 | `../ext/SolpropJuliaCUDAExt.jl` | CUDA: the engine's arrays become `CuArray`s |
 | `../ext/SolpropJuliaAMDGPUExt.jl` | AMD GPUs: the engine's arrays become `ROCArray`s |
+| `../ext/SolpropJuliaMetalExt.jl` | Apple GPUs: the engine's arrays become `MtlArray`s; binary32 only |
+| `dfloat.jl` | double-float (a value as two binary32s, about 48 bits): the operator's exponents, the propagators and the Adams flow where binary64 is absent or slow |
 
 ## Setting up
 
@@ -34,7 +36,7 @@ checksummed release):
 ```sh
 uv sync --extra julia
 export SOLPROP_JULIA_EXE=$(julia +1.13 -e 'print(joinpath(Sys.BINDIR, "julia"))')
-uv run --no-sync python julia/bootstrap.py          # --cuda or --rocm for a GPU environment too
+uv run --no-sync python julia/bootstrap.py          # --cuda, --rocm or --metal for a GPU environment too
 # --cuda-local: CUDA.jl on the system toolkit, beside a native build linked to it
 ```
 
@@ -45,7 +47,8 @@ solprop is installed without `-e`. A run then takes `backend="julia"`:
 | Variable | Meaning |
 |---|---|
 | `SOLPROP_JULIA_THREADS` | the engine's threads (default 1); the benchmark harness sets it to the width |
-| `SOLPROP_JULIA_DEVICE` | `cpu` (default), `cuda` or `rocm`, which load `julia/cuda` or `julia/rocm`: CUDA.jl or AMDGPU.jl resolved with the engine |
+| `SOLPROP_JULIA_DEVICE` | `cpu` (default), `cuda`, `rocm` or `metal`, which load `julia/cuda`, `julia/rocm` or `julia/metal`: CUDA.jl, AMDGPU.jl or Metal.jl resolved with the engine. `metal` runs `precision="single"` only |
+| `SOLPROP_JULIA_WIDE` | a binary32 run's wide type for the operator's exponents, the propagators and the Adams flow: `binary64` (default) or `df32` (double-float, `src/dfloat.jl`); `metal` always uses `df32`. Binary64 runs ignore it |
 | `SOLPROP_JULIA_MARCH` | `host`: the Python Adams march in place of the engine's (`src/march.jl`) |
 | `SOLPROP_FFTW_PLAN` | `estimate`, `measure` (default) or `patient` |
 | `SOLPROP_JULIA_TIMING` | `1`: the engine's section timers (`julia/profile.py` prints them) |

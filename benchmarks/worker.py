@@ -101,7 +101,7 @@ def runtime(backend: str, device: bool = False) -> Record:
         # A GPU run takes the GPU the environment names (rocm on AMD), else CUDA.
         named = os.environ.get("SOLPROP_JULIA_DEVICE")
         os.environ["SOLPROP_JULIA_DEVICE"] = (
-            (named if named in {"cuda", "rocm"} else "cuda") if device else "cpu"
+            (named if named in {"cuda", "rocm", "metal"} else "cuda") if device else "cpu"
         )
         from solprop.backends.julia import source_digest  # noqa: PLC0415
 

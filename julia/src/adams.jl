@@ -9,45 +9,75 @@ const RECIP_FACTORIAL = ntuple(k -> 1.0 / factorial(k - 1), 10)
 
 const RECIP_INTEGER = ntuple(k -> 1.0 / k, 40)
 
+# The tables in the wide type: binary64's are the engine's original constants, the
+# double-float ones the same binary64 values split.
+recip_factorial(::Type{Float64}, k) = @inbounds RECIP_FACTORIAL[k]
+recip_integer(::Type{Float64}, k) = @inbounds RECIP_INTEGER[k]
+const RECIP_FACTORIAL_DF = map(DF32, RECIP_FACTORIAL)
+const RECIP_INTEGER_DF = map(DF32, RECIP_INTEGER)
+recip_factorial(::Type{DF32}, k) = @inbounds RECIP_FACTORIAL_DF[k]
+recip_integer(::Type{DF32}, k) = @inbounds RECIP_INTEGER_DF[k]
+
+# The size that picks the branch and the halvings: binary64's `abs`, or the high
+# parts' modulus in binary32 (the choice needs no more).
+phi_size(x::ComplexF64) = abs(x)
+phi_size(x::CDF32) = sqrt(real(x).hi * real(x).hi + imag(x).hi * imag(x).hi)
+# The series' stop: binary64's squared test as it was; on pairs a one-norm test on the
+# high parts, whose squares would be subnormal in binary32 for a small sum.
+series_done(term::ComplexF64, total::ComplexF64, stop) = abs2(term) <= stop^2 * abs2(total)
+series_done(term::CDF32, total::CDF32, stop) =
+    abs(real(term).hi) + abs(imag(term).hi) <= stop * (abs(real(total).hi) + abs(imag(total).hi))
+# `value 2^-k`, exactly: binary64's expression as it was, halvings on pairs.
+scale_down(value::ComplexF64, k) = value * 0.5^k
+scale_down(value::CDF32, k) = halve(value, k)
+# k! phi_{k+1}: binary64 divides by the reciprocal, as it did; on pairs the factorial
+# (exact in binary32 to 10!) multiplies.
+moment_of(value::ComplexF64, k) = value / RECIP_FACTORIAL[k]
+moment_of(value::CDF32, k) = value * Float32(factorial(k - 1))
+
 """`phi_0(x) .. phi_N(x)` by a shifted series and scaling and squaring.
 
-Evaluated in binary64 at either precision: the flow and its moments are rounded once
-to the state's precision (SEP 33). Native's `adams_phi` (adams_phi.hpp) is the model:
-past |x| = 3 the recurrence from `exp(x)` with one reciprocal of x; below it the series
-of `phi_N(y)`, `y = x / 2^s` with |y| <= 1/2, multiplied by the divisors' reciprocals
-and stopped once a term is under a quarter ulp of the sum (each later one is smaller
-by |y| / (m + N) <= 1/2), then raised back by `s` squarings.
+Evaluated in the wide type at either precision (binary64, or a double-float where the
+device lacks it): the flow and its moments are rounded once to the state's precision
+(SEP 33). Native's `adams_phi` (adams_phi.hpp) is the model: past |x| = 3 the
+recurrence from `exp(x)` with one reciprocal of x; below it the series of `phi_N(y)`,
+`y = x / 2^s` with |y| <= 1/2, multiplied by the divisors' reciprocals and stopped
+once a term is under a quarter ulp of the sum (each later one is smaller by
+|y| / (m + N) <= 1/2), then raised back by `s` squarings. In binary64 the operations
+are exactly the original ones.
 """
-@inline function phi_values(x::ComplexF64, ::Val{N}) where {N}
-    magnitude = abs(x)
-    out = ntuple(_ -> zero(ComplexF64), Val(N + 1))
-    if magnitude > 3.0
+@inline function phi_values(x::Complex{W}, ::Val{N}) where {W,N}
+    magnitude = phi_size(x)
+    S = typeof(magnitude)
+    out = ntuple(_ -> zero(Complex{W}), Val(N + 1))
+    if magnitude > S(3)
         inverse = inv(x)
         out = Base.setindex(out, exp(x), 1)
         for k in 1:N
-            out = Base.setindex(out, (out[k] - RECIP_FACTORIAL[k]) * inverse, k + 1)
+            out = Base.setindex(out, (out[k] - recip_factorial(W, k)) * inverse, k + 1)
         end
         return out
     end
-    levels, scale = 0, 1.0
+    half = S(0.5)
+    levels, scale = 0, one(S)
     reduced = magnitude
-    while reduced > 0.5
+    while reduced > half
         levels += 1
-        scale *= 0.5
-        reduced *= 0.5
+        scale *= half
+        reduced *= half
     end
     y = scale * x
-    term = complex(RECIP_FACTORIAL[N+1])
+    term = complex(recip_factorial(W, N + 1))
     total = term
-    stop = (0.25 * eps(Float64))^2
+    stop = S(0.25) * S(eps(W))
     for m in 1:23
-        term = term * y * RECIP_INTEGER[m+N]
+        term = term * y * recip_integer(W, m + N)
         total += term
-        abs2(term) <= stop * abs2(total) && break
+        series_done(term, total, stop) && break
     end
     out = Base.setindex(out, total, N + 1)
     for k in N-1:-1:1
-        out = Base.setindex(out, RECIP_FACTORIAL[k+1] + y * out[k+2], k + 1)
+        out = Base.setindex(out, recip_factorial(W, k + 1) + y * out[k+2], k + 1)
     end
     out = Base.setindex(out, exp(y), 1)
     for _ in 1:levels
@@ -56,14 +86,18 @@ by |y| / (m + N) <= 1/2), then raised back by `s` squarings.
         for k in 1:N
             value = old[1] * old[k+1]
             for j in 1:k
-                value += old[j+1] * RECIP_FACTORIAL[k-j+1]
+                value += old[j+1] * recip_factorial(W, k - j + 1)
             end
-            out = Base.setindex(out, value * 0.5^k, k + 1)
+            out = Base.setindex(out, scale_down(value, k), k + 1)
         end
     end
     out
 end
 phi_snapshot(x, order) = collect(phi_values(ComplexF64(x), Val(Int(order))))
+# The double-float evaluation of the same, widened back for comparison (tests).
+phi_snapshot_df(x, order) =
+    [ComplexF64(Float64(real(v)), Float64(imag(v)))
+     for v in phi_values(only(widen_host(DF32, [ComplexF64(x)])), Val(Int(order)))]
 
 function adams_workspace(c, host, nw, nm)
     order = host.has("adams_order") ? host.int("adams_order") : 0
@@ -159,7 +193,9 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
     (; predictor, corrector, defects, spans, cpredictor, ccorrector, cdefects, slots) = a.device
     linear, phi, weights, compensated = c.linear, path_terms(w), a.device.rate, a.compensated
     delta = w.path === nothing ? nothing : w.path.delta_device
-    step = Float64(h)
+    # The step in the wide type, split on the host; a kernel body captures values only.
+    step = wide_value(c, Float64(h))
+    xzero = complex(zero(c.wide))
     mask = c.norm_mask
     # The predictor, the flow and its moments, and the state's norm for the scale.
     active = c.mask
@@ -173,9 +209,9 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
                 compensated && (endpoint[f, m] = 0; error[f, m] = 0)
                 return none
             end
-            x = ComplexF64(step * linear[f, m])
+            x = step * linear[f, m]
             if phi !== nothing
-                x = zero(ComplexF64)
+                x = xzero
                 for term in axes(phi, 3)
                     x += phi[f, m, term] * delta[term, 7]
                 end
@@ -184,7 +220,7 @@ function adams_trial_width!(engine, h, ::Val{N}) where {N}
             forward[f, m, 1] = values[1]
             predicted = nil
             for k in 1:N
-                moment = oftype(nil, values[k+1] / RECIP_FACTORIAL[k])
+                moment = oftype(nil, moment_of(values[k+1], k))
                 moments[f, m, k] = moment
                 if k <= order
                     weighted = nil

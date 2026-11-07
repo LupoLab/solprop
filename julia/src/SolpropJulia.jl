@@ -35,6 +35,7 @@ mutable struct Engine{C,W}
 end
 
 include("launch.jl")
+include("dfloat.jl")
 include("vmath.jl")
 include("responses.jl")
 include("modal.jl")
@@ -61,12 +62,18 @@ end
 function create(input)
     host = HostInput(input)
     T = host.has("precision") && host.string("precision") == "single" ? Float32 : Float64
-    backend = device_backend(Val(Symbol(host.has("device") ? host.string("device") : "cpu")))
+    device = host.has("device") ? host.string("device") : "cpu"
+    backend = device_backend(Val(Symbol(device)))
+    # The wide type of the operator's exponents and the Adams flow: binary64, or a
+    # double-float in a binary32 run that asks for it (an Apple GPU has no binary64).
+    W = wide_type(T, host.has("wide") ? host.string("wide") : "binary64")
+    device == "metal" && W === Float64 &&
+        throw(ArgumentError("an Apple GPU has no binary64: metal runs single precision with wide = df32"))
     # One pool runs everything (launch.jl, `plan`): the libraries' own are single.
     FFTW.set_num_threads(1)
     BLAS.set_num_threads(1)
     c = (
-        backend=backend, T=T, tasks=host.int("threads"), scratch=Dict{Any,Any}(),
+        backend=backend, T=T, wide=zero(W), tasks=host.int("threads"), scratch=Dict{Any,Any}(),
         fft_threads=host.int("fft_threads"),
         raman_fft_threads=host.has("raman_fft_threads") ? host.int("raman_fft_threads") : host.int("fft_threads"),
         transverse_fft_threads=host.has("transverse_fft_threads") ? host.int("transverse_fft_threads") : host.int("fft_threads"),

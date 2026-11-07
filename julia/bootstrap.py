@@ -75,11 +75,11 @@ def main() -> None:
         "JULIA_CONDAPKG_BACKEND": "Null",
         "JULIA_PYTHONCALL_EXE": sys.executable,
     }
-    # --cuda (--rocm) also prepares the GPU environment, which adds CUDA.jl (AMDGPU.jl)
-    # to the engine's.
+    # --cuda (--rocm, --metal) also prepares the GPU environment, which adds CUDA.jl
+    # (AMDGPU.jl, Metal.jl) to the engine's.
     projects = ["julia"] + [
         f"julia/{gpu}"
-        for gpu in ("cuda", "rocm")
+        for gpu in ("cuda", "rocm", "metal")
         if f"--{gpu}" in sys.argv[1:] or (gpu == "cuda" and "--cuda-local" in sys.argv)
     ]
     # --cuda-local: CUDA.jl takes the system toolkit rather than its own, needed where

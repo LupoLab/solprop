@@ -49,9 +49,10 @@ function create_modal(c, host)
     # Every inverse transform is unnormalised: its 1/nt is folded into the tables that
     # read the time-domain field, the synthesis and the in-stage absorber.
     c = merge(c, (spectral=spectral, spectral_absorber=upload(c, T.(spatial)),
-        # The operator stays binary64 at either precision: propagators and the Adams
-        # flow are formed from it in binary64 and rounded once (SEP 33, 4.1 item 3).
-        linear=upload(c, host.array("linear", ComplexF64)), prefactor=upload(c, host.array("prefactor", C)),
+        # The operator stays binary64 at either precision, or a double-float where the
+        # device lacks binary64: propagators and the Adams flow are formed from it in
+        # that wide type and rounded once (SEP 33, 4.1 item 3).
+        linear=upload(c, widen_host(wide_eltype(c), host.array("linear", ComplexF64))), prefactor=upload(c, host.array("prefactor", C)),
         synthesis=upload(c, T.(synthesis ./ nt)), projection=upload(c, host.array("projection", T)),
         projection_coarse=upload(c, host.array("projection_coarse", T)),
         embedded=host.flag("embedded"), spatial_absorber=upload(c, T.(spatial ./ nt)),
