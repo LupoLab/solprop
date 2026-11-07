@@ -51,7 +51,7 @@ from solprop.stats import (
     default_spec,
 )
 from solprop.stepper import LowStorageRungeKutta, Multistep
-from solprop.stepper.tableau import DOPRI5
+from solprop.stepper.tableau import DOPRI5, TSIT5
 from solprop.translate.chebyshev import PiecewiseChebyshev
 from solprop.translate.linop import power_weight_at
 from solprop.translate.precision import launch_peak, state_scale
@@ -208,11 +208,15 @@ def _refuse(problem: KernelProblem) -> None:
         ),
         "Cartesian Adams integration": isinstance(stepper.integrator, Multistep)
         and transform.kind == "free",
-        "non-Cartesian low-storage integration": isinstance(
+        # A modal route's RK4IP flow is the constant operator's exponential; a
+        # varying one's (an integral over the half step) is not formed.
+        "low-storage integration with a varying operator": isinstance(
             stepper.integrator, LowStorageRungeKutta
         )
-        and transform.kind != "free",
-        "non-DOPRI5 tableau": stepper.tableau is not DOPRI5,
+        and transform.kind != "free"
+        and _varying(problem),
+        # The trial reads its tableau's rows; both are 7-stage first-same-as-last.
+        "tableaux other than DOPRI5 and TSIT5": stepper.tableau not in (DOPRI5, TSIT5),
         "interpolated planes": stepper.interpolate_planes,
     }
     if (

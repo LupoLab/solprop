@@ -11,7 +11,7 @@ function rk4!(engine, dz::Float64, key::Float64)
     (; y, lab, candidate, error, source, forward) = w
     mask = c.norm_mask
     h, half, third, sixth = T(dz), T(dz / 2), T(dz / 3), T(dz / 6)
-    free_propagators!(engine, key / 2)
+    c.free ? free_propagators!(engine, key / 2) : modal_flow!(engine, key / 2)
     none = zero(T)
     source!(engine, y)
     each!(c, size(y)...) do f, m
@@ -56,4 +56,18 @@ function rk4!(engine, dz::Float64, key::Float64)
         end
     end
     (Float64(squared), lower > 0 ? 2sqrt(Float64(upper) / Float64(lower)) : NaN)
+end
+
+"""A modal route's RK4IP flow over `h`, `exp(h L)`, in slot one (formed in the wide type
+and rounded once), kept while `h` is unchanged."""
+function modal_flow!(engine, h)
+    engine.propagator_dz == h && return 1
+    c, w = engine.config, engine.work
+    linear, forward = c.linear, w.forward
+    step = wide_value(c, Float64(h))
+    each!(c, size(linear)...) do f, m
+        @inbounds forward[f, m, 1] = first(wide_exp_pair(step * linear[f, m]))
+    end
+    engine.propagator_dz = h
+    1
 end

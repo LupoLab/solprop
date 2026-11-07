@@ -589,6 +589,14 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         return cast(
             BatchBackend, NativeBatchBackend(cast(Sequence[NativeBackend], owners))
         )
+    if name == "julia":
+        # The Julia experiment's members each step their own engine; the generic
+        # runner keeps them in lockstep.
+        from solprop.backends.batch import (  # noqa: PLC0415 - lazy backend
+            LockstepRunner,
+        )
+
+        return LockstepRunner(cast("Sequence[StepDriver[object]]", owners))
     raise BackendError(f"Batch has no runner for backend {name!r}")
 
 

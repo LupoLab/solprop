@@ -121,6 +121,121 @@ def test_julia_matches_the_reference(runtime, case, stepper, fraction):
 
 
 @binary64
+def _fixed_capillary(backend, *, integrator=None, fixed=True):
+    """A short ionising capillary, on 16 fixed steps (a batch runs a fixed schedule) or
+    adaptive."""
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+
+    length = 0.004
+    schedule = FixedSchedule.uniform(0.0, length, length / 16) if fixed else None
+    return Simulation.from_capillary(
+        50e-6,
+        length,
+        "Ar",
+        1.0,
+        wavelength=800e-9,
+        wavelength_limits=(150e-9, 3e-6),
+        trange=300e-15,
+        fwhm=10e-15,
+        energy=60e-6,
+        n_save=2,
+        backend=backend,
+        integrator=RungeKutta() if integrator is None else integrator,
+        schedule=schedule,
+        absorber_scheme="split_step",
+        noise=None,
+    )
+
+
+@binary64
+def test_julia_modal_low_storage_matches_the_reference(runtime):
+    """RK4IP on a capillary (a modal route) replays the reference's schedule."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.stepper import LowStorageRungeKutta  # noqa: PLC0415
+
+    stop, fields = 0.004, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            simulation = _fixed_capillary(name, integrator=LowStorageRungeKutta())
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(stop)
+            fields[name] = engine.observe(field=True).field
+    scale = float(np.linalg.norm(fields["numpy_ref"]))
+    assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
+
+
+@binary64
+def test_julia_tsit5_matches_the_reference(runtime):
+    """An adaptive TSIT5 window takes the reference's steps and field."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.stepper import RungeKutta  # noqa: PLC0415
+    from solprop.stepper.tableau import TSIT5  # noqa: PLC0415
+
+    stop, observed = 0.004, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            simulation = _fixed_capillary(
+                name, integrator=RungeKutta(TSIT5), fixed=False
+            )
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(stop)
+            observation = engine.observe(field=True)
+            observed[name] = (
+                observation.field,
+                observation.n_steps,
+                observation.n_rejected,
+            )
+    field, steps, rejected = observed["julia"]
+    expected, expected_steps, expected_rejected = observed["numpy_ref"]
+    assert (steps, rejected) == (expected_steps, expected_rejected)
+    scale = float(np.linalg.norm(expected))
+    assert float(np.linalg.norm(field - expected)) <= 1e-10 * scale
+
+
+def _loaded(simulation, name, cleanup):
+    """The simulation's backend, its launch loaded."""
+    problem = simulation.translate()
+    engine = select(
+        name,
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+    cleanup.callback(engine.close)
+    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+    return engine
+
+
+@binary64
+def test_julia_batch_members_are_their_solo_runs(runtime):
+    """Lockstep members (`select_batch`) match their solo runs and the reference."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.backends.registry import select_batch  # noqa: PLC0415
+
+    stop = 0.004
+    with ExitStack() as cleanup:
+        reference = _loaded(_fixed_capillary("numpy_ref"), "numpy_ref", cleanup)
+        reference.propagate_to(stop)
+        expected = reference.observe(field=True).field
+        members = [
+            _loaded(_fixed_capillary("julia"), "julia", cleanup) for _ in range(2)
+        ]
+        runner = select_batch(members)
+        runner.propagate_to(stop)
+        fields = [member.field for member in runner.observe_members()]
+    scale = float(np.linalg.norm(expected))
+    for field in fields:
+        assert float(np.linalg.norm(field - expected)) <= 1e-10 * scale
+
+
 def test_julia_reports_its_engine(runtime):
     """Metadata names the runtime and the sources; the ledger counts owned arrays."""
     del runtime
