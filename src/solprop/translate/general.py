@@ -1191,7 +1191,7 @@ def coupled_block(
     coupling = 0.0
     floor = 0.0
     for column in np.flatnonzero(grid.active_mask):
-        generator = table.evaluate(float(grid.omega[column]), at).generator
+        generator = table.generator(float(grid.omega[column]), at)
         diagonal = np.diag(generator)
         coupling = max(coupling, float(np.max(abs(generator - np.diag(diagonal)))))
         floor = max(
@@ -1451,9 +1451,9 @@ def interpolated_gram(
     ).copy()
     inside = np.flatnonzero((table.omega[0] <= coarse) & (coarse <= table.omega[-1]))
     for column in inside:
-        sampled[:, :, column] = table.evaluate(
+        sampled[:, :, column] = table.flux_metric(
             float(coarse[column]), float(table.z[0])
-        ).flux_metric
+        )
     return sampled
 
 

@@ -506,12 +506,17 @@ class _DroppedLoss:
         The vacuum wavelength in m of that absorption, or NaN.
     warned : bool
         Whether the bound has been reported.
+    digest : str or None
+        The model's record digest, once a run's log has needed it: forming the record
+        validates the whole identity, which at every evaluation cost more than the
+        evaluation it records.
     """
 
     extinction: float = 0.0
     absorption: float = 0.0
     wavelength: float = math.nan
     warned: bool = False
+    digest: str | None = None
 
 
 @dataclass(frozen=True, kw_only=True, eq=False)
@@ -872,12 +877,19 @@ class OptmatGlass(GlassIndex):
         dropped.extinction = max(dropped.extinction, float(np.max(kappa)))
         if largest > dropped.absorption:
             dropped.absorption, dropped.wavelength = largest, where
+        inside = _optmat.open_log() is not None
+        if inside and dropped.digest is None:
+            dropped.digest = _optmat.record(self.model).digest
         # A run records what it dropped itself, whatever the adapter dropped in
         # other runs before it (SEP 3, Q28).
         _optmat.record_dropped(
-            self.model, self.absorption_bound, float(np.max(kappa)), largest, where
+            self.model,
+            self.absorption_bound,
+            float(np.max(kappa)),
+            largest,
+            where,
+            digest=dropped.digest,
         )
-        inside = _optmat.open_log() is not None
         if (largest if inside else dropped.absorption) <= self.absorption_bound:
             return
         if not inside:
@@ -894,7 +906,7 @@ class OptmatGlass(GlassIndex):
         # counterpart every lossless route of one source shares): inside a run the
         # warning is the run's, once; outside every run it is the adapter's, once.
         if inside:
-            digest = _optmat.record(self.model).digest
+            digest = dropped.digest or _optmat.record(self.model).digest
             _optmat.warn_once(
                 ("transparent", digest, repr(self.absorption_bound)),
                 message,
