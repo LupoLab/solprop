@@ -52,8 +52,8 @@ class ServiceBridge(QObject):
     runs_listed : Signal
         Emitted with the service's runs, after :meth:`list_runs`.
     service_failed : Signal
-        Emitted with the reason when the service cannot be reached; the bridge then
-        goes on with the kernel and workers of its own (option B).
+        Emitted once, with the reason, when the service cannot be reached; the bridge
+        then goes on with the kernel and workers of its own (option B).
     service : bool
         Whether the bridge speaks to the service (option C).
     """
@@ -76,6 +76,7 @@ class ServiceBridge(QObject):
         self._kernel: KernelClient | ServiceConnection | None = None
         self._revision = 0
         self._closed = False
+        self._told = False  # whether service_failed was emitted
         # One source of request ids for both transports: a request held while the
         # service was sought keeps its id when the window's own kernel takes it.
         self._ids = itertools.count(1)
@@ -121,7 +122,8 @@ class ServiceBridge(QObject):
     ) -> None:
         """Go on without the service: the window's own kernel takes what it held.
 
-        Queued to the window's thread from the connection's.
+        Queued to the window's thread from the connection's, and called again, at
+        once, for a request or run that reached the connection after it failed.
 
         Parameters
         ----------
@@ -138,7 +140,10 @@ class ServiceBridge(QObject):
         if isinstance(self._kernel, ServiceConnection):
             self._kernel.close(timeout=0.5)
             self._kernel = None
-        self.service_failed.emit(reason)
+        if not self._told:
+            # Told once: what was sent after the failure comes back here as well.
+            self._told = True
+            self.service_failed.emit(reason)
         client = self._client()
         for request in requests:
             client.submit(request)  # pyright: ignore[reportAttributeAccessIssue]

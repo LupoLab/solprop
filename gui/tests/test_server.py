@@ -303,6 +303,109 @@ def test_a_service_out_of_reach_gives_back_what_it_held(tmp_path: Path, monkeypa
     assert gone.failed == []
 
 
+def test_what_is_sent_after_a_refusal_is_given_back_too(tmp_path: Path, monkeypatch):
+    # The window's first request can reach the connection after its reader has failed:
+    # the reader thread starts in the constructor and may fail before it returns.
+    def refuse(_self: remote.ServiceConnection) -> object:
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
+    window = Window()
+    connection = window.connect(tmp_path / "service.json")
+    connection._reader.join(WAIT)
+    assert connection.failed and len(window.failed) == 1
+    assert window.failed[0][1:] == ([], [])
+    late = connection.request("examples")
+    connection.start_run(RunSpec("r9", str(tmp_path / "r9"), recipe=TINY))
+    assert not connection.list_runs()  # nothing to give back for this
+    reason, requests, _runs = window.failed[1]
+    assert "did not start" in reason
+    assert [r.request_id for r in requests] == [late]
+    assert window.failed[2][2][0].run_id == "r9"
+    assert len(window.failed) == 3
+    connection.close()
+    assert connection.request("examples") > late  # closed: nothing told
+    assert len(window.failed) == 3
+
+
+def test_a_late_send_waits_for_the_held_batch_to_be_given_back(
+    tmp_path: Path, monkeypatch
+):
+    # The reader has taken what was held but not yet given it back when a late request
+    # arrives. A window that closes the connection on hearing of the late one must not
+    # make the reader drop the held batch.
+    def refuse(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT)
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    give_back = remote.ServiceConnection._give_back
+    taken = threading.Event()
+
+    def slow(self: remote.ServiceConnection, envelopes, *, news: bool) -> None:
+        if news:
+            taken.set()
+            time.sleep(0.5)  # the late request arrives meanwhile
+        give_back(self, envelopes, news=news)
+
+    gate = threading.Event()
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
+    monkeypatch.setattr(remote.ServiceConnection, "_give_back", slow)
+    told: list[list[int]] = []
+
+    def on_failed(_reason: str, requests: list[Request], _runs: list[RunSpec]) -> None:
+        told.append([r.request_id for r in requests])
+        if threading.current_thread() is threading.main_thread():
+            # The window's fallback runs here at once; the reader's news is queued.
+            connection.close(timeout=0.1)
+
+    connection = remote.ServiceConnection(
+        lambda _reply: None,
+        lambda _event: None,
+        state=tmp_path / "service.json",
+        on_failed=on_failed,
+    )
+    held = connection.request("examples")
+    gate.set()
+    assert taken.wait(WAIT)
+    late = connection.request("examples")
+    assert told == [[held], [late]]
+
+
+def test_a_send_from_the_failure_news_itself_does_not_wait_for_it(
+    tmp_path: Path, monkeypatch
+):
+    # A window whose news handler sends again, on the reader's thread, is given that
+    # back too, rather than the reader waiting for itself.
+    gate = threading.Event()
+
+    def refuse(_self: remote.ServiceConnection) -> object:
+        gate.wait(WAIT)
+        msg = "the solprop service did not start"
+        raise ConnectionError(msg)
+
+    monkeypatch.setattr(remote.ServiceConnection, "_connect", refuse)
+    told: list[list[int]] = []
+
+    def on_failed(_reason: str, requests: list[Request], _runs: list[RunSpec]) -> None:
+        told.append([r.request_id for r in requests])
+        if len(told) == 1:
+            connection.request("examples")
+
+    connection = remote.ServiceConnection(
+        lambda _reply: None,
+        lambda _event: None,
+        state=tmp_path / "service.json",
+        on_failed=on_failed,
+    )
+    gate.set()
+    connection._reader.join(WAIT)
+    assert not connection._reader.is_alive()
+    assert told == [[], [1]]
+    connection.close()
+
+
 def test_a_connection_closed_while_connecting_hangs_up_when_it_connects(
     tmp_path: Path, monkeypatch
 ):
