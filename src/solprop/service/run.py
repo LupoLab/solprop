@@ -21,13 +21,14 @@ import logging
 import threading
 import time
 import traceback
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from multiprocessing.connection import Connection
 from pathlib import Path
 
 import numpy as np
 
+from solprop.driver.executors import Pool
 from solprop.driver.scan import run_scan
 from solprop.exceptions import RunTerminated
 from solprop.grid import TimeGrid
@@ -499,12 +500,17 @@ def _written(recipe: Recipe, variables: Mapping[str, object]) -> list[list[str]]
 def _scan(
     recipe: Recipe,
     folder: Path,
-    run_id: str,
+    spec: RunSpec,
     outbox: Outbox,
     stop: threading.Event,
-    specs: Sequence[Mapping[str, object]] = (),
 ) -> tuple[str, dict[str, object]]:
     """Run a recipe's ``[scan]`` (``Recipe.scan`` and ``run_scan``) into its folder.
+
+    A scan a window runs goes point by point in its worker, as ``run_scan`` does by
+    default. A scan run as a job of its own (``spec.launcher`` other than
+    ``"window"``), on a machine or in a Slurm allocation, runs its points in a
+    :class:`~solprop.driver.executors.Pool` that sizes itself to the CPUs and memory
+    it was given (design 13.4).
 
     Parameters
     ----------
@@ -512,14 +518,13 @@ def _scan(
         The recipe, with its ``[scan]`` table.
     folder : pathlib.Path
         The scan's folder.
-    run_id : str
-        Its identity, for its events.
+    spec : solprop.service.worker.RunSpec
+        The run: its identity for its events, how it was started, and what it records
+        at each point beyond its statistics.
     outbox : solprop.service.outbox.Outbox
         Where its events go.
     stop : threading.Event
         Its stop flag: the points not yet started are not run.
-    specs : Sequence of Mapping, optional
-        What it records at each point beyond its statistics.
 
     Returns
     -------
@@ -529,7 +534,7 @@ def _scan(
     """
     scan = recipe.scan()
     output = folder / SCAN_OUTPUT
-    observer = ScanObserver(run_id, outbox)
+    observer = ScanObserver(spec.run_id, outbox)
     observer.shape = tuple(int(n) for n in scan.scan.shape)
     observer.names = list(scan.scan.variables)
     observer.values = _written(recipe, scan.scan.variables)
@@ -539,7 +544,8 @@ def _scan(
         output=output,
         progress=observer,
         stop=stop,
-        reductions=reductions(specs, recipe),
+        reductions=reductions(spec.reductions, recipe),
+        **({"executor": Pool()} if spec.launcher != "window" else {}),
         **scan.keywords,  # pyright: ignore[reportArgumentType]
     )
     failed = int(np.count_nonzero(np.asarray(result.status) == "failed"))
@@ -748,7 +754,7 @@ def _march(
         recipe = Recipe.loads(spec.recipe, base=Path(spec.base) if spec.base else None)
         (folder / RECIPE).write_text(spec.recipe, encoding="utf-8")
         if "scan" in recipe.to_dict():
-            return _scan(recipe, folder, spec.run_id, outbox, stop, spec.reductions)
+            return _scan(recipe, folder, spec, outbox, stop)
         # Built here and kept: a free-space run's planes are measured with its
         # grids and medium; run as Recipe.run would.
         simulation = recipe.build()

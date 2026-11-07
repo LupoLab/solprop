@@ -330,3 +330,22 @@ def test_a_run_ended_by_a_signal_ends_stopped(tmp_path, monkeypatch):
     (ending,) = [e for e in read_events(folder)[0] if e.terminal]
     assert ending.kind == "stopped" and ending.data["terminated"]
     assert ending.data["message"] == "terminated by SIGTERM"
+
+
+@pytest.mark.medium
+def test_a_scan_as_a_job_runs_its_points_in_a_pool(tmp_path):
+    from solprop.service import run as run_module  # noqa: PLC0415 - only here
+
+    scan = TINY.replace("n_save = 6", "n_save = 2") + (
+        '\n[scan]\nname = "pressure"\npressure = ["0.5 bar", "1 bar"]\n'
+    )
+    folder = tmp_path / "s1"
+    spec = RunSpec("s1", str(folder), recipe=scan, record=True, launcher="direct")
+    run_module.execute(spec)
+    events = read_events(folder)[0]
+    ends = [e for e in events if e.kind == "point" and e.data.get("status")]
+    assert sorted(e.data["status"] for e in ends) == ["done", "done"]
+    assert events[-1].kind == "finished" and events[-1].data["scan"]
+    summary = summarise(folder)
+    assert summary["state"] == "finished" and summary["scan"]
+    assert (summary["points"], summary["done"]) == (2, 2)
