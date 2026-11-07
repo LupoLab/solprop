@@ -34,8 +34,10 @@ function create_free(c, host)
     # read. Where the wide type is a double-float, the elements are formed once on the
     # host in binary64 (the compensated subtraction and the root need it) and held as
     # a rate table in the wide type and a prefactor at the state's precision.
-    op = wide_eltype(c) === Float64 ? map(v -> v isa Array ? upload(c, v) : v, separable) :
-         free_tables(c, separable, nw, nm)
+    # On a GPU in binary64 too: each source re-formed every element's prefactor, a root
+    # and a division (binary64 at an A40's 1/64 rate, about half a Cartesian window).
+    op = wide_eltype(c) === Float64 && oncpu(c) ?
+         map(v -> v isa Array ? upload(c, v) : v, separable) : free_tables(c, separable, nw, nm)
     c = merge(c, (
         spatial_shape=shape, op=op, field_scale=T(host.real("pad_scale")) * scale,
         absorber_scale=T(-0.5) * scale, spatial_rate=upload(c, T.(spatial_rate)),
@@ -144,7 +146,7 @@ function free_propagators!(engine, h)
         # The zero-distance stage is exactly the identity.
         fill!(forward, 1)
         fill!(inverse, 1)
-    elseif wide_eltype(c) !== Float64
+    elseif haskey(c.op, :rate)
         # The double-float exponent's pair shares one reduced phasor (wide_exp_pair).
         # (Names of their own: a captured name assigned in two branches is boxed.)
         rates, pair, length = c.op.rate, !c.low_storage, wide_value(c, Float64(h))
