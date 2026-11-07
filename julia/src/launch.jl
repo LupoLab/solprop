@@ -74,10 +74,12 @@ end
 """Split `nt` x `nm` samples into column pieces: one task's worth each.
 
 A `heavy` body (tens of operations a sample, such as the phi functions) is worth
-splitting at a thirty-second of the samples a light one needs.
+splitting from a few hundred samples.
 """
 function tiling(tasks, nt, nm, heavy=false)
-    least = heavy ? PARALLEL_SAMPLES ÷ 32 : PARALLEL_SAMPLES
+    # A heavy body (the Adams trial's phi functions, about 100 ns an element) pays for a
+    # task from a few hundred elements: argon's 1601 ran serially on 16 threads.
+    least = heavy ? 256 : PARALLEL_SAMPLES
     if tasks == 1 || nt * nm < least
         return 1, nt
     end
