@@ -224,3 +224,17 @@ def test_selecting_native_and_admitting_a_scan_ask_for_a_calibration(
     with pytest.raises(StopError):
         pool.Pool(threads=1)._admit(lambda: None, None)  # pyright: ignore[reportPrivateUsage]
     assert asked == ["ensure", "workers"]
+
+
+def test_without_the_native_backend_first_use_does_nothing(
+    auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from solprop.exceptions import BackendError  # noqa: PLC0415
+
+    def missing() -> tuple[Path, ...]:
+        raise BackendError("install solprop-native")
+
+    monkeypatch.setattr(_native, "packages", missing)
+    assert first_use.ensure() is None
+    assert first_use.for_workers([0]) is None
+    assert auto == []

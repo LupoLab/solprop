@@ -112,17 +112,18 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
     tmp_path: Path, baseline: dict[str, Any]
 ) -> None:
     allocation = cast(dict[str, object], baseline["allocation"])
+    # The row's width within the process's budget, which a small runner holds to one;
+    # its workspace settings were fitted under the width the process then runs.
+    width = min(2, baseline["threads"])
     row = Row(
         allocation=allocation,
         level="standard",
         process={"threads": 2, "wait": "passive"},
         workspace={"stage_threshold": 1234, "stage_full": 1234},
-        fitted_under={"threads": 2, "wait": "passive"},
+        fitted_under={"threads": width, "wait": "passive"},
     )
     _publish(tmp_path, baseline, row)
     applied = _report(tmp_path)
-    # The row's width within the process's budget, which a small runner holds to one.
-    width = min(2, baseline["threads"])
     assert (applied["threads"], applied["wait"]) == (width, "passive")
     assert (applied["stage"], applied["source"]) == (1234, "profile")
     calibration = cast(dict[str, Any], applied["calibration"])

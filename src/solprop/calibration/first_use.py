@@ -31,7 +31,7 @@ from typing import TYPE_CHECKING
 
 from solprop import _process
 from solprop.calibration import _native
-from solprop.exceptions import CalibrationNotice
+from solprop.exceptions import BackendError, CalibrationNotice
 
 if TYPE_CHECKING:
     from solprop_native._allocation import (  # pyright: ignore[reportMissingImports]
@@ -209,6 +209,12 @@ def _calibrate(
     CalibrationReport or None
         The report, or ``None`` when nothing was measured.
     """
+    try:
+        _native.store.mode(environ)
+    except BackendError, ImportError:
+        # No native backend, or one without the calibration's modules: selecting it
+        # fails, or runs on its own table, on its own terms.
+        return None
     if not _allowed(environ):
         return None
     from solprop import calibration  # noqa: PLC0415 - imports this module's package
