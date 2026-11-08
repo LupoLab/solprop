@@ -176,8 +176,66 @@ inline constexpr bool band_block_filter = true;
 inline constexpr bool band_block_filter = false;
 #endif
 
+/** Whether a host band filter not run tap pair by tap pair sums each interior sample's
+    taps in one unrolled pass over blocks of samples (`band_filter_interior`): every
+    host but x86-64's. */
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+inline constexpr bool band_unrolled_filter = !band_block_filter;
+#else
+inline constexpr bool band_unrolled_filter = false;
+#endif
+
 /** Samples a host thread filters at a time with `band_block_filter`. */
 inline constexpr int band_host_filter_block = 512;
+
+/**
+ * Filter the interior samples `[low, high)` of a host row, `half` taps a side known at
+ * compile time: each sample's sum in `band_filter_at`'s order, the centre and then each
+ * pair, so the values are its own bit for bit. With the tap count fixed the sum unrolls
+ * and the compiler runs it across samples, the form of the Julia backend experiment's
+ * single-pass filter (solprop issue #560, idea 6). The caller keeps the samples within
+ * `half` of the row's ends out of `[low, high)`.
+ */
+template <int Half>
+KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
+                                                 const int low, const int high,
+                                                 const double* taps) {
+  double weights[static_cast<std::size_t>(Half) + 1];
+  for (int k = 0; k <= Half; ++k)
+    weights[k] = taps[k];
+  for (int index = low; index < high; ++index) {
+    double total = weights[0] * row[index];
+    for (int k = 1; k <= Half; ++k)
+      total += weights[k] * (row[index - k] + row[index + k]);
+    out[index] = total;
+  }
+}
+
+/** `band_filter_interior` for a run-time `half` of at most `band_max_half`. */
+KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
+                                                 const int low, const int high,
+                                                 const double* taps, const int half) {
+  switch (half) {
+  case 0:
+    return band_filter_interior<0>(row, out, low, high, taps);
+  case 1:
+    return band_filter_interior<1>(row, out, low, high, taps);
+  case 2:
+    return band_filter_interior<2>(row, out, low, high, taps);
+  case 3:
+    return band_filter_interior<3>(row, out, low, high, taps);
+  case 4:
+    return band_filter_interior<4>(row, out, low, high, taps);
+  case 5:
+    return band_filter_interior<5>(row, out, low, high, taps);
+  case 6:
+    return band_filter_interior<6>(row, out, low, high, taps);
+  case 7:
+    return band_filter_interior<7>(row, out, low, high, taps);
+  default:
+    return band_filter_interior<band_max_half>(row, out, low, high, taps);
+  }
+}
 
 /** A staged band filter's tile in a team's scratch. */
 template <class ScratchSpace>
@@ -335,6 +393,25 @@ team_band_filter(const TeamMember& team, const Tile& tile, const Source& source,
           for (int index = inner_low; index < inner_high; ++index)
             out[index] += tap * (row[index - k] + row[index + k]);
         }
+        for (int index = inner_high; index < high; ++index)
+          out[index] = band_filter_at(direct, index, samples, taps, half);
+      });
+    } else if constexpr (band_unrolled_filter) {
+      // Elsewhere on a host each thread takes blocks of samples and sums each interior
+      // sample's taps in one unrolled pass (`band_filter_interior`).
+      const double* const row = &source(source_row, 0);
+      double* const out = &target(target_row, 0);
+      const int interior_end = samples - half;
+      const int blocks =
+          (finish - begin + band_host_filter_block - 1) / band_host_filter_block;
+      Kokkos::parallel_for(Kokkos::TeamThreadRange(team, blocks), [&](const int block) {
+        const int low = begin + block * band_host_filter_block;
+        const int high = Kokkos::min(low + band_host_filter_block, finish);
+        const int inner_low = Kokkos::min(Kokkos::max(low, half), high);
+        const int inner_high = Kokkos::max(Kokkos::min(high, interior_end), inner_low);
+        for (int index = low; index < inner_low; ++index)
+          out[index] = band_filter_at(direct, index, samples, taps, half);
+        band_filter_interior(row, out, inner_low, inner_high, taps, half);
         for (int index = inner_high; index < high; ++index)
           out[index] = band_filter_at(direct, index, samples, taps, half);
       });

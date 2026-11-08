@@ -7,13 +7,18 @@
 # (u10) functions, called over contiguous blocks. glibc's scalar exp, cos and sin cost a
 # complex exponential 10 to 30 ns on an AMD EPYC 7763 and 9.8 ns on an Intel Xeon Gold
 # 6240, and SLEEF's AVX2 and AVX-512 functions take it 3 to 3.6 times faster at the same
-# worst error on the kernels' own arguments; on Apple silicon the system libm is already
-# about 3 ns and SLEEF's AdvSIMD functions gain nothing.
+# worst error on the kernels' own arguments. On Apple silicon the system libm is already
+# about 3 ns, but SLEEF's AdvSIMD functions over the gathered blocks, and the passes and
+# lanes kernels they enable, ran an Apple M5 Max's cases faster once the plasma column
+# gathered its live samples: comb-to-continuum 0.84 at one thread and 0.87 at six, the
+# averaged helium 0.91, the Raman GNLSE 0.91, the graded-index guide level within its
+# A/A spread; geometric mean 0.934 (solprop issue #339, November 2026). Earlier, with
+# per-sample plasma kernels, it was 11.6 % slower there.
 #
-# AUTO takes SLEEF on x86-64 CPU builds and the system libm on Arm (Apple silicon, where
-# it was measured, and Linux aarch64, not yet measured) and in device builds, whose
-# kernels keep their own functions. SLEEF requests it on Arm too (its AdvSIMD
-# functions); SCALAR keeps the system libm everywhere. The variant follows the code's
+# AUTO takes SLEEF on x86-64 CPU builds and on macOS arm64, and the system libm on Linux
+# aarch64 (where SLEEF measured level, 1.00 on a Neoverse V2) and in device builds, whose
+# kernels keep their own functions. SLEEF requests it on Linux aarch64 too (its AdvSIMD functions); SCALAR keeps
+# the system libm everywhere. The variant follows the code's
 # target: AVX2 with FMA where it has them (the distribution's x86-64-v3 included), else
 # SSE2; AdvSIMD on aarch64. SOLPROP_NATIVE_VECTOR_MATH_AVX512 takes the AVX-512F
 # functions on a target with AVX-512F: on one thread they ran the tracking cases about
@@ -47,7 +52,7 @@ if(_device_build)
   endif()
   set(SOLPROP_NATIVE_VECTOR_MATH "SCALAR")
 elseif(_vector_math_request STREQUAL "AUTO")
-  if(_x86_processor)
+  if(_x86_processor OR (APPLE AND _vector_math_arm))
     set(SOLPROP_NATIVE_VECTOR_MATH "SLEEF")
   else()
     set(SOLPROP_NATIVE_VECTOR_MATH "SCALAR")

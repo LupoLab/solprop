@@ -131,8 +131,10 @@ measured while it existed.
   cost; two small kernels now run them on the band column's response team. Plain
   loops tried earlier ran on the product's serial instance and lost; on the team
   `argon_blueshift` takes 0.68 of its time at 16 threads on a Xeon Gold 6240 and 0.60
-  on an AMD EPYC 7763, one thread unchanged. OpenBLAS builds only: with Apple's
-  Accelerate the GEMM was faster, and the kernels slowed `argon_blueshift` on macOS.
+  on an AMD EPYC 7763, one thread unchanged. With Apple's Accelerate they were first left
+  out (on 18 threads with idle threads asleep they slowed `argon_blueshift`); on the M5
+  Max's six top-tier cores with idle threads spinning they take its window to 0.96 and
+  `rdw_one_mode`'s to 0.97, so every host BLAS build now takes them (November 2026).
 - **NumPy's BLAS held to one thread while a native backend lives**
   ([measurements](benchmarks.md#numpys-blas-beside-a-native-run)). Its pthreads
   workers, woken by the small host-side products of each saved plane, spun on the native

@@ -102,7 +102,7 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--threading",
         choices=tuple(THREADING),
-        default="passive",
+        default="backend",
         help="OpenMP placement and waiting (benchmarks/system.py)",
     )
 
@@ -138,7 +138,7 @@ def steppers(value: str) -> tuple[str, ...]:
 
 
 def summarise(
-    row: Record, result: Record, busy: bool, threading: str = "passive"
+    row: Record, result: Record, busy: bool, threading: str = "backend"
 ) -> Record:
     """Reduce one worker's receipt to the tracked statistics.
 

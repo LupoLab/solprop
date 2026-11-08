@@ -218,6 +218,38 @@ def physical_cores(
     return None
 
 
+def _sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
+    """Read an integer ``sysctl`` value by name on macOS, or ``None``."""
+    import ctypes
+
+    value = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    try:
+        found = ctypes.CDLL(None).sysctlbyname(
+            name.encode(), ctypes.byref(value), ctypes.byref(size), None, 0
+        )
+    except AttributeError, OSError:
+        return None
+    return value.value if found == 0 else None
+
+
+@functools.cache
+def top_tier_cores() -> int | None:
+    """Count the cores of a chip's fastest kind, where it has more than one kind.
+
+    A region waits for its slowest thread, so a team spanning slower cores runs at
+    their pace (solprop issue #333). macOS reports the kinds as performance levels,
+    level 0 the fastest; other platforms are not read here, so give ``None``.
+    """
+    if sys.platform != "darwin":
+        return None
+    levels = _sysctl_int("hw.nperflevels")
+    if levels is None or levels < 2:
+        return None
+    cores = _sysctl_int("hw.perflevel0.physicalcpu")
+    return cores if cores is not None and cores > 0 else None
+
+
 def thread_count(name: str) -> int | None:
     """Read a positive thread count from the environment, ``None`` when unset."""
     value = os.environ.get(name, "").strip()
@@ -248,15 +280,18 @@ def thread_budget(cpus: int, cores: int | None = None) -> ThreadBudget:
     ``SOLPROP_THREADS``.
 
     ``cpus`` is the process's affinity mask as counted before Kokkos started, and
-    ``cores`` the physical cores that hold them (:func:`physical_cores`), which count
-    only when ``SOLPROP_THREADS`` is unset. The same budget as solprop's (and so the
-    same ``thread_budget`` in every backend's metadata); ``SOLPROP_NATIVE_THREADS`` is
-    an explicit count within it (:func:`native_threads`).
+    ``cores`` the physical cores that hold them (:func:`physical_cores`), which count,
+    with the fastest kind's cores (:func:`top_tier_cores`), only when
+    ``SOLPROP_THREADS`` is unset. The same budget as solprop's (and so the same
+    ``thread_budget`` in every backend's metadata); ``SOLPROP_NATIVE_THREADS`` is an
+    explicit count within it (:func:`native_threads`).
     """
     limits = [(max(1, cpus), "affinity")]
     requested = thread_count("SOLPROP_THREADS")
     if requested is None and cores is not None:
         limits.append((cores, "physical cores"))
+    if requested is None and (top := top_tier_cores()) is not None:
+        limits.append((top, "top-tier cores"))
     quota = cgroup_cpus()
     if quota is not None:
         limits.append((quota, "cgroup quota"))

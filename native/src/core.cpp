@@ -21,7 +21,16 @@
 namespace solprop_native {
 namespace {
 ThreadPolicy configured_threads;
-}
+// The runtime's width, which every unscoped OpenMP region on any thread takes
+// (`CpuTeamScope`): Kokkos sets the default only on the thread that initialised it.
+std::atomic<int> runtime_width{0};
+#if defined(KOKKOS_ENABLE_OPENMP) && !defined(KOKKOS_ENABLE_CUDA) &&                   \
+    !defined(KOKKOS_ENABLE_HIP)
+// What the operation thresholds are divided by (`spinning_threshold_divisor` while
+// LLVM's runtime spins within native calls, `configure_native_spin`; else one).
+std::atomic<std::size_t> threshold_divisor{1};
+#endif
+} // namespace
 
 ThreadPolicy thread_policy() {
   if (configured_threads.kernels != 0)
@@ -50,6 +59,7 @@ void configure_thread_policy(ThreadPolicy requested) {
   if (configured_threads.kernels != 0 && configured_threads != requested)
     throw std::runtime_error("native CPU thread policy was already initialized");
   configured_threads = requested;
+  runtime_width = limit;
 }
 
 ExecutionSpace execution_instance(const int threads) {
@@ -112,6 +122,12 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
     full = adams_full_thread_elements;
     break;
   }
+  if (const std::size_t divisor = threshold_divisor.load(std::memory_order_relaxed);
+      divisor > 1 && (operation != CpuOperation::fft ||
+                      threshold == default_threaded_fft_min_samples)) {
+    threshold = std::max<std::size_t>(1, threshold / divisor);
+    full = std::max(threshold, full / divisor);
+  }
   if (elements < threshold)
     return 1;
   if (operation == CpuOperation::response &&
@@ -132,13 +148,22 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
 namespace {
 thread_local int fftw_loop_team = 0;
 
+// The width of a region outside any scope: the runtime's (`runtime_width`), or the
+// calling thread's OpenMP default before the runtime is configured.
+int unscoped_width() noexcept {
+  const int width = runtime_width.load(std::memory_order_relaxed);
+  return width > 0 ? width : omp_get_max_threads();
+}
+
 // FFTW's threaded loop (its `threads_set_callback`): the jobs on the scoped team, or,
 // outside a scope, on the runtime's whole team as FFTW's own OpenMP loop runs them.
 void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
                     const int count, void* /*data*/) {
   const int team = fftw_loop_team;
   if (team == 0) {
-#pragma omp parallel for
+    // The runtime's width, named: on a thread other than Kokkos', the OpenMP default
+    // is every CPU (solprop issue #130).
+#pragma omp parallel for num_threads(unscoped_width())
     for (int job = 0; job < count; ++job)
       work(jobs + size * static_cast<std::size_t>(job));
   } else {
@@ -195,7 +220,61 @@ std::atomic<bool> openmp_blas{false};
 thread_local int blas_holds = 0;
 #if defined(KOKKOS_ENABLE_OPENMP)
 thread_local int blas_saved_default = 0;
+// The calling thread's scopes, and its OpenMP default before the outermost of them.
+thread_local int scope_depth = 0;
+thread_local int scope_saved_default = 0;
 #endif
+// LLVM's runtime's block time while a native call runs (`configure_native_spin`), in
+// milliseconds; zero leaves the process's. The caller's is restored at the call's end.
+std::atomic<int> native_spin_milliseconds{0};
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR)
+thread_local int scope_saved_blocktime = -1;
+#endif
+
+// The outermost scope on a thread sets the thread's OpenMP default width to the
+// runtime's, and its end restores the caller's. Kokkos sets the default only on the
+// thread that initialised it; on any other thread it is every CPU, which an OpenMP
+// OpenBLAS and an unnamed region read, so that a run on a Python thread switched GNU
+// OpenMP between that width and Kokkos' at every pair: 9 to 19 times slower on two
+// Intel Xeon Gold 6240 (solprop issue #130).
+void enter_runtime_default() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  if (scope_depth++ != 0)
+    return;
+#if defined(KMP_VERSION_MAJOR)
+  // LLVM's runtime: idle threads spin for a short while inside native work and sleep
+  // at once outside it (solprop ADR-071).
+  scope_saved_blocktime = -1;
+  if (const int spin = native_spin_milliseconds.load(std::memory_order_relaxed);
+      spin > 0) {
+    scope_saved_blocktime = kmp_get_blocktime();
+    if (scope_saved_blocktime != spin)
+      kmp_set_blocktime(spin);
+    else
+      scope_saved_blocktime = -1;
+  }
+#endif
+  scope_saved_default = 0;
+  const int width = runtime_width.load(std::memory_order_relaxed);
+  const int current = omp_get_max_threads();
+  if (width > 0 && current != width) {
+    scope_saved_default = current;
+    omp_set_num_threads(width);
+  }
+#endif
+}
+void leave_runtime_default() noexcept {
+#if defined(KOKKOS_ENABLE_OPENMP)
+  if (--scope_depth != 0)
+    return;
+  if (scope_saved_default != 0)
+    omp_set_num_threads(scope_saved_default);
+#if defined(KMP_VERSION_MAJOR)
+  if (scope_saved_blocktime >= 0)
+    kmp_set_blocktime(scope_saved_blocktime);
+#endif
+#endif
+}
 
 // An OpenMP OpenBLAS runs a call serially when the caller's OpenMP default width
 // (`omp_get_max_threads`) is one, before it reads its own count, so the hold sets only
@@ -220,6 +299,7 @@ void register_openmp_blas(const bool registered) noexcept { openmp_blas = regist
 
 CpuTeamScope::CpuTeamScope(const int threads) noexcept
     : saved_(enter_fftw_team(threads)) {
+  enter_runtime_default();
   if (threads != 0 && openmp_blas.load()) {
     holds_blas_ = true;
     if (blas_holds++ == 0)
@@ -230,6 +310,38 @@ CpuTeamScope::~CpuTeamScope() {
   leave_fftw_team(saved_);
   if (holds_blas_ && --blas_holds == 0)
     release_blas();
+  leave_runtime_default();
+}
+
+void configure_native_spin(const int milliseconds) {
+  if (milliseconds < 0)
+    throw std::invalid_argument("a spin time cannot be negative");
+  native_spin_milliseconds = milliseconds;
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR) &&                     \
+    defined(__APPLE__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  threshold_divisor =
+      milliseconds > 0 && runtime_width.load() <= spinning_threshold_max_team
+          ? spinning_threshold_divisor
+          : 1;
+#endif
+}
+
+int scoped_block_time() noexcept {
+  const CpuTeamScope scope(0);
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR)
+  return kmp_get_blocktime();
+#else
+  return -1;
+#endif
+}
+
+int scoped_openmp_default() noexcept {
+  const CpuTeamScope scope(0);
+#if defined(KOKKOS_ENABLE_OPENMP)
+  return omp_get_max_threads();
+#else
+  return 1;
+#endif
 }
 
 bool compact_problem(const Problem& problem) noexcept {

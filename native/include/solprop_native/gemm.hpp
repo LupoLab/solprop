@@ -277,11 +277,13 @@ void engine_gemm(const ExecutionSpace& execution_space, const AView& a, const BV
 // on the caller's team instead, the response team that writes the node rows (solprop
 // docs/dev/benchmarks.md, "One-mode products on the response team"). Each element is
 // one product, or a sum over the nodes in order from zero, within the GEMM rounding
-// bound. Apple's Accelerate runs the small calls well: on an 18-core Apple M5 Max the
-// kernels on the 18-thread response team took argon_blueshift from 3.0 to 3.8 s.
+// bound. With Apple's Accelerate they were once left out: on an 18-core Apple M5 Max
+// the kernels on the 18-thread response team, with idle threads asleep, took
+// argon_blueshift from 3.0 to 3.8 s. On its six top-tier cores with idle threads
+// spinning (ADR-070, ADR-071) they take its window to 0.96 and rdw_one_mode's to 0.97
+// (November 2026), so every host BLAS takes them.
 inline constexpr bool one_mode_products_enabled =
-#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) &&                                          \
-    defined(SOLPROP_NATIVE_TPL_BLAS_OPENBLAS) && !defined(KOKKOS_ENABLE_CUDA) &&       \
+#if defined(KOKKOSKERNELS_ENABLE_TPL_BLAS) && !defined(KOKKOS_ENABLE_CUDA) &&          \
     !defined(KOKKOS_ENABLE_HIP)
     true;
 #else

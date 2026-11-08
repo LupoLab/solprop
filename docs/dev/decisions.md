@@ -1987,3 +1987,101 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** native Runge–Kutta trajectories moved once at rounding level (phase 2); the
   split collar's crossing limit sums in one sequential order (Q7); the driver's protected
   surface gained `_account_step`, `_statistics_step` and `_watched_step` for `_skip_step`.
+
+## ADR-070 — On a chip with cores of several kinds, the budget is the fastest kind's cores
+
+- **Status:** accepted (maintainer), 2026-11-07; amends ADR-052 and ADR-056.
+- **Context:** the budget counted every core of an Apple M5 Max, 6 top-tier and 12 second-tier
+  (macOS performance levels 0 and 1). A parallel pass splits its work evenly and waits for its
+  slowest thread, so a team spanning both kinds runs at the second tier's pace. Native 2 %
+  windows on that chip (#333, 2026-11-07, every width in one session): five of six cases took
+  1.17–1.49 times as long at the default 18 threads as at 6, and already lost at 8; only the
+  Cartesian beam was faster at 18 (0.94) and at 12. Waiting policy did not change this. The
+  Julia backend experiment (#559, #560) was also fastest on 6 threads in most cases.
+- **Decision:** where macOS reports more than one performance level, the budget also counts the
+  cores of level 0 (`hw.perflevel0.physicalcpu`), unless `SOLPROP_THREADS` is set, as with the
+  physical cores (ADR-056). The limit is recorded as `thread_budget_source = "top-tier cores"`.
+  Linux and Windows are not read: no measurement there on a chip with two kinds of core.
+- **Why:** the narrower team is the best or near the best for every case measured, and the
+  wider budget stays one variable away for the problems that use it.
+- **Consequences:** a default run on an M5 Max takes 6 threads, not 18. Scheduling that lets a
+  wider team pay on such chips (dynamic chunks, a capped second tier) is measured separately
+  and does not change this default.
+
+## ADR-071 — Idle threads spin briefly within native work
+
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576); supersedes
+  ADR-056's waiting.
+- **Context:** a native step opens tens of short parallel regions (about 16 in an `rdw` Adams
+  trial). With idle threads asleep (ADR-056), each region wakes them: 16 µs at 6 threads and
+  55 µs at 18 on an Apple M5 Max (LLVM's runtime), 36 µs at 16 and 72 µs at 36 on two Intel
+  Xeon Gold 6240 (GNU's). A short spin brings that to 0.6–2.4 µs and 6–12 µs. Over windows of
+  the benchmark cases, same steps, environment only: M5 Max at 6 threads geomean about 0.83
+  (`line` 0.52, `rdw` 0.75); Xeon 0.82 (36 threads: `kerr_beam_192` 0.37, `line` 0.45,
+  `radial_filament_256` 0.50); 16 cores of a shared EPYC 7763 node 0.79 and 0.80, every case
+  faster in the second; 16 cores of a Google Axion (Neoverse V2, the distribution build with
+  OpenMP OpenBLAS) 0.94, no case slower beyond its spread. ADR-056's loss at 10,000 spins (1.4–3.3 times on that EPYC) no longer
+  reproduces: the teams it blamed now share one runtime and NumPy's BLAS holds one thread.
+  On the M5 Max's 12 second-tier cores spinning loses (most cases 1.1–1.35 at 18 threads), as
+  LLVM's runtime itself assumes: it turns spinning off on chips with cores of two kinds.
+  On Windows (16 cores of an AMD EPYC 9B45, LLVM's runtime) a process-wide 1 ms block time
+  ran 0.957, with the Raman GNLSE 1.12 and the reduced supercontinuum 1.07; the block time
+  scoped to native calls ran 0.874 at 16 threads, ten of twelve cases 9–30 % faster and those
+  two still about 8 % slower.
+- **Decision:** unless the user set `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `KMP_BLOCKTIME`, the
+  native import sets `GOMP_SPINCOUNT=10000` (GNU's runtime reads it once) and
+  `KMP_BLOCKTIME=0` (LLVM's), and the core sets LLVM's block time to 1 ms while a native call
+  runs and back at its end (`kmp_set_blocktime`), so idle threads sleep at once outside
+  native work. On every platform, Windows included, a team wider than the fastest kind of
+  core (ADR-070) sleeps at once, as before. A marker variable lets a child process
+  recompute an inherited default.
+- **Why:** the gain is large wherever regions are short and many, and the spin is bounded
+  to native work on LLVM's runtime and to about ten microseconds on GNU's.
+- **Consequences:** `openmp_wait_policy` records `spin` or `passive`. The benchmark harness
+  gains a `backend` threading preset that leaves the choice to the backend; its `passive`
+  default is unchanged pending a decision on the history's series.
+
+## ADR-072 — SLEEF's vector maths on macOS arm64 too
+
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576); amends ADR-059.
+- **Context:** ADR-059 kept the system libm on Apple silicon, where SLEEF's AdvSIMD functions
+  measured 11.6 % slower. Since then the plasma column gathers its live samples into blocks
+  and the Adams passes have a lanes form, both used only with vector maths. On an Apple M5 Max
+  (NEON FFTW, PR #576's head, 5 interleaved rounds, same steps): comb-to-continuum 0.840 /
+  0.867 (one / six threads), averaged helium 0.914 / 0.938, Raman GNLSE 0.914 / 0.965, argon
+  0.935 / 0.910, RDW 0.967 / 0.965, the graded-index guide 1.002 / 1.001 within its A/A spread
+  (0.97–1.03); geometric mean 0.934 (solprop issue #339).
+- **Decision:** `SOLPROP_NATIVE_VECTOR_MATH=AUTO` takes SLEEF's u10 AdvSIMD functions on macOS
+  arm64. Linux aarch64 keeps the system libm: on 16 cores of a Google Axion (Neoverse V2,
+  the distribution build) SLEEF measured 1.003 over the same cases at one and 16 threads,
+  from 0.95 (Raman GNLSE) to 1.09 (comb-to-continuum, one thread). glibc's libm is not
+  Apple's.
+- **Consequences:** macOS wheels build and link SLEEF statically, as the x86-64 ones do; fields
+  move by rounding only, within the 1 ulp bound the budgets assume.
+
+## ADR-073 — Lower operation thresholds on Apple silicon's spinning top tier
+
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576).
+- **Context:** the native CPU thresholds (`core.hpp`) were swept with idle threads asleep, a
+  fork and join of 16 threads costing 100–200 µs. Under ADR-071's spin a region costs about
+  0.6 µs on 6 threads and 2.4 µs on 18 (LLVM's runtime, Apple M5 Max), 6–12 µs on 16–36
+  (Intel Xeon Gold 6240). On the M5 Max at six threads, dividing every threshold by 16 on top
+  of the spin: Raman GNLSE 0.70, soliton GNLSE 0.72, `line` 0.88, averaged argon 0.89, Raman
+  hydrogen 0.90, comb-to-continuum 0.91, none slower beyond its spread (A/B against PR #576's
+  head, 3 rounds). Elsewhere it loses: on two Xeon Gold 6240 the averaged hydrogen and argon
+  and the Raman GNLSE ran 1.07–1.7 times slower at 4, 8, 18 and 36 threads under either
+  runtime (geometric means 1.05–1.11; the large problems gained 0.79–0.97), and on 16 cores of
+  an AMD EPYC 7763 under GNU's runtime a quarter to a sixteenth gave 1.09–1.13. On 16 cores
+  of a Google Axion (Neoverse V2, GNU's runtime, the distribution build) a sixteenth gave
+  1.06 over 8 and 16 threads: argon 1.18 and 1.63, averaged argon 1.42–1.44, averaged
+  hydrogen 1.16, against `line` 0.90–0.94 and Raman hydrogen 0.94. The M5 Max's
+  top-tier cluster shares one L2 cache, so threading a small pass costs little; Xeon cores
+  share only the L3. The right grain is the machine's.
+- **Decision:** on Apple silicon, while LLVM's runtime spins within native calls on a team of
+  at most `spinning_threshold_max_team` (8) threads, every operation threshold is divided by
+  `spinning_threshold_divisor` (16); a `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` the user set
+  is kept. Every other platform keeps the table.
+- **Consequences:** a default run on an Apple M5 Max (six top-tier threads) takes the lower
+  thresholds; Linux, Windows and wider teams are unchanged. A grain calibrated per machine at
+  start-up (from the measured region cost and a small-pass probe) is the general form and a
+  lead; this decision measures one platform and keeps to it.

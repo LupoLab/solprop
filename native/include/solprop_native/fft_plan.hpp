@@ -191,6 +191,11 @@ public:
       const auto range = std::make_pair(first, first + active);
       Input in = Kokkos::subview(input, range, Kokkos::ALL());
       Output out = Kokkos::subview(output, range, Kokkos::ALL());
+      // Measured like the full rows (`seed_row_fft_wisdom`), before the plan: planning
+      // overwrites both buffers, which the caller clears afterwards.
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+      seed_row_fft_wisdom(execution, in, out, direction);
+#endif
       auto plan = std::make_unique<Plan>(execution, in, out, direction, -1);
       blocks_.push_back({in, out, std::move(plan)});
     }
