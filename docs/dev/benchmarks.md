@@ -3373,3 +3373,12 @@ and 0.90 (ranges 1.08–1.25 and 0.72–1.15), `line` 0.98 and 1.02. Against nat
 s, `kerr_beam_192` is about 1.24 in binary64. A first version that also changed the small
 states' copy to a broadcast cost `rdw` 1.12: the new method compiled inside the timed
 window (the compile trace lists the old operations).
+
+**An order-independent Adams trial graph** (tried and reverted): the predictor and
+corrector compiled at the largest width, reading the trial's order, width and defect
+rows from device memory, so that one graph serves a run (`rdw` captured once and
+replayed every trial; launches a step 14.3 to 11.2, `argon_blueshift` 7.5 to 4.4).
+Against `e3b07264` (jl35, 3 rounds): binary64 1.03 (`rdw` 1.45, `h2_raman_6ps` 1.09,
+`argon_blueshift` 0.97, `ctc_reduced` 1.00), binary32 df32 1.10 (`rdw` 1.70). The
+predictor's phi functions formed to the largest width cost more than the three
+launches saved, and the host time left is not in those launches.
