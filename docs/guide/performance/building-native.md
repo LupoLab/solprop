@@ -44,7 +44,7 @@ them:
 | [Kokkos](https://github.com/kokkos/kokkos) | 5.2.1 | execution spaces, views and parallel patterns |
 | [Kokkos Kernels](https://github.com/kokkos/kokkos-kernels) | 5.2.0 | dense GEMM (BLAS component only), dispatching to the vendor BLAS |
 | [Kokkos-FFT](https://github.com/kokkos/kokkos-fft) | 2.0.0 | FFTs over FFTW, cuFFT or rocFFT |
-| [SLEEF](https://github.com/shibatch/sleef) | 3.9.0 | vector `exp`, `log` and `sincos` for the CPU kernels on x86-64 (see [vector maths](#vector-maths)); built static as its own CMake project, and not fetched where the system libm is used |
+| [SLEEF](https://github.com/shibatch/sleef) | 3.9.0 | vector `exp`, `log` and `sincos` for the CPU kernels on x86-64 and macOS arm64 (see [vector maths](#vector-maths)); built static as its own CMake project, and not fetched where the system libm is used |
 | [GoogleTest](https://github.com/google/googletest) | 1.17.0 | the native tests only, when `BUILD_TESTING=ON` |
 
 The Python build requirements are scikit-build-core 0.11 and nanobind 2.9 or newer. CPU
@@ -344,7 +344,7 @@ The options are read by `native/CMakeLists.txt` and `native/cmake/HostLibraries.
 | `SOLPROP_NATIVE_ENABLE_IPO` | `ON` | checked IPO/LTO for CPU Release builds; never for CUDA or HIP |
 | `SOLPROP_NATIVE_ENABLE_AGGRESSIVE_VECTORIZATION` | `ON` | sets `Kokkos_ENABLE_AGGRESSIVE_VECTORIZATION` |
 | `SOLPROP_NATIVE_ENABLE_COVERAGE` | `OFF` | a Clang CPU build with source coverage, for development only; disables IPO, and its timings are not performance evidence |
-| `SOLPROP_NATIVE_VECTOR_MATH` | `AUTO` | the CPU kernels' transcendental functions ([vector maths](#vector-maths)): `AUTO` (SLEEF on x86-64 CPU builds, the system libm on Arm and in GPU builds), `SLEEF` (also on aarch64, with its AdvSIMD functions) or `SCALAR` (the system libm). Not `SLEEF` in a GPU build |
+| `SOLPROP_NATIVE_VECTOR_MATH` | `AUTO` | the CPU kernels' transcendental functions ([vector maths](#vector-maths)): `AUTO` (SLEEF on x86-64 CPU builds and on macOS arm64, the system libm on Linux aarch64 and in GPU builds), `SLEEF` (also on Linux aarch64, with its AdvSIMD functions) or `SCALAR` (the system libm). Not `SLEEF` in a GPU build |
 | `SOLPROP_NATIVE_VECTOR_MATH_AVX512` | `OFF` | `ON` takes SLEEF's AVX-512F functions where the target has AVX-512F, instead of its AVX2 ones: faster on AMD Zen 5, slower on Intel's Ice Lake generation ([vector maths](#vector-maths)) |
 
 **Execution space**

@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ._bind import proc_bind
-from ._budget import native_threads, physical_cores, thread_budget
+from ._budget import native_threads, physical_cores, thread_budget, top_tier_cores
 from ._cpu import check_cpu_baseline, select_variant
 from ._wait import wait_policy
 
@@ -61,9 +61,11 @@ THREAD_BUDGET = thread_budget(
 )
 _REQUESTED_THREADS = native_threads(THREAD_BUDGET)
 
-# How the OpenMP runtime's idle threads wait: they sleep at once unless the user chose
-# otherwise. The runtime reads this when the core loads it, just below.
-WAIT_POLICY = wait_policy()
+# How the OpenMP runtime's idle threads wait: a short spin within native work, unless
+# the user chose otherwise (ADR-071). The runtime reads this when the core loads it,
+# just below.
+_WAIT = wait_policy(threads=_REQUESTED_THREADS, top_tier=top_tier_cores())
+WAIT_POLICY = _WAIT.description
 
 # Whether its threads are bound: not, unless the user placed them. Kokkos reads this
 # when the core starts it, just below, and otherwise prints a notice.
@@ -158,6 +160,7 @@ _core.initialize_runtime(
     _pool_request("SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES", "sample count"),
     _band_request(),
 )
+_core.configure_native_spin(_WAIT.spin_milliseconds)
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to

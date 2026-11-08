@@ -19,6 +19,12 @@ NATIVE_BUDGET = (
 )
 
 
+@pytest.fixture(autouse=True)
+def _one_kind_of_core(monkeypatch):
+    """Fake topologies stand alone: this machine's kinds of core do not enter them."""
+    monkeypatch.setattr(_process, "top_tier_cores", lambda: None)
+
+
 @pytest.fixture
 def granted(monkeypatch):
     """A process granted CPUs 0-17 at import."""
@@ -228,6 +234,7 @@ def native_budget(monkeypatch):
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, "_native_budget", module)
     spec.loader.exec_module(module)
+    monkeypatch.setattr(module, "top_tier_cores", lambda: None)
     return module
 
 
@@ -413,20 +420,49 @@ def test_the_budget_counts_physical_cores_unless_threads_are_asked_for(
 
 
 @pytest.fixture
-def native_wait():
+def native_wait(monkeypatch):
     """The native package's wait-policy module, loaded without starting its core."""
     path = NATIVE_BUDGET.with_name("_wait.py")
     spec = importlib.util.spec_from_file_location("_native_wait", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "_native_wait", module)
     spec.loader.exec_module(module)
     return module
 
 
-def test_native_threads_sleep_at_once(native_wait):
+def test_native_threads_spin_briefly_by_default(native_wait):
+    """GNU's runtime spins 10,000 times; LLVM's sleeps outside native calls."""
     environ: dict[str, str] = {}
-    assert native_wait.wait_policy(environ) == "passive"
-    assert environ == {"OMP_WAIT_POLICY": "passive"}
+    chosen = native_wait.wait_policy(environ, threads=6, top_tier=None)
+    assert chosen == native_wait.WaitPolicy("spin", native_wait.SPIN_MILLISECONDS)
+    assert environ == {
+        "GOMP_SPINCOUNT": "10000",
+        "KMP_BLOCKTIME": "0",
+        native_wait.MARKER: "spin",
+    }
+
+
+def test_native_threads_sleep_at_once_on_a_team_wider_than_the_fastest_cores(
+    native_wait,
+):
+    environ: dict[str, str] = {}
+    chosen = native_wait.wait_policy(environ, threads=18, top_tier=6)
+    assert chosen == native_wait.WaitPolicy("passive", 0)
+    assert environ == {"OMP_WAIT_POLICY": "passive", native_wait.MARKER: "passive"}
+    # Within the fastest cores the team spins.
+    assert native_wait.wait_policy({}, threads=6, top_tier=6) == (
+        native_wait.WaitPolicy("spin", native_wait.SPIN_MILLISECONDS)
+    )
+
+
+def test_a_child_process_recomputes_an_inherited_default(native_wait):
+    """Inherited settings carry the marker, so a child is not held to its parent's."""
+    environ: dict[str, str] = {}
+    native_wait.wait_policy(environ, threads=18, top_tier=6)
+    chosen = native_wait.wait_policy(environ, threads=4, top_tier=6)
+    assert chosen.description == "spin"
+    assert "OMP_WAIT_POLICY" not in environ
 
 
 @pytest.mark.parametrize(
@@ -439,10 +475,14 @@ def test_native_threads_sleep_at_once(native_wait):
 )
 def test_a_wait_policy_the_user_chose_is_kept(native_wait, name, value):
     environ = {name: value}
-    assert native_wait.wait_policy(environ) == f"environment: {name}={value}"
+    chosen = native_wait.wait_policy(environ, threads=6)
+    assert chosen == native_wait.WaitPolicy(f"environment: {name}={value}", 0)
     assert environ == {name: value}
     # A blank variable is unset.
-    assert native_wait.wait_policy({name: " "}) == "passive"
+    assert native_wait.wait_policy({name: " "}).description == "spin"
+    # A user's value beside a stale marker is still the user's.
+    environ = {name: value, native_wait.MARKER: "spin"}
+    assert native_wait.wait_policy(environ).description.startswith("environment")
 
 
 @pytest.mark.parametrize(("platform", "expected"), [("win32", 3), ("darwin", None)])
@@ -511,9 +551,73 @@ def test_parallel_rows_covers_each_row_once_in_threads_when_it_pays(monkeypatch)
     ]
 
 
+def test_a_small_pass_reads_no_budget(monkeypatch):
+    """Below the threshold no pass threads, so the topology is not walked (#556)."""
+
+    def unread():
+        raise AssertionError("a small pass read the thread budget")
+
+    monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
+    monkeypatch.setattr(_process, "thread_budget", unread)
+    assert _process.parallel_rows(10, 99, lambda part: part) == [slice(0, 10)]
+    assert _process.parallel_rows(1, 100, lambda part: part) == [slice(0, 1)]
+
+
 def test_parallel_rows_takes_one_call_when_threads_would_not_pay(monkeypatch):
     monkeypatch.setattr(_process, "PARALLEL_BYTES", 100)
     monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=3))
     assert _process.parallel_rows(10, 99, lambda part: part) == [slice(0, 10)]
     monkeypatch.setattr(_process, "thread_budget", lambda: SimpleNamespace(threads=1))
     assert _process.parallel_rows(10, 100, lambda part: part) == [slice(0, 10)]
+
+
+def _perf_levels(levels, top):
+    """A ``sysctl`` reader for a chip with ``levels`` kinds of core, ``top`` fastest."""
+    values = {"hw.nperflevels": levels, "hw.perflevel0.physicalcpu": top}
+    return values.get
+
+
+@pytest.mark.parametrize(
+    ("platform", "levels", "top", "expected"),
+    [
+        ("darwin", 2, 6, 6),  # an Apple M5 Max: 6 top-tier and 12 second-tier cores
+        ("darwin", 1, 8, None),  # one kind of core: no limit
+        ("darwin", None, None, None),  # an older kernel without performance levels
+        ("linux", 2, 6, None),  # not read elsewhere
+    ],
+)
+def test_top_tier_cores_read_the_fastest_performance_level(
+    native_budget, monkeypatch, platform, levels, top, expected
+):
+    for module in (_process, native_budget):
+        monkeypatch.undo()
+        monkeypatch.setattr(module.sys, "platform", platform)
+        monkeypatch.setattr(module, "_sysctl_int", _perf_levels(levels, top))
+        reader = getattr(module.top_tier_cores, "__wrapped__", module.top_tier_cores)
+        assert reader() == expected
+
+
+@pytest.mark.parametrize(
+    ("variable", "expected"),
+    [
+        (None, ("top-tier cores", 6)),
+        # Asking for threads lifts the top tier too: the second tier stays reachable.
+        ("12", ("SOLPROP_THREADS", 12)),
+    ],
+)
+def test_the_budget_keeps_to_the_top_tier_unless_threads_are_asked_for(
+    monkeypatch, native_budget, variable, expected
+):
+    monkeypatch.setattr(_process, "allowed_cpus", lambda: tuple(range(18)))
+    monkeypatch.setattr(_process, "physical_cores", lambda cpus: None)
+    monkeypatch.setattr(_process, "cgroup_cpus", lambda: None)
+    monkeypatch.setattr(native_budget, "cgroup_cpus", lambda: None)
+    for module in (_process, native_budget):
+        monkeypatch.setattr(module, "top_tier_cores", lambda: 6)
+    if variable is None:
+        monkeypatch.delenv("SOLPROP_THREADS", raising=False)
+    else:
+        monkeypatch.setenv("SOLPROP_THREADS", variable)
+    ours, theirs = _process.thread_budget(), native_budget.thread_budget(18, None)
+    assert (ours.source, ours.threads) == expected
+    assert (theirs.source, theirs.threads) == expected

@@ -585,6 +585,57 @@ def physical_cores(
     return None
 
 
+def _sysctl_int(name: str) -> int | None:  # pragma: no cover - macOS
+    """Read an integer ``sysctl`` value by name on macOS, or ``None``.
+
+    Parameters
+    ----------
+    name : str
+        The variable, for example ``"hw.nperflevels"``.
+
+    Returns
+    -------
+    int or None
+        Its value, or ``None`` if the kernel does not have it.
+    """
+    import ctypes  # noqa: PLC0415
+
+    value = ctypes.c_int(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    try:
+        found = ctypes.CDLL(None).sysctlbyname(
+            name.encode(), ctypes.byref(value), ctypes.byref(size), None, 0
+        )
+    except AttributeError, OSError:
+        return None
+    return value.value if found == 0 else None
+
+
+@functools.cache
+def top_tier_cores() -> int | None:
+    """Count the cores of a chip's fastest kind, where it has more than one kind.
+
+    A parallel region splits its work evenly and waits for its slowest thread, so a
+    team that spans a chip's slower cores runs at their pace: on an Apple M5 Max (6
+    top-tier and 12 second-tier cores) five of six cases took 1.17 to 1.49 times as
+    long at 18 threads as at 6 (solprop issue #333). macOS reports the kinds as
+    performance levels, level 0 the fastest. Other platforms are not read here.
+
+    Returns
+    -------
+    int or None
+        The cores of performance level 0 on a macOS chip with several levels, else
+        ``None``.
+    """
+    if sys.platform != "darwin":
+        return None
+    levels = _sysctl_int("hw.nperflevels")
+    if levels is None or levels < 2:
+        return None
+    cores = _sysctl_int("hw.perflevel0.physicalcpu")
+    return cores if cores is not None and cores > 0 else None
+
+
 def thread_count(name: str) -> int | None:
     """Read a positive thread count from the environment.
 
@@ -641,8 +692,12 @@ def parallel_rows[T](n_rows: int, nbytes: int, work: Callable[[slice], T]) -> li
     list
         Each call's result, in row order.
     """
+    # A small pass never threads, so it reads no budget: the topology walk behind it
+    # cost 60 ms of a 0.36 s window in host statistics (solprop issue #556).
+    if nbytes < PARALLEL_BYTES or n_rows <= 1:
+        return [work(slice(0, n_rows))]
     workers = min(thread_budget().threads, n_rows)
-    if nbytes < PARALLEL_BYTES or workers <= 1:
+    if workers <= 1:
         return [work(slice(0, n_rows))]
     edges = [n_rows * index // workers for index in range(workers + 1)]
     with ThreadPoolExecutor(workers) as pool:
@@ -654,7 +709,9 @@ def thread_budget() -> ThreadBudget:
 
     The smallest of the CPUs it may run on (:func:`allowed_cpus`: ``taskset``, a batch
     scheduler's allocation), the physical cores that hold them
-    (:func:`physical_cores`, unless ``SOLPROP_THREADS`` is set), its control groups'
+    (:func:`physical_cores`) and, on a chip with cores of several kinds, those of the
+    fastest kind (:func:`top_tier_cores`), both unless ``SOLPROP_THREADS`` is set, its
+    control groups'
     CPU quota (:func:`cgroup_cpus`) and ``SOLPROP_THREADS``. Every pool solprop sizes
     is held within it, and so is any count asked for explicitly unless
     ``SOLPROP_OVERSUBSCRIBE=1``
@@ -683,6 +740,8 @@ def thread_budget() -> ThreadBudget:
     requested = thread_count("SOLPROP_THREADS")
     if requested is None and (cores := physical_cores(cpus)) is not None:
         limits.append((cores, "physical cores"))
+    if requested is None and (top := top_tier_cores()) is not None:
+        limits.append((top, "top-tier cores"))
     quota = cgroup_cpus()
     if quota is not None:
         limits.append((quota, "cgroup quota"))

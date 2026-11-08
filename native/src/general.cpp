@@ -20,6 +20,7 @@
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/z_table.hpp"
 #include <KokkosFFT.hpp>
+#include <Kokkos_Profiling_ScopedRegion.hpp>
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
 #include <fftw3.h>
 #if defined(__SSE2__)
@@ -2973,6 +2974,9 @@ public:
   mutable CrossedBytes crossed_;
   // What the transverse edge's reading sums with, once a monitor is bound (SEP 44).
   RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
+  // A radial edge's node fields at the rows a read uses, real and imaginary parts as
+  // columns, when the state has one polarisation (`edge_reading`); empty otherwise.
+  RealView2 edge_nodes_;
   RealView edge_columns_;
   std::size_t edge_first_row_ = 0;
   // A requested collar's lines, and one padded batch per distinct shape, kept across a
@@ -4429,20 +4433,11 @@ void GeneralWorkspace::seed_free_wisdom() {
                      transverse_.data(), {n_y, n_x}, planes, n_y * n_x, n_y * n_x,
                      sign);
   graph::deep_copy(execution_space_, transverse_, Complex{});
-  if (problem_.family != FieldFamily::envelope &&
-      problem_.family != FieldFamily::field_analytic)
-    return;
+  // The chunk's temporal pair is the modal routes' (`separable_to_time`,
+  // `separable_to_frequency`), on every field family: the real family's pair and the
+  // analytic family's forward transform were left at FFTW_ESTIMATE (solprop #560).
   // A fine spectrum wider than n_to is not a plain row pair; the helper leaves it.
-  seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
-                      modal_complex_, KokkosFFT::Direction::backward);
-  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
-  graph::deep_copy(execution_space_, modal_complex_, Complex{});
-  if (problem_.family == FieldFamily::envelope) {
-    seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
-                        projected_spectrum_, KokkosFFT::Direction::forward);
-    graph::deep_copy(execution_space_, projected_complex_, Complex{});
-    graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
-  }
+  seed_modal_wisdom();
 }
 
 // Measured plans for the modal routes' temporal pair, the two transforms of every
@@ -4737,6 +4732,17 @@ void GeneralWorkspace::plan() {
           temporal_tail_forward_real_.create(
               space, projected_real_, projected_spectrum_, rows, temporal_tail_rows_,
               KokkosFFT::Direction::forward);
+        // The tail plans' measured planning overwrote their rows.
+        graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+        graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
+        if (problem_.family == FieldFamily::envelope)
+          graph::deep_copy(execution_space_, projected_complex_, Complex{});
+        else
+          graph::deep_copy(execution_space_, projected_real_, 0.0);
+        if (problem_.family == FieldFamily::field_real)
+          graph::deep_copy(execution_space_, modal_real_, 0.0);
+        else
+          graph::deep_copy(execution_space_, modal_complex_, Complex{});
       }
     }
   }
@@ -4842,6 +4848,12 @@ void GeneralWorkspace::plan() {
                                        temporal_tail_rows_,
                                        KokkosFFT::Direction::forward);
     }
+    // The tail plans' measured planning overwrote their rows.
+    graph::deep_copy(execution_space_, coarse_spectrum_, Complex{});
+    if (problem_.family == FieldFamily::envelope)
+      graph::deep_copy(execution_space_, coarse_time_complex_, Complex{});
+    else
+      graph::deep_copy(execution_space_, coarse_time_real_, 0.0);
   }
 }
 
@@ -9800,12 +9812,15 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   // transform destroys it. In place, that transform gives the filtered field.
   if (dispersive_)
     dispersive_->prepare(stage);
-  if (problem_.family == FieldFamily::field_real)
-    graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
-                   KokkosFFT::Normalization::none);
-  else if (!retained_synthesis_)
-    graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
-                   KokkosFFT::Normalization::none);
+  {
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.inverse");
+    if (problem_.family == FieldFamily::field_real)
+      graph::execute(*inverse_real_plan_, fine_spectrum_, modal_real_,
+                     KokkosFFT::Normalization::none);
+    else if (!retained_synthesis_)
+      graph::execute(*inverse_complex_plan_, fine_spectrum_, modal_complex_,
+                     KokkosFFT::Normalization::none);
+  }
   // A single node's synthesis and projection are folded into its response column.
   const bool folded = folds_single_node();
   if (!folded)
@@ -9851,10 +9866,14 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
       convolve_raman(stage, node_count);
     if (dispersive_)
       dispersive_->respond(chunk, first_node, node_count);
-    if (held_plasma())
+    if (held_plasma()) {
+      const Kokkos::Profiling::ScopedRegion region("solprop_native.held.response");
       held_response(stage, first_node, node_count);
-    if (stage_projects && !folded && !held_radial())
+    }
+    if (stage_projects && !folded && !held_radial()) {
+      const Kokkos::Profiling::ScopedRegion region("solprop_native.projection");
       project(first_node, node_count, first_chunk);
+    }
     if (problem_.envelope_plasma)
       envelope_response(stage, first_node, node_count);
     first_chunk = false;
@@ -9863,6 +9882,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
   if (dispersive_)
     dispersive_->finish();
   if (!held_radial() && (!dispersive_ || !dispersive_->replaces_transform())) {
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.forward");
     if (problem_.family == FieldFamily::envelope) {
       graph::execute(*forward_complex_plan_, projected_complex_, projected_spectrum_,
                      KokkosFFT::Normalization::none);
@@ -9882,6 +9902,7 @@ bool GeneralWorkspace::modal_core(const std::size_t stage) {
     dispersive_->combine();
   if (absorbing()) {
     form_absorber();
+    const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.absorber");
     if (problem_.family == FieldFamily::envelope)
       graph::execute(*absorber_complex_plan_, absorber_complex_, absorber_spectrum_,
                      KokkosFFT::Normalization::none);
@@ -12455,6 +12476,7 @@ void GeneralWorkspace::transform_forward_pack() {
 }
 
 void GeneralWorkspace::held_transform(const bool coarse_only, const bool transformed) {
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.held_streams");
   // The packed rows are every transform this call takes when it takes the fine ones
   // and, where there are coarse rows, those too. The stage's forward pack, when it
   // took them, has transformed the streams' rows already.
@@ -14745,6 +14767,7 @@ void GeneralWorkspace::finish(const double dz) {
 }
 
 void GeneralWorkspace::finish_quadrature() {
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.quadrature.finish");
   if (!coarse_pending_)
     return;
   if (problem_.family == FieldFamily::envelope)
@@ -15355,6 +15378,11 @@ void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
     edge_columns_ = RealView("solprop_native.edge.columns", problem_.n_modes);
     if (!synthesis.empty())
       edge_synthesis_ = RealView2("solprop_native.edge.synthesis", nodes, nodes);
+    if (!synthesis.empty() && problem_.n_pol_state == 1 &&
+        current_.extent(1) == problem_.n_omega)
+      edge_nodes_ = RealView2(
+          Kokkos::view_alloc(Kokkos::WithoutInitializing, "solprop_native.edge.nodes"),
+          nodes, 2 * problem_.n_omega);
   }
   copy_vector(execution_space_, edge_faces_, faces);
   copy_vector(execution_space_, edge_clip_, clip);
@@ -15516,6 +15544,39 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
     if (whole || totals)
       take(monitor_sums("solprop_native.edge.totals", execution_space_, planes, units,
                         edge_totals_, power));
+  } else if (edge_nodes_.extent(0) != 0) {
+    // One state polarisation: the rows wanted synthesised in one product, the state's
+    // complex samples read as twice as many real columns, and every table's sums then
+    // from those fields. A launch reads every node: its total is the grid's. The
+    // per-sample sums this replaces synthesised each row once a table; on an Apple M5
+    // Max the 256- and 512-node radial filaments ran 0.83 and 0.75 of their one-thread
+    // windows, 0.92 and 0.87 at six threads.
+    using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
+                                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    static_assert(sizeof(Complex) == 2 * sizeof(double));
+    const auto nodes = problem_.n_modes;
+    const auto first = whole ? std::size_t{0} : edge_first_row_;
+    const auto rows = nodes - first;
+    const Interleaved state(reinterpret_cast<double*>(current_.data()), nodes, 2 * n);
+    const Interleaved synthesis(edge_synthesis_.data() + first * nodes, rows, nodes);
+    const Interleaved fields(edge_nodes_.data(), rows, 2 * n);
+    Kokkos::Profiling::pushRegion("solprop_native.edge.synthesis");
+    engine_gemm(transform_space_for(rows), synthesis, state, fields, 0.0);
+    Kokkos::Profiling::popRegion();
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t row) {
+      const double real = fields(row, 2 * plane);
+      const double imaginary = fields(row, 2 * plane + 1);
+      return real * real + imaginary * imaginary;
+    };
+    const auto sums = [&](const char* label, const RealView2& weights) {
+      return monitor_sums(label, execution_space_, n, rows, EdgeWeights{weights, first},
+                          power);
+    };
+    take(sums("solprop_native.edge.faces", edge_faces_));
+    if (whole)
+      take(sums("solprop_native.edge.clip", edge_clip_));
+    if (whole || totals)
+      take(sums("solprop_native.edge.totals", edge_totals_));
   } else {
     // Each plane's synthesis on the rows wanted. A launch reads every node: its total
     // is the grid's. A dense product per sample, on a read's few outer rows.

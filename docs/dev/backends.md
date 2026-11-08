@@ -764,12 +764,14 @@ and the threaded-FFT boundary differ on macOS (§4). Three things motivate the p
 say the regime cannot be inherited from the environment, and that a few settings matter more
 than the choice of backend:
 
-1. **Thread pools compete.** Kokkos's teams, the threaded FFTs and the BLAS run in turn, and
-   when their threads fill the CPUs one team's spinning threads take the cores the next team
-   needs. On 16 cores of an AMD EPYC 7763, with the OpenMP runtime's own waiting, the
-   four-mode helium capillary took 334 s against 13.5 s with idle threads sleeping. So the
-   import sets `OMP_WAIT_POLICY=passive` unless the user chose (`solprop_native/_wait.py`,
-   recorded as `openmp_wait_policy`).
+1. **Idle threads spin briefly within native work** (ADR-071, superseding ADR-056's
+   sleeping at once). A step opens tens of short parallel regions, and waking sleeping
+   threads cost 16–72 µs a region. Unless the user chose, the import sets
+   `GOMP_SPINCOUNT=10000` (GNU's runtime) and `KMP_BLOCKTIME=0` (LLVM's), and the core keeps
+   LLVM's threads spinning for 1 ms inside each native call (macOS and Windows); teams wider
+   than a chip's fastest cores sleep at once (`solprop_native/_wait.py`, recorded as
+   `openmp_wait_policy`). The pools that once competed with spinning threads (Kokkos's
+   teams, the threaded FFTs, the BLAS) now share one runtime.
 2. **The BLAS is fitted to the pool.** A pthreads OpenBLAS runs a second pool beside Kokkos's
    and is held to one thread; an OpenMP one is capped at the Kokkos thread count, unless the
    user sets the BLAS's own thread variables. NumPy's own BLAS is held to one thread while a

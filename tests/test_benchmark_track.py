@@ -376,7 +376,11 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
 
 def test_threading_policies_replace_the_callers_openmp_settings():
     incoming = {"OMP_WAIT_POLICY": "ACTIVE", "OMP_PLACES": "threads", "PATH": "/bin"}
-    passive = system.thread_environment(4, incoming)
+    # The default measures a user's default run: the backend chooses its waiting.
+    assert system.thread_environment(4, incoming) == system.thread_environment(
+        4, incoming, "backend"
+    )
+    passive = system.thread_environment(4, incoming, "passive")
     assert passive["OMP_WAIT_POLICY"] == "PASSIVE"
     assert passive["SOLPROP_NATIVE_THREADS"] == "4"
     assert "OMP_PLACES" not in passive
@@ -385,10 +389,16 @@ def test_threading_policies_replace_the_callers_openmp_settings():
     assert (bound["OMP_PROC_BIND"], bound["OMP_PLACES"]) == ("close", "cores")
     assert "OMP_WAIT_POLICY" not in bound
     assert bound["GOMP_SPINCOUNT"] == "300000"
-    # Every policy names its waiting, so the native backend's own default never applies.
+    # Every policy but `backend` names its waiting; `backend` leaves the choice to the
+    # native backend (ADR-071), clearing whatever the caller's environment set.
     waiting = {"OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME"}
     for policy in system.THREADING:
-        assert waiting & set(system.thread_environment(4, {}, policy)), policy
+        named = waiting & set(system.thread_environment(4, {}, policy))
+        assert bool(named) == (policy != "backend"), policy
+    backend = system.thread_environment(
+        4, {"OMP_WAIT_POLICY": "active", "SOLPROP_NATIVE_WAIT": "spin"}, "backend"
+    )
+    assert not (waiting | {"SOLPROP_NATIVE_WAIT"}) & set(backend)
     with pytest.raises(SuiteError, match="unknown threading"):
         system.thread_environment(4, incoming, "spin")
 

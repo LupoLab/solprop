@@ -1,0 +1,1 @@
+On Arm and other non-x86-64 hosts, the native plasma column's band filter sums each sample's taps in one unrolled pass over blocks of samples, with the same values: on an Apple M5 Max the plasma cases' windows ran 1-6 % faster (#560).
