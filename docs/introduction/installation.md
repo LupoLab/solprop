@@ -216,7 +216,7 @@ The last step of every installation, wheel or source build, laptop or cluster no
 solprop calibrate
 ```
 
-In about a minute it measures how the native backend should thread, wait and plan its
+In about a minute and a half it measures how the native backend should thread, wait and plan its
 transforms on this machine, and keeps the result in your cache directory; every later
 run uses it ([Calibrating solprop to your machine](../guide/performance/calibration.md)).
 `--quick` takes about 20 s, `--thorough` about five minutes. If you skip it, the first

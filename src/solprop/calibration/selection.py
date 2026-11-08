@@ -14,8 +14,10 @@ One rule throughout (SEP 46 section 6.5), the ``ab`` harness's:
   :data:`NOISE_FLOOR`.
 - *Admission.* A candidate replaces the built-in value only if its largest per-round
   ratio is below one minus the noise: it wins in every round by more than the noise.
-  Ties keep the built-in. A failed round is dropped; fewer than the level's minimum
-  rounds keeps the built-in.
+  And no problem may be slower: its median ratio on each problem timed must stay
+  within one plus the noise, so that a large win on one problem cannot carry a loss
+  on another. Ties keep the built-in. A failed round is dropped; fewer than the
+  level's minimum rounds keeps the built-in.
 - *Combined validation.* The admitted settings are timed together against the table on
   fresh rounds; the combination is published only if no window is slower than one plus
   the noise and the geometric mean is below one. Otherwise groups are dropped in
@@ -29,7 +31,7 @@ from __future__ import annotations
 import math
 import statistics
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 __all__ = [
     "DROP_ORDER",
@@ -135,6 +137,8 @@ class Verdict:
         The complete rounds compared.
     reason : str
         Why it was or was not admitted.
+    windows : Mapping[str, float]
+        Each problem's median per-round ratio, where the problems were timed apart.
     """
 
     admitted: bool
@@ -142,6 +146,7 @@ class Verdict:
     worst: float | None
     rounds: int
     reason: str
+    windows: Mapping[str, float] = field(default_factory=dict)
 
     def record(self) -> dict[str, object]:
         """Return the verdict as JSON data.
@@ -157,10 +162,17 @@ class Verdict:
             "worst": self.worst,
             "rounds": self.rounds,
             "reason": self.reason,
+            "windows": dict(self.windows),
         }
 
 
-def admit(candidate: Times, builtin: Times, noise: float, minimum: int) -> Verdict:
+def admit(
+    candidate: Times,
+    builtin: Times,
+    noise: float,
+    minimum: int,
+    windows: Mapping[str, Times] | None = None,
+) -> Verdict:
     """Decide one candidate against the built-in value.
 
     Parameters
@@ -171,11 +183,14 @@ def admit(candidate: Times, builtin: Times, noise: float, minimum: int) -> Verdi
         The session's A/A noise (:func:`noise`).
     minimum : int
         The fewest complete rounds that decide.
+    windows : Mapping[str, sequence of float or None] or None, optional
+        Each problem's per-round ratio of the candidate to the built-in value.
 
     Returns
     -------
     Verdict
-        Admitted only if every round's ratio is below ``1 - noise``.
+        Admitted only if every round's ratio is below ``1 - noise`` and no
+        problem's median ratio is above ``1 + noise``.
 
     Examples
     --------
@@ -183,6 +198,10 @@ def admit(candidate: Times, builtin: Times, noise: float, minimum: int) -> Verdi
     True
     >>> admit([0.8, 0.99, 0.8], [1.0, 1.0, 1.0], noise=0.02, minimum=3).reason
     'lost or tied in a round: worst ratio 0.990 against 0.980'
+    >>> admit(
+    ...     [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.5] * 3, "large": [1.3] * 3}
+    ... ).reason
+    'slower on large: median ratio 1.300 against 1.020'
     """
     measured = ratios(candidate, builtin)
     if len(measured) < minimum:
@@ -190,19 +209,41 @@ def admit(candidate: Times, builtin: Times, noise: float, minimum: int) -> Verdi
             False, None, None, len(measured), f"{len(measured)} of {minimum} rounds"
         )
     score, worst = statistics.median(measured), max(measured)
-    if worst < 1.0 - noise:
-        return Verdict(True, score, worst, len(measured), "won every round")
-    return Verdict(
-        False,
-        score,
-        worst,
-        len(measured),
-        f"lost or tied in a round: worst ratio {worst:.3f} against {1.0 - noise:.3f}",
-    )
+    medians = {
+        name: statistics.median(found)
+        for name, times in (windows or {}).items()
+        if (found := ratios(times, [1.0] * len(times)))
+    }
+    if worst >= 1.0 - noise:
+        return Verdict(
+            False,
+            score,
+            worst,
+            len(measured),
+            f"lost or tied in a round: worst ratio {worst:.3f} against "
+            f"{1.0 - noise:.3f}",
+            medians,
+        )
+    slower = max(medians.items(), key=lambda item: item[1], default=None)
+    if slower is not None and slower[1] > 1.0 + noise:
+        return Verdict(
+            False,
+            score,
+            worst,
+            len(measured),
+            f"slower on {slower[0]}: median ratio {slower[1]:.3f} against "
+            f"{1.0 + noise:.3f}",
+            medians,
+        )
+    return Verdict(True, score, worst, len(measured), "won every round", medians)
 
 
 def choose(
-    candidates: Mapping[str, Times], builtin: Times, noise: float, minimum: int
+    candidates: Mapping[str, Times],
+    builtin: Times,
+    noise: float,
+    minimum: int,
+    windows: Mapping[str, Mapping[str, Times]] | None = None,
 ) -> tuple[str | None, dict[str, Verdict]]:
     """Choose among a setting's candidates: the admitted one with the lowest score.
 
@@ -216,6 +257,8 @@ def choose(
         The session's A/A noise.
     minimum : int
         The fewest complete rounds that decide.
+    windows : Mapping[str, Mapping[str, sequence]] or None, optional
+        Each candidate's per-problem per-round ratios (:func:`admit`).
 
     Returns
     -------
@@ -234,7 +277,7 @@ def choose(
             f"{MAX_CANDIDATES}"
         )
     verdicts = {
-        name: admit(times, builtin, noise, minimum)
+        name: admit(times, builtin, noise, minimum, (windows or {}).get(name))
         for name, times in candidates.items()
     }
     admitted = [

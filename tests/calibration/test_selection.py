@@ -116,3 +116,33 @@ def test_groups_are_dropped_in_a_fixed_order() -> None:
     assert fallbacks([]) == []
     with pytest.raises(ValueError, match="unknown groups"):
         fallbacks(["colour"])
+
+
+def test_a_candidate_slower_on_one_problem_is_not_admitted() -> None:
+    # A large win on one problem carries the geometric mean of every round, but the
+    # candidate may not be slower than one plus the noise on any problem.
+    verdict = admit(
+        [0.8, 0.82, 0.81],
+        [1.0, 1.0, 1.0],
+        0.02,
+        3,
+        {"small": [0.5, 0.52, 0.51], "large": [1.04, 1.01, 1.05]},
+    )
+    assert not verdict.admitted
+    assert verdict.reason == "slower on large: median ratio 1.040 against 1.020"
+    assert verdict.windows == {"small": 0.51, "large": 1.04}
+    # Within the noise on every problem: admitted, and a failed round is dropped.
+    fine = admit(
+        [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.6] * 3, "large": [1.01, None, 1.0]}
+    )
+    assert fine.admitted
+    assert fine.record()["windows"] == {"small": 0.6, "large": 1.005}
+    chosen, verdicts = choose(
+        {"a": [0.8] * 3, "b": [0.9] * 3},
+        [1.0] * 3,
+        0.02,
+        3,
+        {"a": {"large": [1.3] * 3}},
+    )
+    assert chosen == "b"
+    assert verdicts["a"].reason.startswith("slower on large")

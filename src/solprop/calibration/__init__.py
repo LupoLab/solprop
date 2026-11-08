@@ -102,7 +102,7 @@ def calibrate(
     Parameters
     ----------
     level : str, optional
-        ``"quick"`` (about 20 s), ``"standard"`` (about a minute) or ``"thorough"``
+        ``"quick"`` (about 20 s), ``"standard"`` (about 90 s) or ``"thorough"``
         (about five minutes).
     budget : float or None, optional
         The deadline in seconds, the level's when ``None``.

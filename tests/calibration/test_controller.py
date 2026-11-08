@@ -39,6 +39,10 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
     by_planning: ClassVar[Callable[[Mapping[str, object] | None, int], float]] = (
         staticmethod(lambda planning, call: 1.0)
     )
+    # A problem's factor, by the candidate and the record it runs.
+    by_problem: ClassVar[Callable[[str, str, Mapping[str, object] | None], float]] = (
+        staticmethod(lambda name, problem, record: 1.0)
+    )
     shape: ClassVar[list[int]] = [1, 1, 1, 4096]
     # The transforms a capture finds, by plan key, with their groups.
     plans: ClassVar[dict[str, str]] = {
@@ -108,6 +112,9 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
         planning = cast(Mapping[str, object] | None, request.get("planning"))
         return (
             1e-3
+            * type(self).by_problem(
+                self.candidate.name, cast(str, request["problem"]), record
+            )
             * type(self).factor(self.candidate.name, self.calls)
             * type(self).by_record(record, self.calls)
             * type(self).by_planning(planning, self.calls)
@@ -181,7 +188,10 @@ def test_candidates_try_the_other_wait_and_narrower_teams() -> None:
     mac = candidates(standard, _allocation(18, kinds=(6, 12)), 18, top_tier=6)  # pyright: ignore[reportArgumentType]
     # 9 is wider than the top tier, so the rule's wait there is passive.
     assert [c.name for c in mac] == ["spin/18", "passive/9", "spin/6", "spin/9"]
-    assert len(candidates(quick, _allocation(36, sockets=2), 36)) == 3  # pyright: ignore[reportArgumentType]
+    # Quick has no production-sized problem to protect, so it tries no narrower team.
+    assert [c.name for c in candidates(quick, _allocation(36, sockets=2), 36)] == [  # pyright: ignore[reportArgumentType]
+        "passive/36"
+    ]
     # One core: only the other wait.
     assert [c.name for c in candidates(standard, _allocation(1), 1)] == ["passive/1"]  # pyright: ignore[reportArgumentType]
 
@@ -303,11 +313,11 @@ def test_a_winner_that_fails_validation_is_dropped(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:
     script, environ = scripted
-    # Faster in the rounds' mean of windows, but its last window is slower.
+    # Faster in every window of the rounds, but its last window slower in validation.
     calls: dict[str, int] = {}
 
     def factor(name: str, call: int) -> float:
-        if name != "spin/4":
+        if name != "passive/8":
             return 1.0
         calls[name] = call
         # Each round times three windows; validation follows three rounds of them.
@@ -516,10 +526,10 @@ def test_a_child_failing_during_validation_drops_the_winner(
     original = script.receive
 
     def receive(self: _Scripted, timeout: float) -> object:
-        # The winner's windows fail once the rounds are over (five rounds of five).
+        # The winner's windows fail once the rounds are over.
         if (
             self.candidate.name == "spin/4"
-            and self.calls >= 25
+            and self.calls >= _windows("standard")
             and (self.pending.get("op") == "time")
         ):
             raise controller._ChildError("spin/4 exited")  # pyright: ignore[reportPrivateUsage]
@@ -583,6 +593,11 @@ def test_admitted_grain_settings_are_validated_and_published(
     assert grain_evidence["validation"]["passed"] is True  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
 
 
+def _windows(level: str) -> int:
+    """Return the windows one candidate times in a level's rounds of every problem."""
+    return controller.LEVELS[level].rounds * len(controller.LEVELS[level].problems)
+
+
 def test_a_grain_that_fails_its_validation_is_dropped(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:
@@ -593,7 +608,7 @@ def test_a_grain_that_fails_its_validation_is_dropped(
         if record and record["medium_threads"] == 2:
             timed.append(call)
             # Faster in its rounds, slower once every window is timed together.
-            return 0.8 if len(timed) <= 25 else 1.3
+            return 0.8 if len(timed) <= _windows("standard") else 1.3
         return 1.0
 
     script.by_record = staticmethod(by_record)
@@ -711,7 +726,7 @@ def test_a_failed_validation_window_fails_the_grain(
         record = self.pending.get("record")
         if isinstance(record, dict) and record.get("medium_threads") == 2:
             windows.append(1)
-            if len(windows) > 25:
+            if len(windows) > _windows("standard"):
                 raise controller._ChildError("validation window failed")  # pyright: ignore[reportPrivateUsage]
         return original(self, timeout)
 
@@ -726,19 +741,38 @@ def _efforts(planning: Mapping[str, object] | None) -> dict[str, str]:
     return cast(dict[str, str], planning["efforts"])
 
 
-def test_the_fft_stage_keeps_the_policy_with_its_wisdom_without_a_winner(
+def test_the_fft_stage_publishes_nothing_without_a_winner(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:
+    # Wisdom planned alone is not assumed neutral in the step: without an effort that
+    # beats the plan policy, a run plans as it would without a profile.
     _, environ = scripted
     report = calibrate("standard", environ=environ, cpus=range(8))
-    assert "FFT planning: the plan policy's efforts, with their wisdom" in report.reason
+    assert "FFT planning: the plan policy: no effort won" in report.reason
     (row,) = _rows(environ)
-    assert row["planning"] == {"efforts": controller.POLICY}
+    assert not row.get("planning")
     generation = json.loads(cast(Path, report.path).read_text(encoding="utf-8"))
-    # The serial rows' measured wisdom is kept; the threaded rows plan at estimate.
-    assert generation["wisdom"] == {
-        "r2c:4096:1:4096:2049:out:0:0:t1": "(measure r2c:4096:1:4096:2049:out:0:0:t1)"
-    }
+    assert not generation.get("wisdom")
+
+
+def test_planning_candidates_are_compared_with_the_built_in_plan_policy(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    seen: list[Mapping[str, object] | None] = []
+
+    def by_planning(planning: Mapping[str, object] | None, call: int) -> float:
+        seen.append(planning)
+        return 1.0
+
+    script.by_planning = staticmethod(by_planning)
+    calibrate("standard", environ=environ, cpus=range(8))
+    # The base of the FFT stage's rounds is no planning at all, never the policy's
+    # efforts with stored wisdom.
+    assert None in seen
+    assert all(
+        planning is None or _efforts(planning) != controller.POLICY for planning in seen
+    )
 
 
 def test_an_admitted_effort_is_validated_and_its_wisdom_kept(
@@ -804,12 +838,12 @@ def test_an_effort_that_fails_its_validation_keeps_the_policy(
         if _efforts(planning).get("threaded_rows") != "measure":
             return 1.0
         seen.append(call)
-        return 0.8 if len(seen) <= 25 else 1.3
+        return 0.8 if len(seen) <= _windows("standard") else 1.3
 
     script.by_planning = staticmethod(by_planning)
     script.plans = {"c2c-forward:4096:4:4096:4096:out:0:0:t8": "threaded_rows"}
     report = calibrate("standard", environ=environ, cpus=range(8))
-    assert "FFT planning: the plan policy's efforts" in report.reason
+    assert "FFT planning: the plan policy" in report.reason
     evidence = report.evidence["planning"]
     assert isinstance(evidence, dict)
     assert evidence["validation"]["passed"] is False  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
@@ -910,4 +944,56 @@ def test_captures_take_a_share_of_the_stage_and_an_incomplete_one_is_dropped(
         environ={**environ, "SOLPROP_CACHE_DIR": environ["SOLPROP_CACHE_DIR"] + "2"},
         cpus=range(8),
     )
-    assert "planning at measure took longer than its share" in kept.reason
+    # A measure capture cut short keeps what it planned and times those problems.
+    planning = cast(dict[str, object], kept.evidence["planning"])
+    assert planning["skipped"] == ["line"]
+    assert "planning at measure took longer" not in kept.reason
+
+
+def test_a_team_that_slows_a_production_sized_problem_is_not_admitted(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    # On 16 cores of a Google Axion a team of 8 won the small problems and ran the
+    # tracking set's large cases up to 1.8 times slower.
+    script, environ = scripted
+    script.by_problem = staticmethod(
+        lambda name, problem, record: (
+            (1.5 if problem == "radial_large" else 0.7) if name == "spin/4" else 1.0
+        )
+    )
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert report.chosen == report.builtin
+    verdicts = cast(dict[str, dict[str, object]], report.evidence["verdicts"])
+    verdict = verdicts["spin/4"]
+    assert verdict["admitted"] is False
+    assert str(verdict["reason"]).startswith("slower on radial_large")
+    windows = cast(dict[str, float], verdict["windows"])
+    assert windows["radial_large"] == pytest.approx(1.5)
+    assert set(windows) == set(controller.LEVELS["standard"].problems)
+
+
+def test_a_grain_move_that_slows_one_problem_is_not_admitted(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.by_problem = staticmethod(
+        lambda name, problem, record: (
+            (1.2 if problem == "capillary_large" else 0.6)
+            if record and record["medium_threads"] == 2
+            else 1.0
+        )
+    )
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "medium_threads" not in report.chosen
+    grain = cast(dict[str, object], report.evidence["grain"])
+    verdict = cast(dict[str, dict[str, object]], grain["verdicts"])["medium 2"]
+    assert str(verdict["reason"]).startswith("slower on capillary_large")
+
+
+def test_standard_and_thorough_time_production_sized_problems() -> None:
+    for level in ("standard", "thorough"):
+        problems = controller.LEVELS[level].problems
+        assert {"gnlse_large", "capillary_large", "radial_large", "line_large"} <= set(
+            problems
+        )
+    assert not any(p.endswith("_large") for p in controller.LEVELS["quick"].problems)

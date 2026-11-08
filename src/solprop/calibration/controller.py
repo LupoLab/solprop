@@ -111,20 +111,24 @@ class Level:
     grain: int
     fulls: bool = False
     reserve: float = 0.2
-    planning: float = 0.4
+    planning: float = 0.5
 
 
 _ALL = ("gnlse", "capillary", "averaged", "radial", "line")
+_LARGE = ("gnlse_large", "capillary_large", "radial_large", "line_large")
+"""Production-sized problems, which no narrower team or grain move may slow down: a
+setting that wins only on small problems loses on large ones (SEP 46 Part II)."""
 
 LEVELS: dict[str, Level] = {
     # Quick: the wait, the team and the coarse grain (medium width, compact team).
+    # Quick has no production-sized problem, so it tries no narrower team.
     "quick": Level(
-        "quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 1, 4, planning=0.0
+        "quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 0, 4, planning=0.0
     ),
-    "standard": Level("standard", 60.0, 5, 0.08, _ALL, 2, 10),
-    "thorough": Level("thorough", 300.0, 7, 0.3, _ALL, 2, 40, fulls=True),
+    "standard": Level("standard", 90.0, 5, 0.08, _ALL + _LARGE, 2, 10, reserve=0.15),
+    "thorough": Level("thorough", 300.0, 7, 0.3, _ALL + _LARGE, 2, 40, fulls=True),
 }
-"""The levels: about 20 s, a minute and five minutes (SEP 46 section 6.9)."""
+"""The levels: about 20 s, a minute and a half and five minutes (SEP 46 section 6.9)."""
 
 ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2, "device": 3}
 """Levels by depth: a higher level replaces a lower one for the same allocation."""
@@ -779,8 +783,10 @@ def _start(
     return _Bench(builtin, tuple(opened[1:]), repeats)
 
 
-def _rounds(plan: _Plan, bench: _Bench, until: float) -> Scores:
-    """Time interleaved rounds; return each slot's score in each round.
+def _rounds(
+    plan: _Plan, bench: _Bench, until: float
+) -> tuple[Scores, dict[str, dict[str, list[float | None]]]]:
+    """Time interleaved rounds; return each slot's score and seconds in each round.
 
     A slot's score is the geometric mean of its seconds per step over the problems,
     so that the ratio of two scores is the geometric mean of their windows' ratios.
@@ -797,12 +803,17 @@ def _rounds(plan: _Plan, bench: _Bench, until: float) -> Scores:
 
     Returns
     -------
-    dict of str to list
-        Each slot's score per round, ``None`` for a failed one.
+    tuple
+        Each slot's score per round, ``None`` for a failed one; and each slot's
+        seconds per step on each problem per round.
     """
     slots = [("built-in", bench.builtin), ("again", bench.builtin)]
     slots += [(child.candidate.name, child) for child in bench.rivals]
     scores: Scores = {name: [] for name, _ in slots}
+    names = plan.level.problems
+    seconds = {
+        slot: {name: list[float | None]() for name in names} for slot, _ in slots
+    }
     generator = random.Random(1)
     for _ in range(plan.level.rounds):
         if plan.deadline.remaining() <= until:
@@ -811,10 +822,41 @@ def _rounds(plan: _Plan, bench: _Bench, until: float) -> Scores:
         generator.shuffle(order)
         for name, child in order:
             try:
-                scores[name].append(_geomean(bench.time(plan, child)))
+                timed = list(bench.time(plan, child))
             except _ChildError:
                 scores[name].append(None)
-    return scores
+                for problem in names:
+                    seconds[name][problem].append(None)
+                continue
+            scores[name].append(_geomean(timed))
+            for problem, value in zip(names, timed, strict=True):
+                seconds[name][problem].append(value)
+    return scores, seconds
+
+
+def _window_ratios(
+    candidate: Mapping[str, Sequence[float | None]],
+    base: Mapping[str, Sequence[float | None]],
+) -> dict[str, list[float | None]]:
+    """Return each problem's per-round ratio of a candidate's seconds to a base's.
+
+    Parameters
+    ----------
+    candidate, base : Mapping[str, sequence of float or None]
+        Seconds per round by problem, ``None`` for a failed round.
+
+    Returns
+    -------
+    dict of str to list
+        The ratios, ``None`` where either failed.
+    """
+    return {
+        problem: [
+            None if new is None or old is None or old <= 0 else new / old
+            for new, old in zip(times, base[problem], strict=True)
+        ]
+        for problem, times in candidate.items()
+    }
 
 
 def _validate(
@@ -877,7 +919,11 @@ def _settings(child: _Child) -> dict[str, object]:
 
 
 def _decide(
-    plan: _Plan, bench: _Bench, scores: Scores, noise: float
+    plan: _Plan,
+    bench: _Bench,
+    scores: Scores,
+    noise: float,
+    seconds: Mapping[str, Mapping[str, Sequence[float | None]]] | None = None,
 ) -> tuple[_Child, dict[str, object], str]:
     """Choose and validate a candidate; return its child, the evidence and why.
 
@@ -891,6 +937,9 @@ def _decide(
         Each slot's score per round.
     noise : float
         The session's A/A noise.
+    seconds : Mapping or None, optional
+        Each slot's seconds per problem per round (:func:`_rounds`), so that no
+        problem may be slower under the winner.
 
     Returns
     -------
@@ -898,11 +947,22 @@ def _decide(
         The child whose process settings were chosen (the built-in one when none
         replaced them), the evidence, and the reason.
     """
+    windows = (
+        {}
+        if seconds is None
+        else {
+            child.candidate.name: _window_ratios(
+                seconds[child.candidate.name], seconds["built-in"]
+            )
+            for child in bench.rivals
+        }
+    )
     winner_name, verdicts = selection.choose(
         {child.candidate.name: scores[child.candidate.name] for child in bench.rivals},
         scores["built-in"],
         noise,
         plan.level.rounds,
+        windows,
     )
     evidence: dict[str, object] = {
         "noise": noise,
@@ -954,7 +1014,7 @@ def _compare_round(
     base: _Setup,
     candidates: Sequence[tuple[str, _Setup, tuple[str, ...]]],
     generator: random.Random,
-) -> dict[str, float | None]:
+) -> tuple[dict[str, float | None], dict[str, dict[str, float | None]]]:
     """Time one round of candidate setups against a base setup.
 
     Parameters
@@ -972,9 +1032,10 @@ def _compare_round(
 
     Returns
     -------
-    dict of str to float or None
+    tuple
         ``again``, the base's A/A ratio over the problems, and each candidate's ratio
-        to it over its problems; ``None`` for a failed window.
+        to it over its problems, ``None`` for a failed window; and each candidate's
+        ratio on each of its problems.
     """
     problems = tuple(sorted({name for _, _, names in candidates for name in names}))
     slots = [("base", base, problems), ("again", base, problems), *candidates]
@@ -1000,14 +1061,18 @@ def _compare_round(
                 break
             timed[name][problem] = float(cast(float, reply))
     ratios: dict[str, float | None] = {}
+    windows: dict[str, dict[str, float | None]] = {}
     for name, _, names in slots:
         if name == "base":
             continue
         if name in failed or "base" in failed:
             ratios[name] = None
+            windows[name] = dict.fromkeys(names)
             continue
-        ratios[name] = _geomean([timed[name][p] / timed["base"][p] for p in names])
-    return ratios
+        each = {p: timed[name][p] / timed["base"][p] for p in names}
+        ratios[name] = _geomean(list(each.values()))
+        windows[name] = dict(each)
+    return ratios, windows
 
 
 def _session_of(
@@ -1044,19 +1109,29 @@ def _session_of(
     generator = random.Random(seed)
     ratios: dict[str, list[float | None]] = {"again": []}
     ratios |= {name: [] for name, _, _ in candidates}
+    windows: dict[str, dict[str, list[float | None]]] = {
+        name: {problem: [] for problem in names} for name, _, names in candidates
+    }
     for _ in range(plan.level.rounds):
         if plan.deadline.remaining() <= until:
             break
-        for name, value in _compare_round(
+        round_ratios, round_windows = _compare_round(
             plan, child, base, candidates, generator
-        ).items():
+        )
+        for name, value in round_ratios.items():
             ratios[name].append(value)
+        for name, each in round_windows.items():
+            if name in windows:
+                for problem, value in each.items():
+                    windows[name][problem].append(value)
     ones = [1.0] * len(ratios["again"])
     noise = selection.noise(ones, ratios["again"], plan.level.rounds)
     if noise is None or noise > selection.NOISE_LIMIT:
         return noise, {}
     return noise, {
-        name: selection.admit(ratios[name], ones, noise, plan.level.rounds)
+        name: selection.admit(
+            ratios[name], ones, noise, plan.level.rounds, windows[name]
+        )
         for name, _, _ in candidates
     }
 
@@ -1237,8 +1312,8 @@ POLICY: dict[str, str] = {
 
 def _planning_candidates(
     level: Level, measured: Mapping[str, object], patient: Mapping[str, object] | None
-) -> tuple[dict[str, object], list[tuple[str, str, dict[str, object]]]]:
-    """Return the base planning and each group's candidate plannings.
+) -> list[tuple[str, str, dict[str, object]]]:
+    """Return each group's candidate plannings.
 
     Parameters
     ----------
@@ -1250,9 +1325,9 @@ def _planning_candidates(
 
     Returns
     -------
-    tuple
-        The base planning (the policy's efforts with the measured wisdom), and each
-        candidate's name, group and planning.
+    list of tuple
+        Each candidate's name, group and planning: the policy's efforts with one
+        group's changed, and the wisdom of every group it plans beyond estimate.
     """
     groups = cast(dict[str, str], measured["groups"])
     wisdom = cast(dict[str, str], measured["wisdom"])
@@ -1284,7 +1359,6 @@ def _planning_candidates(
             },
         }
 
-    base = planning(POLICY, wisdom)
     present = set(groups.values())
     found: list[tuple[str, str, dict[str, object]]] = []
     if "rows" in present:
@@ -1318,10 +1392,10 @@ def _planning_candidates(
                 planning(POLICY | {"planes": "estimate"}, wisdom),
             )
         )
-    return base, found
+    return found
 
 
-_CAPTURE_SHARE = 0.3
+_CAPTURE_SHARE = 0.5
 """The share of the FFT stage's time left that each capture may take."""
 
 _CAPTURE_MARGIN = 30.0
@@ -1358,7 +1432,8 @@ def _planning(
     """
     if plan.level.name == "quick":
         return {}, {}, {"reason": "the plan policy (quick)"}
-    limit = 20.0 if plan.level.fulls else 1.0
+    # Most measured plans take milliseconds; the limit bounds the odd slow one.
+    limit = 20.0 if plan.level.fulls else 0.25
 
     def capture(effort: str, share: float) -> dict[str, object]:
         # Each capture takes its share of the stage's time, so that the timing
@@ -1381,12 +1456,10 @@ def _planning(
     try:
         plan.say("planning the transforms at measure")
         measured = capture("measure", _CAPTURE_SHARE)
-        if measured.get("skipped"):
-            return (
-                {},
-                {},
-                {"reason": "planning at measure took longer than its share of the stage"},
-            )
+        # A capture cut short keeps what it planned: the problems it skipped are not
+        # timed, and plan as a run without a profile does.
+        if not measured["groups"]:
+            return {}, {}, {"reason": "no transform planned within the stage's share"}
         patient = None
         if plan.level.fulls:
             plan.say("planning the serial transforms at patient")
@@ -1395,11 +1468,12 @@ def _planning(
                 patient = None  # incomplete: patient is not a candidate
     except _ChildError as error:
         return {}, {}, {"reason": str(error)}
-    base, candidates = _planning_candidates(plan.level, measured, patient)
+    candidates = _planning_candidates(plan.level, measured, patient)
     groups = cast(dict[str, str], measured["groups"])
     contains = cast(dict[str, list[str]], measured["problems"])
     evidence: dict[str, object] = {
         "plans": len(groups),
+        "skipped": list(cast(list[str], measured.get("skipped", []))),
         "planning_seconds": measured["seconds"],
         "candidates": [name for name, _, _ in candidates],
     }
@@ -1417,12 +1491,15 @@ def _planning(
     ]
     timed = [item for item in timed if item[2]]
     chosen = dict(POLICY)
-    wisdom = cast(dict[str, str], base["wisdom"])
+    wisdom: dict[str, str] = {}
+    # Every candidate, with all the wisdom it would publish, is compared with the
+    # built-in plan policy as a run without a profile plans: stored wisdom planned
+    # alone can run slower in the step than plans measured in place (on 16 cores of
+    # an AMD EPYC 9B45 one case ran 17 % slower), so it is never assumed neutral.
+    builtin = _Setup(record=record, planning=None)
     if timed:
         plan.say(f"timing {len(timed)} FFT planning candidates")
-        noise, verdicts = _session_of(
-            plan, child, _Setup(record=record, planning=base), timed, until, 4000
-        )
+        noise, verdicts = _session_of(plan, child, builtin, timed, until, 4000)
         evidence["noise"] = noise
         evidence["verdicts"] = {
             name: verdict.record() for name, verdict in verdicts.items()
@@ -1450,22 +1527,20 @@ def _planning(
                 },
             }
             validation = _validate_setups(
-                plan,
-                child,
-                _Setup(record=record, planning=combined),
-                _Setup(record=record, planning=base),
-                noise,
+                plan, child, _Setup(record=record, planning=combined), builtin, noise
             )
             evidence["validation"] = validation.record()
             if validation.passed:
                 wisdom = cast(dict[str, str], combined["wisdom"])
             else:
                 chosen = dict(POLICY)
-    evidence["reason"] = (
-        "the plan policy's efforts, with their wisdom"
-        if chosen == POLICY
-        else "admitted: "
-        + ", ".join(f"{g} {e}" for g, e in chosen.items() if e != POLICY[g])
+    if chosen == POLICY:
+        evidence["reason"] = (
+            "the plan policy: no effort won every round and its validation"
+        )
+        return {}, {}, evidence
+    evidence["reason"] = "admitted: " + ", ".join(
+        f"{g} {e}" for g, e in chosen.items() if e != POLICY[g]
     )
     return {"efforts": chosen}, wisdom, evidence
 
@@ -1566,7 +1641,7 @@ def _calibrate_allocation(
         bench = _start(plan, cpus, allocation, opened)
         plan = dataclasses.replace(plan, repeats=bench.repeats)
         plan.say(f"timing interleaved rounds on {allocation.cores} cores")
-        scores = _rounds(plan, bench, until)
+        scores, seconds = _rounds(plan, bench, until)
         noise = selection.noise(scores["built-in"], scores["again"], plan.level.rounds)
         evidence: dict[str, object] = {
             "rounds": plan.level.rounds,
@@ -1595,7 +1670,7 @@ def _calibrate_allocation(
                 evidence=evidence,
                 seconds=plan.deadline.elapsed(),
             )
-        final, decision, reason = _decide(plan, bench, scores, noise)
+        final, decision, reason = _decide(plan, bench, scores, noise, seconds)
         chosen = _settings(final)
         # The grain stage leaves FFT planning its share of the time left, so that a
         # long grain stage cannot leave the planning stage none (SEP 46 section 6.9).
@@ -1664,7 +1739,7 @@ def calibrate(
     Parameters
     ----------
     level : str, optional
-        ``"quick"`` (about 20 s), ``"standard"`` (about a minute) or ``"thorough"``
+        ``"quick"`` (about 20 s), ``"standard"`` (about 90 s) or ``"thorough"``
         (about five minutes).
     budget : float or None, optional
         The deadline in seconds, the level's when ``None``.

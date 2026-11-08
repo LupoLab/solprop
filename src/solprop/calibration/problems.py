@@ -15,6 +15,12 @@ same physics (``benchmarks/builders.py``), with no noise so that every candidate
 the same work, and with a *scale* that sizes its grid: the time window for the
 one-dimensional problems and the transverse count for the spatial ones. A run times
 their trial steps (``StepDriver.timed_step``), never a propagation.
+
+Four of them also come at production size (``*_large``), as large as the tracking
+set's cases of their kind: on these alone a narrower team or a higher threshold that
+wins on the small problems shows what it costs a production run. On 16 cores of a
+Google Axion, a team of 8 won the small problems by 16 % and ran the tracking set's
+large cases up to 1.8 times slower (SEP 46 Part II).
 """
 
 from __future__ import annotations
@@ -228,6 +234,13 @@ PROBLEMS: dict[str, Callable[[float], Simulation]] = {
     "averaged": _averaged,
     "radial": lambda scale: _spatial("radial", scale),
     "line": lambda scale: _spatial("line", scale),
+    # Production sizes: 16384 samples (the Raman GNLSE case), four modes on 5120
+    # samples (the resonant dispersive wave case), 384 radial nodes (the filament
+    # case), and 4096 columns standing in for the Kerr beams' many columns.
+    "gnlse_large": lambda scale: _gnlse(4.0 * scale),
+    "capillary_large": lambda scale: _capillary(2.0 * scale),
+    "radial_large": lambda scale: _spatial("radial", 6.0 * scale),
+    "line_large": lambda scale: _spatial("line", 32.0 * scale),
 }
 """The calibration problems, each built at a scale (1 is the standard size)."""
 

@@ -10,7 +10,7 @@ changes a result beyond rounding: it chooses among exact algorithms and thread c
 as the built-in defaults do.
 
 ```sh
-solprop calibrate                # standard: about a minute
+solprop calibrate                # standard: about a minute and a half
 solprop calibrate --quick        # about 20 s
 solprop calibrate --thorough     # about five minutes
 solprop calibrate --show         # the profile this job would use, and its evidence
@@ -25,14 +25,18 @@ quickly by itself, with a notice (below).
 The calibration runs in child processes, each pinned to the CPUs of your job, and times
 short windows of five problems that solprop ships: a GNLSE with Raman response, a
 four-mode capillary with plasma, a mode-averaged capillary, a radial filament and a
-one-dimensional free-space beam. It never runs your own simulation; for that, see
+one-dimensional free-space beam. The standard and thorough levels also time four of
+them at production size (16384 samples, four modes on 5120, 384 radial nodes, 4096
+columns), because a setting that speeds up small problems can slow large ones down. It
+never runs your own simulation; for that, see
 [refining one simulation](#refining-one-simulation).
 
 1. **Waiting and the team.** Idle threads either sleep at once or spin briefly before
    the next region; spinning saves the 16 to 72 µs of a wake-up, sleeping frees the
    cores. The team may also be narrower than the job: the fastest kind of core on a
-   chip with several, one socket of two. Each candidate is a child process with those
-   settings.
+   chip with several, one socket of two (standard and thorough only, where the
+   production-sized problems can show what a narrower team costs). Each candidate is a
+   child process with those settings.
 2. **Operation grain.** Each kind of operation (stage passes, responses, products,
    transforms, Raman histories, copies) threads above a size threshold. The
    calibration moves each threshold past the work sizes the problems actually run,
@@ -40,21 +44,24 @@ one-dimensional free-space beam. It never runs your own simulation; for that, se
 3. **FFT planning** (standard and thorough). Every transform the problems create is
    planned alone at FFTW's `measure` effort, and serial ones at `patient` too at the
    thorough level, within a time limit; each group of plans (serial rows, threaded rows,
-   transverse planes) keeps the effort that runs fastest *inside the step*. A more
-   exhaustive plan is not always a faster one. The winning plans' wisdom is kept, so
-   later runs build them at once instead of measuring again.
+   transverse planes) keeps the effort that runs fastest *inside the step*, against
+   plans made as a run without a profile makes them. A more exhaustive plan is not
+   always a faster one, and a plan chosen alone not always the best in the step. Only
+   a winning effort's wisdom is kept, so later runs build those plans at once instead
+   of measuring again; without one, runs plan as they would without a profile.
 
 A candidate replaces the built-in value only if it **wins in every round** of
 interleaved timings by more than the noise measured by timing the built-in setting
-against itself, and the winners are then validated together on fresh rounds. Ties and
+against itself, **and is slower on no problem** beyond that noise; the winners are then
+validated together on fresh rounds. Ties and
 anything uncertain keep the built-in value. On a busy machine (other work on the job's
 cores or their hyperthreads, time stolen by a hypervisor, or timings noisier than 10 %)
 the calibration says so and publishes nothing.
 
 | level | time | waiting and team | grain | FFT planning | rounds |
 |---|---|---|---|---|---|
-| `--quick` | about 20 s | yes | medium width and compact team | plan policy | 3 |
-| standard | about 60 s | yes, two narrower teams | thresholds of the main operations | `measure`, 1 s a plan | 5 |
+| `--quick` | about 20 s | the wait only | medium width and compact team | plan policy | 3 |
+| standard | about 90 s | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
 | `--thorough` | about 5 min | yes | thresholds and full sizes of every operation | `measure` and `patient`, 20 s a plan | 7 |
 
 The standard and thorough levels also calibrate the smaller allocations they can pin
