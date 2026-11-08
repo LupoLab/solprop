@@ -44,7 +44,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import _EdgeReading
+from solprop.transverse_monitor import BACKSTOP_READS, _EdgeReading
 
 BACKENDS = ("numpy_ref", "native")
 RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
@@ -378,9 +378,10 @@ def test_the_scaled_miss_is_stopped_under_the_ceiling(
 
 def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     # With the edge's budget relaxed the run completes, and the record shows what
-    # the ceiling's reads saw: sixteen of them, at most L/16 apart, the largest far
-    # above the stop (Part II: 0.54 over both faces at its own read positions; one
-    # face here holds at most about 0.38 of a packet this wide).
+    # the ceiling's reads saw: sixteen of them, at most L/16 apart (the relaxed budget
+    # leaves no reach, so the backstop never grows; issue #396), the largest far above
+    # the stop (Part II: 0.54 over both faces at its own read positions; one face here
+    # holds at most about 0.38 of a packet this wide).
     packet = MISS
     output = finished(
         packet_run(
@@ -452,8 +453,8 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
 ) -> None:
     # A replay never updates the proposal, so `dz_init` used to stand in for the next
     # step: a short one read a step late, past the spacing the reads promise, and a long
-    # one read at every step. Steps of L / 40 under the ceiling L / 16 read every other
-    # step whichever it is.
+    # one read at every step. Steps of L / 40 under the ceiling read the same steps
+    # whichever it is.
     _require(backend)
     packet = REREVIEW
     length = packet.length
@@ -474,7 +475,7 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
     assert short["reads"] == long["reads"]
     assert short["largest_gap"] == long["largest_gap"]
     # The spacing, relative to rounding in the position it is measured from.
-    assert short["largest_gap"] <= length / 16 * (1 + 1e-9)
+    assert short["largest_gap"] <= length / BACKSTOP_READS * (1 + 1e-9)
     assert short["reads"] < 40
 
 
