@@ -976,7 +976,7 @@ class SpatialFlux:
                         kperp_rate=rate[index],
                     ),
                 )
-                return distinct._admittance_of(index.size)[np.ravel(inverse)]
+                return _gathered(distinct._admittance_of(index.size), np.ravel(inverse))
         return self._admittance_of(self.space.spectral_weights.size)
 
     def _admittance_of(self, n_columns: int) -> Complex[np.ndarray, "n_modes n_omega"]:
@@ -1027,6 +1027,43 @@ class SpatialFlux:
             slice(start, min(start + size, n_columns))
             for start in range(0, n_columns, size)
         ]
+
+
+def _gathered(
+    rows: Complex[np.ndarray, "n_distinct n_omega"],
+    index: np.ndarray,
+) -> Complex[np.ndarray, "n_modes n_omega"]:
+    """Return ``rows[index]``, the copy made in threads.
+
+    A large launch's single gather, page faults and all, took 2 s of its build
+    (solprop issue #347).
+
+    Parameters
+    ----------
+    rows : numpy.ndarray
+        The distinct rows.
+    index : numpy.ndarray
+        The row each output row copies, ``(n_modes,)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The gathered rows.
+    """
+    gathered = np.empty((index.size, rows.shape[1]), dtype=rows.dtype)
+
+    def work(block: slice) -> None:
+        """Copy one block of rows.
+
+        Parameters
+        ----------
+        block : slice
+            The block of output rows.
+        """
+        gathered[block] = rows[index[block]]
+
+    parallel_rows(index.size, gathered.nbytes, work)
+    return gathered
 
 
 def _exact_squares(

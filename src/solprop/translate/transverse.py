@@ -22,6 +22,7 @@ import numpy as np
 from jaxtyping import Complex, Float
 from scipy.special import j0
 
+from solprop._process import parallel_rows
 from solprop.constants import C
 from solprop.exceptions import GridError, TranslationError
 from solprop.grid import FreeGrid, LineGrid, RadialGrid, TimeGrid
@@ -186,7 +187,20 @@ def _column_power(
     numpy.ndarray
         Energy per column in the field's own units.
     """
-    density = np.sum(np.abs(field0[..., mask]) ** 2, axis=(0, 2, 3))
+    density = np.empty(field0.shape[1])
+
+    def columns(rows: slice) -> None:
+        """Sum one block of columns; each column's own sum is unchanged by blocking.
+
+        Parameters
+        ----------
+        rows : slice
+            The block of columns.
+        """
+        density[rows] = np.sum(np.abs(field0[:, rows][..., mask]) ** 2, axis=(0, 2, 3))
+
+    # A large launch's single pass took 2 s of translation (solprop issue #347).
+    parallel_rows(field0.shape[1], field0.nbytes, columns)
     return np.asarray(space.spectral_weights) * density
 
 

@@ -2646,6 +2646,102 @@ bin underflows harmlessly, so binary32 now holds it to growth alone; with the ed
 on the device and the operator built once, whole runs take 1.05 s on `mlx` against
 2.64 s on `native` (192²) and 7.72 against 9.43 s (384²), the fields 2e-7 apart.
 
+### A run's fixed host cost and a fresh process's BLAS
+
+[#347](https://github.com/LupoLab/solprop/issues/347) asked what a complete run costs
+outside its steps; [#383](https://github.com/LupoLab/solprop/issues/383) and
+[#76](https://github.com/LupoLab/solprop/issues/76) what a fresh process costs in CPU.
+Measured on an Intel Xeon Gold 6240 in an exclusive allocation, pinned to the second
+socket's 18 cores, FFTW wisdom warmed for every shape first so that neither arm plans.
+`main` at `f7d1a736` against the branch, alternating, three rounds, medians; each
+process builds, translates and runs twice into an HDF5 file:
+
+| case (length, threads) | build (s) | translation (s) | second run (s) | of it, the march (s) |
+|---|---:|---:|---:|---:|
+| `he_rdw_averaged` (5 %, 1) | 3.47 → 3.17 | 0.18 → 0.18 | 0.28 → 0.28 | 0.07 |
+| `radial_filament_256` (5 %, 8) | 3.57 → 3.27 | 0.11 → 0.11 | 0.88 → 0.89 | 0.56 |
+| `kerr_beam_384` (whole, 8) | 6.48 → 4.68 | 5.20 → 2.83 | 35.7 → 35.9 | 24.1 |
+
+- **Build, every case, 0.3 s:** the analytic signal (a capillary's input peak, a plane's
+  statistics) no longer imports `scipy.signal`, 0.7 s of imports in a profile.
+- **`kerr_beam_384`'s build, another 1.5 s:** the admittance's copy to the columns that
+  share it runs in threads.
+- **Its translation, 2.4 s:** the transverse ramp's column energies are summed in threads.
+- The resume key is carried into the opened run rather than computed again, and the
+  package versions are read once per process: each is milliseconds on these cases and
+  grows with the launch's arrays.
+
+What is left, from profiles of the same runs:
+
+- **FFTW planning.** Without `SOLPROP_FFTW_WISDOM`, constructing the native backend
+  plans every transform again in each process: 1.34 s of `he_rdw_averaged`'s run at 5 %,
+  against its 0.07 s march and about 0.2 s of other host work. SEP 46's wisdom store is
+  the remedy.
+- **CoolProp's import.** A capillary's fill imports it through optmat's transport model:
+  2.3–2.7 s of every capillary build.
+- **`kerr_beam_384`'s 11.6 s of run outside the march:** the planes' saves 2.9 s
+  ([#346](https://github.com/LupoLab/solprop/issues/346)), the edge's reads 1.65 s and the
+  temporal checks 1.5 s.
+- **Smaller:** a plane's modal basis identity about 1 ms per plane and mode (the index,
+  its quantisation and its JSON in about equal shares), and the peak-field report about
+  0.1 s per run. The driver's 0.75 s import is spread over many modules, so deferring
+  them was not worth it.
+
+**A fresh process's BLAS.** NumPy's and SciPy's wheels each load a pthreads OpenBLAS,
+which starts a thread per CPU at load and spins it for OpenBLAS's thread timeout before it
+sleeps. Importing the driver in a fresh process, then building `rdw`, wall against CPU
+time, unpinned in the same exclusive allocation (so each pool starts 72 threads), two
+repeats:
+
+| setting | import (s) | `rdw` build (s) |
+|---|---:|---:|
+| nothing set | 0.75 / 13.8 | 3.46 / 6.77 |
+| `OPENBLAS_THREAD_TIMEOUT=20` | 0.67 / 0.73 | 3.44 / 3.46 |
+| `OPENBLAS_NUM_THREADS=1` | 0.66 / 0.66 | 3.43 / 3.43 |
+
+`grin_nonlinear`'s build took 16.2–19.1 s and `moving_solid_guide`'s 79–98 s under every
+setting, CPU equal to wall (the construction lease of
+[#382](https://github.com/LupoLab/solprop/pull/382)); the spread is between repeats, not
+settings. The timeout changes no width, so it is safe where a load-time width is not
+(Windows on Arm), and processes solprop starts now take it: service runs, the GUI's
+kernel and pool workers. A script that imports NumPy itself still pays it, unless it sets
+the variable.
+
+### The edge's growing backstop
+
+[#396](https://github.com/LupoLab/solprop/issues/396): after SEP 44's native read, what
+`line` paid for its edge was the read ceiling on its steps, not the reads (above: 224 calls
+where it took 196). The spacing's backstop now starts at `L/16` and doubles at each read
+whose reach has not grown by a tenth since it started, up to `L/4`; growth or a spectrum
+without reach starts it again. SEP 40's four-way control, `python -m benchmarks.edge_overhead`,
+native at 18 threads of an Intel Xeon Gold 6240 in an exclusive allocation, six rounds,
+`main` at `f7d1a736` against the branch, the default check against no ramp and no reads:
+
+| case | before: added, reads | after: added, reads |
+|---|---:|---:|
+| `line` | +14.3 %, 23 (224 calls) | +2.6 to 3.6 %, 13 (196 calls) |
+| `planar` | +12.5 %, 23 | +9.1 %, 16 |
+| `radial_filament_256` | +4.4 %, 21 | +3.9 %, 15 |
+
+The reads alone (`edge`) on `line` went from +12.8 % to +2.9 %. On `planar` about 3 ms of
+each run was the edge's setup evaluating every slab mode's index again, now kept by run
+length; its reads alone went from +9.8 % to +6.6 %. What remains there is the reads'
+own cost, about 0.4 ms each on a 0.1 s run.
+
+Qualification, before any timing:
+
+- **SEP 40's linear witnesses, scaled.** 432 packets on the line route under Multistep
+  (the integrator that commits long steps) and each rule, 414 whose exact flow passes the
+  stop before the end: none missed under either rule. In 28 that cross half the box the
+  new rule stops without having warned first.
+- **A nonlinear witness.** A self-focusing line Kerr beam in argon (300 to 10000 critical
+  powers, 60 and 100 µm waists, half-widths 0.25 to 1 mm, two lengths: 80 configurations)
+  under a dense spacing (`L/256`), the former rule and the new one: the same outcome for
+  every configuration under all three (57 stop, 12 warn, 11 clear). The new rule stops at
+  most 2 % of the length after the dense one, and warns at most 8.5 % after it (the former
+  rule 2.3 %). One such case is the slow-tier test
+  `test_a_self_focusing_beam_is_stopped_as_dense_reads_stop_it`.
+
 ### Separable stage propagators as vector maths
 
 [#338](https://github.com/LupoLab/solprop/issues/338): free space's separable stage input

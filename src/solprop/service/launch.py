@@ -29,6 +29,7 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Final
 
+from solprop._process import BLAS_IDLE_DEFAULTS, child_environment
 from solprop.service.messages import ServiceError
 from solprop.service.record import process_stamp, set_aside, write_json
 from solprop.service.worker import SPEC, RunSpec, spec_value
@@ -144,7 +145,7 @@ def start_direct(
         If it could not be started, with why.
     """
     command = _job_command(python or sys.executable, folder)
-    env = {**os.environ, **(environment or {})}
+    env = child_environment({**os.environ, **(environment or {})})
     # Started through a short-lived Python that starts the job and leaves at once:
     # the job is then no child of this process, so it leaves no zombie behind a
     # long-lived helper, and outlives it (a session of its own; detached on Windows).
@@ -345,6 +346,11 @@ def slurm_script(
     lines.extend(line for line in resources.setup if line.strip())
     budget = str(threads) if threads is not None else "${SLURM_CPUS_PER_TASK:-1}"
     lines.append(f"export SOLPROP_THREADS={budget}")
+    # A job is a fresh Python: its BLAS pools spin unless told (solprop issue #383).
+    lines.extend(
+        f"export {name}=${{{name}:-{value}}}"
+        for name, value in BLAS_IDLE_DEFAULTS.items()
+    )
     command = " ".join(
         shlex.quote(part) for part in [python, "-m", "solprop.service.job", posix]
     )

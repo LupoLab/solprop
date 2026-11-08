@@ -5,6 +5,7 @@
 """The process's CPU grant survives an OpenMP runtime's binding of the main thread."""
 
 import importlib.util
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -621,3 +622,31 @@ def test_the_budget_keeps_to_the_top_tier_unless_threads_are_asked_for(
     ours, theirs = _process.thread_budget(), native_budget.thread_budget(18, None)
     assert (ours.source, ours.threads) == expected
     assert (theirs.source, theirs.threads) == expected
+
+
+def test_a_child_takes_the_blas_idle_defaults_unless_it_has_its_own():
+    assert _process.child_environment({"A": "1"}) == {
+        "A": "1",
+        **_process.BLAS_IDLE_DEFAULTS,
+    }
+    own = dict.fromkeys(_process.BLAS_IDLE_DEFAULTS, "28")
+    assert _process.child_environment(own) == own
+
+
+def test_a_spawn_environment_is_the_child_s_and_the_parent_s_comes_back(monkeypatch):
+    monkeypatch.setenv("KEPT", "parent")
+    monkeypatch.setenv("GONE", "parent")
+    monkeypatch.delenv("ADDED", raising=False)
+    for name in _process.BLAS_IDLE_DEFAULTS:
+        monkeypatch.delenv(name, raising=False)
+    before = dict(os.environ)
+    with _process.spawn_environment({"ADDED": "child", "KEPT": "child"}, ["GONE"]):
+        assert os.environ["ADDED"] == os.environ["KEPT"] == "child"
+        assert "GONE" not in os.environ
+        for name, value in _process.BLAS_IDLE_DEFAULTS.items():
+            assert os.environ[name] == value
+    assert dict(os.environ) == before
+    # Restored when the start fails too.
+    with pytest.raises(RuntimeError), _process.spawn_environment({"ADDED": "child"}):
+        raise RuntimeError
+    assert dict(os.environ) == before
