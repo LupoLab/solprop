@@ -16,6 +16,7 @@ of logical CPUs (empty for no pinning). Requests::
 
     {"op": "prepare", "problems": {"gnlse": 1.0, ...}}
     {"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null}
+    {"op": "sizing", "record": {...} | null}
     {"op": "regions", "elements": 1000, "repeats": 200}
     {"op": "exit"}
 
@@ -183,6 +184,26 @@ class _Session:
             step()
         return (time.perf_counter() - begun) / repeats
 
+    def sizing(self, record: Mapping[str, object] | None) -> dict[str, object]:
+        """Return each problem's operations as its workspace sizes them.
+
+        Parameters
+        ----------
+        record : Mapping[str, object] or None
+            A native execution record, or ``None`` for the process's own.
+
+        Returns
+        -------
+        dict
+            Each problem's ``execution_sizing``: work and width by operation.
+        """
+        found: dict[str, object] = {}
+        for name in self.problems:
+            self.backend(name, record)
+            backend = self.backends[(name, json.dumps(record, sort_keys=True))][0]
+            found[name] = backend.metadata()["execution_sizing"]
+        return found
+
     def close(self) -> None:
         """Close every backend."""
         for backend, _ in self.backends.values():
@@ -246,6 +267,8 @@ def serve(requests: Iterable[str], replies: io.TextIOBase) -> None:
                         int(request["repeats"]),
                         request.get("record"),
                     )
+                elif op == "sizing":
+                    answer = session.sizing(request.get("record"))
                 elif op == "regions":
                     answer = _regions(int(request["elements"]), int(request["repeats"]))
                 else:

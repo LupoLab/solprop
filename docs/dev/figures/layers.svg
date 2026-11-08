@@ -219,7 +219,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="394.75" y="1122.0" width="204.8" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="404.75" y="1144.0" font-size="15" class="bold ink-d">calibration/</text>
 <text x="404.75" y="1159.5" font-size="12" class="dim">command · controller · child</text>
-<text x="404.75" y="1175.0" font-size="12" class="dim">problems · selection</text>
+<text x="404.75" y="1175.0" font-size="12" class="dim">grain · problems · selection</text>
 <rect x="609.55" y="1122.0" width="204.8" height="66.0" rx="7" ry="7" class="fill-d" />
 <text x="619.55" y="1144.0" font-size="15" class="bold ink-d">driver/executors/</text>
 <text x="619.55" y="1159.5" font-size="12" class="dim">local · pool · queue · slurm</text>

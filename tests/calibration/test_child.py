@@ -39,6 +39,7 @@ def test_a_child_prepares_times_and_probes_regions() -> None:
         {"op": "prepare", "problems": {"gnlse": 0.5}},
         record | {"record": None},
         {"op": "regions", "elements": 100, "repeats": 5},
+        {"op": "sizing", "record": None},
         {"op": "colour"},
         {"op": "time", "problem": "missing", "repeats": 1},
         {"op": "exit"},
@@ -54,11 +55,14 @@ def test_a_child_prepares_times_and_probes_regions() -> None:
     regions = replies[2]["ok"]
     assert isinstance(regions, dict)
     assert set(regions) == {"copy", "empty"}
-    assert replies[3] == {"error": "ValueError: unknown request 'colour'"}
-    assert "KeyError" in str(replies[4]["error"])
+    sizing = replies[3]["ok"]
+    assert isinstance(sizing, dict)
+    assert any(key.startswith("kernels.stage.") for key in sizing["gnlse"])  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
+    assert replies[4] == {"error": "ValueError: unknown request 'colour'"}
+    assert "KeyError" in str(replies[5]["error"])
     # Nothing is answered after exit.
-    assert replies[5] == {"ok": True}
-    assert len(replies) == 6
+    assert replies[6] == {"ok": True}
+    assert len(replies) == 7
 
 
 def test_a_child_times_under_a_given_record() -> None:
@@ -130,7 +134,7 @@ def test_a_quick_calibration_runs_its_children_and_publishes_or_declines(
     assert report.seconds < 60.0 + 10.0
     if report.status == "published":
         assert report.path is not None and report.path.exists()
-        assert set(report.chosen) == {"threads", "wait"}
+        assert {"threads", "wait"} <= set(report.chosen)
 
 
 def test_the_childs_entry_point_keeps_its_protocol_apart(

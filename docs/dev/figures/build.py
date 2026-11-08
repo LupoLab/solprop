@@ -769,7 +769,8 @@ MODULES = {
         ),
         Module("scan.py"),
         Module(
-            "calibration/", ("command", "controller", "child", "problems", "selection")
+            "calibration/",
+            ("command", "controller", "child", "grain", "problems", "selection"),
         ),
         Module("driver/executors/", ("local", "pool", "queue", "slurm", "batch")),
         Module(

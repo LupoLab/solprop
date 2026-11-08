@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import ClassVar
+from typing import ClassVar, cast
 
 import pytest
 
@@ -32,6 +32,15 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
     """A child whose window times follow a script: seconds = 1 ms x factor."""
 
     factor: ClassVar[Factor] = staticmethod(lambda name, call: 1.0)
+    # A record's factor: the grain candidates' windows, by the record they run.
+    by_record: ClassVar[Callable[[Mapping[str, object] | None, int], float]] = (
+        staticmethod(lambda record, call: 1.0)
+    )
+    shape: ClassVar[list[int]] = [1, 1, 1, 4096]
+    sizing: ClassVar[dict[str, object]] = {
+        "kernels.stage.4096": {"threads": 8},
+        "kernels.response.98304.samples.4096": {"threads": 4},
+    }
     fail: ClassVar[frozenset[str]] = frozenset()
     fail_prepare: ClassVar[frozenset[str]] = frozenset()
     started: ClassVar[list[str]] = []
@@ -45,6 +54,7 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
         self.report: dict[str, object] = {}
         self.calls = 0
         self.pending: Mapping[str, object] = {}
+        self.prepared: list[str] = []
         self.stopped = False
         self.readers = ()
         _Scripted.started.append(candidate.name)
@@ -60,18 +70,30 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
         if request["op"] == "prepare":
             problems = request["problems"]
             assert isinstance(problems, dict)
+            self.prepared = list(cast(dict[str, float], problems))
             return {
-                "problems": {name: {"step": 1e-3, "shape": [1]} for name in problems},
+                "problems": {
+                    name: {"step": 1e-3, "shape": list(type(self).shape)}
+                    for name in problems
+                },
                 "process": {
                     "threads": self.candidate.threads or 8,
                     "wait": self.candidate.wait or "spin",
                 },
+                "execution": _native.execution.builtin("Linux").native(),
             }
+        if request["op"] == "sizing":
+            return {name: dict(type(self).sizing) for name in self.prepared}
         if request["op"] == "regions":
             return {"copy": 1e-6, "empty": 1e-6}
         assert request["op"] == "time"
         self.calls += 1
-        return 1e-3 * type(self).factor(self.candidate.name, self.calls)
+        record = cast(Mapping[str, object] | None, request.get("record"))
+        return (
+            1e-3
+            * type(self).factor(self.candidate.name, self.calls)
+            * type(self).by_record(record, self.calls)
+        )
 
     def request(self, request: Mapping[str, object], timeout: float) -> object:
         self.send(request)
@@ -211,7 +233,7 @@ def test_a_candidate_that_wins_every_round_and_its_validation_is_published(
     assert report.status == "published"
     assert report.chosen == {"threads": 4, "wait": "spin"}
     assert report.builtin == {"threads": 8, "wait": "spin"}
-    assert report.reason == "spin/4 won every round and its validation"
+    assert report.reason.startswith("spin/4 won every round and its validation")
     assert report.path is not None
     assert any("validating spin/4" in line for line in lines)
     evidence = report.evidence
@@ -506,3 +528,161 @@ def test_a_childs_standard_error_keeps_its_last_lines() -> None:
     child.process = types.SimpleNamespace(stderr=io.StringIO(lines))  # type: ignore[assignment]
     child._drain()  # pyright: ignore[reportPrivateUsage]
     assert child.errors == [f"line {index}" for index in range(10, 30)]
+
+
+def test_admitted_grain_settings_are_validated_and_published(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.by_record = staticmethod(
+        lambda record, call: 0.8 if record and record["medium_threads"] == 2 else 1.0
+    )
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert report.status == "published"
+    assert report.chosen["medium_threads"] == 2
+    assert report.builtin["medium_threads"] == 4
+    assert "grain: admitted: medium 2" in report.reason
+    (row,) = _rows(environ)
+    assert row["workspace"] == {"medium_threads": 2}
+    evidence = row["evidence"]
+    assert isinstance(evidence, dict)
+    grain_evidence = evidence["grain"]
+    assert isinstance(grain_evidence, dict)
+    assert grain_evidence["validation"]["passed"] is True  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
+
+
+def test_a_grain_that_fails_its_validation_is_dropped(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    timed: list[int] = []
+
+    def by_record(record: Mapping[str, object] | None, call: int) -> float:
+        if record and record["medium_threads"] == 2:
+            timed.append(call)
+            # Faster in its rounds, slower once every window is timed together.
+            return 0.8 if len(timed) <= 25 else 1.3
+        return 1.0
+
+    script.by_record = staticmethod(by_record)
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "medium_threads" not in report.chosen
+    assert "the combined grain failed its validation" in report.reason
+
+
+def test_the_grain_reports_why_it_kept_the_table(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    # No candidate wins.
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    assert "grain: no grain candidate won every round" in report.reason
+    # No operation a candidate could move, and no compact problem.
+    script.sizing = {}
+    script.shape = [1, 4, 1, 4096]
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    assert "grain: no candidate changes an operation's width" in report.reason
+
+
+def test_a_noisy_or_failed_grain_keeps_the_table(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script, environ = scripted
+    measured = controller.selection.noise
+    calls: list[int] = []
+
+    def noise(builtin: object, again: object, minimum: int) -> float | None:
+        # The process session's noise, then the grain session's: far above the limit.
+        calls.append(minimum)
+        return measured(builtin, again, minimum) if len(calls) == 1 else 0.5  # type: ignore[arg-type]
+
+    monkeypatch.setattr(controller.selection, "noise", noise)
+    noisy = calibrate("standard", environ=environ, cpus=range(8))
+    assert "grain: inconclusive grain noise" in noisy.reason
+    monkeypatch.setattr(controller.selection, "noise", measured)
+
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        if self.pending.get("op") == "sizing":
+            raise controller._ChildError("built-in exited")  # pyright: ignore[reportPrivateUsage]
+        if self.pending.get("op") == "time" and self.pending.get("record"):
+            raise controller._ChildError("built-in exited")  # pyright: ignore[reportPrivateUsage]
+        return original(self, timeout)
+
+    script.receive = receive  # type: ignore[method-assign]
+    failed = calibrate("quick", environ=environ, cpus=range(8))
+    assert "grain: built-in exited" in failed.reason
+
+
+def test_a_failed_grain_window_is_dropped(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        record = self.pending.get("record")
+        if isinstance(record, dict) and record.get("compact_threads") == 4:
+            raise controller._ChildError("compact window failed")  # pyright: ignore[reportPrivateUsage]
+        return original(self, timeout)
+
+    script.receive = receive  # type: ignore[method-assign]
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    evidence = report.evidence["grain"]
+    assert isinstance(evidence, dict)
+    verdicts = evidence["verdicts"]
+    assert isinstance(verdicts, dict)
+    assert verdicts["compact 4"]["reason"] == "0 of 3 rounds"  # pyright: ignore[reportUnknownMemberType]
+
+
+def test_a_candidate_that_changes_no_problem_is_left_out(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script, environ = scripted
+    script.shape = [1, 4, 1, 4096]
+    monkeypatch.setattr(controller.grain, "affected", lambda *args: False)
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    assert "grain: no candidate changes an operation's width" in report.reason
+
+
+def test_a_grain_out_of_time_keeps_the_table(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    script, environ = scripted
+    sized: list[bool] = []
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        if self.pending.get("op") == "sizing":
+            sized.append(True)
+        return original(self, timeout)
+
+    script.receive = receive  # type: ignore[method-assign]
+    deadline = controller._Deadline  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(deadline, "remaining", lambda self: 0.0 if sized else 1e9)
+    report = calibrate("quick", environ=environ, cpus=range(8))
+    assert "grain: inconclusive grain noise" in report.reason
+
+
+def test_a_failed_validation_window_fails_the_grain(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.by_record = staticmethod(
+        lambda record, call: 0.8 if record and record["medium_threads"] == 2 else 1.0
+    )
+    windows: list[int] = []
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        record = self.pending.get("record")
+        if isinstance(record, dict) and record.get("medium_threads") == 2:
+            windows.append(1)
+            if len(windows) > 25:
+                raise controller._ChildError("validation window failed")  # pyright: ignore[reportPrivateUsage]
+        return original(self, timeout)
+
+    script.receive = receive  # type: ignore[method-assign]
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "the combined grain failed its validation" in report.reason

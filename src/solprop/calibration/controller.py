@@ -37,7 +37,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal, cast
 
 from solprop import _process
-from solprop.calibration import _native, selection
+from solprop.calibration import _native, grain, selection
 from solprop.exceptions import CalibrationError
 
 if TYPE_CHECKING:
@@ -86,6 +86,10 @@ class Level:
         The calibration problems timed.
     widths : int
         The team widths tried besides the built-in rule's.
+    grain : int
+        The most grain candidates timed.
+    fulls : bool
+        Whether the grain moves the classes' full sizes as well as their thresholds.
     reserve : float
         The share of the budget kept for validation and publication.
     """
@@ -96,15 +100,18 @@ class Level:
     window: float
     problems: tuple[str, ...]
     widths: int
-    reserve: float = 0.25
+    grain: int
+    fulls: bool = False
+    reserve: float = 0.2
 
 
 _ALL = ("gnlse", "capillary", "averaged", "radial", "line")
 
 LEVELS: dict[str, Level] = {
-    "quick": Level("quick", 20.0, 3, 0.1, ("gnlse", "averaged", "line"), 1),
-    "standard": Level("standard", 60.0, 5, 0.15, _ALL, 2),
-    "thorough": Level("thorough", 300.0, 7, 0.4, _ALL, 2),
+    # Quick: the wait, the team and the coarse grain (medium width, compact team).
+    "quick": Level("quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 1, 4),
+    "standard": Level("standard", 60.0, 5, 0.1, _ALL, 2, 10),
+    "thorough": Level("thorough", 300.0, 7, 0.3, _ALL, 2, 40, fulls=True),
 }
 """The levels: about 20 s, a minute and five minutes (SEP 46 section 6.9)."""
 
@@ -661,6 +668,7 @@ class _Plan:
     digest: str
     deadline: _Deadline
     say: Callable[[str], object]
+    repeats: Mapping[str, int] = field(default_factory=dict[str, int])
 
 
 @dataclass(frozen=True)
@@ -839,8 +847,8 @@ def _settings(child: _Child) -> dict[str, object]:
 
 def _decide(
     plan: _Plan, bench: _Bench, scores: Scores, noise: float
-) -> tuple[dict[str, object], dict[str, object], str]:
-    """Choose and validate a candidate; return the settings, evidence and reason.
+) -> tuple[_Child, dict[str, object], str]:
+    """Choose and validate a candidate; return its child, the evidence and why.
 
     Parameters
     ----------
@@ -856,7 +864,8 @@ def _decide(
     Returns
     -------
     tuple
-        The process settings chosen, the evidence, and the reason.
+        The child whose process settings were chosen (the built-in one when none
+        replaced them), the evidence, and the reason.
     """
     winner_name, verdicts = selection.choose(
         {child.candidate.name: scores[child.candidate.name] for child in bench.rivals},
@@ -885,14 +894,254 @@ def _decide(
     evidence["regions"] = regions
     if winner is None:
         return (
-            _settings(bench.builtin),
+            bench.builtin,
             evidence,
             "the built-in rules kept: no candidate won every round and its validation",
         )
-    return (
-        _settings(winner),
-        evidence,
-        f"{winner_name} won every round and its validation",
+    return winner, evidence, f"{winner_name} won every round and its validation"
+
+
+def _grain_round(
+    plan: _Plan,
+    child: _Child,
+    candidates: Sequence[tuple[grain.Candidate, tuple[str, ...]]],
+    base: Mapping[str, int | bool],
+    generator: random.Random,
+) -> dict[str, float | None]:
+    """Time one round of the grain candidates against the base record.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan.
+    child : _Child
+        The child whose process settings were chosen.
+    candidates : sequence of tuple
+        Each candidate and the problems whose operations it changes.
+    base : Mapping[str, int or bool]
+        The base record (the child's own).
+    generator : random.Random
+        Shuffles the round's order.
+
+    Returns
+    -------
+    dict of str to float or None
+        ``again``, the base record's A/A ratio over the problems, and each
+        candidate's ratio to it over its problems; ``None`` for a failed window.
+    """
+    problems = sorted({name for _, names in candidates for name in names})
+    slots: list[tuple[str, Mapping[str, object] | None, tuple[str, ...]]] = [
+        ("base", None, tuple(problems)),
+        ("again", None, tuple(problems)),
+    ]
+    slots += [
+        (candidate.name, candidate.record(base), names)
+        for candidate, names in candidates
+    ]
+    generator.shuffle(slots)
+    timed: dict[str, dict[str, float]] = {}
+    failed: set[str] = set()
+    for name, record, names in slots:
+        timed[name] = {}
+        for problem in names:
+            try:
+                reply = child.request(
+                    {
+                        "op": "time",
+                        "problem": problem,
+                        "repeats": plan.repeats[problem],
+                        "record": record,
+                    },
+                    plan.deadline.remaining(),
+                )
+            except _ChildError:
+                failed.add(name)
+                break
+            timed[name][problem] = float(cast(float, reply))
+    base_times = timed["base"]
+    ratios: dict[str, float | None] = {}
+    for name, _, names in slots:
+        if name == "base":
+            continue
+        if name in failed or "base" in failed:
+            ratios[name] = None
+            continue
+        ratios[name] = _geomean([timed[name][p] / base_times[p] for p in names])
+    return ratios
+
+
+def _grain_candidates(
+    plan: _Plan, child: _Child, sizing: Mapping[str, Mapping[str, object]]
+) -> list[tuple[grain.Candidate, tuple[str, ...]]]:
+    """Return the grain candidates and the problems each changes.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan, for its level's limits.
+    child : _Child
+        The child whose process settings were chosen.
+    sizing : Mapping[str, Mapping[str, object]]
+        Each problem's ``execution_sizing`` under the child's own record.
+
+    Returns
+    -------
+    list of tuple
+        Each candidate, with the problems whose operations (or compact team) it
+        changes; a candidate that changes none is left out.
+    """
+    base = cast(dict[str, int | bool], child.report["execution"])
+    capacity = int(cast(int, _settings(child)["threads"]))
+    shapes = cast(dict[str, dict[str, list[int]]], child.report["problems"])
+    compact = [
+        name for name, info in shapes.items() if math.prod(info["shape"][:-1]) == 1
+    ]
+    found = {name: grain.operations(sizes) for name, sizes in sizing.items()}
+    proposed: list[tuple[grain.Candidate, tuple[str, ...]]] = []
+    for candidate in grain.proposals(
+        base, found, capacity, compact, limit=plan.level.grain, fulls=plan.level.fulls
+    ):
+        names = tuple(
+            name
+            for name, operations in found.items()
+            if grain.affected(candidate.record(base), base, operations, capacity)
+            or (candidate.setting == "compact" and name in compact)
+        )
+        if names:
+            proposed.append((candidate, names))
+    return proposed
+
+
+def _grain(
+    plan: _Plan, bench: _Bench, child: _Child, until: float
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Fit the operation grain in the chosen process (SEP 46 phase 2).
+
+    The child's operations, as its workspaces size them, give each operation class's
+    candidates (:func:`solprop.calibration.grain.proposals`); each is timed on the
+    problems it changes, interleaved with the child's own record, and admitted by
+    §6.5's rule; the best of each setting are combined and validated together on
+    fresh rounds of every problem. A failed validation drops the grain.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan.
+    bench : _Bench
+        The prepared children, for each window's repeats.
+    child : _Child
+        The child whose process settings were chosen.
+    until : float
+        The seconds of the deadline kept back for publication.
+
+    Returns
+    -------
+    tuple
+        The workspace settings admitted (empty when none), and the evidence.
+    """
+    plan = dataclasses.replace(plan, repeats=bench.repeats)
+    try:
+        sizing = cast(
+            dict[str, dict[str, object]],
+            child.request({"op": "sizing", "record": None}, plan.deadline.remaining()),
+        )
+    except _ChildError as error:
+        return {}, {"reason": str(error)}
+    proposed = _grain_candidates(plan, child, sizing)
+    evidence: dict[str, object] = {"candidates": [c.name for c, _ in proposed]}
+    if not proposed:
+        return {}, evidence | {"reason": "no candidate changes an operation's width"}
+    plan.say(f"timing {len(proposed)} grain candidates")
+    base = cast(dict[str, int | bool], child.report["execution"])
+    generator = random.Random(2000)
+    ratios: dict[str, list[float | None]] = {"again": []}
+    ratios |= {candidate.name: [] for candidate, _ in proposed}
+    for _ in range(plan.level.rounds):
+        if plan.deadline.remaining() <= until:
+            break
+        for name, value in _grain_round(plan, child, proposed, base, generator).items():
+            ratios[name].append(value)
+    ones = [1.0] * len(ratios["again"])
+    noise = selection.noise(ones, ratios["again"], plan.level.rounds)
+    if noise is None or noise > selection.NOISE_LIMIT:
+        return {}, evidence | {"reason": "inconclusive grain noise", "noise": noise}
+    verdicts = {
+        candidate.name: selection.admit(
+            ratios[candidate.name], ones, noise, plan.level.rounds
+        )
+        for candidate, _ in proposed
+    }
+    evidence |= {
+        "noise": noise,
+        "verdicts": {name: verdict.record() for name, verdict in verdicts.items()},
+    }
+    best = grain.best([candidate for candidate, _ in proposed], verdicts)
+    if not best:
+        return {}, evidence | {"reason": "no grain candidate won every round"}
+    changes: dict[str, object] = {}
+    for candidate in best:
+        changes |= candidate.changes
+    plan.say(f"validating {len(best)} grain settings")
+    validation = _validate_records(plan, child, {**base, **changes}, noise)
+    evidence["validation"] = validation.record()
+    if not validation.passed:
+        return {}, evidence | {"reason": "the combined grain failed its validation"}
+    admitted = ", ".join(candidate.name for candidate in best)
+    return changes, evidence | {"reason": f"admitted: {admitted}"}
+
+
+def _validate_records(
+    plan: _Plan, child: _Child, record: Mapping[str, object], noise: float
+) -> selection.Validation:
+    """Validate `record` against the child's own on fresh rounds of every window.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan, with each window's repeats.
+    child : _Child
+        The child.
+    record : Mapping[str, object]
+        The combined record.
+    noise : float
+        The grain session's A/A noise.
+
+    Returns
+    -------
+    solprop.calibration.selection.Validation
+        The verdict.
+    """
+    names = plan.level.problems
+    combined: dict[str, list[float | None]] = {name: [] for name in names}
+    table: dict[str, list[float | None]] = {name: [] for name in names}
+    generator = random.Random(3000)
+    for _ in range(plan.level.rounds):
+        pair: list[
+            tuple[dict[str, list[float | None]], Mapping[str, object] | None]
+        ] = [
+            (combined, record),
+            (table, None),
+        ]
+        generator.shuffle(pair)
+        for target, chosen in pair:
+            for name in names:
+                try:
+                    reply = child.request(
+                        {
+                            "op": "time",
+                            "problem": name,
+                            "repeats": plan.repeats[name],
+                            "record": chosen,
+                        },
+                        plan.deadline.remaining(),
+                    )
+                    target[name].append(float(cast(float, reply)))
+                except _ChildError:
+                    target[name].append(None)
+    return selection.validate(
+        {name: (combined[name], table[name]) for name in names},
+        noise,
+        plan.level.rounds,
     )
 
 
@@ -1008,13 +1257,17 @@ def _calibrate_allocation(
                 evidence=evidence,
                 seconds=plan.deadline.elapsed(),
             )
-        chosen, decision, reason = _decide(plan, bench, scores, noise)
-        evidence |= decision | {"reason": reason}
+        final, decision, reason = _decide(plan, bench, scores, noise)
+        chosen = _settings(final)
+        workspace, grain_evidence = _grain(plan, bench, final, until)
+        reason = f"{reason}; grain: {grain_evidence.get('reason')}"
+        evidence |= decision | {"reason": reason, "grain": grain_evidence}
+        table = cast(dict[str, object], final.report["execution"])
         row = _native.store.Row(
             allocation=allocation.record(),
             level=plan.level.name,
             process=chosen,
-            workspace={},
+            workspace=workspace,
             fitted_under=chosen,
             evidence=evidence,
         )
@@ -1023,8 +1276,8 @@ def _calibrate_allocation(
             status="published",
             fingerprint=plan.digest,
             allocation=allocation.record(),
-            chosen=chosen,
-            builtin=builtin,
+            chosen=chosen | workspace,
+            builtin=builtin | {name: table[name] for name in workspace},
             evidence=evidence,
             reason=reason,
             seconds=plan.deadline.elapsed(),
