@@ -89,8 +89,9 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 46 — Calibrating the native CPU backend to its machine](seps/sep-0046-machine-calibration.md):
-  a bounded one-off measurement, about a minute, that fits the native CPU backend's
-  waiting policy, team, operation thresholds and FFTW planning to the machine, kept in a
-  per-user store that every later run reads. An optional refinement for one simulation
-  covers SEP 4's use case, which it proposes to supersede.
+- [SEP 46 — Calibrating the native backend to its machine](seps/sep-0046-machine-calibration.md):
+  a bounded one-off measurement that fits the native CPU backend's waiting policy, team,
+  operation thresholds and FFTW planning to the machine: quick and automatic on first
+  use, thorough for the benchmarks, kept in the user's cache directory and read by every
+  later run. An optional refinement for one simulation covers SEP 4's use case, which it
+  proposes to supersede; a last phase fits GPU builds' settings when a device is set up.
