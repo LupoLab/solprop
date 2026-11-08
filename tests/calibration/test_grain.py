@@ -98,6 +98,13 @@ def test_the_medium_width_and_the_compact_team_have_short_ladders() -> None:
     adams = {"a": [Operation("kernels", "adams", 4096)]}
     assert proposals(TABLE, adams, 18) == []
     assert "adams" not in TIMED
+    # Nor are the transforms' thresholds moved: counted in elements, transforms of one
+    # count thread oppositely by shape (SEP 46 Part II).
+    transforms = {
+        "a": [Operation("fft", "fft", 98304, 768), Operation("fft", "fft", 131072, 512)]
+    }
+    assert [c for c in proposals(TABLE, transforms, 18) if "fft" in c.name] == []
+    assert "fft" not in TIMED
 
 
 def test_the_best_admitted_candidate_of_each_setting_is_kept() -> None:

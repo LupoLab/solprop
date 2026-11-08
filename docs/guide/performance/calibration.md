@@ -38,7 +38,9 @@ never runs your own simulation; for that, see
    production-sized problems can show what a narrower team costs). Each candidate is a
    child process with those settings.
 2. **Operation grain.** Each kind of operation (stage passes, responses, products,
-   transforms, Raman histories, copies) threads above a size threshold. The
+   Raman histories, copies) threads above a size threshold; the transforms keep the
+   built-in thresholds, which count elements, since transforms of one size thread best
+   in opposite ways by their shape. The
    calibration moves each threshold past the work sizes the problems actually run,
    and tries other medium widths and compact teams for one-column problems.
 3. **FFT planning** (standard and thorough). Every transform the problems create is

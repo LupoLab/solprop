@@ -43,11 +43,16 @@ __all__ = [
 type Record = Mapping[str, int | bool]
 """A native execution record (``ExecutionRecord.native()``)."""
 
-TIMED = ("stage", "fft", "response", "raman", "copy", "dense", "modal")
-"""The classes a trial-step window runs, in the order their candidates are tried.
+TIMED = ("stage", "response", "raman", "copy", "dense", "modal")
+"""The classes whose thresholds the grain moves, in the order their candidates go.
 
 The exponential Adams trial's passes and a coupled flow's matrix functions run in
-no calibration window: their thresholds keep the built-in table's.
+no calibration window: their thresholds keep the built-in table's. Nor are the
+transforms' moved: their thresholds count elements, and transforms of the same count
+thread oppositely by shape. On AMD EPYC 7763 and 9B45 cores, a full width from 98304
+elements won 0.56 on a line's many short rows and ran ``grin_nonlinear``'s few long
+rows 8-10 % slower (SEP 46 Part II), so they keep the table until threading keys on
+rows and row length.
 """
 
 
