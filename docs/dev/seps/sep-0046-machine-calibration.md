@@ -59,9 +59,11 @@ families and found each setting's best value to depend on the machine, often str
   M5 Max's cases in 0.87 of their time. On the Raman GNLSE it was 0.44, and nothing
   was slower. The same division lost on the Xeon Gold at 4, 8, 18 and 36 threads, under
   either OpenMP runtime: the averaged hydrogen and argon capillaries took 1.4–1.7 times
-  as long. On the Axion the split was sharper still: the large problems gained up to
-  2× and the averaged ones lost 1.2–1.5×. The M5 Max's top-tier cores share an L2
-  cache; the Xeon Gold's share only the L3.
+  as long, while the large problems gained 3–21 %. On the Axion it lost too (1.06 over
+  8 and 16 threads; argon 1.63 at 16, the averaged cases 1.16–1.44), while `line` and the
+  Raman hydrogen case gained 6–10 %. The M5 Max's top-tier cores share an L2 cache; the
+  Xeon Gold's share only the L3. The best threshold differs between machines and,
+  within a machine, between operations: no single divisor captures it.
 - **The team.** On the M5 Max a team spanning its 12 second-tier cores ran most cases
   1.2–1.5 times slower than its 6 top-tier cores (#333). Dynamic scheduling did not
   recover it (1.06). On the Xeon Gold, capping one-column problems at 8 threads beat 4,
@@ -448,11 +450,13 @@ and runtime change from one image to the next.
    - no case slower than its A/A range plus 2 %;
    - the geometric mean at least as good;
    - better by at least 5 % where PR #576 showed the table wrong: the M5 Max without
-     ADR-073, the Axion's large problems, Windows' waiting.
+     ADR-073, and Windows' waiting; better on the large problems of the Xeon Gold and
+     the Axion without the averaged cases' losses.
 2. **It finds what was measured by hand.**
    - M5 Max: six top-tier threads, a short spin, lower thresholds.
    - Xeon Gold: spin, thresholds near the table, compact cap near 8.
-   - Axion: lower thresholds for the multi-node operations, not for the one-node ones.
+   - Axion: spin, thresholds near the table for the averaged and one-column
+     operations, lower only where the large problems gained.
    - Windows: the spin scoped to native calls, which ran 0.87 at 16 threads.
 3. **Repeatable.** Two calibrations on an idle machine choose the same waiting and
    team, and thresholds within a factor of two, with the same validation outcome.
@@ -652,6 +656,8 @@ The calibration is how users get the best speed, so the documentation leads with
   an effort ladder with time limits, isolated planning, in-step timing and per-class
   wisdom; no threaded patient plans.
 - 2026-11-08: AI review by GPT-6, recorded below; Part I unchanged.
+- 2026-11-08: The Axion's threshold figures corrected to the distribution build with
+  OpenBLAS; the earlier ones came from a build without a BLAS library.
 
 ### AI review — 2026-11-08
 
