@@ -863,3 +863,51 @@ def test_the_grain_stage_leaves_fft_planning_its_share(
     share = (limits["grain left"] - reserve) * level.planning
     assert limits["grain"] == pytest.approx(reserve + share, rel=1e-3)
     assert controller.LEVELS["quick"].planning == 0.0
+
+
+def test_captures_take_a_share_of_the_stage_and_an_incomplete_one_is_dropped(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # On 16 cores of an AMD EPYC 9B45 the thorough captures outran the deadline.
+    script, environ = scripted
+    original = script.receive
+    budgets: list[float] = []
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        reply = original(self, timeout)
+        if self.pending.get("op") == "capture":
+            budgets.append(float(cast(float, self.pending["budget"])))
+            assert timeout <= budgets[-1] + 30.0
+            assert isinstance(reply, dict)
+            if self.pending["effort"] == "patient":
+                reply["skipped"] = ["radial"]
+        return reply
+
+    monkeypatch.setattr(script, "receive", receive)
+    script.by_planning = staticmethod(
+        lambda planning, call: (
+            0.8 if _efforts(planning).get("rows") == "patient" else 1.0
+        )
+    )
+    report = calibrate("thorough", environ=environ, cpus=range(8))
+    assert len(budgets) == 2
+    assert 0.0 < budgets[0] < controller.LEVELS["thorough"].budget
+    # The incomplete patient capture is no candidate, however fast it would be.
+    assert "rows patient" not in report.reason
+    # An incomplete measure capture keeps the plan policy.
+    budgets.clear()
+
+    def short(self: _Scripted, timeout: float) -> object:
+        reply = original(self, timeout)
+        if self.pending.get("op") == "capture":
+            assert isinstance(reply, dict)
+            reply["skipped"] = ["line"]
+        return reply
+
+    monkeypatch.setattr(script, "receive", short)
+    kept = calibrate(
+        "standard",
+        environ={**environ, "SOLPROP_CACHE_DIR": environ["SOLPROP_CACHE_DIR"] + "2"},
+        cpus=range(8),
+    )
+    assert "planning at measure took longer than its share" in kept.reason

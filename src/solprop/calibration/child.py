@@ -18,7 +18,8 @@ of logical CPUs (empty for no pinning). Requests::
     {"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null,
      "planning": {...} | null}
     {"op": "sizing", "record": {...} | null}
-    {"op": "capture", "effort": "measure", "limit": 2.0, "record": {...} | null}
+    {"op": "capture", "effort": "measure", "limit": 2.0, "budget": 30.0,
+     "record": {...} | null}
     {"op": "regions", "elements": 1000, "repeats": 200}
     {"op": "exit"}
 
@@ -69,6 +70,13 @@ def pin(cpus: Sequence[int]) -> None:
         mask = sum(1 << cpu for cpu in cpus if cpu < 64)
         kernel = ctypes.windll.kernel32
         kernel.SetProcessAffinityMask(kernel.GetCurrentProcess(), ctypes.c_size_t(mask))
+
+
+_PLANS_PER_PROBLEM = 4
+"""About how many transforms a calibration problem plans, for sharing a budget."""
+
+_SHORTEST_LIMIT = 0.05
+"""The shortest per-plan time limit worth a problem's capture, in seconds."""
 
 
 class _Session:
@@ -229,13 +237,19 @@ class _Session:
         return (time.perf_counter() - begun) / repeats
 
     def capture(
-        self, effort: str, limit: float, record: Mapping[str, object] | None
+        self,
+        effort: str,
+        limit: float,
+        record: Mapping[str, object] | None,
+        budget: float | None = None,
     ) -> dict[str, object]:
         """Plan every problem's transforms alone at `effort`; return their wisdom.
 
         Each transform is seeded from no wisdom, within `limit` seconds, and its
         wisdom kept by its plan key (SEP 46 section 6.7). The workspaces built are
-        closed: only the wisdom is wanted.
+        closed: only the wisdom is wanted. Within a `budget`, each problem's plans
+        share what is left of it, at most `limit` each, and the problems it leaves no
+        time for are skipped and listed.
 
         Parameters
         ----------
@@ -246,12 +260,15 @@ class _Session:
         record : Mapping[str, object] or None
             The execution record the problems run under, whose widths the plans'
             threads follow.
+        budget : float or None, optional
+            The seconds the whole capture may take; none bounds it but `limit`.
 
         Returns
         -------
         dict
             ``wisdom`` by plan key, each key's ``groups`` and the problems
-            containing it (``problems``), and the seconds spent (``seconds``).
+            containing it (``problems``), the problems skipped for want of time
+            (``skipped``), and the seconds spent (``seconds``).
         """
         from solprop_native._execution import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             ExecutionRecord,
@@ -263,8 +280,19 @@ class _Session:
         wisdom: dict[str, str] = {}
         groups: dict[str, str] = {}
         contains: dict[str, list[str]] = {}
+        skipped: list[str] = []
         begun = time.perf_counter()
-        for name, (simulation, problem) in self.problems.items():
+        names = list(self.problems)
+        for index, name in enumerate(names):
+            simulation, problem = self.problems[name]
+            each = limit
+            if budget is not None:
+                left = budget - (time.perf_counter() - begun)
+                # A problem plans a few transforms: share what is left among them.
+                each = min(limit, left / (_PLANS_PER_PROBLEM * (len(names) - index)))
+                if each < _SHORTEST_LIMIT:
+                    skipped.extend(names[index:])
+                    break
             backend = NativeBackend(
                 problem,
                 grid=simulation.grid,
@@ -276,7 +304,7 @@ class _Session:
                 fft_planning={
                     "mode": "capture",
                     "capture_effort": effort,
-                    "time_limit": limit,
+                    "time_limit": each,
                 },
             )
             try:
@@ -291,6 +319,7 @@ class _Session:
             "wisdom": wisdom,
             "groups": groups,
             "problems": contains,
+            "skipped": skipped,
             "seconds": time.perf_counter() - begun,
         }
 
@@ -385,6 +414,9 @@ def serve(requests: Iterable[str], replies: io.TextIOBase) -> None:
                         request["effort"],
                         float(request["limit"]),
                         request.get("record"),
+                        None
+                        if request.get("budget") is None
+                        else float(request["budget"]),
                     )
                 elif op == "sizing":
                     answer = session.sizing(request.get("record"))

@@ -1321,6 +1321,14 @@ def _planning_candidates(
     return base, found
 
 
+_CAPTURE_SHARE = 0.3
+"""The share of the FFT stage's time left that each capture may take."""
+
+_CAPTURE_MARGIN = 30.0
+"""Seconds past its budget a capture's child may take before it counts as failed:
+FFTW's time limit is per plan, and checked between its trials."""
+
+
 def _planning(
     plan: _Plan, child: _Child, record: Mapping[str, int | bool], until: float
 ) -> tuple[dict[str, object], dict[str, str], dict[str, object]]:
@@ -1351,34 +1359,40 @@ def _planning(
     if plan.level.name == "quick":
         return {}, {}, {"reason": "the plan policy (quick)"}
     limit = 20.0 if plan.level.fulls else 1.0
-    try:
-        plan.say("planning the transforms at measure")
-        measured = cast(
+
+    def capture(effort: str, share: float) -> dict[str, object]:
+        # Each capture takes its share of the stage's time, so that the timing
+        # in the step still has the rest (SEP 46 section 6.7).
+        budget = max(0.0, plan.deadline.remaining() - until) * share
+        return cast(
             dict[str, object],
             child.request(
                 {
                     "op": "capture",
-                    "effort": "measure",
+                    "effort": effort,
                     "limit": limit,
+                    "budget": budget,
                     "record": dict(record),
                 },
-                plan.deadline.remaining(),
+                min(plan.deadline.remaining(), budget + _CAPTURE_MARGIN),
             ),
         )
+
+    try:
+        plan.say("planning the transforms at measure")
+        measured = capture("measure", _CAPTURE_SHARE)
+        if measured.get("skipped"):
+            return (
+                {},
+                {},
+                {"reason": "planning at measure took longer than its share of the stage"},
+            )
         patient = None
         if plan.level.fulls:
-            patient = cast(
-                dict[str, object],
-                child.request(
-                    {
-                        "op": "capture",
-                        "effort": "patient",
-                        "limit": limit,
-                        "record": dict(record),
-                    },
-                    plan.deadline.remaining(),
-                ),
-            )
+            plan.say("planning the serial transforms at patient")
+            patient = capture("patient", _CAPTURE_SHARE)
+            if patient.get("skipped"):
+                patient = None  # incomplete: patient is not a candidate
     except _ChildError as error:
         return {}, {}, {"reason": str(error)}
     base, candidates = _planning_candidates(plan.level, measured, patient)

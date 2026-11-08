@@ -174,6 +174,15 @@ def test_a_child_captures_each_plans_wisdom_and_times_under_a_planning() -> None
     assert set(wisdom) <= set(groups)
     assert all(text.startswith("(fftw-3") for text in wisdom.values())
     assert set(cast(dict[str, list[str]], captured["problems"])) == {"gnlse"}
+    assert captured["skipped"] == []
+    # A budget too small for any problem's plans skips them all, and says so.
+    short = _serve(
+        {"op": "prepare", "problems": {"gnlse": 1.0, "line": 1.0}},
+        {"op": "capture", "effort": "measure", "limit": 0.5, "budget": 0.0},
+    )[1]["ok"]
+    assert isinstance(short, dict)
+    assert short["skipped"] == ["gnlse", "line"]
+    assert short["wisdom"] == {}
     planning = {
         "mode": "profile",
         "efforts": {"rows": "measure", "threaded_rows": "measure", "planes": "measure"},
