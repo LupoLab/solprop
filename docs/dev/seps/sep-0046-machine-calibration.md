@@ -1080,6 +1080,101 @@ index entry and tracking issue change then.
   item 1 (the Xeon quiet, DMOG's EPYC 7763, Google C4D under Linux and Windows and C4A,
   and the maintainer's M5 Max), which is still to run, as is phase 6.
 
+### Verification report — section 7 items 1–4, and the revisions it forced
+
+- **Scope:** section 7 items 1–4 and 16 on the machines of item 1, 2026-11-08, Opus 5.5
+  (AI) for John Travers; the maintainer ran the Apple M5 Max. Commits `27fb0131` to
+  `0aaf84f0` of #582. The rows, commands and spend are in the benchmark ledger
+  ([Machine calibration against the built-in table](../benchmarks.md#machine-calibration-against-the-built-in-table-sep-46)).
+- **Method:** a thorough calibration on 16 cores (18 on the Xeon, 6 top-tier on the
+  M5 Max), then the tracking set calibrated against built-in (`benchmarks ab`, a fifth
+  of each case, three rounds), an A/A control and a second calibration. Both arms run
+  as default runs, with no thread count of their own (an empty `SOLPROP_THREADS` and
+  `SOLPROP_NATIVE_THREADS`). Without that, a worker's explicit width kept the profile's
+  team width out, and with it every setting fitted at another width: the first Axion A/B
+  measured nothing of its profile (every case 1.00, fields equal to the bit).
+- **The first rules failed item 1.**
+  - *Team width from small problems.* On a Google Axion a team of 8 won the five
+    problems by 16 % and ran the tracking set's large cases up to 1.8 times slower
+    (geometric mean 1.094). A round's score was the geometric mean over the problems,
+    so a large win on some carried a loss on others, and every problem was far smaller
+    than a production run.
+  - *Untested wisdom.* On an AMD EPYC 9B45 the FFT stage's fallback, the policy's
+    efforts with the captured wisdom, ran `h2_raman_averaged` 1.18 times slower. Its
+    4608-point plan, chosen alone in the capture, ran slower in the step than a plan
+    measured in place, and the fallback was every candidate's base, so it was never
+    compared with the table.
+  - *Element-count thresholds.* A full transform width from 98304 elements won 0.56 on
+    the line problem's many short rows and ran `grin_nonlinear` 1.08–1.10 slower on
+    both EPYCs.
+- **Revisions (deviations from sections 6.5, 6.7 and 6.9, all in `75cae69b` to
+  `0aaf84f0`):**
+  - *Per-problem admission.* A candidate must also be slower on no problem than its
+    median ratio's bar, `1 + noise + TOLERANCE`; the combined validation uses the same
+    bar. `TOLERANCE` is 5 %, the maintainer's choice (section 7 item 1 asked for 2 %).
+  - *Production-sized problems.* Standard and thorough also time `gnlse_large` (16384
+    samples), `capillary_large` (four modes on 5120), `radial_large` (384 nodes) and
+    `line_large` (4096 columns). Quick tries no narrower team. Standard takes about 90 s
+    (78 s on 8 Xeon cores).
+  - *FFT planning against the table.* Candidates and their validation are compared with
+    the plan policy as a run without a profile plans, and nothing is published unless an
+    effort wins. Each capture takes a budget out of the stage's share and keeps what it
+    planned when cut short; standard plans at 0.25 s a plan. The grain stage leaves
+    planning half the time left.
+  - *Transforms at the table.* The grain no longer moves `fft_threshold` or `fft_full`
+    (#587: key the transforms' width on rows and row length).
+- **Results with the revised rules** (2 % bar):
+  - *Google Axion:* medium width 8 and two thresholds in three runs; geometric means
+    0.965, 0.964, 0.968 against an A/A of 1.000, no case beyond its A/A range plus 2 %;
+    gains to 15 % on the few-mode and Raman cases. The team of 8 was refused on
+    `radial_large` (1.17–1.18). The last run's two calibrations agreed (item 3).
+  - *AMD EPYC 7763 (exclusive node, one NUMA domain):* the table, as no grain move
+    won; A/B 1.003 against an A/A of 0.991.
+  - *AMD EPYC 9B45, Windows Server 2025 (the CI wheel, Clang 20, LLVM OpenMP):* the
+    table in both calibrations; the A/B, table against table, was not run.
+  - *AMD EPYC 9B45, Linux:* inconclusive at 16 cores (A/A 35 % and 15 % on two Spot and
+    on-demand VMs); one Spot VM was preempted mid-run.
+  - *Intel Xeon Gold 6240, one socket:* the table in both conclusive calibrations; the
+    machine is shared, and a later session was inconclusive (23 %).
+  - *Apple M5 Max* (first rules): six top-tier threads kept in both calibrations, a
+    Raman threshold of 8193 admitted; A/B 1.002 and 1.008, `h2_raman_averaged` 1.04,
+    the stored wisdom the revision removes.
+- **Item 2.** Found as measured by hand: spin everywhere, passive refused by 1.10–1.78;
+  six top-tier threads on the M5 Max; the Xeon's thresholds near the table; Windows'
+  spin, now the table's since #576. Not found: the M5 Max's lower thresholds beyond
+  ADR-073's, which the table already applies; the Xeon's compact cap near 8.
+- **Item 3.** Same waiting and team in every pair of conclusive calibrations; the same
+  grain in the last Axion pair, while three earlier second calibrations (Axion,
+  EPYC 7763, Windows) found the grain inconclusive and kept the table.
+- **Item 4.** Every noisy session reported `inconclusive` and published nothing for its
+  allocation: the EPYC 9B45 (35 %, 15 %), the EPYC 7763's second (31 %), the Xeon (23 %).
+- **Item 16.** Not met by the first rules (above); under the revised rules no machine
+  published planning except one EPYC 9B45 calibration (`rows patient`), not yet A/B'd.
+- **Open:** the few-mode cases keep part of the gain a narrower team gave them on the
+  Axion (`h2_raman_averaged` 0.90 with a team of 8, 1.00 at full width with the grain;
+  `argon_blueshift_envelope` 0.80 against 0.91): their operations sit above the full
+  sizes, and a grain move must win alone. Searching medium width and full sizes
+  together, and a source's transforms as one batch (#584), are the leads. The EPYC 9B45
+  needs a quieter machine for a verdict.
+
+### Phase 6 report — GPU builds
+
+- **Scope:** phase 6, 2026-11-08, on an NVIDIA H200 (CUDA 13.1, US$8.46); an AMD
+  Instinct MI325X was not available in the session.
+- **Measured** (benchmark ledger, "Device settings and the node chunk on an NVIDIA
+  H200"): graph replay pays and stays on; team and reduction widths of 128/256 and
+  512/1024 do not pay beyond the noise; the node chunk pays 6–25 % on the spatial routes
+  (#361's bar is 10 %), and an 8 GiB budget takes nearly all of it. The device tests
+  passed on the branch's build.
+- **Decision** (the maintainer's): phase 6 keeps no calibrated device setting. There is
+  no `solprop calibrate --device`, no device fingerprint or `devices/` store, and no
+  bootstrap step: nothing would be fitted. The chunk is a better default, not a
+  per-machine measurement, and it raises a device run's default memory use, so it lands
+  through #361 as its own PR, qualified on CUDA and HIP. Section 7 item 15 is answered
+  by that: no device-calibrated setting, so nothing to verify beyond the measurements.
+- **Delivered:** `SOLPROP_BENCH_NODE_BUDGET` in the benchmark builders (one arm of an
+  A/B at another node budget), and the measurements on #361.
+
 ## Part III — History
 
 - 2026-11-08: Drafted (Opus 5.5) from the measurements of PR #576. Proposes to
@@ -1431,3 +1526,7 @@ are left to the maintainer as §12 items 4–7.
   and the built-in table.
 - 2026-11-08: Phases 1–5 implemented; their verification on the machines of section 7 item
   1 and phase 6 remain.
+- 2026-11-08: Verification on the machines of section 7 item 1. The first rules failed
+  item 1; revised (per-problem admission at the noise plus 5 %, production-sized
+  problems, planning against the table, transforms at the table). Phase 6 measured on
+  an NVIDIA H200; no device setting kept as calibrated, the chunk to #361.
