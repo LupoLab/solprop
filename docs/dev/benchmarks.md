@@ -3229,3 +3229,20 @@ native's sources do fewer transforms: the analytic signal by one c2c inverse of 
 doubled one-sided spectrum (Julia: a c2r, then an fft/bfft pair), the forward streams
 packed into one r2c, radial's three streams in one r2c with stacked projections;
 `h2_raman_6ps`'s Raman is an FFT convolution of 2 n_t on both.
+
+**NVIDIA A40** at `137c6915` (the free-space operator as host-formed tables on every
+GPU, binary64 too, and the fused Kerr pass restored for Kerr alone; DMOG gpu07, 2 %
+windows, 3 rounds): against `9d814979` 0.97 in binary64 (`line` 0.88, `kerr_beam_192`
+0.91, the rest within 2 %, fields identical or to 1e-15). Against native, binary64 1.81:
+
+| case | native / s | julia / s | ratio | julia32 df32 / s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.054 | 0.119 | 2.19 | 0.132 | 2.43 |
+| `argon_blueshift` | 0.116 | 0.278 | 2.40 | 0.223 | 1.92 |
+| `h2_raman_6ps` | 1.040 | 0.952 | 0.92 | 0.577 | 0.55 |
+| `ctc_reduced` | 0.207 | 0.264 | 1.28 | 0.257 | 1.24 |
+| `radial_filament_256` | 0.169 | 0.306 | 1.81 | 0.227 | 1.34 |
+| `kerr_beam_192` | 0.176 | 0.578 | 3.29 | 0.506 | 3.02 |
+| `line` | 0.096 | 0.163 | 1.71 | 0.112 | 1.18 |
+
+Binary32 with df32 1.48 (2 rounds).

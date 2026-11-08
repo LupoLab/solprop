@@ -182,10 +182,9 @@ place of, native and `mlx`.
 - **GPU speed.** About twice native on full-rate GPUs (H200 2.39, MI325X 2.48, not
   re-measured since), host-bound: launches (about 75 a trial), copies and allocations.
   CUDA graphs or fused trials are the next step, untried.
-- **Coverage.** Julia refuses most of what native runs beyond the seven focus routes
-  (the list below), and several things `mlx` runs (envelope plasma, tapers, batches,
-  several plasma channels or Raman terms). Each is a feature to write and to test
-  against `numpy_ref`.
+- **Coverage.** Julia refuses much of what native runs beyond the focus routes (the
+  list below). Of what `mlx` runs, only the on-axis plasma statistics, vector
+  polarisation and tensor Raman are left (2026-11-08).
 - **Distribution and start.** A Julia runtime and a 1.8 GB depot beside the wheel;
   the first engine in a process compiles for 11 to 14 s on a CPU (after the
   precompiled trace) and about 28 s on Metal. A PackageCompiler system image, untried,
@@ -220,25 +219,46 @@ cases. The changes, each A/B'd on Metal (the ledger has the rows):
 - The analytic signal from the spectrum (as native forms it; no benchmark case uses
   it).
 
-**`mlx`'s features: 11 of 13 closed**, each tested against `numpy_ref` (binary64,
+**`mlx`'s features: 13 of 14 closed** (varying Raman, Adams in free space and
+envelope plasma on 2026-11-08, below), and of the evening's list each tested against `numpy_ref` (binary64,
 fields within 1e-10, most about 1e-15): lockstep batches, TSIT5, modal RK4IP,
 several Raman components, tapers, the window statistics and `zdw`, resolved and radial
 envelopes, the envelope's third harmonic, Raman in free space, several plasma channels.
+
+## 2026-11-08
+
+Three more `mlx` features, each against `numpy_ref` on DMOG (57 tests pass on the CPU
+and on the A40 at `a23cfd3f`):
+- **Varying Raman.** Each term's decay rate and each component's density are stage
+  tables; the kernel is rebuilt when they change (`rebuild_raman!`). Hydrogen's lines
+  shift with density, which the Raman seam cannot follow along a gradient, so the
+  test holds the shift at the reference density (`MaterialSelection`).
+- **Adams in free space.** The host-formed rate table is the Adams operator; a `line`
+  window on the multistep stepper, binary64 within 1e-10 and binary32 within 1e-4.
+- **Envelope plasma** (`julia/src/envelope.jl`). The oracle's cycle quadrature per
+  sample (rules of 64 to 512 points, split at the table's cutoffs, refined to 2e-6),
+  the running trapezoid of the rate, and the drive and loss currents through the field
+  plasma's projected, transformed streams with -1/omega^2 and -i/omega. Binary32's
+  refinement needs `mlx`'s precise table evaluation (`precise_rate`: the local
+  coordinate `log1p(E/E_i - 1)` and a two-sum constant term); a binary32 `log E` put
+  4e-5 of noise in the rate and no two rules agreed. Scalar polarisation only, as
+  everywhere; a sample that does not converge is NaN and the step's norm refuses it
+  (the oracle raises `ConvergenceError`).
+
+The A40 at `137c6915`: 0.97 against `9d814979`; native against Julia 1.81 in binary64
+and 1.48 in binary32 df32 (the ledger's table).
 
 ## Next steps
 
 Roughly in order of what they would tell.
 
-1. **The remaining `mlx` features.** Varying Raman (each term's decay rate and each
-   component's density as stage tables; the kernel rebuilt on the device when the
-   rates change, with a fixed block exponent in binary32), Cartesian Adams (the phi
-   moments from the free-space rate table, which every GPU now holds), envelope plasma
-   (a port of `mlx_gpu/envelope.py`), the on-axis plasma statistics (the populations on
-   an on-axis node). Vector polarisation and tensor Raman are deferred.
+1. **The last `mlx` feature:** the on-axis plasma statistics (the populations on the
+   axis row, `backends/populations.py`). Vector polarisation and tensor Raman are
+   deferred.
 2. **`line` on Metal (1.5 against `mlx`).** About a third of its window is the
    statistics: `spatial_local!` and the population snapshot read back several arrays
    a plane. Fold them into one readback; fuse `source_free!`'s elementwise passes.
-3. **The A40 against native (about 1.9 binary64, 1.5 binary32 df32).** Fair profiles
+3. **The A40 against native (1.81 binary64, 1.48 binary32 df32).** Fair profiles
    need `nsys --cuda-graph-trace=node` (native's sources run in CUDA graphs). What is
    left:
    - Host time between launches (the march and the trial tables while the device
@@ -270,9 +290,9 @@ are in the private `solprop-dev/benchmarks/julia-m5-2026-11-07` and
 
 ## Not run
 
-Vector polarisation and tensor Raman, noise, envelope plasma, varying Raman
-coefficients, dispersive Kerr, TDSE, planar and general modal guides, coupled flows, the
-interaction Adams formulation, Adams on free space, the carrier frame, interpolated
+Vector polarisation and tensor Raman, noise, varying Raman coefficients beside a
+constant operator or in free space, dispersive Kerr, TDSE, planar and general modal
+guides, coupled flows, the interaction Adams formulation, the carrier frame, interpolated
 planes, low-storage integration with a varying operator, tableaux other than DOPRI5 and
 TSIT5, and the on-axis plasma statistics are refused by name; so is binary64 on Metal.
 
