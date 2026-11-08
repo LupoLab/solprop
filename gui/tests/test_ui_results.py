@@ -14,7 +14,6 @@ from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.stats_layout import STEP
 from solprop_gui.views.plane import PlaneView
 from solprop_gui.views.statistics import StatisticsView, StatsSelector
-from test_results import run  # noqa: F401 - a fixture
 from test_ui import WAIT_MS, private_settings, shot  # noqa: F401 - a fixture
 
 OMEGA = 2 * np.pi * 299_792_458.0 / np.linspace(1.2e-6, 5e-7, 50)

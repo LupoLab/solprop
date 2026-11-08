@@ -11,8 +11,8 @@ from dataclasses import dataclass, field
 
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.paths import Attribute, Index, get_path, parse_path, set_path
+from solprop.service.recipes import split
 
-from solprop_gui.model.quantities import split
 from solprop_gui.model.recipe import MISSING
 from solprop_gui.registry.units import si
 

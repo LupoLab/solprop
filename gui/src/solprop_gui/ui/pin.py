@@ -23,9 +23,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.explore import PIN_KEYS, PIN_SEARCH, PIN_TITLES
 
 from solprop_gui.model.values import inline
-from solprop_gui.registry.explore import PIN_KEYS, PIN_SEARCH, PIN_TITLES
 from solprop_gui.ui.quantity import QuantityField, RangeField
 
 __all__ = ["PinField"]

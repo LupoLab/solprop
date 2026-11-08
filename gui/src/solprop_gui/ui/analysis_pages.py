@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.reduce import C, light_range
 
 from solprop_gui.model.display import (
     beam_reach,
@@ -36,7 +37,6 @@ from solprop_gui.model.display import (
     duration_text,
     even_rows,
     length_unit,
-    light_range,
     mirrored_rows,
     pulse_window,
     scaled_unit,
@@ -44,7 +44,6 @@ from solprop_gui.model.display import (
     wants_log,
 )
 from solprop_gui.registry.units import pretty, si
-from solprop_gui.service.reduce import C
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.postprocess import PostprocessPage
 from solprop_gui.ui.theme import clear_layout, named_label

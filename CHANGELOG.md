@@ -11,6 +11,12 @@ All notable changes to solprop are recorded here. The format follows
 
 - Performance-history rows for 0.2.0 (`benchmarks/history/`) on the same nine hardware sets
   as 0.1.0.
+- The desktop front end runs every simulation and scan as a process of its own, which outlives the window and is followed from its record, and runs them on other machines over SSH too: a
+  workstation, a Slurm cluster or a rented machine, picked on the Runs on line. Each run
+  keeps its record in its folder there, so it survives a closed window or a dropped network
+  and is found again on reconnecting; a Runs window lists every run on every machine, a
+  results file is analysed on its machine, and a machine can be set up with solprop from the
+  window. See [Running on other machines](docs/guide/front-end/machines.md).
 
 ### Changed
 
@@ -18,6 +24,10 @@ All notable changes to solprop are recorded here. The format follows
   error messages now link the manual of the newest release (`/en/stable/`) rather than the
   development version (`/en/latest/`), and the installation page's advice for a platform
   without a native wheel now allows for the yanked 0.1.0.
+- The front end's service layer (its kernel process, run workers, live reductions and their
+  messages) moved from `solprop_gui.service` into solprop as `solprop.service`, so a machine
+  that only runs simulations for the desktop front end needs solprop alone, without Qt. It is
+  front-end support, not part of the user interface, and may change without notice.
 - The native backend's Adams march takes the boundary monitor's checks inside its compiled loop: a run whose monitor is busy, as when light lingers near the time window's edge, no longer returns to Python at every step. The monitor's record, its warning and a stop are unchanged, at the same step ([SEP 45](docs/dev/seps/archive/sep-0045-native-rk-march.md)). The split collar's crossing limit sums its bucket occupancies in one sequential order, so that the compiled march reproduces it exactly (Q7); in a near-tie its bucket can move one place, which changes a split-scheme run's steps at rounding level. The native backend also steps the adaptive Runge–Kutta loop of `RungeKutta()` in compiled code, from the stage tables it already holds, taking each trial's stage rows and its error norm natively: a run's metadata says which loop stepped it (`rk_march`), including interpolated planes, replayed schedules, coupled flows, z tables, the transverse edge and a weighted error norm, on CPU and GPU builds; a controller with its own methods runs solprop's loop with a `HostMarchWarning` naming the reason. The norm, weighted or not, now sums in one sequential order in both loops, which moves native Runge–Kutta runs once at rounding level.
 - Building a graded-index guide and run, and a large free-space launch, take less time: a mode solve evaluates its material once instead of once per finite element, a free-space launch forms each distinct column's admittance once, and neither repeats a table evaluation or a pass over the beam it already made. On the `grin_nonlinear` benchmark the build and translation go from 24 s to 16 s on one core, and on `kerr_beam_384` the launch's build from 12.6 s to 7.1 s. Every number of the translated problem is unchanged.
 

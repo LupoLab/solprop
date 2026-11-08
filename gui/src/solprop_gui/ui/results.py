@@ -32,10 +32,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.messages import Reply
 
 from solprop_gui.model.plot_options import PlotOptions
 from solprop_gui.model.workspace import RunEntry
-from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.pages import Section
 from solprop_gui.ui.plot_options import PlotOptionsPanel, SpectrogramOptions
@@ -351,7 +351,7 @@ class ResultsPage(QWidget):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         entry = self._pending.pop(reply.request_id, None)
@@ -391,7 +391,7 @@ class ResultsPage(QWidget):
         ----------
         path : str
             The scan's file.
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The ``scan_overview`` reply.
         """
         if reply.ok and isinstance(reply.value, Mapping):

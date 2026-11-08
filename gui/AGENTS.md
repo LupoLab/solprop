@@ -21,23 +21,24 @@ them is corrected.
 - **Public solprop only.** Nothing here imports a private solprop name (a module or name
   starting with `_`); `tests/test_layers.py` enforces it.
 - **The layers.** `model` (the editable recipe), `registry` (presentation over solprop's
-  metadata), `classes` (the problem classes, as data), `service` (the messages, the
-  kernel process, one worker process per run, transports) and `help` import no Qt. `ui` and `views` build the window with PySide6
-  and pyqtgraph.
+  metadata), `classes` (the problem classes, as data) and `help` import no Qt. `ui` and
+  `views` build the window with PySide6 and pyqtgraph. The service (the messages, the
+  kernel process, one worker process per run, transports) is not here: it is
+  `solprop.service`, in solprop, so that a machine which only runs simulations needs no
+  Qt (design D20). It follows solprop's own rules.
 - **The window's process never imports simulation code.** It may import from solprop
-  only `solprop.recipe.quantity`, `paths`, `document` and `errors`; metadata,
-  capabilities, checks, previews and runs come from the kernel and the workers as
-  plain data. Only `service` may import the rest of solprop, and only its child
-  processes run it. `tests/test_layers.py` enforces both rules, statically and by what
-  a fresh interpreter loads.
+  only `solprop.recipe.quantity`, `paths`, `document` and `errors`, and the light parts
+  of `solprop.service` that start, reach and describe the kernel and the workers
+  (`tests/test_layers.py` lists them); metadata, capabilities, checks, previews and runs
+  come from the kernel and the workers as plain data. `tests/test_layers.py` enforces
+  both rules, statically and by what a fresh interpreter loads.
 - **Never block the window.** Anything that can take more than about 50 ms happens in
   another process.
-- **Two transports, one interface** (design 13.3). By default a kernel child and a worker
-  child per run end with the window (option B); with `SOLPROP_GUI_SERVICE=1` the
-  window speaks to this user's solprop service (`service/server.py`, option C) over a
-  socket only the user can open, whose address and token are in
-  `~/.solprop-gui/service.json`; the service owns the kernel and the runs and ends
-  itself when idle.
+- **One way to run** (design 13.4, D21). The window's kernel is a child of the window's;
+  every run, on this computer or another, is a job of its own that keeps its record in
+  its folder, started through a machine's helper (this computer has one too) and
+  followed from that record. A run outlives the window unless it is tied to it (Run →
+  Tie runs to this window).
 
 ## Commands
 
@@ -46,7 +47,7 @@ them is corrected.
 | Sync | `uv sync --extra gui --group gui-test`, which also builds the native backend (a sync removes any extra it does not name) |
 | Run the window | `uv run solprop-gui` |
 | Run the workflow window being built (design, section 16) | `uv run solprop-gui --workflow` |
-| Run it with the solprop service (runs outlive the window, a new window re-attaches) | `SOLPROP_GUI_SERVICE=1 uv run solprop-gui` |
+| Run a prepared run folder with no window (what a machine's job runs) | `uv run python -m solprop.service.job FOLDER` |
 | The front end's gate | `uv run poe check-gui`: types (`gui-types`), docstrings (`gui-docstrings`) and tests (`gui-test`, offscreen, with coverage) |
 | Lint, format, spelling, licences | the repository's: `uv run ruff check .`, `uv run ruff format .`, `uv run codespell`, `uv run poe reuse` |
 
@@ -57,7 +58,7 @@ and the `gui-test` task); set it to your platform's own value to watch a test.
 
 The repository's rules apply, with one difference in the coverage bar:
 
-- `model`, `registry`, `classes`, `service` and `help` meet solprop's standard in full: annotated,
+- `model`, `registry`, `classes` and `help` meet solprop's standard in full: annotated,
   NumPy-style docstrings validated by numpydoc, tested to **100 %** of statements and
   branches (`[tool.coverage]` in `pyproject.toml`).
 - `ui`, `views` and the entry points are typed, documented and linted the same way, but

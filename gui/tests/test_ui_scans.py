@@ -9,11 +9,11 @@ from pathlib import Path
 import numpy as np
 from PySide6.QtCore import QPoint, QPointF
 from pytestqt.qtbot import QtBot
+from solprop.service.messages import Reply
+from solprop.service.worker import SCAN_OUTPUT
 
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import RecipeModel
-from solprop_gui.service.messages import Reply
-from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.scan_editor import ScanEditor
 from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.workflow_window import WorkflowWindow
