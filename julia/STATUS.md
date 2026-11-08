@@ -248,16 +248,45 @@ and on the A40 at `a23cfd3f`):
 The A40 at `137c6915`: 0.97 against `9d814979`; native against Julia 1.81 in binary64
 and 1.48 in binary32 df32 (the ledger's table).
 
+**The on-axis plasma statistics** (`51ef674e`): through the driver's shared form, on
+the field and envelope grids, against `numpy_ref`. That closes `mlx`'s list but for
+vector polarisation and tensor Raman (deferred).
+
+**Envelope plasma on Metal.** Binary32 missed the frozen 2e-6 refinement at a few
+samples of most runs, on `mlx` too: `mlx` raises `ConvergenceError` on the test's
+argon capillary and waveguide at 0.1 to 0.6 mJ (a finding about `mlx`, not filed).
+Two causes: Metal's `sin`/`cos` are 2 to 3 ulp (Julia's binary32 ones on a CPU 0.5),
+which near the table's low cutoff, where the rate is steepest in the field, is more
+noise than the budget; and the sine moment, which a scalar envelope never uses, has
+the rate times tan^2 for its integrand. Polynomial `sin`/`cos` on [0, pi/2]
+(`quadrant_sincos`, about 1 ulp on every device) and the cosine moment alone required
+to converge make every case converge, on Metal and on CPUs.
+
+**Where the A40's binary64 time goes** (`rdw`, jl15's node-traced profile): Julia's
+kernels take 80 ms against native's 32, and 19 ms of Julia's are 195 cuFFT
+transforms of 5120 points at 96 us each. cuFFT runs a binary64 transform of a few
+thousand points as one block (96 us at 5120, 138 at 10240, any batch, cuFFT 12.4 and
+11.3 alike), while a 2D 512 x 10 transform takes 12 us; native's are mostly a
+two-kernel split. A four-step split (`LongFFT`: the short transforms strided, the
+twiddles, the long ones contiguous) takes 23 us at either size, errors 1e-17
+(`scripts/fft_fourstep2.jl` on DMOG); the engine now plans one on CUDA for binary64
+transforms of 2048 points or more (`SOLPROP_JULIA_FOURSTEP=0` turns it off). The
+Cartesian transverse transform through a transverse-first copy (`Transposed`) gives
+0.92 on `kerr_beam_192` and 0.89 on `line` on the A40 (binary64), and 1.10 and 1.09
+on Metal, so it is CUDA's only.
+
 ## Next steps
 
 Roughly in order of what they would tell.
 
-1. **The last `mlx` feature:** the on-axis plasma statistics (the populations on the
-   axis row, `backends/populations.py`). Vector polarisation and tensor Raman are
-   deferred.
-2. **`line` on Metal (1.5 against `mlx`).** About a third of its window is the
-   statistics: `spatial_local!` and the population snapshot read back several arrays
-   a plane. Fold them into one readback; fuse `source_free!`'s elementwise passes.
+1. **`line` on Metal (1.5 against `mlx`).** GPU-bound (host Python under 10 %,
+   Julia's host time about a fifth); the statistics' readbacks are fixed (observe 4.7
+   of 195 ms). What is left is the source: fusing `source_free!`'s and the DOPRI
+   stage's elementwise passes would save perhaps 5 ms.
+2. **The A40's remaining kernels** after the FFT split: the Adams predictor (0.28 ms
+   a trial on `rdw`, its phi functions spilling) and the mode-averaged elementwise
+   kernels at 0.1 ms each over a few thousand elements (latency: too few threads,
+   long binary64 chains).
 3. **The A40 against native (1.81 binary64, 1.48 binary32 df32).** Fair profiles
    need `nsys --cuda-graph-trace=node` (native's sources run in CUDA graphs). What is
    left:

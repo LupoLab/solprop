@@ -3246,3 +3246,16 @@ windows, 3 rounds): against `9d814979` 0.97 in binary64 (`line` 0.88, `kerr_beam
 | `line` | 0.096 | 0.163 | 1.71 | 0.112 | 1.18 |
 
 Binary32 with df32 1.48 (2 rounds).
+
+**NVIDIA A40, the Cartesian transverse transform** through a transverse-first copy
+(`Transposed`, against cuFFT's strided planes, the same tree, `SOLPROP_JULIA_TRANSPOSE`
+arms, 3 rounds): binary64 `kerr_beam_192` 0.92 (0.88–0.97), `line` 0.89 (0.77–0.96);
+binary32 df32 0.88 and 1.00. On the M5 Max GPU (Metal, binary32) the copies cost more
+than they save: `kerr_beam_192` 1.10, `line` 1.09, so only CUDA takes them.
+
+**cuFFT's long binary64 transforms** (A40, `scripts/fft_sizes.jl`, `fft_strided.jl`,
+`fft_fourstep2.jl` on DMOG): a 5120-point c2c 96 us and a 10240-point one 138 us at
+batches 1 to 12, r2c 50 and 101 (cuFFT 12.4 from CUDA 13.4 and 11.3 from 12.8 alike;
+binary32 r2c 7 to 9 us). A 2D 512 x 10 transform is 12 us. The four-step split
+(`LongFFT`) takes 23 us at 5120 (256 x 20) and 23 to 25 at 10240 (512 x 20), errors
+about 1e-17 of the largest value.

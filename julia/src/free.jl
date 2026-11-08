@@ -82,8 +82,8 @@ function create_free(c, host)
         physical=physical, loss=dzeros(c, C, in_stage ? nw : 0, in_stage ? nm : 0),
         fine=fine, modal=modal, projected=projected, analytic=analytic,
         absorber=dzeros(c, R, nt, chunk), absorber_spec=similar(fine), coarse=coarse, coarse_spec=coarse_spec,
-        spatial_inverse=plan(c, plan_bfft!, spatial, (2, 3); planes...),
-        spatial_forward=plan(c, plan_fft!, spatial, (2, 3); planes...),
+        spatial_inverse=transverse_plan(c, plan_bfft!, spatial, planes),
+        spatial_forward=transverse_plan(c, plan_fft!, spatial, planes),
         inverse_plan=c.envelope ? plan(c, plan_bfft, fine, 1) : plan(c, plan_brfft, fine, nt, 1),
         forward_plan=c.envelope ? plan(c, plan_fft, modal, 1) : plan(c, plan_rfft, modal, 1),
         analytic_forward=plan(c, plan_fft!, analytic, 1), analytic_inverse=plan(c, plan_bfft!, analytic, 1),
@@ -203,6 +203,35 @@ function fused_kerr!(projected, modal, c, scale, factor, a, window)
 end
 
 transverse!(a, plan, c) = (plan * reshape(a, size(a, 1), c.spatial_shape...); nothing)
+
+"""A GPU's transverse transform through a transverse-first copy: the frequency-first
+state's planes are strided by n_omega, and cuFFT's strided batched 2D transform at
+512 x 192 x 192 took 16.2 ms on an A40 against 4.8 for contiguous planes. The planes
+are transposed out, transformed contiguously and transposed back: on an A40 0.92 on
+`kerr_beam_192` and 0.89 on `line` in binary64. Metal's MPSGraph takes the strided
+planes well (the copies made it 1.10 and 1.09), so a device extension asks for it
+(`transposed_planes`). `SOLPROP_JULIA_TRANSPOSE=0` keeps the strided plan, for A/Bs."""
+transposed_planes(backend) = false
+struct Transposed{P,B}
+    plan::P
+    buffer::B
+end
+function transverse_plan(c, kind, spatial, planes)
+    dims = Tuple(2:ndims(spatial))
+    (oncpu(c) || !transposed_planes(c.backend) || get(ENV, "SOLPROP_JULIA_TRANSPOSE", "1") == "0") &&
+        return plan(c, kind, spatial, dims; planes...)
+    buffer = similar(spatial, size(spatial)[2:end]..., size(spatial, 1))
+    Transposed(kind(buffer, Tuple(1:ndims(spatial)-1)), buffer)
+end
+function transverse!(a, p::Transposed, c)
+    spatial = reshape(a, size(a, 1), c.spatial_shape...)
+    n = ndims(spatial)
+    tally!(:transpose, 2)
+    permutedims!(p.buffer, spatial, (2:n..., 1))
+    p.plan * p.buffer
+    permutedims!(spatial, p.buffer, (n, 1:n-1...))
+    nothing
+end
 
 """Copy columns `first:first+count-1` of `physical` into the fine spectrum."""
 function scatter_columns!(fine, physical, first, count, c)

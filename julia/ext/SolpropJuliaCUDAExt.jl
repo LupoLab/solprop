@@ -9,5 +9,10 @@ import SolpropJulia
 
 SolpropJulia.device_backend(::Val{:cuda}) = (CUDA.allowscalar(false); CUDABackend())
 SolpropJulia.device_label(::CUDABackend) = "cuda: " * CUDA.name(CUDA.device())
+# cuFFT's binary64 transforms of a few thousand points run one block a transform
+# (96 us at 5120 on an A40): the engine splits them (`LongFFT`).
+SolpropJulia.long_transforms(::CUDABackend) = true
+# cuFFT's strided transverse planes are 3.4 times contiguous ones (`Transposed`).
+SolpropJulia.transposed_planes(::CUDABackend) = true
 
 end

@@ -47,9 +47,23 @@ def profile(row: dict) -> None:
         Main.seval("Profile.clear(); Profile.start_timer()")
     jl.clear_timings()
     jl.clear_counts()
+    # SOLPROP_PYTHON_PROFILE=1: the host's Python time too (cProfile, by own time).
+    python = os.environ.get("SOLPROP_PYTHON_PROFILE") == "1"
+    if python:
+        # (This script's directory shadows the standard library's `profile`.)
+        here = os.path.dirname(os.path.abspath(__file__))  # noqa: PTH100, PTH120
+        sys.path[:] = [p for p in sys.path if os.path.abspath(p) != here]  # noqa: PTH100
+        import cProfile  # noqa: PLC0415
+        import pstats  # noqa: PLC0415
+
+        profiler = cProfile.Profile()
+        profiler.enable()
     record, _ = timed_run(
         simulation, problem, engine, retention, simulation._boundary_monitor()
     )
+    if python:
+        profiler.disable()
+        pstats.Stats(profiler, stream=sys.stdout).sort_stats("cumulative").print_stats("julia/_|integrators|_march", 30)
     if sampling:
         Main.seval("Profile.stop_timer()")
         Main.seval(

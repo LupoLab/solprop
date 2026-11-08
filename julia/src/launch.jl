@@ -245,7 +245,7 @@ BLAS's own threads beside Polyester's spinning ones made a four-thread rdw run s
 times slower than one thread. Measuring overwrites `a`: plan before storing in it.
 """
 function plan(c, kind, a, args...; threads=c.fft_threads, batch=2)
-    oncpu(c) || return kind(a, args...)
+    oncpu(c) || return device_plan(c, kind, a, args...)
     blocks = min(threads, size(a, batch))
     blocks <= 1 && return kind(a, args...; flags=plan_flags(), num_threads=1)
     ranges = [r for r in Iterators.partition(axes(a, batch), cld(size(a, batch), blocks))]
@@ -296,7 +296,7 @@ function transform_all!(p, outs::Tuple, ins::Tuple, stage::Ref, c)
     if held === nothing || size(held[1], 2) != n * columns
         staged = similar(x, size(x, 1), n * columns)
         result = similar(first(outs), size(first(outs), 1), n * columns)
-        held = (staged, result, eltype(x) <: Real ? plan_rfft(staged, 1) : plan_fft(staged, 1))
+        held = (staged, result, eltype(x) <: Real ? plan(c, plan_rfft, staged, 1) : plan(c, plan_fft, staged, 1))
         stage[] = held
     end
     staged, result, batched = held
@@ -451,3 +451,122 @@ end
 timings() = Dict(String(k) => v for (k, v) in TIMES)
 clear_timings() = (empty!(TIMES); nothing)
 timing_enabled() = TIMING[]
+
+# --- Long binary64 transforms on a GPU, four-step -------------------------------------
+
+"""Whether the device's library takes long binary64 transforms slowly enough to split
+them (`LongFFT`): an extension's hook, false unless it says otherwise."""
+long_transforms(backend) = false
+
+"""Plan `kind(a, args...)` on a GPU: the library's plan, or a four-step one (`LongFFT`)
+for a long binary64 transform along the first dimension where the device asks for it."""
+function device_plan(c, kind, a, args...)
+    split = long_transforms(c.backend) && get(ENV, "SOLPROP_JULIA_FOURSTEP", "1") != "0"
+    split || return kind(a, args...)
+    real_input = kind === plan_rfft
+    output_real = kind === plan_brfft
+    n = output_real ? Int(args[1]) : size(a, 1)
+    region = last(args)
+    shape = factor_length(n)
+    (ndims(a) == 2 && region == 1 && real(eltype(a)) === Float64 && shape !== nothing &&
+     (!real_input && !output_real ? true : iseven(n))) || return kind(a, args...)
+    sign = kind in (plan_fft, plan_fft!, plan_rfft) ? -1 : 1
+    LongFFT(c, a, n, shape..., sign, kind in (plan_fft!, plan_bfft!), real_input, output_real)
+end
+
+"""`n = n1 n2` with `n2` the smallest divisor that keeps `n1 <= 512`, for `n >= 2048`;
+`nothing` otherwise (short transforms, or a large prime factor)."""
+function factor_length(n)
+    n < 2048 && return nothing
+    for n2 in cld(n, 512):64
+        n % n2 == 0 && return (n ÷ n2, n2)
+    end
+    nothing
+end
+
+"""A length-`n` transform along the first dimension as `n = n1 n2`: with `n = a + n1 j`
+and `k = n2 p + q`, `X[n2 p + q] = sum_a w_n1^(a p) w_n^(a q) sum_j x[a + n1 j] w_n2^(j q)`.
+The samples go to an `(n1, m, n2)` work array, the short transforms run along its last
+dimension (one plan, strided), the twiddles, the long transforms along its first
+(contiguous), and the result comes back in order. On an A40, cuFFT's own binary64
+transform of 5120 or 10240 points is one block a transform, 96 or 138 us at any batch;
+the split takes about 23 (DMOG, `scripts/fft_fourstep2.jl`). Real input is promoted to
+complex, and a real output's Hermitian spectrum is completed first: both twice the
+arithmetic of a real transform, still a quarter of the time."""
+struct LongFFT{S,L,W,T,C}
+    short::S
+    long::L
+    work::W
+    twiddle::T
+    device::C
+    n::Int
+    n1::Int
+    n2::Int
+    columns::Int
+    inplace::Bool
+    real_input::Bool
+    output_real::Bool
+    sign::Int
+    # The same transform over other column counts, planned when first asked.
+    others::Dict{Int,Any}
+end
+function LongFFT(c, a, n, n1, n2, sign, inplace, real_input, output_real)
+    twiddle = upload(c, [cispi(2 * sign * (p - 1) * (j - 1) / n) for p in 1:n1, j in 1:n2])
+    # What `each!` reads of the engine's configuration.
+    device = (backend=c.backend, tasks=c.tasks)
+    long_columns(a, size(a, 2), twiddle, device, n, n1, n2, sign, inplace, real_input, output_real)
+end
+function long_columns(a, m, twiddle, device, n, n1, n2, sign, inplace, real_input, output_real)
+    work = similar(a, ComplexF64, n1, m, n2)
+    short = sign < 0 ? plan_fft!(work, 3) : plan_bfft!(work, 3)
+    long = sign < 0 ? plan_fft!(work, 1) : plan_bfft!(work, 1)
+    LongFFT(short, long, work, twiddle, device, n, n1, n2, m, inplace, real_input, output_real,
+            sign, Dict{Int,Any}())
+end
+
+function long_transform!(y, p::LongFFT, x)
+    m = size(x, 2)
+    if m != p.columns
+        q = get!(p.others, m) do
+            long_columns(p.work, m, p.twiddle, p.device, p.n, p.n1, p.n2, p.sign, p.inplace,
+                         p.real_input, p.output_real)
+        end
+        return long_transform!(y, q, x)
+    end
+    long_transform!(y, p, x, Val(p.real_input), Val(p.output_real))
+end
+function long_transform!(y, p::LongFFT, x, ::Val{R}, ::Val{O}) where {R,O}
+    (; work, twiddle, n, n1, n2, columns) = p
+    c = p.device
+    half = n ÷ 2
+    tally!(:long_fft)
+    # The samples in, `x[a + n1 j]` to `work[a, b, j]`; a half spectrum completed.
+    each!(c, n, columns) do t, b
+        @inbounds begin
+            i = t - 1
+            value = O ? (i <= half ? complex(x[t, b]) : conj(complex(x[n-i+1, b]))) :
+                    complex(x[t, b])
+            work[i % n1 + 1, b, i ÷ n1 + 1] = value
+        end
+    end
+    p.short * work
+    flat = reshape(work, n1, columns * n2)
+    each!(c, n1, columns * n2) do a, r
+        @inbounds flat[a, r] *= twiddle[a, (r - 1) ÷ columns + 1]
+    end
+    p.long * work
+    # `work[p, b, q]` is `X[n2 p + q]`.
+    rows = R ? half + 1 : n
+    each!(c, rows, columns) do t, b
+        @inbounds begin
+            k = t - 1
+            value = work[k ÷ n2 + 1, b, k % n2 + 1]
+            y[t, b] = O ? real(value) : value
+        end
+    end
+    y
+end
+
+LinearAlgebra.mul!(y, p::LongFFT, x) = long_transform!(y, p, x)
+Base.:*(p::LongFFT, x) = p.inplace ? long_transform!(x, p, x) :
+                         throw(ArgumentError("an out-of-place LongFFT takes mul!"))

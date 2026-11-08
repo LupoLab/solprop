@@ -46,9 +46,9 @@ function trial!(engine, dz::Float64)
             end
             continue
         end
-        slot = c.free ? free_propagators!(engine, dz * c.nodes_c[stage]) : stage
+        slot = c.free ? (@section :propagators free_propagators!(engine, dz * c.nodes_c[stage])) : stage
         row = ntuple(p -> T(dz * c.a[stage, p]), Val(6))
-        each!(c, size(y)...) do f, m
+        @section :stage_input each!(c, size(y)...) do f, m
             @inbounds begin
                 combination = zero(eltype(y))
                 for p in 1:stage-1
@@ -58,7 +58,7 @@ function trial!(engine, dz::Float64)
             end
         end
         @section :source source!(engine, lab; quadrature=stage == 7)
-        each!(c, size(y)...) do f, m
+        @section :stage_output each!(c, size(y)...) do f, m
             @inbounds stages[f, m, stage] = inverse[f, m, slot] * source[f, m]
         end
     end
