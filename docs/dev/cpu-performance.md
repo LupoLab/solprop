@@ -286,7 +286,13 @@ measured while it existed.
   crossing tile's 512 propagators are formed in one `vmath::sincos` pass (and one
   `vmath::exp` where any carries loss) before the tile is visited; one libm `sincos` per
   element took 18 % of `line` at one thread. `line` takes 0.89 of its time at one thread
-  and 0.93 at 16, the Cartesian filament 0.93 at 16.
+  and 0.93 at 16, the Cartesian filament 0.93 at 16. A build without vector maths keeps
+  the per-element form. The other per-element transcendentals
+  [#338](https://github.com/LupoLab/solprop/issues/338) listed (the envelope and
+  trapezoid plasma columns, two-component magnitudes, the Adams corrector and dense
+  observation) were negligible in one-thread profiles of the tracked cases on the Xeon.
+  The largest left is the lossy planar medium's complex square root (`hypot`), about 7 %
+  of `planar`'s one-thread march.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below
   0.25 % of the time, and the native backend makes fewer native requests than `numba_cpu`.
 - **Vector transcendental functions (Accelerate vForce) in the propagator.** They save
@@ -348,8 +354,5 @@ Each has an issue:
 - **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
   The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
   [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
-- **Vector maths in the remaining per-element kernels** (ADR-059): the trapezoid and
-  envelope plasma columns, whose dependent recurrences need a batched rate pass first,
-  the Adams corrector and dense observation; and
-  SLEEF on Linux aarch64 and AVX-512 against AVX2, unmeasured end to end
-  ([#338](https://github.com/LupoLab/solprop/issues/338), [#339](https://github.com/LupoLab/solprop/issues/339)).
+- **SLEEF on Linux aarch64, and AVX-512 against AVX2**, unmeasured end to end
+  ([#339](https://github.com/LupoLab/solprop/issues/339)).

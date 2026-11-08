@@ -2667,10 +2667,13 @@ repeats (the Cartesian filament one), the same steps, and fields within 1.2e-12:
 | `kerr_beam_192` (control: tabulated low-storage path) | 0.996 | 1.009 |
 | `argon_blueshift` (control) | 1.004 | 1.002 |
 
-`planar`'s libm share (8 % at one thread) is outside these kernels. The other per-element
-kernels #338 lists (the envelope cycle moments, the two-component magnitudes, the
-trapezoid column and dense observation) were negligible in one-thread profiles of the
-tracked cases, so they were left.
+`planar`'s remaining libm time is `hypot`, in the complex square root of its lossy
+medium's longitudinal wavenumber (`SpatialCoefficients::root_of`), in these same two
+kernels: about 7 % of its one-thread march (`perf` with LBR call stacks). The other
+per-element kernels #338 lists (the envelope cycle moments, the two-component
+magnitudes, the trapezoid column and dense observation) were negligible in one-thread
+profiles of the tracked cases, so they were left. A profile on a second x86 processor
+was not taken: the code and glibc are the same, so the ranking would not change.
 
 ### x86-64-v4 against v3 on an AVX-512 Xeon
 
