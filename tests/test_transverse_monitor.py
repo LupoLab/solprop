@@ -25,7 +25,7 @@ from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
-from solprop.grid import FreeGrid, LineGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
@@ -218,6 +218,29 @@ def _ramp_launch(share: float) -> Simulation:
     top_energy = float(np.sum(weights[-1] * np.abs(top[-1]) ** 2))
     field = math.sqrt(1 - share) * field + math.sqrt(share * energy / top_energy) * top
     return simulation.with_input(field)
+
+
+def test_the_edge_s_band_wavenumbers_are_found_once_per_run_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import solprop.driver.simulation as module  # noqa: PLC0415
+
+    simulation = suite(1.5, None)
+    calls: list[float] = []
+    original = module.band_wavenumbers
+
+    def counted(*args: Any) -> tuple[np.ndarray, np.ndarray]:
+        calls.append(args[2])
+        return original(*args)
+
+    monkeypatch.setattr(module, "band_wavenumbers", counted)
+    space, medium = simulation.spatial_grid, simulation.medium
+    assert isinstance(space, RadialGrid | FreeGrid | PlanarGrid) and medium is not None
+    first, again = (
+        simulation._transverse_edge(BoundaryCheck(), space, medium) for _ in range(2)
+    )
+    assert len(calls) == 1
+    assert first.k_min == again.k_min
 
 
 def test_a_launch_in_the_ramp_s_band_is_refused() -> None:
