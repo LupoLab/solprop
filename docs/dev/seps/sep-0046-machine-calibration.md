@@ -32,7 +32,7 @@ a bounded, one-off measurement that fits these settings to the machine. A quick 
 about 20 s, runs by itself on first use and says so; a standard minute or a thorough
 few minutes runs on request, and the benchmarks use the thorough one. Its result is kept
 in a **per-user store** in the platform's cache directory, beside the FFTW wisdom it
-also gathers, and every later run reads it at import and records the settings it used.
+also gathers, and every later run applies it and records the settings it used.
 A second, optional stage measures one particular simulation and refines the settings
 for it. That covers the use case of SEP 4, which this SEP supersedes. A last phase
 extends the calibration to GPU builds, whose few settings are fitted when a rented
@@ -154,7 +154,14 @@ one more machine. This SEP stops treating them as constants.
   short windows of one simulation, in fresh interpreters, within a budget, and writes
   an execution plan. It predates the thread budget, the compact teams, the native
   marches and PR #576. It asks the user for an importable factory and launches
-  production through its own launcher.
+  production through its own launcher. This SEP replaces it on acceptance:
+  - *replaced:* its per-simulation search (by stage 2, §6.1, §6.6), its execution plan
+    (by the profile), its selection rules (by §6.5), and its pilot's accuracy contract
+    (by §6.6's, which asks for physically realistic accuracy, not replay or
+    rounding-level agreement);
+  - *not carried over:* the factory and launcher, which stage 2 does not need;
+  - *left on their issues:* worker counts (#314), GEMM providers, CPU node chunks and
+    propagator policy (#303).
 - SEP 38 is the performance tracking suite, with its `ab` harness.
 - SEP 29 defines the distributed builds.
 - `native/benchmarks/size_cliffs.py` measures cost per evaluation across grid sizes.
@@ -162,12 +169,16 @@ one more machine. This SEP stops treating them as constants.
 **Issues.**
 - *Answered by this SEP:* #328 (thresholds unmeasured on Windows and aarch64), #329
   (scalar wall under the size policy), #332 (FFTW effort per shape and processor),
-  #81 (compact cap and scaling), #115 (SEP 4), #303 (the controls SEP 4 leaves out; this SEP
-  takes the CPU ones and scans).
-- *Answered in phase 6:* #361 (the node chunk sized whatever the device), and the GPU
-  geometries of #303.
-- *Changed:* #333 (core kinds), #314 (scan workers against threads a worker: stage 2
-  can choose the split), #366 (device runs that take one of two speeds, which the
+  #81 (compact cap and scaling), #115 (SEP 4).
+- *Answered in phase 6, if the measurement pays:* #361 (the node chunk sized whatever
+  the device).
+- *Partly answered:* #303 (the controls SEP 4 leaves out). This SEP takes the GPU team
+  and reduction widths and, under #361's condition, the device chunk. GEMM providers,
+  CPU node chunks and propagator policy stay on #303.
+- *Not answered:* #314 (scan workers against threads a worker) needs a concurrent scan's
+  throughput, which a single process's measurement cannot give; it stays on its issue.
+  The calibration measures the workers' allocation the executor chooses, not the split.
+- *Changed:* #333 (core kinds), #366 (device runs that take one of two speeds, which the
   calibration's noise test must detect), #136 (an unusable wisdom file stops
   the run, and Apple silicon models share a key, which the fingerprint's core counts
   separate) and #229 (the `fft_size` cost model).
@@ -230,11 +241,10 @@ the calibration problems' steps, at the run's thread count, and keeps the effort
 the wisdom, only of the plan that wins there.
 
 **Statistics.** Each comparison interleaves its candidates and repeats them. A
-candidate replaces the built-in value only when its gain exceeds the spread of
-repeated measurements of the built-in value, its own A/A noise. Measurements on a
-machine that is visibly busy (load average above the team, or CPU time stolen by a
-hypervisor) are refused or marked inconclusive. This is the method of empirical
-autotuners such as ATLAS [2], and of PR #576's `ab` harness.
+candidate replaces the built-in value only when it wins in every round by more than
+the spread of repeated measurements of the built-in value, its own A/A noise; a busy
+machine gives an inconclusive result (§6.5). This is the method of empirical autotuners
+such as ATLAS [2], and of PR #576's `ab` harness.
 
 ### 5. Proposed interface
 
@@ -243,12 +253,12 @@ autotuners such as ATLAS [2], and of PR #576's `ab` harness.
 ```text
 solprop calibrate                    # standard: about a minute
 solprop calibrate --quick            # about 20 s: waiting, team and grain at reduced depth
-solprop calibrate --thorough         # several minutes: wider ladders, longer FFT planning
+solprop calibrate --thorough         # about five minutes: wider ladders, longer FFT planning
 solprop calibrate --device           # a GPU build's settings (phase 6), on its device
-solprop calibrate --show             # the profile this machine would use, and its evidence
+solprop calibrate --show             # the profile this allocation would use, and its evidence
 solprop calibrate --recipe run.toml  # refine for one simulation (stage 2), bounded budget
 solprop calibrate --export node.json / --import node.json
-solprop calibrate --clear            # forget this machine's profile and wisdom
+solprop calibrate --clear            # forget this machine's profiles and wisdom
 ```
 
 **API.** `solprop.calibration.calibrate(level="standard", budget=None) ->
@@ -257,30 +267,42 @@ CalibrationReport`, `solprop.calibration.profile() -> MachineProfile | None`, an
 setting chosen, the built-in value it replaces, the measured gain and noise, and why a
 setting was kept.
 
+**Two kinds of setting.** What the calibration chooses falls in two kinds, and every
+rule below follows from the difference:
+- *Process settings* are fixed when the native runtime starts and cannot change in that
+  process: the waiting policy (GNU's runtime reads it once; LLVM's process-wide block
+  time), the pool width and the cores it is placed on. They are read from the profile
+  at native import, before the extension is loaded.
+- *Workspace settings* are copied into a workspace when it is built and never read
+  again from anywhere global: the per-operation thresholds, the medium width, the
+  compact cap, the stable-team rule, LLVM's block time inside native calls, and each
+  FFT shape class's effort and wisdom. Two live workspaces may hold different ones.
+
 **When it runs.** `SOLPROP_CALIBRATION` selects:
-- `auto` (the default): the first native run on a machine without a matching profile
-  runs the quick calibration (about 20 s) before it builds its workspace, stores it,
-  and goes on. It logs at warning level what it is doing, how long it will take, where
-  the result goes and how to run the standard or thorough level or turn it off, so
-  the pause is never silent. Every later run, in any process, uses the stored profile.
-  - *Scans* calibrate once in the parent, before the workers start; a worker never
-    calibrates.
-  - *Concurrent first runs*, such as an array job's tasks: one takes the store's lock
-    and calibrates; the others run on the built-in table rather than wait, and log
-    that they did.
-  - *A busy machine:* if validation is inconclusive the profile is stored as such,
-    the built-in table is used, and the quick calibration is retried after a day.
-- `use`: use a stored profile if one matches; never measure implicitly.
-- `off`: the built-in table, ignoring any profile, for bisection and for comparing
-  code paths without calibration's own variation.
+- `auto` (the default). The first time a native workspace is built in an allocation
+  with no matching profile (§6.4), the process prints a notice (§6.10), runs the quick
+  calibration in child processes while it waits, about 20 s, and builds its workspace
+  with the new workspace settings. Its own process settings stay those it started with;
+  they take effect from the next process. Importing the native backend never
+  calibrates, so discovery, the GUI and `--version` never pause.
+  - *Scans* calibrate in the parent before the workers start, for the workers'
+    allocation (§6.4); a worker never calibrates.
+  - *Concurrent first runs on one host*, such as an array job's tasks, wait for the one
+    that holds the calibration claim (§6.8), up to its deadline, then use its profile.
+    Running them meanwhile would load the machine it is measuring.
+  - *A busy machine:* if validation is inconclusive nothing is published, the run uses
+    the built-in table, and `auto` retries after a day.
+- `use`: use a matching profile if there is one; never measure implicitly.
+- `off`: the built-in table and no automatic wisdom, whatever the store holds; for
+  bisection and for holding settings fixed while code changes. `SOLPROP_FFTW_WISDOM`
+  set by the user still applies, since the user asked for it.
 
-A higher level replaces a lower one: a standard or thorough calibration overwrites the
-quick profile. A first run in a batch job calibrates on the cores the job was given,
-which is the machine the run uses.
-
-Explicit settings keep their precedence over any profile: `SOLPROP_THREADS`, the pool
-variables, `OMP_WAIT_POLICY`/`GOMP_SPINCOUNT`/`KMP_BLOCKTIME`, `SOLPROP_FFTW_PLAN`
-and `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`.
+A higher level replaces a lower one for the same allocation. Explicit settings keep
+their precedence over any profile: `SOLPROP_THREADS`, the pool variables,
+`OMP_WAIT_POLICY`/`GOMP_SPINCOUNT`/`KMP_BLOCKTIME`, `SOLPROP_FFTW_PLAN` and
+`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`. A setting measured under conditions an
+override changes is not used with it: thresholds fitted under a spinning team, for
+example, give way to the built-in table when the user makes the threads sleep (§6.4).
 
 **The store.** One directory per user, by default the platform's standard user cache
 directory; `SOLPROP_CACHE_DIR` moves it:
@@ -290,202 +312,355 @@ directory; `SOLPROP_CACHE_DIR` moves it:
 
 ```text
 <store>/
-  machines/<fingerprint>.json      # the machine profile and its evidence
-  devices/<fingerprint>.json       # a GPU build's profile on its device (phase 6)
-  fftw/<fingerprint>.wisdom        # the native FFTW's wisdom, gathered by calibration and runs
-  problems/<fingerprint>/<signature>.json   # stage-2 refinements
+  machines/<fingerprint>/
+    current                        # names the published generation
+    <generation>.json              # profile rows, their evidence and their FFT wisdom
+    claim                          # held while one process calibrates (§6.8)
+  devices/<fingerprint>/...        # a GPU build's profiles, the same layout (phase 6)
+  problems/<fingerprint>/<descriptor>.json   # stage-2 refinements
   calibration.log
 ```
 
 `SOLPROP_CALIBRATION_PATH` lists read-only directories searched after the store, for
 example a cluster's profiles for each node type, written once with `--export`.
-`SOLPROP_FFTW_WISDOM`, where set, keeps its present meaning and takes precedence for
-wisdom.
 
-**Fingerprint.** A digest of what the profile's values depend on:
-- the processor model;
-- the count of cores of each kind, and the cache groups (which cores share which
-  level);
+**Fingerprint.** A digest of what makes measurements portable between machines:
+- the processor model, the count of cores of each kind, and the cache and memory
+  topology (which cores share each cache level, NUMA nodes, sockets, SMT siblings);
 - the operating system;
-- the native build: the source digest it already records, the compiler, the OpenMP
-  runtime, FFTW, BLAS and the vector maths.
+- the native build: its source digest, compiler, OpenMP runtime, FFTW, BLAS and vector
+  maths, read from a small build record the build writes beside the extension, so
+  that nothing loads the extension (and its OpenMP runtime) to compute it;
+- the calibration's own version, raised whenever its probes, problems or rules change.
 
-A new native release or a different machine finds no matching profile and uses the
-table; nothing stale is ever applied. The thread budget is not in the fingerprint: a
-profile records per-width results, and the budget picks among them at import.
+A new release, a changed calibration or a different machine finds no matching profile
+and uses the table; nothing stale is ever applied. Within a fingerprint, profile rows
+are keyed by *allocation* (§6.4).
 
 **In a run's record.** The metadata gains `calibration`: the profile's level,
-fingerprint, digest and creation date, or `"built-in"`, and every setting the run took
-from it, each with its built-in value beside it. A benchmark row or a result file then
-says which settings produced it, and a setting added later is recorded the same way.
-With `SOLPROP_CALIBRATION=off`, two runs are configured identically whatever any store
-holds.
+fingerprint, generation and creation date and the allocation row used, or
+`"built-in"`, and the settings the run *applied*, read back from the runtime and the
+workspace, each beside its built-in value. A benchmark row or a result file then says
+which settings produced it, and a setting added later is recorded the same way.
 
 ### 6. Implementation strategies
 
 **6.1 Two stages.** Stage 1 measures the machine with synthetic problems that solprop
-ships. It does not need the user's simulation, so it can run at install or on first
-use. Stage 2 times short windows of a given simulation under the few candidates that
-stage 1 left open, and stores the best under that simulation's *signature*:
-- the route and field family;
-- the grid's sample counts and node count;
-- the modes and polarisations;
-- the responses present, and the stepper.
+ships, so it never needs to move a user's simulation between processes. Stage 2
+refines one simulation, and varies only workspace settings: it builds fresh workspaces
+from the simulation's translated problem in the calling process, under each candidate,
+and never touches the simulation's own state, output or callbacks. Neither stage needs
+SEP 4's factory or launcher. Stage 2's result is stored under the simulation's
+*execution descriptor* (§6.6), and reused by later runs and scan points with the same
+descriptor.
 
-Later runs with the same signature, every point of a parameter scan included, use it.
-This is SEP 4's use case at a fraction of its machinery. Stage 2 needs no factory or
-launcher, because it changes only settings that the store already carries. It needs
-no new execution-plan format, because the profile is that format.
-
-**6.2 What runs in which process.** The OpenMP runtime reads its waiting policy once,
-and Kokkos fixes the team size at start. So each candidate team size and waiting
-policy is measured in a fresh interpreter: a handful, about 2 policies × 3 widths in
-the standard level. The thresholds and FFT effort apply when a workspace is built, so
-they are measured within a process, by building workspaces under candidate settings.
-For this, `ThreadPolicy` gains the per-operation thresholds, settable before a
-workspace is built through a calibration-only entry point. The constants of
-`core.hpp` become the built-in defaults of these fields.
+**6.2 What runs in which process.** Every measurement runs in child processes started
+by a controller: one per candidate process setting (about two waiting policies × three
+widths at the standard level), each pinned to the allocation being calibrated, with
+workspace settings varied inside it. The controller never loads the native extension or
+a device runtime. `ThreadPolicy` keeps only process settings; the workspace settings
+move into a per-workspace execution record that `operation_threads`,
+`CpuExecutionPool::get` and the FFT setup read, filled from the profile, from stage 2 or
+from the built-in table when the workspace is built. The constants of `core.hpp` become
+that table.
 
 **6.3 Probes.**
 - *Region cost:* an empty region and a 1,000-element region at each candidate width
   and waiting policy (`reference_stream_copies`, extended).
-- *Operation crossovers:* synthetic workspaces of the calibration problems, a GNLSE,
-  a four-mode capillary with plasma, an averaged capillary, a radial grid and a
-  one-dimensional free-space line, each at a ladder of grid sizes. The labelled
-  operations are timed through the Kokkos Tools hooks every kernel already carries,
-  serially, at the medium width and at the team. That gives $T(W, p)$ per operation
-  class and so the crossovers, the medium width and the compact cap.
+- *Operation crossovers:* synthetic workspaces of the calibration problems (a GNLSE, a
+  four-mode capillary with plasma, an averaged capillary, a radial grid and a
+  one-dimensional free-space line), each at a ladder of at most six grid sizes. The
+  labelled operations are timed through the Kokkos Tools hooks every kernel already
+  carries, serially, at the medium width and at the team. The crossover is the smallest
+  ladder size above which the threaded time is below the serial one at every larger
+  size; a ladder with no such point keeps the built-in value. These fits only propose
+  candidates; §6.5's validation decides.
 - *FFTW:* the canonical row and plane shapes of those problems and of
-  `fft_size="auto"`'s smooth sizes up to a bound, each a *shape class* (size, kind,
-  batch, and serial or threaded with its thread count). For each class:
-  - **Candidates.** Estimate, then measure; patient only at the thorough level and only
-    for serial plans, since the backend threads most transforms itself over serial
-    plans of row blocks. Threaded plans stop at measure. Exhaustive is never tried.
-  - **Time limits.** Every planner call runs under `fftw_set_timelimit`, which makes
-    FFTW return its best plan so far when the limit passes: a few seconds a plan at the
-    standard level, tens of seconds at thorough. The FFT stage has its own total budget
-    (§6.4); shape classes left when it is spent stay at estimate and are listed in the
-    report.
-  - **Isolation.** Each candidate effort is planned in a fresh process, starting from
-    no wisdom, and its wisdom is exported per shape class. Nothing a losing candidate
-    learnt reaches the store.
-  - **In-step timing.** The candidates' plans are timed inside the calibration
-    problems' steps, interleaved and repeated, on the profile's team and waiting
-    policy. A more exhaustive plan is kept only when it beats the less exhaustive one
-    by more than the noise; otherwise the class stays at the lower effort, estimate
-    included.
-  - **Storage.** The store keeps one wisdom string per winning shape class, with its
-    effort and evidence; a run imports those for the shapes it plans. A class whose
-    winner is estimate carries no wisdom, so no earlier wisdom can override it.
-- *Validation:* short windows of the calibration problems, built-in table against
-  the candidate profile, interleaved. A setting whose window gain is not established
-  reverts to its built-in value. A profile that does not pass validation is stored as
-  `inconclusive` and not applied.
+  `fft_size="auto"`'s smooth sizes up to a bound, each a *shape class* (§6.7). Outside
+  the FFT stage, children plan at estimate, so that no other stage spends its time
+  planning.
+- *Synthetic problems are sized to the allocation:* their memory is bounded by a fifth
+  of the memory available to it (the cgroup or job limit where there is one), and a
+  ladder stops below that.
 
-**6.4 Budget.** Quick about 20 s, standard about 60 s, both interruptible. Quick
-measures the waiting, the team and the coarse grain with a short validation, and
-leaves FFTW at today's efforts. Standard adds the full crossover ladder and measured
-plans for the canonical shapes, with a few seconds a plan and about 20 s for the FFT
-stage. Thorough adds serial patient plans, wider ladders and longer validation
-windows, with tens of seconds a plan and a few minutes for the FFT stage, so about
-five minutes in all. No level exceeds its budget by more than one plan's time limit;
-each stage's time is reported.
+**6.4 Allocations, and which rows apply.** The same machine behaves differently in
+different allocations: eight cores sharing a cache are not eight cores across two
+sockets. A profile therefore holds rows keyed by an *allocation class*:
+- the number of cores, and of each kind;
+- how many of each cache group, NUMA node and socket they span;
+- whether SMT siblings are in use;
+- a CPU quota below the core count, where there is one (cgroups, job limits).
 
-**6.5 The built-in table.** Phase 0 moves today's constants, including the
-`__APPLE__` switches and ADR-073's divisor, into one table keyed by operating system
-and architecture, read through the same profile path. A machine with no profile then
-behaves exactly as PR #576 does. The platform switches leave the source.
+A calibration measures the class of the allocation it runs in. At the standard and
+thorough levels it also measures the nested classes it can pin children to inside it,
+such as one cache group, one NUMA node and one socket, so that one calibration of a
+whole node covers most smaller jobs on it. Each row records the waiting policy its
+workspace settings were fitted under.
 
-**6.6 Files and concurrency.** The store follows `_wisdom.py`:
-- atomic replacement, a lock on POSIX, and readers that never block;
-- an unreadable, corrupt or mismatched file is logged and ignored, never fatal;
-- a home directory shared across machines keeps one profile per fingerprint, as the
-  wisdom file does today.
+At run time the process computes its own class from its affinity mask and quota:
+- an exact match uses that row;
+- otherwise the row with the same span structure and the nearest smaller core count is
+  used for workspace settings, and the process settings come from the built-in rules;
+- otherwise the built-in table, and `auto` calibrates this class on the next first run;
+- a row is not used for settings an override invalidates: thresholds fitted under a
+  spin give way to the table when the user forces sleeping threads.
 
-**6.7 Layers and backends.** The calibration is a native-backend concern, with a thin
+Scan workers have their own partitions, chosen by the executor
+(`driver/executors/pool.py`). Before it starts them, the scan's parent computes the
+workers' class; if no row matches it calibrates that class in a child pinned like one
+worker. The other partitions stay idle during that measurement, so shared caches and
+memory bandwidth are less loaded than in the scan itself; the row records this. Remote
+executors calibrate on their own hosts, in their own stores, under the same claim rule.
+Nothing calibrates in a controller that must not initialise a device.
+
+**6.5 Selection and validation.** One statistical rule throughout, the `ab` harness's:
+- *Pairs.* Candidates are timed interleaved with the built-in value, in rounds; a round
+  times each once in a fresh order. Quick takes 3 rounds, standard 5, thorough 7. The
+  score of a candidate is the median of its per-round ratios to the built-in.
+- *Noise.* Each session also times the built-in against itself (A/A). Its noise is the
+  largest per-round deviation of that ratio from one, and at least 2 %.
+- *Admission.* A candidate is admitted only if its largest per-round ratio is below
+  one minus the noise: it wins in every round by more than the noise. Otherwise the
+  built-in value stays. Ties keep the built-in. A round that failed or was skipped is
+  dropped; fewer than the minimum rounds keeps the built-in.
+- *Few candidates.* Each setting is chosen from a ladder of at most four candidates, so
+  that the search cannot select noise from a large set.
+- *Combined validation.* The admitted settings are then validated together, on fresh
+  rounds, without the profiling hooks, through the full code path (realised widths,
+  the stable-team rule and all): the calibration problems' windows under the
+  candidate profile against the built-in table. The combination is published only if
+  no window is slower than one plus the noise and the geometric mean is below one. If
+  it fails, the groups are dropped in a fixed order (grain, then FFT, then waiting and
+  team) and the remainder revalidated, within the deadline; if nothing passes, nothing
+  is published.
+- *Load.* Before and during measurement the controller reads the host-wide load and,
+  where the platform reports it, time stolen by a hypervisor. If the runnable work not
+  belonging to the calibration exceeds the cores outside its allocation, or the A/A
+  noise exceeds 10 %, the result is inconclusive. Missing telemetry is treated as
+  unknown, and only the A/A noise decides.
+
+**6.6 Stage 2 and the execution descriptor.** A refinement is reused only where the
+execution is the same. Its key is the *execution descriptor*: the native problem's
+dimensions (time samples, nodes, modes, polarisations, Cartesian or radial shape and
+batch), every FFT plan key it creates (§6.7), its responses and their buffers (Raman
+history length, plasma columns), its stepper family and propagator, and its node chunk.
+Equal descriptors reuse; anything else falls back to the machine profile. The operation
+mix can still change along a run, for example as ionisation grows, so a refinement is
+validated on windows spread along the run, not only its start. A refinement can only
+move workspace settings; it adds to the machine profile and never weakens it.
+
+*The windows* are the simulation's own: built from its translated problem with its
+original longitudinal operators and breakpoints, with the same noise seed for every
+candidate, output and callbacks off, and nothing shortened to fit (a gradient or taper
+is sampled where it lies, by starting windows at chosen positions). Each window runs a
+fixed number of accepted steps (20 by default) after a warm-up of five. Candidates
+differ only in execution, so they do the same work to within the step controller's
+reaction to rounding. A candidate is timed per step taken; if its step count differs
+from the built-in's by more than 5 %, the window is repeated and then dropped.
+
+*Accuracy.* The project needs speed within physically realistic accuracy, not
+reproducibility to the bit. Every candidate's window must end finite, with the same
+step-acceptance structure as the built-in's, and with fields that agree with the
+built-in's to within ten times the run's relative tolerance (the step controller's own
+error scale). Speed alone never admits a candidate. Nothing here asks for replay or for
+rounding-level agreement.
+
+**6.7 FFT planning.** *Choosing the effort*, for each shape class:
+- **Candidates.** Estimate, then measure; patient only at the thorough level and only
+  for serial plans, since the backend threads most transforms itself over serial plans
+  of row blocks. Threaded plans stop at measure. Exhaustive is never tried.
+- **Time limits.** Every planner call runs under `fftw_set_timelimit`, which makes FFTW
+  return its best plan so far when the limit passes: a few seconds a plan at the
+  standard level, tens of seconds at thorough. The limit is approximate; the
+  controller's deadline (§6.9) is what bounds the stage. Shape classes left when the
+  stage's share is spent stay at estimate and are listed in the report.
+- **Isolation.** Each candidate effort is planned in a fresh process, starting from no
+  wisdom, and its wisdom is exported per shape class. Nothing a losing candidate learnt
+  reaches the store.
+- **In-step timing.** The candidates' plans are timed inside the calibration problems'
+  steps, interleaved and repeated, on the profile's team and waiting policy, and
+  admitted by §6.5's rule: a more exhaustive plan is kept only when it beats the less
+  exhaustive one in every round by more than the noise; otherwise the class stays at
+  the lower effort, estimate included.
+
+*Applying the winners.* FFTW's wisdom is global to the process and cumulative, and a
+plan at any effort uses applicable wisdom (§4). So the store's wisdom is applied in a
+*planning transaction* when a workspace is built, under the existing serialisation of
+FFTW's planner:
+1. Forget all wisdom.
+2. Plan every shape class whose winning effort is estimate, with no wisdom present, so
+   each gets FFTW's plain estimate plan. A plan, once made, is not changed by wisdom
+   imported later.
+3. Import exactly the winning wisdom of the remaining classes, from the profile's
+   generation, and plan them with `FFTW_WISDOM_ONLY` at their winning effort.
+4. A class whose wisdom is missing or no longer reconstructs a plan (a changed stride
+   or alignment) falls back to estimate, and the run records it.
+5. Forget wisdom again, so the next workspace starts from the same state.
+
+The class key is the exact plan FFTW is asked for: rank, dimensions and strides,
+batch dimensions, direction or kind, in- or out-of-place, alignment, and thread count.
+Runs no longer merge wisdom back into the store when a profile applies; the store's
+wisdom changes only through a calibration. `SOLPROP_FFTW_WISDOM`, when the user sets
+it, keeps today's behaviour instead and takes precedence. The calibration itself plans
+each candidate effort in its own process starting from no wisdom (§4).
+
+**6.8 Ownership, publication and concurrency.**
+- *Claim.* A calibration of one allocation class takes a nonblocking claim: a `claim`
+  file created exclusively (`O_CREAT | O_EXCL`, which also holds on Windows), holding
+  the host, process id, start time and deadline. Another process that finds it either
+  waits (same host, §5) or proceeds without calibrating. A claim whose deadline has
+  passed by a minute, or whose process is gone on the same host, is stale and removed.
+- *Publication.* A calibration writes one complete generation file, profile rows,
+  evidence and wisdom together, then atomically replaces `current` to name it. Readers
+  read `current` once, then that generation; they never see a partial profile. A
+  failed, interrupted or inconclusive upgrade leaves the previous generation current.
+- *Lookup.* The store's current generation, then each read-only directory's, skipping
+  inconclusive entries; then the built-in table.
+- *`--clear`* removes `current` and the generations, not a live claim.
+- *Several nodes sharing a home directory* share one fingerprint's store, and the claim
+  makes one of them calibrate per allocation class; the others proceed on the table.
+
+**6.9 Budget and deadline.** Quick takes about 20 s, standard about 60 s, thorough
+about five minutes. Quick measures the waiting, the team and the coarse grain with a
+short validation, and leaves FFT efforts as today. Standard adds the full crossover
+ladder and measured plans for the canonical shapes, about 20 s of FFT stage. Thorough
+adds serial patient plans, wider ladders and longer validation, a few minutes of FFT
+stage. Each level has one monotonic deadline for all of its work: starting
+children, building workspaces, planning, timing, validation and publication. The
+controller runs every child under it and terminates and reaps a child that overruns.
+FFTW's own time limit only shortens each plan; the controller's deadline bounds the
+whole. A share of the budget is reserved for combined validation and publication; a
+stage that cannot finish its minimum rounds before its share ends is skipped and
+reported. On interruption or deadline nothing partial is published. Cleanup after the
+deadline is reported honestly if it overruns.
+
+**6.10 The first-use notice.** solprop's library code never installs a log handler, and
+a logger warning is invisible without one. The notice is therefore issued as a Python
+warning of its own category, `CalibrationNotice`, which Python shows once on standard
+error by default, in terminals and notebooks alike, and which a user silences with the
+standard warnings filters or `SOLPROP_CALIBRATION=use`. It is also logged, for those
+who configure logging, and reported through a run's progress reporter when one is
+active. It is issued before the calibration starts and says what is happening, for how
+long, where the result goes and how to choose another level or turn it off.
+
+**6.11 The built-in table.** Phase 0 moves today's constants, including the `__APPLE__`
+switches and ADR-073's divisor, into one table keyed by operating system and
+architecture, read through the same path as a profile. A machine with no profile then
+behaves exactly as PR #576 does, and the platform switches leave the source.
+
+**6.12 Layers and backends.** The calibration is a native-backend concern, with a thin
 driver command. `numpy_ref` is unaffected. The kernel contract does not change: the
 profile changes how native executes a problem, never the problem. No new dependency:
 the platform cache directories are a few lines of standard library code.
 
-**6.8 Benchmarks.** The tracking suite (SEP 38) and the `ab` harness measure a user's
-default run, so they run calibrated, at the thorough level. Before a series, each
-build under test is calibrated thorough on the machine, once per build fingerprint:
-an A/B's two builds each get their own profile, as two releases would for a user. Each
-row records the `calibration` metadata (§5), so a series that moves can be attributed
-to the code or to a recalibration, and further settings can be tracked later the same
-way. `SOLPROP_CALIBRATION=off` remains for experiments that must hold the settings
-fixed while the code changes.
+**6.13 Benchmarks.** The tracking suite (SEP 38) and the `ab` harness measure a user's
+default run, so they run calibrated, at the thorough level. Before a series, each build
+under test is calibrated thorough on the machine, once per build fingerprint: an A/B's
+two builds each get their own profile, as two releases would for a user. Each row
+records the `calibration` metadata (§5), so a series that moves can be attributed to the
+code or to a recalibration. `SOLPROP_CALIBRATION=off` remains for experiments that must
+hold the settings fixed while the code changes.
 
-**6.9 GPU builds (phase 6).** A device run has fewer settings, and today they are fixed
+**6.14 GPU builds (phase 6).** A device run has fewer settings, and today they are fixed
 when the extension is compiled or when the problem is translated:
 - the node chunk, one kernel launch each, sized from `node_budget` (#361);
 - graph replay of an Adams trial (`SOLPROP_NATIVE_DEVICE_GRAPH`);
 - the response team width and the deterministic-reduction width;
 - the host threads that run beside the device.
 
-Phase 6 makes these run-time fields of the device workspace: Kokkos's team policies
-take their width at run time, and the reduction widths become a small
-set compiled in and chosen at run time. `solprop calibrate --device` times short
-windows of the calibration problems on the device under each candidate, and validates
-like the CPU calibration. Its fingerprint is the device's model, memory, driver and
-runtime versions, and the build. The node chunk stays an explicit `node_budget` when a
-user sets one, and translation still never imports the device runtime: the profile
-is read when the device workspace is built.
+Phase 6 starts by measuring which of these move a device run by more than its noise,
+on one NVIDIA and one AMD data-centre GPU, and keeps only those. For each kept setting:
+- *Team and reduction widths* become run-time choices among the widths compiled in,
+  limited to what the device reports it supports for each kernel.
+- *The node chunk* is decided only if #361's re-measurement shows at least 10 %. If it
+  does, translation stays device-free and keeps producing the chunk's *rule* for each
+  route (granularity, such as whole rows on planar routes; bytes per column including
+  response buffers; its own explicit `node_budget`), and the device workspace chooses
+  the chunk within that rule. It admits the whole workspace, FFT and graph scratch and
+  the concurrent workers' share against the free device memory before enlarging a
+  chunk, and the memory ledger records the chosen chunk. The general modal route's
+  separate chunk is included only once qualified, and stays as today until then. An
+  explicit `node_budget` always wins.
+- Every route that takes a calibrated device setting is qualified on CUDA and HIP;
+  others keep the compiled defaults.
+
+`solprop calibrate --device` validates like the CPU calibration (§6.5). Its fingerprint
+is the device's model, memory, driver and runtime versions, and the build.
 
 *Where device profiles live.* A persistent GPU machine (a workstation, a cluster's GPU
 nodes) uses the store as the CPU does. A rented GPU is new on every rental and is built
 from source anyway, so the bootstrap that builds the extension runs `solprop calibrate
---device --thorough` as its next step, like the build itself, and the profile lives
-and dies with the machine. Each run's record carries the settings, so nothing is lost
-when the machine goes. Profiles exported from earlier rentals of the same model may be
-imported to skip the step, but a fresh calibration is the default: a rental's driver
-and runtime change from one image to the next.
+--device --thorough` as its next step, like the build itself, and the profile lives and
+dies with the machine. Each run's record carries the settings, so nothing is lost when
+the machine goes.
 
 ### 7. Verification and validation
 
 1. **Never worse than the table.** On each machine family measured in PR #576 (Apple
-   M5 Max, two-socket Intel Xeon Gold 6240, AMD EPYC 7763 shared, AMD EPYC 9B45 under Linux
-   and Windows, Neoverse V2), calibrated against built-in on the tracking set,
+   M5 Max, two-socket Intel Xeon Gold 6240, AMD EPYC 7763 shared, AMD EPYC 9B45 under
+   Linux and Windows, Neoverse V2), calibrated against built-in on the tracking set,
    `--threading backend`:
    - no case slower than its A/A range plus 2 %;
    - the geometric mean at least as good;
    - better by at least 5 % where PR #576 showed the table wrong: the M5 Max without
      ADR-073, and Windows' waiting; better on the large problems of the Xeon Gold and
      the Axion without the averaged cases' losses.
+
+   These cases are the claim's scope; the calibration problems used inside the
+   calibration are separate from them.
 2. **It finds what was measured by hand.**
    - M5 Max: six top-tier threads, a short spin, lower thresholds.
    - Xeon Gold: spin, thresholds near the table, compact cap near 8.
    - Axion: spin, thresholds near the table for the averaged and one-column
      operations, lower only where the large problems gained.
    - Windows: the spin scoped to native calls, which ran 0.87 at 16 threads.
-3. **Repeatable.** Two calibrations on an idle machine choose the same waiting and
-   team, and thresholds within a factor of two, with the same validation outcome.
-4. **Honest under noise.** On a deliberately loaded machine the calibration refuses
-   or reports `inconclusive`, and nothing is applied.
-5. **Exact.** Fields equal to rounding under every profile. Tests force extreme
-   profiles (all serial, all at full width, every waiting policy) on the backend tests
-   that compare native with `numpy_ref`.
-6. **The store.** Concurrent writers, corrupt files, mismatched fingerprints,
-   read-only fallback directories and `SOLPROP_CALIBRATION=off`, each tested. Runs
-   record the profile they used.
-7. **Stage 2.** On a costly case (a Cartesian beam, a radial filament), the refined
-   settings are at least as fast as the machine profile on that case. A scan's points
-   reuse them.
-8. **Budget.** Each level ends within its stated time on the slowest machine measured.
-9. **First use.** A first run with `auto` calibrates once, logs it, and takes no longer
-   than the uncalibrated run plus the quick budget. A second run, a scan's workers and
-   concurrent first runs do not calibrate again. Tested with a stub calibration, and on
-   one machine for real.
-10. **GPU builds.** On an NVIDIA and an AMD data-centre GPU, a device-calibrated run is
-    no slower than the compiled defaults beyond the noise, and faster where #361's
-    whole-node chunk or another width pays. The bootstrap's calibration step stays
-    within its stated time. A two-speed device (#366) is reported as inconclusive,
-    not fitted.
-11. **FFT planning is safe.** On every machine of item 1, no shape class runs slower in
-    the step under the profile than at estimate, beyond the noise. A store holding
-    wisdom from an earlier, slower patient plan of a class whose winner is estimate
-    does not change that class's plan. The FFT stage of the thorough level ends within
-    its budget at full thread count on the largest canonical shape.
+3. **Repeatable enough.** Two calibrations on an idle machine choose the same waiting
+   and team, and thresholds within a factor of two, with the same validation outcome.
+4. **Honest under noise.** On a deliberately loaded machine the calibration reports
+   `inconclusive`, and nothing is published.
+5. **Selection logic.** The rules of §6.5 are tested with deterministic fake timings:
+   ties, drift, outliers, missing rounds, a candidate winning on average but not in
+   every round, and a combined validation that fails and drops groups in order.
+6. **Accurate.** Fields within the run's accuracy under every profile. Tests force
+   extreme profiles (all serial, all at full width, every waiting policy, every FFT
+   effort) on the backend tests that compare native with `numpy_ref`, at those tests'
+   tolerances.
+7. **Process and workspace settings.** A direct native import, a notebook that has
+   already run, and two live workspaces with different refinements each apply the
+   settings the record says they applied, read back from the runtime.
+8. **Allocations.** Reuse across equal core counts with different placement (one socket
+   against two), a small job's profile against a later large job, a scan's worker
+   class, and an override that invalidates a row, each takes the row §6.4 says.
+9. **Wisdom.** A store holding an old measured plan of a class whose winner is
+   estimate gives the plain estimate plan; two workspaces built in either order get
+   their own classes' plans; under `off` a cold and a populated store give the same
+   plans.
+10. **Store and ownership.** Concurrent writers, a claim whose owner died, simultaneous
+    readers and a writer, two hosts sharing a store, corrupt and mismatched files,
+    read-only directories past an inconclusive local entry, `--clear`, and Windows as
+    well as POSIX.
+11. **Deadline.** Slow start-up, a stalled plan, cancellation, too little memory and a
+    budget too small for one comparison: each ends within the deadline plus reported
+    cleanup, and publishes nothing partial.
+12. **Stage 2.** On a costly case (a Cartesian beam, a radial filament), the refined
+    settings are at least as fast as the machine profile on that case. A scan's points
+    with equal descriptors reuse them; descriptors that differ in batch, Cartesian
+    shape or response structure do not; a varying guide, a noisy launch and a
+    previously run simulation are refined without changing the simulation.
+13. **Budget.** Each level ends within its stated time on the slowest machine measured.
+14. **First use.** With no logging configured, the notice appears once on standard error
+    before the calibration starts, and once, not twice, when logging is configured. A
+    first run takes no longer than the uncalibrated run plus the quick budget; a second
+    run, a scan's workers and concurrent first runs do not calibrate again.
+15. **GPU builds.** On an NVIDIA and an AMD data-centre GPU, a device-calibrated run is
+    no slower than the compiled defaults beyond the noise, and faster where a kept
+    setting pays. The bootstrap's calibration step stays within its stated time. A
+    two-speed device (#366) is reported as inconclusive, not fitted. A scan still
+    starts its workers before any device runtime starts.
+16. **FFT planning is safe.** On every machine of item 1, no shape class runs slower in
+    the step under the profile than at estimate, beyond the noise. The FFT stage of the
+    thorough level ends within its budget at full thread count on the largest
+    canonical shape.
 
 ### 8. Documentation
 
@@ -524,7 +699,7 @@ The calibration is how users get the best speed, so the documentation leads with
 - The output metadata gains `calibration`: one schema change, taken with the release
   that ships it (one schema bump per release).
 - Benchmarks measure a user's default run (`--threading backend`), calibrated at the
-  thorough level (§6.8). The first series after phase 1 starts a new segment in the
+  thorough level (§6.13). The first series after phase 1 starts a new segment in the
   history; each row records its settings.
 - No difference from Luna.jl's physics to record. Luna keeps FFTW wisdom per user in
   a cache, as this SEP does, but plans every shape with `FFTW.PATIENT`; this SEP keeps a
@@ -554,72 +729,89 @@ The calibration is how users get the best speed, so the documentation leads with
 ### 11. Phases
 
 0. **Store and plumbing.**
-   - The store and fingerprint; `SOLPROP_CALIBRATION` and `SOLPROP_CALIBRATION_PATH`.
-   - `ThreadPolicy` carries the per-operation thresholds, medium width and compact
-     cap.
+   - The store, fingerprint, build record beside the extension, claims and
+     generations; `SOLPROP_CALIBRATION` and `SOLPROP_CALIBRATION_PATH`.
+   - The split into process and workspace settings: a per-workspace execution record
+     read by `operation_threads`, `CpuExecutionPool::get` and the FFT setup.
    - The built-in table keyed by operating system and architecture, with the
      `__APPLE__` switches and ADR-073's divisor moved into it.
-   - Wisdom kept in the store by default.
-   - `solprop calibrate --show/--export/--import/--clear`.
-   - Metadata `calibration`.
+   - Allocation classes from the affinity mask, topology and quota.
+   - The planning transaction for wisdom.
+   - `solprop calibrate --show/--export/--import/--clear`; metadata `calibration` with
+     the applied settings.
    - *Verifies:* identical behaviour to PR #576 without a profile; hand-written
-     profiles apply and are recorded; the store's tests.
+     profiles apply and are recorded; §7 items 7–10.
 1. **Machine calibration: waiting, team, core kinds, region cost.**
-   - `solprop calibrate --quick/standard`, and validation.
-   - *Verifies:* §7 items 1–5 for these settings, on at least the M5 Max, an x86 server
-     and an aarch64 machine.
+   - The controller, its deadline and children; `--quick` and standard; §6.5's
+     selection and combined validation.
+   - *Verifies:* §7 items 1–5 and 11 for these settings, on at least the M5 Max, an x86
+     server and an aarch64 machine.
 2. **Operation grain.**
    - The crossover probes and the threshold, medium-width and compact-cap fields.
-   - *Verifies:* §7 items 1–2 including the Axion and Xeon Gold splits; #328, #329 and #81
-     closed.
+   - *Verifies:* §7 items 1–2 including the Axion and Xeon Gold splits; #328, #329 and
+     #81 closed.
 3. **FFTW planning.**
-   - The effort ladder per shape class (#332), time limits, isolated planning,
-     in-step timing, per-class wisdom; serial patient plans at `--thorough`.
-   - *Verifies:* run construction time with a profile no longer than without; no shape
-     class slower in the step than at estimate; the FFT stage within its budget on
-     the largest canonical shapes at full thread count; window gains where measured
-     or patient plans pay.
-4. **Stage 2 (SEP 4's use case).**
-   - `Simulation.calibrate`, `--recipe`, signatures, scan reuse.
-   - *Verifies:* §7 item 7. SEP 4 superseded.
+   - The effort ladder per shape class (#332), time limits, isolated planning, in-step
+     timing; serial patient plans at `--thorough`.
+   - *Verifies:* §7 items 9 and 16; run construction time with a profile no longer than
+     without; window gains where measured or patient plans pay.
+4. **Stage 2.**
+   - `Simulation.calibrate`, `--recipe`, execution descriptors, scan reuse.
+   - *Verifies:* §7 item 12.
 5. **Defaults, benchmarks and documentation.**
-   - The automatic quick calibration on first use, with its message; the scan and
+   - The automatic quick calibration on first use, its notice, and the scan and
      concurrency rules.
    - The tracking suite and `ab` calibrate each build thorough and record the
      settings.
    - The documentation of §8, including the simplified performance guide; the ADR.
-   - *Verifies:* §7 item 9; the benchmark history's new segment recorded.
+   - *Verifies:* §7 items 13–14; the benchmark history's new segment recorded.
 6. **GPU builds.**
-   - The device settings of §6.9 become run-time fields; `solprop calibrate --device`;
-     device profiles in the store; the bootstrap scripts' calibration step.
-   - *Verifies:* §7 item 10; #361 closed with its measurement.
+   - Measure which device settings pay; make those run-time choices; `solprop calibrate
+     --device`; device profiles; the bootstrap scripts' calibration step.
+   - *Verifies:* §7 item 15; #361 closed with its measurement.
+
+SEP 4 is superseded when this SEP is accepted, since it was never implemented; its
+index entry and tracking issue change then.
 
 ### 12. Open questions
 
 1. **Which level runs on first use?** Decided (maintainer, 2026-11-08): the quick
-   level, automatically, with a message. Open: whether a first run should later
-   upgrade itself to standard in the background, or leave that to the user.
+   level, automatically, with a notice. Open: whether a first run should later upgrade
+   itself to standard in the background, or leave that to the user.
 2. **Where the store lives.** Decided (maintainer, 2026-11-08): the platform's standard
    cache directory, with `SOLPROP_CACHE_DIR` to move it.
 3. **Benchmark history.** Decided (maintainer, 2026-11-08): benchmarks run calibrated at
    the thorough level and record the settings used. Open: whether the calibration's own
    variation from build to build is small enough for the history's series; phase 5
    measures it with two thorough calibrations of one build.
-4. **Problem signatures.** How coarse a signature can be while its settings stay
-   right: should 8,192 and 8,192 + 2 samples share one? Decided in phase 4 from
-   measured sensitivity.
-5. **The `fft_size="auto"` cost model (#229).** It could be fitted per machine from the
+4. **Accuracy rule for candidates.** Proposed: fields within ten times the run's
+   relative tolerance of the built-in's, finite, same acceptance structure; no replay
+   or rounding-level comparison (maintainer's guidance, 2026-11-08: maximum performance
+   within realistic physical accuracy). For confirmation.
+5. **Allocations without an exact row.** Proposed: use the row with the same span
+   structure and the nearest smaller core count for workspace settings, rather than the
+   built-in table. Faster on clusters whose jobs vary in size; worst case a less tuned
+   setting, never a wrong result. For confirmation.
+6. **Concurrent first runs on one host.** Proposed: they wait for the calibrating
+   process, up to its deadline, rather than run on the table and load the machine it
+   measures. For confirmation.
+7. **First use without changing the running process.** Proposed: the first run applies
+   the new workspace settings at once and the process settings from the next process,
+   so that importing never calibrates. The alternative calibrates at import and gives
+   the first process everything, but pauses discovery, the GUI and every import on a
+   new machine. For confirmation.
+8. **The `fft_size="auto"` cost model (#229).** It could be fitted per machine from the
    same probes. Left for a later proposal.
-6. **Which device settings pay.** Which of §6.9's settings move a device run by more
-   than its noise is unmeasured; phase 6 starts by measuring them on one NVIDIA and one
-   AMD device, and drops those that do not.
-7. **Why exhaustive plans lose.** Phase 3 records each shape class whose patient or
-   measured plan lost in the step, with its alone-and-in-step timings, to tell timing
-   in isolation from planning noise and from thread interplay. If serial patient plans
-   rarely win, the thorough level drops them.
-8. **Heterogeneous cores elsewhere.** Linux and Windows hybrid chips expose core kinds
-   (`cpu_capacity`, `EfficiencyClass`); phase 1 reads them, but no such machine has
-   been measured.
+9. **Which device settings pay.** Phase 6 starts by measuring them on one NVIDIA and one
+   AMD device and drops those that do not; the device chunk only if #361 shows at least
+   10 %.
+10. **Why exhaustive plans lose.** Phase 3 records each shape class whose patient or
+    measured plan lost in the step, with its alone-and-in-step timings, to tell timing
+    in isolation from planning noise and from thread interplay. If serial patient plans
+    rarely win, the thorough level drops them.
+11. **Heterogeneous cores elsewhere.** Linux and Windows hybrid chips expose core kinds
+    (`cpu_capacity`, `EfficiencyClass`); phase 1 reads them, but no such machine has
+    been measured.
 
 ### 13. References
 
@@ -658,6 +850,12 @@ The calibration is how users get the best speed, so the documentation leads with
 - 2026-11-08: AI review by GPT-6, recorded below; Part I unchanged.
 - 2026-11-08: The Axion's threshold figures corrected to the distribution build with
   OpenBLAS; the earlier ones came from a build without a BLAS library.
+- 2026-11-08: Response to the AI review (Opus 5.5), recorded below; Part I revised:
+  process and workspace settings, allocation classes, a planning transaction for
+  wisdom, one deadline, a stated selection rule, stage 2's windows and accuracy rule,
+  execution descriptors, claims and generations, a visible notice, GPU chunk only if
+  #361 pays, and SEP 4's parts accounted for. Four decisions left to the maintainer
+  (§12 items 4–7).
 
 ### AI review — 2026-11-08
 
@@ -882,3 +1080,96 @@ performance qualification, remote-machine or GPU experiment was run, and no
 performance figure in Part I was independently verified. The review changes only
 the review header fields and Part III; responses and revisions to Part I belong
 to the drafting agent and maintainer.
+
+### Response to review — 2026-11-08 (drafting agent, Opus 5.5)
+
+All eleven findings were checked against the tree (the native import, `build_info`,
+the wisdom calls in `fft_plan.hpp` and `_wisdom.py`, `solprop.log`) and accepted, R5 in
+the form the maintainer's guidance sets. Part I is revised as follows. Four decisions
+are left to the maintainer as §12 items 4–7.
+
+- **R1.** Accepted. §5 now separates *process settings* (waiting, pool width, placement),
+  read from the profile at native import before the extension loads, from *workspace
+  settings* (thresholds, medium width, compact cap, stable-team rule, scoped block time,
+  FFT efforts and wisdom), copied into each workspace when it is built. `ThreadPolicy`
+  keeps only the former; a per-workspace execution record holds the latter (§6.2), so two
+  live workspaces may differ. Every measurement runs in child processes under a
+  controller that never loads the extension (§6.2); stage 1 uses shipped problems and
+  stage 2 varies only workspace settings in the calling process, so no simulation is
+  transported between interpreters (§6.1). Importing never calibrates: a first run
+  applies the new workspace settings at once and the process settings from the next
+  process (§5; §12 item 7 asks the maintainer to confirm this over calibrating at
+  import). The fingerprint is read from a build record beside the extension, so it needs
+  no runtime (§5). The run records the settings applied, read back (§5); §7 item 7 tests
+  a direct import, a used notebook and two workspaces.
+- **R2.** Accepted. Profiles hold rows per *allocation class*: core count and kinds,
+  cache groups, NUMA nodes and sockets spanned, SMT, CPU quota (§6.4). The standard and
+  thorough levels also measure nested classes inside the allocation. Each row records the
+  waiting policy it was fitted under, and an override that changes it sends those
+  settings back to the table. Scan workers' class is calibrated by the parent in a child
+  pinned like a worker, with its limits recorded; remote executors calibrate on their
+  own hosts; no controller initialises a device. The calibration's own version is in the
+  fingerprint. The nearest-class rule is §12 item 5, for the maintainer. §7 item 8.
+- **R3.** Accepted; the reviewer's probe agrees with FFTW's manual, and the earlier "no
+  wisdom" protection was wrong within a process. §6.7 now applies wisdom in a planning
+  transaction: forget, plan the estimate winners with no wisdom present, import exactly
+  the winners' wisdom and plan those with `FFTW_WISDOM_ONLY`, fall back to estimate when a
+  plan no longer reconstructs, forget again. The class key is the exact plan requested,
+  strides, alignment and threads included. With a profile, runs no longer merge wisdom
+  into the store; `off` uses no automatic wisdom; a user's `SOLPROP_FFTW_WISDOM` keeps
+  today's behaviour and takes precedence. §7 item 9.
+- **R4.** Accepted. §6.9 gives each level one monotonic deadline for all its work, a
+  controller that terminates and reaps children, a reserved share for validation and
+  publication, and honest reporting of cleanup; FFTW's time limit only shortens plans.
+  Children plan at estimate outside the FFT stage (§6.3). Synthetic problems are bounded
+  to a fifth of the allocation's memory. Nothing partial is published, and the previous
+  generation stays current (§6.8). §7 item 11.
+- **R5.** Accepted in a lighter form, on the maintainer's guidance (2026-11-08) that the
+  aim is maximum performance within physically realistic accuracy, with no need for
+  replay or rounding-level repeatability. §6.6 specifies the windows: the simulation's
+  own operators and breakpoints, windows placed along the run rather than shortened,
+  the same noise seed, output and callbacks off, a fixed count of accepted steps after a
+  warm-up, timing per step, and a repeat-then-drop rule when step counts differ by more
+  than 5 %. Every candidate must end finite, with the same acceptance structure, and
+  with fields within ten times the run's relative tolerance of the built-in's; speed
+  alone never admits a candidate. §12 item 4 asks the maintainer to confirm the
+  tolerance. §3 records that this replaces SEP 4's pilot contract. §7 items 6 and 12.
+- **R6.** Accepted. §6.14 now starts phase 6 by measuring which device settings pay, and
+  takes the node chunk only if #361's re-measurement shows at least 10 %. If it does,
+  translation stays device-free and hands the device workspace the chunk's *rule* per
+  route (granularity, bytes per column with response buffers, an explicit budget); the
+  workspace admits the whole workspace, scratch and concurrent workers against free
+  device memory before enlarging the chunk, and the ledger records it. The general modal
+  route's own chunk stays as today until qualified. Team and reduction widths are
+  limited to what the device supports per kernel; uncalibrated routes keep compiled
+  defaults. §7 item 15.
+- **R7.** Accepted. §6.6 replaces the signature with an *execution descriptor*: problem
+  dimensions and Cartesian or radial shape and batch, every FFT plan key, responses and
+  their buffers, stepper and propagator, node chunk. Only equal descriptors reuse; a
+  refinement is validated on windows spread along the run and can only add to the
+  machine profile. §7 item 12 tests collisions in batch, Cartesian shape and response
+  structure. The former open question on coarse signatures is withdrawn.
+- **R8.** Accepted. §6.5 now states the rule: interleaved rounds (3, 5 or 7 by level),
+  the median ratio as score, A/A noise as the largest round deviation and at least 2 %,
+  admission only when a candidate wins every round by more than the noise, ties and
+  incomplete evidence keeping the built-in, at most four candidates a setting, and
+  monotone-envelope crossovers (§6.3). The admitted settings are validated together on
+  fresh rounds without profiling hooks through the full code path, so realised widths
+  and the stable-team rule are what is timed; on failure groups are dropped in a fixed
+  order. Load is judged host-wide, missing telemetry is unknown and left to the A/A
+  noise. §7 items 1 (scope of the claim) and 5 (fake timings).
+- **R9.** Accepted. §6.8 defines an exclusive-create claim file (portable to Windows)
+  with host, process, start and deadline; stale claims; publication of one complete
+  generation followed by an atomic swap of `current`; lookup past inconclusive entries to
+  read-only directories; `--clear` that leaves a live claim alone; and one calibrator per
+  allocation class across hosts sharing a home. Concurrent first runs on one host wait
+  for the calibrator so as not to load it (§12 item 6, for the maintainer). §7 item 10.
+- **R10.** Confirmed: `logging.NullHandler` makes a library logger warning invisible.
+  §6.10 issues the notice as a warning of its own category, `CalibrationNotice`, which
+  Python shows once by default in terminals and notebooks without any handler, and
+  which the standard filters or `SOLPROP_CALIBRATION=use` silence; it is also logged and
+  passed to an active progress reporter. §7 item 14.
+- **R11.** Accepted. §3 now says what SEP 4 parts are replaced, not carried over, or
+  left on their issues. The claim that stage 2 chooses the scan split is withdrawn;
+  #314 stays open. #303 is listed as partly answered. Supersession happens once, at
+  acceptance (§11); phase 4 no longer repeats it.
