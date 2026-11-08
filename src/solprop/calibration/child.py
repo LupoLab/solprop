@@ -38,8 +38,12 @@ from collections.abc import Callable, Iterable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
-    from solprop_native._execution import ExecutionRecord
-    from solprop_native.backend import NativeBackend
+    from solprop_native._execution import (  # pyright: ignore[reportMissingImports]
+        ExecutionRecord,
+    )
+    from solprop_native.backend import (  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
 
 __all__ = ["main", "pin", "serve"]
 

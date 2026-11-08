@@ -12,9 +12,11 @@ from pathlib import Path
 
 import numpy as np
 import pytest
-import solprop_native
-import solprop_native.backend
-from solprop_native._profile import choose
+import solprop_native  # pyright: ignore[reportMissingImports]
+import solprop_native.backend  # pyright: ignore[reportMissingImports]
+from solprop_native._profile import (  # pyright: ignore[reportMissingImports]
+    choose,
+)
 
 from solprop.calibration import _native, grain, problems, refine
 from solprop.calibration.refine import RefinementReport, _Windows

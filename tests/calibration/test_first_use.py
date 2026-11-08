@@ -78,7 +78,7 @@ def test_a_first_native_run_calibrates_quickly_once_with_a_notice(
 def test_a_process_that_loaded_native_refreshes_its_profile(
     auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    import solprop_native  # noqa: PLC0415
+    import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
     refreshed: list[bool] = []
     monkeypatch.setattr(

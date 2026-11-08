@@ -39,7 +39,7 @@ from solprop.exceptions import CalibrationError
 if TYPE_CHECKING:
     from solprop.driver import Simulation
 
-__all__ = ["RefinementReport", "refine"]
+__all__ = ["ACCURACY", "POSITIONS", "ROUNDS", "RefinementReport", "refine"]
 
 ROUNDS = 5
 """Interleaved rounds per comparison, as at the standard level."""

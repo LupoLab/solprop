@@ -241,7 +241,9 @@ native::FftPlanning fft_planning_from(const nb::dict& values) {
       for (auto [name, effort] : efforts) {
         const auto group = nb::cast<std::string>(name);
         auto text = nb::cast<std::string>(effort);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
         static_cast<void>(native::fftw_effort_flag(text));
+#endif
         if (group == "rows")
           result.rows = std::move(text);
         else if (group == "threaded_rows")
@@ -259,7 +261,9 @@ native::FftPlanning fft_planning_from(const nb::dict& values) {
         result.wisdom[nb::cast<std::string>(key)] = nb::cast<std::string>(text);
     if (values.contains("capture_effort")) {
       result.capture_effort = nb::cast<std::string>(values["capture_effort"]);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
       static_cast<void>(native::fftw_effort_flag(result.capture_effort));
+#endif
     }
     if (values.contains("time_limit"))
       result.time_limit = nb::cast<double>(values["time_limit"]);

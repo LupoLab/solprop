@@ -238,17 +238,23 @@ def refresh_profile() -> str:
     str
         Where a workspace's record now comes from (``EXECUTION_SOURCE``).
     """
+    # The profile's names are this process's state, rebound here and nowhere else;
+    # the backend reads them from the package at each use.
     global PROFILE, EXECUTION, EXECUTION_SOURCE, PLANNING
-    PROFILE = choose(
+    found = choose(
         packages=[Path(entry) for entry in __path__],
         stem=_STEM,
         cpus=PROCESS_CPUS,
         quota=cgroup_cpus(),
     )
-    profiled, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
-    EXECUTION = profiled if _FFT_START is None else profiled.with_fft_start(_FFT_START)
-    PLANNING = PROFILE.planning(PROCESS)
-    return EXECUTION_SOURCE
+    profiled, source = found.workspace(PROCESS, BUILTIN_EXECUTION)
+    PROFILE = found  # pyright: ignore[reportConstantRedefinition]
+    EXECUTION_SOURCE = source  # pyright: ignore[reportConstantRedefinition]
+    EXECUTION = (  # pyright: ignore[reportConstantRedefinition]
+        profiled if _FFT_START is None else profiled.with_fft_start(_FFT_START)
+    )
+    PLANNING = found.planning(PROCESS)  # pyright: ignore[reportConstantRedefinition]
+    return source
 
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
