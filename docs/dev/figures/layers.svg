@@ -216,17 +216,20 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="753.5" y="1099.0" font-size="12" class="dim">resumable</text>
 <rect x="307.0" y="1122.0" width="77.75" height="112.5" rx="7" ry="7" class="fill-d" />
 <text x="317.0" y="1144.0" font-size="15" class="bold ink-d">scan.py</text>
-<rect x="394.75" y="1122.0" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="404.75" y="1144.0" font-size="15" class="bold ink-d">driver/executors/</text>
-<text x="404.75" y="1159.5" font-size="12" class="dim">local · pool · queue · slurm</text>
-<text x="404.75" y="1175.0" font-size="12" class="dim">batch</text>
-<rect x="609.55" y="1122.0" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="619.55" y="1144.0" font-size="15" class="bold ink-d">driver/</text>
-<text x="619.55" y="1159.5" font-size="12" class="dim">simulation · run · summary</text>
-<text x="619.55" y="1175.0" font-size="12" class="dim">interface · scaffold · mixtures</text>
-<text x="619.55" y="1190.5" font-size="12" class="dim">material_output · tdse</text>
-<text x="619.55" y="1206.0" font-size="12" class="dim">tdse_consistency · scan · batch</text>
-<text x="619.55" y="1221.5" font-size="12" class="dim">defaults · estimate · plane_view</text>
+<rect x="394.75" y="1122.0" width="119.00000000000001" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="404.75" y="1144.0" font-size="15" class="bold ink-d">calibration/</text>
+<text x="404.75" y="1159.5" font-size="12" class="dim">command</text>
+<rect x="523.75" y="1122.0" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="533.75" y="1144.0" font-size="15" class="bold ink-d">driver/executors/</text>
+<text x="533.75" y="1159.5" font-size="12" class="dim">local · pool · queue · slurm</text>
+<text x="533.75" y="1175.0" font-size="12" class="dim">batch</text>
+<rect x="738.55" y="1122.0" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="748.55" y="1144.0" font-size="15" class="bold ink-d">driver/</text>
+<text x="748.55" y="1159.5" font-size="12" class="dim">simulation · run · summary</text>
+<text x="748.55" y="1175.0" font-size="12" class="dim">interface · scaffold · mixtures</text>
+<text x="748.55" y="1190.5" font-size="12" class="dim">material_output · tdse</text>
+<text x="748.55" y="1206.0" font-size="12" class="dim">tdse_consistency · scan · batch</text>
+<text x="748.55" y="1221.5" font-size="12" class="dim">defaults · estimate · plane_view</text>
 <rect x="307.0" y="1244.5" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="317.0" y="1266.5" font-size="15" class="bold ink-d">recipe/</text>
 <text x="317.0" y="1282.0" font-size="12" class="dim">core · document · errors · export</text>

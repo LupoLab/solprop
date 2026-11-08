@@ -7,8 +7,10 @@
 ``solprop run recipe.toml -o out.h5`` builds and runs a recipe, ``solprop resume
 out.h5`` continues it from the file alone, ``solprop check``
 reports what stops it building, ``solprop export --python`` prints the equivalent
-script, and ``solprop scan`` is ``python -m solprop.scan``. The same commands run as
-``python -m solprop``. The manual page is ``docs/guide/setup/recipes.md``.
+script, ``solprop scan`` is ``python -m solprop.scan``, and ``solprop calibrate``
+measures, shows or forgets the native backend's machine profile (SEP 46). The same
+commands run as ``python -m solprop``. The manual page is
+``docs/guide/setup/recipes.md``.
 """
 
 import argparse
@@ -84,6 +86,15 @@ def _parser() -> argparse.ArgumentParser:
     commands.add_parser(
         "scan", help="run a scan script (python -m solprop.scan)", add_help=False
     )
+    calibrate = commands.add_parser(
+        "calibrate",
+        help="calibrate the native backend to this machine (SEP 46)",
+        description="Measure this machine's native execution settings, or show, "
+        "export, import or forget its profile.",
+    )
+    from solprop.calibration.command import add_arguments  # noqa: PLC0415 - lazy
+
+    add_arguments(calibrate)
     return parser
 
 
@@ -299,17 +310,37 @@ def main(argv: Sequence[str] | None = None) -> int:
         return scan(arguments[1:])
     args = _parser().parse_args(arguments)
     try:
-        if args.command == "run":
-            return _run(args.recipe, args.output, args.progress, resume=args.resume)
-        if args.command == "check":
-            return _check(args.recipe)
-        if args.command == "resume":
-            mode = "interpolated" if args.interpolated else True
-            return _resume(args.output, mode, args.progress)
-        from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
-
-        sys.stdout.write(Recipe.load(args.recipe).to_python(args.output))
+        return _command(args)
     except (SolpropError, OSError) as error:
         sys.stderr.write(f"solprop: {error}\n")
         return 2
+
+
+def _command(args: argparse.Namespace) -> int:
+    """Carry out one parsed command other than ``scan``.
+
+    Parameters
+    ----------
+    args : argparse.Namespace
+        The parsed command line.
+
+    Returns
+    -------
+    int
+        The command's exit status.
+    """
+    if args.command == "run":
+        return _run(args.recipe, args.output, args.progress, resume=args.resume)
+    if args.command == "check":
+        return _check(args.recipe)
+    if args.command == "resume":
+        mode = "interpolated" if args.interpolated else True
+        return _resume(args.output, mode, args.progress)
+    if args.command == "calibrate":
+        from solprop.calibration.command import run  # noqa: PLC0415 - reads the store
+
+        return run(args)
+    from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
+
+    sys.stdout.write(Recipe.load(args.recipe).to_python(args.output))
     return 0

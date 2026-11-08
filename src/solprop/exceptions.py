@@ -16,6 +16,7 @@ __all__ = [
     "BackendError",
     "BoundaryError",
     "BoundaryWarning",
+    "CalibrationError",
     "ConvergenceError",
     "CouplingError",
     "DiluteScalingWarning",
@@ -237,6 +238,10 @@ class TranslationError(SolpropError, ValueError):
 
 class BackendError(SolpropError, RuntimeError):
     """A backend is unavailable, misused or failed during propagation."""
+
+
+class CalibrationError(BackendError):
+    """A machine calibration could not run, read or write its profile (SEP 46)."""
 
 
 class OutputError(SolpropError, RuntimeError):

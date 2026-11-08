@@ -153,7 +153,11 @@ from solprop.transverse_monitor import (
 
 from . import (
     BUILTIN_EXECUTION,
+    EXECUTION,
+    EXECUTION_SOURCE,
     PROC_BIND,
+    PROCESS,
+    PROFILE,
     THREAD_BUDGET,
     WAIT_POLICY,
     WATCH_POLICY_FIELDS,
@@ -328,6 +332,7 @@ class NativeBackend(StepDriver[_core.State]):
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         adams_march: Literal["native", "host"] = "native",
+        cpu_execution: ExecutionRecord | None = None,
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -363,9 +368,17 @@ class NativeBackend(StepDriver[_core.State]):
         wisdom = _wisdom.wisdom_file()
         self._wisdom_loaded = _wisdom.load(wisdom)
         self._bound_buckets: np.ndarray | None = None
+        # solprop SEP 46: the workspace's CPU execution record, the process's (the
+        # calibration's where it holds, else the built-in table) unless one is given,
+        # as a stage-2 refinement gives one; read back from the state it built.
+        self._execution_source = EXECUTION_SOURCE if cpu_execution is None else "given"
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
+            | {"cpu_execution": (cpu_execution or EXECUTION).native()}
+        )
+        self._applied_execution = ExecutionRecord.from_native(
+            self._native_state.cpu_execution
         )
         self._native_state.set_crossing_workers(thread_budget().threads)
         _wisdom.store(wisdom)
@@ -1970,6 +1983,12 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
             "openmp_proc_bind": PROC_BIND,
+            "calibration": PROFILE.record(
+                PROCESS,
+                self._applied_execution,
+                BUILTIN_EXECUTION,
+                self._execution_source,
+            ),
             "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
             "wisdom_loaded": self._wisdom_loaded,
@@ -4414,7 +4433,6 @@ def _native_problem(
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
-    execution: ExecutionRecord | None = None,
 ) -> dict[str, object]:
     kerr = problem.responses.kerr_coefficients
     dispersive = problem.responses.dispersive_kerr
@@ -4555,8 +4573,9 @@ def _native_problem(
         )
     )
     return {
-        # solprop SEP 46: how the workspace's CPU operations thread.
-        "cpu_execution": (execution or BUILTIN_EXECUTION).native(),
+        # solprop SEP 46: how the workspace's CPU operations thread, the process's
+        # record unless the backend was given one.
+        "cpu_execution": EXECUTION.native(),
         **spatial_data,
         **_channel_payload(problem),
         **_envelope_payload(problem),

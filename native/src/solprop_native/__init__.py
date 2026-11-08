@@ -27,10 +27,18 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ._bind import proc_bind
-from ._budget import native_threads, physical_cores, thread_budget, top_tier_cores
+from ._budget import (
+    cgroup_cpus,
+    native_threads,
+    physical_cores,
+    thread_budget,
+    thread_count,
+    top_tier_cores,
+)
 from ._cpu import check_cpu_baseline, select_variant
 from ._execution import ExecutionRecord
 from ._execution import builtin as _builtin_execution
+from ._profile import Choice, Process, choose
 from ._wait import wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
@@ -63,10 +71,31 @@ THREAD_BUDGET = thread_budget(
 )
 _REQUESTED_THREADS = native_threads(THREAD_BUDGET)
 
+# A wheel with more than one build registers the chosen one as ``._core`` below.
+_STEM = select_variant(Path(__file__).parent)
+
+# This machine's calibration (solprop SEP 46), when one was published for this build
+# and allocation: an exact row's process settings apply here, before the runtime
+# starts, unless the user set them; each workspace takes its workspace settings.
+PROFILE: Choice = choose(
+    packages=[Path(entry) for entry in __path__],
+    stem=_STEM,
+    cpus=PROCESS_CPUS,
+    quota=cgroup_cpus(),
+)
+if (
+    (_PROFILE_THREADS := PROFILE.threads()) is not None
+    and thread_count("SOLPROP_THREADS") is None
+    and thread_count("SOLPROP_NATIVE_THREADS") is None
+):
+    _REQUESTED_THREADS = min(_PROFILE_THREADS, THREAD_BUDGET.threads)
+
 # How the OpenMP runtime's idle threads wait: a short spin within native work, unless
-# the user chose otherwise (ADR-071). The runtime reads this when the core loads it,
-# just below.
-_WAIT = wait_policy(threads=_REQUESTED_THREADS, top_tier=top_tier_cores())
+# the user or a calibration chose otherwise (ADR-071). The runtime reads this when the
+# core loads it, just below.
+_WAIT = wait_policy(
+    threads=_REQUESTED_THREADS, top_tier=top_tier_cores(), preferred=PROFILE.wait()
+)
 WAIT_POLICY = _WAIT.description
 
 # Whether its threads are bound: not, unless the user placed them. Kokkos reads this
@@ -76,7 +105,6 @@ PROC_BIND = proc_bind()
 # A wheel with more than one build registers the chosen one as ``._core``, so nothing
 # else knows which it is. The loader finds PyInit__core from the module's name, not the
 # file's.
-_STEM = select_variant(Path(__file__).parent)
 if _STEM != "_core":
     _file = next(Path(__file__).parent.glob(f"{_STEM}.*"))
     _spec = importlib.util.spec_from_file_location(f"{__name__}._core", _file)
@@ -166,15 +194,23 @@ _core.configure_native_spin(_WAIT.spin_milliseconds)
 # The built-in table's CPU execution record for this process (solprop SEP 46 section
 # 6.11): its operating system's values, divided on Apple silicon's spinning top tier,
 # with the user's FFT start. A workspace copies a record when it is built.
+_FFT_START = (
+    _pool_request("SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES", "sample count") or None
+)
 BUILTIN_EXECUTION: ExecutionRecord = _builtin_execution(
     platform.system(),
     spin_milliseconds=_WAIT.spin_milliseconds,
     width=_REQUESTED_THREADS,
-    fft_threshold=_pool_request(
-        "SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES", "sample count"
-    )
-    or None,
+    fft_threshold=_FFT_START,
 )
+
+# The process settings in force, and the record a workspace takes by default: the
+# profile's workspace settings where they hold under them, the user's FFT start over
+# both.
+PROCESS = Process(threads=_REQUESTED_THREADS, wait=WAIT_POLICY)
+EXECUTION, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
+if _FFT_START is not None:
+    EXECUTION = EXECUTION.with_fft_start(_FFT_START)
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to

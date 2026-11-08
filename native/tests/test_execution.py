@@ -236,3 +236,28 @@ def test_a_state_refuses_a_record_the_native_core_refuses(
     renamed = {k: v for k, v in record.items() if k != "adams_full"}
     with pytest.raises(ValueError, match="misses a field: adams_full"):
         _core.State(payload | {"cpu_execution": renamed | {"adams_fulll": 1}})
+
+
+def test_a_backend_given_a_record_builds_with_it_and_records_it(
+    phase_a_case: PhaseACase,
+) -> None:
+    problem, grid = phase_a_case
+    given = native.BUILTIN_EXECUTION.updated({"medium_threads": 2})
+    backend = NativeBackend(problem, grid=grid, cpu_execution=given)
+    default = NativeBackend(problem, grid=grid)
+    try:
+        calibration = backend.metadata()["calibration"]
+        assert isinstance(calibration, dict)
+        assert calibration["workspace_source"] == "given"
+        assert calibration["workspace"]["medium_threads"] == {
+            "applied": 2,
+            "built_in": native.BUILTIN_EXECUTION.medium_threads,
+        }
+        recorded = default.metadata()["calibration"]
+        assert isinstance(recorded, dict)
+        # The suite runs with SOLPROP_CALIBRATION=off: the built-in table.
+        assert recorded["profile"] == "built-in"
+        assert recorded["mode"] == "off"
+    finally:
+        backend.close()
+        default.close()

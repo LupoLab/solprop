@@ -193,6 +193,15 @@ class ExecutionRecord:
             raise ValueError(f"unknown CPU execution settings {unknown}")
         return dataclasses.replace(self, **values)  # pyright: ignore[reportArgumentType] - checked above
 
+    def with_fft_start(self, start: int) -> ExecutionRecord:
+        """Return the record with a user's FFT start, which no profile overrides.
+
+        Its full size stays where it is, or moves up to the start.
+        """
+        return dataclasses.replace(
+            self, fft_threshold=start, fft_full=max(start, self.fft_full)
+        )
+
     def differences(self, other: ExecutionRecord) -> dict[str, tuple[object, object]]:
         """Return each field whose value differs from `other`'s, as (this, other)."""
         mine, theirs = self.native(), other.native()

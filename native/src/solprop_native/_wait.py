@@ -86,13 +86,15 @@ def wait_policy(
     *,
     threads: int = 1,
     top_tier: int | None = None,
+    preferred: str | None = None,
 ) -> WaitPolicy:
     """Set the default wait in `environ` unless the user chose; say which.
 
     `threads` is the native pool's size and `top_tier` the cores of the chip's fastest
-    kind where it has several (``None`` otherwise). Returns ``"spin"`` or
-    ``"passive"`` when set here, else ``"environment: NAME=value"`` for the first of
-    :data:`VARIABLES` the user set.
+    kind where it has several (``None`` otherwise). `preferred`, ``"spin"`` or
+    ``"passive"``, is a machine calibration's choice (solprop SEP 46), which replaces
+    the default rule. Returns ``"spin"`` or ``"passive"`` when set here, else
+    ``"environment: NAME=value"`` for the first of :data:`VARIABLES` the user set.
     """
     if not _ours(environ):
         for name in VARIABLES:
@@ -102,7 +104,7 @@ def wait_policy(
     for name in (*VARIABLES, MARKER):
         environ.pop(name, None)
     wider = top_tier is not None and threads > top_tier
-    choice = "passive" if wider else "spin"
+    choice = preferred if preferred in _SETTINGS else "passive" if wider else "spin"
     environ.update(_SETTINGS[choice])
     environ[MARKER] = choice
     return WaitPolicy(choice, SPIN_MILLISECONDS if choice == "spin" else 0)
