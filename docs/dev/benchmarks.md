@@ -3382,3 +3382,22 @@ Against `e3b07264` (jl35, 3 rounds): binary64 1.03 (`rdw` 1.45, `h2_raman_6ps` 1
 `argon_blueshift` 0.97, `ctc_reduced` 1.00), binary32 df32 1.10 (`rdw` 1.70). The
 predictor's phi functions formed to the largest width cost more than the three
 launches saved, and the host time left is not in those launches.
+
+**Where a step's time goes, native against Julia** (A40, binary64, Nsight with graph
+nodes, `scripts/step_timeline.py`: each step between two graph launches, median over the
+window). `argon_blueshift`: native 466 us a step, the device busy 377, idle 88, 5
+launches and 1 copy; Julia at `e3b07264` 539 us, busy 375, idle 164, 8 launches and 3
+copies. `rdw`: native 629 (busy 561, idle 68), Julia 817 (busy 636, idle 180). The
+device's work is the same; the difference is idle time. Julia's largest gap was after
+the corrector's reduction (about 50 us a step: AK's reduction finished its last stage on
+the host); then the host's preparation after the norm's readback (30 us against native's
+20), the source graph's launch (`cuGraphLaunch` about 56 us of host), and the saved
+planes (about 1.8 ms of idle device a plane against 1.25; in Python's profile the time
+is inside the Julia calls, each with its own wait, not in numpy).
+
+**NVIDIA A40, fused device reductions** (`fused_reduce!`: each element formed inside the
+reduction's first pass, the blocks' partials by a second, the one value read back;
+`reduce_each` and `sum_device!` through it; jl37 against `e3b07264`, 3 rounds): binary64
+0.96 (`rdw` 0.99, `argon_blueshift` 0.99, `ctc_reduced` 0.99, `h2_raman_6ps` 0.98,
+radial 1.05; `line` and `kerr_beam_192` noisy). In Nsight `argon_blueshift`'s step went
+from 539 to 509 us, its idle from 164 to 136 (native 88).

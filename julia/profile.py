@@ -71,7 +71,10 @@ def profile(row: dict) -> None:
     )
     if python:
         profiler.disable()
-        pstats.Stats(profiler, stream=sys.stdout).sort_stats("cumulative").print_stats("julia/_|integrators|_march", 30)
+        # SOLPROP_PYTHON_PROFILE_SORT / _FILTER: the order and the file filter (a regex).
+        order = os.environ.get("SOLPROP_PYTHON_PROFILE_SORT", "cumulative")
+        pattern = os.environ.get("SOLPROP_PYTHON_PROFILE_FILTER", "julia/_|integrators|_march")
+        pstats.Stats(profiler, stream=sys.stdout).sort_stats(order).print_stats(pattern, 40)
     if sampling:
         Main.seval("Profile.stop_timer()")
         Main.seval(

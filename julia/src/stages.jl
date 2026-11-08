@@ -15,6 +15,10 @@ function path_workspace(c, host)
      delta=zeros(size(phi, 3), stages), weights=zeros(size(pre, 3), stages),
      delta_device=dzeros(c, wide_eltype(c), size(phi, 3), stages),
      weights_device=dzeros(c, c.T, size(pre, 3), stages),
+     # Their host staging, kept: a converted copy a trial was two fresh arrays. (Pageable
+     # on purpose: the driver copies it at once, so the next trial may rewrite it.)
+     delta_staging=fill(c.wide, size(phi, 3), stages),
+     weights_staging=zeros(c.T, size(pre, 3), stages),
      # Kerr, the first channel's density and preionisation, the taper, then each later
      # channel's density and preionisation.
      material=[zeros(3, stages); ones(1, stages);
@@ -31,9 +35,17 @@ function configure_stages!(engine, delta, weights, material)
     copyto!(p.delta, Matrix{Float64}(delta))
     copyto!(p.weights, Matrix{Float64}(weights))
     copyto!(p.material, Matrix{Float64}(material))
-    p.delta_device isa Array || tally!(:upload, 2)
-    copyto!(p.delta_device, widen_host(wide_eltype(engine.config), p.delta))
-    copyto!(p.weights_device, real_type(engine).(p.weights))
+    if p.delta_device isa Array
+        copyto!(p.delta_device, widen_host(wide_eltype(engine.config), p.delta))
+        copyto!(p.weights_device, real_type(engine).(p.weights))
+    else
+        tally!(:upload, 2)
+        W, T = wide_eltype(engine.config), real_type(engine)
+        p.delta_staging .= W.(p.delta)
+        p.weights_staging .= T.(p.weights)
+        copyto!(p.delta_device, p.delta_staging)
+        copyto!(p.weights_device, p.weights_staging)
+    end
     material_stage!(engine, 1)
     nothing
 end

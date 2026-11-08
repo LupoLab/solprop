@@ -193,7 +193,8 @@ function sync_stage_values!(engine)
     held.host == current && return nothing
     held.host .= current
     tally!(:upload)
-    copyto!(held.device, c.T.(current))
+    held.staging .= current
+    copyto!(held.device, held.staging)
     nothing
 end
 
