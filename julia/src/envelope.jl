@@ -30,6 +30,7 @@ function envelope_plasma_workspace(c, host, nt, chunk, nm, nn)
     nf = c.nf
     (
         envelope=Val(true), channels=channels, fractions_all=fractions_all, peaks_all=peaks_all,
+        channel=1,
         coefficients=channels[1].coefficients, parameters=channels[1].parameters,
         constant_tail=channels[1].constant_tail, inverse_edges=channels[1].inverse_edges,
         inverse_tail=channels[1].inverse_tail,
@@ -186,7 +187,7 @@ function envelope_exposure!(q, nodes, c, count)
         @inbounds exposure[t, n] = t == 1 ? none : muladd(half, rate[t-1, n], half * rate[t, n])
     end
     tally!(:scan)
-    AK.accumulate!(+, @view(exposure[:, 1:count]); dims=1, init=none, backend=c.backend)
+    scan_columns!(@view(exposure[:, 1:count]), c, none)
     nothing
 end
 
@@ -198,10 +199,13 @@ function envelope_current!(p, nodes, c, count)
         (; rate, exposure, gated, edge) = q
         T = typeof(q.dt)
         charge, potential = T(q.parameters[6]), T(q.parameters[7])
-        density, initial = T(q.parameters[8]), T(q.parameters[9])
+        k = q.channel
+        dens = stage_scalar(c, 2k, q.parameters[8])
+        init = stage_scalar(c, 2k + 1, q.parameters[9])
         none = zero(eltype(gated))
         each!(c, size(nodes, 1), count) do t, n
             @inbounds begin
+                density, initial = stage_value(dens), stage_value(init)
                 v, e = nodes[t, n], exposure[t, n]
                 survival = (1 - initial) * exp(-e)
                 fraction = initial + (1 - initial) * -expm1(-e)

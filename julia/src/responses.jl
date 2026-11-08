@@ -16,17 +16,17 @@ present, multiplies the field by its convolved drive (`raman_drive!`).
 function nonlinear_nodes!(nodes, values, c, factor, raman, count)
     window, a = c.window, c.analytic_factor
     T = eltype(window)
-    f = T(factor)
+    g = stage_scalar(c, 1, factor)
     if raman === nothing
         each!(c, size(nodes, 1), count) do t, m
-            @inbounds nodes[t, m] = polarization(values[t, m], f, a) * window[t]
+            @inbounds nodes[t, m] = polarization(values[t, m], stage_value(g), a) * window[t]
         end
     else
         drive, r = raman.products ? raman.nodal : raman.drive, T(raman.factor)
         each!(c, size(nodes, 1), count) do t, m
             @inbounds begin
                 v = nodes[t, m]
-                nodes[t, m] = muladd(r * v, drive[t, m], polarization(values[t, m], f, a)) * window[t]
+                nodes[t, m] = muladd(r * v, drive[t, m], polarization(values[t, m], stage_value(g), a)) * window[t]
             end
         end
     end
@@ -35,19 +35,19 @@ end
 function nonlinear_envelope!(nodes, c, factor, raman, count)
     window = c.window
     T = eltype(window)
-    f = T(factor) * c.analytic_factor
+    g = stage_scalar(c, 1, factor, c.analytic_factor)
     r = raman === nothing ? zero(T) : T(raman.factor)
     drive = raman === nothing ? nodes : raman.drive
     live = raman !== nothing
     # The third harmonic's term, factor h exp(2 i w0 t) E^2 E, where one is compiled.
-    h, carrier = T(factor) * c.harmonic, c.carrier
-    harmonic = !iszero(h)
+    hg, carrier = stage_scalar(c, 1, factor, c.harmonic), c.carrier
+    harmonic = !iszero(c.harmonic)
     each!(c, size(nodes, 1), count) do t, m
         @inbounds begin
             v = nodes[t, m]
-            response = f * abs2(v) * v
+            response = stage_value(g) * abs2(v) * v
             if harmonic
-                response += h * carrier[t] * (v * v) * v
+                response += stage_value(hg) * carrier[t] * (v * v) * v
             end
             if live
                 response = muladd(r * v, real(drive[t, m]), response)
@@ -92,7 +92,7 @@ function plasma_workspace(c, host, nt, chunk, nm, nn)
                  parameters=host.array("plasma_parameters" * suffix(k), Float64)) for k in 1:count]
     fractions_all, peaks_all = dzeros(c, T, nn, count), dzeros(c, T, nn, count)
     (
-        channels=channels, fractions_all=fractions_all, peaks_all=peaks_all,
+        channels=channels, fractions_all=fractions_all, peaks_all=peaks_all, channel=1,
         coefficients=channels[1].coefficients,
         # Field range, rate cap, log-table origin and step, charge-mass ratio and
         # ionisation potential; density and preionisation are a stage's (stages.jl).
@@ -357,7 +357,8 @@ function each_channel(f::F, p) where {F}
     for (k, channel) in enumerate(p.channels)
         # (The channel's every table: an envelope's carries its precise rate's tails.)
         q = k == 1 ? p :
-            merge(p, channel, (fractions=view(p.fractions_all, :, k), peaks=view(p.peaks_all, :, k)))
+            merge(p, channel, (fractions=view(p.fractions_all, :, k), peaks=view(p.peaks_all, :, k),
+                               channel=k))
         f(q, k > 1)
     end
 end
@@ -380,7 +381,7 @@ function integrate_samples!(out, values, taps, dt, c, count)
                               half * (filtered(values, t, n, taps) + filtered(values, t - 1, n, taps))
     end
     tally!(:scan)
-    AK.accumulate!(+, @view(out[:, 1:count]); dims=1, init=zero(dt), backend=c.backend)
+    scan_columns!(@view(out[:, 1:count]), c, zero(dt))
     nothing
 end
 
@@ -390,7 +391,9 @@ function plasma_samples!(p, nodes, c, count, add=false)
     window, floor = c.window, p.floor
     args = rate_arguments(p)
     charge, potential = T(p.parameters[6]), T(p.parameters[7])
-    density, initial = T(p.parameters[8]), T(p.parameters[9])
+    k = p.channel
+    dens = stage_scalar(c, 2k, p.parameters[8])
+    init = stage_scalar(c, 2k + 1, p.parameters[9])
     nt, none = size(nodes, 1), zero(T)
     each!(c, nt, count) do t, n
         @inbounds rate[t, n] = scaled_rate(nodes[t, n], args...)
@@ -398,6 +401,7 @@ function plasma_samples!(p, nodes, c, count, add=false)
     integrate_samples!(fraction, rate, taps, dt, c, count)
     each!(c, nt, count) do t, n
         @inbounds begin
+            initial = stage_value(init)
             exposure = floor ? max(fraction[t, n], none) : fraction[t, n]
             value = 1 - (1 - initial) * exp(-exposure)
             fraction[t, n] = value
@@ -411,7 +415,7 @@ function plasma_samples!(p, nodes, c, count, add=false)
             squared = field * field
             loss = rate[t, n] > 0 && squared > 0 ?
                    (potential * rate[t, n] * (1 - fraction[t, n]) / squared) * field : none
-            total = density * (current[t, n] + loss)
+            total = stage_value(dens) * (current[t, n] + loss)
             if add
                 gated[t, n] += window[t] * total
                 edge[t, n] += derivative[t] * total

@@ -164,11 +164,97 @@ function scatter!(fine, lab, c)
     end
 end
 
-"""Evaluate the translated source of `lab` into `work.source`."""
+"""Evaluate the translated source of `lab` into `work.source`: on a device that replays
+graphs, the captured graph of this source when its host scalars are those it was
+captured with (`graph_source!`), else each pass launched."""
 function source!(engine, lab; quadrature=false)
-    c, w = engine.config, engine.work
+    c = engine.config
+    if graph_ready(c)
+        sync_stage_values!(engine)
+        return graph_source!(engine, lab, quadrature)
+    end
+    source_launched!(engine, lab, quadrature)
+end
+
+"""Whether the source kernels read their stage scalars from device memory."""
+graph_values(c) = graph_ready(c)
+
+"""Upload the stage scalars (`stage_slots`) where they changed: once a stage along a
+gradient, never in a uniform medium."""
+function sync_stage_values!(engine)
+    c, p = engine.config, engine.work.plasma
+    current = Float64[engine.factor]
+    if p !== nothing
+        for channel in p.channels
+            push!(current, channel.parameters[8], channel.parameters[9])
+        end
+    end
+    held = stage_slots(c, length(current))
+    held.host == current && return nothing
+    held.host .= current
+    tally!(:upload)
+    copyto!(held.device, c.T.(current))
+    nothing
+end
+
+function source_launched!(engine, lab, quadrature)
+    c = engine.config
     c.free && return source_free!(engine, lab)
     c.spectral && return source_spectral!(engine, lab, quadrature)
+    source_modal!(engine, lab, quadrature)
+end
+
+"""Whether sources go through device graphs: a device whose extension captures them
+(`graph_capture`), unless `SOLPROP_JULIA_GRAPH=0` or a timer that synchronises (which a
+capture cannot contain) is on."""
+graph_ready(c) = !oncpu(c) && GRAPHS[] && graph_capable(c.backend) &&
+                 !(TIMING[] && !HOST_TIMING[]) && !KERNEL_TIMING[]
+
+"""The host values a captured source still holds: the taper (its products' alpha) and
+whether the Kerr term is on. The stage's other scalars are device memory
+(`stage_slots`), as are its prefactor and a rebuilt Raman kernel, all updated in
+place, so a gradient's every stage replays one graph."""
+source_scalars(engine) = hash(engine.taper, hash(engine.factor != 0))
+
+"""A source as a device graph: captured from the launched passes once the same buffers
+and scalars have come round three times (by then every lazily made scratch, staging
+buffer and plan exists, so the graph's pointers stay valid), then replayed. The replay
+takes about 4 us of the host against 300 to 650 to launch the passes, and the device
+runs them without the gaps between launches (`rdw` 386 against 962 us a source on an
+A40, the same bits). A tapered guide, whose taper changes at every stage, keeps launching
+its passes."""
+graph_source!(engine, lab, quadrature) =
+    replay_or_capture!(() -> source_launched!(engine, lab, quadrature), engine,
+                       (:source_graph, objectid(lab), quadrature, source_scalars(engine)))
+
+"""Run `body`'s device work as a captured graph once `key` (the buffers, the shapes, the
+host values the work holds) has come round three times, and replay it after; before,
+or where the device cannot capture, run it as written. `body` evaluates `sources`
+sources, which the replay counts."""
+function replay_or_capture!(body, engine, key; sources=1)
+    c = engine.config
+    graphs = c.scratch
+    exec = get(graphs, key, nothing)
+    if exec === nothing
+        seen = get(graphs, (:seen, key), 0) + 1
+        # (A varying medium's keys never repeat: stop counting them past a bound.)
+        length(graphs) < 4096 && (graphs[(:seen, key)] = seen)
+        seen < 3 && return body()
+        calls = engine.calls
+        exec = graph_capture(c.backend, body)
+        engine.calls = calls
+        exec === nothing && return body()
+        graphs[key] = exec
+        tally!(:graph_capture)
+    end
+    tally!(:graph_replay)
+    graph_launch(exec)
+    engine.calls += sources
+    nothing
+end
+
+function source_modal!(engine, lab, quadrature)
+    c, w = engine.config, engine.work
     nm = size(lab, 2)
     @section :scatter scatter!(w.fine, lab, c)
     raman = w.raman

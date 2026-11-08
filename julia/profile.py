@@ -47,6 +47,14 @@ def profile(row: dict) -> None:
         Main.seval("Profile.clear(); Profile.start_timer()")
     jl.clear_timings()
     jl.clear_counts()
+    jl.clear_kernel_timings()
+    # SOLPROP_JULIA_ALLOCS=1: the host's allocations by where they are made (sampled;
+    # Profile.Allocs uses no signals, which the sampling profile's kill a CUDA process).
+    allocs = os.environ.get("SOLPROP_JULIA_ALLOCS") == "1"
+    if allocs:
+        from juliacall import Main  # noqa: PLC0415 - after the runtime starts
+
+        Main.seval("using Profile; Profile.Allocs.clear(); Profile.Allocs.start(sample_rate=0.002)")
     # SOLPROP_PYTHON_PROFILE=1: the host's Python time too (cProfile, by own time).
     python = os.environ.get("SOLPROP_PYTHON_PROFILE") == "1"
     if python:
@@ -70,6 +78,29 @@ def profile(row: dict) -> None:
             "Profile.print(IOContext(stdout, :displaysize => (200, 220)); "
             "format=:flat, sortedby=:count, mincount=20, noisefloor=1)"
         )
+    if allocs:
+        Main.seval("Profile.Allocs.stop()")
+        sys.stdout.write(str(Main.seval(r"""
+        let r = Profile.Allocs.fetch(), sites = Dict{String,Tuple{Int,Int}}()
+            for a in r.allocs
+                # The first frame in SolpropJulia, and the frame below it.
+                i = findfirst(f -> occursin("SolpropJulia", string(f.file)) ||
+                                   occursin("/julia/src/", string(f.file)), a.stacktrace)
+                i === nothing && continue
+                f = a.stacktrace[i]
+                below = a.stacktrace[max(i - 1, 1)]
+                key = string(f.func, " ", basename(string(f.file)), ":", f.line, " <- ",
+                             below.func)
+                n, b = get(sites, key, (0, 0))
+                sites[key] = (n + 1, b + a.size)
+            end
+            total = length(r.allocs)
+            lines = ["sampled allocations: $total (x500 for the run)"]
+            for (k, (n, b)) in sort(collect(sites); by=x -> -x[2][1])[1:min(30, end)]
+                push!(lines, lpad(n, 7) * lpad(b, 11) * "  " * k)
+            end
+            join(lines, "\n")
+        end""")) + "\n")
     times = jl.timings()
     total = sum(float(times[name]) for name in times)
     sys.stdout.write(
@@ -83,6 +114,13 @@ def profile(row: dict) -> None:
     steps = max(int(record["accepted"]), 1)
     for name in sorted(counts):
         sys.stdout.write(f"  {name:>18} {counts[name] / steps:8.1f} a step ({counts[name]})\n")
+    # SOLPROP_JULIA_KERNEL_TIMING=1: each GPU pass alone, by its body.
+    kernels = {str(k): list(v) for k, v in jl.kernel_timings().items()}
+    for name in sorted(kernels, key=lambda n: -float(kernels[n][1]))[:25]:
+        count, total, size = kernels[name]
+        sys.stdout.write(
+            f"  {float(total) * 1e3:8.2f} ms {int(count):6d} x {int(size):9d}  {name}\n"
+        )
     engine.close()
 
 

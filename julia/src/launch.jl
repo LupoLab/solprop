@@ -413,6 +413,17 @@ function gemm!(C, A, B, alpha, beta, c)
     C
 end
 
+"""The running sums down each column of `v` (`AK.accumulate!`, `dims=1`), with the
+scan's scratch kept on a GPU: a new one a call was a pool allocation, and inside a
+captured source graph (`source!`) a freed buffer the replay would still read."""
+function scan_columns!(v, c, init)
+    oncpu(c) && return AK.accumulate!(+, v; dims=1, init=init, backend=c.backend)
+    workspace = get!(c.scratch, (:scan_workspace, eltype(v), size(v))) do
+        AK.workspace(AK.accumulate!, +, v; dims=1, init=init, backend=c.backend)
+    end
+    AK.accumulate!(+, v; dims=1, init=init, backend=c.backend, workspace=workspace)
+end
+
 """On a GPU, an operand that is a strided view (a range of a matrix's rows) copied into
 scratch: Metal.jl's product of one takes a generic kernel, about 240 us for 16384 x 36
 x 8 on the M5 Max against 65 to 140 us copied first."""
@@ -485,13 +496,16 @@ const TIMING = Ref(false)
 const TIMES = Dict{Symbol,Float64}()
 # A device's timed sections wait for its queue at both ends (`synchronize_all`).
 const SYNCHRONIZE = Ref{Any}(() -> nothing)
+# SOLPROP_JULIA_TIMING=host: the sections unsynchronised, so each measures the host's
+# own time in it (enqueueing, host arithmetic, and any wait it makes itself).
+const HOST_TIMING = Ref(false)
 macro section(name, ex)
     quote
         if TIMING[]
-            SYNCHRONIZE[]()
+            HOST_TIMING[] || SYNCHRONIZE[]()
             local started = time_ns()
             local result = $(esc(ex))
-            SYNCHRONIZE[]()
+            HOST_TIMING[] || SYNCHRONIZE[]()
             TIMES[$name] = get(TIMES, $name, 0.0) + (time_ns() - started) * 1e-9
             result
         else
@@ -502,6 +516,38 @@ end
 timings() = Dict(String(k) => v for (k, v) in TIMES)
 clear_timings() = (empty!(TIMES); nothing)
 timing_enabled() = TIMING[]
+
+# --- Device graphs -------------------------------------------------------------------
+
+"""`SOLPROP_JULIA_GRAPH=0` launches every source's passes one by one."""
+const GRAPHS = Ref(true)
+"""Whether the device's extension captures and replays graphs (CUDA's does)."""
+graph_capable(backend) = false
+"""Capture `f`'s device work on the task's stream into an executable graph, or return
+`nothing` where the device cannot."""
+graph_capture(backend, f) = nothing
+graph_launch(exec) = throw(ArgumentError("no device graphs on this backend"))
+
+# --- Stage scalars in device memory ---------------------------------------------------
+
+"""A source's stage scalars on a device that replays graphs: the Kerr factor, then each
+plasma channel's density and preionisation, in one device vector the kernels read
+(`stage_value`), so that one captured graph serves every stage of a gradient. Slot 1 is
+the factor; channel `k`'s density and preionisation are slots `2k` and `2k + 1`."""
+function stage_slots(c, slots)
+    get!(c.scratch, :stage_slots) do
+        (host=fill(NaN, slots), device=KA.allocate(c.backend, c.T, slots))
+    end
+end
+"""A kernel's view of stage scalar `index` (times `scale`): the device vector's slot
+where sources replay graphs, else the host's value."""
+function stage_scalar(c, index, host_value, scale=one(c.T))
+    T = c.T
+    graph_values(c) || return T(host_value) * T(scale)
+    (values=c.scratch[:stage_slots].device, index=index, scale=T(scale))
+end
+@inline stage_value(x::Number) = x
+@inline stage_value(s::NamedTuple{(:values, :index, :scale)}) = @inbounds s.values[s.index] * s.scale
 
 # --- Long binary64 transforms on a GPU, four-step -------------------------------------
 

@@ -3309,3 +3309,40 @@ Julia's times are the A40's or a little better (`rdw` 0.071 against 0.074): it i
 host-bound there, where native's binary64 kernels take the H200's full rate (`h2_raman_6ps`
 0.223 s against the A40's 1.04) and its sources replay as CUDA graphs. Binary32 gains
 nothing on a full-rate card.
+
+**NVIDIA A40, tiled transposes and kept reduction workspaces** (jl23, `8765b584`
+against `67491bf9`'s engine, 3 rounds): binary64 `kerr_beam_192` 0.95, `rdw` 0.97,
+`argon_blueshift` 1.02, `line` 1.05 (range 0.75–2.18), geometric mean 1.00; binary32
+df32 `kerr_beam_192` 0.92, `line` 0.95, 0.96 over the four. Fields identical.
+
+**Where the A40's host time goes** (`rdw`, 59 steps, `SOLPROP_JULIA_TIMING=host`, which
+times sections without synchronising): the march's trials hold about half the window
+(a trial about 0.43 ms of host: the plasma's passes 0.1, their projections' four cuBLAS
+calls 0.07, synthesis and projection 0.05), and the statistics of 12 saved planes about
+a third (2 ms a plane: the Poynting set 0.7, the population scan 0.4). A source launched
+pass by pass against its captured CUDA graph's replay (`scripts/graph_probe.py`): `rdw`
+962 against 386 us a source (host 415 against 4), `argon_blueshift` 848 against 267,
+`h2_raman_6ps` 1201 against 663, results identical.
+
+**NVIDIA A40, source evaluations as CUDA graphs** (`graph_source!`; A/Bs against the
+same tree with `SOLPROP_JULIA_GRAPH=0`, 3 rounds, fields identical). A source's passes,
+kernels, cuFFT and cuBLAS alike, are captured once their buffers and host values have
+repeated three times, then replayed. The stage's scalars (the Kerr factor and the plasma
+channels' densities and preionisations) are read from one device vector, uploaded when
+they change, so a gradient's every stage replays one graph; the taper (a product's
+alpha) is still a captured value. Binary64 0.95 (`argon_blueshift` 0.86, `ctc_reduced`
+and `h2_raman_6ps` 0.95, `rdw` 0.99, free space 0.96 and 0.99); binary32 df32 0.89
+(`argon_blueshift` 0.67, `ctc_reduced` 0.77, `h2_raman_6ps` 0.82, `rdw` 0.88;
+`kerr_beam_192` 1.04, `line` 1.19 with a range of 0.68–1.45). With the scalars as
+captured values instead (a gradient's keys never repeat) `rdw` was 1.21. Nsight on
+`argon_blueshift` (binary64): the window 0.197 s against 0.155, the same 85 ms of
+kernels, the launch API from 34 to 12 ms; `ctc_reduced` is now mostly the device's
+(87 of 133 ms kernels, 40 ms of waiting in `cuEventSynchronize`).
+
+**A whole Adams trial as one graph** (predictor, source and corrector, the step and the
+tables read from device memory; tried and reverted): 1.60 in binary64 (`rdw` 3.5,
+radial 2.2, `argon_blueshift` 2.0). The predictor's and corrector's kernels take the
+order and the number of defect rows as values, which the variable-order controller
+changes from trial to trial, so a run captured and instantiated a graph for each
+combination it met. Order-independent kernels (the order and rows read from the device,
+loops to the largest) would be needed first.

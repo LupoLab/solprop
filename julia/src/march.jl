@@ -224,17 +224,17 @@ function march_start!(engine, m::MarchConfig, z)
 end
 
 function march_trial!(engine, m::MarchConfig, z, dz, s)
-    m.varying && configure_stages_at!(engine, z, stage_positions(m, z, dz))
+    m.varying && @section :march_stages configure_stages_at!(engine, z, stage_positions(m, z, dz))
     rate = m.compensated ? rate_at(m.rate, z + dz, true) : Float64[]
-    configure_adams_nodes!(engine, s.nodes, s.order, s.orders, s.rows, rate)
-    adams_trial!(engine, dz)
+    @section :march_tables configure_adams_nodes!(engine, s.nodes, s.order, s.orders, s.rows, rate)
+    @section :adams_trial adams_trial!(engine, dz)
 end
 
 """Adopt the held trial into row `free`, commit it; return its quadrature alarm. With
 a split collar the commit also forms the power the split finds (`split_power`)."""
 function march_accept!(engine, dz, free, split)
-    adams_accept!(engine, free)
-    commit!(engine, Float64(dz), split)
+    @section :adams_accept adams_accept!(engine, free)
+    @section :commit commit!(engine, Float64(dz), split)
 end
 
 # --- the run ---------------------------------------------------------------------------
