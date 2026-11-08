@@ -3271,3 +3271,41 @@ against 13; `scripts/each_cost3.jl`). On the M5 Max GPU the change is neutral (1
 fields identical): Apple's compiler inlines them itself. The four-step transforms
 alone (jl20, the same day): 0.99 (`argon_blueshift` 0.94, `ctc_reduced` 0.92); native
 against Julia at `db522ea3` 1.80 in binary64.
+
+**NVIDIA A40 against native at `8765b584`** (inlined bodies; jl21, 2026-11-08, 3 rounds
+binary64, 2 binary32):
+
+| case | native / s | julia / s | ratio | julia32 df32 / s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.054 | 0.074 | 1.39 | 0.074 | 1.32 |
+| `argon_blueshift` | 0.115 | 0.157 | 1.37 | 0.182 | 1.58 |
+| `h2_raman_6ps` | 1.039 | 0.647 | 0.62 | 0.339 | 0.33 |
+| `ctc_reduced` | 0.206 | 0.131 | 0.63 | 0.101 | 0.49 |
+| `radial_filament_256` | 0.168 | 0.247 | 1.47 | 0.171 | 1.02 |
+| `kerr_beam_192` | 0.171 | 0.501 | 2.85 | 0.338 | 1.98 |
+| `line` | 0.093 | 0.148 | 1.59 | 0.135 | 1.43 |
+
+Geometric means 1.26 (binary64) and 1.00 (binary32 df32); the morning's, at `db522ea3`,
+1.80 and 1.56. Nsight on `rdw` at the same commit: Julia's kernels 31.1 ms against
+native's 31.7, so what is left there is the host's (76 launches a step against native's
+40 and one graph, 21 pool allocations and 21 small copies a step).
+
+**NVIDIA H200** (DigitalOcean, atl1, driver 580.196, CUDA 13.1, 24 host cores) at
+`67491bf9`: native's CUDA build (HOPPER90, 8 minutes) against `julia` (CUDA.jl on the
+local toolkit), `--device`, 2 % windows; the Julia GPU tests passed there (33 selected).
+
+| case | native / s | julia / s | ratio | julia32 df32 / s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.038 | 0.071 | 1.85 | 0.087 | 2.04 |
+| `argon_blueshift` | 0.070 | 0.145 | 2.10 | 0.136 | 1.93 |
+| `h2_raman_6ps` | 0.223 | 0.313 | 1.39 | 0.373 | 1.67 |
+| `ctc_reduced` | 0.070 | 0.081 | 1.16 | 0.101 | 1.46 |
+| `radial_filament_256` | 0.061 | 0.106 | 1.73 | 0.100 | 1.65 |
+| `kerr_beam_192` | 0.188 | 0.428 | 2.26 | 0.355 | 1.82 |
+| `line` | 0.061 | 0.103 | 1.62 | 0.093 | 1.49 |
+
+Geometric means 1.69 (binary64; 2.39 at `a6722029`) and 1.71 (binary32 df32, 2 rounds).
+Julia's times are the A40's or a little better (`rdw` 0.071 against 0.074): it is
+host-bound there, where native's binary64 kernels take the H200's full rate (`h2_raman_6ps`
+0.223 s against the A40's 1.04) and its sources replay as CUDA graphs. Binary32 gains
+nothing on a full-rate card.
