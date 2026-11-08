@@ -227,18 +227,30 @@ def _calibrate(
     assert found.fingerprint is not None  # "auto" always fingerprints
     digest = found.fingerprint.digest
     store = _native.store.Store(calibration.store_directory(environ))
-    since = store.inconclusive_since(digest, allocation.key())
     key = (digest, allocation.key(), level)
-    if (
-        key in _DONE
-        or _covered(found, allocation, need)
-        or (since is not None and time.time() - since < RETRY_SECONDS)
-        or _wait_for(store, digest, allocation.key())
-    ):
+    try:
+        since = store.inconclusive_since(digest, allocation.key())
+        if (
+            key in _DONE
+            or _covered(found, allocation, need)
+            or (since is not None and time.time() - since < RETRY_SECONDS)
+            or _wait_for(store, digest, allocation.key())
+        ):
+            return None
+        _DONE.add(key)
+        _notice(level, LEVELS[level].budget, store.root, allocation.cores)
+        return calibrate(level, environ=environ, cpus=cpus)
+    except OSError as error:
+        # The calibration is optional: a store that cannot be written (read-only,
+        # missing, full) leaves runs on the built-in table, with one warning.
+        _DONE.add(key)
+        message = (
+            f"solprop could not use its calibration store at {store.root} ({error}); "
+            "the native backend runs on its built-in settings"
+        )
+        logger.warning(message)
+        warnings.warn(message, CalibrationNotice, stacklevel=4)
         return None
-    _DONE.add(key)
-    _notice(level, LEVELS[level].budget, store.root, allocation.cores)
-    return calibrate(level, environ=environ, cpus=cpus)
 
 
 def ensure(environ: Mapping[str, str] | None = None) -> CalibrationReport | None:

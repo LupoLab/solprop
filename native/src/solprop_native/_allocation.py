@@ -119,7 +119,7 @@ class AllocationClass:
     def span(self) -> tuple[object, ...]:
         """Return the class's span structure: everything but its core count."""
         return (
-            len(self.kinds),
+            tuple(count > 0 for count in self.kinds),
             self.l2_groups,
             self.l3_groups,
             self.numa_nodes,
@@ -138,7 +138,11 @@ def classify(
     """
     held = [cpu for cpu in cpus if cpu in topology.core] or list(topology.cpus)
     cores = {topology.core[cpu] for cpu in held}
-    kinds: dict[int, set[int]] = {}
+    # Every kind the machine has, held or not, so that allocations of the same size on
+    # cores of different kinds are different classes.
+    kinds: dict[int, set[int]] = {
+        topology.kind.get(cpu, 0): set() for cpu in topology.cpus
+    }
     for cpu in held:
         kinds.setdefault(topology.kind.get(cpu, 0), set()).add(topology.core[cpu])
     machine_l2 = _group_sizes(topology, topology.l2)

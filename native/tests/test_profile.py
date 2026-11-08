@@ -128,7 +128,15 @@ def test_an_intel_hybrid_reads_its_kinds_from_the_pmus(tmp_path: Path) -> None:
     (devices / "cpu_core" / "cpus").write_text("0-1\n")
     (devices / "cpu_atom").mkdir()
     (devices / "cpu_atom" / "cpus").write_text("2-3\n")
-    assert classify(read_topology("Linux", root=root), [0, 1, 2, 3]).kinds == (2, 2)
+    topology = read_topology("Linux", root=root)
+    assert classify(topology, [0, 1, 2, 3]).kinds == (2, 2)
+    # Two cores of the fast kind and two of the slow are different classes: every
+    # kind the machine has is counted, held or not, and the span says which are held.
+    fast, slow = classify(topology, [0, 1]), classify(topology, [2, 3])
+    assert (fast.kinds, slow.kinds) == ((2, 0), (0, 2))
+    assert fast.key() != slow.key()
+    assert fast.span() != slow.span()
+    assert match(fast, [(slow, None)]) is None
 
 
 def test_macos_numbers_its_cores_by_kind() -> None:

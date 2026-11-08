@@ -775,11 +775,13 @@ def test_planning_candidates_are_compared_with_the_built_in_plan_policy(
 
     script.by_planning = staticmethod(by_planning)
     calibrate("standard", environ=environ, cpus=range(8))
-    # The base of the FFT stage's rounds is no planning at all, never the policy's
-    # efforts with stored wisdom.
-    assert None in seen
+    # The FFT stage's base is the policy's efforts planned in place, with no stored
+    # wisdom: never the children's estimate default, nor the policy with wisdom.
+    base = {"mode": "profile", "efforts": dict(controller.POLICY), "wisdom": {}}
+    assert base in seen
     assert all(
-        planning is None or _efforts(planning) != controller.POLICY for planning in seen
+        planning is None or planning == base or _efforts(planning) != controller.POLICY
+        for planning in seen
     )
 
 

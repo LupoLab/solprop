@@ -371,17 +371,21 @@ class Store:
         return path
 
     def clear(self, fingerprint: str | None = None) -> int:
-        """Remove ``current`` and every generation, never a live claim; return a count.
+        """Remove ``current``, every generation and every refinement; return a count.
 
-        `fingerprint` limits it to one machine and build; ``None`` clears them all.
+        Never a live claim. `fingerprint` limits it to one machine and build; ``None``
+        clears them all. A stage-2 refinement goes with its machine's profile, since
+        one fitted over the built-in table would otherwise still apply.
         """
         removed = 0
-        base = self.root / "machines"
-        directories = (
-            [self.directory(fingerprint)]
-            if fingerprint is not None
-            else [path for path in base.glob("*") if path.is_dir()]
-        )
+        directories: list[Path] = []
+        for kind in ("machines", "problems"):
+            base = self.root / kind
+            directories += (
+                [base / fingerprint]
+                if fingerprint is not None
+                else [path for path in base.glob("*") if path.is_dir()]
+            )
         for directory in directories:
             for path in (directory / "current", *directory.glob("*.json")):
                 with contextlib.suppress(FileNotFoundError):

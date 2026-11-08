@@ -238,3 +238,18 @@ def test_without_the_native_backend_first_use_does_nothing(
     assert first_use.ensure() is None
     assert first_use.for_workers([0]) is None
     assert auto == []
+
+
+def test_a_store_it_cannot_write_leaves_the_run_on_the_table(
+    auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The calibration is optional: a read-only or missing store must not stop a run.
+    def refuse(*args: object, **kwargs: object) -> object:
+        raise PermissionError("read-only file system")
+
+    monkeypatch.setattr(controller, "calibrate", refuse)
+    with pytest.warns(CalibrationNotice) as caught:
+        assert first_use.ensure() is None
+    assert any("could not use its calibration store" in str(w.message) for w in caught)
+    # Once per process: a second run neither retries nor warns again.
+    assert first_use.ensure() is None

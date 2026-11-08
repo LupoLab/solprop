@@ -1510,10 +1510,16 @@ def _planning(
     chosen = dict(POLICY)
     wisdom: dict[str, str] = {}
     # Every candidate, with all the wisdom it would publish, is compared with the
-    # built-in plan policy as a run without a profile plans: stored wisdom planned
+    # built-in plan policy as a run without a profile plans: each group at the
+    # policy's effort, measured in place, with no stored wisdom. Stored wisdom planned
     # alone can run slower in the step than plans measured in place (on 16 cores of
     # an AMD EPYC 9B45 one case ran 17 % slower), so it is never assumed neutral.
-    builtin = _Setup(record=record, planning=None)
+    # The children plan at estimate otherwise (``SOLPROP_FFTW_PLAN``), so the base
+    # names the policy's efforts explicitly; on that EPYC this base ran as the table.
+    builtin = _Setup(
+        record=record,
+        planning={"mode": "profile", "efforts": dict(POLICY), "wisdom": {}},
+    )
     if timed:
         plan.say(f"timing {len(timed)} FFT planning candidates")
         noise, verdicts = _session_of(plan, child, builtin, timed, until, 4000)

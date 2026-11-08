@@ -191,6 +191,19 @@ def test_clearing_removes_generations_but_not_a_live_claim(tmp_path: Path) -> No
     assert store.current("def") is None
 
 
+def test_clearing_forgets_the_machines_refinements(tmp_path: Path) -> None:
+    # A refinement fitted over the built-in table would otherwise still apply.
+    store = Store(tmp_path)
+    store.publish(_generation())
+    store.publish_refinement("abc", "d1", {"base": {}, "record": {}})
+    store.publish_refinement("def", "d2", {"base": {}, "record": {}})
+    assert store.clear("abc") == 3  # its current, its generation and its refinement
+    assert store.refinement("abc", "d1") is None
+    assert store.refinement("def", "d2") is not None
+    assert store.clear() == 1
+    assert store.refinement("def", "d2") is None
+
+
 def test_a_claim_is_exclusive_until_released(tmp_path: Path) -> None:
     store = Store(tmp_path)
     first = store.claim("abc", "cls", time.time() + 60)
