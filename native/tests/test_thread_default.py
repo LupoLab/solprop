@@ -15,6 +15,8 @@ from __future__ import annotations
 import os
 import threading
 
+import pytest
+
 import solprop_native
 from solprop_native import _core
 
@@ -37,3 +39,14 @@ def test_a_native_call_sees_the_runtime_width_on_every_thread():
     # OMP_NUM_THREADS says otherwise), which the scope replaces and then restores.
     assert _on_a_thread() == width
     assert (os.process_cpu_count() or 1) >= width
+
+
+def test_llvm_threads_spin_briefly_inside_native_calls_only():
+    """On LLVM's runtime the core spins idle threads inside a call (ADR-071)."""
+    inside = _core.scoped_block_time()
+    if inside < 0:
+        pytest.skip("GNU's runtime reads its spin count once, at start")
+    expected = solprop_native._WAIT.spin_milliseconds
+    if expected == 0:
+        pytest.skip("this process's wait policy keeps the runtime's block time")
+    assert inside == expected

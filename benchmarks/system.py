@@ -65,6 +65,7 @@ POOL_VARIABLES = (
     "OMP_WAIT_POLICY",
     "KMP_BLOCKTIME",
     "GOMP_SPINCOUNT",
+    "SOLPROP_NATIVE_WAIT",
     "SOLPROP_FFTW_PLAN",
     "KOKKOS_TOOLS_LIBS",
 )
@@ -73,6 +74,9 @@ _RUNTIME_WAITING = {"GOMP_SPINCOUNT": "300000", "KMP_BLOCKTIME": "200"}
 """GNU's and LLVM's own spin before an idle thread sleeps: 300,000 spins, 200 ms."""
 
 THREADING: dict[str, dict[str, str]] = {
+    # Unpinned, with the backend's own waiting: none of the waiting variables set, so
+    # the native backend chooses (ADR-071: a short spin within native work).
+    "backend": {"OMP_PROC_BIND": "false"},
     # Unpinned, and idle threads sleep at once: robust on a shared machine.
     "passive": {
         "OMP_PROC_BIND": "false",

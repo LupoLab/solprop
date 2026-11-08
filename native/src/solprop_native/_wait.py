@@ -2,51 +2,108 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Make the OpenMP runtime's idle threads sleep at once, unless the user chose.
+"""How the OpenMP runtime's idle threads wait between parallel regions (ADR-071).
 
-Between parallel regions an OpenMP thread spins for a while before it sleeps: GNU's
-runtime by default for about 300,000 spins, LLVM's for 200 ms. The native backend runs
-several thread teams in turn (Kokkos', the threaded FFTs' and the BLAS's), and when its
-threads fill the CPUs one team's spinning threads take the cores the next team needs.
-On 16 cores of an AMD EPYC 7763, with the runtime's own waiting, the four-mode helium
-capillary took 334 s against 13.5 s with idle threads sleeping, the argon blueshift
-432 s against 37.3 s and the radial filament 72 s against 5.9 s; even 10,000 spins cost
-them 1.4 to 3.3 times.
+A native step opens tens of short parallel regions. A team whose idle threads sleep at
+once wakes them for each: 16 us a region at 6 threads and 55 us at 18 on an Apple M5
+Max (LLVM's runtime), 36 us at 16 threads and 72 us at 36 on two Intel Xeon Gold 6240
+(GNU's). A team that spins a little before sleeping enters the next region in 0.6 to
+12 us. Over windows of the benchmark cases a short spin ran them in about 0.8 of the
+time on the Mac's six top-tier cores, the Xeon, and 16 cores of a shared AMD EPYC 7763
+node (ADR-071).
 
-Spinning is faster where hardware threads are spare: on 36 cores of two Intel Xeon Gold
-6240 (72 hardware threads) the runtime's own waiting took the supercontinuum from 94 s
-to 49 s and the helium capillary from 14.7 s to 9.7 s. But the runtime reads the policy
-once, when it loads, and work that arrives on the machine later takes those spare
-threads, so a run that spins can end up where the EPYC one did. Sleeping is never
-catastrophic, so it is the default, and ``OMP_WAIT_POLICY=active`` is the opt-in for a
-machine a run has to itself.
+ADR-056 had made idle threads sleep at once, after spinning cost an EPYC 7763 1.4 to
+3.3 times at 10,000 spins while the backend ran several thread teams in turn (Kokkos's,
+the threaded FFTs', the BLAS's, NumPy's and numba's). Those now share one runtime and
+NumPy's BLAS holds one thread, and the same test no longer loses.
 
-So, before the core loads the runtime, the import sets ``OMP_WAIT_POLICY=passive``,
-which both runtimes honour (LLVM's then sets its block time to zero). The setting stays
-in the environment, so that a runtime that reads it later (LLVM's, at its first
-parallel region) and a solprop worker process wait alike. Any of
-``OMP_WAIT_POLICY``, ``GOMP_SPINCOUNT`` and ``KMP_BLOCKTIME`` already set is the user's
-choice, and nothing is changed.
+So, unless the user chose, the import sets before the core loads the runtime:
+
+- ``GOMP_SPINCOUNT=10000`` for GNU's runtime (Linux), which reads it once for the
+  process: about ten microseconds of spinning before a thread sleeps.
+- ``KMP_BLOCKTIME=0`` for LLVM's (macOS, and Linux builds with Clang): idle threads
+  sleep at once outside native work, and the core spins them for
+  :data:`SPIN_MILLISECONDS` while a native call runs (``kmp_set_blocktime``).
+
+Each runtime ignores the other's variable. Idle threads sleep at once
+(``OMP_WAIT_POLICY=passive``), as before, on Windows, where spinning is unmeasured,
+and where the team is wider than a chip's fastest cores: spinning on an M5 Max's
+second-tier cores ran most cases 1.1 to 1.35 times slower at 18 threads. Any of
+:data:`VARIABLES` already set is the user's choice, and nothing is changed; a process
+started from this one inherits the settings with :data:`MARKER`, which tells them from
+a user's.
 """
 
 from __future__ import annotations
 
 import os
+import sys
 from collections.abc import MutableMapping
+from dataclasses import dataclass
 
 VARIABLES = ("OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME")
 """The variables by which a user chooses how OpenMP's idle threads wait."""
 
+SPIN_COUNT = "10000"
+"""GNU's runtime's spins before an idle thread sleeps, by default (ADR-071)."""
 
-def wait_policy(environ: MutableMapping[str, str] = os.environ) -> str:
-    """Set the passive wait policy in `environ` unless the user chose; say which.
+SPIN_MILLISECONDS = 1
+"""LLVM's runtime's block time inside native calls, by default (ADR-071)."""
 
-    Returns ``"passive"`` when it was set here, else ``"environment: NAME=value"`` for
-    the first of :data:`VARIABLES` the user set.
+MARKER = "SOLPROP_NATIVE_WAIT"
+"""Set beside the variables this module sets, naming the choice it made."""
+
+_SETTINGS = {
+    "spin": {"GOMP_SPINCOUNT": SPIN_COUNT, "KMP_BLOCKTIME": "0"},
+    "passive": {"OMP_WAIT_POLICY": "passive"},
+}
+
+
+@dataclass(frozen=True)
+class WaitPolicy:
+    """How idle threads wait, as chosen at import.
+
+    ``description`` goes into a run's metadata; ``spin_milliseconds`` is the block time
+    the core keeps inside native calls on LLVM's runtime (zero: the process's).
     """
-    for name in VARIABLES:
-        value = environ.get(name, "").strip()
-        if value:
-            return f"environment: {name}={value}"
-    environ["OMP_WAIT_POLICY"] = "passive"
-    return "passive"
+
+    description: str
+    spin_milliseconds: int = 0
+
+
+def _ours(environ: MutableMapping[str, str]) -> bool:
+    """Whether the wait variables set are exactly those this module set."""
+    settings = _SETTINGS.get(environ.get(MARKER, ""))
+    if settings is None:
+        return False
+    return all(
+        environ.get(name, "").strip() == settings.get(name, "") for name in VARIABLES
+    )
+
+
+def wait_policy(
+    environ: MutableMapping[str, str] = os.environ,
+    *,
+    threads: int = 1,
+    top_tier: int | None = None,
+    platform: str = sys.platform,
+) -> WaitPolicy:
+    """Set the default wait in `environ` unless the user chose; say which.
+
+    `threads` is the native pool's size and `top_tier` the cores of the chip's fastest
+    kind where it has several (``None`` otherwise). Returns ``"spin"`` or
+    ``"passive"`` when set here, else ``"environment: NAME=value"`` for the first of
+    :data:`VARIABLES` the user set.
+    """
+    if not _ours(environ):
+        for name in VARIABLES:
+            value = environ.get(name, "").strip()
+            if value:
+                return WaitPolicy(f"environment: {name}={value}")
+    for name in (*VARIABLES, MARKER):
+        environ.pop(name, None)
+    wider = top_tier is not None and threads > top_tier
+    choice = "passive" if platform == "win32" or wider else "spin"
+    environ.update(_SETTINGS[choice])
+    environ[MARKER] = choice
+    return WaitPolicy(choice, SPIN_MILLISECONDS if choice == "spin" else 0)

@@ -420,20 +420,61 @@ def test_the_budget_counts_physical_cores_unless_threads_are_asked_for(
 
 
 @pytest.fixture
-def native_wait():
+def native_wait(monkeypatch):
     """The native package's wait-policy module, loaded without starting its core."""
     path = NATIVE_BUDGET.with_name("_wait.py")
     spec = importlib.util.spec_from_file_location("_native_wait", path)
     assert spec is not None and spec.loader is not None
     module = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "_native_wait", module)
     spec.loader.exec_module(module)
     return module
 
 
-def test_native_threads_sleep_at_once(native_wait):
+@pytest.mark.parametrize("platform", ["linux", "darwin"])
+def test_native_threads_spin_briefly_by_default(native_wait, platform):
+    """GNU's runtime spins 10,000 times; LLVM's sleeps outside native calls."""
     environ: dict[str, str] = {}
-    assert native_wait.wait_policy(environ) == "passive"
-    assert environ == {"OMP_WAIT_POLICY": "passive"}
+    chosen = native_wait.wait_policy(
+        environ, threads=6, top_tier=None, platform=platform
+    )
+    assert chosen == native_wait.WaitPolicy("spin", native_wait.SPIN_MILLISECONDS)
+    assert environ == {
+        "GOMP_SPINCOUNT": "10000",
+        "KMP_BLOCKTIME": "0",
+        native_wait.MARKER: "spin",
+    }
+
+
+@pytest.mark.parametrize(
+    ("platform", "threads", "top_tier"),
+    [
+        ("win32", 4, None),  # unmeasured there
+        ("darwin", 18, 6),  # a team wider than the fastest cores
+    ],
+)
+def test_native_threads_sleep_at_once_where_spinning_is_not_shown_to_pay(
+    native_wait, platform, threads, top_tier
+):
+    environ: dict[str, str] = {}
+    chosen = native_wait.wait_policy(
+        environ, threads=threads, top_tier=top_tier, platform=platform
+    )
+    assert chosen == native_wait.WaitPolicy("passive", 0)
+    assert environ == {"OMP_WAIT_POLICY": "passive", native_wait.MARKER: "passive"}
+    # Within the fastest cores the team spins.
+    assert native_wait.wait_policy({}, threads=6, top_tier=6, platform="darwin") == (
+        native_wait.WaitPolicy("spin", native_wait.SPIN_MILLISECONDS)
+    )
+
+
+def test_a_child_process_recomputes_an_inherited_default(native_wait):
+    """Inherited settings carry the marker, so a child is not held to its parent's."""
+    environ: dict[str, str] = {}
+    native_wait.wait_policy(environ, threads=18, top_tier=6, platform="darwin")
+    chosen = native_wait.wait_policy(environ, threads=4, top_tier=6, platform="darwin")
+    assert chosen.description == "spin"
+    assert "OMP_WAIT_POLICY" not in environ
 
 
 @pytest.mark.parametrize(
@@ -446,10 +487,16 @@ def test_native_threads_sleep_at_once(native_wait):
 )
 def test_a_wait_policy_the_user_chose_is_kept(native_wait, name, value):
     environ = {name: value}
-    assert native_wait.wait_policy(environ) == f"environment: {name}={value}"
+    chosen = native_wait.wait_policy(environ, threads=6, platform="linux")
+    assert chosen == native_wait.WaitPolicy(f"environment: {name}={value}", 0)
     assert environ == {name: value}
     # A blank variable is unset.
-    assert native_wait.wait_policy({name: " "}) == "passive"
+    assert native_wait.wait_policy({name: " "}, platform="linux").description == "spin"
+    # A user's value beside a stale marker is still the user's.
+    environ = {name: value, native_wait.MARKER: "spin"}
+    assert native_wait.wait_policy(environ, platform="linux").description.startswith(
+        "environment"
+    )
 
 
 @pytest.mark.parametrize(("platform", "expected"), [("win32", 3), ("darwin", None)])

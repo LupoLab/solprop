@@ -402,6 +402,16 @@ private:
   bool holds_blas_{};
 };
 
+/** How long, in milliseconds, LLVM's OpenMP runtime keeps idle threads spinning while
+    a native call runs, from the outermost `CpuTeamScope` on a thread to its end, where
+    the caller's block time returns; zero leaves the process's (solprop ADR-071). GNU's
+    runtime reads its spin count once, at start, from GOMP_SPINCOUNT. */
+void configure_native_spin(int milliseconds);
+
+/** LLVM's runtime's block time inside a scope, in milliseconds; -1 with another
+    runtime. A test hook. */
+[[nodiscard]] int scoped_block_time() noexcept;
+
 /** The calling thread's OpenMP default width inside a scope (`CpuTeamScope`): the
     runtime's, on any thread (solprop issue #130); one without OpenMP. A test hook. */
 [[nodiscard]] int scoped_openmp_default() noexcept;

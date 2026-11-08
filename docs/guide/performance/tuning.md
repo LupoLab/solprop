@@ -293,21 +293,22 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   as long as with one worker, and 0.11 s unbound.
 - `OMP_WAIT_POLICY` decides what idle threads do between parallel regions: `active`
   keeps them spinning, `passive` lets them sleep at once. **The native backend chooses
-  for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set.
-  It runs several thread teams in turn (Kokkos', the threaded FFTs', the BLAS's), and
-  when its threads fill the CPUs one team's spinning threads take the cores the next
-  needs: on 16 cores of an AMD EPYC 7763 the runtime's own waiting made the four-mode
-  capillary 25 times slower (334 s against 13.5 s). So the import sets
-  `OMP_WAIT_POLICY=passive`. The setting stays in the environment, so worker processes
-  wait alike, and the run's metadata records what applied as `openmp_wait_policy`.
-  Where hardware threads are spare and nothing else will use them, spinning is faster:
-  on 36 cores of two Intel Xeon Gold 6240 (72 hardware threads), with the whole machine
-  to itself, `OMP_WAIT_POLICY=active` ran the supercontinuum in 49 s against 94 s and
-  the capillary in 9.7 s against 14.7 s. It is not the default because the runtime
-  reads the policy once, at start-up, and work that arrives on the machine later takes
-  those spare threads; set it for a run on a machine it has to itself. LLVM's OpenMP runtime (used on macOS) also
-  honours `KMP_BLOCKTIME`, the time a thread spins before sleeping; do not set it for
-  GNU OpenMP.
+  for you** when none of `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and `KMP_BLOCKTIME` is set
+  (ADR-071): a short spin within native work. A step opens tens of short parallel
+  regions, and waking sleeping threads for each cost 16 to 72 µs a region where a team
+  that spins briefly enters the next in under 12 µs; over windows of the benchmark cases
+  the short spin took about 0.8 of the time on an Apple M5 Max's six top-tier cores, two
+  Intel Xeon Gold 6240 and 16 cores of a shared AMD EPYC 7763 node. The import sets
+  `GOMP_SPINCOUNT=10000` for GNU's runtime (Linux), about ten microseconds of spinning
+  before a thread sleeps, and `KMP_BLOCKTIME=0` for LLVM's (macOS, and Clang builds),
+  whose idle threads then sleep at once outside native calls while the backend keeps
+  them spinning for a millisecond within each. On Windows, where spinning is unmeasured,
+  and with a team wider than a chip's fastest cores, idle threads sleep at once
+  (`OMP_WAIT_POLICY=passive`). The settings stay in the environment, so worker processes
+  wait alike, and the run's metadata records the choice as `openmp_wait_policy`. Set
+  `OMP_WAIT_POLICY=passive` to make idle threads sleep at once everywhere, for example
+  on a machine whose cores other jobs need between your regions, or
+  `OMP_WAIT_POLICY=active` to keep them spinning on a machine a run has to itself.
 - On cores your run has to itself, such as a batch job's allocation, also pinning the
   threads helps: with idle threads sleeping, `OMP_PROC_BIND=close OMP_PLACES=cores` ran
   the tracking cases 11 % faster (geometric mean) on 16 cores of a shared AMD EPYC 7763

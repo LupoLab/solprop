@@ -2573,6 +2573,9 @@ NB_MODULE(_core, module_) {
               "warm"_a, "repeats"_a);
   // The calling thread's OpenMP default as a native call sees it (solprop issue #130).
   module_.def("scoped_openmp_default", &native::scoped_openmp_default);
+  module_.def("configure_native_spin", &native::configure_native_spin,
+              "milliseconds"_a);
+  module_.def("scoped_block_time", &native::scoped_block_time);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
   // FFTW's wisdom as text for solprop's SOLPROP_FFTW_WISDOM, whose file the adapter

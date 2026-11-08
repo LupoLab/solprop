@@ -2007,3 +2007,31 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** a default run on an M5 Max takes 6 threads, not 18. Scheduling that lets a
   wider team pay on such chips (dynamic chunks, a capped second tier) is measured separately
   and does not change this default.
+
+## ADR-071 — Idle threads spin briefly within native work
+
+- **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576); supersedes
+  ADR-056's waiting.
+- **Context:** a native step opens tens of short parallel regions (about 16 in an `rdw` Adams
+  trial). With idle threads asleep (ADR-056), each region wakes them: 16 µs at 6 threads and
+  55 µs at 18 on an Apple M5 Max (LLVM's runtime), 36 µs at 16 and 72 µs at 36 on two Intel
+  Xeon Gold 6240 (GNU's). A short spin brings that to 0.6–2.4 µs and 6–12 µs. Over windows of
+  the benchmark cases, same steps, environment only: M5 Max at 6 threads geomean about 0.83
+  (`line` 0.52, `rdw` 0.75); Xeon 0.82 (36 threads: `kerr_beam_192` 0.37, `line` 0.45,
+  `radial_filament_256` 0.50); 16 cores of a shared EPYC 7763 node 0.79 and 0.80, every case
+  faster in the second. ADR-056's loss at 10,000 spins (1.4–3.3 times on that EPYC) no longer
+  reproduces: the teams it blamed now share one runtime and NumPy's BLAS holds one thread.
+  On the M5 Max's 12 second-tier cores spinning loses (most cases 1.1–1.35 at 18 threads), as
+  LLVM's runtime itself assumes: it turns spinning off on chips with cores of two kinds.
+- **Decision:** unless the user set `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `KMP_BLOCKTIME`, the
+  native import sets `GOMP_SPINCOUNT=10000` (GNU's runtime reads it once) and
+  `KMP_BLOCKTIME=0` (LLVM's), and the core sets LLVM's block time to 1 ms while a native call
+  runs and back at its end (`kmp_set_blocktime`), so idle threads sleep at once outside
+  native work. On Windows (unmeasured) and with a team wider than the fastest kind of core
+  (ADR-070) idle threads sleep at once, as before. A marker variable lets a child process
+  recompute an inherited default.
+- **Why:** the gain is large wherever regions are short and many, and the spin is bounded
+  to native work on LLVM's runtime and to about ten microseconds on GNU's.
+- **Consequences:** `openmp_wait_policy` records `spin` or `passive`. The benchmark harness
+  gains a `backend` threading preset that leaves the choice to the backend; its `passive`
+  default is unchanged pending a decision on the history's series.

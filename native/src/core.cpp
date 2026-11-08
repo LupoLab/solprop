@@ -206,6 +206,12 @@ thread_local int blas_saved_default = 0;
 thread_local int scope_depth = 0;
 thread_local int scope_saved_default = 0;
 #endif
+// LLVM's runtime's block time while a native call runs (`configure_native_spin`), in
+// milliseconds; zero leaves the process's. The caller's is restored at the call's end.
+std::atomic<int> native_spin_milliseconds{0};
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR)
+thread_local int scope_saved_blocktime = -1;
+#endif
 
 // The outermost scope on a thread sets the thread's OpenMP default width to the
 // runtime's, and its end restores the caller's. Kokkos sets the default only on the
@@ -217,6 +223,19 @@ void enter_runtime_default() noexcept {
 #if defined(KOKKOS_ENABLE_OPENMP)
   if (scope_depth++ != 0)
     return;
+#if defined(KMP_VERSION_MAJOR)
+  // LLVM's runtime: idle threads spin for a short while inside native work and sleep
+  // at once outside it (solprop ADR-071).
+  scope_saved_blocktime = -1;
+  if (const int spin = native_spin_milliseconds.load(std::memory_order_relaxed);
+      spin > 0) {
+    scope_saved_blocktime = kmp_get_blocktime();
+    if (scope_saved_blocktime != spin)
+      kmp_set_blocktime(spin);
+    else
+      scope_saved_blocktime = -1;
+  }
+#endif
   scope_saved_default = 0;
   const int width = runtime_width.load(std::memory_order_relaxed);
   const int current = omp_get_max_threads();
@@ -228,8 +247,14 @@ void enter_runtime_default() noexcept {
 }
 void leave_runtime_default() noexcept {
 #if defined(KOKKOS_ENABLE_OPENMP)
-  if (--scope_depth == 0 && scope_saved_default != 0)
+  if (--scope_depth != 0)
+    return;
+  if (scope_saved_default != 0)
     omp_set_num_threads(scope_saved_default);
+#if defined(KMP_VERSION_MAJOR)
+  if (scope_saved_blocktime >= 0)
+    kmp_set_blocktime(scope_saved_blocktime);
+#endif
 #endif
 }
 
@@ -268,6 +293,21 @@ CpuTeamScope::~CpuTeamScope() {
   if (holds_blas_ && --blas_holds == 0)
     release_blas();
   leave_runtime_default();
+}
+
+void configure_native_spin(const int milliseconds) {
+  if (milliseconds < 0)
+    throw std::invalid_argument("a spin time cannot be negative");
+  native_spin_milliseconds = milliseconds;
+}
+
+int scoped_block_time() noexcept {
+  const CpuTeamScope scope(0);
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR)
+  return kmp_get_blocktime();
+#else
+  return -1;
+#endif
 }
 
 int scoped_openmp_default() noexcept {
