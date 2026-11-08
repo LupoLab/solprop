@@ -19,12 +19,14 @@ This module is standard library only and loads nothing of the package's extensio
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import cast
 from pathlib import Path
+from typing import cast
 
 from ._allocation import AllocationClass, Match, classify, match
 from ._execution import ExecutionRecord
@@ -32,7 +34,7 @@ from ._fingerprint import Fingerprint, build_identity, fingerprint
 from ._store import Generation, Mode, Row, Store, StoreWarning, lookup, mode, stores
 from ._topology import Topology, read_topology
 
-__all__ = ["Choice", "Process", "choose"]
+__all__ = ["Choice", "Process", "choose", "descriptor"]
 
 WAITS = ("spin", "passive")
 """The waiting policies a row may choose (``_wait``'s settings)."""
@@ -207,6 +209,58 @@ class Choice:
                 else None,
             },
         }
+
+
+def descriptor(
+    *,
+    shape: Sequence[int],
+    grid_kind: str,
+    integrator: str,
+    sizing: Mapping[str, object],
+    process: Process,
+    fingerprint: str,
+) -> str:
+    """Return a simulation's execution descriptor (SEP 46 section 6.6).
+
+    A stage-2 refinement is reused only where the execution is the same: the state's
+    shape, the field or envelope grid, the integrator, every operation its workspace
+    runs with its work (``execution_sizing``'s keys: the dimensions, the node chunk,
+    the response buffers and the transforms' sizes, which set its plans), the process
+    settings and the machine and build. Equal descriptors reuse; anything else falls
+    back to the machine profile.
+
+    Parameters
+    ----------
+    shape : sequence of int
+        The state's shape.
+    grid_kind : str
+        ``"field"`` or ``"envelope"``.
+    integrator : str
+        The integrator's name.
+    sizing : Mapping[str, object]
+        The workspace's ``execution_sizing``; only its keys are read.
+    process : Process
+        The process settings.
+    fingerprint : str
+        The machine and build's store key.
+
+    Returns
+    -------
+    str
+        24 hexadecimal digits.
+    """
+    text = json.dumps(
+        {
+            "shape": list(shape),
+            "grid_kind": grid_kind,
+            "integrator": integrator,
+            "operations": sorted(sizing),
+            "process": process.record(),
+            "fingerprint": fingerprint,
+        },
+        sort_keys=True,
+    )
+    return hashlib.blake2b(text.encode(), digest_size=12).hexdigest()
 
 
 def choose(

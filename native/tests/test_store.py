@@ -322,3 +322,23 @@ def test_generation_names_are_unique_and_sortable() -> None:
     names = {_store.generation_name() for _ in range(20)}
     assert len(names) == 20
     assert all(name.startswith("g20") for name in names)
+
+
+def test_refinements_are_kept_by_descriptor(tmp_path: Path) -> None:
+    mine, shared = Store(tmp_path / "mine"), Store(tmp_path / "shared")
+    assert mine.refinement("abc", "d1") is None
+    path = shared.publish_refinement("abc", "d1", {"workspace": {"medium_threads": 2}})
+    assert path.name == "d1.json"
+    found = _store.refinement("abc", "d1", [mine, shared])
+    assert found is not None
+    assert found["workspace"] == {"medium_threads": 2}
+    assert found["descriptor"] == "d1"
+    assert _store.refinement("abc", "d2", [mine, shared]) is None
+    # A file naming another descriptor, or unreadable, is skipped with a warning.
+    path.write_text(json.dumps({"descriptor": "other"}), encoding="utf-8")
+    _store._WARNED.clear()  # pyright: ignore[reportPrivateUsage]
+    with pytest.warns(StoreWarning, match="another descriptor"):
+        assert shared.refinement("abc", "d1") is None
+    path.write_text("{", encoding="utf-8")
+    with pytest.warns(StoreWarning, match="ignoring the refinement"):
+        assert shared.refinement("abc", "d1") is None

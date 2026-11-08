@@ -48,6 +48,12 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         help="about five minutes: more rounds and longer windows",
     )
     action.add_argument(
+        "--recipe",
+        metavar="FILE",
+        type=Path,
+        help="refine the settings for one simulation, a recipe (stage 2)",
+    )
+    action.add_argument(
         "--show",
         action="store_true",
         help="show the profile this allocation would use, and its evidence",
@@ -260,6 +266,17 @@ def run(arguments: argparse.Namespace) -> int:
     if arguments.show:
         sys.stdout.write(describe())
         return 0
+    if arguments.recipe is not None:
+        from solprop.calibration.refine import refine  # noqa: PLC0415 - heavy
+        from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
+
+        refined = refine(
+            Recipe.load(arguments.recipe).build(),
+            arguments.budget or 60.0,
+            progress=lambda line: sys.stderr.write(f"solprop calibrate: {line}\n"),
+        )
+        sys.stdout.write(refined.describe())
+        return 0 if refined.status != "inconclusive" else 1
     if arguments.export is not None:
         source = calibration.export_profile(arguments.export)
         sys.stdout.write(f"exported {source} to {arguments.export}\n")

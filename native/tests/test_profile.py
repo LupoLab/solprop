@@ -456,3 +456,31 @@ def test_a_rows_fft_planning_applies_where_its_workspace_settings_do(
         )
         is None
     )
+
+
+def test_an_execution_descriptor_changes_with_any_part_of_the_execution() -> None:
+    from solprop_native._profile import descriptor
+
+    base = {
+        "shape": (1, 1, 1, 4096),
+        "grid_kind": "envelope",
+        "integrator": "RungeKutta",
+        "sizing": {"kernels.stage.4096": {"threads": 4}},
+        "process": Process(4, "spin"),
+        "fingerprint": "f",
+    }
+    key = descriptor(**base)  # type: ignore[arg-type]
+    assert len(key) == 24
+    # The widths chosen are not part of it; the operations and their work are.
+    assert (
+        descriptor(**base | {"sizing": {"kernels.stage.4096": {"threads": 1}}}) == key
+    )  # type: ignore[arg-type]
+    for change in (
+        {"shape": (2, 1, 1, 4096)},
+        {"grid_kind": "field"},
+        {"integrator": "Multistep"},
+        {"sizing": {"kernels.stage.8192": {}}},
+        {"process": Process(2, "spin")},
+        {"fingerprint": "g"},
+    ):
+        assert descriptor(**base | change) != key  # type: ignore[arg-type]

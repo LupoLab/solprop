@@ -57,6 +57,7 @@ __all__ = [
     "generation_name",
     "lookup",
     "mode",
+    "refinement",
     "search_path",
     "stores",
 ]
@@ -461,6 +462,43 @@ class Store:
             return True
         return host == socket.gethostname() and not _alive(pid)
 
+    def refinement(self, fingerprint: str, descriptor: str) -> dict[str, object] | None:
+        """Return one simulation's stage-2 refinement, or ``None``.
+
+        Kept under ``problems/<fingerprint>/<descriptor>.json``; an unreadable file is
+        skipped with one :class:`StoreWarning`.
+        """
+        path = self.root / "problems" / fingerprint / f"{descriptor}.json"
+        try:
+            found = _mapping(json.loads(path.read_text(encoding="utf-8")), "refinement")
+        except FileNotFoundError:
+            return None
+        except (OSError, ValueError) as error:
+            _warn(f"ignoring the refinement {path}: {error}")
+            return None
+        if found.get("descriptor") != descriptor:
+            _warn(f"ignoring the refinement {path}: it names another descriptor")
+            return None
+        return found
+
+    def publish_refinement(
+        self, fingerprint: str, descriptor: str, record: Mapping[str, object]
+    ) -> Path:
+        """Write one simulation's refinement whole; return its file.
+
+        Raises
+        ------
+        OSError
+            When the store cannot be written.
+        """
+        directory = self.root / "problems" / fingerprint
+        directory.mkdir(parents=True, exist_ok=True)
+        path = directory / f"{descriptor}.json"
+        _write_atomically(
+            path, json.dumps(dict(record) | {"descriptor": descriptor}, indent=1) + "\n"
+        )
+        return path
+
     def inconclusive_since(self, fingerprint: str, allocation: str) -> float | None:
         """Return when this class's last calibration was inconclusive, or ``None``."""
         try:
@@ -505,6 +543,17 @@ def lookup(
         generation = store.current(fingerprint)
         if generation is not None:
             return generation
+    return None
+
+
+def refinement(
+    fingerprint: str, descriptor: str, stores: Sequence[Store]
+) -> dict[str, object] | None:
+    """Return the first refinement of `descriptor` among `stores`, or ``None``."""
+    for store in stores:
+        found = store.refinement(fingerprint, descriptor)
+        if found is not None:
+            return found
     return None
 
 

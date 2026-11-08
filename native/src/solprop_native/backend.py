@@ -155,8 +155,8 @@ from . import (
     BUILTIN_EXECUTION,
     EXECUTION,
     EXECUTION_SOURCE,
-    PROC_BIND,
     PLANNING,
+    PROC_BIND,
     PROCESS,
     PROFILE,
     THREAD_BUDGET,
@@ -383,6 +383,22 @@ class NativeBackend(StepDriver[_core.State]):
         self._applied_execution = ExecutionRecord.from_native(
             self._native_state.cpu_execution
         )
+        if cpu_execution is None:
+            # A stage-2 refinement of this very execution (solprop SEP 46 section
+            # 6.6): the workspace is built again with its record.
+            refined = _refined_record(problem, self._native_state)
+            if refined is not None:
+                self._native_state.close()
+                self._native_state = _core.State(
+                    _native_problem(problem, self._terms, self._flow, self._z_tables)
+                    | _low_storage_payload(problem, device=_on_device())
+                    | {"cpu_execution": refined[0].native()}
+                    | _planning_payload(fft_planning)
+                )
+                self._execution_source = refined[1]
+                self._applied_execution = ExecutionRecord.from_native(
+                    self._native_state.cpu_execution
+                )
         self._native_state.set_crossing_workers(thread_budget().threads)
         _wisdom.store(wisdom)
         self._wisdom_digest: str | None = None
@@ -4430,6 +4446,39 @@ def _aperture_payload(
         np.ascontiguousarray(tables.regions, dtype=np.float64),
         tables.exponent,
     )
+
+
+def _refined_record(
+    problem: KernelProblem, state: _core.State
+) -> tuple[ExecutionRecord, str] | None:
+    """Return a stored stage-2 refinement of this execution, or ``None``.
+
+    Its record applies only while the machine record it refined is still the
+    process's: a refinement adds to the machine profile and never outlives it.
+    """
+    if PROFILE.fingerprint is None:
+        return None
+    from ._profile import descriptor
+    from ._store import refinement, stores
+
+    key = descriptor(
+        shape=problem.shape,
+        grid_kind=problem.grid_kind,
+        integrator=type(problem.stepper.integrator).__name__,
+        sizing=state.execution_sizing,
+        process=PROCESS,
+        fingerprint=PROFILE.fingerprint.digest,
+    )
+    found = refinement(PROFILE.fingerprint.digest, key, stores())
+    if found is None or found.get("base") != EXECUTION.native():
+        return None
+    changes = found.get("workspace")
+    if not isinstance(changes, dict):
+        return None
+    try:
+        return EXECUTION.updated(cast(dict[str, object], changes)), f"refinement {key}"
+    except ValueError:
+        return None
 
 
 def _planning_payload(given: Mapping[str, object] | None) -> dict[str, object]:

@@ -329,3 +329,33 @@ def test_the_package_calibrates_through_its_controller(
     monkeypatch.setattr(controller, "calibrate", fake)
     assert calibration.calibrate("quick", 5.0).status == "held"
     assert asked == [("quick", 5.0)]
+
+
+def test_the_command_line_refines_a_recipe(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    from solprop import recipe  # noqa: PLC0415
+    from solprop.calibration import refine  # noqa: PLC0415
+
+    class Built:
+        def build(self) -> str:
+            return "simulation"
+
+    monkeypatch.setattr(recipe.Recipe, "load", staticmethod(lambda path: Built()))
+    asked: list[tuple[object, float]] = []
+
+    def fake(simulation: object, budget: float, *, progress: object) -> object:
+        asked.append((simulation, budget))
+        assert callable(progress)
+        progress("refining")
+        status = "published" if len(asked) == 1 else "inconclusive"
+        return refine.RefinementReport(status, "abc", reason="because")
+
+    monkeypatch.setattr(refine, "refine", fake)
+    path = tmp_path / "run.toml"
+    assert main(["calibrate", "--recipe", str(path)]) == 0
+    assert main(["calibrate", "--recipe", str(path), "--budget", "5"]) == 1
+    assert asked == [("simulation", 60.0), ("simulation", 5.0)]
+    captured = capsys.readouterr()
+    assert "refinement: published" in captured.out
+    assert "solprop calibrate: refining" in captured.err
