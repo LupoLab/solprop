@@ -282,8 +282,9 @@ rule below follows from the difference:
 - `auto` (the default). The first time a native workspace is built in an allocation
   with no matching profile (§6.4), the process prints a notice (§6.10), runs the quick
   calibration in child processes while it waits, about 20 s, and builds its workspace
-  with the new workspace settings. Its own process settings stay those it started with;
-  they take effect from the next process. Importing the native backend never
+  with the new workspace settings that hold under the process settings it started with
+  (§6.4); the rest stay built-in for this run. The new process settings take effect
+  from the next process. Importing the native backend never
   calibrates, so discovery, the GUI and `--version` never pause.
   - *Scans*, local or remote, wait for a proper calibration: the parent runs the
     standard level, about a minute, for the workers' allocation (§6.4) before it starts
@@ -407,7 +408,11 @@ At run time the process computes its own class from its affinity mask and quota:
   used for workspace settings, and the process settings come from the built-in rules;
 - otherwise the built-in table, and `auto` calibrates this class on the next first run;
 - a row is not used for settings an override invalidates: thresholds fitted under a
-  spin give way to the table when the user forces sleeping threads.
+  spin give way to the table when the user forces sleeping threads. The same holds for
+  a process still running on process settings other than the row's, such as the first
+  run that triggered the calibration: only workspace settings validated under its
+  actual waiting policy and width apply, and the others stay built-in until the next
+  process.
 
 Scan workers have their own partitions, chosen by the executor
 (`driver/executors/pool.py`). Before it starts them, the scan's parent computes the
@@ -1182,3 +1187,6 @@ are left to the maintainer as §12 items 4–7.
   acceptance (§11); phase 4 no longer repeats it.
 - 2026-11-08: Accepted by John Travers (human review and decisions) in #580; SEP 4
   superseded and archived.
+- 2026-11-08: Clarified before the acceptance merged, after an automated review (Codex) on
+  #580: a first run, still on its original process settings, applies only workspace
+  settings validated under them (§5, §6.4).
