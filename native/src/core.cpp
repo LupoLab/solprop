@@ -319,7 +319,10 @@ void configure_native_spin(const int milliseconds) {
   native_spin_milliseconds = milliseconds;
 #if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR) &&                     \
     !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  threshold_divisor = milliseconds > 0 ? spinning_threshold_divisor : 1;
+  threshold_divisor =
+      milliseconds > 0 && runtime_width.load() <= spinning_threshold_max_team
+          ? spinning_threshold_divisor
+          : 1;
 #endif
 }
 

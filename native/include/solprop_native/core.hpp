@@ -318,13 +318,16 @@ inline constexpr bool stable_kernel_team =
 inline constexpr int cpu_medium_threads = 4;
 // The thresholds above were swept with idle threads asleep, a fork and join of 16
 // threads costing 100-200 us. While LLVM's runtime spins within native calls
-// (`configure_native_spin`, solprop ADR-071) a region costs 0.6-2.4 us, and every
+// (`configure_native_spin`, solprop ADR-071) on a team of at most
+// `spinning_threshold_max_team` threads, a region costs about a microsecond, and every
 // threshold is divided by this. On an Apple M5 Max at six threads, on top of the spin:
 // the Raman GNLSE 0.44 of its window, Raman hydrogen 0.89, comb-to-continuum 0.92, the
-// tracking cases 0.87 on geometric mean, none slower; a quarter or a thirty-second gave
-// 0.87 and 0.90. GNU's runtime keeps the table: on 16 cores of an AMD EPYC 7763 with
-// its spin a quarter ran the averaged hydrogen 1.83 times slower (ADR-073).
+// tracking cases 0.87 on geometric mean, none slower. Wider teams keep the table: a
+// spinning region costs 7-12 us at 18-36 threads, and on two Intel Xeon Gold 6240 a
+// sixteenth ran the averaged argon and hydrogen 1.3-1.5 times slower with either
+// runtime, as did a quarter on 16 cores of an AMD EPYC 7763 (ADR-073).
 inline constexpr std::size_t spinning_threshold_divisor = 16;
+inline constexpr int spinning_threshold_max_team = 8;
 // A compact problem (`compact_problem`: one column on one node with fewer than
 // `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
 // among them) runs its kernels on a team of at most `cpu_compact_threads` threads and

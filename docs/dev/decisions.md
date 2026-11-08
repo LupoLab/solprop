@@ -2051,21 +2051,26 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** macOS wheels build and link SLEEF statically, as the x86-64 ones do; fields
   move by rounding only, within the 1 ulp bound the budgets assume.
 
-## ADR-073 — Lower operation thresholds while LLVM's runtime spins
+## ADR-073 — Lower operation thresholds on a small spinning team
 
 - **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576).
 - **Context:** the native CPU thresholds (`core.hpp`) were swept with idle threads asleep, a
-  fork and join of 16 threads costing 100–200 µs. Under ADR-071's spin a region costs
-  0.6–2.4 µs on LLVM's runtime. On an Apple M5 Max at six threads, dividing every threshold by
-  16 on top of the spin: Raman GNLSE 0.70, soliton GNLSE 0.72, `line` 0.88, averaged argon 0.89,
-  Raman hydrogen 0.90, comb-to-continuum 0.91, none slower beyond its spread (A/B against PR
-  #576's head, 3 rounds). Under GNU's runtime the same idea loses: on 16 cores of an AMD EPYC
-  7763 with its spin, a quarter of the thresholds ran the averaged hydrogen 1.83 times slower
-  and the tracking cases 1.13 on geometric mean. GNU's runtime ends and restarts surplus
-  threads when a region asks for fewer than the last, and lower thresholds make more
-  medium-width regions; LLVM's keeps them.
-- **Decision:** while LLVM's runtime spins within native calls, every operation threshold is
-  divided by `spinning_threshold_divisor` (16); a `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`
-  the user set is kept. GNU's runtime, and a passive LLVM runtime (Windows), keep the table.
-- **Consequences:** the grain depends on the runtime's waiting, which is what made one table
-  wrong on some machines; Linux builds with GCC are unchanged.
+  fork and join of 16 threads costing 100–200 µs. Under ADR-071's spin a region costs about
+  0.6 µs on 6 threads and 2.4 µs on 18 (LLVM's runtime, Apple M5 Max), 6–12 µs on 16–36
+  (Intel Xeon Gold 6240). On the M5 Max at six threads, dividing every threshold by 16 on top
+  of the spin: Raman GNLSE 0.70, soliton GNLSE 0.72, `line` 0.88, averaged argon 0.89, Raman
+  hydrogen 0.90, comb-to-continuum 0.91, none slower beyond its spread (A/B against PR #576's
+  head, 3 rounds). On wider teams the same lose with either runtime: on two Xeon Gold 6240 at
+  18 and 36 threads under LLVM's runtime a quarter and a sixteenth gave geometric means of
+  1.05 and 1.07 (averaged hydrogen 1.45–1.51, averaged argon 1.30–1.46), under GNU's a
+  thirty-second 0.98 (large problems 0.79–0.93, one-column ones up to 1.19), and on 16 cores
+  of an AMD EPYC 7763 under GNU's a quarter to a sixteenth 1.09–1.13. The grain belongs with
+  the cost of a region, which grows with the team.
+- **Decision:** while LLVM's runtime spins within native calls on a team of at most
+  `spinning_threshold_max_team` (8) threads, every operation threshold is divided by
+  `spinning_threshold_divisor` (16); a `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` the user set
+  is kept. Otherwise the table stands.
+- **Consequences:** a default run on an Apple M5 Max (six top-tier threads) takes the lower
+  thresholds; Linux GCC builds, Windows (passive) and teams wider than 8 are unchanged. A
+  grain scaled continuously with the team's region cost, and per problem type under GNU's
+  runtime, are leads, not decided.
