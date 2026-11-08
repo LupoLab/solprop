@@ -1360,7 +1360,29 @@ row compares the runs that were not first (native 0.74 and 0.95 s, Python 1.17 t
 1.28 s), while the medians of all five read +27 %. No case is slower than the spread,
 as SEP 39's acceptance rule requires. A statistics row at every step costs about 290 µs
 a step in either march, the row itself rather than the return; a natural stop at every
-step about 58 µs. An Apple M5 Max's rows are still to come.
+step about 58 µs.
+
+On an 18-core Apple M5 Max (macOS, the distribution wheel's `apple-m1` baseline, main
+after #577, the same five interleaved rounds and the same steps in both arms):
+
+| threads | case | host µs/trial: Python → native | wall, native vs Python |
+|---|---|---|---:|
+| 1 | `he_rdw_averaged` | 13.8 → 0.9 | −3.3 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 39.5 → 15.2 | −2.2 % |
+| | `he_rdw_averaged`, `row_period = 1` | 85.7 → 74.8 | −1.7 % |
+| | `argon_blueshift_envelope` (busy monitor) | 14.2 → 0.7 | −7.6 % |
+| | `ctc` (0.2) | 65.0 → 7.2 | −0.8 % |
+| 16 | `he_rdw_averaged` | 14.2 → 0.9 | −4.6 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 40.4 → 15.4 | −2.6 % |
+| | `he_rdw_averaged`, `row_period = 1` | 87.8 → 75.8 | −3.9 % |
+| | `argon_blueshift_envelope` (busy monitor) | 15.7 → 0.7 | −7.7 % |
+| | `ctc` (0.2) | 140.3 → 3.4 | −1.6 % |
+
+The native march was faster in 47 of the 50 paired rounds and within 0.4 % in the other
+three; walls varied by 1 to 7 % between rounds, and no first run stood out. Python's
+march takes about a fifth as much host time a trial here as on the EPYC, so the gains are
+smaller in proportion. As there, a statistics row at every step costs about the same in
+either march (about 75 µs a step), and a natural stop about 15 µs.
 
 **On an NVIDIA A40** (CUDA 12.8.1; exponential formulation, short windows; the same
 steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3), 61 → 1.6
