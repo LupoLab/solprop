@@ -1138,13 +1138,16 @@ index entry and tracking issue change then.
     machine is shared, and a later session was inconclusive (23 %).
   - *Apple M5 Max* (first rules): six top-tier threads kept in both calibrations, a
     Raman threshold of 8193 admitted; A/B 1.002 and 1.008, `h2_raman_averaged` 1.04,
-    the stored wisdom the revision removes.
+    the stored wisdom the revision removes. With the revised rules (5 % bar), the same
+    Raman threshold in both calibrations and no planning; A/B 1.012 against an A/A of
+    1.000, no case the profile changes beyond its noise (the argon cases' 1.09–1.15 ran
+    identical computations, within their A/A range of 0.89–1.12).
 - **Item 2.** Found as measured by hand: spin everywhere, passive refused by 1.10–1.78;
   six top-tier threads on the M5 Max; the Xeon's thresholds near the table; Windows'
   spin, now the table's since #576. Not found: the M5 Max's lower thresholds beyond
   ADR-073's, which the table already applies; the Xeon's compact cap near 8.
 - **Item 3.** Same waiting and team in every pair of conclusive calibrations; the same
-  grain in the last Axion pair, while three earlier second calibrations (Axion,
+  grain in the last Axion pair and in every M5 Max pair, while three earlier second calibrations (Axion,
   EPYC 7763, Windows) found the grain inconclusive and kept the table.
 - **Item 4.** Every noisy session reported `inconclusive` and published nothing for its
   allocation: the EPYC 9B45 (35 %, 15 %), the EPYC 7763's second (31 %), the Xeon (23 %).

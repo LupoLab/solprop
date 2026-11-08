@@ -2678,6 +2678,7 @@ the transforms' thresholds stay at the table (#587). With them:
 | AMD EPYC 9B45 (C4D), Windows Server 2025, the CI wheel | the table, twice | — | — | — |
 | AMD EPYC 9B45 (C4D), Linux | inconclusive (A/A noise 15 %) | — | — | — |
 | Intel Xeon Gold 6240, one socket (18 cores) | the table, twice | — | — | — |
+| Apple M5 Max, six top-tier threads (5 % bar) | a Raman threshold of 8193, twice | 1.012 | 1.000 | none that the profile changes |
 
 On the Axion the gains are on the few-mode and Raman cases: `gnlse_raman_shock`
 0.85–0.86, `he_rdw_averaged` 0.90–0.91, `argon_blueshift_envelope` 0.91–0.92, `ctc`
@@ -2693,7 +2694,12 @@ Every machine refused passive waiting: 1.10–1.11 (Axion), 1.16–1.23 (EPYC 77
 1.25–1.27 (EPYC 9B45 Linux), 1.18 (Windows), 1.25 (Xeon), 1.74–1.78 (Apple M5 Max). On
 the Apple M5 Max, under the first rules, two calibrations kept six top-tier threads and
 admitted a Raman threshold of 8193; the A/B was 1.002 and 1.008 (`h2_raman_averaged`
-1.04, the stored wisdom). Inconclusive sessions published nothing: the EPYC 9B45 at
+1.04, the stored wisdom). Under the revised rules it chose the Raman threshold again,
+twice, and no planning. The Raman cases did not move (`gnlse_raman_shock` 1.011,
+`h2_raman_averaged` 1.001); `argon_blueshift_averaged` 1.155 and
+`argon_blueshift_envelope` 1.088 ran the same computation in both arms (fields equal),
+within the M5 Max's A/A range on those cases (0.89–1.12). ADR-073's table already fits
+this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
 16 cores (A/A 35 % and 15 %), the shared Xeon (23 %), the EPYC 7763's second session
 (31 %).
 
