@@ -4430,20 +4430,11 @@ void GeneralWorkspace::seed_free_wisdom() {
                      transverse_.data(), {n_y, n_x}, planes, n_y * n_x, n_y * n_x,
                      sign);
   graph::deep_copy(execution_space_, transverse_, Complex{});
-  if (problem_.family != FieldFamily::envelope &&
-      problem_.family != FieldFamily::field_analytic)
-    return;
+  // The chunk's temporal pair is the modal routes' (`separable_to_time`,
+  // `separable_to_frequency`), on every field family: the real family's pair and the
+  // analytic family's forward transform were left at FFTW_ESTIMATE (solprop #560).
   // A fine spectrum wider than n_to is not a plain row pair; the helper leaves it.
-  seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
-                      modal_complex_, KokkosFFT::Direction::backward);
-  graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
-  graph::deep_copy(execution_space_, modal_complex_, Complex{});
-  if (problem_.family == FieldFamily::envelope) {
-    seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
-                        projected_spectrum_, KokkosFFT::Direction::forward);
-    graph::deep_copy(execution_space_, projected_complex_, Complex{});
-    graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
-  }
+  seed_modal_wisdom();
 }
 
 // Measured plans for the modal routes' temporal pair, the two transforms of every
@@ -4738,6 +4729,17 @@ void GeneralWorkspace::plan() {
           temporal_tail_forward_real_.create(
               space, projected_real_, projected_spectrum_, rows, temporal_tail_rows_,
               KokkosFFT::Direction::forward);
+        // The tail plans' measured planning overwrote their rows.
+        graph::deep_copy(execution_space_, fine_spectrum_, Complex{});
+        graph::deep_copy(execution_space_, projected_spectrum_, Complex{});
+        if (problem_.family == FieldFamily::envelope)
+          graph::deep_copy(execution_space_, projected_complex_, Complex{});
+        else
+          graph::deep_copy(execution_space_, projected_real_, 0.0);
+        if (problem_.family == FieldFamily::field_real)
+          graph::deep_copy(execution_space_, modal_real_, 0.0);
+        else
+          graph::deep_copy(execution_space_, modal_complex_, Complex{});
       }
     }
   }
@@ -4843,6 +4845,12 @@ void GeneralWorkspace::plan() {
                                        temporal_tail_rows_,
                                        KokkosFFT::Direction::forward);
     }
+    // The tail plans' measured planning overwrote their rows.
+    graph::deep_copy(execution_space_, coarse_spectrum_, Complex{});
+    if (problem_.family == FieldFamily::envelope)
+      graph::deep_copy(execution_space_, coarse_time_complex_, Complex{});
+    else
+      graph::deep_copy(execution_space_, coarse_time_real_, 0.0);
   }
 }
 
