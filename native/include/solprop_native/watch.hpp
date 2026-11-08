@@ -99,7 +99,8 @@ void skip(State& state);
     split cap is read first, as `_read_cap` does, whatever the verdict. */
 [[nodiscard]] Verdict check(const Policy& policy, State& state, const double* reading,
                             double z);
-/** The strictness test's witness, as this translation unit rounds `a b + c`. */
-[[nodiscard]] double strict_probe(double a, double b, double c);
+/** The strictness test's witness, as this translation unit rounds `a b + c`; never
+    inlined, as `march::strict_probe`. */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
 
 } // namespace solprop_native::watch

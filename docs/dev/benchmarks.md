@@ -1331,6 +1331,59 @@ sixteen-thread median read +2.7 % and the minimum −3.3 % inside a ±6 % spread
 The staged Python march's sixteen-thread `h2_raman_averaged` (2.24 s, slower than the
 packed march's 1.74 s, in every round) is unexplained; see SEP 39's phase 3 report.
 
+**The frequent-event cases** (SEP 39 §7.6, measured after its `Final`; #273). The native
+march against the Python march, `benchmarks.adams_host` with and without `--host-march`,
+on an idle AMD EPYC 7763 node (exclusive, commit `f5bd1937`, after SEP 45), five
+interleaved rounds, complete runs unless a fraction is given. `--step-planes 1` stops at
+every step and `--row-period 1` takes an energy row at every step, so each makes every
+step a host event; `argon_blueshift_envelope`'s monitor is busy for most of the run.
+Both arms took the same steps.
+
+| threads | case | host µs/trial: Python → native | wall, native vs Python |
+|---|---|---|---:|
+| 1 | `he_rdw_averaged` | 68 → 1.5 | −11.6 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 160 → 58 | −3.1 % |
+| | `he_rdw_averaged`, `row_period = 1` | 326 → 290 | −2.9 % |
+| | `argon_blueshift_envelope` (busy monitor) | 71 → 1.4 | −14.1 % |
+| | `ctc` (0.2) | 209 → 18 | −1.0 % |
+| 16 | `he_rdw_averaged` | 69 → 1.5 | −14.4 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 162 → 58 | −9.6 % |
+| | `he_rdw_averaged`, `row_period = 1` | 330 → 291 | −9.5 % |
+| | `argon_blueshift_envelope` (busy monitor) | 77 → 1.5 | about −30 % |
+| | `ctc` (0.2) | 198 → 9 | −4.2 % |
+
+The one-thread walls varied by under 1 % between rounds. At sixteen threads `ctc`'s
+varied by ±20 %, so its row is inside the spread. In every round the first
+sixteen-thread run, `argon_blueshift_envelope` in whichever arm went first, took 3 to
+3.8 s against 0.7 to 1.3 s otherwise, a cold start that reverses with the arm order; its
+row compares the runs that were not first (native 0.74 and 0.95 s, Python 1.17 to
+1.28 s), while the medians of all five read +27 %. No case is slower than the spread,
+as SEP 39's acceptance rule requires. A statistics row at every step costs about 290 µs
+a step in either march, the row itself rather than the return; a natural stop at every
+step about 58 µs.
+
+On an 18-core Apple M5 Max (macOS, the distribution wheel's `apple-m1` baseline, main
+after #577, the same five interleaved rounds and the same steps in both arms):
+
+| threads | case | host µs/trial: Python → native | wall, native vs Python |
+|---|---|---|---:|
+| 1 | `he_rdw_averaged` | 13.8 → 0.9 | −3.3 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 39.5 → 15.2 | −2.2 % |
+| | `he_rdw_averaged`, `row_period = 1` | 85.7 → 74.8 | −1.7 % |
+| | `argon_blueshift_envelope` (busy monitor) | 14.2 → 0.7 | −7.6 % |
+| | `ctc` (0.2) | 65.0 → 7.2 | −0.8 % |
+| 16 | `he_rdw_averaged` | 14.2 → 0.9 | −4.6 % |
+| | `he_rdw_averaged`, `step_planes = 1` | 40.4 → 15.4 | −2.6 % |
+| | `he_rdw_averaged`, `row_period = 1` | 87.8 → 75.8 | −3.9 % |
+| | `argon_blueshift_envelope` (busy monitor) | 15.7 → 0.7 | −7.7 % |
+| | `ctc` (0.2) | 140.3 → 3.4 | −1.6 % |
+
+The native march was faster in 47 of the 50 paired rounds and within 0.4 % in the other
+three; walls varied by 1 to 7 % between rounds, and no first run stood out. Python's
+march takes about a fifth as much host time a trial here as on the EPYC, so the gains are
+smaller in proportion. As there, a statistics row at every step costs about the same in
+either march (about 75 µs a step), and a natural stop about 15 µs.
+
 **On an NVIDIA A40** (CUDA 12.8.1; exponential formulation, short windows; the same
 steps in both arms): host time per trial 64 → 2.2 µs (`he_rdw_averaged`, 0.3), 61 → 1.6
 (`argon_blueshift_averaged`, 0.1) and 83 → 5.0 (`rdw`, 0.1), walls −6.7 %, −10.6 % and
