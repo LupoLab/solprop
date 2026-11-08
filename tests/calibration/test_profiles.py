@@ -219,8 +219,9 @@ def test_the_command_line_measures_at_each_level(
 
 
 def test_read_only_directories_are_listed(environ: dict[str, str]) -> None:
-    text = command.describe(environ | {"SOLPROP_CALIBRATION_PATH": "/shared/profiles"})
-    assert "read-only:    /shared/profiles" in text
+    shared = Path("/shared/profiles")
+    text = command.describe(environ | {"SOLPROP_CALIBRATION_PATH": str(shared)})
+    assert f"read-only:    {shared}" in text
 
 
 def test_a_build_without_its_record_is_still_described(
