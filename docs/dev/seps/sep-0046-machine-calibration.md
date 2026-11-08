@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-08) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
 | **Resolution** | — |
@@ -651,3 +651,228 @@ The calibration is how users get the best speed, so the documentation leads with
   slower than estimated ones and threaded patient planning taking tens of minutes:
   an effort ladder with time limits, isolated planning, in-step timing and per-class
   wisdom; no threaded patient plans.
+- 2026-11-08: AI review by GPT-6, recorded below; Part I unchanged.
+
+### AI review — 2026-11-08
+
+**Reviewer:** GPT-6 (AI). Reviewed all of Part I at PR #580 commit `01c198b6`,
+against the native import, pool, FFT and workspace code, the scan executors,
+SEP 4, SEP 25, and the linked issues. PR #576's proposed runtime changes were
+also read at `06b1ce6e`; they are not in this proposal's source tree. Its performance
+figures were read, not independently reproduced. The maintainer's decisions in
+§12 items 1–3 are taken as given. The comments below concern how to deliver and
+verify those decisions; this is not a recommendation to accept the draft yet.
+All findings remain open for the drafting agent's response and the maintainer's
+decisions, tracked with this proposal in [#579](https://github.com/LupoLab/solprop/issues/579).
+
+1. **R1 — High: place calibration before irreversible runtime initialization
+   (§§5, 6.1–6.2, 11).** `solprop_native/__init__.py` chooses the wait environment,
+   loads `_core`, and calls `initialize_runtime` at import, including in PR #576.
+   `initialize_kokkos` refuses a different pool width after initialization.
+   Calibrating before *workspace construction* is therefore too late if native
+   discovery, a prior run, or a direct import already initialized the runtime.
+   A freshly written profile cannot change that process's waiting policy and
+   pool merely by being read again. The same problem affects an interactive
+   `Simulation.calibrate()` and two simulations with different refinements.
+   **Requested change:** specify the initialization sequence, including how the
+   build fingerprint is obtained without starting the runtime, and distinguish
+   settings fixed at process start from settings owned by each workspace. Either
+   arrange calibration before initialization, or state exactly which settings
+   require a new process and how that process is launched. Define transport of a
+   translated simulation to candidate interpreters, including unsupported live
+   objects; removing the factory does not remove this requirement. Also define
+   how the proposed mutable `ThreadPolicy` avoids changing existing workspaces:
+   it is currently process-global and `CpuExecutionPool::get` reads it. Verify
+   direct native import, an already-used notebook, and two live workspaces, and
+   record the settings actually applied rather than the profile merely selected.
+
+2. **R2 — High: key applicability to the allocation and effective policy
+   (§§3, 5, 6.1–6.3).** A machine/build fingerprint plus a width does not distinguish
+   eight cores sharing a cache from eight spread across sockets, different core
+   kinds, SMT siblings, or a fractional CPU quota. These are precisely the costs
+   motivating §2. A quick calibration inside a small job cannot supply validated
+   rows for every width a later job may use. A threshold measured under spinning
+   is also not validated under an explicit passive-wait override, even though the
+   override must win. Scan workers receive their own width, affinity and wait
+   settings through `driver/executors/pool.py`; a parent's optimum is not
+   automatically theirs.
+   **Requested change:** define an applicability record for each measured row:
+   effective resource limits, placement/core kinds and interacting overrides,
+   with a built-in fallback for unmeasured combinations. Separate portable machine
+   identity from allocation applicability if desired. Include a calibration/schema
+   version: the existing native source digest covers C++ and CMake sources, not
+   changes to Python calibration logic. Specify how parent calibration covers the
+   eventual worker partitions, including remote executors, without initializing a
+   device in the controller. Test equal-width/different-placement reuse, small-job
+   then large-job reuse, and an override that invalidates the measured wait/grain
+   combination.
+
+3. **R3 — High: isolate FFTW's process-wide wisdom when constructing the actual
+   plans (§§4, 5, 6.3, 7.11).** Keeping separate strings on disk does not isolate
+   the planner. FFTW wisdom is cumulative and global, and `FFTW_ESTIMATE` consumes
+   applicable higher-effort wisdom; the manual documents both behaviours
+   ([wisdom](https://www.fftw.org/fftw3_doc/Words-of-Wisdom_002dSaving-Plans.html),
+   [planner flags](https://www.fftw.org/fftw3_doc/Planner-Flags.html)). In a small
+   FFTW 3.3.11 probe on macOS arm64, complex forward transforms of 1,024, 1,536
+   and 4,096 samples each selected a different estimate plan after measured wisdom
+   was imported; each then matched the measured plan. Forgetting wisdom restored
+   the original estimate plan. This checks plan structure, not speed or the native
+   backend. Thus an estimate winner with "no wisdom" does not establish the
+   claimed protection from earlier wisdom, including wisdom from another workspace
+   in the same interpreter. Existing `_wisdom.store` also merges the file's old
+   contents back into the process.
+   **Requested change:** specify a serialized planning transaction that establishes
+   the intended wisdom state for each plan, keeps losing/unvalidated wisdom out,
+   and verifies the final combination of plans. Define exact plan keys, including
+   dimensions, direction, strides, placement/alignment requirements and thread
+   count; a size/kind/batch label needs an explicit mapping to those keys. State
+   what happens when a stored plan cannot be reconstructed, and how runs gathering
+   wisdom interact with calibrated winners. Make `off` independent of automatic
+   cached wisdom, and explicitly distinguish any user-requested wisdom override.
+   Test an old measured plan followed by an estimate winner, multiple workspaces
+   in both construction orders, and cold versus populated stores under `off`.
+
+4. **R4 — High: enforce the wall-clock budget outside FFTW (§§5, 6.3–6.4, 7.8–9).**
+   `fftw_set_timelimit` is an approximate planning limit: an uninterruptible
+   operation may overrun it, and FFTW completes estimate planning even at zero
+   ([planner time limits](https://www.fftw.org/fftw3_doc/Planner-Flags.html)). It
+   cannot establish "no more than one plan's time limit" for the whole operation.
+   Imports, workspace construction, warm-up, validation and child shutdown also
+   consume the budget. In particular, quick leaves today's measured FFT efforts
+   in place while constructing synthetic workspaces, so its construction can
+   contain planning outside the described FFT stage.
+   **Requested change:** specify one monotonic deadline covering all work, a
+   controller that can stop and reap candidate processes, reserved validation and
+   cleanup time, and honest reporting of cleanup overrun. Bound synthetic memory
+   as well as time, especially in automatically calibrated batch jobs. Preserve
+   the last validated profile on interruption or an inconclusive upgrade, and
+   fall back when too little evidence fits. Test slow startup, stalled planning,
+   cancellation, insufficient memory and a budget too small for one comparison;
+   do not publish a partly validated profile.
+
+5. **R5 — High: retain a specified pilot and numerical validation contract
+   (§§6.1–6.3, 7.5, 7.7, 9).** "Short windows" and "equal to rounding" do not say
+   what is held fixed. Independently adaptive candidates may take different steps,
+   so their timing compares different work and their fields need not agree at
+   rounding level. SEP 25 distinguishes matched discrete computations from
+   adaptive accuracy envelopes. SEP 4 §§6.2 and 7 already specify bounded pilots,
+   identical replay edges, state/noise reset and separate adaptive checks; these
+   requirements are not replaced by the profile format.
+   **Requested change:** retain or replace those contracts explicitly. Name the
+   accepted/attempted-step limits, original longitudinal operators and breakpoints,
+   identical launch/noise, warm-up/reset of controller/history/statistics, timed
+   observations, and isolation from production output and callbacks. Do not
+   shorten a pressure gradient or taper to manufacture a pilot. Specify rounding
+   bounds for matched methods, orders, histories and schedules; identical edges
+   alone do not make ordinary variable-order replay a rounding comparison. Use
+   accuracy envelopes against tighter references for adaptive runs and ordinary
+   replay, with finiteness and exact structural checks. Include a
+   varying guide, a noisy launch, replay/resume and a previously used simulation.
+   Clarify whether every candidate is checked numerically or relies on a separately
+   qualified capability set; speed alone must not admit a candidate.
+
+6. **R6 — High: resolve GPU chunk ownership and memory admission (§§6.7, 6.9, 11).**
+   Today translation puts the chunk into `Transform.node_chunk`, reduces it for
+   plasma/Raman/dispersive response buffers, and imposes whole-row constraints for
+   planar geometry. Native `_native_problem` consumes that value; the general
+   modal route instead has a separate `general_node_chunk`. The proposed late
+   device choice must reconcile those paths with the claim that the kernel
+   contract does not change. A device model and its total memory also do not state
+   how much memory this particular run or scan worker can use.
+   **Requested change:** specify the handoff of an explicit versus automatic node
+   budget, the owner of the effective chunk, and when admission and the memory
+   ledger see it. Admit the complete workspace, FFT/graph scratch and concurrent
+   workers against the available allocation before enlarging a chunk. Enumerate
+   legal team/reduction widths against device limits and define any unsupported
+   routes. Qualify all admitted routes, including planar and general modal or
+   explicitly defer them, on CUDA and HIP. Keep translation device-free and
+   include scan startup and reduced-memory reuse tests. This is part of
+   [#361](https://github.com/LupoLab/solprop/issues/361)'s existing constraints.
+
+7. **R7 — Medium: make a shape match a candidate for reuse, not a performance
+   guarantee (§§2, 6.1, 7.7, 12.4).** The proposed signature omits batch size,
+   spatial dimensions, actual FFT batches/chunks, Raman history structure and
+   coupled-flow/propagator choices. Equal node counts can describe differently
+   shaped Cartesian transforms. Equal response names and sample counts can also
+   describe different costs along an ionising or tapering run; changing scan
+   parameters need not preserve the measured operation mix. SEP 4 §4.1 explicitly
+   disclaims representativeness from shape alone.
+   **Requested change:** define the exact execution descriptor and applicability
+   checks, then distinguish a reusable hint from a validated refinement. Explain
+   how a broad cache hit is confirmed, rejected or labelled unvalidated, and what
+   evidence permits reuse across scan points. Tie each speed claim to its measured
+   windows. Test collisions in batch size, Cartesian dimensions and response
+   structure, not only 8,192 versus 8,194 samples.
+
+8. **R8 — Medium: specify selection and validation well enough to implement
+   (§§4, 6.3, 7.1–4).** "Gain exceeds the spread" leaves the estimator, repeat
+   count, candidate variability, ties and missing samples unspecified. Searching
+   many settings can select noise; changing several settings together does not
+   identify which individual setting to revert. Independent operation crossovers
+   also interact with `stable_kernel_team`, which can promote a medium-width kernel
+   after a full-width one has been selected. The final workload may therefore not
+   execute the widths fitted in isolation.
+   **Requested change:** state the score, minimum completed pairs, A/A statistic,
+   candidate-noise rule, finite size/width ladders, treatment of nonmonotone
+   crossovers, and fallback for incomplete evidence. Validate the final combined
+   policy on fresh timing repetitions without profiling instrumentation, using
+   realised widths and the stable-team rule. Define which cases the no-regression
+   claim covers and how the quick level fits that validation in its budget. Treat
+   missing load telemetry as unknown, and account for host-wide load on a shared
+   node rather than comparing unrelated runnable work with one job's width.
+   Restore SEP 4's concrete selection rules or justify replacements; test the
+   decisions with deterministic fake timings, including ties, drift and outliers.
+
+9. **R9 — Medium: define calibration ownership separately from atomic file
+   replacement (§§5, 6.6, 7.6, 7.9).** The borrowed `_wisdom.py` protocol uses a
+   blocking POSIX writer lock around merge-and-replace and no process lock on
+   Windows. That is not yet the nonblocking, single-calibrator protocol promised
+   for concurrent first runs. With a shared home, the same machine-type fingerprint
+   can cover several physical nodes; storage ownership and contention on a node
+   are different concerns. Other first runs continuing on built-ins can also make
+   the calibration owner's measurements busy.
+   **Requested change:** define a portable nonblocking claim, its scope, crash
+   cleanup, and atomic publication of a consistent profile/wisdom generation.
+   Explain interactions with `--clear`, imports and simultaneous quick/thorough
+   runs, including preservation of a valid profile when an upgrade fails. Specify
+   lookup past an inconclusive local entry to a valid read-only shared profile.
+   Verify Windows as well as POSIX, owner death, simultaneous readers and writers,
+   and two nodes sharing a store; confirm that competing production work causes
+   rejection rather than a misleading calibration.
+
+10. **R10 — Medium: make the first-use notice visible under normal library use
+    (§§1, 5, 7.9).** Both packages install `logging.NullHandler`. In a clean
+    interpreter at the reviewed commit, importing `solprop` and issuing
+    `logging.getLogger("solprop.calibration").warning(...)` produced no stderr
+    output. Raising the log level to warning therefore does not meet the promise
+    that a first-use pause is never silent when no handler was configured.
+    **Requested change:** specify delivery through the existing progress/notice
+    machinery, with the intended terminal, notebook, redirected-output and explicit
+    quiet behaviour. Preserve the library's no-global-handler rule. Test visible
+    notice before calibration starts with no configured logger, and one notice
+    rather than duplicates when logging is configured.
+
+11. **R11 — Medium: reconcile the superseded scope and issue claims
+    (§§2–3, 6.1, 11).** §3 says stage 2 can choose the scan worker/thread split,
+    but §§5–6 give it a single simulation and §2 excludes additional scheduling.
+    SEP 4 itself leaves worker counts to the executor. Issue
+    [#314](https://github.com/LupoLab/solprop/issues/314) requires a concurrent scan
+    comparison; a single-process speed measurement cannot answer it. Similarly,
+    [#303](https://github.com/LupoLab/solprop/issues/303) includes GEMM providers,
+    CPU chunks and propagator policy that this draft does not specify. The header
+    supersedes SEP 4 on acceptance, while phase 4 lists supersession again.
+    **Requested change:** say which existing controls are retained, deliberately
+    deferred or replaced, and leave the uncovered work on its existing issues.
+    Either define an executor-owned scan-throughput objective, allocation and
+    measurement, or remove the claim that this stage chooses the split. Choose
+    one supersession point and reconcile the tracking issue and index then.
+
+**Verification and source limits.** The two small probes above were run with
+Python 3.14.5 on macOS arm64; the FFTW probe used the independently installed
+FFTW 3.3.11 library, not solprop-native. FFTW's planner, wisdom and
+[thread-safety documentation](https://www.fftw.org/fftw3_doc/Thread-safety.html)
+were checked directly. No physical constants were introduced. No native propagation,
+performance qualification, remote-machine or GPU experiment was run, and no
+performance figure in Part I was independently verified. The review changes only
+the review header fields and Part III; responses and revisions to Part I belong
+to the drafting agent and maintainer.
