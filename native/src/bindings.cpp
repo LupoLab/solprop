@@ -222,7 +222,7 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
 // solprop SEP 46 phase 3: a workspace's FFT planning, as solprop_native's backend
 // writes it: its mode, each group's effort, the profile's wisdom by plan key, and a
 // capture's effort and time limit; absent, the plan policy (`legacy`).
-native::FftPlanning fft_planning_from(const nb::dict& values) {
+[[maybe_unused]] native::FftPlanning fft_planning_from(const nb::dict& values) {
   native::FftPlanning result;
   try {
     const auto mode = nb::cast<std::string>(values["mode"]);
