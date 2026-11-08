@@ -317,15 +317,16 @@ inline constexpr bool stable_kernel_team =
 #endif
 inline constexpr int cpu_medium_threads = 4;
 // The thresholds above were swept with idle threads asleep, a fork and join of 16
-// threads costing 100-200 us. While LLVM's runtime spins within native calls
-// (`configure_native_spin`, solprop ADR-071) on a team of at most
+// threads costing 100-200 us. On Apple silicon, while LLVM's runtime spins within
+// native calls (`configure_native_spin`, solprop ADR-071) on a team of at most
 // `spinning_threshold_max_team` threads, a region costs about a microsecond, and every
 // threshold is divided by this. On an Apple M5 Max at six threads, on top of the spin:
 // the Raman GNLSE 0.44 of its window, Raman hydrogen 0.89, comb-to-continuum 0.92, the
-// tracking cases 0.87 on geometric mean, none slower. Wider teams keep the table: a
-// spinning region costs 7-12 us at 18-36 threads, and on two Intel Xeon Gold 6240 a
-// sixteenth ran the averaged argon and hydrogen 1.3-1.5 times slower with either
-// runtime, as did a quarter on 16 cores of an AMD EPYC 7763 (ADR-073).
+// tracking cases 0.87 on geometric mean, none slower; its top-tier cluster shares one
+// L2 cache. On two Intel Xeon Gold 6240, whose cores share only the L3, a sixteenth ran
+// the averaged argon and hydrogen 1.4-1.7 times slower at 4, 8, 18 and 36 threads with
+// either runtime, and a quarter lost on 16 cores of an AMD EPYC 7763 (ADR-073). The
+// grain belongs to the machine: a calibration at start-up would be the general form.
 inline constexpr std::size_t spinning_threshold_divisor = 16;
 inline constexpr int spinning_threshold_max_team = 8;
 // A compact problem (`compact_problem`: one column on one node with fewer than

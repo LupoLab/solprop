@@ -2051,7 +2051,7 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** macOS wheels build and link SLEEF statically, as the x86-64 ones do; fields
   move by rounding only, within the 1 ulp bound the budgets assume.
 
-## ADR-073 — Lower operation thresholds on a small spinning team
+## ADR-073 — Lower operation thresholds on Apple silicon's spinning top tier
 
 - **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576).
 - **Context:** the native CPU thresholds (`core.hpp`) were swept with idle threads asleep, a
@@ -2060,17 +2060,17 @@ Withdrawn (development-process record, not a design decision).
   (Intel Xeon Gold 6240). On the M5 Max at six threads, dividing every threshold by 16 on top
   of the spin: Raman GNLSE 0.70, soliton GNLSE 0.72, `line` 0.88, averaged argon 0.89, Raman
   hydrogen 0.90, comb-to-continuum 0.91, none slower beyond its spread (A/B against PR #576's
-  head, 3 rounds). On wider teams the same lose with either runtime: on two Xeon Gold 6240 at
-  18 and 36 threads under LLVM's runtime a quarter and a sixteenth gave geometric means of
-  1.05 and 1.07 (averaged hydrogen 1.45–1.51, averaged argon 1.30–1.46), under GNU's a
-  thirty-second 0.98 (large problems 0.79–0.93, one-column ones up to 1.19), and on 16 cores
-  of an AMD EPYC 7763 under GNU's a quarter to a sixteenth 1.09–1.13. The grain belongs with
-  the cost of a region, which grows with the team.
-- **Decision:** while LLVM's runtime spins within native calls on a team of at most
-  `spinning_threshold_max_team` (8) threads, every operation threshold is divided by
+  head, 3 rounds). Elsewhere it loses: on two Xeon Gold 6240 the averaged hydrogen and argon
+  and the Raman GNLSE ran 1.07–1.7 times slower at 4, 8, 18 and 36 threads under either
+  runtime (geometric means 1.05–1.11; the large problems gained 0.79–0.97), and on 16 cores of
+  an AMD EPYC 7763 under GNU's runtime a quarter to a sixteenth gave 1.09–1.13. The M5 Max's
+  top-tier cluster shares one L2 cache, so threading a small pass costs little; Xeon cores
+  share only the L3. The right grain is the machine's.
+- **Decision:** on Apple silicon, while LLVM's runtime spins within native calls on a team of
+  at most `spinning_threshold_max_team` (8) threads, every operation threshold is divided by
   `spinning_threshold_divisor` (16); a `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` the user set
-  is kept. Otherwise the table stands.
+  is kept. Every other platform keeps the table.
 - **Consequences:** a default run on an Apple M5 Max (six top-tier threads) takes the lower
-  thresholds; Linux GCC builds, Windows (passive) and teams wider than 8 are unchanged. A
-  grain scaled continuously with the team's region cost, and per problem type under GNU's
-  runtime, are leads, not decided.
+  thresholds; Linux, Windows and wider teams are unchanged. A grain calibrated per machine at
+  start-up (from the measured region cost and a small-pass probe) is the general form and a
+  lead; this decision measures one platform and keeps to it.
