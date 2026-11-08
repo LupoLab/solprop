@@ -1,0 +1,1 @@
+The native backend forms the free-space and planar routes' stage propagators a tile at a time through its vector maths (SLEEF on x86-64 and macOS arm64), rather than one libm `sincos` per element, which took about a fifth of a one-thread `line` run ([#338](https://github.com/LupoLab/solprop/issues/338)).
