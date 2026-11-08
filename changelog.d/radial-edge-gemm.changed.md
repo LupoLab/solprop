@@ -1,0 +1,1 @@
+The native backend's transverse-edge reads on radial grids synthesise the rows they use in one matrix product, once for every table, rather than one sum per sample per table: on an Apple M5 Max the 256- and 512-node radial filaments ran 0.83 and 0.75 of their one-thread windows, and 0.92 and 0.87 at six threads, with the same steps.

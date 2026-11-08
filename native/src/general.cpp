@@ -2974,6 +2974,9 @@ public:
   mutable CrossedBytes crossed_;
   // What the transverse edge's reading sums with, once a monitor is bound (SEP 44).
   RealView2 edge_faces_, edge_clip_, edge_totals_, edge_synthesis_;
+  // A radial edge's node fields at the rows a read uses, real and imaginary parts as
+  // columns, when the state has one polarisation (`edge_reading`); empty otherwise.
+  RealView2 edge_nodes_;
   RealView edge_columns_;
   std::size_t edge_first_row_ = 0;
   // A requested collar's lines, and one padded batch per distinct shape, kept across a
@@ -15375,6 +15378,11 @@ void GeneralWorkspace::bind_edge(const std::vector<double>& faces,
     edge_columns_ = RealView("solprop_native.edge.columns", problem_.n_modes);
     if (!synthesis.empty())
       edge_synthesis_ = RealView2("solprop_native.edge.synthesis", nodes, nodes);
+    if (!synthesis.empty() && problem_.n_pol_state == 1 &&
+        current_.extent(1) == problem_.n_omega)
+      edge_nodes_ = RealView2(
+          Kokkos::view_alloc(Kokkos::WithoutInitializing, "solprop_native.edge.nodes"),
+          nodes, 2 * problem_.n_omega);
   }
   copy_vector(execution_space_, edge_faces_, faces);
   copy_vector(execution_space_, edge_clip_, clip);
@@ -15536,6 +15544,39 @@ EdgeNumbers GeneralWorkspace::edge_reading(const bool faces, const bool whole,
     if (whole || totals)
       take(monitor_sums("solprop_native.edge.totals", execution_space_, planes, units,
                         edge_totals_, power));
+  } else if (edge_nodes_.extent(0) != 0) {
+    // One state polarisation: the rows wanted synthesised in one product, the state's
+    // complex samples read as twice as many real columns, and every table's sums then
+    // from those fields. A launch reads every node: its total is the grid's. The
+    // per-sample sums this replaces synthesised each row once a table; on an Apple M5
+    // Max the 256- and 512-node radial filaments ran 0.83 and 0.75 of their one-thread
+    // windows, 0.92 and 0.87 at six threads.
+    using Interleaved = Kokkos::View<double**, Layout, MemorySpace,
+                                     Kokkos::MemoryTraits<Kokkos::Unmanaged>>;
+    static_assert(sizeof(Complex) == 2 * sizeof(double));
+    const auto nodes = problem_.n_modes;
+    const auto first = whole ? std::size_t{0} : edge_first_row_;
+    const auto rows = nodes - first;
+    const Interleaved state(reinterpret_cast<double*>(current_.data()), nodes, 2 * n);
+    const Interleaved synthesis(edge_synthesis_.data() + first * nodes, rows, nodes);
+    const Interleaved fields(edge_nodes_.data(), rows, 2 * n);
+    Kokkos::Profiling::pushRegion("solprop_native.edge.synthesis");
+    engine_gemm(transform_space_for(rows), synthesis, state, fields, 0.0);
+    Kokkos::Profiling::popRegion();
+    const auto power = KOKKOS_LAMBDA(const std::size_t plane, const std::size_t row) {
+      const double real = fields(row, 2 * plane);
+      const double imaginary = fields(row, 2 * plane + 1);
+      return real * real + imaginary * imaginary;
+    };
+    const auto sums = [&](const char* label, const RealView2& weights) {
+      return monitor_sums(label, execution_space_, n, rows, EdgeWeights{weights, first},
+                          power);
+    };
+    take(sums("solprop_native.edge.faces", edge_faces_));
+    if (whole)
+      take(sums("solprop_native.edge.clip", edge_clip_));
+    if (whole || totals)
+      take(sums("solprop_native.edge.totals", edge_totals_));
   } else {
     // Each plane's synthesis on the rows wanted. A launch reads every node: its total
     // is the grid's. A dense product per sample, on a read's few outer rows.
