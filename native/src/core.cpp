@@ -145,6 +145,13 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
 namespace {
 thread_local int fftw_loop_team = 0;
 
+// The width of a region outside any scope: the runtime's (`runtime_width`), or the
+// calling thread's OpenMP default before the runtime is configured.
+int unscoped_width() noexcept {
+  const int width = runtime_width.load(std::memory_order_relaxed);
+  return width > 0 ? width : omp_get_max_threads();
+}
+
 // FFTW's threaded loop (its `threads_set_callback`): the jobs on the scoped team, or,
 // outside a scope, on the runtime's whole team as FFTW's own OpenMP loop runs them.
 void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
@@ -153,8 +160,7 @@ void fftw_team_loop(void* (*work)(char*), char* jobs, const std::size_t size,
   if (team == 0) {
     // The runtime's width, named: on a thread other than Kokkos', the OpenMP default
     // is every CPU (solprop issue #130).
-    const int width = runtime_width.load(std::memory_order_relaxed);
-#pragma omp parallel for num_threads(width > 0 ? width : omp_get_max_threads())
+#pragma omp parallel for num_threads(unscoped_width())
     for (int job = 0; job < count; ++job)
       work(jobs + size * static_cast<std::size_t>(job));
   } else {

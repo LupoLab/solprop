@@ -18,7 +18,7 @@ import threading
 import pytest
 
 import solprop_native
-from solprop_native import _core
+from solprop_native import _core, _wait
 
 
 def _on_a_thread() -> int:
@@ -31,7 +31,7 @@ def _on_a_thread() -> int:
 
 def test_a_native_call_sees_the_runtime_width_on_every_thread():
     width = solprop_native.build_info().runtime_threads
-    if solprop_native.build_info().openmp_library is None:
+    if not solprop_native.build_info().openmp_library:
         assert _core.scoped_openmp_default() == 1
         return
     assert _core.scoped_openmp_default() == width
@@ -46,7 +46,6 @@ def test_llvm_threads_spin_briefly_inside_native_calls_only():
     inside = _core.scoped_block_time()
     if inside < 0:
         pytest.skip("GNU's runtime reads its spin count once, at start")
-    expected = solprop_native._WAIT.spin_milliseconds
-    if expected == 0:
+    if solprop_native.WAIT_POLICY != "spin":
         pytest.skip("this process's wait policy keeps the runtime's block time")
-    assert inside == expected
+    assert inside == _wait.SPIN_MILLISECONDS

@@ -200,7 +200,7 @@ template <int Half>
 KOKKOS_INLINE_FUNCTION void band_filter_interior(const double* row, double* out,
                                                  const int low, const int high,
                                                  const double* taps) {
-  double weights[Half + 1];
+  double weights[static_cast<std::size_t>(Half) + 1];
   for (int k = 0; k <= Half; ++k)
     weights[k] = taps[k];
   for (int index = low; index < high; ++index) {
