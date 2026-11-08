@@ -2023,12 +2023,16 @@ Withdrawn (development-process record, not a design decision).
   reproduces: the teams it blamed now share one runtime and NumPy's BLAS holds one thread.
   On the M5 Max's 12 second-tier cores spinning loses (most cases 1.1–1.35 at 18 threads), as
   LLVM's runtime itself assumes: it turns spinning off on chips with cores of two kinds.
+  On Windows (16 cores of an AMD EPYC 9B45, LLVM's runtime) a process-wide 1 ms block time
+  ran 0.957, with the Raman GNLSE 1.12 and the reduced supercontinuum 1.07; the block time
+  scoped to native calls ran 0.874 at 16 threads, ten of twelve cases 9–30 % faster and those
+  two still about 8 % slower.
 - **Decision:** unless the user set `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` or `KMP_BLOCKTIME`, the
   native import sets `GOMP_SPINCOUNT=10000` (GNU's runtime reads it once) and
   `KMP_BLOCKTIME=0` (LLVM's), and the core sets LLVM's block time to 1 ms while a native call
   runs and back at its end (`kmp_set_blocktime`), so idle threads sleep at once outside
-  native work. On Windows (unmeasured) and with a team wider than the fastest kind of core
-  (ADR-070) idle threads sleep at once, as before. A marker variable lets a child process
+  native work. On every platform, Windows included, a team wider than the fastest kind of
+  core (ADR-070) sleeps at once, as before. A marker variable lets a child process
   recompute an inherited default.
 - **Why:** the gain is large wherever regions are short and many, and the spin is bounded
   to native work on LLVM's runtime and to about ten microseconds on GNU's.

@@ -298,12 +298,13 @@ The native CPU backend runs on OpenMP, whose standard variables apply:
   regions, and waking sleeping threads for each cost 16 to 72 µs a region where a team
   that spins briefly enters the next in under 12 µs; over windows of the benchmark cases
   the short spin took about 0.8 of the time on an Apple M5 Max's six top-tier cores, two
-  Intel Xeon Gold 6240 and 16 cores of a shared AMD EPYC 7763 node. The import sets
+  Intel Xeon Gold 6240 and 16 cores of a shared AMD EPYC 7763 node, and 0.87 on 16 cores
+  of an AMD EPYC 9B45 under Windows. The import sets
   `GOMP_SPINCOUNT=10000` for GNU's runtime (Linux), about ten microseconds of spinning
-  before a thread sleeps, and `KMP_BLOCKTIME=0` for LLVM's (macOS, and Clang builds),
+  before a thread sleeps, and `KMP_BLOCKTIME=0` for LLVM's (macOS, Windows, and Clang builds),
   whose idle threads then sleep at once outside native calls while the backend keeps
-  them spinning for a millisecond within each. On Windows, where spinning is unmeasured,
-  and with a team wider than a chip's fastest cores, idle threads sleep at once
+  them spinning for a millisecond within each. With a team wider than a chip's fastest
+  cores, idle threads sleep at once
   (`OMP_WAIT_POLICY=passive`). The settings stay in the environment, so worker processes
   wait alike, and the run's metadata records the choice as `openmp_wait_policy`. Set
   `OMP_WAIT_POLICY=passive` to make idle threads sleep at once everywhere, for example

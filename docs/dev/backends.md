@@ -768,8 +768,8 @@ than the choice of backend:
    sleeping at once). A step opens tens of short parallel regions, and waking sleeping
    threads cost 16–72 µs a region. Unless the user chose, the import sets
    `GOMP_SPINCOUNT=10000` (GNU's runtime) and `KMP_BLOCKTIME=0` (LLVM's), and the core keeps
-   LLVM's threads spinning for 1 ms inside each native call; Windows and teams wider than a
-   chip's fastest cores sleep at once (`solprop_native/_wait.py`, recorded as
+   LLVM's threads spinning for 1 ms inside each native call (macOS and Windows); teams wider
+   than a chip's fastest cores sleep at once (`solprop_native/_wait.py`, recorded as
    `openmp_wait_policy`). The pools that once competed with spinning threads (Kokkos's
    teams, the threaded FFTs, the BLAS) now share one runtime.
 2. **The BLAS is fitted to the pool.** A pthreads OpenBLAS runs a second pool beside Kokkos's
