@@ -14,13 +14,15 @@ One rule throughout (SEP 46 section 6.5), the ``ab`` harness's:
   :data:`NOISE_FLOOR`.
 - *Admission.* A candidate replaces the built-in value only if its largest per-round
   ratio is below one minus the noise: it wins in every round by more than the noise.
-  And no problem may be slower: its median ratio on each problem timed must stay
-  within one plus the noise, so that a large win on one problem cannot carry a loss
-  on another. Ties keep the built-in. A failed round is dropped; fewer than the
-  level's minimum rounds keeps the built-in.
+  And no problem may be slower beyond the noise and :data:`TOLERANCE`, SEP 46's own
+  bar (section 7 item 1): its median ratio on each problem timed must stay within
+  ``1 + noise + TOLERANCE``, so that a large win on some problems cannot carry a real
+  loss on another, while a loss within the bar does not veto a broad win. Ties keep
+  the built-in. A failed round is dropped; fewer than the level's minimum rounds
+  keeps the built-in.
 - *Combined validation.* The admitted settings are timed together against the table on
-  fresh rounds; the combination is published only if no window is slower than one plus
-  the noise and the geometric mean is below one. Otherwise groups are dropped in
+  fresh rounds; the combination is published only if no window is slower than that
+  same bar and the geometric mean is below one. Otherwise groups are dropped in
   :data:`DROP_ORDER` and the remainder validated again.
 
 Every function here is pure: it reads timings and returns a verdict.
@@ -38,6 +40,7 @@ __all__ = [
     "MAX_CANDIDATES",
     "NOISE_FLOOR",
     "NOISE_LIMIT",
+    "TOLERANCE",
     "Times",
     "Validation",
     "Verdict",
@@ -51,6 +54,10 @@ __all__ = [
 
 NOISE_FLOOR = 0.02
 """The least noise a session claims: a win must exceed 2 % in every round."""
+
+TOLERANCE = 0.02
+"""How much slower than its noise any one problem may run under a candidate: SEP 46
+section 7 item 1's bar, no case slower than its A/A range plus 2 %."""
 
 NOISE_LIMIT = 0.10
 """A/A noise above which a session is inconclusive and nothing is published."""
@@ -190,7 +197,7 @@ def admit(
     -------
     Verdict
         Admitted only if every round's ratio is below ``1 - noise`` and no
-        problem's median ratio is above ``1 + noise``.
+        problem's median ratio is above ``1 + noise +`` :data:`TOLERANCE`.
 
     Examples
     --------
@@ -201,7 +208,7 @@ def admit(
     >>> admit(
     ...     [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.5] * 3, "large": [1.3] * 3}
     ... ).reason
-    'slower on large: median ratio 1.300 against 1.020'
+    'slower on large: median ratio 1.300 against 1.040'
     """
     measured = ratios(candidate, builtin)
     if len(measured) < minimum:
@@ -225,14 +232,14 @@ def admit(
             medians,
         )
     slower = max(medians.items(), key=lambda item: item[1], default=None)
-    if slower is not None and slower[1] > 1.0 + noise:
+    if slower is not None and slower[1] > 1.0 + noise + TOLERANCE:
         return Verdict(
             False,
             score,
             worst,
             len(measured),
             f"slower on {slower[0]}: median ratio {slower[1]:.3f} against "
-            f"{1.0 + noise:.3f}",
+            f"{1.0 + noise + TOLERANCE:.3f}",
             medians,
         )
     return Verdict(True, score, worst, len(measured), "won every round", medians)
@@ -295,7 +302,8 @@ class Validation:
     Attributes
     ----------
     passed : bool
-        No window slower than one plus the noise, and a geometric mean below one.
+        No window slower than ``1 + noise +`` :data:`TOLERANCE`, and a geometric
+        mean below one.
     windows : Mapping[str, float]
         Each window's median per-round ratio to the table.
     geomean : float or None
@@ -353,7 +361,7 @@ def validate(
     ...     noise=0.02,
     ...     minimum=3,
     ... ).reason
-    'b is slower: 1.050 against 1.020'
+    'b is slower: 1.050 against 1.040'
     """
     medians: dict[str, float] = {}
     for name, (combined, table) in windows.items():
@@ -367,12 +375,12 @@ def validate(
         return Validation(False, medians, None, "no windows")
     geomean = math.exp(statistics.fmean(math.log(value) for value in medians.values()))
     for name, value in medians.items():
-        if value > 1.0 + noise:
+        if value > 1.0 + noise + TOLERANCE:
             return Validation(
                 False,
                 medians,
                 geomean,
-                f"{name} is slower: {value:.3f} against {1.0 + noise:.3f}",
+                f"{name} is slower: {value:.3f} against {1.0 + noise + TOLERANCE:.3f}",
             )
     if geomean >= 1.0:
         return Validation(False, medians, geomean, f"geometric mean {geomean:.3f}")

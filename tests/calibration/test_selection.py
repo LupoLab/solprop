@@ -120,23 +120,23 @@ def test_groups_are_dropped_in_a_fixed_order() -> None:
 
 def test_a_candidate_slower_on_one_problem_is_not_admitted() -> None:
     # A large win on one problem carries the geometric mean of every round, but the
-    # candidate may not be slower than one plus the noise on any problem.
+    # candidate may not be slower than the noise plus TOLERANCE on any problem.
     verdict = admit(
         [0.8, 0.82, 0.81],
         [1.0, 1.0, 1.0],
         0.02,
         3,
-        {"small": [0.5, 0.52, 0.51], "large": [1.04, 1.01, 1.05]},
+        {"small": [0.5, 0.52, 0.51], "large": [1.06, 1.03, 1.07]},
     )
     assert not verdict.admitted
-    assert verdict.reason == "slower on large: median ratio 1.040 against 1.020"
-    assert verdict.windows == {"small": 0.51, "large": 1.04}
-    # Within the noise on every problem: admitted, and a failed round is dropped.
+    assert verdict.reason == "slower on large: median ratio 1.060 against 1.040"
+    assert verdict.windows == {"small": 0.51, "large": 1.06}
+    # Within the bar on every problem: admitted, and a failed round is dropped.
     fine = admit(
-        [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.6] * 3, "large": [1.01, None, 1.0]}
+        [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.6] * 3, "large": [1.04, None, 1.02]}
     )
     assert fine.admitted
-    assert fine.record()["windows"] == {"small": 0.6, "large": 1.005}
+    assert fine.record()["windows"] == {"small": 0.6, "large": 1.03}
     chosen, verdicts = choose(
         {"a": [0.8] * 3, "b": [0.9] * 3},
         [1.0] * 3,
