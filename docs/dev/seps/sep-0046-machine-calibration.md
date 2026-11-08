@@ -6,7 +6,7 @@
 | **Title** | Calibrating the native backend to its machine |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-08) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration`: started 2026-11-08 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1190,3 +1190,4 @@ are left to the maintainer as §12 items 4–7.
 - 2026-11-08: Clarified before the acceptance merged, after an automated review (Codex) on
   #580: a first run, still on its original process settings, applies only workspace
   settings validated under them (§5, §6.4).
+- 2026-11-08: Implementation started (Opus 5.5) on `feature/sep-0046-machine-calibration`.
