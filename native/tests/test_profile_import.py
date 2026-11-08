@@ -13,6 +13,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -50,7 +51,7 @@ print(json.dumps({
 """
 
 
-def _report(store: Path, **environ: str) -> dict[str, object]:
+def _report(store: Path, **environ: str) -> dict[str, Any]:
     clean = {
         name: value
         for name, value in os.environ.items()
@@ -78,12 +79,12 @@ def _report(store: Path, **environ: str) -> dict[str, object]:
 
 
 @pytest.fixture(scope="module")
-def baseline(tmp_path_factory: pytest.TempPathFactory) -> dict[str, object]:
+def baseline(tmp_path_factory: pytest.TempPathFactory) -> dict[str, Any]:
     """The process with an empty store: the built-in table."""
     return _report(tmp_path_factory.mktemp("empty"))
 
 
-def _publish(store: Path, baseline: dict[str, object], row: Row) -> None:
+def _publish(store: Path, baseline: dict[str, Any], row: Row) -> None:
     fingerprint = baseline["fingerprint"]
     assert isinstance(fingerprint, str)
     Store(store).publish(
@@ -94,7 +95,7 @@ def _publish(store: Path, baseline: dict[str, object], row: Row) -> None:
 
 
 def test_without_a_profile_the_process_runs_the_built_in_table(
-    baseline: dict[str, object],
+    baseline: dict[str, Any],
 ) -> None:
     assert baseline["source"] == "no profile for this machine and build"
     # The fingerprint holds the build: its record and the extension's digest.
@@ -108,10 +109,9 @@ def test_without_a_profile_the_process_runs_the_built_in_table(
 
 
 def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
-    tmp_path: Path, baseline: dict[str, object]
+    tmp_path: Path, baseline: dict[str, Any]
 ) -> None:
-    allocation = baseline["allocation"]
-    assert isinstance(allocation, dict)
+    allocation = cast(dict[str, object], baseline["allocation"])
     row = Row(
         allocation=allocation,
         level="standard",
@@ -123,10 +123,8 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
     applied = _report(tmp_path)
     assert (applied["threads"], applied["wait"]) == (2, "passive")
     assert (applied["stage"], applied["source"]) == (1234, "profile")
-    calibration = applied["calibration"]
-    assert isinstance(calibration, dict)
-    profile = calibration["profile"]
-    assert isinstance(profile, dict)
+    calibration = cast(dict[str, Any], applied["calibration"])
+    profile = cast(dict[str, Any], calibration["profile"])
     assert profile["generation"] == "g1"
     assert profile["exact"] is True
     # Read back from the workspace, beside the built-in value.
@@ -151,10 +149,9 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
 
 
 def test_a_shared_read_only_directory_supplies_a_profile(
-    tmp_path: Path, baseline: dict[str, object]
+    tmp_path: Path, baseline: dict[str, Any]
 ) -> None:
-    allocation = baseline["allocation"]
-    assert isinstance(allocation, dict)
+    allocation = cast(dict[str, object], baseline["allocation"])
     shared = tmp_path / "shared"
     _publish(
         shared,

@@ -29,6 +29,7 @@ from __future__ import annotations
 import dataclasses
 from collections.abc import Mapping
 from dataclasses import dataclass
+from typing import cast
 
 __all__ = [
     "OPERATIONS",
@@ -148,7 +149,8 @@ class ExecutionRecord:
                 raise ValueError(
                     f"{name} must be a positive integer, got {getattr(self, name)!r}"
                 )
-        if not isinstance(self.stable_kernel_team, bool):
+        # A record read from JSON may hold anything here.
+        if not isinstance(cast(object, self.stable_kernel_team), bool):
             raise ValueError(
                 f"stable_kernel_team must be a bool, got {self.stable_kernel_team!r}"
             )

@@ -39,7 +39,7 @@ from ._cpu import check_cpu_baseline, select_variant
 from ._execution import ExecutionRecord
 from ._execution import builtin as _builtin_execution
 from ._profile import Choice, Process, choose
-from ._wait import wait_policy
+from ._wait import requested_wait, wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
     # solprop does not load pyFFTW; this is reached when a script, or a package it
@@ -69,7 +69,7 @@ _CPUS = len(PROCESS_CPUS) or os.process_cpu_count() or 1
 THREAD_BUDGET = thread_budget(
     _CPUS, physical_cores(PROCESS_CPUS or tuple(range(_CPUS)))
 )
-_REQUESTED_THREADS = native_threads(THREAD_BUDGET)
+_BUDGET_THREADS = native_threads(THREAD_BUDGET)
 
 # A wheel with more than one build registers the chosen one as ``._core`` below.
 _STEM = select_variant(Path(__file__).parent)
@@ -83,18 +83,22 @@ PROFILE: Choice = choose(
     cpus=PROCESS_CPUS,
     quota=cgroup_cpus(),
 )
-if (
-    (_PROFILE_THREADS := PROFILE.threads()) is not None
+_PROFILE_THREADS = PROFILE.threads()
+_REQUESTED_THREADS = (
+    min(_PROFILE_THREADS, THREAD_BUDGET.threads)
+    if _PROFILE_THREADS is not None
     and thread_count("SOLPROP_THREADS") is None
     and thread_count("SOLPROP_NATIVE_THREADS") is None
-):
-    _REQUESTED_THREADS = min(_PROFILE_THREADS, THREAD_BUDGET.threads)
+    else _BUDGET_THREADS
+)
 
 # How the OpenMP runtime's idle threads wait: a short spin within native work, unless
 # the user or a calibration chose otherwise (ADR-071). The runtime reads this when the
 # core loads it, just below.
 _WAIT = wait_policy(
-    threads=_REQUESTED_THREADS, top_tier=top_tier_cores(), preferred=PROFILE.wait()
+    threads=_REQUESTED_THREADS,
+    top_tier=top_tier_cores(),
+    preferred=requested_wait() or PROFILE.wait(),
 )
 WAIT_POLICY = _WAIT.description
 
@@ -208,9 +212,10 @@ BUILTIN_EXECUTION: ExecutionRecord = _builtin_execution(
 # profile's workspace settings where they hold under them, the user's FFT start over
 # both.
 PROCESS = Process(threads=_REQUESTED_THREADS, wait=WAIT_POLICY)
-EXECUTION, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
-if _FFT_START is not None:
-    EXECUTION = EXECUTION.with_fft_start(_FFT_START)
+_PROFILED, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
+EXECUTION: ExecutionRecord = (
+    _PROFILED if _FFT_START is None else _PROFILED.with_fft_start(_FFT_START)
+)
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to

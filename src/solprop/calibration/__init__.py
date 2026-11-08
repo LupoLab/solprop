@@ -28,7 +28,9 @@ from solprop.calibration import _native
 from solprop.exceptions import CalibrationError
 
 if TYPE_CHECKING:
-    from solprop_native._profile import Choice
+    from solprop_native._profile import (  # pyright: ignore[reportMissingImports]
+        Choice,
+    )
 
 __all__ = [
     "MachineProfile",

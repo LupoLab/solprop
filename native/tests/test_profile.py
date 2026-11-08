@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from solprop_native import _profile
+from solprop_native import _profile  # pyright: ignore[reportPrivateUsage]
 from solprop_native._allocation import AllocationClass, classify, match
 from solprop_native._execution import builtin
 from solprop_native._fingerprint import CALIBRATION_VERSION, build_identity, fingerprint

@@ -27,13 +27,27 @@ from typing import TYPE_CHECKING
 from solprop.exceptions import BackendError
 
 if TYPE_CHECKING:
-    from solprop_native import _allocation as allocation
-    from solprop_native import _cpu as cpu
-    from solprop_native import _execution as execution
-    from solprop_native import _fingerprint as fingerprint
-    from solprop_native import _profile as profile
-    from solprop_native import _store as store
-    from solprop_native import _topology as topology
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _allocation as allocation,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _cpu as cpu,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _execution as execution,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _fingerprint as fingerprint,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _profile as profile,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _store as store,
+    )
+    from solprop_native import (  # pyright: ignore[reportMissingImports]
+        _topology as topology,
+    )
 
 __all__ = [
     "allocation",

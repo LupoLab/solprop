@@ -21,7 +21,7 @@ import hashlib
 import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, cast
 
 from ._topology import Topology
 
@@ -85,8 +85,7 @@ class AllocationClass:
             kinds = data["kinds"]
             quota = data.get("quota")
             if not isinstance(kinds, list) or not all(
-                type(kind) is int
-                for kind in kinds  # pyright: ignore[reportUnknownVariableType]
+                type(kind) is int for kind in cast(list[object], kinds)
             ):
                 raise TypeError("kinds")
             counts = {
