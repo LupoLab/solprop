@@ -4,6 +4,7 @@
 
 """The window's clients, over real child processes."""
 
+import os
 import threading
 
 from service import targets
@@ -93,3 +94,21 @@ def test_a_kernel_that_will_not_end_is_terminated():
     client = KernelClient(lambda _reply: None, target=targets.deaf_kernel)
     client.close(timeout=0.5)
     assert not client.alive
+
+
+def test_the_kernel_starts_with_its_blas_idle(monkeypatch):
+    # The kernel loads NumPy's BLAS, whose pools spin when they load unless told (#383).
+    monkeypatch.delenv("OPENBLAS_THREAD_TIMEOUT", raising=False)
+    replies: list[Reply] = []
+    done = threading.Event()
+
+    def on_reply(reply: Reply) -> None:
+        replies.append(reply)
+        done.set()
+
+    client = KernelClient(on_reply, target=targets.environment_kernel)
+    client.request("environment", {"name": "OPENBLAS_THREAD_TIMEOUT"})
+    assert done.wait(60)
+    client.close()
+    assert replies[0].value == "20"
+    assert "OPENBLAS_THREAD_TIMEOUT" not in os.environ

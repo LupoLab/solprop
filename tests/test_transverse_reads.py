@@ -44,7 +44,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, Multistep, PIController, RungeKutta
-from solprop.transverse_monitor import _EdgeReading
+from solprop.transverse_monitor import BACKSTOP_READS, _EdgeReading
 
 BACKENDS = ("numpy_ref", "native")
 RELAXED = BoundaryCheck(budget=1.0, transverse_budget=1.0)
@@ -378,9 +378,10 @@ def test_the_scaled_miss_is_stopped_under_the_ceiling(
 
 def test_the_scaled_miss_is_read_far_above_the_stop() -> None:
     # With the edge's budget relaxed the run completes, and the record shows what
-    # the ceiling's reads saw: sixteen of them, at most L/16 apart, the largest far
-    # above the stop (Part II: 0.54 over both faces at its own read positions; one
-    # face here holds at most about 0.38 of a packet this wide).
+    # the ceiling's reads saw: sixteen of them, at most L/16 apart (the relaxed budget
+    # leaves no reach, so the backstop never grows; issue #396), the largest far above
+    # the stop (Part II: 0.54 over both faces at its own read positions; one face here
+    # holds at most about 0.38 of a packet this wide).
     packet = MISS
     output = finished(
         packet_run(
@@ -452,8 +453,8 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
 ) -> None:
     # A replay never updates the proposal, so `dz_init` used to stand in for the next
     # step: a short one read a step late, past the spacing the reads promise, and a long
-    # one read at every step. Steps of L / 40 under the ceiling L / 16 read every other
-    # step whichever it is.
+    # one read at every step. Steps of L / 40 under the ceiling read the same steps
+    # whichever it is.
     _require(backend)
     packet = REREVIEW
     length = packet.length
@@ -474,7 +475,7 @@ def test_a_replay_reads_by_its_next_step_whatever_the_first_proposal(
     assert short["reads"] == long["reads"]
     assert short["largest_gap"] == long["largest_gap"]
     # The spacing, relative to rounding in the position it is measured from.
-    assert short["largest_gap"] <= length / 16 * (1 + 1e-9)
+    assert short["largest_gap"] <= length / BACKSTOP_READS * (1 + 1e-9)
     assert short["reads"] < 40
 
 
@@ -493,3 +494,62 @@ def test_the_scaled_miss_on_its_own_committed_steps_is_coarse() -> None:
         0.29525 * packet.length, rel=1e-9, abs=0.0
     )
     assert max(record["edge_max"]) < WARN
+
+
+# ------------------------------------------------------------- a nonlinear witness
+
+
+def _self_focusing(length: float) -> Simulation:
+    """A 1-D Kerr beam whose spectrum broadens until its light reaches a narrow edge.
+
+    The suite's ``line`` beam (argon at 1 bar, 30 fs at 800 nm, a 100 um waist, 3000
+    times the critical power) on a periodic line of half-width 350 um at the suite's
+    spacing: it self-focuses, and the light it throws at high angles reaches the edge
+    in about 5.4 cm (issue #396).
+    """
+    from solprop.constants import C as LIGHT  # noqa: PLC0415
+    from solprop.grid import FieldGrid  # noqa: PLC0415
+    from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
+    from solprop.physdata import gamma3  # noqa: PLC0415
+    from solprop.pulses import SpatialPulse  # noqa: PLC0415
+    from solprop.spatial import critical_power  # noqa: PLC0415
+
+    grid = FieldGrid.from_limits(length, WAVELENGTH, (500e-9, 1.6e-6), 250e-15)
+    space = LineGrid(350e-6, 202)
+    medium = SpatialMedium("Ar", 1.0)
+    chi3 = gamma3("Ar", wavelength=WAVELENGTH)
+    density = float(medium.density(np.array([0.0]))[0])
+    carrier = 2 * math.pi * LIGHT / WAVELENGTH
+    index = float(np.real(medium.index(np.array([carrier]))[0]))
+    power = 3000.0 * critical_power(WAVELENGTH, chi3 * density, index=index)
+    energy = power * 30e-15 * math.sqrt(math.pi / (4 * math.log(2)))
+    pulse = SpatialPulse(
+        GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=energy), 100e-6
+    )
+    settings = SimulationSettings(
+        # Only the end: a saved plane reads the edge too, and would hide the spacing.
+        save_planes=[length],
+        dz_max=length,
+        dz_init=length * 1e-4,
+        auto_init=True,
+        backend="native" if "native" in available() else "numpy_ref",
+    )
+    return Simulation.from_free(
+        grid, space, medium, [KerrResponse(chi3, thg=False)], pulse, settings=settings
+    )
+
+
+@pytest.mark.slow
+def test_a_self_focusing_beam_is_stopped_as_dense_reads_stop_it(monkeypatch) -> None:
+    # SEP 40 section 7.6 left the spacing unqualified on a spectrum that broadens
+    # between reads. Read at L/256, this beam stops at about 0.0541 m; under the
+    # growing backstop it stops at the next read, within the 4 g / v_q its reads
+    # promise and well within 3 % of L (measured 1.7 %, the former L/16 rule 1.5 %).
+    length = 0.08
+    import solprop.transverse_monitor as monitor  # noqa: PLC0415
+
+    stop = stopped_at(_self_focusing(length))
+    monkeypatch.setattr(monitor, "READS", 256)
+    monkeypatch.setattr(monitor, "BACKSTOP_READS", 256)
+    dense = stopped_at(_self_focusing(length))
+    assert dense <= stop <= dense + 0.03 * length
