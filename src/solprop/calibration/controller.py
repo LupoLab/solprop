@@ -1436,8 +1436,23 @@ def _planning(
     limit = 20.0 if plan.level.fulls else 0.25
 
     def capture(effort: str, share: float) -> dict[str, object]:
-        # Each capture takes its share of the stage's time, so that the timing
-        # in the step still has the rest (SEP 46 section 6.7).
+        """Capture every problem's plans at `effort` within `share` of the time left.
+
+        Each capture takes its share of the stage's time, so that the timing in the
+        step still has the rest (SEP 46 section 6.7).
+
+        Parameters
+        ----------
+        effort : str
+            ``"measure"`` or ``"patient"``.
+        share : float
+            The share of the stage's time left that the capture may take.
+
+        Returns
+        -------
+        dict
+            The child's capture (:meth:`solprop.calibration.child._Session.capture`).
+        """
         budget = max(0.0, plan.deadline.remaining() - until) * share
         return cast(
             dict[str, object],

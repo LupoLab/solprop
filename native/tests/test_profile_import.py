@@ -139,11 +139,15 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
     assert off["threads"] == baseline["threads"]
     assert off["stage"] == baseline["stage"]
 
-    # The user's thread count wins, and settings fitted on two threads give way.
+    # The user's thread count wins, and settings fitted on more threads give way; on a
+    # one-CPU runner the row was fitted on the one thread the user asks for.
     narrowed = _report(tmp_path, SOLPROP_THREADS="1")
     assert narrowed["threads"] == 1
-    assert narrowed["stage"] == baseline["stage"]
-    assert "fitted on 2 threads" in str(narrowed["source"])
+    if width > 1:
+        assert narrowed["stage"] == baseline["stage"]
+        assert "fitted on 2 threads" in str(narrowed["source"])
+    else:
+        assert narrowed["stage"] == 1234
 
     # The user's wait wins, and settings fitted under passive waiting give way.
     spinning = _report(tmp_path, OMP_WAIT_POLICY="active")
