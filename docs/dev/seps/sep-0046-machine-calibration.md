@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phase 0 complete (2026-11-08) |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -844,6 +844,102 @@ index entry and tracking issue change then.
 
 ## Part II — Implementation record
 
+### Phase 0 report — the store, the split and the built-in table
+
+- **Scope:** phase 0, 2026-11-08, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0046-machine-calibration` (LupoLab/solprop#582), commits `47271792` and
+  `80f2fe31`, on `main` after #576 and #581.
+- **Delivered:**
+  - `native/include/solprop_native/core.hpp`, `native/src/core.cpp`,
+    `native/src/general.cpp`, `native/src/general_modal.cpp`,
+    `native/src/bindings.cpp`: the workspace settings leave the source. A
+    `CpuExecution` record (each operation's threshold and full size, the response
+    bounds, the medium and compact widths, the compact bound, the stable-team rule) is
+    a field of the native problem, copied into every `CpuExecutionPool` of a workspace,
+    its general modal source and its batch, which refuses members whose records differ.
+    `operation_threads` reads it instead of constants; `ThreadPolicy` keeps only
+    process settings. A problem without a valid record is refused. `State.cpu_execution`
+    reads it back.
+  - `native/src/solprop_native/_execution.py`: the built-in table, keyed by operating
+    system, with the measurements behind each value moved from `core.hpp`'s comments;
+    the `__APPLE__` switches and ADR-073's divisor are rules of the table, applied for
+    the process at import (`BUILTIN_EXECUTION`).
+  - `native/src/solprop_native/_store.py`, `_topology.py`, `_allocation.py`,
+    `_fingerprint.py`, `_profile.py`: the store (§6.8), topology and allocation classes
+    (§6.4), the fingerprint (§5), and the choice of row with its precedence rules;
+    standard library only.
+  - `native/CMakeLists.txt`: `_build.json` beside the extension.
+  - `native/src/solprop_native/__init__.py`, `_wait.py`, `backend.py`: at import, an
+    exact row's pool width and wait apply before the runtime starts unless the user set
+    them; each workspace takes the record `PROFILE.workspace` resolves (or one given to
+    `NativeBackend(cpu_execution=...)`, for stage 2); `metadata()["calibration"]`.
+  - `src/solprop/calibration/` and `solprop calibrate --show/--export/--import/--clear`
+    (`src/solprop/cli.py`), loading the pure modules by path; `CalibrationError`.
+  - Tests: `native/tests/test_execution.py`, `test_store.py`, `test_profile.py`,
+    `test_profile_import.py`, `tests/calibration/test_profiles.py`; the C++ tests take
+    `native/tests/native/execution.hpp`'s record. Both conftests default
+    `SOLPROP_CALIBRATION=off`, so that a developer's store never changes a test.
+  - `docs/dev/architecture.md` §4 and figure 1, `docs/guide/setup/recipes.md`, and
+    `changelog.d/sep-0046-machine-calibration.added.md`.
+- **Deviations from the proposal:**
+  - *LLVM's block time inside native calls stays a process setting.* §5 lists it among
+    the workspace settings, but the outermost `CpuTeamScope` on a thread sets it, so two
+    workspaces nested or batched in one call could not hold different values, and the
+    waiting candidates of phase 1 (passive, a spin scoped to native calls, a
+    process-wide spin) already choose it.
+  - *The planning transaction moves to phase 3,* beside the per-class wisdom it applies.
+    Until phase 3 writes wisdom there is none to apply, and a run plans as today.
+  - *No schema change.* §9 expected one; the record goes into the backend's free-form
+    settings, which ADR-063 does not version.
+  - *The build is identified by a digest of the extension file,* with `_build.json` for
+    its configuration. The native source digest is generated at build time and is
+    readable only from the loaded extension; the file's digest also separates two builds
+    of one source. An editable install keeps its built files apart from its sources, so
+    every directory of the package is searched.
+  - *Claims are per allocation class* (`claim-<class>`), and inconclusive attempts are
+    kept in `attempts.json`, so that `auto` can wait a day (phase 5).
+  - *Two edges move.* A user's `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` equal to the
+    default is no longer divided on a spinning Mac, as any other value already was; and
+    `BuildInfo`'s threshold fields report the process's table, divided where runs divide
+    it, where they reported the undivided constants.
+- **Decisions:** the precedence of §5 (the user's settings, then a refinement, then the
+  row, then the table), the record's 24 fields as its native and stored form, and the
+  allocation class's span structure (kinds, shared L2 groups, L3 groups, NUMA nodes,
+  sockets, SMT, a quota) are the store's ADR, written with phase 5.
+- **Verification:**
+  - The table equals the former constants on every system, frozen per platform
+    (`test_execution.py`), including the spinning Mac's divided values.
+  - On the Xeon (GCC 16.2, OpenMP, Release): the native C++ tests (`cpu-debug` preset)
+    pass; the native Python suite passes (614 tests before one fixture fix, then the
+    affected modules again); `tests/test_process.py`, `test_native_forced_threads.py`,
+    `test_driver.py`, `tests/calibration`, the recipe tests and the structure figures
+    pass.
+  - §7 item 7: a direct import applies a hand-written profile's width, wait and
+    workspace settings and records them, read back (`test_profile_import.py`); two live
+    states hold different records (`test_execution.py`). The notebook case belongs to
+    phase 5's first use.
+  - §7 item 8: exact and nearest-smaller rows, equal core counts on one and two sockets,
+    an override of the thread count or the wait sending workspace settings back to the
+    table (`test_profile.py`, `test_profile_import.py`).
+  - §7 item 10: concurrent claims admit one, stale claims by deadline and by a dead
+    owner, two hosts, corrupt and foreign generations, a failed publication keeping the
+    previous generation, read-only directories (`test_store.py`); Windows runs in CI.
+  - `solprop calibrate --show` and the native import agree on this machine's fingerprint
+    and allocation, and the command never loads the extension.
+- **Sources checked:** none new; the table's values and measurements were moved from
+  `core.hpp` unchanged.
+- **Limitations:**
+  - Windows reads its first processor group only (64 logical CPUs) and no core kinds;
+    macOS has no affinity, so its classes count cores by kind.
+  - The scan workers' settings are still Pool's explicit variables until phase 5 marks
+    them as solprop's.
+- **Open questions:**
+  - Q1. solprop's TDSE consistency cache keeps the Linux-style cache directory on macOS,
+    while the store uses the platform's (`Library/Caches` in the home directory). Should
+    the two share the platform's directory? (#583)
+- **Handoff:** phase 1 builds the controller, its children and §6.5's selection on
+  `_profile`, `_store` and `NativeBackend(cpu_execution=...)`; measuring starts there.
+
 ## Part III — History
 
 - 2026-11-08: Drafted (Opus 5.5) from the measurements of PR #576. Proposes to
@@ -1191,3 +1287,5 @@ are left to the maintainer as §12 items 4–7.
   #580: a first run, still on its original process settings, applies only workspace
   settings validated under them (§5, §6.4).
 - 2026-11-08: Implementation started (Opus 5.5) on `feature/sep-0046-machine-calibration`.
+- 2026-11-08: Phase 0 complete: the store, the split into process and workspace settings,
+  and the built-in table.
