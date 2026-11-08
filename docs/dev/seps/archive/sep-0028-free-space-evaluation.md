@@ -270,7 +270,7 @@ every thread; a run with the default settings keeps the cap (Q1).
 The Kokkos build uses Kokkos-FFT 2.0.0, whose host plans pass `FFTW_ESTIMATE`. The
 measurements above planned both with `FFTW_ESTIMATE`. A measured plan of the dedicated
 code was reported 2.4 times slower on a shared host. So planning does not explain the
-gap; it is a minor, optional item (§6.6). [SEP 4](../sep-0004-execution-autotuning.md)
+gap; it is a minor, optional item (§6.6). [SEP 4](sep-0004-execution-autotuning.md)
 covers searching over planning policies.
 
 **Memory.** The low-storage march's ledger names four field-sized volumes on a Cartesian

@@ -6,7 +6,7 @@
 | **Title** | Bounded execution autotuning |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 Astra |
-| **Status** | Draft |
+| **Status** | Superseded |
 | **Review status** | Not reviewed |
 | **Reviewers** | — |
 | **Type** | Feature |
@@ -14,7 +14,7 @@
 | **Resolution** | — |
 | **Requires** | — |
 | **Supersedes** | — |
-| **Superseded-by** | — |
+| **Superseded-by** | [SEP 46](../sep-0046-machine-calibration.md) |
 | **Implementation** | — |
 | **Manual pages** | — |
 
@@ -47,15 +47,15 @@ or speed-up is qualified by this draft.
 The concrete use case is a costly simulation, or repeated executions of one
 simulation, for which a user already has an allocation and wants to select kernel,
 FFT and BLAS concurrency without conducting a manual environment sweep. The
-[performance guide](../../guide/performance/tuning.md) currently asks users to time
+[performance guide](../../../guide/performance/tuning.md) currently asks users to time
 about ten steps at several settings. The proposed tool makes that procedure
 repeatable and records both its evidence and its limits.
 
 The motivation survives improvements to the defaults. Numba sizes different
 operations independently, Kokkos now exposes separate host pools, and vendor
 libraries use different threading mechanisms. No single count describes the
-execution. Existing measurements in [backends](../backends.md) and
-[benchmarks](../benchmarks.md) justify investigating this space; they do not
+execution. Existing measurements in [backends](../../backends.md) and
+[benchmarks](../../benchmarks.md) justify investigating this space; they do not
 establish how often a tuner will beat the current defaults.
 
 Included:
@@ -85,8 +85,8 @@ Excluded:
 
 This is a narrower, independently useful feature than a general optimiser of
 every backend decision. The remaining execution-tuning work stays on the
-[roadmap](../roadmap.md). SEPs [1](sep-0001-raman-response.md),
-[2](sep-0002-two-photon-absorption.md) and [3](archive/sep-0003-optmat-materials.md) are
+[roadmap](../../roadmap.md). SEPs [1](../sep-0001-raman-response.md),
+[2](../sep-0002-two-photon-absorption.md) and [3](sep-0003-optmat-materials.md) are
 independent: a tuner may eventually execute their supported problems but never
 chooses between their physical models or numerical approximations.
 
@@ -116,8 +116,8 @@ that uses it is essential. A setting with no effect is not another candidate.
 The numeric cutoffs above are the current implementation's policies, not new
 physical coefficients or recommended search constants. The relevant solprop code
 is identified in [7]; the manual explanation is
-[performance tuning](../../guide/performance/tuning.md) and
-[backends §§3–4](../backends.md).
+[performance tuning](../../../guide/performance/tuning.md) and
+[backends §§3–4](../../backends.md).
 
 The Kokkos startup variables are `SOLPROP_KOKKOS_THREADS` for the cap and
 `SOLPROP_KOKKOS_KERNEL_THREADS`, `SOLPROP_KOKKOS_FFT_THREADS`,
@@ -141,7 +141,7 @@ Numba candidates can finish.
 `driver/executors/pool.py` already starts fresh interpreters with thread variables
 established before startup, uses importable builders, bounds worker resources and
 probes peak RSS. `Slurm` and the scan CLI already build on this execution model
-([scans](../scans.md)). It is a useful design precedent, not a generic launcher:
+([scans](../../scans.md)). It is a useful design precedent, not a generic launcher:
 `Pool._spawn` temporarily changes the parent's environment under a lock, replays
 the main module through multiprocessing, and applies one count to many pools.
 A tuner needs a different candidate environment and must not race with unrelated
@@ -174,7 +174,7 @@ There is no per-resume execution history today: `HDF5Output` in append mode
 retains the original metadata, including its original backend record. A tuning
 plan must not be represented as though that record describes later segments.
 
-The supported measurement discipline is [benchmarks §5](../benchmarks.md): short
+The supported measurement discipline is [benchmarks §5](../../benchmarks.md): short
 windows, warmed arithmetic, alternating fresh-process pairs, an A/A resolution
 indicator and no full-run extrapolation. Current reusable precedents include
 `benchmarks/ledger.py` and solprop-kokkos's `benchmarks/provider_sweep.py` and
@@ -186,7 +186,7 @@ indicator and no full-run extrapolation. Current reusable precedents include
 
 There is no new propagation equation. Every candidate advances the same internal
 complex128 state and the same translated operators, following
-[conventions](../conventions.md). Fourier signs, SI amplitudes, losses, response
+[conventions](../../conventions.md). Fourier signs, SI amplitudes, losses, response
 normalisation and deterministic reduction requirements are unchanged.
 
 Let $p$ be a legal execution policy and $w$ a supplied pilot window. In a timed
@@ -595,7 +595,7 @@ translation artifacts should justify a later reuse optimisation.
 #### 7.1 Oracles and numerical gates
 
 Qualify policy adapters against `numpy_ref` before admitting them to candidate
-generation. Use the existing ladder in [accuracy §7](../accuracy.md): one linear
+generation. Use the existing ladder in [accuracy §7](../../accuracy.md): one linear
 application, nonlinear evaluation, one step, eight steps, statistics and a short
 adaptive run. Cover scalar/vector field and envelope families, plasma, scalar and
 tensor Raman, labelled mixtures, coupled flows, general modal tables and spatial
@@ -628,7 +628,7 @@ and record differing trajectories, rather than forcing controller identity by
 widening tolerances. Same-policy repeated runs and runs at different thread counts
 agree within a rounding bound fixed before measurement on a matched fixed schedule,
 and within the case's accuracy envelope against a tighter or stored reference when
-adaptive ([SEP 25](archive/sep-0025-rounding-level-reproducibility.md)).
+adaptive ([SEP 25](sep-0025-rounding-level-reproducibility.md)).
 
 The bounded operation must return the committed state of an ordinary run stopped
 at the same accepted edge, for adaptive and fixed stepping, including FSAL,
@@ -738,7 +738,7 @@ existing cross-backend runs already can. The promise is unchanged physics and
 qualified numerical accuracy, not bitwise equality across FFT planners or BLAS
 libraries: a rounding bound fixed before measurement on a matched fixed schedule,
 and the case's accuracy envelope for adaptive runs
-([SEP 25](archive/sep-0025-rounding-level-reproducibility.md)). A plan records the relevant realised execution and artifacts; it does
+([SEP 25](sep-0025-rounding-level-reproducibility.md)). A plan records the relevant realised execution and artifacts; it does
 not promise identical performance under future system load. No new deliberate
 physical or numerical difference from Luna is introduced.
 
@@ -841,15 +841,15 @@ scope; there is no implied GPU completion requirement hidden in Final status.
    [driver and scan executors](https://github.com/LupoLab/solprop/tree/main/src/solprop/driver),
    [translation](https://github.com/LupoLab/solprop/tree/main/src/solprop/translate),
    [output schema](https://github.com/LupoLab/solprop/blob/main/src/solprop/output/schema.py).
-   Companion specifications: [kernel contract](../kernel-contract.md),
-   [stepper](../stepper.md), [accuracy](../accuracy.md),
-   [backends](../backends.md), [benchmarks](../benchmarks.md).
+   Companion specifications: [kernel contract](../../kernel-contract.md),
+   [stepper](../../stepper.md), [accuracy](../../accuracy.md),
+   [backends](../../backends.md), [benchmarks](../../benchmarks.md).
 8. solprop-kokkos, source at `87ac816190ffb0c3978de7e236b6e30d7c068ab8`:
    [Python adapter and native workspaces](https://github.com/LupoLab/solprop-kokkos/tree/main/src),
    [native contracts](https://github.com/LupoLab/solprop-kokkos/tree/main/include/solprop_kokkos),
    [CMake build choices](https://github.com/LupoLab/solprop-kokkos/blob/main/CMakeLists.txt),
    [host libraries](https://github.com/LupoLab/solprop-kokkos/blob/main/cmake/HostLibraries.cmake).
-   See also the [Kokkos guide](../../guide/performance/native.md).
+   See also the [Kokkos guide](../../../guide/performance/native.md).
 
 The repository sources above were inspected at the stated revisions. Primary
 documentation in references 1–6 was checked when drafting; it does not establish
@@ -863,7 +863,7 @@ GPU experiments or prototype tuning study were performed for this proposal.
 - 2026-09-27: Drafted from an audit of current execution controls. Propose bounded,
   explicit CPU tuning; retain native GPU policies, chunking, propagator selection
   and automatic whole-run decisions as separate work.
-- 2026-10-17: Restated for [SEP 25](archive/sep-0025-rounding-level-reproducibility.md).
+- 2026-10-17: Restated for [SEP 25](sep-0025-rounding-level-reproducibility.md).
   In §7.1, replay checks keep identical edges (exact accounting of a prescribed
   schedule) and compare fields, error estimates, statistics and diagnostics within a
   rounding bound fixed before measurement; the repeated-run and thread-invariance
@@ -874,7 +874,11 @@ GPU experiments or prototype tuning study were performed for this proposal.
   naming the two kinds of bound. Configuration hashes, plan and report digests and
   witness digests remain exact identity checks.
 - 2026-11-01: Tracking issue [#115](https://github.com/LupoLab/solprop/issues/115).
-- 2026-11-02: [SEP 43](archive/sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). This
+- 2026-11-02: [SEP 43](sep-0043-retire-numba-cpu.md) retired `numba_cpu` (ADR-064). This
   proposal was written before that, and its search over Numba's regimes and pools, with the
   settings it names (`SOLPROP_NUMBA_*`, `SOLPROP_FFTW_THREADS`), no longer has anything to act
   on: it needs reworking on the native backend's pools before it can be accepted.
+- 2026-11-08: Superseded by [SEP 46](../sep-0046-machine-calibration.md), accepted the same day: its
+  per-simulation search, plan, selection rules and pilot contract are replaced there; worker
+  counts (#314), GEMM providers, CPU node chunks and propagator policy (#303) stay on their
+  issues. Never implemented.

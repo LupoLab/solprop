@@ -34,6 +34,12 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
+- [SEP 46 — Calibrating the native backend to its machine](seps/sep-0046-machine-calibration.md):
+  a bounded one-off measurement that fits the native CPU backend's waiting policy, team,
+  operation thresholds and FFTW planning to the machine: quick and automatic on first
+  use, thorough for the benchmarks, kept in the user's cache directory and read by every
+  later run. An optional refinement for one simulation covers SEP 4's use case, which it
+  supersedes; a last phase fits GPU builds' settings when a device is set up.
 
 ## Draft enhancement proposals
 
@@ -48,10 +54,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
 - [SEP 2 — Two-photon absorption](seps/sep-0002-two-photon-absorption.md):
   constant-coefficient, narrowband scalar absorption on field and envelope grids.
   Broadband and tensor absorption, and solid carrier dynamics, remain outside its scope.
-- [SEP 4 — Bounded execution autotuning](seps/sep-0004-execution-autotuning.md):
-  explicit CPU policy search on short windows, with isolated processes, numerical
-  validation, bounded total cost and reproducible execution plans. Native GPU
-  controls, chunking, propagator selection and implicit tuning remain open in [#303](https://github.com/LupoLab/solprop/issues/303).
 - [SEP 5 — Solid ionisation and bulk filamentation](seps/sep-0005-solid-ionisation.md):
   scalar bulk silica/YAG photoionisation, explicit simple avalanche and carrier
   removal, collisional currents, optmat solid rate models and parameter bundles
