@@ -1,5 +1,11 @@
 # Performance tuning
 
+**Start with the calibration.** `solprop calibrate`, once per machine and build,
+measures the settings this page describes on your machine and keeps the result, and
+every later run applies it ([Calibrating solprop to your machine](calibration.md)). The
+built-in defaults below are what a run uses without a profile; the environment
+variables are overrides for special cases, and each takes precedence over a profile.
+
 A solprop run spends its time in a handful of operations repeated at every stage of
 every step: fast Fourier transforms between time and frequency, dense matrix products
 between modal amplitudes and the transverse field (for multimode and general modal
@@ -17,9 +23,12 @@ Two rules apply throughout:
   thread count later, but this is not a portable way to reconfigure all pools. Put the variables on the command line or in the job script, not in
   `os.environ` halfway through a notebook.
 - **Measure your own problem.** The defaults come from measurements on representative
-  problems, but the best settings depend on the grid, the number of modes or nodes, the
-  responses switched on and the machine. Time about ten steps of your real problem
-  (a short fibre, `n_save=2`) at two or three settings before a long campaign.
+  problems, and a calibration fits them to the machine, but the best settings also
+  depend on the grid, the number of modes or nodes and the responses switched on.
+  `simulation.calibrate()` refines them for one simulation
+  ([refining one simulation](calibration.md#refining-one-simulation)); otherwise time
+  about ten steps of your real problem (a short fibre, `n_save=2`) at two or three
+  settings before a long campaign.
 
 None of the settings on this page changes the physics. Thread counts can change the
 order of floating-point sums inside the transforms, so results from different thread
@@ -505,7 +514,10 @@ print(
 
 The same record also carries `raman_fft_threads`, `blas_library` and the build profile;
 `python -m
-solprop_native` prints the whole build record without running anything.
+solprop_native` prints the whole build record without running anything. Its
+`calibration` entry names the machine profile the run applied (or `built-in`), each
+operation setting it applied beside the built-in value, and the FFT plans built from the
+profile's wisdom ([Calibrating solprop to your machine](calibration.md)).
 
 ## Profiling the native backend
 

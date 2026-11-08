@@ -159,7 +159,9 @@ on x86-64 (win-64) and Windows on Arm (win-arm64). On any other platform the ins
 reports that it found no matching distribution:
 [Installation](https://solprop.readthedocs.io/en/stable/introduction/installation.html) explains that error and how to
 report the platform, and covers environment checks and a first run. For GPUs, build the
-native backend from source (below).
+native backend from source (below). Then run `solprop calibrate` once, to fit the native
+backend's threads, waiting and transform plans to the machine
+([Calibrating solprop to your machine](https://solprop.readthedocs.io/en/stable/guide/performance/calibration.html)).
 
 ## Building from source
 

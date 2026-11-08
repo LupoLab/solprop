@@ -181,6 +181,10 @@ local label is matched exactly, so it takes no further label; `build_info()` say
 
 ## Checking a build
 
+A new build is a new fingerprint: run `solprop calibrate` after it, as after an
+installation ([Calibrating solprop to your machine](calibration.md)). Until then the
+first native run calibrates quickly by itself.
+
 ```sh
 python -m solprop_native | python -m json.tool
 python -c "import solprop_native as sn; sn.check_build(); print(sn.build_info().build_profile)"

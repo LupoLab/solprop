@@ -126,6 +126,17 @@ plan gives no time estimate.
 uv run python -m benchmarks track --append-history
 ```
 
+A series measures a user's default run, so it runs calibrated
+([SEP 46](seps/sep-0046-machine-calibration.md) section 6.13): before the first
+configuration, `track` runs `solprop calibrate --thorough` (`--calibrate` chooses another
+level, or `none` to keep the profiles there are), and its workers apply the profile
+(`SOLPROP_CALIBRATION=use`) without measuring inside a timed window. Each history row
+records the profile its run applied in the `calibration` column (`built-in`, or the level
+and generation, with `+refinement`), so a series that moves can be attributed to the
+code or to a recalibration. `SOLPROP_CALIBRATION=off` holds the built-in table, for
+experiments that must keep the settings fixed while the code changes; the first series
+recorded after SEP 46 starts a new segment of the history.
+
 The run's bundle goes to `.benchmarks/track/<date>-<hardware>/` (git ignores it): the
 plan, each worker's request, environment and logs, and `results.json`, which is
 rewritten after every configuration so that an interrupted run keeps what it
@@ -229,6 +240,13 @@ uv run python -m benchmarks ab --case rdw --case argon_blueshift --threads 1 \
     --length 0.2 --baseline-python /path/to/baseline/bin/python \
     --candidate-python /path/to/candidate/bin/python
 ```
+
+Each build is calibrated before the rounds, once per interpreter and with its arm's
+variables, as two releases would be for a user (`--calibrate`, as for `track`).
+`--baseline-env` and `--candidate-env NAME=VALUE` set an arm's own variables over the
+threading preset: `--baseline-env SOLPROP_CALIBRATION=off --candidate-env
+SOLPROP_CALIBRATION=use` with one interpreter compares the built-in table with this
+machine's calibration.
 
 Selection works as for `track`. `--length` runs that fraction of each guide, from the
 entrance, for quick iteration. Each round runs every configuration once with each

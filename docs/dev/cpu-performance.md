@@ -91,13 +91,17 @@ measured while it existed.
 - **Per-operation thread widths from the operation's dimensions**, chosen at construction
   ([measurements](benchmarks.md#kokkos-cpu-operation-size-threading)). An operation below its
   threshold runs serially; a medium one runs on four threads; a large one runs at full
-  width. The thresholds and their reasons are in `include/solprop_native/core.hpp`. The
+  width. The thresholds are a per-workspace record (`CpuExecution`), filled from the
+  built-in table in `native/src/solprop_native/_execution.py`, which holds their reasons,
+  or from a machine calibration ([SEP 46](seps/sep-0046-machine-calibration.md)). The
   global thread setting is a cap, and explicitly set pools force their (clamped) widths.
   The small cases became 2.0 times faster than one thread (geometric mean) on an
   18-core arm64 laptop and on a two-socket, 36-core AVX-512 server.
-  - The thresholds switch on `__APPLE__` alone: macOS has its own stage and FFT starts,
-    and every other build takes the x86-64 Linux values (Cascade Lake, Zen 3). Windows
-    and linux-aarch64 therefore run unmeasured thresholds.
+  - The built-in table is keyed by operating system: macOS has its own stage and FFT
+    starts and no stable kernel team, and every other system takes the x86-64 Linux
+    values (Cascade Lake, Zen 3); Windows and linux-aarch64 run them unmeasured unless
+    calibrated. A calibration's findings that should change the table are recorded
+    here, with their machines.
   - Two interactions were found and corrected during qualification:
     - a narrow response stage followed by a full-width FFT on the Cartesian filament;
     - a serialised coupled-flow matrix on the scalar wall.
