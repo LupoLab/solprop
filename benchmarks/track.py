@@ -19,11 +19,14 @@ from benchmarks import history
 from benchmarks.records import LOCAL_ROOT, Record, SuiteError, atomic_record, now
 from benchmarks.registry import CASES, SETS, STEPPERS, select
 from benchmarks.runner import (
+    CALIBRATION_LEVELS,
     ROOT,
+    calibrate_builds,
     launch_worker,
     plan_rows,
     receipt,
     show_plan,
+    worker_calibration,
 )
 from benchmarks.system import (
     THREADING,
@@ -107,11 +110,23 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def calibration_option(parser: argparse.ArgumentParser) -> None:
+    """Declare ``--calibrate``: how each build is calibrated before the series."""
+    parser.add_argument(
+        "--calibrate",
+        choices=CALIBRATION_LEVELS,
+        default="thorough",
+        help="calibrate each build at this level first, as a user would (SEP 46); "
+        "none keeps the profiles there are (default: thorough)",
+    )
+
+
 def track_options(parser: argparse.ArgumentParser) -> None:
     """Declare the tracking run's output and history options."""
     selection_options(parser)
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--out", type=Path)
+    calibration_option(parser)
     parser.add_argument("--instance-type", help="cloud instance type, if any")
     parser.add_argument(
         "--append-history",
@@ -157,6 +172,7 @@ def summarise(
         "threading": threading,
         "status": result["status"],
         "busy": busy,
+        "calibration": result.get("calibration"),
     }
     if result["status"] != "ok":
         return {**base, "error": result.get("error")}
@@ -250,6 +266,7 @@ def history_rows(
             "numa_domains": machine["numa_domains"],
             "threads": row["threads"],
             "threading": row["threading"],
+            "calibration": row.get("calibration"),
             "case": row["case"],
             "revision": row["revision"],
             "case_hash": CASES[row["case"]].digest[:12],
@@ -378,6 +395,7 @@ def track(args: argparse.Namespace) -> int:
         },
         immutable=True,
     )
+    calibrate_builds({"build": sys.executable}, args.calibrate, output)
     started = time.perf_counter()
     results: list[Record] = []
     provenance: Record = {}
@@ -388,7 +406,8 @@ def track(args: argparse.Namespace) -> int:
         events, elapsed = launch_worker(
             sys.executable,
             {"configuration": row["configuration"], "repeats": args.repeats},
-            thread_environment(width, dict(os.environ), args.threading),
+            thread_environment(width, dict(os.environ), args.threading)
+            | worker_calibration(dict(os.environ)),
             output / "raw" / row["id"],
             args.timeout,
         )

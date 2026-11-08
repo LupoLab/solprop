@@ -26,14 +26,16 @@ from benchmarks.records import (
 )
 from benchmarks.registry import select
 from benchmarks.runner import (
+    calibrate_builds,
     freeze_harness,
     launch_worker,
     plan_rows,
     prepared_python,
     receipt,
+    worker_calibration,
 )
 from benchmarks.system import eligible_cpus, guard, physical_cores, thread_environment
-from benchmarks.track import BACKENDS, selection_options, steppers
+from benchmarks.track import BACKENDS, calibration_option, selection_options, steppers
 
 __all__ = [
     "ARMS",
@@ -78,6 +80,7 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         choices=BACKENDS,
         help="the candidate arm's backend; default: --backend",
     )
+    calibration_option(parser)
     for arm in ARMS:
         parser.add_argument(
             f"--{arm}-env",
@@ -277,6 +280,7 @@ def ab(args: argparse.Namespace) -> int:
         },
         immutable=True,
     )
+    calibrate_builds(pythons, args.calibrate, output, environments)
     samples: list[Record] = []
     provenance: dict[str, list[Record]] = {arm: [] for arm in ARMS}
     allocation = eligible_cpus()
@@ -302,6 +306,7 @@ def ab(args: argparse.Namespace) -> int:
                         else None,
                     },
                     thread_environment(width, dict(os.environ), args.threading)
+                    | worker_calibration(dict(os.environ) | environments[arm])
                     | environments[arm],
                     output / "raw" / f"r{round_index}-{arm}-{row['id']}",
                     args.timeout,
