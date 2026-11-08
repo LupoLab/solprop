@@ -38,7 +38,7 @@ a user's.
 from __future__ import annotations
 
 import os
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 
 VARIABLES = ("OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME")
@@ -52,6 +52,14 @@ SPIN_MILLISECONDS = 1
 
 MARKER = "SOLPROP_NATIVE_WAIT"
 """Set beside the variables this module sets, naming the choice it made."""
+
+REQUEST = "SOLPROP_NATIVE_WAIT_REQUEST"
+"""solprop's own request for a process, ``spin`` or ``passive`` (solprop SEP 46).
+
+A scan's workers and a calibration's children ask for a wait through it. A user's
+:data:`VARIABLES` still win; the request replaces a calibration's and the default
+rule's choice.
+"""
 
 _SETTINGS = {
     "spin": {"GOMP_SPINCOUNT": SPIN_COUNT, "KMP_BLOCKTIME": "0"},
@@ -79,6 +87,22 @@ def _ours(environ: MutableMapping[str, str]) -> bool:
     return all(
         environ.get(name, "").strip() == settings.get(name, "") for name in VARIABLES
     )
+
+
+def requested_wait(environ: Mapping[str, str] = os.environ) -> str | None:
+    """Return :data:`REQUEST`'s ``spin`` or ``passive``, or ``None``.
+
+    Raises
+    ------
+    ValueError
+        For another value.
+    """
+    value = environ.get(REQUEST, "").strip()
+    if not value:
+        return None
+    if value not in _SETTINGS:
+        raise ValueError(f"{REQUEST} must be spin or passive, got {value!r}")
+    return value
 
 
 def wait_policy(
