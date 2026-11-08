@@ -126,17 +126,17 @@ def test_a_candidate_slower_on_one_problem_is_not_admitted() -> None:
         [1.0, 1.0, 1.0],
         0.02,
         3,
-        {"small": [0.5, 0.52, 0.51], "large": [1.06, 1.03, 1.07]},
+        {"small": [0.5, 0.52, 0.51], "large": [1.09, 1.06, 1.1]},
     )
     assert not verdict.admitted
-    assert verdict.reason == "slower on large: median ratio 1.060 against 1.040"
-    assert verdict.windows == {"small": 0.51, "large": 1.06}
+    assert verdict.reason == "slower on large: median ratio 1.090 against 1.070"
+    assert verdict.windows == {"small": 0.51, "large": 1.09}
     # Within the bar on every problem: admitted, and a failed round is dropped.
     fine = admit(
-        [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.6] * 3, "large": [1.04, None, 1.02]}
+        [0.8] * 3, [1.0] * 3, 0.02, 3, {"small": [0.6] * 3, "large": [1.06, None, 1.04]}
     )
     assert fine.admitted
-    assert fine.record()["windows"] == {"small": 0.6, "large": 1.03}
+    assert fine.record()["windows"] == {"small": 0.6, "large": 1.05}
     chosen, verdicts = choose(
         {"a": [0.8] * 3, "b": [0.9] * 3},
         [1.0] * 3,

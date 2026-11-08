@@ -52,7 +52,7 @@ never runs your own simulation; for that, see
 
 A candidate replaces the built-in value only if it **wins in every round** of
 interleaved timings by more than the noise measured by timing the built-in setting
-against itself, **and is slower on no problem** by more than that noise plus 2 %; the
+against itself, **and is slower on no problem** by more than that noise plus 5 %; the
 winners are then validated together on fresh rounds, under the same bar. Ties and
 anything uncertain keep the built-in value. On a busy machine (other work on the job's
 cores or their hyperthreads, time stolen by a hypervisor, or timings noisier than 10 %)
