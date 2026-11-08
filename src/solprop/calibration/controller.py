@@ -96,6 +96,10 @@ class Level:
         Whether the grain moves the classes' full sizes as well as their thresholds.
     reserve : float
         The share of the budget kept for validation and publication.
+    planning : float
+        The share of the time left after the waiting and team that the grain stage
+        leaves to FFT planning, which follows it; none at the quick level, which keeps
+        the plan policy.
     """
 
     name: LevelName
@@ -107,13 +111,16 @@ class Level:
     grain: int
     fulls: bool = False
     reserve: float = 0.2
+    planning: float = 0.4
 
 
 _ALL = ("gnlse", "capillary", "averaged", "radial", "line")
 
 LEVELS: dict[str, Level] = {
     # Quick: the wait, the team and the coarse grain (medium width, compact team).
-    "quick": Level("quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 1, 4),
+    "quick": Level(
+        "quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 1, 4, planning=0.0
+    ),
     "standard": Level("standard", 60.0, 5, 0.08, _ALL, 2, 10),
     "thorough": Level("thorough", 300.0, 7, 0.3, _ALL, 2, 40, fulls=True),
 }
@@ -1576,7 +1583,12 @@ def _calibrate_allocation(
             )
         final, decision, reason = _decide(plan, bench, scores, noise)
         chosen = _settings(final)
-        workspace, grain_evidence = _grain(plan, final, until)
+        # The grain stage leaves FFT planning its share of the time left, so that a
+        # long grain stage cannot leave the planning stage none (SEP 46 section 6.9).
+        left = max(0.0, plan.deadline.remaining() - until)
+        workspace, grain_evidence = _grain(
+            plan, final, until + left * plan.level.planning
+        )
         table = cast(dict[str, int | bool], final.report["execution"])
         planning, wisdom, planning_evidence = _planning(
             plan, final, {**table, **workspace}, until

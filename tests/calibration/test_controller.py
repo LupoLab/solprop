@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
-from typing import ClassVar, cast
+from typing import Any, ClassVar, cast
 
 import pytest
 
@@ -836,3 +836,30 @@ def test_planes_and_a_group_in_no_problem_are_handled(
     assert isinstance(evidence, dict)
     assert evidence["candidates"] == ["planes estimate"]
     assert "noise" not in evidence
+
+
+def test_the_grain_stage_leaves_fft_planning_its_share(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A thorough grain stage once spent the whole budget and left planning none.
+    _, environ = scripted
+    grain, planning = controller._grain, controller._planning  # pyright: ignore[reportPrivateUsage]
+    limits: dict[str, float] = {}
+
+    def recorded(name: str, stage: Any) -> Any:
+        def wrapper(plan: Any, *args: Any) -> Any:
+            limits[name] = args[-1]
+            limits[f"{name} left"] = plan.deadline.remaining()
+            return stage(plan, *args)
+
+        return wrapper
+
+    monkeypatch.setattr(controller, "_grain", recorded("grain", grain))
+    monkeypatch.setattr(controller, "_planning", recorded("planning", planning))
+    calibrate("standard", environ=environ, cpus=range(8))
+    level = controller.LEVELS["standard"]
+    reserve = level.budget * level.reserve
+    assert limits["planning"] == pytest.approx(reserve)
+    share = (limits["grain left"] - reserve) * level.planning
+    assert limits["grain"] == pytest.approx(reserve + share, rel=1e-3)
+    assert controller.LEVELS["quick"].planning == 0.0

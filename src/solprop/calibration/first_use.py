@@ -210,6 +210,7 @@ def _calibrate(
         The report, or ``None`` when nothing was measured.
     """
     try:
+        _native.packages()
         _native.store.mode(environ)
     except BackendError, ImportError:
         # No native backend, or one without the calibration's modules: selecting it
