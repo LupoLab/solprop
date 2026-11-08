@@ -273,3 +273,16 @@ def test_mlx_configurations_run_in_single_precision_and_refuse_interaction_adams
     assert all(row["configuration"]["fft_size"] == "pow2" for row in rows)
     assert any("exponential formulation" in reason for reason in skipped)
     assert any(reason.startswith("planar") for reason in skipped)
+
+
+def test_a_node_budget_reaches_every_builder_s_settings(monkeypatch):
+    """SOLPROP_BENCH_NODE_BUDGET sets the sources' chunk for an A/B's arm (#361)."""
+    from benchmarks.builders import NODE_BUDGET  # noqa: PLC0415
+
+    assert build(configuration("radial_filament_256")).settings.node_budget is None
+    monkeypatch.setenv(NODE_BUDGET, str(2**34))
+    for name in ("radial_filament_256", "he_rdw_averaged"):
+        assert build(configuration(name)).settings.node_budget == 2**34
+    monkeypatch.setenv(NODE_BUDGET, "lots")
+    with pytest.raises(SuiteError, match="positive number of bytes"):
+        build(configuration("radial_filament_256"))
