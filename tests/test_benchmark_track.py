@@ -376,7 +376,11 @@ def test_a_tracking_run_records_complete_runs_and_appends_history(
 
 def test_threading_policies_replace_the_callers_openmp_settings():
     incoming = {"OMP_WAIT_POLICY": "ACTIVE", "OMP_PLACES": "threads", "PATH": "/bin"}
-    passive = system.thread_environment(4, incoming)
+    # The default measures a user's default run: the backend chooses its waiting.
+    assert system.thread_environment(4, incoming) == system.thread_environment(
+        4, incoming, "backend"
+    )
+    passive = system.thread_environment(4, incoming, "passive")
     assert passive["OMP_WAIT_POLICY"] == "PASSIVE"
     assert passive["SOLPROP_NATIVE_THREADS"] == "4"
     assert "OMP_PLACES" not in passive

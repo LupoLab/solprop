@@ -264,7 +264,7 @@ def device_slug(model: str, instance: str | None = None) -> str:
 
 
 def thread_environment(
-    width: int, incoming: dict[str, str], threading: str = "passive"
+    width: int, incoming: dict[str, str], threading: str = "backend"
 ) -> dict[str, str]:
     """Set every pool to `width`, and OpenMP's placement and waiting by `threading`.
 

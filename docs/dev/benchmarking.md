@@ -92,7 +92,8 @@ physical cores in the process's CPU allocation unless `--production` gives it; o
 cluster, give it explicitly.
 
 **Threading.** `--threading` sets OpenMP's placement and waiting in every worker:
-`backend` (unpinned, the backend's own waiting: none of the waiting variables set),
+`backend` (the default since November 2026: unpinned, with the backend's own waiting,
+none of the waiting variables set, so that a row measures what a user's default run gets),
 `passive` (unpinned, idle threads sleep at once), `passive-bound` (the same, pinned
 to neighbouring cores), `default` (the runtime's own short
 spin before sleeping), `active` (idle threads spin), `bound` (threads pinned to
