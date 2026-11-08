@@ -1240,6 +1240,21 @@ def package_versions() -> dict[str, str]:
     >>> sorted(package_versions())
     ['h5py', 'numpy', 'optmat', 'python', 'scipy', 'solprop']
     """
+    return dict(_installed_versions())
+
+
+@functools.cache
+def _installed_versions() -> dict[str, str]:
+    """Return :func:`package_versions`, read once per process.
+
+    Every record asks, so every scan point did; what is installed does not change
+    under a running process.
+
+    Returns
+    -------
+    dict
+        The versions; callers copy it.
+    """
     return {
         "solprop": _version_of("solprop"),
         "numpy": _version_of("numpy"),

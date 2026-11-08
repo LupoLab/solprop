@@ -387,6 +387,14 @@ def test_package_versions_reports_the_six_it_promises():
     assert all(isinstance(value, str) and value for value in versions.values())
 
 
+def test_package_versions_are_read_once_and_handed_out_as_copies():
+    # Every record asks; what is installed does not change under a running process.
+    first = package_versions()
+    first["numpy"] = "changed"
+    assert package_versions()["numpy"] != "changed"
+    assert schema._installed_versions.cache_info().hits > 0
+
+
 @pytest.fixture
 def fresh_provenance():
     """Forget whether the checkout tracks the package, asked once per process."""
