@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phase 0 complete (2026-11-08) |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phases 0–5 implemented (2026-11-08), their cross-machine verification and phase 6 to follow |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -940,6 +940,146 @@ index entry and tracking issue change then.
 - **Handoff:** phase 1 builds the controller, its children and §6.5's selection on
   `_profile`, `_store` and `NativeBackend(cpu_execution=...)`; measuring starts there.
 
+### Phase 1 report — the controller; waiting, team and region cost
+
+- **Scope:** phase 1, 2026-11-08, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0046-machine-calibration` (#582), commits `4baf5f94`, `e6398638` and
+  `d855e8f9`.
+- **Delivered:**
+  - `src/solprop/calibration/selection.py`: section 6.5's rule, pure.
+  - `src/solprop/calibration/child.py`: one candidate's process settings, pinned before the
+    runtime starts, serving JSON lines (prepare, time, sizing, capture, regions, exit).
+  - `src/solprop/calibration/problems.py`: the five calibration problems.
+  - `src/solprop/calibration/controller.py`: the levels, one monotonic deadline, the
+    built-in child timed twice a round for the A/A noise, host load, hypervisor steal and
+    busy SMT siblings, the winner's validation by window, publication that keeps other
+    classes' and higher levels' rows, nested allocations, and every child reaped.
+  - `solprop calibrate [--quick|--thorough] [--budget S]`; `solprop.calibration.calibrate`.
+  - `native/src/solprop_native/_wait.py`: `SOLPROP_NATIVE_WAIT_REQUEST`, solprop's own
+    request for a wait, below the user's variables and a row.
+  - `benchmarks/ab.py`: `--baseline-env` and `--candidate-env`.
+- **Deviations from the proposal:**
+  - *Windows are trial steps* (`StepDriver.timed_step`), repeated from the initial state:
+    the same work for every candidate, without the step controller.
+  - *A row is published when the built-in rules win*, with their values, so that `auto`
+    does not calibrate the allocation again.
+  - *Children warm each window with two untimed steps*: without them the A/A noise on the
+    Xeon was 6–8 %, the first window after another child paying for its evicted caches.
+- **Verification** (Intel Xeon Gold 6240, GCC 16.2, socket 1 unless stated):
+  - `tests/calibration/test_selection.py` (ties, drift, outliers, missing rounds, a win on
+    average but not in every round, a failed combination, the drop order) and
+    `test_controller.py` on scripted children (every outcome, deadlines, failed children,
+    held claims, nested classes, publication rules); one real quick calibration (medium).
+  - Standard on 18 cores: 23 s before phases 2–3; passive waiting 1.26–1.32 times slower,
+    half the socket 0.97–0.99, the built-in rules kept. Quick: 8–13 s.
+  - The whole machine (36 cores, two sockets): A/A noise 10–23 % in three runs, so
+    inconclusive, as the Xeon's 36-thread timings are known not to repeat; its socket
+    (18 cores with their siblings) got its row as a nested allocation.
+- **Limitations:** nested allocations run only while a third of the budget is left, which
+  at the standard level is rarely after phases 2 and 3; the thorough level covers them.
+- **Handoff:** phase 2 fits the grain in the chosen child.
+
+### Phase 2 report — operation grain
+
+- **Scope:** phase 2, 2026-11-08, commit `eccf9ec7`.
+- **Delivered:** `src/solprop/calibration/grain.py` (candidates from the problems'
+  `execution_sizing`, the width rule, the best of each setting) and the controller's grain
+  stage, timed on the problems each candidate changes and validated together.
+- **Deviations from the proposal:**
+  - *Candidates come from the work sizes the problems run, not from per-operation
+    timings through Kokkos Tools.* A kernel's label does not name its operation class, and
+    an operation's threshold matters only where it falls between two work sizes a problem
+    runs; so a class's candidates are its one-step moves past the nearest of them (thread
+    one more size, serialise one, widen one, narrow one), at most four, with the medium
+    width (2, 8) and the compact team (4, 16) beside them. §6.5 still decides each.
+  - *Quick fits the medium width and compact team only* (its "coarse grain"); standard
+    moves thresholds, at most ten candidates; thorough moves full sizes too.
+  - *The Adams trial's passes and a coupled flow keep the table*: no trial-step window
+    runs them.
+- **Verification:** `tests/calibration/test_grain.py`, the grain cases of
+  `test_controller.py`. On the Xeon's socket, standard admitted a medium width of 8 and a
+  compact team of 4: windows' geometric mean 0.885 (`line` 0.71, `radial` 0.81,
+  capillary 1.02); every stage, FFT and response threshold move lost by 2–126 %, as
+  ADR-073 found for this machine. A later run on the shared machine admitted the medium
+  width alone; another was inconclusive (A/A 0.11–0.23) while another user's job ran on
+  the socket's hyperthreads, which the SMT check now reports.
+- **Limitations:** whether these admissions hold on the tracking set is §7 item 1's
+  measurement, still to run.
+
+### Phase 3 report — FFTW planning
+
+- **Scope:** phase 3, 2026-11-08, commit `33e9934a`.
+- **Delivered:** `FftPlanning` and `FftPlanningScope` (`core.hpp`, `fft_plan.hpp`), the
+  seeds' `begin_seed`/`end_seed`, `State.fft_planning`, the controller's FFT stage, the
+  row's `planning` and the generation's wisdom, `PLANNING` at import and
+  `NativeBackend(fft_planning=...)`.
+- **Deviations from the proposal:**
+  - *Efforts are chosen per group* (serial rows, threaded rows, transverse planes), the
+    policy's own split, not per shape class; the wisdom is still per exact plan key, and
+    a run's shape the profile does not hold is seeded at its group's effort.
+  - *The planning transaction is per workspace*: it forgets before planning and after,
+    imports each plan's own wisdom at its seed and builds it with `FFTW_WISDOM_ONLY`. The
+    seeds and the Kokkos-FFT plans are not interleaved in the code (a workspace seeds
+    several transforms, then plans them), so an estimate plan can still meet wisdom that
+    another plan of the *same* workspace imported, as today's measured seeds already
+    allow; nothing from an earlier workspace, a file or another candidate reaches it.
+  - *Captures need no fresh process*: each capture forgets before its seed, so it holds
+    exactly that plan's wisdom.
+- **Verification:** `native/tests/test_planning.py` (§7 item 9: stale wisdom never
+  reaches a profiled workspace, two workspaces in either order, unbuildable wisdom falls
+  back and is recorded, malformed planning refused); controller tests. On the Xeon's
+  socket the 16 transforms of the five problems planned at measure in 10 s; serial rows at
+  estimate lost (1.12); threaded rows at measure won once (0.96, validated at 0.972,
+  `line` 0.89) and were inside the noise in a later run.
+- **Open questions:** Q2. §12 item 10's alone-against-in-step timings are not recorded:
+  the capture times planning, not the plan alone.
+
+### Phase 4 report — stage 2
+
+- **Scope:** phase 4, 2026-11-08, commit `9677809b`.
+- **Delivered:** `src/solprop/calibration/refine.py`, `Simulation.calibrate`,
+  `solprop calibrate --recipe`, `_profile.descriptor`, refinements in the store
+  (`problems/<fingerprint>/<descriptor>.json`) and the backend's lookup.
+- **Deviations from the proposal:**
+  - *Windows are trial steps at the start and a third and two thirds along the run*, from
+    the launch field, with the operators there; accuracy compares the trial steps' fields
+    with the base's (within ten times rtol), so the "same acceptance structure" test is
+    moot. A low-storage march times its own step and has no fields to compare.
+  - *The descriptor digests the operations' keys from `execution_sizing`* (class and work
+    of every operation: dimensions, chunk, response buffers, transform sizes), the shape,
+    grid, integrator, process settings and fingerprint; the plan keys follow from these and
+    are not listed separately.
+  - *A refinement applies only while the machine record it refined is the process's*, so it
+    never outlives the profile beneath it.
+- **Verification:** `tests/calibration/test_refine.py` on real native workspaces with
+  scripted timings (a stored refinement reused by a later backend, not by another grid,
+  not after the profile changed; inaccurate candidates and combinations kept back; noise,
+  deadline, no profile); a real refinement of the radial filament ran in 34 s and was
+  inconclusive on the shared Xeon (A/A 0.15).
+
+### Phase 5 report — first use, scans, benchmarks and documentation
+
+- **Scope:** phase 5, 2026-11-08, commits `59e15e4d`, `bc66ec18`, `c83cc0ca`, `02062f20`.
+- **Delivered:** `src/solprop/calibration/first_use.py`, the hooks in
+  `backends/registry.py` and `driver/executors/pool.py`, `CalibrationNotice`,
+  `solprop_native.refresh_profile`, the scan workers' wait request and role, the Slurm
+  script's request; `benchmarks` `--calibrate`, worker `SOLPROP_CALIBRATION=use`, the
+  history's `calibration` column; `docs/guide/performance/calibration.md` and the other
+  pages of section 8; ADR-074; the release notes.
+- **Deviations from the proposal:**
+  - *The notice is a warning and a log record, not a reporter call*: the run's reporter is
+    resolved after the backend is chosen. The GUI service already turns warnings into
+    events.
+  - *The remote install script does not calibrate*: a GUI-managed host is often a
+    cluster's login node, which is the wrong machine and shared; compute nodes calibrate
+    on first use.
+- **Verification:** `tests/calibration/test_first_use.py`; the Slurm snapshots; the
+  benchmark tests. A first native run in a fresh script on the Xeon's socket printed the
+  notice once, calibrated and ran in 19 s; the second run did not calibrate.
+- **Limitations:** §7 items 1–3, 13 and 16 need the A/B campaign on the machines of §7
+  item 1 (the Xeon quiet, DMOG's EPYC 7763, Google C4D under Linux and Windows and C4A,
+  and the maintainer's M5 Max), which is still to run, as is phase 6.
+
 ## Part III — History
 
 - 2026-11-08: Drafted (Opus 5.5) from the measurements of PR #576. Proposes to
@@ -1289,3 +1429,5 @@ are left to the maintainer as §12 items 4–7.
 - 2026-11-08: Implementation started (Opus 5.5) on `feature/sep-0046-machine-calibration`.
 - 2026-11-08: Phase 0 complete: the store, the split into process and workspace settings,
   and the built-in table.
+- 2026-11-08: Phases 1–5 implemented; their verification on the machines of section 7 item
+  1 and phase 6 remain.
