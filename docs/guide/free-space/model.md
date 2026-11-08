@@ -184,10 +184,14 @@ reaches the edge comes back, so it judges, per face, the energy in the outer 5 %
 above `1e-4` stop the run (`BoundaryCheck`'s `budget` and `stop_factor`, or its own
 `transverse_budget`), and the stop names a size and a sample count to try. That size is a
 lower bound: light generated late, by a filament, may need more. Reads are spaced so that
-light cannot cross the edge unseen between two of them, at most `min(L/16, 4g/v)` apart,
+light cannot cross the edge unseen between two of them, at most `min(B, 4g/v)` apart,
 with `g` the edge's width and `v` the spread of the current spectrum, and the spacing is a
 ceiling on the step: a low-source run, which would otherwise take long steps, takes a few
-more. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
+more. The backstop `B` covers a spectrum that broadens after a read: it starts at `L/16`
+and doubles at each read whose spread has not grown by a tenth since it started, up to
+`L/4`, and starts again when it has. A beam whose spectrum holds, far from the edge, then
+reads at `4g/v` and its steps are left alone; on the suite's `line` case the reads no
+longer add a step. A fixed schedule cannot be held to it, and reports itself as `coarse`. A read covers
 every frequency, and `native` takes it where the state lives, with only numbers crossing
 ([SEP 44](../../dev/seps/archive/sep-0044-native-edge-read.md)).
 

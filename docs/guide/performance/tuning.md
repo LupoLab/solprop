@@ -366,6 +366,23 @@ same variables. A locally built native backend links a vendor BLAS (Accelerate o
 MKL when oneAPI is available on Linux, otherwise OpenBLAS); its build record says which
 (`python -m solprop_native`).
 
+**The pools' spin when NumPy loads.** NumPy's and SciPy's pthreads OpenBLAS (their
+Linux and Windows wheels) each start a thread for every CPU as soon as they load, before
+solprop runs a line, and those threads spin for about 0.1 s before they sleep. On a
+72-CPU Linux machine, importing the driver took 13.8 CPU seconds in 0.76 s of wall
+time, against 0.75 in 0.67 with `OPENBLAS_THREAD_TIMEOUT=20`, which makes idle threads
+sleep after about 0.4 ms of spinning and changes no width. A Python process solprop
+starts itself takes `OPENBLAS_THREAD_TIMEOUT=20` unless the variable is already set: a
+run started from the window (directly or as a Slurm job), the window's kernel, and
+`Pool` workers. Your own script loads NumPy first, so set it yourself if CPU time on a
+shared machine matters, before Python starts:
+
+```sh
+OPENBLAS_THREAD_TIMEOUT=20 python my_script.py
+```
+
+On macOS, NumPy uses Accelerate, which has no such pool.
+
 **One OpenMP runtime per process.** The native backend, FFTW and some BLAS builds each
 use OpenMP, and two different OpenMP runtimes loaded into one process can crash or
 oversubscribe the machine. solprop does not use pyFFTW, whose wheels bring a runtime of
@@ -408,8 +425,9 @@ own caches and nothing waits for synchronisation. solprop's
 {class}`~solprop.driver.executors.pool.Pool` executor does this for you: every worker is a
 newly spawned Python process started with **all** of
 `SOLPROP_THREADS`, `OMP_NUM_THREADS`, `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS` and
-`VECLIB_MAXIMUM_THREADS` set to its `threads` (one by default) and
-`OMP_WAIT_POLICY=passive`, so every pool is sized within that budget,
+`VECLIB_MAXIMUM_THREADS` set to its `threads` (one by default),
+`OMP_WAIT_POLICY=passive` and, unless set, `OPENBLAS_THREAD_TIMEOUT=20`, so every pool is
+sized within that budget,
 and on Linux each worker is pinned to its own CPUs. The number of workers is the number of CPUs available divided
 by `threads`, reduced if a memory probe of the first point shows that fewer fit (four
 fifths of the memory, less the controller's own, divided by one worker's footprint).

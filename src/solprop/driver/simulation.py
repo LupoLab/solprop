@@ -2165,6 +2165,10 @@ class Simulation(Displayed):
         self.initial = initial
         self.initial_z = initial_z
         self._problem: KernelProblem | None = None
+        # The transverse edge's smallest band wavenumber by run length, fixed with the
+        # medium and grids: a planar run's costs a slab-mode evaluation per mode, which
+        # every run repeated (``_transverse_edge``).
+        self._edge_k_min: dict[float, float] = {}
         self.settings = settings
         if settings.controller is None:
             msg = (
@@ -3453,8 +3457,11 @@ class Simulation(Displayed):
         """
         problem = self.translate()
         length = float(np.max(problem.stepper.save_planes)) - float(problem.initial.z)
-        dispersion = SpatialDispersion(medium, self.grid, Frame.comoving(self.grid))
-        k, _ = band_wavenumbers(space, dispersion, max(length, 0.0))
+        k_min = self._edge_k_min.get(length)
+        if k_min is None:
+            dispersion = SpatialDispersion(medium, self.grid, Frame.comoving(self.grid))
+            k, _ = band_wavenumbers(space, dispersion, max(length, 0.0))
+            k_min = self._edge_k_min[length] = float(np.min(k))
         grid = self.grid
         return TransverseEdge(
             space,
@@ -3463,7 +3470,7 @@ class Simulation(Displayed):
             check.stop_factor,
             length,
             np.nonzero(grid.inband_mask & grid.active_mask)[0],
-            float(np.min(k)),
+            k_min,
         )
 
     def run(  # noqa: PLR0913 - independent execution and output controls

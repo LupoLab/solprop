@@ -1240,6 +1240,21 @@ def package_versions() -> dict[str, str]:
     >>> sorted(package_versions())
     ['h5py', 'numpy', 'optmat', 'python', 'scipy', 'solprop']
     """
+    return dict(_installed_versions())
+
+
+@functools.cache
+def _installed_versions() -> dict[str, str]:
+    """Return :func:`package_versions`, read once per process.
+
+    Every record asks, so every scan point did; what is installed does not change
+    under a running process.
+
+    Returns
+    -------
+    dict
+        The versions; callers copy it.
+    """
     return {
         "solprop": _version_of("solprop"),
         "numpy": _version_of("numpy"),
@@ -3442,6 +3457,43 @@ class RunMetadata(Displayed):
         """
         text = _canonical_json(self._hashed_record)
         return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    def with_backend(self, backend: BackendRecord) -> "RunMetadata":  # noqa: UP037 - bound after the class body
+        """Return this record with a run's execution facts, its resume key kept.
+
+        The backend record is outside the hash, so the hashed part and the resume key
+        already computed stand: a run opening its output does not serialise and digest
+        its configuration a second time, which cost a capillary run 30 ms and a large
+        launch seconds (solprop issue #347).
+
+        Parameters
+        ----------
+        backend : BackendRecord
+            The execution facts of the prepared backend.
+
+        Returns
+        -------
+        RunMetadata
+            A copy of this record with `backend` in place of its own.
+
+        Examples
+        --------
+        >>> from solprop.output.schema import BackendRecord, _example_metadata
+        >>> metadata = _example_metadata()
+        >>> backend = BackendRecord(name="numpy_ref", propagator_mode="tabulate")
+        >>> executed = metadata.with_backend(backend)
+        >>> executed.backend.name
+        'numpy_ref'
+        >>> executed.configuration_hash() == metadata.configuration_hash()
+        True
+        """
+        replaced = dataclasses.replace(self, backend=backend)
+        # functools.cached_property stores in the instance dictionary, past the
+        # frozen dataclass's __setattr__.
+        for name in ("_hashed_record", "_configuration_digest"):
+            if name in self.__dict__:
+                replaced.__dict__[name] = self.__dict__[name]
+        return replaced
 
     def differences(self, other: "RunMetadata") -> tuple[str, ...]:  # noqa: UP037 - bound after the class body
         """Return the dotted paths at which two records describe different runs.

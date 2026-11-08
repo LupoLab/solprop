@@ -465,12 +465,15 @@ def test_a_worker_sizes_blas_by_environment_or_after_load(monkeypatch, after_loa
     monkeypatch.setenv("GOTO_NUM_THREADS", "1")
     monkeypatch.setenv("OMP_NUM_THREADS", "7")
     monkeypatch.delenv("OPENBLAS_NUM_THREADS", raising=False)
+    monkeypatch.delenv("OPENBLAS_THREAD_TIMEOUT", raising=False)
     spawned, connection = pool._spawn(print, 2, ())
     connection.close()
     process = cast(_FakeProcess, spawned)
     seen = process.environment
     assert process.args[-1] == (2 if after_load else None)
     assert seen["SOLPROP_THREADS"] == "2"
+    # The idle default is no width, so it holds on either platform (#383).
+    assert seen["OPENBLAS_THREAD_TIMEOUT"] == "20"
     if after_load:
         assert not set(_process.LOAD_TIME_BLAS_VARIABLES) & set(seen)
     else:
@@ -480,6 +483,7 @@ def test_a_worker_sizes_blas_by_environment_or_after_load(monkeypatch, after_loa
     assert os.environ["GOTO_NUM_THREADS"] == "1"
     assert os.environ["OMP_NUM_THREADS"] == "7"
     assert "OPENBLAS_NUM_THREADS" not in os.environ
+    assert "OPENBLAS_THREAD_TIMEOUT" not in os.environ
 
 
 def test_a_worker_limits_blas_after_load_before_any_command(monkeypatch):

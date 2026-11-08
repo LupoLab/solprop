@@ -9,7 +9,6 @@ import multiprocessing as mp
 import os
 import pickle
 import sys
-import threading
 import traceback
 from collections import deque
 from collections.abc import Callable, Iterable, Iterator, Mapping
@@ -25,6 +24,7 @@ from solprop._process import (
     LOAD_TIME_BLAS_VARIABLES,
     allowed_cpus,
     sizes_blas_after_load,
+    spawn_environment,
     thread_budget,
 )
 from solprop.exceptions import DriverError, StopRequested
@@ -41,7 +41,6 @@ if sys.platform == "win32":
 else:
     type _Pipe = Connection
 
-_ENVIRONMENT_LOCK = threading.Lock()
 _THREAD_VARIABLES = (
     "SOLPROP_THREADS",
     "OMP_NUM_THREADS",
@@ -690,23 +689,8 @@ def _spawn(
         "OMP_WAIT_POLICY": "passive"
     }
     removed = LOAD_TIME_BLAS_VARIABLES if after_load else ()
-    for key in removed:
-        environment.pop(key, None)
-    # spawn takes its environment during start(), before replaying __main__ or
-    # importing the target. Restore the parent's environment immediately afterwards.
-    with _ENVIRONMENT_LOCK:
-        previous = {key: os.environ.get(key) for key in (*environment, *removed)}
-        try:
-            os.environ.update(environment)
-            for key in removed:
-                os.environ.pop(key, None)
-            process.start()
-        finally:
-            for key, value in previous.items():
-                if value is None:
-                    os.environ.pop(key, None)
-                else:
-                    os.environ[key] = value
+    with spawn_environment(environment, removed):
+        process.start()
     child.close()
     return process, cast(_Pipe, parent)
 

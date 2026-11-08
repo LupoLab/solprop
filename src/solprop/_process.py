@@ -22,7 +22,7 @@ import platform
 import sys
 import threading
 import warnings
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
@@ -36,9 +36,97 @@ LOAD_TIME_BLAS_VARIABLES = (
     "GOTO_NUM_THREADS",
 )
 
+BLAS_IDLE_DEFAULTS: Mapping[str, str] = {"OPENBLAS_THREAD_TIMEOUT": "20"}
+"""Variables a Python process solprop starts takes, unless they are already set.
+
+NumPy's and SciPy's pthreads OpenBLAS each start a pool of every CPU when they load,
+whose threads then spin for ``2**28`` cycles, about 0.1 s, before sleeping: on a
+72-CPU machine importing the driver used 13.8 CPU seconds in 0.76 s of wall time,
+and 0.75 in 0.67 at ``2**20`` cycles (solprop issue #383). This changes no width, so
+it is safe where a load-time width is not (:data:`LOAD_TIME_BLAS_VARIABLES`). At
+``2**20`` cycles, about 0.4 ms, back-to-back products of 300 x 300 matrices ran as
+fast as at the default, and 11 % slower at ``2**4``. Only a process started fresh
+can take it: OpenBLAS reads it once, when it loads."""
+
 _BLAS_LOCK = threading.RLock()
 _BLAS_USERS: set[object] = set()
 _BLAS_LIMITS = contextlib.ExitStack()
+
+
+def child_environment(base: Mapping[str, str]) -> dict[str, str]:
+    """Return the environment of a Python process solprop starts: `base`, BLAS idle.
+
+    Adds :data:`BLAS_IDLE_DEFAULTS` where `base` sets none of them, so a user's own
+    value wins.
+
+    Parameters
+    ----------
+    base : collections.abc.Mapping
+        The environment the process would otherwise take.
+
+    Returns
+    -------
+    dict
+        A new environment.
+
+    Examples
+    --------
+    >>> from solprop._process import child_environment
+    >>> child_environment({})["OPENBLAS_THREAD_TIMEOUT"]
+    '20'
+    >>> child_environment({"OPENBLAS_THREAD_TIMEOUT": "28"})["OPENBLAS_THREAD_TIMEOUT"]
+    '28'
+    """
+    return {**BLAS_IDLE_DEFAULTS, **base}
+
+
+_ENVIRONMENT_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def spawn_environment(
+    overrides: Mapping[str, str] | None = None, removed: Sequence[str] = ()
+) -> Iterator[None]:
+    """Hold this process's environment as a spawned child should take it.
+
+    ``multiprocessing``'s spawn reads the environment when a process starts, before
+    the child replays ``__main__`` or imports its target; start it inside this block.
+    The child takes :func:`child_environment` of this one with `overrides` set and
+    `removed` unset, and the parent's own values come back on exit. One lock serves
+    every caller, so two starts never see each other's variables.
+
+    Parameters
+    ----------
+    overrides : collections.abc.Mapping or None, optional
+        Variables the child takes, whatever this process has.
+    removed : collections.abc.Sequence of str, optional
+        Variables the child must not have.
+
+    Yields
+    ------
+    None
+        While the environment is the child's.
+    """
+    with _ENVIRONMENT_LOCK:
+        target = child_environment({**os.environ, **(overrides or {})})
+        for key in removed:
+            target.pop(key, None)
+        touched = {key for key in target if os.environ.get(key) != target[key]}
+        touched |= {key for key in removed if key in os.environ}
+        previous = {key: os.environ.get(key) for key in touched}
+        try:
+            for key in touched:
+                if key in target:
+                    os.environ[key] = target[key]
+                else:
+                    os.environ.pop(key, None)
+            yield
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
 
 def sizes_blas_after_load() -> bool:

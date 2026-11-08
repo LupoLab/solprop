@@ -109,6 +109,8 @@ def test_the_batch_script_asks_for_what_the_template_says(tmp_path):
         "#SBATCH --signal=B:TERM@120",
         "module load gcc",
         "export SOLPROP_THREADS=4",
+        # A user's own value wins; otherwise the job's BLAS pools don't spin (#383).
+        "export OPENBLAS_THREAD_TIMEOUT=${OPENBLAS_THREAD_TIMEOUT:-20}",
     ):
         assert wanted in lines
     assert "#SBATCH --job-name=solprop-a_run" in lines
@@ -305,6 +307,25 @@ def test_a_start_that_fails_says_why(tmp_path, monkeypatch):
     monkeypatch.setattr(launch.subprocess, "run", silent)
     with pytest.raises(ServiceError, match=r"\(status 3\): $"):
         start_direct(folder)
+
+
+def test_a_direct_run_starts_with_its_blas_idle(tmp_path, monkeypatch):
+    folder = prepare(RunSpec("r1", str(tmp_path / "r1"), recipe=TINY))
+    seen = {}
+
+    def starter(*args, **kwargs):
+        seen.update(kwargs["env"])
+        return subprocess.CompletedProcess(args, 3)
+
+    monkeypatch.setattr(launch.subprocess, "run", starter)
+    monkeypatch.delenv("OPENBLAS_THREAD_TIMEOUT", raising=False)
+    with pytest.raises(ServiceError):
+        start_direct(folder, environment={"EXTRA": "1"})
+    assert seen["OPENBLAS_THREAD_TIMEOUT"] == "20" and seen["EXTRA"] == "1"
+    monkeypatch.setenv("OPENBLAS_THREAD_TIMEOUT", "28")
+    with pytest.raises(ServiceError):
+        start_direct(folder)
+    assert seen["OPENBLAS_THREAD_TIMEOUT"] == "28"
 
 
 def test_a_job_without_threads_leaves_the_budget_alone(tmp_path, monkeypatch):

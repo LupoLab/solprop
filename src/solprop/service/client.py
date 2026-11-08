@@ -19,6 +19,7 @@ import threading
 from collections.abc import Callable, Iterator, Mapping
 from multiprocessing.connection import Connection
 
+from solprop._process import spawn_environment
 from solprop.service import kernel
 from solprop.service.messages import Reply, Request
 
@@ -116,7 +117,9 @@ class KernelClient:
         self._process = context.Process(
             target=target, args=(child,), daemon=True, name="solprop-kernel"
         )
-        self._process.start()
+        # The kernel builds simulations, so it loads NumPy's BLAS (solprop issue #383).
+        with spawn_environment():
+            self._process.start()
         child.close()
         self._on_reply = on_reply
         self._on_lost = on_lost
