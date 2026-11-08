@@ -1139,6 +1139,11 @@ index entry and tracking issue change then.
     table-against-table A/B ran 0.60–1.52 per case.
   - *Intel Xeon Gold 6240, one socket:* the table in both conclusive calibrations; the
     machine is shared, and a later session was inconclusive (23 %).
+  - *Intel Xeon Platinum 8581C (Emerald Rapids), 12 cores* (5 % bar): the table's
+    waiting and team (passive 1.94 times slower), medium width 8 and the Axion's Raman
+    and copy thresholds, in both calibrations; A/B 0.989 against an A/A of 0.996,
+    `ctc` 0.87, `gnlse_raman_shock` 0.94, no case beyond its noise. The quick level
+    (first use) admitted the medium width alone: 0.999, `ctc` 0.90 (section 7 item 13).
   - *Apple M5 Max* (first rules): six top-tier threads kept in both calibrations, a
     Raman threshold of 8193 admitted; A/B 1.002 and 1.008, `h2_raman_averaged` 1.04,
     the stored wisdom the revision removes. With the revised rules (5 % bar), the same

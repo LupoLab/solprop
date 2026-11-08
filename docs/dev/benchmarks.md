@@ -2678,6 +2678,8 @@ the transforms' thresholds stay at the table (#587). With them:
 | AMD EPYC 9B45 (C4D), Windows Server 2025, the CI wheel | the table, twice | — | — | — |
 | AMD EPYC 9B45 (C4D), Linux (5 % bar) | the table; a copy threshold in the second | — | — | — |
 | Intel Xeon Gold 6240, one socket (18 cores) | the table, twice | — | — | — |
+| Intel Xeon Platinum 8581C (Emerald Rapids, C4), 12 cores (5 % bar) | medium width 8, Raman and copy thresholds, twice | 0.989 | 0.996 | none |
+| the same, at the quick level (first use) | medium width 8 | 0.999 | 0.996 | none |
 | Apple M5 Max, six top-tier threads (5 % bar) | a Raman threshold of 8193, twice | 1.012 | 1.000 | none that the profile changes |
 
 On the Axion the gains are on the few-mode and Raman cases: `gnlse_raman_shock`
@@ -2690,7 +2692,13 @@ calibrations found the grain inconclusive and kept the table.
 Where the calibration chose the table, the A/B would compare the table with itself and
 was not run (or, on the Xeon, measured only the shared machine's noise).
 
-Every machine refused passive waiting: 1.10–1.11 (Axion), 1.16–1.23 (EPYC 7763),
+The two machines the table was never tuned on, the Axion and the Emerald Rapids, chose
+the same grain; on the Emerald Rapids `ctc` ran 0.87 and `gnlse_raman_shock` 0.94 (the
+quick level, the medium width alone: `ctc` 0.90). Its second calibration also admitted
+`threaded_rows measure`, under the FFT stage's earlier base (every plan at estimate),
+since corrected; it was not A/B'd.
+
+Every machine refused passive waiting: 1.94 (Emerald Rapids), 1.10–1.11 (Axion), 1.16–1.23 (EPYC 7763),
 1.25–1.27 (EPYC 9B45 Linux), 1.18 (Windows), 1.25 (Xeon), 1.74–1.78 (Apple M5 Max). On
 the Apple M5 Max, under the first rules, two calibrations kept six top-tier threads and
 admitted a Raman threshold of 8193; the A/B was 1.002 and 1.008 (`h2_raman_averaged`
