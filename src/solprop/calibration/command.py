@@ -16,10 +16,10 @@ import platform
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from typing import cast
 
 from solprop import calibration
 from solprop.calibration import _native
-from solprop.exceptions import CalibrationError
 
 __all__ = ["add_arguments", "describe", "run"]
 
@@ -33,6 +33,20 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         The subcommand's parser.
     """
     action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--quick",
+        dest="level",
+        action="store_const",
+        const="quick",
+        help="about 20 s: the waiting policy and the team at reduced depth",
+    )
+    action.add_argument(
+        "--thorough",
+        dest="level",
+        action="store_const",
+        const="thorough",
+        help="about five minutes: more rounds and longer windows",
+    )
     action.add_argument(
         "--show",
         action="store_true",
@@ -56,17 +70,47 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="forget this machine and build's profiles",
     )
+    parser.add_argument(
+        "--budget",
+        type=float,
+        default=None,
+        metavar="SECONDS",
+        help="the calibration's deadline, the level's when omitted",
+    )
+    parser.set_defaults(level="standard")
 
 
 def _value(value: object) -> str:
-    """Format one setting for the description."""
+    """Format one setting for the description.
+
+    Parameters
+    ----------
+    value : object
+        A setting's value.
+
+    Returns
+    -------
+    str
+        ``yes`` or ``no`` for a flag, else the value as text.
+    """
     if isinstance(value, bool):
         return "yes" if value else "no"
     return str(value)
 
 
 def _summary(record: Mapping[str, object]) -> str:
-    """Describe an allocation class in a line."""
+    """Describe an allocation class in a line.
+
+    Parameters
+    ----------
+    record : Mapping[str, object]
+        An allocation class's record.
+
+    Returns
+    -------
+    str
+        Its cores, kinds, spans, SMT and quota.
+    """
     cores = record.get("cores")
     kinds = record.get("kinds")
     parts = [f"{cores} cores"]
@@ -84,6 +128,39 @@ def _summary(record: Mapping[str, object]) -> str:
     if record.get("quota") is not None:
         parts.append(f"quota {record.get('quota')}")
     return ", ".join(parts)
+
+
+def _evidence(evidence: Mapping[str, object]) -> list[str]:
+    """Summarise a row's evidence: why, the noise, each verdict, the validation.
+
+    Parameters
+    ----------
+    evidence : Mapping[str, object]
+        A row's evidence.
+
+    Returns
+    -------
+    list of str
+        One line each.
+    """
+    lines: list[str] = []
+    if "reason" in evidence:
+        lines.append(f"decided:      {evidence['reason']}")
+    if "noise" in evidence:
+        lines.append(f"noise:        {_value(evidence['noise'])} (A/A)")
+    verdicts = evidence.get("verdicts")
+    if isinstance(verdicts, dict):
+        for name, verdict in cast(dict[str, dict[str, object]], verdicts).items():
+            score = verdict.get("score")
+            shown = f"{score:.3f}" if isinstance(score, float) else "-"
+            lines.append(f"candidate:    {name} {shown} ({verdict.get('reason')})")
+    validation = evidence.get("validation")
+    if isinstance(validation, dict):
+        lines.append(
+            "validation:   "
+            + str(cast(dict[str, object], validation).get("reason", ""))
+        )
+    return lines
 
 
 def describe(environ: Mapping[str, str] | None = None) -> str:
@@ -157,8 +234,7 @@ def describe(environ: Mapping[str, str] | None = None) -> str:
     if row.fitted_under:
         fitted = ", ".join(f"{k} {_value(v)}" for k, v in row.fitted_under.items())
         lines.append(f"fitted under: {fitted}")
-    for name, value in row.evidence.items():
-        lines.append(f"evidence:     {name}: {_value(value)}")
+    lines += _evidence(row.evidence)
     return "\n".join(lines) + "\n"
 
 
@@ -203,7 +279,12 @@ def run(arguments: argparse.Namespace) -> int:
             f"removed {removed} file(s) from {calibration.store_directory()}\n"
         )
         return 0
-    raise CalibrationError(
-        "measuring is not available in this build yet: use --show, --export, "
-        "--import or --clear"
+    from solprop.calibration.controller import calibrate  # noqa: PLC0415 - heavy
+
+    report = calibrate(
+        arguments.level,
+        arguments.budget,
+        progress=lambda line: sys.stderr.write(f"solprop calibrate: {line}\n"),
     )
+    sys.stdout.write(report.describe())
+    return 0 if report.status == "published" else 1

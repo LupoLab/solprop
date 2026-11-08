@@ -2,7 +2,7 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""solprop-native's standard-library modules, loaded without the native runtime.
+"""The standard-library modules of solprop-native, loaded without its runtime.
 
 A calibration's controller must not load the native extension or a device runtime
 (solprop SEP 46 section 6.2), and importing ``solprop_native`` starts its OpenMP
@@ -115,7 +115,23 @@ def variant() -> str:
 
 
 def __getattr__(name: str) -> ModuleType:
-    """Load one of the package's pure modules under the private package."""
+    """Load one of the package's pure modules under the private package.
+
+    Parameters
+    ----------
+    name : str
+        One of the pure modules, without its underscore.
+
+    Returns
+    -------
+    types.ModuleType
+        The module.
+
+    Raises
+    ------
+    AttributeError
+        For any other name.
+    """
     if name not in _MODULES:
         raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
     if _PACKAGE not in sys.modules:

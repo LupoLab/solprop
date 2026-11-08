@@ -118,7 +118,6 @@ def test_a_published_profile_is_read_shown_exported_and_cleared(
     assert "measured on this allocation" in text
     assert "stage_threshold 1024 (built-in" in text
     assert "stable_kernel_team no (built-in" in text
-    assert "evidence:     geomean: 0.91" in text
     # Export, clear, then import back.
     exported = tmp_path / "node.json"
     assert calibration.export_profile(exported, environ) == found.source
@@ -184,11 +183,39 @@ def test_the_command_line_shows_exports_imports_and_clears(
     foreign.write_text(json.dumps(record | {"fingerprint": "f" * 24}), encoding="utf-8")
     assert main(["calibrate", "--import", str(foreign)]) == 0
     assert "does not apply here" in capsys.readouterr().out
-    # Measuring is not in this build yet.
-    assert main(["calibrate"]) == 2
-    assert "not available" in capsys.readouterr().err
     with pytest.raises(SystemExit):
         main(["calibrate", "--show", "--clear"])
+
+
+def test_the_command_line_measures_at_each_level(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    from solprop.calibration import controller  # noqa: PLC0415
+
+    asked: list[tuple[str, float | None]] = []
+
+    def fake(
+        level: str, budget: float | None, *, progress: object = None
+    ) -> controller.CalibrationReport:
+        asked.append((level, budget))
+        assert callable(progress)
+        progress("measuring")
+        return controller.CalibrationReport(
+            level=level,
+            status="published" if level != "thorough" else "inconclusive",
+            fingerprint="f",
+            allocation={},
+            reason="because",
+        )
+
+    monkeypatch.setattr(controller, "calibrate", fake)
+    assert main(["calibrate"]) == 0
+    assert main(["calibrate", "--quick", "--budget", "5"]) == 0
+    assert main(["calibrate", "--thorough"]) == 1
+    assert asked == [("standard", None), ("quick", 5.0), ("thorough", None)]
+    captured = capsys.readouterr()
+    assert "calibration (thorough): inconclusive" in captured.out
+    assert "solprop calibrate: measuring" in captured.err
 
 
 def test_read_only_directories_are_listed(environ: dict[str, str]) -> None:
@@ -239,3 +266,65 @@ def test_the_command_does_not_load_the_native_extension(tmp_path: Path) -> None:
         env={"SOLPROP_CACHE_DIR": str(tmp_path), "PATH": "", "HOME": str(tmp_path)},
     )
     assert completed.stderr.strip().splitlines()[-1] == "False"
+
+
+def test_without_its_processor_check_the_variant_is_the_one_build(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setattr(_native, "packages", lambda: (tmp_path,))
+    assert _native.variant() == "_core"
+
+
+def test_a_row_without_process_settings_is_described(environ: dict[str, str]) -> None:
+    found = calibration.choice(environ)
+    assert found.fingerprint is not None and found.allocation is not None
+    store = _native.store
+    store.Store(calibration.store_directory(environ)).publish(
+        store.Generation(
+            fingerprint=found.fingerprint.digest,
+            name="g1",
+            created="2026-11-08",
+            rows=(
+                store.Row(
+                    allocation=found.allocation.record(),
+                    level="quick",
+                    evidence={
+                        "reason": "kept",
+                        "noise": 0.02,
+                        "verdicts": {"spin/4": {"score": None, "reason": "1 of 3"}},
+                        "validation": {"reason": "geometric mean 0.9"},
+                    },
+                ),
+            ),
+        )
+    )
+    text = command.describe(environ)
+    assert "process:" not in text
+    assert "fitted under:" not in text
+    assert "candidate:    spin/4 - (1 of 3)" in text
+    assert "validation:   geometric mean 0.9" in text
+
+
+def test_the_summary_names_sockets_nodes_and_smt() -> None:
+    line = command._summary(  # pyright: ignore[reportPrivateUsage]
+        {"cores": 36, "kinds": [36], "sockets": 2, "numa_nodes": 2, "smt": True}
+    )
+    assert line == "36 cores, 2 sockets, 2 NUMA nodes, SMT"
+
+
+def test_the_package_calibrates_through_its_controller(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from solprop.calibration import controller  # noqa: PLC0415
+
+    asked: list[tuple[str, float | None]] = []
+
+    def fake(level: str, budget: float | None) -> controller.CalibrationReport:
+        asked.append((level, budget))
+        return controller.CalibrationReport(
+            level=level, status="held", fingerprint="f", allocation={}
+        )
+
+    monkeypatch.setattr(controller, "calibrate", fake)
+    assert calibration.calibrate("quick", 5.0).status == "held"
+    assert asked == [("quick", 5.0)]

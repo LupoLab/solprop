@@ -32,8 +32,11 @@ if TYPE_CHECKING:
         Choice,
     )
 
+    from solprop.calibration.controller import CalibrationReport
+
 __all__ = [
     "MachineProfile",
+    "calibrate",
     "clear",
     "export_profile",
     "import_profile",
@@ -85,6 +88,34 @@ class MachineProfile:
     fitted_under: Mapping[str, object]
     evidence: Mapping[str, object]
     source: Path | None
+
+
+def calibrate(
+    level: str = "standard", budget: float | None = None
+) -> CalibrationReport:
+    """Calibrate this machine's native backend for the process's allocation.
+
+    Child processes measure the candidate settings under one deadline; the result is
+    published in the user's store only if it was validated (SEP 46 section 6.5), and
+    later runs apply it. ``solprop calibrate`` is the same from the command line.
+
+    Parameters
+    ----------
+    level : str, optional
+        ``"quick"`` (about 20 s), ``"standard"`` (about a minute) or ``"thorough"``
+        (about five minutes).
+    budget : float or None, optional
+        The deadline in seconds, the level's when ``None``.
+
+    Returns
+    -------
+    solprop.calibration.controller.CalibrationReport
+        Each setting chosen beside its built-in value, the evidence, and whether it
+        was published.
+    """
+    from solprop.calibration.controller import calibrate as run  # noqa: PLC0415
+
+    return run(level, budget)
 
 
 def store_directory(environ: Mapping[str, str] | None = None) -> Path:
