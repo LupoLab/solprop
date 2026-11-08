@@ -285,8 +285,12 @@ rule below follows from the difference:
   with the new workspace settings. Its own process settings stay those it started with;
   they take effect from the next process. Importing the native backend never
   calibrates, so discovery, the GUI and `--version` never pause.
-  - *Scans* calibrate in the parent before the workers start, for the workers'
-    allocation (§6.4); a worker never calibrates.
+  - *Scans*, local or remote, wait for a proper calibration: the parent runs the
+    standard level, about a minute, for the workers' allocation (§6.4) before it starts
+    them, unless a standard or thorough row already matches. A scan usually runs for a
+    long time, often after waiting for a batch allocation, so a minute up front is
+    cheap, and since its workers are new processes they take the process settings too.
+    A worker never calibrates.
   - *Concurrent first runs on one host*, such as an array job's tasks, wait for the one
     that holds the calibration claim (§6.8), up to its deadline, then use its profile.
     Running them meanwhile would load the machine it is measuring.
@@ -407,10 +411,12 @@ At run time the process computes its own class from its affinity mask and quota:
 
 Scan workers have their own partitions, chosen by the executor
 (`driver/executors/pool.py`). Before it starts them, the scan's parent computes the
-workers' class; if no row matches it calibrates that class in a child pinned like one
-worker. The other partitions stay idle during that measurement, so shared caches and
+workers' class; unless a standard or thorough row matches, it calibrates that class
+at the standard level in a child pinned like one worker, and only then starts them. The other partitions stay idle during that measurement, so shared caches and
 memory bandwidth are less loaded than in the scan itself; the row records this. Remote
-executors calibrate on their own hosts, in their own stores, under the same claim rule.
+executors calibrate on their own hosts, in their own stores, at the standard level and
+under the same claim rule, before their workers start. GPU hosts are calibrated at
+bootstrap (§6.14).
 Nothing calibrates in a controller that must not initialise a device.
 
 **6.5 Selection and validation.** One statistical rule throughout, the `ab` harness's:
@@ -784,22 +790,21 @@ index entry and tracking issue change then.
    the thorough level and record the settings used. Open: whether the calibration's own
    variation from build to build is small enough for the history's series; phase 5
    measures it with two thorough calibrations of one build.
-4. **Accuracy rule for candidates.** Proposed: fields within ten times the run's
-   relative tolerance of the built-in's, finite, same acceptance structure; no replay
-   or rounding-level comparison (maintainer's guidance, 2026-11-08: maximum performance
-   within realistic physical accuracy). For confirmation.
-5. **Allocations without an exact row.** Proposed: use the row with the same span
-   structure and the nearest smaller core count for workspace settings, rather than the
-   built-in table. Faster on clusters whose jobs vary in size; worst case a less tuned
-   setting, never a wrong result. For confirmation.
-6. **Concurrent first runs on one host.** Proposed: they wait for the calibrating
-   process, up to its deadline, rather than run on the table and load the machine it
-   measures. For confirmation.
-7. **First use without changing the running process.** Proposed: the first run applies
-   the new workspace settings at once and the process settings from the next process,
-   so that importing never calibrates. The alternative calibrates at import and gives
-   the first process everything, but pauses discovery, the GUI and every import on a
-   new machine. For confirmation.
+4. **Accuracy rule for candidates.** Decided (maintainer, 2026-11-08): fields within ten
+   times the run's relative tolerance of the built-in's, finite, same acceptance
+   structure; no replay or rounding-level comparison. The aim is maximum performance
+   within realistic physical accuracy.
+5. **Allocations without an exact row.** Decided (maintainer, 2026-11-08): use the row
+   with the same span structure and the nearest smaller core count for workspace
+   settings, rather than the built-in table.
+6. **Concurrent first runs on one host.** Decided (maintainer, 2026-11-08): they wait for
+   the calibrating process, up to its deadline.
+7. **First use without changing the running process.** Decided (maintainer,
+   2026-11-08): the first run applies the new workspace settings at once and the
+   process settings from the next process, so that importing never calibrates. It
+   arises once per machine, allocation class and release. Scans instead wait for a
+   standard calibration before starting their workers (§5, §6.4), and GPU hosts are
+   calibrated at bootstrap.
 8. **The `fft_size="auto"` cost model (#229).** It could be fitted per machine from the
    same probes. Left for a later proposal.
 9. **Which device settings pay.** Phase 6 starts by measuring them on one NVIDIA and one
@@ -856,6 +861,8 @@ index entry and tracking issue change then.
   execution descriptors, claims and generations, a visible notice, GPU chunk only if
   #361 pays, and SEP 4's parts accounted for. Four decisions left to the maintainer
   (§12 items 4–7).
+- 2026-11-08: The maintainer agreed §12 items 4–7. Scans, local and remote, wait for a
+  standard calibration of the workers' allocation before starting them.
 
 ### AI review — 2026-11-08
 
