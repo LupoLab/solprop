@@ -178,7 +178,6 @@ def _refuse(problem: KernelProblem) -> None:
         problem.stepper,
     )
     reasons = {
-        "envelope plasma": problem.grid_kind == "envelope" and problem.flags.has_plasma,
         "single batch and scalar polarisation": problem.shape[0] != 1
         or problem.shape[2] != 1
         or transform.n_pol != 1,
@@ -191,12 +190,12 @@ def _refuse(problem: KernelProblem) -> None:
             {r.thg for r in response.raman_terms}
         )
         > 1,
-        "varying Raman coefficients": any(
-            not _constant(r.density or response.density)
-            or any(not _constant(v) for v in r.decay_rates)
-            for r in response.raman_terms
-        ),
-        "spectral responses": problem.flags.has_spectral_responses,
+        # A varying Raman kernel is rebuilt at each stage by the stage machinery, which a
+        # varying operator brings (a gas gradient's); free space has none.
+        "varying Raman coefficients beside a constant operator": _raman_varying(problem)
+        and problem.linear.phi_expansion is None,
+        "varying Raman coefficients in free space": _raman_varying(problem)
+        and transform.kind == "free",
         "dispersive Kerr": response.dispersive_kerr is not None,
         "separable responses off free space": response.separable is not None
         and transform.kind != "free",
@@ -209,8 +208,6 @@ def _refuse(problem: KernelProblem) -> None:
             type(stepper.integrator) is not Multistep
             or stepper.integrator.formulation != "exponential"
         ),
-        "Cartesian Adams integration": isinstance(stepper.integrator, Multistep)
-        and transform.kind == "free",
         # A modal route's RK4IP flow is the constant operator's exponential; a
         # varying one's (an integral over the half step) is not formed.
         "low-storage integration with a varying operator": isinstance(
@@ -247,6 +244,16 @@ def _compensated(problem: KernelProblem) -> bool:
     } and not source_absent(problem)
 
 
+def _raman_varying(problem: KernelProblem) -> bool:
+    """Whether any Raman component's density or decay rate varies along the guide."""
+    response = problem.responses
+    return any(
+        not _constant(r.density or response.density)
+        or any(not _constant(v) for v in r.decay_rates)
+        for r in response.raman_terms
+    )
+
+
 def _varying(problem: KernelProblem) -> bool:
     """Identify stage-dependent material scales and longitudinal expansions."""
     response = problem.responses
@@ -260,8 +267,9 @@ def _varying(problem: KernelProblem) -> bool:
         )
         or any(
             not _constant(c.density) or not _constant(c.preionisation)
-            for c in response.plasma_channels
+            for c in response.population_channels
         )
+        or _raman_varying(problem)
     )
 
 
@@ -440,6 +448,48 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
             omega=grids.omega.copy(),
         )
 
+    envelope = responses.envelope_plasma
+    if envelope is not None:
+        # The envelope grid's channels: each one's instantaneous table and constants as
+        # the field plasma's, the cycle quadrature's rules end to end, and the
+        # currents' spectral factors on the band (julia/src/envelope.jl).
+        config["envelope_plasma"] = True
+        config["plasma_count"] = len(envelope.channels)
+        for k, channel in enumerate(envelope.channels, start=1):
+            suffix = "" if k == 1 else f"_{k}"
+            table = channel.cycle.rate
+            config[f"plasma_coefficients{suffix}"] = table.coefficients.copy()
+            config[f"plasma_parameters{suffix}"] = np.array(
+                [
+                    table.field_min,
+                    table.field_max,
+                    table.rate_max,
+                    table.log_field_min,
+                    table.d_log_field,
+                    channel.charge_mass_ratio,
+                    channel.ionisation_potential / scale**2,
+                    float(channel.density(0.0)),
+                    float(channel.preionisation(0.0)),
+                ]
+            )
+        rules = envelope.channels[0].cycle.rules
+        if any(
+            len(c.cycle.rules) != len(rules)
+            or any(
+                not np.array_equal(a.nodes, b.nodes) for a, b in zip(c.cycle.rules, rules, strict=True)
+            )
+            for c in envelope.channels
+        ):
+            raise BackendError("julia does not support channels with different rules")
+        config.update(
+            envelope_rule_nodes=np.concatenate([r.nodes for r in rules]),
+            envelope_rule_weights=np.concatenate([r.weights for r in rules]),
+            envelope_rule_orders=np.array([len(r.nodes) for r in rules], dtype=np.int64),
+            envelope_drude=envelope.factors.drude.copy(),
+            envelope_loss=envelope.factors.loss.copy(),
+            dt=grids.dt_fine,
+        )
+
     if responses.raman_terms:
         # Every component's terms in one kernel, each weighted by its density and
         # fraction (constant: varying coefficients are refused), the mlx backend's sum.
@@ -449,6 +499,19 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
             rows.append(raman.undamped.T)
             rates.extend(float(rate(0.0)) for rate in raman.decay_rates)
             weights.extend([density * raman.fraction] * len(raman.decay_rates))
+        if _raman_varying(problem):
+            # Each term's component and each component's fraction: the engine forms
+            # the weights from the stage's densities and rebuilds the kernel.
+            config["raman_varying"] = True
+            config["raman_component"] = np.concatenate(
+                [
+                    np.full(len(raman.decay_rates), j, dtype=np.int64)
+                    for j, raman in enumerate(responses.raman_terms, start=1)
+                ]
+            )
+            config["raman_fractions"] = np.array(
+                [raman.fraction for raman in responses.raman_terms]
+            )
         config.update(
             raman_undamped=np.ascontiguousarray(np.hstack(rows)),
             raman_rates=np.array(rates),
@@ -825,6 +888,14 @@ class JuliaBackend(StepDriver[object]):
             suffix = "" if k == 1 else f"_{k}"
             tables[f"plasma{suffix}"] = channel.density
             tables[f"preionisation{suffix}"] = channel.preionisation
+        if _raman_varying(problem):
+            # Each term's decay rate and each component's density, for the kernel the
+            # engine rebuilds when they change.
+            rates = [t for r in responses.raman_terms for t in r.decay_rates]
+            for i, table in enumerate(rates, start=1):
+                tables[f"raman_rate_{i}"] = table
+            for j, raman in enumerate(responses.raman_terms, start=1):
+                tables[f"raman_density_{j}"] = raman.density or responses.density
         if problem.transform.taper_scale is not None:
             # A tapered guide's scale: the synthesis takes it, the projection its
             # reciprocal.

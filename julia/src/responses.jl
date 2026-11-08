@@ -77,6 +77,7 @@ end
 # --- plasma -------------------------------------------------------------------------
 
 function plasma_workspace(c, host, nt, chunk, nm, nn)
+    host.flag("envelope_plasma") && return envelope_plasma_workspace(c, host, nt, chunk, nm, nn)
     host.flag("plasma") || return nothing
     T = c.T
     # Columns: the chunk's where the streams are transformed node by node (free space,
@@ -341,9 +342,12 @@ pass is a sample a thread and the two running integrals are column-wise scans: t
 sums are reassociated, which SEP 25 permits and the tests bound, as native's
 two-level device scans do.
 """
-plasma_current!(p, nodes, c, count) = each_channel(p) do q, add
-    oncpu(c) && !SAMPLE_PLASMA[] ? plasma_columns!(q, nodes, c, count, add) :
-    plasma_samples!(q, nodes, c, count, add)
+function plasma_current!(p, nodes, c, count)
+    is_envelope(p) && return envelope_current!(p, nodes, c, count)
+    each_channel(p) do q, add
+        oncpu(c) && !SAMPLE_PLASMA[] ? plasma_columns!(q, nodes, c, count, add) :
+        plasma_samples!(q, nodes, c, count, add)
+    end
 end
 
 """Call `f(q, add)` for each plasma channel: `q` the workspace with the channel's rate
@@ -351,9 +355,9 @@ table, constants and population tables in place of the first's, `add` whether it
 currents add to those the channels before it formed."""
 function each_channel(f::F, p) where {F}
     for (k, channel) in enumerate(p.channels)
+        # (The channel's every table: an envelope's carries its precise rate's tails.)
         q = k == 1 ? p :
-            merge(p, (coefficients=channel.coefficients, parameters=channel.parameters,
-                      fractions=view(p.fractions_all, :, k), peaks=view(p.peaks_all, :, k)))
+            merge(p, channel, (fractions=view(p.fractions_all, :, k), peaks=view(p.peaks_all, :, k)))
         f(q, k > 1)
     end
 end
@@ -468,6 +472,7 @@ function add_plasma!(destination, p, plan, c; coarse=false, direct=false)
 end
 """Add `-i J / omega + edge / omega^2` of the currents' spectra, already transformed."""
 function add_plasma_spectra!(destination, p, c; coarse=false)
+    is_envelope(p) && return add_envelope_spectra!(destination, p, c)
     # The coarse quadrature's currents (a GPU's packed streams), or the source's.
     spectrum, edge_spectrum = coarse ? (p.coarse_spectrum, p.coarse_edge_spectrum) :
                                        (p.spectrum, p.edge_spectrum)
@@ -489,6 +494,7 @@ and set its nodes' final fractions and peak rates. A GPU forms them a sample a t
 with the column diagnostics as array reductions, as it forms the current.
 """
 population_parts!(p, nodes, c, first, count) =
+    is_envelope(p) ? envelope_populations!(p, nodes, c, first, count) :
     oncpu(c) && !SAMPLE_PLASMA[] ? population_columns!(p, nodes, c, first, count) :
     population_samples!(p, nodes, c, first, count)
 
@@ -642,6 +648,20 @@ function raman_workspace(c, host, nt, chunk; modes=0, nodes=0, synthesis=nothing
                  signal_forward=thg ? nothing : plan(c, plan_fft!, signal, 1),
                  signal_inverse=thg ? nothing : plan(c, plan_bfft!, signal, 1))
     end
+    # A varying kernel (a gas gradient's): the rows on the device, rebuilt at a stage whose
+    # rates or densities differ (`rebuild_raman!`), the block exponent the launch's.
+    if host.flag("raman_varying")
+        time_kernel = dzeros(c, T, 2nt, 1)
+        extra = (extra..., varying=true, rows=upload(c, T.(rows)),
+                 component=host.array("raman_component", Int),
+                 fractions=host.array("raman_fractions", Float64),
+                 weights_device=dzeros(c, T, length(rates)), rates_device=dzeros(c, T, length(rates)),
+                 time_kernel=time_kernel, time_spectrum=dzeros(c, C, nt + 1, 1),
+                 kernel_plan=plan(c, plan_rfft, time_kernel, 1; threads=1),
+                 kernel_scale=T(dt / (2nt) * exp2(-e)), raman_dt=T(dt), last=Ref{Any}(nothing))
+    else
+        extra = (extra..., varying=false)
+    end
     (kernel=upload(c, C.(spectrum)), factor=host.real("raman_factor") * exp2(e), thg=thg,
      products=products, drive=drive, frequency=frequency, extra...,
      forward=plan(c, plan_rfft, drive, 1; threads=c.raman_fft_threads),
@@ -656,6 +676,36 @@ function convolve!(r, c)
         @inbounds frequency[f, m] *= kernel[f]
     end
     @section :raman_inverse mul!(drive, r.inverse, frequency)
+    nothing
+end
+
+"""Rebuild a varying Raman kernel for a stage's decay rates and component densities: the
+response `sum_k n_c(k) f_c(k) R_k(t) exp(-r_k t)` on the device, one transform, scaled as
+the launch's spectrum was. A stage that repeats the last rates and densities keeps it."""
+function rebuild_raman!(r, rates, densities, c)
+    key = (copy(rates), copy(densities))
+    r.last[] == key && return nothing
+    r.last[] = key
+    T = eltype(r.time_kernel)
+    weights = [densities[r.component[k]] * r.fractions[r.component[k]] for k in eachindex(rates)]
+    copyto!(r.weights_device, T.(weights))
+    copyto!(r.rates_device, T.(rates))
+    rows, w, decay, response, dt = r.rows, r.weights_device, r.rates_device, r.time_kernel, r.raman_dt
+    terms = length(rates)
+    each!(c, size(response, 1), 1) do t, _
+        @inbounds begin
+            value = zero(eltype(response))
+            for k in 1:terms
+                value += w[k] * rows[t, k] * exp(-decay[k] * (t - 1) * dt)
+            end
+            response[t, 1] = value
+        end
+    end
+    mul!(r.time_spectrum, r.kernel_plan, response)
+    kernel, spectrum, scale = r.kernel, r.time_spectrum, r.kernel_scale
+    each!(c, length(kernel), 1) do f, _
+        @inbounds kernel[f] = spectrum[f, 1] * scale
+    end
     nothing
 end
 

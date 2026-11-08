@@ -9,6 +9,7 @@ prepared the runtime. ``SOLPROP_JULIA_DEVICE=cuda`` runs the same tests on an NV
 (``SOLPROP_JULIA_CHECK``), so that a CPU run catches what would fail on a device.
 """
 
+import dataclasses
 import importlib.util
 import os
 
@@ -54,6 +55,8 @@ WINDOWS = [
     ("h2_raman_6ps", "default", 0.0005),
     ("radial_filament_256", "default", 0.002),
     ("line", "default", 0.005),
+    # Free space on the exponential Adams march: past its start-up steps.
+    ("line", "multistep", 0.02),
     ("kerr_beam_192", "default", 1.0),
 ]
 
@@ -537,6 +540,123 @@ def test_julia_two_plasma_channels_match_the_reference(runtime):
         )
 
 
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GasFlowWarning")
+@binary64
+def test_julia_varying_raman_matches_the_reference(runtime):
+    """A hydrogen gradient: the Raman density and decay rates vary along the guide, and
+    the engine rebuilds its kernel at each stage as the reference does."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.physdata.selection import MaterialSelection  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+
+    length, fields = 0.05, {}
+    with ExitStack() as cleanup:
+        for name in ("numpy_ref", "julia"):
+            simulation = Simulation.from_capillary(
+                75e-6, length, "H2", (3.0, 0.5), wavelength=800e-9,
+                wavelength_limits=(300e-9, 3e-6), trange=1e-12, fwhm=30e-15,
+                energy=50e-6, n_save=2, backend=name, integrator=RungeKutta(),
+                schedule=FixedSchedule.uniform(0.0, length, length / 16),
+                absorber_scheme="split_step", noise=None, plasma=False, raman=True,
+                # The lines' density shift held at the reference density (the seam
+                # cannot follow it along a gradient).
+                materials=MaterialSelection(raman_shift="reference-density"),
+            )
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(length)
+            fields[name] = engine.observe(field=True).field
+    scale = float(np.linalg.norm(fields["numpy_ref"]))
+    assert float(np.linalg.norm(fields["julia"] - fields["numpy_ref"])) <= 1e-10 * scale
+
+
+ENVELOPE_PLASMA_STATISTICS = (
+    "electron_density",
+    "peak_ionisation_rate",
+    "species_ionisation",
+)
+
+
+def _envelope_plasma(name, waveguide, precision="double"):
+    """Argon's envelope plasma (preionised 10 %, ionising) on four fixed steps: a
+    resolved capillary or a mode-averaged waveguide. Return its field and statistics."""
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from rate_oracles import adk_oracle  # noqa: PLC0415
+    from solprop.boundaries import absorber  # noqa: PLC0415
+    from solprop.driver import Simulation  # noqa: PLC0415
+    from solprop.modes import MarcatiliMode  # noqa: PLC0415
+    from solprop.stats import StatsSpec  # noqa: PLC0415
+    from solprop.stepper import FixedSchedule, RungeKutta  # noqa: PLC0415
+
+    length = 8e-6
+    options = {
+        "wavelength": 800e-9, "wavelength_limits": (500e-9, 1.2e-6), "trange": 80e-15,
+        "fwhm": 20e-15, "energy": 4e-4, "envelope": True, "plasma": adk_oracle("Ar"),
+        "preionisation": 0.1, "raman": False, "kerr": True, "noise": None,
+        "schedule": FixedSchedule.uniform(0.0, length, length / 4),
+        "save_planes": [length / 2, length], "integrator": RungeKutta(),
+        "stats": StatsSpec(names=ENVELOPE_PLASMA_STATISTICS), "precision": precision,
+        "backend": name,
+    }
+    if waveguide:
+        simulation = Simulation.from_waveguide(
+            [MarcatiliMode(125e-6, "Ar", 1.0, loss=False, cladding=1.45)],
+            length, "Ar", 1.0, **options,
+        )
+    else:
+        simulation = Simulation.from_capillary(
+            125e-6, length, "Ar", 1.0, loss=False, cladding=1.45, n_r=4,
+            radial_rule="gauss", **options,
+        )
+    simulation.settings = dataclasses.replace(
+        simulation.settings, absorber=absorber(simulation.grid, boundary_length=1e-3)
+    )
+    with ExitStack() as cleanup:
+        engine = _loaded(simulation, name, cleanup)
+        engine.propagate_to(length)
+        return engine.observe(field=True).field, engine.stats(
+            simulation.translate().stats_spec
+        )
+
+
+@pytest.mark.parametrize("waveguide", [False, True])
+@binary64
+def test_julia_envelope_plasma_matches_the_reference(runtime, waveguide):
+    """The envelope plasma's field and populations are the reference's to rounding."""
+    del runtime
+    field, statistics = _envelope_plasma("julia", waveguide)
+    reference, expected = _envelope_plasma("numpy_ref", waveguide)
+    # The rate is live: the cycle quadrature and the loss current are exercised.
+    assert float(np.max(expected["peak_ionisation_rate"])) > 1e9, expected
+    scale = float(np.linalg.norm(reference))
+    assert float(np.linalg.norm(field - reference)) <= 1e-10 * scale
+    for name in ENVELOPE_PLASMA_STATISTICS:
+        np.testing.assert_allclose(
+            statistics[name], expected[name], rtol=1e-9, err_msg=name
+        )
+
+
+@pytest.mark.parametrize("wide", WIDE)
+@pytest.mark.parametrize("waveguide", [False, True])
+def test_julia_single_precision_envelope_plasma(runtime, monkeypatch, waveguide, wide):
+    """Binary32's envelope plasma (its cycle sums compensated) tracks the binary32
+    reference as the other windows do, and its populations within the same 1e-4."""
+    del runtime
+    monkeypatch.setenv("SOLPROP_JULIA_WIDE", wide)
+    field, statistics = _envelope_plasma("julia", waveguide, "single")
+    reference, expected = _envelope_plasma("numpy_ref", waveguide, "single")
+    scale = float(np.linalg.norm(reference))
+    assert float(np.linalg.norm(field - reference)) <= 1e-4 * scale
+    for name in ENVELOPE_PLASMA_STATISTICS:
+        np.testing.assert_allclose(
+            statistics[name], expected[name], rtol=1e-4, err_msg=name
+        )
+
+
 @binary64
 def test_julia_tsit5_matches_the_reference(runtime):
     """An adaptive TSIT5 window takes the reference's steps and field."""
@@ -624,7 +744,7 @@ def test_julia_reports_its_engine(runtime):
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
 @pytest.mark.parametrize("wide", WIDE)
-@pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:6])
+@pytest.mark.parametrize(("case", "stepper", "fraction"), WINDOWS[:7])
 def test_julia_single_precision_tracks_the_reference(
     runtime, monkeypatch, case, stepper, fraction, wide
 ):

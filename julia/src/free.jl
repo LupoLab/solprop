@@ -38,7 +38,12 @@ function create_free(c, host)
     # and a division (binary64 at an A40's 1/64 rate, about half a Cartesian window).
     op = wide_eltype(c) === Float64 && oncpu(c) ?
          map(v -> v isa Array ? upload(c, v) : v, separable) : free_tables(c, separable, nw, nm)
-    c = merge(c, (
+    # The exponential Adams trial reads every element's rate (its phi functions take
+    # the step's exponent): the host-formed table, the same binary64 values.
+    adams = host.has("adams_order") && host.int("adams_order") > 0
+    linear = !adams ? upload(c, widen_host(wide_eltype(c), zeros(ComplexF64, 0, 0))) :
+             haskey(op, :rate) ? op.rate : free_tables(c, separable, nw, nm).rate
+    c = merge(c, (linear=linear,
         spatial_shape=shape, op=op, field_scale=T(host.real("pad_scale")) * scale,
         absorber_scale=T(-0.5) * scale, spatial_rate=upload(c, T.(spatial_rate)),
         temporal_rate=upload(c, T.(c.split ? zero(c.rate) : c.rate)), in_stage=in_stage,
@@ -68,7 +73,7 @@ function create_free(c, host)
         pack = (input=pack_in, output=pack_out, forward=plan(c, plan_rfft, pack_in, 1))
     end
     work = (
-        adams=nothing, path=nothing, raman=raman_workspace(c, host, nt, chunk), monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), held_state=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
+        adams=adams_workspace(c, host, nw, nm), path=nothing, raman=raman_workspace(c, host, nt, chunk), monitor=monitor_workspace(c, nw, nm, nc), edge=Ref{Any}(nothing), held_state=Ref{Any}(nothing), march=Ref{Any}(nothing), spatial=Ref{Any}(nothing),
         plasma=plasma, pack=pack,
         y=dzeros(c, C, nw, nm), candidate=dzeros(c, C, nw, nm), lab=dzeros(c, C, nw, nm),
         source=dzeros(c, C, nw, nm), error=dzeros(c, C, nw, nm),

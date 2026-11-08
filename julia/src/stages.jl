@@ -19,7 +19,10 @@ function path_workspace(c, host)
      # channel's density and preionisation.
      material=[zeros(3, stages); ones(1, stages);
                zeros(2 * ((host.has("plasma_count") ? host.int("plasma_count") : 1) - 1), stages)],
-     tables=Dict{String,Any}(), constants=zeros(4))
+     tables=Dict{String,Any}(), constants=zeros(4),
+     # A varying Raman kernel's decay rates (a term a row) and component densities.
+     raman_rates=zeros(host.flag("raman_varying") ? length(host.array("raman_component", Int)) : 0, stages),
+     raman_densities=zeros(host.flag("raman_varying") ? length(host.array("raman_fractions", Float64)) : 0, stages))
 end
 
 """Take a trial's stage weights: Phi increments, prefactor weights and material scales."""
@@ -50,6 +53,10 @@ function material_stage!(engine, stage)
     end
     engine.factor = p.material[1, stage]
     engine.taper = p.material[4, stage]
+    r = w.raman
+    if r !== nothing && r.varying && !isempty(p.raman_rates)
+        rebuild_raman!(r, view(p.raman_rates, :, stage), view(p.raman_densities, :, stage), c)
+    end
     if w.plasma !== nothing
         w.plasma.parameters[8] = p.material[2, stage]
         w.plasma.parameters[9] = p.material[3, stage]
@@ -136,6 +143,14 @@ function configure_stages_at!(engine, z0, positions)
              for name in ("plasma", "preionisation")]
     material = permutedims(hcat([kerr * d * scale2 for d in density],
                                 column("plasma"), column("preionisation"), taper, later...))
+    # A varying Raman kernel's rates and densities, before the stages are configured
+    # (whose first stage then rebuilds it).
+    for k in axes(path.raman_rates, 1)
+        path.raman_rates[k, 1:n] .= column("raman_rate_$k")
+    end
+    for j in axes(path.raman_densities, 1)
+        path.raman_densities[j, 1:n] .= column("raman_density_$j")
+    end
     configure_stages!(engine, delta, weights, material)
 end
 
