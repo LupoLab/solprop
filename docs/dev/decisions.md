@@ -2010,7 +2010,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-071 — Idle threads spin briefly within native work
 
-- **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576); supersedes
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576); supersedes
   ADR-056's waiting.
 - **Context:** a native step opens tens of short parallel regions (about 16 in an `rdw` Adams
   trial). With idle threads asleep (ADR-056), each region wakes them: 16 µs at 6 threads and
@@ -2043,7 +2043,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-072 — SLEEF's vector maths on macOS arm64 too
 
-- **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576); amends ADR-059.
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576); amends ADR-059.
 - **Context:** ADR-059 kept the system libm on Apple silicon, where SLEEF's AdvSIMD functions
   measured 11.6 % slower. Since then the plasma column gathers its live samples into blocks
   and the Adams passes have a lanes form, both used only with vector maths. On an Apple M5 Max
@@ -2061,7 +2061,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-073 — Lower operation thresholds on Apple silicon's spinning top tier
 
-- **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576).
+- **Status:** accepted (maintainer), 2026-11-08 (PR #576).
 - **Context:** the native CPU thresholds (`core.hpp`) were swept with idle threads asleep, a
   fork and join of 16 threads costing 100–200 µs. Under ADR-071's spin a region costs about
   0.6 µs on 6 threads and 2.4 µs on 18 (LLVM's runtime, Apple M5 Max), 6–12 µs on 16–36
