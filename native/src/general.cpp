@@ -348,6 +348,93 @@ void cartesian_for(const char* label, const ExecutionSpace& execution,
 #endif
 }
 
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+// One host tile of a crossing: its rows `[first_row, last_row)` and bins
+// `[first_bin, last_bin)`, at most `crossing_tile_columns` by `crossing_tile_bins`.
+struct CrossingTile {
+  std::size_t first_row, last_row, first_bin, last_bin;
+
+  std::size_t size() const noexcept {
+    return (last_row - first_row) * (last_bin - first_bin);
+  }
+  // An element's place in a tile buffer, rows outermost.
+  std::size_t at(const std::size_t row, const std::size_t bin) const noexcept {
+    return (row - first_row) * (last_bin - first_bin) + (bin - first_bin);
+  }
+  // Every element in the traversal order `crossing_for` names.
+  template <bool BinsInner, class Function> void visit(const Function& element) const {
+    if constexpr (BinsInner)
+      for (std::size_t row = first_row; row < last_row; ++row)
+        for (std::size_t inner = first_bin; inner < last_bin; ++inner)
+          element(row, inner);
+    else
+      for (std::size_t inner = first_bin; inner < last_bin; ++inner)
+        for (std::size_t row = first_row; row < last_row; ++row)
+          element(row, inner);
+  }
+};
+
+// The host tiles of a crossing, one task each: `crossing_for`'s traversal, for a
+// kernel that forms a whole tile's transcendentals in one pass first.
+template <bool Streaming = false, class Function>
+void crossing_tiles(const char* label, const ExecutionSpace& execution,
+                    const std::size_t rows, const std::size_t width,
+                    const Function& visit) {
+  constexpr std::size_t tile_rows = crossing_tile_columns;
+  constexpr std::size_t tile_bins = crossing_tile_bins;
+  const std::size_t row_tiles = (rows + tile_rows - 1) / tile_rows;
+  const std::size_t bin_tiles = (width + tile_bins - 1) / tile_bins;
+  launch::parallel_for(
+      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, row_tiles * bin_tiles),
+      KOKKOS_LAMBDA(const std::size_t index) {
+        const std::size_t first_row = (index / bin_tiles) * tile_rows;
+        const std::size_t first_bin = (index % bin_tiles) * tile_bins;
+        visit(CrossingTile{
+            first_row, rows - first_row < tile_rows ? rows : first_row + tile_rows,
+            first_bin, width - first_bin < tile_bins ? width : first_bin + tile_bins});
+        // Each thread orders its own streaming stores before the region ends.
+        if constexpr (Streaming)
+          stream_fence();
+      });
+}
+
+// A tile's propagators `exp(argument)`, as `propagator_exp` forms them, in one pass
+// of the vector-maths layer (solprop ADR-059, issue #338): the cosines and sines,
+// then the magnitudes, `exp(+-0)` exactly one on a lossless element without the
+// call. Fill `real` and `imag` for the tile's elements, then `form`.
+struct PropagatorTile {
+  static constexpr std::size_t capacity = crossing_tile_columns * crossing_tile_bins;
+  // The static analyser cannot follow that `form` and `operator[]` read only what the
+  // tile's visit wrote, so its build zeroes the arrays; a real build leaves them unset.
+#ifdef __clang_analyzer__
+  double real[capacity]{}, imag[capacity]{}, cosine[capacity]{}, sine[capacity]{};
+#else
+  double real[capacity], imag[capacity], cosine[capacity], sine[capacity];
+#endif
+
+  void form(const std::size_t count) {
+    vmath::sincos(imag, sine, cosine, count);
+    bool lossless = true;
+    for (std::size_t k = 0; k < count; ++k)
+      lossless = lossless && real[k] == 0.0;
+    if (lossless)
+      return;
+#ifdef __clang_analyzer__
+    double magnitude[capacity]{};
+#else
+    double magnitude[capacity];
+#endif
+    vmath::exp(real, magnitude, count);
+    for (std::size_t k = 0; k < count; ++k) {
+      const double scale = real[k] == 0.0 ? 1.0 : magnitude[k];
+      cosine[k] *= scale;
+      sine[k] *= scale;
+    }
+  }
+  Complex operator[](const std::size_t k) const { return {cosine[k], sine[k]}; }
+};
+#endif
+
 // On a device, `RowFastest` maps adjacent rows (columns of the plane) to adjacent
 // threads, so the transverse scratch side of a gather or scatter is coalesced; the
 // chunk-local side is the strided one.
@@ -376,31 +463,9 @@ void crossing_for(const char* label, const ExecutionSpace& execution,
     cartesian_for(label, execution, rows, width, element);
   }
 #else
-  constexpr std::size_t tile_rows = crossing_tile_columns;
-  constexpr std::size_t tile_bins = crossing_tile_bins;
-  const std::size_t row_tiles = (rows + tile_rows - 1) / tile_rows;
-  const std::size_t bin_tiles = (width + tile_bins - 1) / tile_bins;
-  launch::parallel_for(
-      label, Kokkos::RangePolicy<ExecutionSpace>(execution, 0, row_tiles * bin_tiles),
-      KOKKOS_LAMBDA(const std::size_t tile) {
-        const std::size_t first_row = (tile / bin_tiles) * tile_rows;
-        const std::size_t first_bin = (tile % bin_tiles) * tile_bins;
-        const std::size_t last_row =
-            rows - first_row < tile_rows ? rows : first_row + tile_rows;
-        const std::size_t last_bin =
-            width - first_bin < tile_bins ? width : first_bin + tile_bins;
-        if constexpr (BinsInner)
-          for (std::size_t row = first_row; row < last_row; ++row)
-            for (std::size_t inner = first_bin; inner < last_bin; ++inner)
-              element(row, inner);
-        else
-          for (std::size_t inner = first_bin; inner < last_bin; ++inner)
-            for (std::size_t row = first_row; row < last_row; ++row)
-              element(row, inner);
-        // Each thread orders its own streaming stores before the region ends.
-        if constexpr (Streaming)
-          stream_fence();
-      });
+  crossing_tiles<Streaming>(
+      label, execution, rows, width,
+      [&](const CrossingTile& tile) { tile.visit<BinsInner>(element); });
 #endif
 }
 
@@ -9049,27 +9114,68 @@ void GeneralWorkspace::separable_stage_input(const std::size_t stage, const doub
   const auto n_stages = problem_.n_stages;
   const bool add_noise = problem_.modified_noise && has_noise_;
   const double inverse_area_count = inverse_transverse_count();
-  crossing_for(
-      "solprop_native.free.stage_input", execution_space_, problem_.n_columns(),
-      problem_.n_omega,
+  // The stage input at one element, given its spatial value and its propagator.
+  const auto input = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                                   const Complex linear, const Complex propagator) {
+    Complex accumulated{};
+    for (std::size_t previous = 0; previous < stage; ++previous)
+      accumulated +=
+          tableau(stage * n_stages + previous) * stages(previous, column, omega);
+    Complex value = propagator * (current(column, omega) + dz * accumulated);
+    if (add_noise) {
+      const double angle = at(stage) * linear.imag();
+      value += noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
+    }
+    scratch.data()[index.cell(column, omega)] = value * inverse_area_count;
+  };
+  // One element's propagators: devices, and a host whose vector maths is the system
+  // libm, where the per-element form is the faster (solprop ADR-059).
+  const auto element =
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        const auto mode = index.mode(column);
-        const auto values = spatial.value(mode, omega, active(omega) != 0U);
-        Complex accumulated{};
-        for (std::size_t previous = 0; previous < stage; ++previous)
-          accumulated +=
-              tableau(stage * n_stages + previous) * stages(previous, column, omega);
-        Complex value = propagator_exp(delta(stage) * values.linear) *
-                        (current(column, omega) + dz * accumulated);
-        if (add_noise) {
-          const double angle = at(stage) * values.linear.imag();
-          value +=
-              noise(column, omega) * Complex(Kokkos::cos(angle), Kokkos::sin(angle));
-        }
-        scratch.data()[index.cell(column, omega)] = value * inverse_area_count;
-        if (stage + 1 == n_stages)
-          whole(column, omega) = propagator_exp(delta(n_stages) * values.linear);
-      });
+    const auto values = spatial.value(index.mode(column), omega, active(omega) != 0U);
+    input(column, omega, values.linear, propagator_exp(delta(stage) * values.linear));
+    if (stage + 1 == n_stages)
+      whole(column, omega) = propagator_exp(delta(n_stages) * values.linear);
+  };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  if constexpr (vmath::vectorised) {
+    // Each tile's propagators in one pass of the vector maths, then the elements in
+    // `crossing_for`'s order: the propagators' cosines and sines took a fifth of a
+    // one-thread `line` run one element at a time (solprop issue #338).
+    const bool last = stage + 1 == n_stages;
+    crossing_tiles(
+        "solprop_native.free.stage_input", execution_space_, problem_.n_columns(),
+        problem_.n_omega, [=](const CrossingTile& tile) {
+          PropagatorTile step, finish;
+          Complex linear[PropagatorTile::capacity];
+          tile.visit<true>([&](const std::size_t column, const std::size_t omega) {
+            const auto k = tile.at(column, omega);
+            linear[k] =
+                spatial.value(index.mode(column), omega, active(omega) != 0U).linear;
+            const Complex argument = delta(stage) * linear[k];
+            step.real[k] = argument.real();
+            step.imag[k] = argument.imag();
+            if (last) {
+              const Complex whole_argument = delta(n_stages) * linear[k];
+              finish.real[k] = whole_argument.real();
+              finish.imag[k] = whole_argument.imag();
+            }
+          });
+          step.form(tile.size());
+          if (last)
+            finish.form(tile.size());
+          tile.visit<false>([&](const std::size_t column, const std::size_t omega) {
+            const auto k = tile.at(column, omega);
+            input(column, omega, linear[k], step[k]);
+            if (last)
+              whole(column, omega) = finish[k];
+          });
+        });
+    return;
+  }
+#endif
+  crossing_for("solprop_native.free.stage_input", execution_space_,
+               problem_.n_columns(), problem_.n_omega, element);
 }
 
 void GeneralWorkspace::separable_load_current() {
@@ -9202,21 +9308,54 @@ void GeneralWorkspace::separable_finish_transform(const std::size_t stage,
   const auto active = active_mask_;
   const auto delta = stage_phi_delta_;
   const auto index = stage_index();
-  crossing_for<false, false, true>(
-      "solprop_native.free.finish_transform", execution_space_, problem_.n_columns(),
-      problem_.n_omega,
+  // The finish at one element, given its prefactor and its inverse propagator.
+  const auto finish = KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega,
+                                    const Complex prefactor, const Complex inverse) {
+    Complex value = scratch.data()[index.cell(column, omega)];
+    value *=
+        material ? prefactor * window(omega) : Complex(active(omega) != 0U ? 1.0 : 0.0);
+    value *= inverse;
+    if (material)
+      stages(stage, column, omega) = value;
+    else
+      stages(stage, column, omega) += value;
+  };
+  // One element, on devices and without host vector maths (as the stage input).
+  const auto element =
       KOKKOS_LAMBDA(const std::size_t column, const std::size_t omega) {
-        const auto mode = index.mode(column);
-        const auto values = spatial.value(mode, omega, active(omega) != 0U);
-        Complex value = scratch.data()[index.cell(column, omega)];
-        value *= material ? values.prefactor * window(omega)
-                          : Complex(active(omega) != 0U ? 1.0 : 0.0);
-        value *= propagator_exp(-delta(stage) * values.linear);
-        if (material)
-          stages(stage, column, omega) = value;
-        else
-          stages(stage, column, omega) += value;
-      });
+    const auto values = spatial.value(index.mode(column), omega, active(omega) != 0U);
+    finish(column, omega, values.prefactor,
+           propagator_exp(-delta(stage) * values.linear));
+  };
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  if constexpr (vmath::vectorised) {
+    // As the stage input: each tile's inverse propagators in one pass (issue #338).
+    crossing_tiles(
+        "solprop_native.free.finish_transform", execution_space_, problem_.n_columns(),
+        problem_.n_omega, [=](const CrossingTile& tile) {
+          PropagatorTile inverse;
+          Complex prefactor[PropagatorTile::capacity];
+          tile.visit<true>([&](const std::size_t column, const std::size_t omega) {
+            const auto k = tile.at(column, omega);
+            const auto values =
+                spatial.value(index.mode(column), omega, active(omega) != 0U);
+            prefactor[k] = values.prefactor;
+            const Complex argument = -delta(stage) * values.linear;
+            inverse.real[k] = argument.real();
+            inverse.imag[k] = argument.imag();
+          });
+          inverse.form(tile.size());
+          tile.visit<true>([&](const std::size_t column, const std::size_t omega) {
+            const auto k = tile.at(column, omega);
+            finish(column, omega, prefactor[k], inverse[k]);
+          });
+        });
+    return;
+  }
+#endif
+  crossing_for<false, false, true>("solprop_native.free.finish_transform",
+                                   execution_space_, problem_.n_columns(),
+                                   problem_.n_omega, element);
 }
 
 // Free space (solprop `NumpyRefBackend._nonlinear_free`) and the hybrid planar kind
