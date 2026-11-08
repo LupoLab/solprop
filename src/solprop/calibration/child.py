@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from solprop_native._execution import ExecutionRecord
     from solprop_native.backend import NativeBackend
 
-__all__ = ["main", "pin"]
+__all__ = ["main", "pin", "serve"]
 
 
 def pin(cpus: Sequence[int]) -> None:

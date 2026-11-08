@@ -32,6 +32,7 @@ __all__ = [
     "TIMED",
     "Candidate",
     "Operation",
+    "Record",
     "affected",
     "best",
     "operations",

@@ -55,9 +55,12 @@ if TYPE_CHECKING:
 
 __all__ = [
     "LEVELS",
+    "ORDER",
+    "POLICY",
     "CalibrationReport",
     "Candidate",
     "Level",
+    "LevelName",
     "builtin_wait",
     "calibrate",
     "candidates",
@@ -65,6 +68,7 @@ __all__ = [
 ]
 
 type LevelName = Literal["quick", "standard", "thorough"]
+"""A measuring level's name."""
 type Scores = dict[str, list[float | None]]
 
 
