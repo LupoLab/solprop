@@ -222,3 +222,48 @@ def test_each_arm_runs_its_own_backend_at_that_backends_precision():
         "precision": "single",
     }
     assert ab.arm_configuration(values, "native")["precision"] == "double"
+
+
+def test_each_arm_takes_its_own_environment(tmp_path, monkeypatch):
+    """A calibrated arm against the built-in table (SEP 46): only the arm's own
+    variables differ, over the threading preset, and the plan records them."""
+    seen = []
+
+    def launch(python, request, environment, *_args):
+        seen.append(environment.get("SOLPROP_CALIBRATION"))
+        return [], 0.0
+
+    monkeypatch.setattr(ab, "launch_worker", launch)
+    monkeypatch.setattr(ab, "guard", lambda *_args: {"quiet": True})
+    out = tmp_path / "run"
+    cli.main(
+        [
+            "ab",
+            "--case",
+            "smoke",
+            "--threads",
+            "1",
+            "--rounds",
+            "1",
+            "--baseline-python",
+            sys.executable,
+            "--baseline-env",
+            "SOLPROP_CALIBRATION=off",
+            "--candidate-env",
+            "SOLPROP_CALIBRATION=use",
+            "--out",
+            str(out),
+        ]
+    )
+    assert sorted(seen) == ["off", "use"]
+    plan = read_record(out / "plan.json")
+    assert plan["environments"] == {
+        "baseline": {"SOLPROP_CALIBRATION": "off"},
+        "candidate": {"SOLPROP_CALIBRATION": "use"},
+    }
+
+
+def test_an_arms_environment_takes_name_value_pairs():
+    assert ab.arm_environment(["A=1", "B="]) == {"A": "1", "B": ""}
+    with pytest.raises(ab.SuiteError, match="NAME=VALUE"):
+        ab.arm_environment(["broken"])

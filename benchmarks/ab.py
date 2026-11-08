@@ -40,6 +40,7 @@ __all__ = [
     "ab",
     "ab_options",
     "arm_configuration",
+    "arm_environment",
     "arm_order",
     "field_difference",
     "show_summary",
@@ -77,6 +78,27 @@ def ab_options(parser: argparse.ArgumentParser) -> None:
         choices=BACKENDS,
         help="the candidate arm's backend; default: --backend",
     )
+    for arm in ARMS:
+        parser.add_argument(
+            f"--{arm}-env",
+            action="append",
+            default=[],
+            metavar="NAME=VALUE",
+            help=f"an environment variable for the {arm} arm alone, over the "
+            "threading preset (repeatable); SOLPROP_CALIBRATION=off against =use "
+            "compares the built-in table with a machine calibration (SEP 46)",
+        )
+
+
+def arm_environment(settings: list[str]) -> dict[str, str]:
+    """Return an arm's own variables from ``NAME=VALUE`` settings."""
+    environment: dict[str, str] = {}
+    for setting in settings:
+        name, separator, value = setting.partition("=")
+        if not separator or not name:
+            raise SuiteError(f"an arm's environment takes NAME=VALUE, got {setting!r}")
+        environment[name] = value
+    return environment
 
 
 def arm_configuration(configuration: Record, backend: str) -> Record:
@@ -231,6 +253,10 @@ def ab(args: argparse.Namespace) -> int:
         "baseline": prepared_python(args.baseline_python),
         "candidate": prepared_python(args.candidate_python),
     }
+    environments = {
+        "baseline": arm_environment(args.baseline_env),
+        "candidate": arm_environment(args.candidate_env),
+    }
     harness = output / "harness"
     atomic_record(
         output / "plan.json",
@@ -239,6 +265,7 @@ def ab(args: argparse.Namespace) -> int:
             "purpose": "exploratory A/B",
             "pythons": pythons,
             "backends": backends,
+            "environments": environments,
             "rounds": args.rounds,
             "repeats": args.repeats,
             "length": args.length,
@@ -274,7 +301,8 @@ def ab(args: argparse.Namespace) -> int:
                         if round_index == 0
                         else None,
                     },
-                    thread_environment(width, dict(os.environ), args.threading),
+                    thread_environment(width, dict(os.environ), args.threading)
+                    | environments[arm],
                     output / "raw" / f"r{round_index}-{arm}-{row['id']}",
                     args.timeout,
                     harness,
@@ -315,6 +343,7 @@ def ab(args: argparse.Namespace) -> int:
         same = (
             pythons["baseline"] == pythons["candidate"]
             and backends["baseline"] == backends["candidate"]
+            and environments["baseline"] == environments["candidate"]
         )
         print(
             ("A/A control: the same interpreter for both arms. " if same else "")
