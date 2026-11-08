@@ -2646,6 +2646,53 @@ bin underflows harmlessly, so binary32 now holds it to growth alone; with the ed
 on the device and the operator built once, whole runs take 1.05 s on `mlx` against
 2.64 s on `native` (192²) and 7.72 against 9.43 s (384²), the fields 2e-7 apart.
 
+### Separable stage propagators as vector maths
+
+[#338](https://github.com/LupoLab/solprop/issues/338): free space's separable stage input
+and finish formed each element's propagator with one libm `sincos` (and an `exp` where it
+carries loss) inside the crossing's visit. At one thread that was 18 % of `line`. Each
+host crossing tile (32 columns by 16 bins) now forms its 512 propagators in one
+`vmath::sincos` pass, and one `vmath::exp` pass only where a real part is non-zero, before
+the tile is visited in its former order. Devices keep the per-element path.
+
+`python -m benchmarks ab`, `main` at `f7d1a736` against the branch, an Intel Xeon Gold 6240
+(18 cores of one socket, exclusive), a quarter of each case's length, three rounds of three
+repeats (the Cartesian filament one), the same steps, and fields within 1.2e-12:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `line` | 0.893 [0.882, 0.893] | 0.927 [0.901, 0.929] |
+| `cartesian_filament_128` | | 0.931 [0.852, 0.932] |
+| `planar` | 0.995 | 0.994 |
+| `kerr_beam_192` (control: tabulated low-storage path) | 0.996 | 1.009 |
+| `argon_blueshift` (control) | 1.004 | 1.002 |
+
+`planar`'s libm share (8 % at one thread) is outside these kernels. The other per-element
+kernels #338 lists (the envelope cycle moments, the two-component magnitudes, the
+trapezoid column and dense observation) were negligible in one-thread profiles of the
+tracked cases, so they were left.
+
+### x86-64-v4 against v3 on an AVX-512 Xeon
+
+[#334](https://github.com/LupoLab/solprop/issues/334): the branch above built with
+`-march=cascadelake` (x86-64-v4 with VNNI) against x86-64-v3, GCC 16.2, FFTW 3.3.11,
+OpenBLAS 0.3.34 and SLEEF's AVX2 route in both. `python -m benchmarks ab --set tracking`,
+an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), a quarter length, three
+rounds; the ratio v4/v3, the same steps and fields to rounding:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `argon_blueshift` | 0.909 | 0.962 |
+| `ctc` | 0.924 | 0.964 |
+| `grin_nonlinear` | 0.943 | 0.968 |
+| `rdw` | 0.978 | 0.976 |
+| `he_rdw_averaged` | 1.036 | 1.004 |
+| the other eight | 0.972–1.034 | 0.976–1.013 |
+
+The geometric mean over all 26 rows is 0.984. `kerr_beam_384` at one thread had a round
+twice as slow; its median, 1.034, is that noise. No case reaches the 10 % at the default width that
+[#337](https://github.com/LupoLab/solprop/issues/337) asks of run-time dispatch.
+
 ## Reference tables
 
 These tables back the indicative results above.
