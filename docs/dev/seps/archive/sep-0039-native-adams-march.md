@@ -2768,7 +2768,7 @@ and `-fno-math-errno`.
   report, part 2 (the HIP qualification), and the closing record. Archived.
 - 2026-11-07: Addendum (#273): §7.6's frequent-event cases, a short `ctc` window,
   `step_planes = 1`, `row_period = 1` and a busy monitor, were measured after `Final`, on
-  an AMD EPYC 7763 and after SEP 45; none is slower than the spread
+  an AMD EPYC 7763 and an Apple M5 Max and after SEP 45; none is slower than the spread
   ([benchmarks](../../benchmarks.md#the-native-adams-march)).
 
 ### AI review — 2026-10-28
