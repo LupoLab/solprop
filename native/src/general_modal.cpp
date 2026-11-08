@@ -262,8 +262,13 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
       map_terms_(problem.general_map_intervals * problem.general_map_n_deg),
       map_n_deg_(problem.general_map_n_deg), n_stages_(problem.n_stages),
       crop_offset_(problem.crop_index.empty() ? 0 : problem.crop_index.front()),
-      real_form_(problem.general_real_form), epsilon0_(problem.general_epsilon0) {
+      real_form_(problem.general_real_form), epsilon0_(problem.general_epsilon0),
+      kernel_pool_(CpuPool::kernels, problem.cpu_execution),
+      fft_pool_(CpuPool::fft, problem.cpu_execution),
+      raman_pool_(CpuPool::raman_fft, problem.cpu_execution),
+      raman_tail_pool_(CpuPool::raman_tail_fft, problem.cpu_execution) {
   require_general_modal(problem);
+  require_cpu_execution(problem.cpu_execution);
   if (!problem.general_modal)
     throw std::invalid_argument("the problem does not declare the general modal route");
   kernels_ = kernel_pool_.get(CpuOperation::stage, n_modes_ * n_omega_);

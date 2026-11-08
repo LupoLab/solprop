@@ -5,6 +5,8 @@
 #include "solprop_native/core.hpp"
 #include "solprop_native/dispersive.hpp"
 
+#include "execution.hpp"
+
 #include <Kokkos_Core.hpp>
 
 #include <gtest/gtest.h>
@@ -277,6 +279,7 @@ TEST(DispersiveMixture, TheRowsAreTheReferenceArithmetic) {
 
 native::Problem dispersive_problem() {
   native::Problem problem;
+  problem.cpu_execution = native::test::table();
   problem.n_t = 4;
   problem.n_to = 8;
   problem.n_omega = 3;
@@ -442,6 +445,7 @@ native::Problem general_problem(const bool symmetric) {
   // A layout of the general modal route: three channels, helium in region 3, argon and
   // krypton in region 5, as solprop's leaf groups them.
   native::Problem problem;
+  problem.cpu_execution = native::test::table();
   problem.n_to = 8;
   problem.n_stages = 1;
   problem.family = native::FieldFamily::field_real;

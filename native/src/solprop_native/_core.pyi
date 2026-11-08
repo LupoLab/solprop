@@ -370,6 +370,8 @@ class State:
     @property
     def execution_sizing(self) -> dict[str, dict[str, int]]: ...
     @property
+    def cpu_execution(self) -> dict[str, int | bool]: ...
+    @property
     def raman_kernel_transforms(self) -> int: ...
     @property
     def fsal_ready(self) -> bool: ...
@@ -417,7 +419,6 @@ def initialize_runtime(
     fft: int = 0,
     raman_fft: int = 0,
     raman_tail_fft: int = 0,
-    threaded_fft_min_samples: int = 0,
     band_tiles: int = -1,
 ) -> None: ...
 def reference_fft3_pairs(

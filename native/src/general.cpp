@@ -2044,6 +2044,7 @@ class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
     require_general_problem(problem_);
+    require_cpu_execution(problem_.cpu_execution);
     identity_crop_ = problem_.crop_index.size() == problem_.n_omega;
     for (std::size_t index = 0; identity_crop_ && index < problem_.n_omega; ++index)
       identity_crop_ = problem_.crop_index[index] == index;
@@ -2248,6 +2249,9 @@ public:
     return compact_ ? std::max({kernel_pool_.widest(), fft_pool_.widest(),
                                 raman_pool_.widest(), raman_tail_pool_.widest()})
                     : 0;
+  }
+  const CpuExecution& cpu_execution() const noexcept {
+    return kernel_pool_.execution();
   }
   CpuSizing execution_sizing() const {
     auto result = kernel_pool_.sizing();
@@ -2607,10 +2611,10 @@ public:
   // One real mode at several nodes in one chunk: synthesis and projection through
   // the one-mode kernels on the response team (gemm.hpp).
   bool one_mode_products_{};
-  CpuExecutionPool kernel_pool_{CpuPool::kernels};
-  CpuExecutionPool fft_pool_{CpuPool::fft};
-  CpuExecutionPool raman_pool_{CpuPool::raman_fft};
-  CpuExecutionPool raman_tail_pool_{CpuPool::raman_tail_fft};
+  CpuExecutionPool kernel_pool_{CpuPool::kernels, problem_.cpu_execution};
+  CpuExecutionPool fft_pool_{CpuPool::fft, problem_.cpu_execution};
+  CpuExecutionPool raman_pool_{CpuPool::raman_fft, problem_.cpu_execution};
+  CpuExecutionPool raman_tail_pool_{CpuPool::raman_tail_fft, problem_.cpu_execution};
   mutable ExecutionSpace execution_space_;
   ExecutionSpace response_execution_space_, response_tail_execution_space_;
   ExecutionSpace transform_execution_space_, transform_tail_execution_space_;
@@ -3398,6 +3402,10 @@ public:
       }
       if (one.problem_.n_columns() != columns_ || one.problem_.n_omega != omega_)
         throw std::invalid_argument("native batch member layouts differ");
+      // The batch's updates run on one team for every member (solprop SEP 46).
+      if (one.problem_.cpu_execution != kernel_pool_.execution())
+        throw std::invalid_argument(
+            "native batch members' CPU execution records differ");
     }
     const auto count = checked_product(columns_, members_.size(), "batch columns");
     // The batch's updates take its members' team.
@@ -3486,8 +3494,18 @@ public:
 
 private:
   using Descriptors = Kokkos::View<UpdateColumn*, Layout, MemorySpace>;
+  // The first member's record, which every member must share; read before the
+  // constructor's checks, so it refuses an empty or unloaded batch itself.
+  static const CpuExecution&
+  first_execution(const std::vector<std::shared_ptr<GeneralState>>& members) {
+    if (members.empty())
+      throw std::invalid_argument("a native batch needs at least one member");
+    if (!members.front() || members.front()->closed())
+      throw std::invalid_argument("native batch members must be open");
+    return members.front()->workspace_->problem_.cpu_execution;
+  }
   std::vector<std::shared_ptr<GeneralState>> members_;
-  CpuExecutionPool kernel_pool_{CpuPool::kernels};
+  CpuExecutionPool kernel_pool_{CpuPool::kernels, first_execution(members_)};
   ExecutionSpace execution_;
   std::size_t columns_{}, omega_{};
   Descriptors descriptors_;
@@ -16983,6 +17001,9 @@ std::map<std::string, std::size_t> GeneralState::memory_ledger() const {
 CpuSizing GeneralState::execution_sizing() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->execution_sizing();
+}
+const CpuExecution& GeneralState::cpu_execution() const {
+  return workspace_->cpu_execution();
 }
 double GeneralState::planning_seconds() const noexcept {
   return workspace_ ? workspace_->planning_seconds() : 0.0;

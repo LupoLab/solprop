@@ -173,27 +173,11 @@ public:
   using std::runtime_error::runtime_error;
 };
 
-/** Below this many real-side samples per execution a modal or spatial FFTW plan runs
-    on one thread (`ThreadPolicy::threaded_fft_min_samples` unless set at start). The
-    crossover is platform-dependent. On Linux at 32768 the four-mode RDW's 32000-sample
-    coarse batch (n_t 4000) ran serially, its transforms 2.5-3.2 times slower on an
-    18-core Cascade Lake socket than the 32768-sample batch's four-thread ones; 16384
-    also gains on Zen 3. On an Apple arm64 laptop the serial transforms are the faster
-    ones at that size, so macOS keeps 32768 until its own crossover is swept.
-   `__APPLE__` is the only platform switch here and for the stage boundary below:
-   Windows and linux-aarch64 take the x86 Linux values, which were not measured there
-   (solprop issue #328). */
-#if defined(__APPLE__)
-inline constexpr std::size_t default_threaded_fft_min_samples = 32768;
-#else
-inline constexpr std::size_t default_threaded_fft_min_samples = 16384;
-#endif
-
-/** Process-start CPU policy; execution instances never exceed the runtime budget. */
+/** Process-start CPU policy (solprop SEP 46 section 5's process settings): the pool
+    capacities, fixed when the runtime starts. Execution instances never exceed the
+    runtime budget. */
 struct ThreadPolicy {
   int kernels{}, fft{}, raman_fft{}, raman_tail_fft{};
-  // Zero takes `default_threaded_fft_min_samples`.
-  std::size_t threaded_fft_min_samples{};
   // The field plasma column's band form (solprop SEP 25 section 6.7.6): negative takes
   // the build's (tiled on a device, the team column on the host), zero the team
   // column, and N > 0 the tiled column with host teams of N threads.
@@ -238,113 +222,62 @@ enum class CpuOperation {
   modal,
   adams
 };
+inline constexpr std::size_t cpu_operation_count =
+    static_cast<std::size_t>(CpuOperation::adams) + 1;
 /** Process-start pool supplying an operation's capacity and explicit override. */
 enum class CpuPool { kernels, fft, raman_fft, raman_tail_fft };
 
-// Shared CPU policy; solprop docs/dev/benchmarks.md, section
-// "Kokkos CPU operation-size threading", records the complete windows and sweeps.
-// Work is elements for stages/copies, active columns * fine samples for responses,
-// rows * inner * samples for dense products, active bins * modes^3 for matrix
-// functions, elements * history rows for the exponential Adams trial's passes, and
-// actual real-side batch samples for FFT/Raman plans (including tails).
-// An 8196-element RDW stage needs the full pool in the server calibration; putting its
-// reductions on a separate width loses that gain. In contrast, an 8192-element temporal
-// copy must stay serial: threading it changes averaged helium from 0.74 to 1.27 s in
-// that calibration. Native products stay serial below the conservative one-million-work
-// crossover: 2x2x8192 favours serial on both hosts, whereas 33x4x8192 favours the full
-// pool. Intermediate native-product widths did not establish a complete-window benefit.
-// General-modal synthesis/projection have dedicated team kernels, with work
-// active nodes * components * spectral samples * modes. Keep their measured
-// full-width threshold separate: serialising these kernels regresses complete
-// windows on both hosts, despite the generic small-GEMM crossover above.
-// Responses retain four threads for many short columns (33x4096), while long
-// 65536-sample columns enable the full pool without threading small copy kernels.
-// Wider chunks also need the full pool: switching between a four-thread response
-// and a full-width FFT regressed the Cartesian filament on the server. The column
-// boundary retains the measured 33-column regime and includes 44-column tails.
-// This is a construction-time shape rule, shared by both hosts and all responses.
-// The stage boundary is platform-dependent. At 8192, just under the calibrated
-// 8196-element RDW stage, the same case on a 2-3-5-smooth grid (n_t 4000, 8004
-// elements) ran its stage entry serially on Linux: 708 us against 59 us at full width
-// on an 18-core Cascade Lake socket, 1.8 times the whole evaluation of n_t 4096. At
-// 4096 (with the FFT boundary at 16384) n_t 4000 costs no more than 4096 there and on
-// Zen 3; at 1024 a 1351-element SSFS stage regressed. On an Apple arm64 laptop the
-// serial stage is the faster one at 8004 elements (and 4096's threaded one is already
-// dearer than 4000's serial), so macOS keeps 8192 until its own crossover is swept.
-// Windows and linux-aarch64 take the Linux value, unmeasured there.
-#if defined(__APPLE__)
-inline constexpr std::size_t stage_thread_min_elements = 8192;
-#else
-inline constexpr std::size_t stage_thread_min_elements = 4096;
-#endif
-inline constexpr std::size_t copy_thread_min_elements = 65536;
-// The 38691-work scalar-wall flow needs full width: its serial block functions
-// took 2.39 s versus 0.13 s with the full pool in the server window profile.
-inline constexpr std::size_t flow_thread_min_elements = 32768;
-inline constexpr std::size_t modal_thread_min_elements = 65536;
-inline constexpr std::size_t response_thread_min_elements = 32768;
-inline constexpr std::size_t dense_thread_min_elements = 1048576;
-inline constexpr std::size_t raman_thread_min_elements = 65536;
-// The exponential Adams trial's two passes cost about ten stage entries an element,
-// so they thread on fields the stage keeps serial; its work is elements * history
-// rows (seven for the default fifth order). Swept on single-column capillaries of 401
-// to 10241 elements with the passes forced to 1-16 threads of a 16-thread process,
-// idle threads sleeping: on 16 cores of a dual EPYC 7643 four threads lost at 4487
-// (0.8x) and gained 1.1-2.1x from 5607 to 71687, also with other jobs on the node,
-// while 16 lost to four on helium up to 17927 and to one at 8967 (a fork and join of
-// 16 costs 100-200 us); an 18-core Apple M5 Max gained at four from 4487 and at 16
-// over four only at 71687 (docs/dev/benchmarks.md, "Kokkos CPU operation-size
-// threading").
-inline constexpr std::size_t adams_thread_min_elements = 8192;
-inline constexpr std::size_t adams_full_thread_elements = 65536;
-inline constexpr std::size_t stage_full_thread_elements = stage_thread_min_elements;
-inline constexpr std::size_t response_full_thread_elements = 196608;
-inline constexpr std::size_t response_full_thread_samples = 65536;
-inline constexpr std::size_t response_full_thread_columns = 40;
-inline constexpr std::size_t dense_full_thread_elements = 1048576;
-inline constexpr std::size_t fft_full_thread_elements = 131072;
-inline constexpr std::size_t raman_full_thread_elements = 262144;
-// A kernel pool that holds a full-width instance gives it to medium-width kernels too
-// (CpuExecutionPool::get): GNU OpenMP ends surplus threads when a team narrows, and on
-// Windows, with LLVM's libomp, the wider team still ran h2_raman_averaged 1.1 times
-// faster at eight threads. Not on macOS: on an Apple M5 Max, whose 18 cores are of two
-// kinds, the promoted passes took argon_blueshift from 3.0 to 3.2 s at 18 threads.
-inline constexpr bool stable_kernel_team =
-#if defined(__APPLE__)
-    false;
-#else
-    true;
-#endif
-inline constexpr int cpu_medium_threads = 4;
-// The thresholds above were swept with idle threads asleep, a fork and join of 16
-// threads costing 100-200 us. On Apple silicon, while LLVM's runtime spins within
-// native calls (`configure_native_spin`, solprop ADR-071) on a team of at most
-// `spinning_threshold_max_team` threads, a region costs about a microsecond, and every
-// threshold is divided by this. On an Apple M5 Max at six threads, on top of the spin:
-// the Raman GNLSE 0.44 of its window, Raman hydrogen 0.89, comb-to-continuum 0.92, the
-// tracking cases 0.87 on geometric mean, none slower; its top-tier cluster shares one
-// L2 cache. On two Intel Xeon Gold 6240, whose cores share only the L3, a sixteenth ran
-// the averaged argon and hydrogen 1.4-1.7 times slower at 4, 8, 18 and 36 threads with
-// either runtime, and a quarter lost on 16 cores of an AMD EPYC 7763 (ADR-073). The
-// grain belongs to the machine: a calibration at start-up would be the general form.
-inline constexpr std::size_t spinning_threshold_divisor = 16;
-inline constexpr int spinning_threshold_max_team = 8;
-// A compact problem (`compact_problem`: one column on one node with fewer than
-// `compact_max_fine_samples` fine samples, the GNLSE and the mode-averaged capillary
-// among them) runs its kernels on a team of at most `cpu_compact_threads` threads and
-// its threaded transforms on that whole team. Its stage of a few thousand to 16384 bins
-// otherwise woke the whole pool for one short pass between serial transforms: on 16
-// cores of an Intel Xeon Gold 6240 the main thread then ran at about 2.7 instead of 3.5
-// GHz, its arrays came back from other cores' caches, and gnlse_raman_shock took as
-// long on 16 threads as on one. FFTW's threaded loops take the runtime's whole team, so
-// a threaded transform beside the narrower kernel team would make GNU OpenMP end and
-// restart threads at every pair: compact transforms run their loops on the team
-// through FFTW's callback (`CpuTeamScope`), or stay serial without it (solprop
-// docs/dev/benchmarks.md, "Compact CPU teams").
-inline constexpr int cpu_compact_threads = 8;
-inline constexpr std::size_t compact_max_fine_samples = 65536;
+/** One operation class's grain: below `threshold` work it runs on one thread, below
+    `full` on the medium width, and from `full` on its pool's capacity. Work is
+    elements for stages and copies, active columns * fine samples for responses,
+    rows * inner * samples for dense products, active bins * modes^3 for matrix
+    functions, elements * history rows for the exponential Adams trial's passes, and
+    actual real-side batch samples for FFT and Raman plans (tails included); the FFT
+    class's threshold is where a modal or spatial FFTW plan starts to thread. */
+struct OperationGrain {
+  std::size_t threshold{}, full{};
+  bool operator==(const OperationGrain&) const = default;
+};
+
+/** A workspace's CPU execution settings (solprop SEP 46 section 5's workspace
+    settings), copied into the workspace when it is built and never read from anywhere
+    global, so two live workspaces may hold different ones.
+
+    Native code holds no values for them (solprop_native's built-in table,
+    `_execution.py`, or a machine calibration supplies every field, with the
+    measurements behind each built-in value) and refuses a record that leaves one
+    unset (`require_cpu_execution`).
+
+    - `grain`, indexed by `CpuOperation`.
+    - A response of `response_full_samples` fine samples or more, or of
+      `response_full_columns` columns or more, takes the full pool at any size above
+      its threshold.
+    - `medium_threads`: the medium width.
+    - A compact problem (`compact_problem`: one column on one node with fewer than
+      `compact_max_fine_samples` fine samples) runs its kernels on a team of at most
+      `compact_threads` and its threaded transforms on that whole team.
+    - `stable_kernel_team`: once a kernel pool holds a full-width instance, a
+      medium-width kernel takes it too (`CpuExecutionPool::get`). */
+struct CpuExecution {
+  std::array<OperationGrain, cpu_operation_count> grain{};
+  std::size_t response_full_samples{}, response_full_columns{};
+  int medium_threads{}, compact_threads{};
+  std::size_t compact_max_fine_samples{};
+  bool stable_kernel_team{};
+  bool operator==(const CpuExecution&) const = default;
+  [[nodiscard]] const OperationGrain&
+  operator[](CpuOperation operation) const noexcept {
+    return grain[static_cast<std::size_t>(operation)];
+  }
+};
+
+/** Throw `std::invalid_argument` unless every threshold, bound and width of
+    `execution` is positive and each class's full size is at least its threshold. */
+void require_cpu_execution(const CpuExecution& execution);
+
 /** Choose a width without changing the runtime or a vendor library's pool. */
-[[nodiscard]] int operation_threads(const ThreadPolicy& policy, CpuPool pool,
+[[nodiscard]] int operation_threads(const ThreadPolicy& policy,
+                                    const CpuExecution& execution, CpuPool pool,
                                     CpuOperation operation, std::size_t elements,
                                     std::size_t fine_samples = 0);
 
@@ -359,12 +292,16 @@ inline constexpr bool cpu_size_policy_enabled = false;
 /** Own execution instances constructed only while a workspace and its plans form. */
 class CpuExecutionPool {
 public:
-  explicit CpuExecutionPool(CpuPool pool) : pool_(pool) {}
+  /** A pool of `pool`'s capacity choosing widths by `execution`, which it copies. */
+  CpuExecutionPool(CpuPool pool, const CpuExecution& execution)
+      : pool_(pool), execution_(execution) {}
   const ExecutionSpace& get(CpuOperation operation, std::size_t elements,
                             std::size_t fine_samples = 0);
-  /** Size a compact problem's instances (`cpu_compact_threads`), before any `get`;
-      explicit pool requests still apply as given. */
+  /** Size a compact problem's instances (`CpuExecution::compact_threads`), before any
+      `get`; explicit pool requests still apply as given. */
   void compact() noexcept { compact_ = cpu_size_policy_enabled; }
+  /** The execution settings this pool chooses widths by. */
+  [[nodiscard]] const CpuExecution& execution() const noexcept { return execution_; }
   /** The widest instance handed out so far; zero before any. */
   [[nodiscard]] int widest() const noexcept {
     return instances_.empty() ? 0 : instances_.rbegin()->first;
@@ -374,6 +311,7 @@ public:
 
 private:
   CpuPool pool_;
+  CpuExecution execution_;
   bool compact_{};
   std::map<int, ExecutionSpace> instances_;
   CpuSizing sizing_;
@@ -524,6 +462,9 @@ struct Problem {
   std::size_t n_pol_transform{1};
   std::size_t n_nodes{1};
   std::size_t node_chunk{1};
+  // How the workspace's CPU operations thread (solprop SEP 46): set by the caller,
+  // refused when unset (`require_cpu_execution`).
+  CpuExecution cpu_execution{};
   std::size_t n_stages{};
   // solprop SEP 24 phase 3 (kernel schema 32): the low-storage RK4IP march. With it no
   // Runge-Kutta view is allocated (stages, accumulators, accept buffer, residual,
@@ -797,9 +738,10 @@ struct TrialScalars {
 /** Which general z table a call names (solprop SEP 29 G1). */
 enum class TableKind { phi, prefactor, rate, flux };
 
-/** Whether `problem` runs on a compact CPU team (`cpu_compact_threads`): one column
-    on one node, fewer than `compact_max_fine_samples` fine samples, and neither the
-    general modal route, a coupled flow nor a separable geometry. */
+/** Whether `problem` runs on a compact CPU team (`CpuExecution::compact_threads`): one
+    column on one node, fewer than its record's `compact_max_fine_samples` fine
+    samples, and neither the general modal route, a coupled flow nor a separable
+    geometry. */
 [[nodiscard]] bool compact_problem(const Problem& problem) noexcept;
 
 class GeneralWorkspace;
@@ -1009,6 +951,8 @@ public:
   [[nodiscard]] std::map<std::string, bool> dispersive_path() const;
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
   [[nodiscard]] CpuSizing execution_sizing() const;
+  /** The CPU execution record the workspace's pools choose widths by. */
+  [[nodiscard]] const CpuExecution& cpu_execution() const;
   [[nodiscard]] double planning_seconds() const noexcept;
   [[nodiscard]] double raman_planning_seconds() const noexcept;
   [[nodiscard]] std::string raman_fft_provider() const;

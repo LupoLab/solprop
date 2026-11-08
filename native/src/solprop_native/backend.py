@@ -152,6 +152,7 @@ from solprop.transverse_monitor import (
 )
 
 from . import (
+    BUILTIN_EXECUTION,
     PROC_BIND,
     THREAD_BUDGET,
     WAIT_POLICY,
@@ -163,6 +164,7 @@ from . import (
     build_info,
     check_build,
 )
+from ._execution import ExecutionRecord
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -4412,6 +4414,7 @@ def _native_problem(
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
+    execution: ExecutionRecord | None = None,
 ) -> dict[str, object]:
     kerr = problem.responses.kerr_coefficients
     dispersive = problem.responses.dispersive_kerr
@@ -4552,6 +4555,8 @@ def _native_problem(
         )
     )
     return {
+        # solprop SEP 46: how the workspace's CPU operations thread.
+        "cpu_execution": (execution or BUILTIN_EXECUTION).native(),
         **spatial_data,
         **_channel_payload(problem),
         **_envelope_payload(problem),

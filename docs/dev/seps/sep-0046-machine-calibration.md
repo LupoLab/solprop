@@ -15,7 +15,7 @@
 | **Requires** | — |
 | **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration`: started 2026-11-08 |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08 |
 | **Manual pages** | — |
 
 ## Part I — Proposal

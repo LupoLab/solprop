@@ -174,8 +174,78 @@ native::TableKind table_kind(const std::string& name) {
                               "'; expected 'phi', 'prefactor', 'rate' or 'flux'");
 }
 
+// solprop SEP 46: a workspace's CPU execution record, as solprop_native's
+// `_execution.ExecutionRecord.native()` writes it: each operation's threshold and full
+// size, then the response bounds, widths and rules, every key required.
+constexpr std::array<const char*, native::cpu_operation_count> cpu_operation_names{
+    "stage", "response", "dense", "fft", "raman", "copy", "flow", "modal", "adams"};
+constexpr std::array<const char*, 6> cpu_execution_scalars{
+    "response_full_samples", "response_full_columns",    "medium_threads",
+    "compact_threads",       "compact_max_fine_samples", "stable_kernel_team"};
+
+native::CpuExecution cpu_execution_from(const nb::dict& values) {
+  native::CpuExecution result;
+  const std::size_t expected =
+      2 * native::cpu_operation_count + cpu_execution_scalars.size();
+  if (values.size() != expected)
+    throw std::invalid_argument("a CPU execution record has " +
+                                std::to_string(expected) + " fields, got " +
+                                std::to_string(values.size()));
+  const auto field = [&values](const std::string& name) {
+    if (!values.contains(name.c_str()))
+      throw std::invalid_argument("a CPU execution record misses a field: " + name);
+    return values[name.c_str()];
+  };
+  try {
+    for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
+      const std::string name = cpu_operation_names[index];
+      result.grain[index] = {nb::cast<std::size_t>(field(name + "_threshold")),
+                             nb::cast<std::size_t>(field(name + "_full"))};
+    }
+    result.response_full_samples =
+        nb::cast<std::size_t>(field("response_full_samples"));
+    result.response_full_columns =
+        nb::cast<std::size_t>(field("response_full_columns"));
+    result.medium_threads = nb::cast<int>(field("medium_threads"));
+    result.compact_threads = nb::cast<int>(field("compact_threads"));
+    result.compact_max_fine_samples =
+        nb::cast<std::size_t>(field("compact_max_fine_samples"));
+    result.stable_kernel_team = nb::cast<bool>(field("stable_kernel_team"));
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument(
+        "a CPU execution record holds nonnegative integers and one bool");
+  }
+  native::require_cpu_execution(result);
+  return result;
+}
+
+nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
+  nb::dict result;
+  for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
+    const std::string name = cpu_operation_names[index];
+    result[(name + "_threshold").c_str()] = execution.grain[index].threshold;
+    result[(name + "_full").c_str()] = execution.grain[index].full;
+  }
+  result["response_full_samples"] = execution.response_full_samples;
+  result["response_full_columns"] = execution.response_full_columns;
+  result["medium_threads"] = execution.medium_threads;
+  result["compact_threads"] = execution.compact_threads;
+  result["compact_max_fine_samples"] = execution.compact_max_fine_samples;
+  result["stable_kernel_team"] = execution.stable_kernel_team;
+  return result;
+}
+
 native::Problem problem_from(const nb::dict& values) {
   native::Problem result;
+  if (!values.contains("cpu_execution"))
+    throw std::invalid_argument("a native problem needs its CPU execution record "
+                                "(cpu_execution, solprop SEP 46)");
+  try {
+    result.cpu_execution =
+        cpu_execution_from(nb::cast<nb::dict>(values["cpu_execution"]));
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a native problem's cpu_execution must be a dict");
+  }
   try {
     if (values.contains("n_x")) {
       result.n_x = nb::cast<std::size_t>(values["n_x"]);
@@ -850,7 +920,6 @@ RealOutput real_output(std::vector<double> values, const std::size_t rows) {
 
 void initialize_kokkos(const int threads, const int kernels, const int fft,
                        const int raman_fft, const int raman_tail_fft,
-                       const std::size_t threaded_fft_min_samples,
                        const int band_tiles) {
   if (threads < 1)
     throw std::invalid_argument("thread count must be positive");
@@ -867,7 +936,7 @@ void initialize_kokkos(const int threads, const int kernels, const int fft,
         "Kokkos was already initialized with another thread count");
   }
   native::configure_thread_policy(
-      {kernels, fft, raman_fft, raman_tail_fft, threaded_fft_min_samples, band_tiles});
+      {kernels, fft, raman_fft, raman_tail_fft, band_tiles});
 }
 
 // ------------------------------------------------------------- the native Adams march
@@ -1984,6 +2053,10 @@ public:
     require_open();
     return general_state_->execution_sizing();
   }
+  nb::dict cpu_execution() const {
+    require_open();
+    return cpu_execution_dict(general_state_->cpu_execution());
+  }
   double planning_seconds() const {
     require_open();
     return general_state_->planning_seconds();
@@ -2399,26 +2472,8 @@ nb::dict build_record() {
   result["raman_fft_threads"] = threads.raman_fft;
   result["raman_tail_fft_threads"] = threads.raman_tail_fft;
 #endif
-  result["threaded_fft_min_samples"] = threads.threaded_fft_min_samples;
   result["cpu_size_policy_enabled"] = native::cpu_size_policy_enabled;
   result["explicit_thread_pools"] = threads.explicit_pools;
-  result["stage_thread_min_elements"] = native::stage_thread_min_elements;
-  result["copy_thread_min_elements"] = native::copy_thread_min_elements;
-  result["flow_thread_min_elements"] = native::flow_thread_min_elements;
-  result["modal_thread_min_elements"] = native::modal_thread_min_elements;
-  result["response_thread_min_elements"] = native::response_thread_min_elements;
-  result["dense_thread_min_elements"] = native::dense_thread_min_elements;
-  result["raman_thread_min_elements"] = native::raman_thread_min_elements;
-  result["stage_full_thread_elements"] = native::stage_full_thread_elements;
-  result["response_full_thread_elements"] = native::response_full_thread_elements;
-  result["response_full_thread_samples"] = native::response_full_thread_samples;
-  result["response_full_thread_columns"] = native::response_full_thread_columns;
-  result["dense_full_thread_elements"] = native::dense_full_thread_elements;
-  result["fft_full_thread_elements"] = native::fft_full_thread_elements;
-  result["raman_full_thread_elements"] = native::raman_full_thread_elements;
-  result["adams_thread_min_elements"] = native::adams_thread_min_elements;
-  result["adams_full_thread_elements"] = native::adams_full_thread_elements;
-  result["cpu_medium_threads"] = native::cpu_medium_threads;
   result["band_column"] = native::band_tiled(threads) ? "tiled" : "team";
   result["band_tile_threads"] = native::band_tile_threads(threads);
   result["cxx_standard"] = 20;
@@ -2494,7 +2549,7 @@ NB_MODULE(_core, module_) {
   module_.doc() = "Private nanobind seam for solprop-native";
   module_.def("initialize_runtime", &initialize_kokkos, "threads"_a, "kernels"_a = 0,
               "fft"_a = 0, "raman_fft"_a = 0, "raman_tail_fft"_a = 0,
-              "threaded_fft_min_samples"_a = 0, "band_tiles"_a = -1);
+              "band_tiles"_a = -1);
   module_.def("fit_blas_threads", &fit_blas_threads, "threads"_a);
   module_.def("register_host_blas", &register_host_blas);
   // solprop SEP 45 phase 1: the boundary watch's predictions, for solprop's tests to
@@ -3566,6 +3621,7 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("raman_fft_provider",
                    [](BoundState& self) { return self.raman_fft_provider(); })
       .def_prop_ro("execution_sizing", &BoundState::execution_sizing)
+      .def_prop_ro("cpu_execution", &BoundState::cpu_execution)
       .def_prop_ro("raman_fft_tasks",
                    [](BoundState& self) { return self.raman_fft_tasks(); })
       .def_prop_ro("raman_planning_seconds",
