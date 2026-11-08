@@ -2693,7 +2693,26 @@ rounds; the ratio v4/v3, the same steps and fields to rounding:
 | the other eight | 0.972–1.034 | 0.976–1.013 |
 
 The geometric mean over all 26 rows is 0.984. `kerr_beam_384` at one thread had a round
-twice as slow; its median, 1.034, is that noise. No case reaches the 10 % at the default width that
+twice as slow; its median, 1.034, is that noise.
+
+The same tree on an AMD EPYC 9B45 (Zen 5, whose AVX-512 runs at full width without
+lowering the clock; Google Cloud C4D, 16 cores without SMT, Ubuntu 26.04), built with
+`-march=znver5` against x86-64-v3: GCC 15.2, the distribution's FFTW 3.3.10 and OpenMP
+OpenBLAS 0.3.32, and SLEEF's AVX2 route in both. The same command and rounds; the ratio
+znver5/v3, the same steps and fields to rounding:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_soliton` | 0.911 | 0.910 |
+| `argon_blueshift_envelope` | 0.918 | 0.980 |
+| `argon_blueshift_averaged` | 0.932 | 0.943 |
+| `grin_nonlinear` | 0.934 | 0.960 |
+| `argon_blueshift` | 0.937 | 0.996 |
+| the other eight | 0.938–1.003 | 0.949–1.014 |
+
+The geometric mean over all 26 rows is 0.963. `gnlse_soliton` is a 0.07 s run whose
+time does not change with the thread count, so its two columns are one result. Neither
+machine has a case that reaches the 10 % at the default width that
 [#337](https://github.com/LupoLab/solprop/issues/337) asks of run-time dispatch.
 
 ## Reference tables

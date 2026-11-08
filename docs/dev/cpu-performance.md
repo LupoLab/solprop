@@ -59,17 +59,18 @@ measured while it existed.
     (SEP 29, phase 3), and since SEP 43 the x86-64 wheels hold both, chosen at import. Below
     v2, `backend="auto"` falls back to `numpy_ref` with a warning.
 - **x86-64-v4 against v3, with identical libraries**
-  ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built with
-  `-march=cascadelake` (v4 with VNNI) against x86-64-v3: GCC 16.2, FFTW 3.3.11, OpenBLAS
-  0.3.34 and SLEEF's AVX2 route in both. `benchmarks ab` on an Intel Xeon Gold 6240
-  (18 cores of one socket, exclusive), the tracking set at a quarter length, three
-  rounds; the same steps and fields to rounding.
-  - The geometric mean is 0.984.
-  - The largest gains are at one thread: `argon_blueshift` 0.909, `ctc` 0.924 and
-    `grin_nonlinear` 0.943.
-  - At 16 threads no case gains more than 4 % (`argon_blueshift` 0.962).
-  - `he_rdw_averaged` is 3.6 % slower at one thread.
-  - No tracked case gains the 10 % at the default width that
+  ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
+  with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
+  tracking set at a quarter length, three rounds; the same steps and fields to rounding
+  ([ledger](benchmarks.md)).
+  - On an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), `-march=cascadelake`
+    (v4 with VNNI): geometric mean 0.984. The largest gains are at one thread
+    (`argon_blueshift` 0.909, `ctc` 0.924, `grin_nonlinear` 0.943); at 16 threads none
+    gains more than 4 %, and `he_rdw_averaged` is 3.6 % slower at one thread.
+  - On an AMD EPYC 9B45 (Zen 5, 16 cores), whose AVX-512 does not lower the clock,
+    `-march=znver5`: geometric mean 0.963. The largest gain is 9 % (`gnlse_soliton`, a
+    0.07 s run); at 16 threads every other case is within 6 %.
+  - No tracked case on either machine gains the 10 % at the default width that
     [#337](https://github.com/LupoLab/solprop/issues/337) set for run-time kernel
     dispatch, so dispatch is not built; the wheels stay v3 (with v2 beside it).
 - **Release `-O3`, checked IPO, Kokkos loop vectorisation, no fast-math**, with
@@ -347,12 +348,9 @@ Each has an issue:
     credible experiment on AVX-512 x86-64 and arm64.
   - It found no evidence yet that it beats the current loops.
   - First compare compiler targets, then prototype at most one or two kernels. The
-    comparison is done (v4 against v3, above): wider vectors gained at most 9 % at one
-    thread and 4 % at 16, so it gives no case for explicit SIMD on its own.
+    comparison is done (v4 against v3, above): wider vectors gained at most 9 % on an
+    AVX-512 Xeon and on Zen 5, so it gives no case for explicit SIMD on its own.
   - A broad conversion to SIMD types is not justified.
-- **Selective run-time kernel dispatch** (SEP 29 §6.2, [#337](https://github.com/LupoLab/solprop/issues/337)):
-  not justified by v4 against v3 on an AVX-512 Xeon (above). Still to measure: a Zen 4 or
-  Zen 5 processor, whose AVX-512 does not lower the clock.
 - **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
   The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
   [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
