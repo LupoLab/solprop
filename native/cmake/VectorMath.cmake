@@ -16,8 +16,8 @@
 # per-sample plasma kernels, it was 11.6 % slower there.
 #
 # AUTO takes SLEEF on x86-64 CPU builds and on macOS arm64, and the system libm on Linux
-# aarch64 (not yet measured) and in device builds, whose kernels keep their own
-# functions. SLEEF requests it on Linux aarch64 too (its AdvSIMD functions); SCALAR keeps
+# aarch64 (where SLEEF measured level, 1.00 on a Neoverse V2) and in device builds, whose
+# kernels keep their own functions. SLEEF requests it on Linux aarch64 too (its AdvSIMD functions); SCALAR keeps
 # the system libm everywhere. The variant follows the code's
 # target: AVX2 with FMA where it has them (the distribution's x86-64-v3 included), else
 # SSE2; AdvSIMD on aarch64. SOLPROP_NATIVE_VECTOR_MATH_AVX512 takes the AVX-512F

@@ -2019,7 +2019,8 @@ Withdrawn (development-process record, not a design decision).
   the benchmark cases, same steps, environment only: M5 Max at 6 threads geomean about 0.83
   (`line` 0.52, `rdw` 0.75); Xeon 0.82 (36 threads: `kerr_beam_192` 0.37, `line` 0.45,
   `radial_filament_256` 0.50); 16 cores of a shared EPYC 7763 node 0.79 and 0.80, every case
-  faster in the second. ADR-056's loss at 10,000 spins (1.4–3.3 times on that EPYC) no longer
+  faster in the second; 16 cores of a Google Axion (Neoverse V2, the distribution build with
+  OpenMP OpenBLAS) 0.94, no case slower beyond its spread. ADR-056's loss at 10,000 spins (1.4–3.3 times on that EPYC) no longer
   reproduces: the teams it blamed now share one runtime and NumPy's BLAS holds one thread.
   On the M5 Max's 12 second-tier cores spinning loses (most cases 1.1–1.35 at 18 threads), as
   LLVM's runtime itself assumes: it turns spinning off on chips with cores of two kinds.
@@ -2051,7 +2052,10 @@ Withdrawn (development-process record, not a design decision).
   0.935 / 0.910, RDW 0.967 / 0.965, the graded-index guide 1.002 / 1.001 within its A/A spread
   (0.97–1.03); geometric mean 0.934 (solprop issue #339).
 - **Decision:** `SOLPROP_NATIVE_VECTOR_MATH=AUTO` takes SLEEF's u10 AdvSIMD functions on macOS
-  arm64. Linux aarch64 keeps the system libm until measured: glibc's libm is not Apple's.
+  arm64. Linux aarch64 keeps the system libm: on 16 cores of a Google Axion (Neoverse V2,
+  the distribution build) SLEEF measured 1.003 over the same cases at one and 16 threads,
+  from 0.95 (Raman GNLSE) to 1.09 (comb-to-continuum, one thread). glibc's libm is not
+  Apple's.
 - **Consequences:** macOS wheels build and link SLEEF statically, as the x86-64 ones do; fields
   move by rounding only, within the 1 ulp bound the budgets assume.
 
@@ -2067,7 +2071,10 @@ Withdrawn (development-process record, not a design decision).
   head, 3 rounds). Elsewhere it loses: on two Xeon Gold 6240 the averaged hydrogen and argon
   and the Raman GNLSE ran 1.07–1.7 times slower at 4, 8, 18 and 36 threads under either
   runtime (geometric means 1.05–1.11; the large problems gained 0.79–0.97), and on 16 cores of
-  an AMD EPYC 7763 under GNU's runtime a quarter to a sixteenth gave 1.09–1.13. The M5 Max's
+  an AMD EPYC 7763 under GNU's runtime a quarter to a sixteenth gave 1.09–1.13. On 16 cores
+  of a Google Axion (Neoverse V2, GNU's runtime, the distribution build) a sixteenth gave
+  1.06 over 8 and 16 threads: argon 1.18 and 1.63, averaged argon 1.42–1.44, averaged
+  hydrogen 1.16, against `line` 0.90–0.94 and Raman hydrogen 0.94. The M5 Max's
   top-tier cluster shares one L2 cache, so threading a small pass costs little; Xeon cores
   share only the L3. The right grain is the machine's.
 - **Decision:** on Apple silicon, while LLVM's runtime spins within native calls on a team of
