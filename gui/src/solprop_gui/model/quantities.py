@@ -11,39 +11,11 @@ unit the person chose is the one the recipe keeps. Every conversion is solprop's
 quantity parser and writer, exact to the double.
 """
 
-import re
-
 from solprop.recipe.errors import RecipeError
 from solprop.recipe.quantity import Unit, format_quantity, parse_quantity
+from solprop.service.recipes import split
 
-__all__ = ["number_in", "rounded", "split", "unit_of", "write"]
-
-_SPLIT = re.compile(r"\s*([+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?)\s*(.*?)\s*")
-
-
-def split(text: str) -> tuple[str, str]:
-    """Split a quantity's text into its number and its unit.
-
-    Parameters
-    ----------
-    text : str
-        The text, as typed or as a recipe holds it.
-
-    Returns
-    -------
-    tuple of str
-        The number's text and the unit's (empty when none is written); both empty
-        when the text does not start with a number.
-
-    Examples
-    --------
-    >>> split("125 um"), split(" 2e-3 "), split("um")
-    (('125', 'um'), ('2e-3', ''), ('', ''))
-    """
-    match = _SPLIT.fullmatch(text)
-    if match is None:
-        return "", ""
-    return match.group(1), match.group(2)
+__all__ = ["number_in", "rounded", "unit_of", "write"]
 
 
 def unit_of(value: object, choices: tuple[str, ...], fallback: str) -> str:

@@ -5,12 +5,12 @@
 """Shared test configuration: widgets are drawn without a display."""
 
 import gc
-import multiprocessing
 import os
 import shutil
-from multiprocessing.connection import Connection
+import time
+import warnings
+from collections.abc import Callable
 from pathlib import Path
-from typing import cast
 
 import pytest
 
@@ -78,6 +78,51 @@ def run_copy(finished_run: Path, tmp_path: Path) -> Path:
     return target
 
 
-def pipe(*, duplex: bool = True) -> tuple[Connection, Connection]:
-    """Return a pipe's two ends, typed as the service takes them on every platform."""
-    return cast("tuple[Connection, Connection]", multiprocessing.Pipe(duplex))
+MULTIMODE = TINY.replace("mode_average = true", "modes = 2").replace(
+    "n_save = 6",
+    'n_save = 3\nlaunch = { "HE1,1" = 0.8, "HE1,2" = { share = 0.2, phase = 1.0 } }',
+)
+"""The tiny capillary in two modes, launched into both."""
+
+STATS = '\nstats = { type = "StatsSpec", names = ["energy", "peak_power", "fwhm_t"] }\n'
+"""The statistics the two-mode run records."""
+
+SLOW = TINY.replace('length = "5 cm"', 'length = "40 cm"').replace(
+    "n_save = 6", "n_save = 40"
+)
+"""The tiny capillary, long enough to be stopped or re-attached to while it runs."""
+
+WAIT = 60.0
+"""How long a test waits for a service or a run, in seconds."""
+
+
+def wait_for(check: Callable[[], bool], timeout: float = WAIT) -> None:
+    """Wait until a check passes."""
+    deadline = time.monotonic() + timeout
+    while not check():
+        assert time.monotonic() < deadline, "timed out"
+        time.sleep(0.02)
+
+
+@pytest.fixture(scope="module")
+def run(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Return a two-mode run's results file, with statistics, made once a module."""
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only the tests that need it
+
+    path = tmp_path_factory.mktemp("results") / "run.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Recipe.loads(MULTIMODE.replace("n_save = 3", "n_save = 3" + STATS)).run(path)
+    return str(path)
+
+
+@pytest.fixture(scope="module")
+def beam(tmp_path_factory: pytest.TempPathFactory) -> str:
+    """Return a Cartesian beam's results file (an example), made once a module."""
+    from solprop.recipe import Recipe  # noqa: PLC0415 - only the tests that need it
+
+    path = tmp_path_factory.mktemp("beam") / "beam.h5"
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        Recipe.example("cartesian_beam").run(path)
+    return str(path)

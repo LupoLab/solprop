@@ -14,9 +14,9 @@ from dataclasses import replace
 from typing import Any
 
 from PySide6.QtCore import QObject, Signal
+from solprop.service.messages import Reply
 
 from solprop_gui.model.plot_options import PlotOptions
-from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 
 __all__ = ["AnalysisSession"]
@@ -275,7 +275,7 @@ class AnalysisSession(QObject):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         entry = self._pending.pop(reply.request_id, None)

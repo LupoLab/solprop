@@ -6,7 +6,17 @@
    function that module exports -- which Sphinx reports as a duplicate object
    description and `-W` turns into a build failure. So a package page carries only its
    module list; a leaf module documents its members as usual. #}
-{%- if modules %}
+{#- The front end's service is front-end support, not user interface (the front end's
+   design, D20): its package page says what it is, and its modules get no pages, as
+   they change without notice. #}
+{%- if fullname == "solprop.service" %}
+.. automodule:: {{ fullname }}
+   :no-members:
+
+Its design is the desktop front end's (``docs/dev/gui/design.md``, sections 13.3 and
+13.4); its modules are documented in their source.
+
+{%- elif modules %}
 .. automodule:: {{ fullname }}
    :no-members:
 

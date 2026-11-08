@@ -2,105 +2,26 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The layers without solprop calls: messages, outbox, reduction, states, registry."""
+"""The layers without solprop calls: the registry, the workspace and the help."""
 
-import threading
 from datetime import date
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
-from solprop.grid import EnvelopeGrid
+from solprop.service.handlers import HANDLERS
+from solprop.service.reduce import stats_row
 
 from solprop_gui.help.guide import guide_url
 from solprop_gui.model.workspace import list_runs, new_run_folder, slug
 from solprop_gui.registry.pages import LABELS, PAGES, label, page_of
 from solprop_gui.registry.routes import CARDS, card, card_of
-from solprop_gui.service.messages import PROTOCOL, Control, Event, Reply, Request
-from solprop_gui.service.outbox import Outbox
-from solprop_gui.service.reduce import Display, Reducer, bin_max, stats_row
-from solprop_gui.service.states import ACTIVE, ExecutionState, advance
 
 # ---------------------------------------------------------------------- messages
 
 
-def test_messages_carry_their_identity():
-    request = Request("check", {"text": "x"}, request_id=4, revision=2, key="k")
-    assert request.protocol == PROTOCOL
-    assert Reply("check", 4, 2, value=[]).ok
-    assert not Reply("check", 4, 2, error="no").ok
-    assert not Reply("check", 4, 2, superseded=True).ok
-    assert Event("r", "progress").replaceable
-    assert not Event("r", "row").replaceable
-    assert all(
-        Event("r", kind).terminal for kind in ("finished", "stopped", "failed", "lost")
-    )
-    assert Control("stop").from_plane == 0
-
-
-# ---------------------------------------------------------------------- outbox
-
-
-def test_outbox_coalesces_progress_and_keeps_order():
-    box = Outbox(capacity=4)
-    box.put(Event("r", "row", {"index": 0}))
-    box.put(Event("r", "progress", {"z": 1}))
-    box.put(Event("r", "progress", {"z": 2}))
-    box.put(Event("other", "progress", {"z": 3}))
-    assert len(box) == 3
-    taken = [box.get(timeout=0) for _ in range(3)]
-    assert [(e.run_id, e.kind, e.data) for e in taken if e is not None] == [
-        ("r", "row", {"index": 0}),
-        ("r", "progress", {"z": 2}),
-        ("other", "progress", {"z": 3}),
-    ]
-    assert box.get(timeout=0) is None
-
-
-def test_outbox_drops_rows_when_full_but_never_a_terminal_event():
-    box = Outbox(capacity=2)
-    assert box.put(Event("r", "row", {"index": 0}))
-    assert box.put(Event("r", "row", {"index": 1}))
-    assert not box.put(Event("r", "row", {"index": 2}))
-    assert box.dropped == 1
-    assert box.put(Event("r", "finished"))
-    box.close()
-    assert box.closed
-    assert not box.put(Event("r", "row", {"index": 3}))
-    kinds = []
-    while (event := box.get(timeout=0)) is not None:
-        kinds.append(event.kind)
-    assert kinds == ["row", "row", "finished"]
-
-
-def test_outbox_wakes_a_waiting_reader():
-    box = Outbox()
-    got: list[Event | None] = []
-    reader = threading.Thread(target=lambda: got.append(box.get()))
-    reader.start()
-    box.put(Event("r", "row"))
-    reader.join(5)
-    assert got and got[0] is not None and got[0].kind == "row"
-
-
-def test_outbox_refuses_a_capacity_below_one():
-    with pytest.raises(ValueError, match="at least 1"):
-        Outbox(capacity=0)
-
-
 # ---------------------------------------------------------------------- reduction
-
-
-def test_bin_max_keeps_each_bins_peak_and_fills_empty_bins():
-    edges = np.array([0.0, 1.0, 2.0, 3.0, 4.0])
-    x = np.array([0.5, 0.6, 0.7, 3.5, 4.0])  # bins 1 and 2 are empty
-    y = np.array([1.0, 9.0, 2.0, 4.0, 6.0])
-    out = bin_max(x, y, edges)
-    assert out[0] == 9.0  # the narrow peak survives
-    assert out[3] == 6.0  # the upper edge belongs to the last bin
-    assert out[1] == pytest.approx(np.interp(1.5, x, y))
-    # Outside the samples' span an empty bin is zero.
-    assert bin_max(np.array([0.1]), np.array([5.0]), edges)[2] == 0.0
 
 
 def test_stats_row_totals_numbers_and_skips_the_rest():
@@ -115,59 +36,7 @@ def test_stats_row_totals_numbers_and_skips_the_rest():
     assert row == {"energy": 3.0, "count": 3.0}
 
 
-def test_the_reducer_fixes_its_bins_on_the_first_plane():
-    reducer = Reducer(Display(n_wavelength=4, n_time=3))
-    with pytest.raises(RuntimeError, match="first plane"):
-        reducer.axes()
-    lam = np.array([np.inf, -1.0, 1e-6, 2e-6, 3e-6])
-    density = np.array([7.0, 7.0, 1.0, 2.0, 3.0])
-    t = np.linspace(-1e-13, 1e-13, 11)
-    spectra = {"wavelength": (lam, density), "f": (3e8 / lam, density)}
-    reduced, power = reducer.reduce(spectra, t, np.ones(11))
-    assert reduced["wavelength"].dtype == np.float32
-    assert reduced["wavelength"].shape == reduced["f"].shape == (4,)
-    assert power.shape == (3,)
-    assert float(reduced["wavelength"].max()) == 3.0  # non-physical ones left out
-    axes = reducer.axes()
-    assert axes["wavelength"][0] > 1e-6 and axes["time"].size == 3
-    assert axes["f"][-1] < 3e14 and axes["bandpass"] is None
-    # The second plane reuses the bins.
-    reducer.reduce({"wavelength": (lam * 2, density)}, t * 2, np.ones(11))
-    assert np.array_equal(reducer.axes()["wavelength"], axes["wavelength"])
-
-
-def test_a_display_takes_the_runs_window_only_where_it_has_none():
-    keywords = {"wavelength_limits": (2e-6, 2e-7)}
-    assert Display().within(keywords).wavelength_range == (2e-7, 2e-6)
-    fixed = Display(wavelength_range=(1e-7, 1e-6))
-    assert fixed.within(keywords) is fixed
-    assert Display().within({}).wavelength_range is None
-    grid = EnvelopeGrid.from_limits(1.0, 800e-9, (400e-9, 2e-6), 200e-15)
-    assert Display().within({"grid": grid}).wavelength_range == pytest.approx(
-        (400e-9, 2e-6)
-    )
-    assert Display().within({"grid": object()}).wavelength_range is None
-
-
 # ---------------------------------------------------------------------- states
-
-
-def test_the_state_machine_follows_a_run():
-    state = ExecutionState.QUEUED
-    for event, expected in [
-        ("launch", ExecutionState.STARTING),
-        ("progress", ExecutionState.STARTING),
-        ("started", ExecutionState.RUNNING),
-        ("stop", ExecutionState.STOPPING),
-        ("stopped", ExecutionState.STOPPED),
-        ("started", ExecutionState.STOPPED),  # an ended run stays ended
-    ]:
-        state = advance(state, event)
-        assert state == expected
-    assert advance(ExecutionState.STOPPING, "finished") == ExecutionState.COMPLETE
-    assert advance(ExecutionState.RUNNING, "lost") == ExecutionState.LOST
-    assert advance(ExecutionState.STARTING, "failed") == ExecutionState.FAILED
-    assert ExecutionState.COMPLETE not in ACTIVE
 
 
 # ---------------------------------------------------------------------- workspace
@@ -262,43 +131,6 @@ def test_guide_addresses():
 # ---------------------------------------------------------------------- the explorer
 
 
-def test_the_explorers_axes_and_quantities():
-    from solprop_gui.registry import explore  # noqa: PLC0415 - only here
-
-    omega = 2 * np.pi * 299_792_458.0 / np.array([1e-6, 5e-7])
-    assert explore.axis_values(omega, "frequency") == pytest.approx(
-        [299.792458, 599.584916]
-    )
-    with pytest.raises(KeyError):
-        explore.axis_values(omega, "time")
-    mode = {
-        "neff_minus_one": np.array([1e-5, 2e-5]),
-        "beta1": np.array([3.3e-9, 3.4e-9]),
-        "beta2": np.array([-1e-29, 1e-29]),
-        "beta3": np.array([1e-44, 1e-44]),
-        "alpha": np.array([0.1, 0.2]),
-        "aeff": 1e-8,
-        "gamma": None,
-        "phase_mismatch": None,
-    }
-    for quantity in explore.QUANTITIES:
-        values = explore.quantity_values(mode, omega, quantity)
-        if quantity.key in ("gamma", "mismatch"):
-            assert values is None
-        else:
-            assert values is not None and values.shape == (2,)
-    sets = [
-        {"value": "x", "error": "no"},
-        {"value": None, "omega": omega, "modes": [{"label": "HE1,1", **mode}]},
-    ]
-    (row,) = explore.table_rows(sets, 7e-7)
-    assert row["label"] == "HE1,1" and row["gamma"] is None
-    assert row["neff"] == pytest.approx(1.6e-5)
-    assert explore.table_rows([{"error": "no"}], 7e-7) == []
-    assert explore.table_rows(sets, 2e-6)[0]["neff"] is None  # outside the band
-    assert explore.sweep_values("He, 2 bar") == ["He", "2 bar"]
-
-
 def test_plot_options_read_typed_limits_and_saved_values():
     from solprop_gui.model import plot_options as po  # noqa: PLC0415 - only here
 
@@ -321,3 +153,33 @@ def test_plot_options_read_typed_limits_and_saved_values():
     assert restored.time_limits == (None, None) and restored.floor == -60.0
     assert restored.bandpass == (7e-7, 9e-7) and restored.scale == "linear"
     assert po.from_mapping({"axis": "omega"}).axis == "wavelength"
+
+
+def test_every_label_names_a_keyword_of_a_route():
+    # The registry's labels must not drift from solprop's keywords (design 12.1).
+    keywords: set[str] = set()
+    for route in ("capillary", "waveguide", "gnlse"):
+        described: Any = HANDLERS["describe"]({"route": route})
+        keywords |= {entry["name"] for entry in described["parameters"]}
+        for entries in described["types"].values():
+            keywords |= {entry["name"] for entry in entries}
+    assert set(LABELS) <= keywords
+
+
+def test_a_remote_run_folder_keeps_a_workspace_given_in_full():
+    from datetime import datetime  # noqa: PLC0415 - only here
+
+    from solprop_gui.model.workspace import remote_run_folder  # noqa: PLC0415
+
+    when = datetime(2026, 11, 7, 9, 0, 1)
+    found = remote_run_folder("/scratch/runs", "/home/me", None, when)
+    assert found.startswith("/scratch/runs/2026-11-07-") and found.endswith("-090001")
+    assert remote_run_folder("~", "/home/me/", "t", when).startswith("/home/me/2026")
+
+
+def test_the_per_width_keywords_are_solprop_s():
+    from solprop.recipe.metadata import PER_WIDTH_KEYWORDS  # noqa: PLC0415
+
+    from solprop_gui.ui.pages import PER_WIDTH  # noqa: PLC0415
+
+    assert PER_WIDTH == PER_WIDTH_KEYWORDS

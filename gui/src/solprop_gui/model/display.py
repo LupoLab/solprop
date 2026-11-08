@@ -18,7 +18,6 @@ __all__ = [
     "even_rows",
     "half_width",
     "length_unit",
-    "light_range",
     "mirrored_rows",
     "pulse_window",
     "scaled_unit",
@@ -176,44 +175,6 @@ def half_width(
     low = np.interp(level, [y[left], y[left + 1]], [x[left], x[left + 1]])
     high = np.interp(level, [y[right], y[right - 1]], [x[right], x[right - 1]])
     return float(low), float(high), float(level)
-
-
-def light_range(
-    x: np.ndarray, rows: np.ndarray, *, floor: float = 1e-6, margin: float = 0.0
-) -> tuple[float, float]:
-    """Return the part of a spectral axis that holds light in any row.
-
-    Parameters
-    ----------
-    x : numpy.ndarray
-        The positions, ascending.
-    rows : numpy.ndarray
-        The values, with the positions along the last axis.
-    floor : float, optional
-        What holds light, as a share of the peak.
-    margin : float, optional
-        What to add at each end, as a share of the span.
-
-    Returns
-    -------
-    tuple of float
-        The range; the whole axis when nothing holds light.
-
-    Examples
-    --------
-    >>> light_range(np.arange(5.0), np.array([[0.0, 1.0, 2.0, 0.0, 0.0]]))
-    (1.0, 2.0)
-    >>> light_range(np.arange(5.0), np.zeros((1, 5)))
-    (0.0, 4.0)
-    """
-    held = np.asarray(rows, dtype=float).reshape(-1, x.size).max(axis=0)
-    top = float(held.max())
-    light = np.flatnonzero(held > floor * top) if top > 0 else np.zeros(0, dtype=int)
-    if light.size == 0:
-        return float(x[0]), float(x[-1])
-    low, high = float(x[light[0]]), float(x[light[-1]])
-    pad = margin * (high - low)
-    return max(low - pad, float(x[0])), min(high + pad, float(x[-1]))
 
 
 def steady_limits(

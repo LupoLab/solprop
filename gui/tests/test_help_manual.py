@@ -26,7 +26,15 @@ def test_the_chapter_is_found_packaged_or_in_a_checkout(tmp_path: Path) -> None:
 
 def test_the_pages_follow_the_chapter_s_contents() -> None:
     found = pages(CHAPTER)
-    assert found == ["index", "first-run", "classes", "analysis", "scans", "design"]
+    assert found == [
+        "index",
+        "first-run",
+        "classes",
+        "analysis",
+        "scans",
+        "design",
+        "machines",
+    ]
     assert all((CHAPTER / f"{name}.md").is_file() for name in found)
     titles = [page_title((CHAPTER / f"{name}.md").read_text()) for name in found]
     assert titles[0] == "The desktop front end" and all(titles)

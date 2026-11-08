@@ -25,8 +25,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
-
-from solprop_gui.registry.explore import sweep_values
+from solprop.service.explore import sweep_values
 
 __all__ = ["ScanEditor", "point_count"]
 
