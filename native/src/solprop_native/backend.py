@@ -156,6 +156,7 @@ from . import (
     EXECUTION,
     EXECUTION_SOURCE,
     PROC_BIND,
+    PLANNING,
     PROCESS,
     PROFILE,
     THREAD_BUDGET,
@@ -333,6 +334,7 @@ class NativeBackend(StepDriver[_core.State]):
         profiles: Mapping[str, ZProfile] | None = None,
         adams_march: Literal["native", "host"] = "native",
         cpu_execution: ExecutionRecord | None = None,
+        fft_planning: Mapping[str, object] | None = None,
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -376,6 +378,7 @@ class NativeBackend(StepDriver[_core.State]):
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
             | {"cpu_execution": (cpu_execution or EXECUTION).native()}
+            | _planning_payload(fft_planning)
         )
         self._applied_execution = ExecutionRecord.from_native(
             self._native_state.cpu_execution
@@ -1988,7 +1991,8 @@ class NativeBackend(StepDriver[_core.State]):
                 self._applied_execution,
                 BUILTIN_EXECUTION,
                 self._execution_source,
-            ),
+            )
+            | _planning_record(self._native_state),
             "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
             "wisdom_loaded": self._wisdom_loaded,
@@ -4426,6 +4430,34 @@ def _aperture_payload(
         np.ascontiguousarray(tables.regions, dtype=np.float64),
         tables.exponent,
     )
+
+
+def _planning_payload(given: Mapping[str, object] | None) -> dict[str, object]:
+    """Return the problem's ``fft_planning``: the one given, the profile's, or none."""
+    chosen = given if given is not None else PLANNING
+    if chosen is None or _on_device():
+        return {}
+    return {"fft_planning": dict(chosen)}
+
+
+def _planning_record(state: _core.State) -> dict[str, object]:
+    """Return what a workspace's FFT planning applied, for its run's metadata.
+
+    The plans keyed in its profile that no longer build from their wisdom are listed:
+    they ran at estimate (solprop SEP 46 section 6.7).
+    """
+    if _on_device():
+        return {}
+    found = state.fft_planning
+    groups = cast(dict[str, str], found["groups"])
+    if not groups:
+        return {"fft_planning": "policy"}
+    return {
+        "fft_planning": {
+            "plans": len(groups),
+            "missing": list(cast(list[str], found["missing"])),
+        }
+    }
 
 
 def _native_problem(

@@ -15,8 +15,10 @@ Run as ``python -m solprop.calibration.child CPUS``, ``CPUS`` a comma-separated 
 of logical CPUs (empty for no pinning). Requests::
 
     {"op": "prepare", "problems": {"gnlse": 1.0, ...}}
-    {"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null}
+    {"op": "time", "problem": "gnlse", "repeats": 40, "record": {...} | null,
+     "planning": {...} | null}
     {"op": "sizing", "record": {...} | null}
+    {"op": "capture", "effort": "measure", "limit": 2.0, "record": {...} | null}
     {"op": "regions", "elements": 1000, "repeats": 200}
     {"op": "exit"}
 
@@ -33,7 +35,7 @@ import sys
 import time
 import warnings
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 if TYPE_CHECKING:
     from solprop_native._execution import ExecutionRecord
@@ -75,7 +77,10 @@ class _Session:
         ] = {}
 
     def backend(
-        self, name: str, record: Mapping[str, object] | None
+        self,
+        name: str,
+        record: Mapping[str, object] | None,
+        planning: Mapping[str, object] | None = None,
     ) -> Callable[[], object]:
         """Return the trial step of problem `name` under `record`, built once.
 
@@ -85,16 +90,22 @@ class _Session:
             A prepared problem.
         record : Mapping[str, object] or None
             A native execution record, or ``None`` for the process's own.
+        planning : Mapping[str, object] or None, optional
+            An FFT planning (``fft_planning``), or ``None`` for the plan policy.
 
         Returns
         -------
         collections.abc.Callable
             One trial step from the problem's initial state.
         """
-        key = (name, json.dumps(record, sort_keys=True))
+        key = self._key(name, record, planning)
         if key not in self.backends:
-            from solprop_native._execution import ExecutionRecord  # noqa: PLC0415
-            from solprop_native.backend import NativeBackend  # noqa: PLC0415
+            from solprop_native._execution import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+                ExecutionRecord,
+            )
+            from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+                NativeBackend,
+            )
 
             simulation, problem = self.problems[name]
             execution: ExecutionRecord | None = (
@@ -106,12 +117,35 @@ class _Session:
                 modes=simulation.modes,
                 profiles=simulation.profiles,
                 cpu_execution=execution,
+                fft_planning=planning,
             )
             backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
             step = backend.timed_step()
             step()
             self.backends[key] = (backend, step)
         return self.backends[key][1]
+
+    @staticmethod
+    def _key(
+        name: str,
+        record: Mapping[str, object] | None,
+        planning: Mapping[str, object] | None = None,
+    ) -> tuple[str, str]:
+        """Return the cache key of problem `name`'s backend under a setup.
+
+        Parameters
+        ----------
+        name : str
+            A prepared problem.
+        record, planning : Mapping[str, object] or None
+            The setup.
+
+        Returns
+        -------
+        tuple of str
+            The problem and its setup as JSON.
+        """
+        return name, json.dumps([record, planning], sort_keys=True)
 
     def prepare(self, problems: Mapping[str, float]) -> dict[str, object]:
         """Build each problem at its scale and time one step of each.
@@ -127,7 +161,7 @@ class _Session:
             Each problem's fastest step and shape, the process settings in force, its
             CPUs, and its execution and built-in records.
         """
-        import solprop_native  # noqa: PLC0415 - after pinning
+        import solprop_native  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
 
         from solprop.calibration.problems import build  # noqa: PLC0415
 
@@ -155,7 +189,11 @@ class _Session:
         }
 
     def time(
-        self, name: str, repeats: int, record: Mapping[str, object] | None
+        self,
+        name: str,
+        repeats: int,
+        record: Mapping[str, object] | None,
+        planning: Mapping[str, object] | None = None,
     ) -> float:
         """Return the seconds a trial step of `name` takes under `record`.
 
@@ -170,19 +208,87 @@ class _Session:
             The trial steps timed.
         record : Mapping[str, object] or None
             A native execution record, or ``None`` for the process's own.
+        planning : Mapping[str, object] or None, optional
+            An FFT planning, or ``None`` for the plan policy.
 
         Returns
         -------
         float
             Seconds per step.
         """
-        step = self.backend(name, record)
+        step = self.backend(name, record, planning)
         for _ in range(2):
             step()
         begun = time.perf_counter()
         for _ in range(repeats):
             step()
         return (time.perf_counter() - begun) / repeats
+
+    def capture(
+        self, effort: str, limit: float, record: Mapping[str, object] | None
+    ) -> dict[str, object]:
+        """Plan every problem's transforms alone at `effort`; return their wisdom.
+
+        Each transform is seeded from no wisdom, within `limit` seconds, and its
+        wisdom kept by its plan key (SEP 46 section 6.7). The workspaces built are
+        closed: only the wisdom is wanted.
+
+        Parameters
+        ----------
+        effort : str
+            ``"measure"`` or ``"patient"``.
+        limit : float
+            FFTW's planning time limit per transform, in seconds.
+        record : Mapping[str, object] or None
+            The execution record the problems run under, whose widths the plans'
+            threads follow.
+
+        Returns
+        -------
+        dict
+            ``wisdom`` by plan key, each key's ``groups`` and the problems
+            containing it (``problems``), and the seconds spent (``seconds``).
+        """
+        from solprop_native._execution import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            ExecutionRecord,
+        )
+        from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            NativeBackend,
+        )
+
+        wisdom: dict[str, str] = {}
+        groups: dict[str, str] = {}
+        contains: dict[str, list[str]] = {}
+        begun = time.perf_counter()
+        for name, (simulation, problem) in self.problems.items():
+            backend = NativeBackend(
+                problem,
+                grid=simulation.grid,
+                modes=simulation.modes,
+                profiles=simulation.profiles,
+                cpu_execution=None
+                if record is None
+                else ExecutionRecord.from_native(record),
+                fft_planning={
+                    "mode": "capture",
+                    "capture_effort": effort,
+                    "time_limit": limit,
+                },
+            )
+            try:
+                found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+            finally:
+                backend.close()
+            wisdom |= cast(dict[str, str], found["captured"])
+            for key, group in cast(dict[str, str], found["groups"]).items():
+                groups[key] = group
+                contains.setdefault(name, []).append(key)
+        return {
+            "wisdom": wisdom,
+            "groups": groups,
+            "problems": contains,
+            "seconds": time.perf_counter() - begun,
+        }
 
     def sizing(self, record: Mapping[str, object] | None) -> dict[str, object]:
         """Return each problem's operations as its workspace sizes them.
@@ -200,7 +306,7 @@ class _Session:
         found: dict[str, object] = {}
         for name in self.problems:
             self.backend(name, record)
-            backend = self.backends[(name, json.dumps(record, sort_keys=True))][0]
+            backend = self.backends[self._key(name, record)][0]
             found[name] = backend.metadata()["execution_sizing"]
         return found
 
@@ -230,7 +336,9 @@ def _regions(elements: int, repeats: int) -> dict[str, float]:
     dict of str to float
         ``copy`` and ``empty``: the median seconds of each.
     """
-    from solprop_native import _core  # noqa: PLC0415 - after pinning
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        _core,
+    )
 
     copies = _core.reference_stream_copies(elements, 20, repeats)
     empty = _core.reference_stream_copies(1, 20, repeats)
@@ -265,6 +373,13 @@ def serve(requests: Iterable[str], replies: io.TextIOBase) -> None:
                     answer = session.time(
                         request["problem"],
                         int(request["repeats"]),
+                        request.get("record"),
+                        request.get("planning"),
+                    )
+                elif op == "capture":
+                    answer = session.capture(
+                        request["effort"],
+                        float(request["limit"]),
                         request.get("record"),
                     )
                 elif op == "sizing":

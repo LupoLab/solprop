@@ -110,7 +110,7 @@ _ALL = ("gnlse", "capillary", "averaged", "radial", "line")
 LEVELS: dict[str, Level] = {
     # Quick: the wait, the team and the coarse grain (medium width, compact team).
     "quick": Level("quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 1, 4),
-    "standard": Level("standard", 60.0, 5, 0.1, _ALL, 2, 10),
+    "standard": Level("standard", 60.0, 5, 0.08, _ALL, 2, 10),
     "thorough": Level("thorough", 300.0, 7, 0.3, _ALL, 2, 40, fulls=True),
 }
 """The levels: about 20 s, a minute and five minutes (SEP 46 section 6.9)."""
@@ -607,7 +607,9 @@ def _telemetry(path: Path = Path("/proc/stat")) -> dict[str, float] | None:
     Returns
     -------
     dict of str to float or None
-        ``total`` and ``steal`` ticks and ``running`` tasks; ``None`` where unknown.
+        ``total`` and ``steal`` ticks and ``running`` tasks, and each CPU's ticks
+        (``cpuN.total``) and busy ticks (``cpuN.busy``, neither idle nor waiting);
+        ``None`` where unknown.
     """
     try:
         text = path.read_text(encoding="utf-8")
@@ -616,22 +618,30 @@ def _telemetry(path: Path = Path("/proc/stat")) -> dict[str, float] | None:
     values: dict[str, float] = {}
     for line in text.splitlines():
         fields = line.split()
-        if fields and fields[0] == "cpu" and len(fields) > 8:
+        if fields and fields[0].startswith("cpu") and len(fields) > 8:
             ticks = [float(value) for value in fields[1:]]
-            values["total"] = sum(ticks)
-            values["steal"] = ticks[7]
+            if fields[0] == "cpu":
+                values["total"] = sum(ticks)
+                values["steal"] = ticks[7]
+            else:
+                values[f"{fields[0]}.total"] = sum(ticks)
+                values[f"{fields[0]}.busy"] = sum(ticks) - ticks[3] - ticks[4]
         elif fields and fields[0] == "procs_running":
             values["running"] = float(fields[1])
     return values
 
 
 def _busy(
-    before: dict[str, float] | None, after: dict[str, float] | None, idle: int
+    before: dict[str, float] | None,
+    after: dict[str, float] | None,
+    idle: int,
+    siblings: Sequence[int] = (),
 ) -> str:
     """Return why the host was too busy to calibrate, or ``""``.
 
-    Work not belonging to the calibration beyond the CPUs outside its allocation, or
-    more than a tenth of the time stolen by a hypervisor.
+    Work not belonging to the calibration beyond the CPUs outside its allocation, an
+    SMT sibling of its cores more than half busy (another task sharing a core it
+    times), or more than a tenth of the time stolen by a hypervisor.
 
     Parameters
     ----------
@@ -639,6 +649,8 @@ def _busy(
         :func:`_telemetry` before and after the measurements.
     idle : int
         The CPUs outside the allocation.
+    siblings : sequence of int, optional
+        The CPUs outside the allocation that share a core with it.
 
     Returns
     -------
@@ -651,6 +663,14 @@ def _busy(
     foreign = min(before.get("running", 0.0), after.get("running", 0.0)) - 2.0
     if foreign > idle:
         return f"{foreign:.0f} other tasks running for {idle} idle CPUs"
+    for cpu in siblings:
+        ticks = after.get(f"cpu{cpu}.total", 0.0) - before.get(f"cpu{cpu}.total", 0.0)
+        busy = after.get(f"cpu{cpu}.busy", 0.0) - before.get(f"cpu{cpu}.busy", 0.0)
+        if ticks > 0 and busy / ticks > 0.5:
+            return (
+                f"CPU {cpu}, an SMT sibling of the allocation's cores, was "
+                f"{100 * busy / ticks:.0f} % busy with other work"
+            )
     total = after.get("total", 0.0) - before.get("total", 0.0)
     stolen = after.get("steal", 0.0) - before.get("steal", 0.0)
     if total > 0 and stolen / total > 0.1:
@@ -901,47 +921,56 @@ def _decide(
     return winner, evidence, f"{winner_name} won every round and its validation"
 
 
-def _grain_round(
+@dataclass(frozen=True)
+class _Setup:
+    """What one window runs under: a workspace record and an FFT planning.
+
+    Attributes
+    ----------
+    record : Mapping[str, int or bool] or None
+        A native execution record, ``None`` for the child's own.
+    planning : Mapping[str, object] or None
+        An FFT planning, ``None`` for the plan policy.
+    """
+
+    record: Mapping[str, int | bool] | None = None
+    planning: Mapping[str, object] | None = None
+
+
+def _compare_round(
     plan: _Plan,
     child: _Child,
-    candidates: Sequence[tuple[grain.Candidate, tuple[str, ...]]],
-    base: Mapping[str, int | bool],
+    base: _Setup,
+    candidates: Sequence[tuple[str, _Setup, tuple[str, ...]]],
     generator: random.Random,
 ) -> dict[str, float | None]:
-    """Time one round of the grain candidates against the base record.
+    """Time one round of candidate setups against a base setup.
 
     Parameters
     ----------
     plan : _Plan
-        The calibration's plan.
+        The calibration's plan, with each window's repeats.
     child : _Child
         The child whose process settings were chosen.
+    base : _Setup
+        The base setup.
     candidates : sequence of tuple
-        Each candidate and the problems whose operations it changes.
-    base : Mapping[str, int or bool]
-        The base record (the child's own).
+        Each candidate's name, setup and the problems it changes.
     generator : random.Random
         Shuffles the round's order.
 
     Returns
     -------
     dict of str to float or None
-        ``again``, the base record's A/A ratio over the problems, and each
-        candidate's ratio to it over its problems; ``None`` for a failed window.
+        ``again``, the base's A/A ratio over the problems, and each candidate's ratio
+        to it over its problems; ``None`` for a failed window.
     """
-    problems = sorted({name for _, names in candidates for name in names})
-    slots: list[tuple[str, Mapping[str, object] | None, tuple[str, ...]]] = [
-        ("base", None, tuple(problems)),
-        ("again", None, tuple(problems)),
-    ]
-    slots += [
-        (candidate.name, candidate.record(base), names)
-        for candidate, names in candidates
-    ]
+    problems = tuple(sorted({name for _, _, names in candidates for name in names}))
+    slots = [("base", base, problems), ("again", base, problems), *candidates]
     generator.shuffle(slots)
     timed: dict[str, dict[str, float]] = {}
     failed: set[str] = set()
-    for name, record, names in slots:
+    for name, setup, names in slots:
         timed[name] = {}
         for problem in names:
             try:
@@ -950,7 +979,8 @@ def _grain_round(
                         "op": "time",
                         "problem": problem,
                         "repeats": plan.repeats[problem],
-                        "record": record,
+                        "record": setup.record,
+                        "planning": setup.planning,
                     },
                     plan.deadline.remaining(),
                 )
@@ -958,7 +988,6 @@ def _grain_round(
                 failed.add(name)
                 break
             timed[name][problem] = float(cast(float, reply))
-    base_times = timed["base"]
     ratios: dict[str, float | None] = {}
     for name, _, names in slots:
         if name == "base":
@@ -966,8 +995,59 @@ def _grain_round(
         if name in failed or "base" in failed:
             ratios[name] = None
             continue
-        ratios[name] = _geomean([timed[name][p] / base_times[p] for p in names])
+        ratios[name] = _geomean([timed[name][p] / timed["base"][p] for p in names])
     return ratios
+
+
+def _session_of(
+    plan: _Plan,
+    child: _Child,
+    base: _Setup,
+    candidates: Sequence[tuple[str, _Setup, tuple[str, ...]]],
+    until: float,
+    seed: int,
+) -> tuple[float | None, dict[str, selection.Verdict]]:
+    """Time interleaved rounds of candidate setups; return the noise and verdicts.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan.
+    child : _Child
+        The child whose process settings were chosen.
+    base : _Setup
+        The base setup.
+    candidates : sequence of tuple
+        Each candidate's name, setup and the problems it changes.
+    until : float
+        The seconds of the deadline kept back; no round starts within them.
+    seed : int
+        Seeds the rounds' order.
+
+    Returns
+    -------
+    tuple
+        The session's A/A noise (``None`` with too few rounds), and each
+        candidate's verdict, empty when the noise is too high to decide.
+    """
+    generator = random.Random(seed)
+    ratios: dict[str, list[float | None]] = {"again": []}
+    ratios |= {name: [] for name, _, _ in candidates}
+    for _ in range(plan.level.rounds):
+        if plan.deadline.remaining() <= until:
+            break
+        for name, value in _compare_round(
+            plan, child, base, candidates, generator
+        ).items():
+            ratios[name].append(value)
+    ones = [1.0] * len(ratios["again"])
+    noise = selection.noise(ones, ratios["again"], plan.level.rounds)
+    if noise is None or noise > selection.NOISE_LIMIT:
+        return noise, {}
+    return noise, {
+        name: selection.admit(ratios[name], ones, noise, plan.level.rounds)
+        for name, _, _ in candidates
+    }
 
 
 def _grain_candidates(
@@ -1013,8 +1093,8 @@ def _grain_candidates(
 
 
 def _grain(
-    plan: _Plan, bench: _Bench, child: _Child, until: float
-) -> tuple[dict[str, object], dict[str, object]]:
+    plan: _Plan, child: _Child, until: float
+) -> tuple[dict[str, int | bool], dict[str, object]]:
     """Fit the operation grain in the chosen process (SEP 46 phase 2).
 
     The child's operations, as its workspaces size them, give each operation class's
@@ -1026,9 +1106,7 @@ def _grain(
     Parameters
     ----------
     plan : _Plan
-        The calibration's plan.
-    bench : _Bench
-        The prepared children, for each window's repeats.
+        The calibration's plan, with each window's repeats.
     child : _Child
         The child whose process settings were chosen.
     until : float
@@ -1039,7 +1117,6 @@ def _grain(
     tuple
         The workspace settings admitted (empty when none), and the evidence.
     """
-    plan = dataclasses.replace(plan, repeats=bench.repeats)
     try:
         sizing = cast(
             dict[str, dict[str, object]],
@@ -1053,24 +1130,16 @@ def _grain(
         return {}, evidence | {"reason": "no candidate changes an operation's width"}
     plan.say(f"timing {len(proposed)} grain candidates")
     base = cast(dict[str, int | bool], child.report["execution"])
-    generator = random.Random(2000)
-    ratios: dict[str, list[float | None]] = {"again": []}
-    ratios |= {candidate.name: [] for candidate, _ in proposed}
-    for _ in range(plan.level.rounds):
-        if plan.deadline.remaining() <= until:
-            break
-        for name, value in _grain_round(plan, child, proposed, base, generator).items():
-            ratios[name].append(value)
-    ones = [1.0] * len(ratios["again"])
-    noise = selection.noise(ones, ratios["again"], plan.level.rounds)
-    if noise is None or noise > selection.NOISE_LIMIT:
+    noise, verdicts = _session_of(
+        plan,
+        child,
+        _Setup(),
+        [(c.name, _Setup(record=c.record(base)), names) for c, names in proposed],
+        until,
+        2000,
+    )
+    if noise is None or not verdicts:
         return {}, evidence | {"reason": "inconclusive grain noise", "noise": noise}
-    verdicts = {
-        candidate.name: selection.admit(
-            ratios[candidate.name], ones, noise, plan.level.rounds
-        )
-        for candidate, _ in proposed
-    }
     evidence |= {
         "noise": noise,
         "verdicts": {name: verdict.record() for name, verdict in verdicts.items()},
@@ -1078,11 +1147,13 @@ def _grain(
     best = grain.best([candidate for candidate, _ in proposed], verdicts)
     if not best:
         return {}, evidence | {"reason": "no grain candidate won every round"}
-    changes: dict[str, object] = {}
+    changes: dict[str, int | bool] = {}
     for candidate in best:
         changes |= candidate.changes
     plan.say(f"validating {len(best)} grain settings")
-    validation = _validate_records(plan, child, {**base, **changes}, noise)
+    validation = _validate_setups(
+        plan, child, _Setup(record={**base, **changes}), _Setup(), noise
+    )
     evidence["validation"] = validation.record()
     if not validation.passed:
         return {}, evidence | {"reason": "the combined grain failed its validation"}
@@ -1090,10 +1161,10 @@ def _grain(
     return changes, evidence | {"reason": f"admitted: {admitted}"}
 
 
-def _validate_records(
-    plan: _Plan, child: _Child, record: Mapping[str, object], noise: float
+def _validate_setups(
+    plan: _Plan, child: _Child, combined: _Setup, table: _Setup, noise: float
 ) -> selection.Validation:
-    """Validate `record` against the child's own on fresh rounds of every window.
+    """Validate a combined setup against the base on fresh rounds of every window.
 
     Parameters
     ----------
@@ -1101,10 +1172,12 @@ def _validate_records(
         The calibration's plan, with each window's repeats.
     child : _Child
         The child.
-    record : Mapping[str, object]
-        The combined record.
+    combined : _Setup
+        The admitted settings together.
+    table : _Setup
+        The base they replace.
     noise : float
-        The grain session's A/A noise.
+        The session's A/A noise.
 
     Returns
     -------
@@ -1112,18 +1185,15 @@ def _validate_records(
         The verdict.
     """
     names = plan.level.problems
-    combined: dict[str, list[float | None]] = {name: [] for name in names}
-    table: dict[str, list[float | None]] = {name: [] for name in names}
+    times: dict[str, dict[str, list[float | None]]] = {
+        "combined": {name: [] for name in names},
+        "table": {name: [] for name in names},
+    }
     generator = random.Random(3000)
     for _ in range(plan.level.rounds):
-        pair: list[
-            tuple[dict[str, list[float | None]], Mapping[str, object] | None]
-        ] = [
-            (combined, record),
-            (table, None),
-        ]
+        pair = [("combined", combined), ("table", table)]
         generator.shuffle(pair)
-        for target, chosen in pair:
+        for which, setup in pair:
             for name in names:
                 try:
                     reply = child.request(
@@ -1131,22 +1201,256 @@ def _validate_records(
                             "op": "time",
                             "problem": name,
                             "repeats": plan.repeats[name],
-                            "record": chosen,
+                            "record": setup.record,
+                            "planning": setup.planning,
                         },
                         plan.deadline.remaining(),
                     )
-                    target[name].append(float(cast(float, reply)))
+                    times[which][name].append(float(cast(float, reply)))
                 except _ChildError:
-                    target[name].append(None)
+                    times[which][name].append(None)
     return selection.validate(
-        {name: (combined[name], table[name]) for name in names},
+        {name: (times["combined"][name], times["table"][name]) for name in names},
         noise,
         plan.level.rounds,
     )
 
 
+POLICY: dict[str, str] = {
+    "rows": "measure",
+    "threaded_rows": "estimate",
+    "planes": "measure",
+}
+"""The plan policy's effort for each group (``fftw_seed_effort``)."""
+
+
+def _planning_candidates(
+    level: Level, measured: Mapping[str, object], patient: Mapping[str, object] | None
+) -> tuple[dict[str, object], list[tuple[str, str, dict[str, object]]]]:
+    """Return the base planning and each group's candidate plannings.
+
+    Parameters
+    ----------
+    level : Level
+        The level: patient plans only at thorough, and only for serial rows.
+    measured, patient : Mapping[str, object]
+        Captures at measure and at patient effort (``patient`` ``None`` below
+        thorough): ``wisdom`` and ``groups`` by plan key.
+
+    Returns
+    -------
+    tuple
+        The base planning (the policy's efforts with the measured wisdom), and each
+        candidate's name, group and planning.
+    """
+    groups = cast(dict[str, str], measured["groups"])
+    wisdom = cast(dict[str, str], measured["wisdom"])
+
+    def planning(
+        efforts: Mapping[str, str], keys: Mapping[str, str]
+    ) -> dict[str, object]:
+        """Return a profile planning with `efforts` and the wisdom of `keys` they use.
+
+        Parameters
+        ----------
+        efforts : Mapping[str, str]
+            Each group's effort.
+        keys : Mapping[str, str]
+            Wisdom by plan key; that of a group planned at estimate is left out.
+
+        Returns
+        -------
+        dict
+            The planning.
+        """
+        return {
+            "mode": "profile",
+            "efforts": dict(efforts),
+            "wisdom": {
+                key: text
+                for key, text in keys.items()
+                if efforts[groups.get(key, "rows")] != "estimate"
+            },
+        }
+
+    base = planning(POLICY, wisdom)
+    present = set(groups.values())
+    found: list[tuple[str, str, dict[str, object]]] = []
+    if "rows" in present:
+        found.append(
+            ("rows estimate", "rows", planning(POLICY | {"rows": "estimate"}, wisdom))
+        )
+        if patient is not None and level.fulls:
+            found.append(
+                (
+                    "rows patient",
+                    "rows",
+                    planning(
+                        POLICY | {"rows": "patient"},
+                        wisdom | cast(dict[str, str], patient["wisdom"]),
+                    ),
+                )
+            )
+    if "threaded_rows" in present:
+        found.append(
+            (
+                "threaded_rows measure",
+                "threaded_rows",
+                planning(POLICY | {"threaded_rows": "measure"}, wisdom),
+            )
+        )
+    if "planes" in present:
+        found.append(
+            (
+                "planes estimate",
+                "planes",
+                planning(POLICY | {"planes": "estimate"}, wisdom),
+            )
+        )
+    return base, found
+
+
+def _planning(
+    plan: _Plan, child: _Child, record: Mapping[str, int | bool], until: float
+) -> tuple[dict[str, object], dict[str, str], dict[str, object]]:
+    """Choose each FFT plan group's effort in the chosen setup (SEP 46 phase 3).
+
+    The child plans every transform alone at measure (and at patient, thorough),
+    from no wisdom within the level's time limit; the policy's efforts with that
+    wisdom are the base, and each group's other effort a candidate, timed in the
+    step on the problems holding that group's transforms and admitted by §6.5's rule;
+    the winners are validated together. Quick leaves the plan policy.
+
+    Parameters
+    ----------
+    plan : _Plan
+        The calibration's plan, with each window's repeats.
+    child : _Child
+        The child whose process settings were chosen.
+    record : Mapping[str, int or bool]
+        The workspace record chosen, under which the transforms' threads are set.
+    until : float
+        The seconds of the deadline kept back for publication.
+
+    Returns
+    -------
+    tuple
+        The row's planning (``efforts``), the wisdom by plan key, and the evidence.
+    """
+    if plan.level.name == "quick":
+        return {}, {}, {"reason": "the plan policy (quick)"}
+    limit = 20.0 if plan.level.fulls else 1.0
+    try:
+        plan.say("planning the transforms at measure")
+        measured = cast(
+            dict[str, object],
+            child.request(
+                {
+                    "op": "capture",
+                    "effort": "measure",
+                    "limit": limit,
+                    "record": dict(record),
+                },
+                plan.deadline.remaining(),
+            ),
+        )
+        patient = None
+        if plan.level.fulls:
+            patient = cast(
+                dict[str, object],
+                child.request(
+                    {
+                        "op": "capture",
+                        "effort": "patient",
+                        "limit": limit,
+                        "record": dict(record),
+                    },
+                    plan.deadline.remaining(),
+                ),
+            )
+    except _ChildError as error:
+        return {}, {}, {"reason": str(error)}
+    base, candidates = _planning_candidates(plan.level, measured, patient)
+    groups = cast(dict[str, str], measured["groups"])
+    contains = cast(dict[str, list[str]], measured["problems"])
+    evidence: dict[str, object] = {
+        "plans": len(groups),
+        "planning_seconds": measured["seconds"],
+        "candidates": [name for name, _, _ in candidates],
+    }
+    timed = [
+        (
+            name,
+            _Setup(record=record, planning=planning),
+            tuple(
+                p
+                for p, keys in contains.items()
+                if any(groups[k] == group for k in keys)
+            ),
+        )
+        for name, group, planning in candidates
+    ]
+    timed = [item for item in timed if item[2]]
+    chosen = dict(POLICY)
+    wisdom = cast(dict[str, str], base["wisdom"])
+    if timed:
+        plan.say(f"timing {len(timed)} FFT planning candidates")
+        noise, verdicts = _session_of(
+            plan, child, _Setup(record=record, planning=base), timed, until, 4000
+        )
+        evidence["noise"] = noise
+        evidence["verdicts"] = {
+            name: verdict.record() for name, verdict in verdicts.items()
+        }
+        admitted = {
+            group: (name, planning)
+            for name, group, planning in candidates
+            if name in verdicts and verdicts[name].admitted
+        }
+        if admitted and noise is not None:
+            for _, planning in admitted.values():
+                efforts = cast(dict[str, str], planning["efforts"])
+                chosen |= {g: e for g, e in efforts.items() if e != POLICY[g]}
+            combined = {
+                "mode": "profile",
+                "efforts": chosen,
+                "wisdom": {
+                    key: text
+                    for key, text in (
+                        cast(dict[str, str], measured["wisdom"])
+                        | (cast(dict[str, str], patient["wisdom"]) if patient else {})
+                    ).items()
+                    if chosen[groups.get(key, "rows")] != "estimate"
+                    and (chosen[groups.get(key, "rows")] != "patient" or patient)
+                },
+            }
+            validation = _validate_setups(
+                plan,
+                child,
+                _Setup(record=record, planning=combined),
+                _Setup(record=record, planning=base),
+                noise,
+            )
+            evidence["validation"] = validation.record()
+            if validation.passed:
+                wisdom = cast(dict[str, str], combined["wisdom"])
+            else:
+                chosen = dict(POLICY)
+    evidence["reason"] = (
+        "the plan policy's efforts, with their wisdom"
+        if chosen == POLICY
+        else "admitted: "
+        + ", ".join(f"{g} {e}" for g, e in chosen.items() if e != POLICY[g])
+    )
+    return {"efforts": chosen}, wisdom, evidence
+
+
 def _publish(
-    store: Store, fingerprint: str, row: Row, allocation: AllocationClass
+    store: Store,
+    fingerprint: str,
+    row: Row,
+    allocation: AllocationClass,
+    wisdom: Mapping[str, str] | None = None,
 ) -> Path:
     """Publish `row` in a new generation, keeping the other classes' rows.
 
@@ -1162,6 +1466,8 @@ def _publish(
         The new row.
     allocation : AllocationClass
         Its class.
+    wisdom : Mapping[str, str] or None, optional
+        Its plans' wisdom by plan key, added to the generation's.
 
     Returns
     -------
@@ -1188,7 +1494,8 @@ def _publish(
             name=_native.store.generation_name(),
             created=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             rows=tuple(rows),
-            wisdom={} if previous is None else previous.wisdom,
+            # The plans' wisdom accumulates: another allocation's plans keep theirs.
+            wisdom={**({} if previous is None else previous.wisdom), **(wisdom or {})},
         )
     )
 
@@ -1232,6 +1539,7 @@ def _calibrate_allocation(
     try:
         before = _telemetry()
         bench = _start(plan, cpus, allocation, opened)
+        plan = dataclasses.replace(plan, repeats=bench.repeats)
         plan.say(f"timing interleaved rounds on {allocation.cores} cores")
         scores = _rounds(plan, bench, until)
         noise = selection.noise(scores["built-in"], scores["again"], plan.level.rounds)
@@ -1242,7 +1550,12 @@ def _calibrate_allocation(
             "scores": scores,
         }
         builtin = _settings(bench.builtin)
-        busy = _busy(before, _telemetry(), max(0, (os.cpu_count() or 1) - len(cpus)))
+        busy = _busy(
+            before,
+            _telemetry(),
+            max(0, (os.cpu_count() or 1) - len(cpus)),
+            _siblings(cpus),
+        )
         if noise is None or noise > selection.NOISE_LIMIT or busy:
             plan.store.record_inconclusive(plan.digest, allocation.key())
             return dataclasses.replace(
@@ -1259,10 +1572,20 @@ def _calibrate_allocation(
             )
         final, decision, reason = _decide(plan, bench, scores, noise)
         chosen = _settings(final)
-        workspace, grain_evidence = _grain(plan, bench, final, until)
-        reason = f"{reason}; grain: {grain_evidence.get('reason')}"
-        evidence |= decision | {"reason": reason, "grain": grain_evidence}
-        table = cast(dict[str, object], final.report["execution"])
+        workspace, grain_evidence = _grain(plan, final, until)
+        table = cast(dict[str, int | bool], final.report["execution"])
+        planning, wisdom, planning_evidence = _planning(
+            plan, final, {**table, **workspace}, until
+        )
+        reason = (
+            f"{reason}; grain: {grain_evidence.get('reason')}; "
+            f"FFT planning: {planning_evidence.get('reason')}"
+        )
+        evidence |= decision | {
+            "reason": reason,
+            "grain": grain_evidence,
+            "planning": planning_evidence,
+        }
         row = _native.store.Row(
             allocation=allocation.record(),
             level=plan.level.name,
@@ -1270,6 +1593,7 @@ def _calibrate_allocation(
             workspace=workspace,
             fitted_under=chosen,
             evidence=evidence,
+            planning=planning,
         )
         return CalibrationReport(
             level=plan.level.name,
@@ -1281,7 +1605,7 @@ def _calibrate_allocation(
             evidence=evidence,
             reason=reason,
             seconds=plan.deadline.elapsed(),
-            path=_publish(plan.store, plan.digest, row, allocation),
+            path=_publish(plan.store, plan.digest, row, allocation, wisdom),
         )
     except _ChildError as error:
         return dataclasses.replace(
@@ -1390,6 +1714,27 @@ def calibrate(
         report,
         evidence=dict(report.evidence) | {"nested": reports},
         seconds=plan.deadline.elapsed(),
+    )
+
+
+def _siblings(cpus: Sequence[int]) -> list[int]:
+    """Return the CPUs outside `cpus` that share a physical core with one of them.
+
+    Parameters
+    ----------
+    cpus : sequence of int
+        The allocation's CPUs.
+
+    Returns
+    -------
+    list of int
+        Their SMT siblings, ascending.
+    """
+    machine = _native.topology.read_topology()
+    cores = {machine.core[cpu] for cpu in cpus if cpu in machine.core}
+    held = set(cpus)
+    return sorted(
+        cpu for cpu in machine.cpus if machine.core[cpu] in cores and cpu not in held
     )
 
 

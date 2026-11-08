@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Mapping
 from pathlib import Path
@@ -394,3 +395,64 @@ def test_an_unreadable_store_warns_and_leaves_the_table(
         chosen = choose({}, packages=[package], topology=_machine(tmp_path))
     assert chosen.generation is None
     assert "unreadable" in chosen.note
+
+
+def test_a_rows_fft_planning_applies_where_its_workspace_settings_do(
+    tmp_path: Path,
+) -> None:
+    package = _package(tmp_path)
+    topology = _machine(tmp_path)
+    allocation = classify(topology, topology.cpus).record()
+    efforts = {"rows": "measure", "threaded_rows": "measure", "planes": "measure"}
+    row = Row(
+        allocation=allocation,
+        level="standard",
+        fitted_under={"threads": 4, "wait": "spin"},
+        planning={"efforts": efforts},
+    )
+    store = Store(tmp_path / "store")
+    digest = fingerprint(topology, build_identity([package])).digest
+    store.publish(
+        Generation(
+            fingerprint=digest,
+            name="g1",
+            created="2026-11-08",
+            rows=(row,),
+            wisdom={"r2c:8:1:8:5:out:0:0:t1": "(wisdom)"},
+        )
+    )
+    chosen = choose(
+        {}, packages=[package], cpus=topology.cpus, topology=topology, searched=[store]
+    )
+    applied = chosen.planning(Process(4, "spin"), {})
+    assert applied == {
+        "mode": "profile",
+        "efforts": efforts,
+        "wisdom": {"r2c:8:1:8:5:out:0:0:t1": "(wisdom)"},
+    }
+    # The user's own planning wins; other process settings keep the policy.
+    assert chosen.planning(Process(4, "spin"), {"SOLPROP_FFTW_PLAN": "patient"}) is None
+    assert chosen.planning(Process(4, "spin"), {"SOLPROP_FFTW_WISDOM": "w"}) is None
+    assert chosen.planning(Process(4, "passive"), {}) is None
+    assert chosen.planning(Process(2, "spin"), {}) is None
+    # A row without planning, or with malformed efforts, keeps the policy too.
+    bare = dataclasses.replace(row, planning={})
+    malformed = dataclasses.replace(row, planning={"efforts": "measure"})
+    for other in (bare, malformed):
+        store.publish(
+            Generation(fingerprint=digest, name="g2", created="t", rows=(other,))
+        )
+        again = choose(
+            {},
+            packages=[package],
+            cpus=topology.cpus,
+            topology=topology,
+            searched=[store],
+        )
+        assert again.planning(Process(4, "spin"), {}) is None
+    assert (
+        choose({"SOLPROP_CALIBRATION": "off"}, packages=[package]).planning(
+            Process(4, "spin"), {}
+        )
+        is None
+    )

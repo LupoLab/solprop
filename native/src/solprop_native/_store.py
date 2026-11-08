@@ -148,6 +148,9 @@ class Row:
         only to a process running on the same.
     evidence : Mapping[str, object]
         What was measured: ratios, noise and why each setting was kept.
+    planning : Mapping[str, object]
+        Its FFT planning: ``efforts``, each plan group's effort; the plans' wisdom is
+        the generation's.
     """
 
     allocation: Mapping[str, object]
@@ -156,6 +159,7 @@ class Row:
     workspace: Mapping[str, object] = field(default_factory=dict[str, object])
     fitted_under: Mapping[str, object] = field(default_factory=dict[str, object])
     evidence: Mapping[str, object] = field(default_factory=dict[str, object])
+    planning: Mapping[str, object] = field(default_factory=dict[str, object])
 
     def record(self) -> dict[str, object]:
         """Return the row as JSON data."""
@@ -166,6 +170,7 @@ class Row:
             "workspace": dict(self.workspace),
             "fitted_under": dict(self.fitted_under),
             "evidence": dict(self.evidence),
+            "planning": dict(self.planning),
         }
 
     @classmethod
@@ -188,6 +193,7 @@ class Row:
             workspace=_mapping(values.get("workspace", {}), "workspace"),
             fitted_under=_mapping(values.get("fitted_under", {}), "fitted_under"),
             evidence=_mapping(values.get("evidence", {}), "evidence"),
+            planning=_mapping(values.get("planning", {}), "planning"),
         )
 
 

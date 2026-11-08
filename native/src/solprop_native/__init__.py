@@ -216,6 +216,8 @@ _PROFILED, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
 EXECUTION: ExecutionRecord = (
     _PROFILED if _FFT_START is None else _PROFILED.with_fft_start(_FFT_START)
 )
+# The profile's FFT planning, or None for the plan policy (solprop SEP 46 section 6.7).
+PLANNING: dict[str, object] | None = PROFILE.planning(PROCESS)
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to

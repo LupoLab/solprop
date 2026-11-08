@@ -121,7 +121,9 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
     )
     _publish(tmp_path, baseline, row)
     applied = _report(tmp_path)
-    assert (applied["threads"], applied["wait"]) == (2, "passive")
+    # The row's width within the process's budget, which a small runner holds to one.
+    width = min(2, baseline["threads"])
+    assert (applied["threads"], applied["wait"]) == (width, "passive")
     assert (applied["stage"], applied["source"]) == (1234, "profile")
     calibration = cast(dict[str, Any], applied["calibration"])
     profile = cast(dict[str, Any], calibration["profile"])
@@ -129,7 +131,7 @@ def test_an_exact_row_sets_the_pool_the_wait_and_the_workspace(
     assert profile["exact"] is True
     # Read back from the workspace, beside the built-in value.
     assert calibration["workspace"]["stage_threshold"]["applied"] == 1234
-    assert calibration["process"] == {"threads": 2, "wait": "passive"}
+    assert calibration["process"] == {"threads": width, "wait": "passive"}
 
     # SOLPROP_CALIBRATION=off: the table, whatever the store holds.
     off = _report(tmp_path, SOLPROP_CALIBRATION="off")

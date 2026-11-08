@@ -275,6 +275,34 @@ struct CpuExecution {
     `execution` is positive and each class's full size is at least its threshold. */
 void require_cpu_execution(const CpuExecution& execution);
 
+/** How a workspace plans its host FFTW transforms (solprop SEP 46 phase 3).
+
+    - `legacy`: the plan policy of `fftw_seed_effort`, with the process's wisdom.
+    - `profile`: a machine calibration's. The workspace forgets every wisdom before it
+      plans and after; a transform whose exact plan the profile holds imports that
+      plan's wisdom and is seeded with `FFTW_WISDOM_ONLY` (a plan it no longer builds
+      is listed in `missing`, and planned at estimate); any other is seeded at its
+      group's effort, as the policy would, but with no wisdom from elsewhere.
+    - `capture`: each transform is seeded alone, from no wisdom, at `capture_effort`
+      within `time_limit` seconds (none when not positive), and its wisdom is kept in
+      `captured`, for a calibration to time and store.
+
+    A transform's group is `rows` (one thread), `threaded_rows` or `planes`; its key
+    names its kind, sizes, strides, placement, alignment and threads
+    (`fft_plan_key`). Efforts are "estimate", "measure" or "patient". */
+struct FftPlanning {
+  enum class Mode { legacy, profile, capture };
+  Mode mode{Mode::legacy};
+  std::string rows{"measure"}, threaded_rows{"estimate"}, planes{"measure"};
+  std::map<std::string, std::string> wisdom;
+  std::string capture_effort{"measure"};
+  double time_limit{-1.0};
+  // What planning found: each transform's group, the wisdom captured, and the
+  // profile's plans that no longer build.
+  std::map<std::string, std::string> groups, captured;
+  std::vector<std::string> missing;
+};
+
 /** Choose a width without changing the runtime or a vendor library's pool. */
 [[nodiscard]] int operation_threads(const ThreadPolicy& policy,
                                     const CpuExecution& execution, CpuPool pool,
@@ -465,6 +493,8 @@ struct Problem {
   // How the workspace's CPU operations thread (solprop SEP 46): set by the caller,
   // refused when unset (`require_cpu_execution`).
   CpuExecution cpu_execution{};
+  // How the workspace plans its host transforms (solprop SEP 46 phase 3).
+  FftPlanning fft_planning{};
   std::size_t n_stages{};
   // solprop SEP 24 phase 3 (kernel schema 32): the low-storage RK4IP march. With it no
   // Runge-Kutta view is allocated (stages, accumulators, accept buffer, residual,
@@ -953,6 +983,8 @@ public:
   [[nodiscard]] CpuSizing execution_sizing() const;
   /** The CPU execution record the workspace's pools choose widths by. */
   [[nodiscard]] const CpuExecution& cpu_execution() const;
+  /** The workspace's FFT planning, with what its planning found. */
+  [[nodiscard]] const FftPlanning& fft_planning() const;
   [[nodiscard]] double planning_seconds() const noexcept;
   [[nodiscard]] double raman_planning_seconds() const noexcept;
   [[nodiscard]] std::string raman_fft_provider() const;

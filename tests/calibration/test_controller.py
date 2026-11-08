@@ -36,7 +36,15 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
     by_record: ClassVar[Callable[[Mapping[str, object] | None, int], float]] = (
         staticmethod(lambda record, call: 1.0)
     )
+    by_planning: ClassVar[Callable[[Mapping[str, object] | None, int], float]] = (
+        staticmethod(lambda planning, call: 1.0)
+    )
     shape: ClassVar[list[int]] = [1, 1, 1, 4096]
+    # The transforms a capture finds, by plan key, with their groups.
+    plans: ClassVar[dict[str, str]] = {
+        "r2c:4096:1:4096:2049:out:0:0:t1": "rows",
+        "c2c-forward:4096:4:4096:4096:out:0:0:t8": "threaded_rows",
+    }
     sizing: ClassVar[dict[str, object]] = {
         "kernels.stage.4096": {"threads": 8},
         "kernels.response.98304.samples.4096": {"threads": 4},
@@ -84,15 +92,25 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
             }
         if request["op"] == "sizing":
             return {name: dict(type(self).sizing) for name in self.prepared}
+        if request["op"] == "capture":
+            effort = request["effort"]
+            return {
+                "wisdom": {key: f"({effort} {key})" for key in type(self).plans},
+                "groups": dict(type(self).plans),
+                "problems": {name: list(type(self).plans) for name in self.prepared},
+                "seconds": 0.1,
+            }
         if request["op"] == "regions":
             return {"copy": 1e-6, "empty": 1e-6}
         assert request["op"] == "time"
         self.calls += 1
         record = cast(Mapping[str, object] | None, request.get("record"))
+        planning = cast(Mapping[str, object] | None, request.get("planning"))
         return (
             1e-3
             * type(self).factor(self.candidate.name, self.calls)
             * type(self).by_record(record, self.calls)
+            * type(self).by_planning(planning, self.calls)
         )
 
     def request(self, request: Mapping[str, object], timeout: float) -> object:
@@ -210,7 +228,13 @@ def test_telemetry_reads_running_tasks_and_steal(tmp_path: Path) -> None:
         encoding="utf-8",
     )
     values = controller._telemetry(stat)  # pyright: ignore[reportPrivateUsage]
-    assert values == {"total": 1000.0, "steal": 100.0, "running": 3.0}
+    assert values == {
+        "total": 1000.0,
+        "steal": 100.0,
+        "running": 3.0,
+        "cpu0.total": 36.0,
+        "cpu0.busy": 27.0,
+    }
     assert controller._telemetry(tmp_path / "missing") is None  # pyright: ignore[reportPrivateUsage]
     busy = controller._busy  # pyright: ignore[reportPrivateUsage]
     assert busy(None, values, 4) == ""
@@ -219,6 +243,14 @@ def test_telemetry_reads_running_tasks_and_steal(tmp_path: Path) -> None:
     assert "stolen" in busy(quiet, {"total": 1000.0, "steal": 200.0, "running": 2.0}, 0)
     loaded = {"total": 0.0, "steal": 0.0, "running": 9.0}
     assert busy(loaded, loaded, 4) == "7 other tasks running for 4 idle CPUs"
+    # A sibling of the allocation's cores more than half busy shares a timed core.
+    sibling = quiet | {"cpu5.total": 100.0, "cpu5.busy": 10.0}
+    shared = {"total": 0.0, "steal": 0.0, "running": 2.0}
+    shared |= {"cpu5.total": 200.0, "cpu5.busy": 90.0}
+    assert busy(sibling, shared, 4, [5]) == (
+        "CPU 5, an SMT sibling of the allocation's cores, was 80 % busy with other work"
+    )
+    assert busy(sibling, sibling, 4, [5, 6]) == ""
 
 
 def test_a_candidate_that_wins_every_round_and_its_validation_is_published(
@@ -686,3 +718,121 @@ def test_a_failed_validation_window_fails_the_grain(
     script.receive = receive  # type: ignore[method-assign]
     report = calibrate("standard", environ=environ, cpus=range(8))
     assert "the combined grain failed its validation" in report.reason
+
+
+def _efforts(planning: Mapping[str, object] | None) -> dict[str, str]:
+    if not planning:
+        return {}
+    return cast(dict[str, str], planning["efforts"])
+
+
+def test_the_fft_stage_keeps_the_policy_with_its_wisdom_without_a_winner(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    _, environ = scripted
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "FFT planning: the plan policy's efforts, with their wisdom" in report.reason
+    (row,) = _rows(environ)
+    assert row["planning"] == {"efforts": controller.POLICY}
+    generation = json.loads(cast(Path, report.path).read_text(encoding="utf-8"))
+    # The serial rows' measured wisdom is kept; the threaded rows plan at estimate.
+    assert generation["wisdom"] == {
+        "r2c:4096:1:4096:2049:out:0:0:t1": "(measure r2c:4096:1:4096:2049:out:0:0:t1)"
+    }
+
+
+def test_an_admitted_effort_is_validated_and_its_wisdom_kept(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.by_planning = staticmethod(
+        lambda planning, call: (
+            0.8 if _efforts(planning).get("threaded_rows") == "measure" else 1.0
+        )
+    )
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "FFT planning: admitted: threaded_rows measure" in report.reason
+    (row,) = _rows(environ)
+    assert row["planning"] == {
+        "efforts": controller.POLICY | {"threaded_rows": "measure"}
+    }
+    generation = json.loads(cast(Path, report.path).read_text(encoding="utf-8"))
+    assert set(generation["wisdom"]) == set(script.plans)
+
+
+def test_patient_serial_plans_are_tried_at_thorough(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.by_planning = staticmethod(
+        lambda planning, call: (
+            0.8 if _efforts(planning).get("rows") == "patient" else 1.0
+        )
+    )
+    report = calibrate("thorough", environ=environ, cpus=range(8))
+    assert "rows patient" in report.reason
+    generation = json.loads(cast(Path, report.path).read_text(encoding="utf-8"))
+    key = "r2c:4096:1:4096:2049:out:0:0:t1"
+    assert generation["wisdom"][key] == f"(patient {key})"
+
+
+def test_quick_leaves_the_plan_policy_and_a_failed_capture_keeps_it(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    quick = calibrate("quick", environ=environ, cpus=range(8))
+    assert "FFT planning: the plan policy (quick)" in quick.reason
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        if self.pending.get("op") == "capture":
+            raise controller._ChildError("built-in exited")  # pyright: ignore[reportPrivateUsage]
+        return original(self, timeout)
+
+    script.receive = receive  # type: ignore[method-assign]
+    failed = calibrate("standard", environ=environ, cpus=range(8))
+    assert "FFT planning: built-in exited" in failed.reason
+
+
+def test_an_effort_that_fails_its_validation_keeps_the_policy(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    seen: list[int] = []
+
+    def by_planning(planning: Mapping[str, object] | None, call: int) -> float:
+        if _efforts(planning).get("threaded_rows") != "measure":
+            return 1.0
+        seen.append(call)
+        return 0.8 if len(seen) <= 25 else 1.3
+
+    script.by_planning = staticmethod(by_planning)
+    script.plans = {"c2c-forward:4096:4:4096:4096:out:0:0:t8": "threaded_rows"}
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert "FFT planning: the plan policy's efforts" in report.reason
+    evidence = report.evidence["planning"]
+    assert isinstance(evidence, dict)
+    assert evidence["validation"]["passed"] is False  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
+
+
+def test_planes_and_a_group_in_no_problem_are_handled(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.plans = {"planes-forward:64x64:2:4096:4096:in:0:0:t8": "planes"}
+    original = script.receive
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        reply = original(self, timeout)
+        if self.pending.get("op") == "capture":
+            # No problem holds the transform: nothing to time.
+            assert isinstance(reply, dict)
+            reply["problems"] = {}
+        return reply
+
+    script.receive = receive  # type: ignore[method-assign]
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    evidence = report.evidence["planning"]
+    assert isinstance(evidence, dict)
+    assert evidence["candidates"] == ["planes estimate"]
+    assert "noise" not in evidence

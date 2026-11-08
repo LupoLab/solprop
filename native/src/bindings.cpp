@@ -219,6 +219,73 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
   return result;
 }
 
+// solprop SEP 46 phase 3: a workspace's FFT planning, as solprop_native's backend
+// writes it: its mode, each group's effort, the profile's wisdom by plan key, and a
+// capture's effort and time limit; absent, the plan policy (`legacy`).
+native::FftPlanning fft_planning_from(const nb::dict& values) {
+  native::FftPlanning result;
+  try {
+    const auto mode = nb::cast<std::string>(values["mode"]);
+    if (mode == "legacy")
+      result.mode = native::FftPlanning::Mode::legacy;
+    else if (mode == "profile")
+      result.mode = native::FftPlanning::Mode::profile;
+    else if (mode == "capture")
+      result.mode = native::FftPlanning::Mode::capture;
+    else
+      throw std::invalid_argument("an FFT planning mode is legacy, profile or capture, "
+                                  "not '" +
+                                  mode + "'");
+    if (values.contains("efforts")) {
+      const auto efforts = nb::cast<nb::dict>(values["efforts"]);
+      for (auto [name, effort] : efforts) {
+        const auto group = nb::cast<std::string>(name);
+        auto text = nb::cast<std::string>(effort);
+        static_cast<void>(native::fftw_effort_flag(text));
+        if (group == "rows")
+          result.rows = std::move(text);
+        else if (group == "threaded_rows")
+          result.threaded_rows = std::move(text);
+        else if (group == "planes")
+          result.planes = std::move(text);
+        else
+          throw std::invalid_argument("an FFT planning group is rows, threaded_rows "
+                                      "or planes, not '" +
+                                      group + "'");
+      }
+    }
+    if (values.contains("wisdom"))
+      for (auto [key, text] : nb::cast<nb::dict>(values["wisdom"]))
+        result.wisdom[nb::cast<std::string>(key)] = nb::cast<std::string>(text);
+    if (values.contains("capture_effort")) {
+      result.capture_effort = nb::cast<std::string>(values["capture_effort"]);
+      static_cast<void>(native::fftw_effort_flag(result.capture_effort));
+    }
+    if (values.contains("time_limit"))
+      result.time_limit = nb::cast<double>(values["time_limit"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("an FFT planning record has the wrong types");
+  }
+  return result;
+}
+
+nb::dict fft_planning_dict(const native::FftPlanning& planning) {
+  nb::dict result;
+  nb::dict groups;
+  for (const auto& [key, group] : planning.groups)
+    groups[key.c_str()] = group;
+  nb::dict captured;
+  for (const auto& [key, text] : planning.captured)
+    captured[key.c_str()] = text;
+  nb::list missing;
+  for (const auto& key : planning.missing)
+    missing.append(key);
+  result["groups"] = groups;
+  result["captured"] = captured;
+  result["missing"] = missing;
+  return result;
+}
+
 nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
   nb::dict result;
   for (std::size_t index = 0; index < native::cpu_operation_count; ++index) {
@@ -246,6 +313,16 @@ native::Problem problem_from(const nb::dict& values) {
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a native problem's cpu_execution must be a dict");
   }
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  if (values.contains("fft_planning")) {
+    try {
+      result.fft_planning =
+          fft_planning_from(nb::cast<nb::dict>(values["fft_planning"]));
+    } catch (const nb::cast_error&) {
+      throw std::invalid_argument("a native problem's fft_planning must be a dict");
+    }
+  }
+#endif
   try {
     if (values.contains("n_x")) {
       result.n_x = nb::cast<std::size_t>(values["n_x"]);
@@ -2057,6 +2134,10 @@ public:
     require_open();
     return cpu_execution_dict(general_state_->cpu_execution());
   }
+  nb::dict fft_planning() const {
+    require_open();
+    return fft_planning_dict(general_state_->fft_planning());
+  }
   double planning_seconds() const {
     require_open();
     return general_state_->planning_seconds();
@@ -2642,6 +2723,16 @@ NB_MODULE(_core, module_) {
               "warm"_a, "repeats"_a);
   // The calling thread's OpenMP default as a native call sees it (solprop issue #130).
   module_.def("scoped_openmp_default", &native::scoped_openmp_default);
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+  // solprop SEP 46: forget FFTW's process-wide wisdom, for a test of the planning
+  // transaction.
+  module_.def("forget_fftw_wisdom", [] {
+    fftw_init_threads();
+    fftw_forget_wisdom();
+  });
+#else
+  module_.def("forget_fftw_wisdom", [] {});
+#endif
   module_.def("configure_native_spin", &native::configure_native_spin,
               "milliseconds"_a);
   module_.def("scoped_block_time", &native::scoped_block_time);
@@ -3622,6 +3713,7 @@ NB_MODULE(_core, module_) {
                    [](BoundState& self) { return self.raman_fft_provider(); })
       .def_prop_ro("execution_sizing", &BoundState::execution_sizing)
       .def_prop_ro("cpu_execution", &BoundState::cpu_execution)
+      .def_prop_ro("fft_planning", &BoundState::fft_planning)
       .def_prop_ro("raman_fft_tasks",
                    [](BoundState& self) { return self.raman_fft_tasks(); })
       .def_prop_ro("raman_planning_seconds",

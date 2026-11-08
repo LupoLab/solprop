@@ -12,6 +12,7 @@ import os
 import subprocess
 import sys
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -66,7 +67,9 @@ def test_a_child_prepares_times_and_probes_regions() -> None:
 
 
 def test_a_child_times_under_a_given_record() -> None:
-    from solprop_native import BUILTIN_EXECUTION  # noqa: PLC0415
+    from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        BUILTIN_EXECUTION,
+    )
 
     serial = BUILTIN_EXECUTION.updated(
         {"stage_threshold": 1 << 40, "stage_full": 1 << 40}
@@ -156,3 +159,34 @@ def test_the_childs_entry_point_keeps_its_protocol_apart(
     monkeypatch.setattr(child.sys, "stdin", io.StringIO(""))
     assert child.main() == 0
     assert pinned[-1] == []
+
+
+def test_a_child_captures_each_plans_wisdom_and_times_under_a_planning() -> None:
+    replies = _serve(
+        {"op": "prepare", "problems": {"gnlse": 1.0}},
+        {"op": "capture", "effort": "measure", "limit": 0.5, "record": None},
+    )
+    captured = replies[1]["ok"]
+    assert isinstance(captured, dict)
+    wisdom = cast(dict[str, str], captured["wisdom"])
+    groups = cast(dict[str, str], captured["groups"])
+    assert wisdom
+    assert set(wisdom) <= set(groups)
+    assert all(text.startswith("(fftw-3") for text in wisdom.values())
+    assert set(cast(dict[str, list[str]], captured["problems"])) == {"gnlse"}
+    planning = {
+        "mode": "profile",
+        "efforts": {"rows": "measure", "threaded_rows": "measure", "planes": "measure"},
+        "wisdom": wisdom,
+    }
+    timed = _serve(
+        {"op": "prepare", "problems": {"gnlse": 1.0}},
+        {
+            "op": "time",
+            "problem": "gnlse",
+            "repeats": 1,
+            "record": None,
+            "planning": planning,
+        },
+    )
+    assert isinstance(timed[1]["ok"], float)

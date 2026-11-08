@@ -534,16 +534,28 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
                              Complex* output, const std::vector<int>& extents,
                              const int howmany, const int input_distance,
                              const int output_distance, const int sign) {
-  const unsigned effort = fftw_seed_effort(FftShape::planes, space.concurrency());
-  if (effort == FFTW_ESTIMATE)
-    return;
+  std::string sizes;
+  for (const int extent : extents)
+    sizes += (sizes.empty() ? "" : "x") + std::to_string(extent);
+  const std::string key = fft_plan_key(
+      sign == FFTW_FORWARD ? "planes-forward" : "planes-backward", sizes, howmany,
+      input_distance, output_distance, input, output, space.concurrency());
   fftw_init_threads();
+  const auto chosen = begin_seed(key, FftShape::planes, space.concurrency());
+  if (!chosen)
+    return;
   fftw_plan_with_nthreads(space.concurrency());
   auto* in = reinterpret_cast<fftw_complex*>(input);
   auto* out = reinterpret_cast<fftw_complex*>(output);
   const fftw_plan seeded = fftw_plan_many_dft(
       static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
-      input_distance, out, nullptr, 1, output_distance, sign, effort);
+      input_distance, out, nullptr, 1, output_distance, sign, *chosen);
+  // The policy has always tolerated a plane it cannot seed; a profile records it.
+  if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
+      (detail::planning == nullptr ||
+       detail::planning->mode == FftPlanning::Mode::legacy))
+    return;
+  end_seed(key, *chosen, seeded != nullptr);
   if (seeded != nullptr)
     fftw_destroy_plan(seeded);
 }
@@ -2099,6 +2111,9 @@ public:
     if (!problem_.spatial_absorber_matrix.empty())
       absorber_execution_space_ = kernel_pool_.get(
           CpuOperation::dense, problem_.n_columns() * problem_.n_to * problem_.n_modes);
+    // solprop SEP 46: the workspace's own FFT planning, wisdom isolated from the rest
+    // of the process in a calibration's modes.
+    const FftPlanningScope planning(problem_.fft_planning);
     allocate();
     upload();
     const auto heap_before = heap_bytes();
@@ -17004,6 +17019,9 @@ CpuSizing GeneralState::execution_sizing() const {
 }
 const CpuExecution& GeneralState::cpu_execution() const {
   return workspace_->cpu_execution();
+}
+const FftPlanning& GeneralState::fft_planning() const {
+  return workspace_->problem_.fft_planning;
 }
 double GeneralState::planning_seconds() const noexcept {
   return workspace_ ? workspace_->planning_seconds() : 0.0;

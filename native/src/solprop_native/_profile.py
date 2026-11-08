@@ -23,6 +23,7 @@ import os
 import warnings
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from typing import cast
 from pathlib import Path
 
 from ._allocation import AllocationClass, Match, classify, match
@@ -135,6 +136,40 @@ class Choice:
         except ValueError as error:
             _warn(f"ignoring a calibration row's workspace settings: {error}")
             return builtin, f"the row's workspace settings are invalid: {error}"
+
+    def planning(
+        self, process: Process, environ: Mapping[str, str] = os.environ
+    ) -> dict[str, object] | None:
+        """Return a workspace's FFT planning under `process`, or ``None``.
+
+        The row's plan efforts and the generation's wisdom (SEP 46 section 6.7), where
+        the row's workspace settings hold (:meth:`workspace`); ``None`` keeps the plan
+        policy: no profile, a row without planning, other process settings, or the
+        user's own ``SOLPROP_FFTW_PLAN`` or ``SOLPROP_FFTW_WISDOM``, which take
+        precedence.
+        """
+        row = self.row
+        if row is None or self.generation is None or not row.planning:
+            return None
+        if any(
+            environ.get(name, "").strip()
+            for name in ("SOLPROP_FFTW_PLAN", "SOLPROP_FFTW_WISDOM")
+        ):
+            return None
+        fitted = row.fitted_under
+        assert self.found is not None
+        if fitted.get("wait") != process.wait or (
+            self.found.exact and fitted.get("threads") not in (None, process.threads)
+        ):
+            return None
+        efforts = row.planning.get("efforts", {})
+        if not isinstance(efforts, dict):
+            return None
+        return {
+            "mode": "profile",
+            "efforts": dict(cast(dict[str, str], efforts)),
+            "wisdom": dict(self.generation.wisdom),
+        }
 
     def record(
         self,
