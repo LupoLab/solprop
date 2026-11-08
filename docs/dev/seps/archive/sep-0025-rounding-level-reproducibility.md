@@ -225,7 +225,7 @@ does), but all of it matters for mode-averaged runs, scans of short runs and bat
 - **Statistics-only planes and the construct-once runner.** Those stay with
   [SEP 22](sep-0022-memory-lean-spatial-execution.md). This SEP's output preallocation
   is the part independent of it.
-- **Autotuning of thread counts.** That is [SEP 4](../sep-0004-execution-autotuning.md); this
+- **Autotuning of thread counts.** That is [SEP 4](sep-0004-execution-autotuning.md); this
   SEP only re-measures the fixed thresholds that the old rule shaped.
 - **New GPU routes or an execution-autotuning interface.** The GPU passes optimise
   already supported computations and use measured static policies. New physics,

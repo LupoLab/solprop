@@ -6,14 +6,14 @@
 | **Title** | Calibrating the native backend to its machine |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-08) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | GPT-6 (AI) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-08 by John Travers, after the AI review, the drafting agent's response and the maintainer's decisions on §12 items 1–7 ([LupoLab/solprop#580](https://github.com/LupoLab/solprop/pull/580)). |
 | **Requires** | — |
-| **Supersedes** | SEP 4 (on acceptance) |
+| **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
 | **Implementation** | — |
 | **Manual pages** | — |
@@ -1180,3 +1180,5 @@ are left to the maintainer as §12 items 4–7.
   left on their issues. The claim that stage 2 chooses the scan split is withdrawn;
   #314 stays open. #303 is listed as partly answered. Supersession happens once, at
   acceptance (§11); phase 4 no longer repeats it.
+- 2026-11-08: Accepted by John Travers (human review and decisions) in #580; SEP 4
+  superseded and archived.
