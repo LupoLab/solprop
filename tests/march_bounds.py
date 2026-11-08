@@ -229,13 +229,20 @@ def assert_matched(actual, expected, bound: float, *, what: str = "") -> float:
     return max(margins)
 
 
-def assert_in_envelope(runs, reference, uninterrupted, *, what: str = "") -> None:
+def assert_in_envelope(
+    runs,
+    reference,
+    uninterrupted,
+    *,
+    what: str = "",
+    factor: float = ENVELOPE_FACTOR,
+) -> None:
     """Assert adaptive runs meet the uninterrupted run's accuracy envelope.
 
     `reference` is the same problem at a :data:`TIGHTER` tolerance. The envelope is
-    :data:`ENVELOPE_FACTOR` times the uninterrupted run's own departure from it,
-    taken before any of `runs` is compared, and every one of `runs` must meet it
-    (SEP 25 section 4.4).
+    `factor` (:data:`ENVELOPE_FACTOR` unless a case justifies another) times the
+    uninterrupted run's own departure from it, taken before any of `runs` is
+    compared, and every one of `runs` must meet it (SEP 25 section 4.4).
     """
     reference = np.asarray(reference)
     error = float(
@@ -246,7 +253,7 @@ def assert_in_envelope(runs, reference, uninterrupted, *, what: str = "") -> Non
     envelope = AccuracyEnvelope(
         reference=f"{what} at a {TIGHTER:g} times tighter tolerance",
         error=error,
-        factor=ENVELOPE_FACTOR,
+        factor=factor,
     )
     for index, run in enumerate(runs):
         assert_within(run, reference, envelope.bound, what=f"{what} run {index}")
