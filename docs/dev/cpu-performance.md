@@ -346,7 +346,9 @@ Each has an issue:
   - An assessment found enough custom arithmetic outside FFTW and BLAS for this to be a
     credible experiment on AVX-512 x86-64 and arm64.
   - It found no evidence yet that it beats the current loops.
-  - First compare compiler targets, then prototype at most one or two kernels.
+  - First compare compiler targets, then prototype at most one or two kernels. The
+    comparison is done (v4 against v3, above): wider vectors gained at most 9 % at one
+    thread and 4 % at 16, so it gives no case for explicit SIMD on its own.
   - A broad conversion to SIMD types is not justified.
 - **Selective run-time kernel dispatch** (SEP 29 §6.2, [#337](https://github.com/LupoLab/solprop/issues/337)):
   not justified by v4 against v3 on an AVX-512 Xeon (above). Still to measure: a Zen 4 or
