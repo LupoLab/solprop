@@ -124,7 +124,7 @@ def test_julia_matches_the_reference(runtime, case, stepper, fraction):
 
 
 @binary64
-def _fixed_capillary(backend, *, integrator=None, fixed=True):
+def _fixed_capillary(backend, *, integrator=None, fixed=True, **extra):
     """A short ionising capillary, on 16 fixed steps (a batch runs a fixed schedule) or
     adaptive."""
     from solprop.driver import Simulation  # noqa: PLC0415
@@ -148,6 +148,7 @@ def _fixed_capillary(backend, *, integrator=None, fixed=True):
         schedule=schedule,
         absorber_scheme="split_step",
         noise=None,
+        **extra,
     )
 
 
@@ -557,11 +558,23 @@ def test_julia_varying_raman_matches_the_reference(runtime):
     with ExitStack() as cleanup:
         for name in ("numpy_ref", "julia"):
             simulation = Simulation.from_capillary(
-                75e-6, length, "H2", (3.0, 0.5), wavelength=800e-9,
-                wavelength_limits=(300e-9, 3e-6), trange=1e-12, fwhm=30e-15,
-                energy=50e-6, n_save=2, backend=name, integrator=RungeKutta(),
+                75e-6,
+                length,
+                "H2",
+                (3.0, 0.5),
+                wavelength=800e-9,
+                wavelength_limits=(300e-9, 3e-6),
+                trange=1e-12,
+                fwhm=30e-15,
+                energy=50e-6,
+                n_save=2,
+                backend=name,
+                integrator=RungeKutta(),
                 schedule=FixedSchedule.uniform(0.0, length, length / 16),
-                absorber_scheme="split_step", noise=None, plasma=False, raman=True,
+                absorber_scheme="split_step",
+                noise=None,
+                plasma=False,
+                raman=True,
                 # The lines' density shift held at the reference density (the seam
                 # cannot follow it along a gradient).
                 materials=MaterialSelection(raman_shift="reference-density"),
@@ -580,7 +593,9 @@ ENVELOPE_PLASMA_STATISTICS = (
 )
 
 
-def _envelope_plasma(name, waveguide, precision="double"):
+def _envelope_plasma(
+    name, waveguide, precision="double", energy=4e-4, names=ENVELOPE_PLASMA_STATISTICS
+):
     """Argon's envelope plasma (preionised 10 %, ionising) on four fixed steps: a
     resolved capillary or a mode-averaged waveguide. Return its field and statistics."""
     from contextlib import ExitStack  # noqa: PLC0415
@@ -594,23 +609,43 @@ def _envelope_plasma(name, waveguide, precision="double"):
 
     length = 8e-6
     options = {
-        "wavelength": 800e-9, "wavelength_limits": (500e-9, 1.2e-6), "trange": 80e-15,
-        "fwhm": 20e-15, "energy": 4e-4, "envelope": True, "plasma": adk_oracle("Ar"),
-        "preionisation": 0.1, "raman": False, "kerr": True, "noise": None,
+        "wavelength": 800e-9,
+        "wavelength_limits": (500e-9, 1.2e-6),
+        "trange": 80e-15,
+        "fwhm": 20e-15,
+        "energy": energy,
+        "envelope": True,
+        "plasma": adk_oracle("Ar"),
+        "preionisation": 0.1,
+        "raman": False,
+        "kerr": True,
+        "noise": None,
         "schedule": FixedSchedule.uniform(0.0, length, length / 4),
-        "save_planes": [length / 2, length], "integrator": RungeKutta(),
-        "stats": StatsSpec(names=ENVELOPE_PLASMA_STATISTICS), "precision": precision,
+        "save_planes": [length / 2, length],
+        "integrator": RungeKutta(),
+        "stats": StatsSpec(names=names),
+        "precision": precision,
         "backend": name,
     }
     if waveguide:
         simulation = Simulation.from_waveguide(
             [MarcatiliMode(125e-6, "Ar", 1.0, loss=False, cladding=1.45)],
-            length, "Ar", 1.0, **options,
+            length,
+            "Ar",
+            1.0,
+            **options,
         )
     else:
         simulation = Simulation.from_capillary(
-            125e-6, length, "Ar", 1.0, loss=False, cladding=1.45, n_r=4,
-            radial_rule="gauss", **options,
+            125e-6,
+            length,
+            "Ar",
+            1.0,
+            loss=False,
+            cladding=1.45,
+            n_r=4,
+            radial_rule="gauss",
+            **options,
         )
     simulation.settings = dataclasses.replace(
         simulation.settings, absorber=absorber(simulation.grid, boundary_length=1e-3)
@@ -637,6 +672,37 @@ def test_julia_envelope_plasma_matches_the_reference(runtime, waveguide):
     for name in ENVELOPE_PLASMA_STATISTICS:
         np.testing.assert_allclose(
             statistics[name], expected[name], rtol=1e-9, err_msg=name
+        )
+
+
+@pytest.mark.parametrize("grid_kind", ["field", "envelope"])
+@binary64
+def test_julia_on_axis_plasma_statistics_match_the_reference(runtime, grid_kind):
+    """The on-axis plasma statistics on a resolved capillary (no node on the axis, so
+    the axis row is scanned): the reference's, on the field and envelope grids."""
+    del runtime
+    from contextlib import ExitStack  # noqa: PLC0415
+
+    from solprop.stats import ON_AXIS_PLASMA_STATISTICS, StatsSpec  # noqa: PLC0415
+
+    names = ("electron_density", *ON_AXIS_PLASMA_STATISTICS)
+    statistics = {}
+    for name in ("numpy_ref", "julia"):
+        if grid_kind == "envelope":
+            _, statistics[name] = _envelope_plasma(name, False, names=names)
+            continue
+        simulation = _fixed_capillary(
+            name, n_r=4, radial_rule="gauss", stats=StatsSpec(names=names)
+        )
+        with ExitStack() as cleanup:
+            engine = _loaded(simulation, name, cleanup)
+            engine.propagate_to(0.004)
+            statistics[name] = engine.stats(simulation.translate().stats_spec)
+    expected = statistics["numpy_ref"]
+    assert float(np.max(expected["on_axis_peak_ionisation_rate"])) > 0
+    for name in names:
+        np.testing.assert_allclose(
+            statistics["julia"][name], expected[name], rtol=1e-9, err_msg=name
         )
 
 
@@ -729,7 +795,11 @@ def test_julia_batch_members_are_their_solo_runs(runtime):
 def test_julia_reports_its_engine(runtime):
     """Metadata names the runtime and the sources; the ledger counts owned arrays."""
     del runtime
-    configuration = CASES["rdw"].configuration("rk", 1, "julia", fraction=0.001)
+    # Metal has binary32 only: a complex sample is 8 bytes there, 16 elsewhere.
+    single = DEVICE == "metal"
+    configuration = CASES["rdw"].configuration(
+        "rk", 1, "julia32" if single else "julia", fraction=0.001
+    )
     simulation = build(configuration | {"noise": "none"})
     problem = simulation.translate()
     engine = select("julia", problem, grid=simulation.grid, modes=simulation.modes)
@@ -738,7 +808,8 @@ def test_julia_reports_its_engine(runtime):
     assert len(metadata["julia_source_digest"]) == 64
     assert metadata["device"].startswith(DEVICE)
     ledger = engine.memory_ledger()
-    assert ledger["work.y"] == 16 * problem.shape[1] * problem.shape[3]
+    width = 8 if single else 16
+    assert ledger["work.y"] == width * problem.shape[1] * problem.shape[3]
     engine.close()
 
 

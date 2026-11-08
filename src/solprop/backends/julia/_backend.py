@@ -35,7 +35,7 @@ from solprop.backends.spatial import (
     signed_fluence_widths,
 )
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.modes.protocol import Mode
 from solprop.monitor import BoundaryEnergies, BoundaryMonitor
@@ -44,6 +44,7 @@ from solprop.output.schema import SavedPlane
 from solprop.profiles import ZProfile
 from solprop.stats import (
     _POYNTING_STATISTICS,
+    ON_AXIS_PLASMA_STATISTICS,
     StatsSpec,
     _power_half_width,
     _poynting_statistics,
@@ -53,6 +54,7 @@ from solprop.stats import (
 from solprop.stepper import LowStorageRungeKutta, Multistep
 from solprop.stepper.tableau import DOPRI5, TSIT5
 from solprop.translate.chebyshev import PiecewiseChebyshev
+from solprop.translate.envelope_plasma import EnvelopePlasmaAssembly
 from solprop.translate.linop import power_weight_at
 from solprop.translate.precision import launch_peak, state_scale
 from solprop.translate.problem import KernelProblem
@@ -86,6 +88,7 @@ _SUPPORTED_STATS = (
     | _SPECIES_STATS
     | _HOST_STATS
     | {"peak_intensity", "quadrature_error", "zdw"}
+    | frozenset(ON_AXIS_PLASMA_STATISTICS)
 )
 _SPATIAL_STATS = (
     frozenset(default_spec("radial", with_profiles=True).names)
@@ -190,8 +193,8 @@ def _refuse(problem: KernelProblem) -> None:
             {r.thg for r in response.raman_terms}
         )
         > 1,
-        # A varying Raman kernel is rebuilt at each stage by the stage machinery, which a
-        # varying operator brings (a gas gradient's); free space has none.
+        # A varying Raman kernel is rebuilt at each stage by the stage machinery,
+        # which a varying operator brings (a gas gradient's); free space has none.
         "varying Raman coefficients beside a constant operator": _raman_varying(problem)
         and problem.linear.phi_expansion is None,
         "varying Raman coefficients in free space": _raman_varying(problem)
@@ -234,6 +237,10 @@ def _refuse(problem: KernelProblem) -> None:
     refuse_general_leaves(problem, "julia")
     refuse_carrier_frame(problem, "julia")
     _refuse_stats(problem.stats_spec, spatial=transform.geometry is not None)
+    from solprop.backends.populations import axis_refusal  # noqa: PLC0415 - a cycle
+
+    if reason := axis_refusal(problem, problem.stats_spec.names):
+        raise BackendError(reason)
 
 
 def _compensated(problem: KernelProblem) -> bool:
@@ -290,6 +297,70 @@ def _refuse_stats(spec: StatsSpec, *, spatial: bool = False) -> None:
     """
     if missing := set(spec.names) - (_SPATIAL_STATS if spatial else _SUPPORTED_STATS):
         raise BackendError(f"julia does not support statistics {sorted(missing)}")
+
+
+def _envelope_configuration(
+    envelope: EnvelopePlasmaAssembly, scale: float
+) -> dict[str, object]:
+    """Return the envelope grid's plasma for the engine (julia/src/envelope.jl).
+
+    Each channel's instantaneous table and constants as the field plasma's, the cycle
+    quadrature's rules end to end, and the currents' spectral factors on the band.
+
+    Parameters
+    ----------
+    envelope : solprop.translate.envelope_plasma.EnvelopePlasmaAssembly
+        The compiled channels and factors.
+    scale : float
+        The binary32 state's scale (1 in binary64).
+
+    Returns
+    -------
+    dict
+        Configuration entries.
+
+    Raises
+    ------
+    BackendError
+        If the channels' quadrature rules differ.
+    """
+    config: dict[str, object] = {
+        "envelope_plasma": True,
+        "plasma_count": len(envelope.channels),
+    }
+    for k, channel in enumerate(envelope.channels, start=1):
+        suffix = "" if k == 1 else f"_{k}"
+        table = channel.cycle.rate
+        config[f"plasma_coefficients{suffix}"] = table.coefficients.copy()
+        config[f"plasma_parameters{suffix}"] = np.array(
+            [
+                table.field_min,
+                table.field_max,
+                table.rate_max,
+                table.log_field_min,
+                table.d_log_field,
+                channel.charge_mass_ratio,
+                channel.ionisation_potential / scale**2,
+                float(channel.density(0.0)),
+                float(channel.preionisation(0.0)),
+            ]
+        )
+    rules = envelope.channels[0].cycle.rules
+    for channel in envelope.channels:
+        theirs = channel.cycle.rules
+        if len(theirs) != len(rules) or any(
+            not np.array_equal(a.nodes, b.nodes)
+            for a, b in zip(theirs, rules, strict=True)
+        ):
+            raise BackendError("julia does not support channels with different rules")
+    config.update(
+        envelope_rule_nodes=np.concatenate([r.nodes for r in rules]),
+        envelope_rule_weights=np.concatenate([r.weights for r in rules]),
+        envelope_rule_orders=np.array([len(r.nodes) for r in rules], dtype=np.int64),
+        envelope_drude=envelope.factors.drude.copy(),
+        envelope_loss=envelope.factors.loss.copy(),
+    )
+    return config
 
 
 def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
@@ -448,47 +519,9 @@ def _configuration(problem: KernelProblem, threads: int) -> dict[str, object]:
             omega=grids.omega.copy(),
         )
 
-    envelope = responses.envelope_plasma
-    if envelope is not None:
-        # The envelope grid's channels: each one's instantaneous table and constants as
-        # the field plasma's, the cycle quadrature's rules end to end, and the
-        # currents' spectral factors on the band (julia/src/envelope.jl).
-        config["envelope_plasma"] = True
-        config["plasma_count"] = len(envelope.channels)
-        for k, channel in enumerate(envelope.channels, start=1):
-            suffix = "" if k == 1 else f"_{k}"
-            table = channel.cycle.rate
-            config[f"plasma_coefficients{suffix}"] = table.coefficients.copy()
-            config[f"plasma_parameters{suffix}"] = np.array(
-                [
-                    table.field_min,
-                    table.field_max,
-                    table.rate_max,
-                    table.log_field_min,
-                    table.d_log_field,
-                    channel.charge_mass_ratio,
-                    channel.ionisation_potential / scale**2,
-                    float(channel.density(0.0)),
-                    float(channel.preionisation(0.0)),
-                ]
-            )
-        rules = envelope.channels[0].cycle.rules
-        if any(
-            len(c.cycle.rules) != len(rules)
-            or any(
-                not np.array_equal(a.nodes, b.nodes) for a, b in zip(c.cycle.rules, rules, strict=True)
-            )
-            for c in envelope.channels
-        ):
-            raise BackendError("julia does not support channels with different rules")
-        config.update(
-            envelope_rule_nodes=np.concatenate([r.nodes for r in rules]),
-            envelope_rule_weights=np.concatenate([r.weights for r in rules]),
-            envelope_rule_orders=np.array([len(r.nodes) for r in rules], dtype=np.int64),
-            envelope_drude=envelope.factors.drude.copy(),
-            envelope_loss=envelope.factors.loss.copy(),
-            dt=grids.dt_fine,
-        )
+    if responses.envelope_plasma is not None:
+        config.update(_envelope_configuration(responses.envelope_plasma, scale))
+        config["dt"] = grids.dt_fine
 
     if responses.raman_terms:
         # Every component's terms in one kernel, each weighted by its density and
@@ -825,6 +858,8 @@ class JuliaBackend(StepDriver[object]):
         ------
         BackendError
             If the trial produces a nonfinite norm or state is unavailable.
+        ConvergenceError
+            If an envelope plasma's cycle moments did not converge.
         """
         self._require_state()
         if self._varying:
@@ -833,6 +868,14 @@ class JuliaBackend(StepDriver[object]):
         self._rk_source_evaluations += 6 if self._fsal else 7
         self._fsal = True
         if not np.isfinite(norm):
+            if self._problem.responses.envelope_plasma is not None and bool(
+                call_julia(self._jl.envelope_failed, self._engine)
+            ):
+                # The engine marks a sample whose cycle moments did not converge NaN,
+                # which the norm carries here; the oracle raises this.
+                raise ConvergenceError(
+                    "envelope plasma directional moments did not converge by order 512"
+                )
             raise BackendError("julia produced a nonfinite trial error norm")
         return norm, self._engine
 
@@ -1159,13 +1202,14 @@ class JuliaBackend(StepDriver[object]):
                     )
                 )
             if _SPECIES_STATS.intersection(spec.names):
-                values.update(self._populations(spec, state))
+                values.update(self._populations(spec, self._population_scan()))
             return {name: value[None] for name, value in values.items()}
         weighted = not np.all(self._weight == 1.0)
         owned = (
             (_POYNTING_STATISTICS if weighted else {"peak_intensity"})
             | _SPECIES_STATS
             | {"quadrature_error"}
+            | frozenset(ON_AXIS_PLASMA_STATISTICS)
         )
         delegated = dataclasses.replace(
             spec, names=tuple(n for n in spec.names if n not in owned), periodic=()
@@ -1186,8 +1230,15 @@ class JuliaBackend(StepDriver[object]):
             values.update(self._poynting(spec, grid, state, axis))
         if "quadrature_error" in spec.names:
             values["quadrature_error"] = np.asarray(self._alarm)
-        if _SPECIES_STATS.intersection(spec.names):
-            values.update(self._populations(spec, state))
+        axis_names = set(ON_AXIS_PLASMA_STATISTICS).intersection(spec.names)
+        if _SPECIES_STATS.intersection(spec.names) or axis_names:
+            scan = self._population_scan()
+            values.update(self._populations(spec, scan))
+            if axis_names:
+                # The shared form (SEP 19): a node on the axis hands over its row of
+                # this observation's scan, else the axis row is scanned on the host.
+                axis = self._axis_statistics(state, scan[:2])
+                values.update({name: axis[name] for name in axis_names})
         return {name: value[None] for name, value in values.items()}
 
     def _poynting(
@@ -1414,22 +1465,32 @@ class JuliaBackend(StepDriver[object]):
             call_julia(self._jl.rebind_weight_b, self._engine, weight)
         self._poynting_weight = self._weight
 
-    def _populations(self, spec: StatsSpec, state: np.ndarray) -> dict[str, np.ndarray]:
+    def _population_scan(self) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """Scan the held state's populations.
+
+        Returns
+        -------
+        tuple of numpy.ndarray
+            Each channel's final fraction and peak rate at every node (a row a
+            channel), and the column diagnostics' maxima.
+        """
+        if not self._problem.flags.has_plasma:
+            empty = np.zeros((0, self._problem.transform.n_nodes))
+            return empty, empty, np.zeros(6)
+        # The engine reads the state it holds, which is the one observed.
+        raw = call_julia(self._jl.population_snapshot, self._engine, None)
+        fractions, peaks = (
+            np.atleast_2d(np.asarray(raw[i], dtype=float)) for i in (0, 1)
+        )
+        return fractions, peaks, np.asarray(raw[2], dtype=float)
+
+    def _populations(
+        self, spec: StatsSpec, scan: tuple[np.ndarray, np.ndarray, np.ndarray]
+    ) -> dict[str, np.ndarray]:
         """Reduce fresh accepted-field populations at an observation."""
         from solprop.backends.populations import population_statistics  # noqa: PLC0415
 
-        parts = np.zeros(6)
-        if self._problem.flags.has_plasma:
-            # The engine reads the state it holds, which is the one observed.
-            del state
-            raw = call_julia(self._jl.population_snapshot, self._engine, None)
-            # A row a channel.
-            fractions, peaks = (
-                np.atleast_2d(np.asarray(raw[i], dtype=float)) for i in (0, 1)
-            )
-            parts = np.asarray(raw[2], dtype=float)
-        else:
-            fractions = peaks = np.zeros((0, self._problem.transform.n_nodes))
+        fractions, peaks, parts = scan
         values = population_statistics(self._problem, self._z, fractions, peaks)
         if fractions.shape[0] == 1:
             values["peak_ionisation_rate"] = np.asarray(

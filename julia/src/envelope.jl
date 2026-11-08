@@ -83,6 +83,23 @@ backend's `rate_at`). The cycle quadrature's refinement needs it: two rules agre
     end
 end
 
+"""`(sin, cos)` of an angle in [0, pi/2] by Taylor polynomials on [0, pi/4] (the
+other half by the complement): about one ulp on every device, where a GPU's library
+gives two or three (Metal), which near the table's low cutoff, where the rate is
+steepest in the field, is more than the refinement's 2e-6 can take. Binary64 keeps the
+library's."""
+@inline quadrant_sincos(theta::Float64) = sincos(theta)
+@inline function quadrant_sincos(theta::T) where {T}
+    complement = theta > T(pi) / 4
+    x = complement ? T(pi) / 2 - theta : theta
+    x2 = x * x
+    sine = x * evalpoly(x2, (T(1), T(-1 / 6), T(1 / 120), T(-1 / 5040), T(1 / 362880),
+                             T(-1 / 39916800)))
+    cosine = evalpoly(x2, (T(1), T(-1 / 2), T(1 / 24), T(-1 / 720), T(1 / 40320),
+                           T(-1 / 3628800), T(1 / 479001600)))
+    complement ? (cosine, sine) : (sine, cosine)
+end
+
 is_envelope(p) = false
 is_envelope(p::NamedTuple) = haskey(p, :envelope)
 
@@ -98,7 +115,7 @@ rounding of a cut angle cannot put a node across a cutoff). The sums are compens
     table, tail, inverse, inverse_tail, low, high, cap, origin, step = args
     @inbounds for i in first:last
         theta = muladd(nodes[i] + 1, half, lower)
-        sine, cosine = sincos(theta)
+        sine, cosine = quadrant_sincos(theta)
         c2, s2 = cosine * cosine, sine * sine
         rate = ceiling ? cap :
                precise_rate(clamp(major * sqrt(c2), low, high), table, tail, inverse, inverse_tail, cap, origin, step)
@@ -141,9 +158,11 @@ does not converge (the oracle's ConvergenceError: the step's norm refuses it).""
     previous = rule_moments(major, args, nodes, weights, 1, levels[1])
     for k in 2:length(levels)
         current = rule_moments(major, args, nodes, weights, levels[k-1] + 1, levels[k])
-        if all(isfinite, current) &&
-           abs(current[1] - previous[1]) <= budget * max(current[1], floor) &&
-           abs(current[2] - previous[2]) <= budget * max(current[2], floor)
+        # The cosine moment only: at a scalar envelope's zero ratio the sine moment
+        # enters neither the rate nor the current, and its integrand (the rate times
+        # tan^2) is the one binary32 misses the budget on near the low cut. (The oracle
+        # asks both; a deliberate difference, recorded in julia/STATUS.md.)
+        if isfinite(current[1]) && abs(current[1] - previous[1]) <= budget * max(current[1], floor)
             return current[1]
         end
         previous = current
@@ -234,4 +253,11 @@ function envelope_populations!(q, nodes, c, first, count)
         end
     end
     zeros(6)
+end
+
+"""Whether the last source left a non-converged sample (NaN) in a channel's rates: the
+adapter asks only after a nonfinite norm, to raise the oracle's ConvergenceError."""
+function envelope_failed(engine)
+    p = engine.work.plasma
+    p === nothing || !is_envelope(p) ? false : any(isnan, Array(p.rate))
 end
