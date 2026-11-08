@@ -255,6 +255,8 @@ def test_a_direct_run_outlives_its_starter_and_records_its_ending(tmp_path):
     wait_for(lambda: summarise(folder)["state"] == "finished")
     kinds = [event.kind for event in read_events(folder)[0]]
     assert kinds.count("row") == 6 and kinds[-1] == "finished"
+    # The ending is recorded first, and the job's end a moment later.
+    wait_for(lambda: summarise(folder)["ended"] is not None)
     job = json.loads((folder / JOB).read_text(encoding="utf-8"))
     assert job["launcher"] == "direct" and job["ended"] is not None
     summary = list_runs(tmp_path, None)[0]
