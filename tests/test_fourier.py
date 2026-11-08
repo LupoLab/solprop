@@ -2,6 +2,9 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import subprocess
+import sys
+
 import numpy as np
 import pytest
 from hypothesis import HealthCheck, given, settings
@@ -251,11 +254,22 @@ def test_analytic_signal_refuses_a_complex_array():
         fourier.analytic_signal(np.ones(8, dtype=complex))
 
 
-def test_analytic_signal_matches_scipy_hilbert():
+@pytest.mark.parametrize("shape", [(32,), (33,), (1,), (3, 2, 16)])
+def test_analytic_signal_matches_scipy_hilbert(shape):
     rng = np.random.default_rng(11)
-    field = rng.standard_normal(32)
-    # The helper is SciPy's transform, called as it is: the same computation, exactly.
+    field = rng.standard_normal(shape)
+    # The helper is SciPy's arithmetic written out, odd lengths and batches included:
+    # the same computation, exactly.
     assert np.array_equal(fourier.analytic_signal(field), hilbert(field))
+
+
+def test_analytic_signal_does_not_import_scipy_signal():
+    # scipy.signal costs 0.7 s to import, which a run's first statistics paid.
+    script = (
+        "import sys, numpy as np; from solprop.fourier import analytic_signal; "
+        "analytic_signal(np.ones(8)); assert 'scipy.signal' not in sys.modules"
+    )
+    subprocess.run([sys.executable, "-c", script], check=True)
 
 
 # --- energy and spectral density ------------------------------------------------------

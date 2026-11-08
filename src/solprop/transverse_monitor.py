@@ -45,8 +45,10 @@ from solprop.modes.slab import PlanarGrid
 from solprop.spatial_absorber import RAMP_K_FLOOR, SpatialAbsorberDesign
 
 __all__ = [
+    "BACKSTOP_READS",
     "GUARD",
     "NOISE_FACTOR",
+    "REACH_GROWTH",
     "READS",
     "TransverseEdge",
     "TransverseStatus",
@@ -58,7 +60,17 @@ GUARD = 0.05
 """The edge's width as a fraction of the outer size on its axis (SEP 40 section 5.3)."""
 
 READS = 16
-"""The read spacing's ceiling is the guide's length over this many."""
+"""The read spacing's backstop starts at the guide's length over this many."""
+
+BACKSTOP_READS = 4
+"""The backstop grows to the guide's length over this many, no further (issue #396)."""
+
+REACH_GROWTH = 0.1
+"""The relative growth of the reach that starts the backstop again.
+
+The reach moves by one transverse column between reads on a steady spectrum (5 % on
+the ``line`` case's 1-D grid, whose ``kappa_q`` steps between neighbouring columns
+read to read); a tenth leaves that jitter alone."""
 
 NOISE_FACTOR = 8.0
 """Standard deviations of one noise reading the allowance takes (section 5.3)."""
@@ -863,6 +875,8 @@ class TransverseEdge:
     _last_z: float = field(default=math.nan, init=False)
     _next: float = field(default=math.inf, init=False)
     _spacing_now: float = field(default=math.inf, init=False)
+    _backstop: float = field(default=math.inf, init=False)
+    _reach_reference: float = field(default=0.0, init=False)
     _reads: int = field(default=0, init=False)
     _largest_gap: float = field(default=0.0, init=False)
     _warned_at: float = field(default=math.nan, init=False)
@@ -1042,7 +1056,7 @@ class TransverseEdge:
                     self.reduction.column_power(noise)
                 )
             self._last_columns = self._column_power(columns)
-            self._spacing_now = self._spacing(self._last_columns)
+            self._respace(self._last_columns, launch=True)
             self._next = z + self._spacing_now if reads else math.inf
             self._last_rate = (z, self._collar_rate(reading))
             if reading.current is not None and self._launch > 0.0:
@@ -1116,8 +1130,8 @@ class TransverseEdge:
                     stacklevel=4,
                 )
         self._last_columns = self._column_power(columns)
-        spacing = self._spacing(self._last_columns)
-        self._spacing_now = spacing
+        self._respace(self._last_columns, launch=True)
+        spacing = self._spacing_now
         self._next = z + spacing
         if steps is not None and steps.size and float(np.max(steps)) > spacing:
             self._status = "coarse" if self._status == "clear" else self._status
@@ -1206,8 +1220,8 @@ class TransverseEdge:
         assert reading.totals is not None
         return float(reading.totals[1]) / self._launch
 
-    def _spacing(self, columns: Float[np.ndarray, " n_columns"]) -> float:
-        """Return the read spacing for the current spectrum, ``min(L/16, 4 g / v_q)``.
+    def _reach(self, columns: Float[np.ndarray, " n_columns"]) -> float:
+        """Return the reach ``v_q`` of the current spectrum.
 
         Parameters
         ----------
@@ -1217,7 +1231,9 @@ class TransverseEdge:
         Returns
         -------
         float
-            The spacing, m.
+            The transverse group velocity at ``kappa_q``, the wavenumber above which
+            the field holds no more than the warning's share of the launch; zero when
+            nothing is above it.
         """
         if self._noise_columns is not None:
             columns = np.maximum(columns - self._noise_columns, 0.0)
@@ -1227,11 +1243,44 @@ class TransverseEdge:
         kappa_q = float(self._kappa[order][above[-1]]) if above.size else 0.0
         k = self.k_min
         k_z = math.sqrt(max(k * k - kappa_q * kappa_q, 0.0))
-        reach = kappa_q / max(k_z, RAMP_K_FLOOR * k)
-        spacing = self.length / READS
+        return kappa_q / max(k_z, RAMP_K_FLOOR * k)
+
+    def _respace(
+        self, columns: Float[np.ndarray, " n_columns"], *, launch: bool
+    ) -> None:
+        """Set the read spacing for the current spectrum, ``min(B, 4 g / v_q)``.
+
+        ``4 g / v_q`` bounds how far the fastest content measured can travel between
+        two reads. The backstop ``B`` bounds the gap when the spectrum broadens after a
+        read, which no reach measured at the read foresees. It starts at
+        ``L / READS``, and doubles at each read whose reach has not grown by
+        :data:`REACH_GROWTH` since the backstop last started, up to
+        ``L / BACKSTOP_READS``; a read that finds the reach grown, or no reach at
+        all, starts it again (solprop issue #396). Growth is measured against the
+        reach at that start, not at the last read, so that a creeping spectrum cannot
+        double it forever.
+
+        Parameters
+        ----------
+        columns : numpy.ndarray
+            One member's column energies (:meth:`_column_power`).
+        launch : bool
+            Whether this is the launch (or a resumed one), which starts the backstop.
+        """
+        reach = self._reach(columns)
+        # A spectrum with no reach (nothing above the warning, so only under a budget
+        # of order one) gives no evidence that it holds: the backstop stays at its
+        # start.
+        grown = reach > self._reach_reference * (1.0 + REACH_GROWTH)
+        if launch or grown or reach == 0.0:
+            self._backstop = self.length / READS
+            self._reach_reference = reach
+        else:
+            self._backstop = min(2.0 * self._backstop, self.length / BACKSTOP_READS)
+        spacing = self._backstop
         if reach > 0.0:
             spacing = min(spacing, 4.0 * self._guard / reach)
-        return spacing
+        self._spacing_now = spacing
 
     def ceiling(self, z: float) -> float:
         """Return the longest step the reads allow from `z`: the read spacing.
@@ -1332,7 +1381,7 @@ class TransverseEdge:
         self._last_rate = (z, rate)
         self._last_z = z
         self._last_columns = self._column_power(reading.columns)
-        self._spacing_now = self._spacing(self._last_columns)
+        self._respace(self._last_columns, launch=False)
         self._next = z + self._spacing_now
         if self.design is not None and self.design.has_collar:
             # With a collar, outward flow is intended: recorded at INFO, never stopped.

@@ -14,6 +14,7 @@ import dataclasses
 import math
 import warnings
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
@@ -24,14 +25,14 @@ from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
 from solprop.exceptions import BoundaryError, BoundaryWarning
-from solprop.grid import FreeGrid, LineGrid
+from solprop.grid import FreeGrid, LineGrid, RadialGrid
 from solprop.log import NullReporter
 from solprop.modes import PlanarGrid, SlabMode
 from solprop.monitor import BoundaryCheck
 from solprop.output.hdf5 import resume
 from solprop.output.schema import PlaneStore
 from solprop.translate.transverse import _nodes_window
-from solprop.transverse_monitor import TransverseEdge, _row_energy
+from solprop.transverse_monitor import BACKSTOP_READS, TransverseEdge, _row_energy
 from test_transverse_resolution import LENGTH, suite
 
 
@@ -119,12 +120,62 @@ def test_a_requested_collar_completes_clear_and_credits_its_removal() -> None:
 
 
 def test_the_reads_are_spaced_by_the_ceiling() -> None:
-    # Section 5.3: at most L/16 apart, enforced as a step ceiling, so a low-source run
-    # that would step further reads at least sixteen times.
+    # Section 5.3, with issue #396's backstop: at most L/4 apart, enforced as a step
+    # ceiling, so a low-source run that would step further reads at least four times.
     output, _ = quietly(suite(1.5, None))
     record = edge_record(output)
-    assert record["reads"] >= 16
-    assert record["largest_gap"] <= LENGTH / 16 * (1 + 1e-9)
+    assert record["reads"] >= BACKSTOP_READS
+    assert record["largest_gap"] <= LENGTH / BACKSTOP_READS * (1 + 1e-9)
+
+
+def _spacer(reaches: list[float]) -> SimpleNamespace:
+    """A monitor's spacing state over a guide of 1 m, guard 1 mm, reading `reaches`."""
+    values = iter(reaches)
+    return SimpleNamespace(
+        length=1.0,
+        _guard=1e-3,
+        _reach=lambda _columns: next(values),
+        _backstop=math.inf,
+        _reach_reference=0.0,
+        _spacing_now=math.inf,
+    )
+
+
+def test_the_backstop_grows_while_the_reach_holds_and_starts_again_when_it_grows():
+    # Issue #396: the backstop starts at L/16 and doubles at each read whose reach has
+    # not grown by a tenth since it started, to L/4; growth starts it again.
+    reaches = [1e-3, 1.05e-3, 1.09e-3, 1.0e-3, 1.0e-3, 1.2e-3, 1.2e-3]
+    monitor = _spacer(reaches)
+    backstops, spacings = [], []
+    for read, _ in enumerate(reaches):
+        TransverseEdge._respace(monitor, np.zeros(1), launch=read == 0)  # pyright: ignore[reportArgumentType]
+        backstops.append(monitor._backstop)
+        spacings.append(monitor._spacing_now)
+    assert backstops == [1 / 16, 1 / 8, 1 / 4, 1 / 4, 1 / 4, 1 / 16, 1 / 8]
+    # 4 g / v_q bounds the spacing whatever the backstop: 4 mm / 1e-3 = 4 m here.
+    assert spacings == backstops
+    fast = _spacer([1.0, 1.0])
+    TransverseEdge._respace(fast, np.zeros(1), launch=True)  # pyright: ignore[reportArgumentType]
+    TransverseEdge._respace(fast, np.zeros(1), launch=False)  # pyright: ignore[reportArgumentType]
+    assert fast._backstop == 1 / 8 and fast._spacing_now == pytest.approx(4e-3)
+
+
+def test_a_creeping_reach_is_measured_from_the_backstop_s_start():
+    # Each read grows the reach by 6 %, under the tenth, but by the third it has grown
+    # 12 % since the backstop started, which starts it again.
+    monitor = _spacer([1e-3, 1.06e-3, 1.1236e-3])
+    for read in range(3):
+        TransverseEdge._respace(monitor, np.zeros(1), launch=read == 0)  # pyright: ignore[reportArgumentType]
+    assert monitor._backstop == 1 / 16
+    assert monitor._reach_reference == pytest.approx(1.1236e-3)
+
+
+def test_a_spectrum_without_reach_keeps_the_backstop_at_its_start():
+    # Nothing above the warning (a budget of order one) says nothing about speeds.
+    monitor = _spacer([1e-3, 1e-3, 0.0, 0.0])
+    for read in range(4):
+        TransverseEdge._respace(monitor, np.zeros(1), launch=read == 0)  # pyright: ignore[reportArgumentType]
+    assert monitor._spacing_now == monitor._backstop == 1 / 16
 
 
 @pytest.mark.skipif("native" not in available(), reason="native is not installed")
@@ -167,6 +218,29 @@ def _ramp_launch(share: float) -> Simulation:
     top_energy = float(np.sum(weights[-1] * np.abs(top[-1]) ** 2))
     field = math.sqrt(1 - share) * field + math.sqrt(share * energy / top_energy) * top
     return simulation.with_input(field)
+
+
+def test_the_edge_s_band_wavenumbers_are_found_once_per_run_length(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import solprop.driver.simulation as module  # noqa: PLC0415
+
+    simulation = suite(1.5, None)
+    calls: list[float] = []
+    original = module.band_wavenumbers
+
+    def counted(*args: Any) -> tuple[np.ndarray, np.ndarray]:
+        calls.append(args[2])
+        return original(*args)
+
+    monkeypatch.setattr(module, "band_wavenumbers", counted)
+    space, medium = simulation.spatial_grid, simulation.medium
+    assert isinstance(space, RadialGrid | FreeGrid | PlanarGrid) and medium is not None
+    first, again = (
+        simulation._transverse_edge(BoundaryCheck(), space, medium) for _ in range(2)
+    )
+    assert len(calls) == 1
+    assert first.k_min == again.k_min
 
 
 def test_a_launch_in_the_ramp_s_band_is_refused() -> None:

@@ -1114,9 +1114,7 @@ def _open_run(
     executed = backend.metadata()
     if binding is not None:
         executed = {**executed, "tdse": dict(binding.metadata())}
-    output.open(
-        dataclasses.replace(metadata, backend=BackendRecord.from_metadata(executed))
-    )
+    output.open(metadata.with_backend(BackendRecord.from_metadata(executed)))
     return output if isinstance(output, CheckpointOutput) else None
 
 

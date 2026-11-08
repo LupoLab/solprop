@@ -209,12 +209,20 @@ def test_a_childs_environment_drops_the_users_settings() -> None:
         "SOLPROP_CALIBRATION": "off",
         "SOLPROP_FFTW_PLAN": "estimate",
         "PYTHONUNBUFFERED": "1",
+        "OPENBLAS_THREAD_TIMEOUT": "20",
     }
     spin = Candidate(threads=6, wait="spin")
     assert spin.name == "spin/6"
     assert spin.environment(base)["SOLPROP_NATIVE_THREADS"] == "6"
     assert spin.environment(base)["SOLPROP_NATIVE_WAIT_REQUEST"] == "spin"
     assert Candidate(threads=6).name == "default/6"
+
+
+def test_a_childs_blas_threads_go_idle_unless_the_user_set_it() -> None:
+    candidate = Candidate(threads=4, wait="spin")
+    assert candidate.environment({})["OPENBLAS_THREAD_TIMEOUT"] == "20"
+    kept = candidate.environment({"OPENBLAS_THREAD_TIMEOUT": "28"})
+    assert kept["OPENBLAS_THREAD_TIMEOUT"] == "28"
 
 
 def test_nested_allocations_are_one_socket_node_and_cache_group() -> None:

@@ -185,7 +185,9 @@ class Candidate:
 
         `base` without the user's thread, wait and wisdom settings, with this
         candidate's, and with FFT plans at estimate, so that no stage outside the
-        FFT stage spends its time planning (SEP 46 section 6.3).
+        FFT stage spends its time planning (SEP 46 section 6.3). NumPy's and SciPy's
+        BLAS threads go idle at once (:func:`solprop._process.child_environment`),
+        so that they do not spin on the CPUs being timed.
 
         Parameters
         ----------
@@ -207,7 +209,7 @@ class Candidate:
             environment["SOLPROP_NATIVE_THREADS"] = str(self.threads)
         if self.wait is not None:
             environment["SOLPROP_NATIVE_WAIT_REQUEST"] = self.wait
-        return environment
+        return _process.child_environment(environment)
 
 
 @dataclass(frozen=True)

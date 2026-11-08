@@ -342,12 +342,18 @@ def analytic_signal(
     >>> bool(np.allclose(envelope, np.exp(2j * np.pi * 2 * t)))
     True
     """
-    # scipy.signal takes half a second to import: only this function needs it.
-    from scipy.signal import hilbert  # noqa: PLC0415
-
     values = np.asarray(x)
     _check_time_dtype(values, "field")
-    return hilbert(values, axis=-1)
+    # scipy.signal.hilbert's arithmetic, written out: importing scipy.signal costs
+    # 0.7 s, paid at a run's first statistics (solprop issue #347).
+    n_t = values.shape[-1]
+    spectrum = _fft.fft(values, axis=-1)
+    weights = np.zeros(n_t, dtype=spectrum.dtype)
+    weights[0] = 1.0
+    weights[1 : (n_t + 1) // 2] = 2.0
+    if n_t % 2 == 0:
+        weights[n_t // 2] = 1.0
+    return _fft.ifft(spectrum * weights, axis=-1)
 
 
 def power_amplitude(
