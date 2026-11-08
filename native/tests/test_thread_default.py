@@ -18,7 +18,10 @@ import threading
 import pytest
 
 import solprop_native
-from solprop_native import _core, _wait
+from solprop_native import (
+    _core,
+    _wait,  # pyright: ignore[reportPrivateUsage]
+)
 
 
 def _on_a_thread() -> int:

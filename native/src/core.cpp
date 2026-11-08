@@ -24,9 +24,12 @@ ThreadPolicy configured_threads;
 // The runtime's width, which every unscoped OpenMP region on any thread takes
 // (`CpuTeamScope`): Kokkos sets the default only on the thread that initialised it.
 std::atomic<int> runtime_width{0};
+#if defined(KOKKOS_ENABLE_OPENMP) && !defined(KOKKOS_ENABLE_CUDA) &&                   \
+    !defined(KOKKOS_ENABLE_HIP)
 // What the operation thresholds are divided by (`spinning_threshold_divisor` while
 // LLVM's runtime spins within native calls, `configure_native_spin`; else one).
 std::atomic<std::size_t> threshold_divisor{1};
+#endif
 } // namespace
 
 ThreadPolicy thread_policy() {
@@ -314,7 +317,8 @@ void configure_native_spin(const int milliseconds) {
   if (milliseconds < 0)
     throw std::invalid_argument("a spin time cannot be negative");
   native_spin_milliseconds = milliseconds;
-#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR)
+#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR) &&                     \
+    !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   threshold_divisor = milliseconds > 0 ? spinning_threshold_divisor : 1;
 #endif
 }
