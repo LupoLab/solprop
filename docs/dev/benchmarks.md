@@ -2742,6 +2742,75 @@ Qualification, before any timing:
   rule 2.3 %). One such case is the slow-tier test
   `test_a_self_focusing_beam_is_stopped_as_dense_reads_stop_it`.
 
+### Separable stage propagators as vector maths
+
+[#338](https://github.com/LupoLab/solprop/issues/338): free space's separable stage input
+and finish formed each element's propagator with one libm `sincos` (and an `exp` where it
+carries loss) inside the crossing's visit. At one thread that was 18 % of `line`. Each
+host crossing tile (32 columns by 16 bins) now forms its 512 propagators in one
+`vmath::sincos` pass, and one `vmath::exp` pass only where a real part is non-zero, before
+the tile is visited in its former order. Devices keep the per-element path.
+
+`python -m benchmarks ab`, `main` at `f7d1a736` against the branch, an Intel Xeon Gold 6240
+(18 cores of one socket, exclusive), a quarter of each case's length, three rounds of three
+repeats (the Cartesian filament one), the same steps, and fields within 1.2e-12:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `line` | 0.893 [0.882, 0.893] | 0.927 [0.901, 0.929] |
+| `cartesian_filament_128` | | 0.931 [0.852, 0.932] |
+| `planar` | 0.995 | 0.994 |
+| `kerr_beam_192` (control: tabulated low-storage path) | 0.996 | 1.009 |
+| `argon_blueshift` (control) | 1.004 | 1.002 |
+
+`planar`'s remaining libm time is `hypot`, in the complex square root of its lossy
+medium's longitudinal wavenumber (`SpatialCoefficients::root_of`), in these same two
+kernels: about 7 % of its one-thread march (`perf` with LBR call stacks). The other
+per-element kernels #338 lists (the envelope cycle moments, the two-component
+magnitudes, the trapezoid column and dense observation) were negligible in one-thread
+profiles of the tracked cases, so they were left. A profile on a second x86 processor
+was not taken: the code and glibc are the same, so the ranking would not change.
+
+### x86-64-v4 against v3 on an AVX-512 Xeon
+
+[#334](https://github.com/LupoLab/solprop/issues/334): the branch above built with
+`-march=cascadelake` (x86-64-v4 with VNNI) against x86-64-v3, GCC 16.2, FFTW 3.3.11,
+OpenBLAS 0.3.34 and SLEEF's AVX2 route in both. `python -m benchmarks ab --set tracking`,
+an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), a quarter length, three
+rounds; the ratio v4/v3, the same steps and fields to rounding:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `argon_blueshift` | 0.909 | 0.962 |
+| `ctc` | 0.924 | 0.964 |
+| `grin_nonlinear` | 0.943 | 0.968 |
+| `rdw` | 0.978 | 0.976 |
+| `he_rdw_averaged` | 1.036 | 1.004 |
+| the other eight | 0.972–1.034 | 0.976–1.013 |
+
+The geometric mean over all 26 rows is 0.984. `kerr_beam_384` at one thread had a round
+twice as slow; its median, 1.034, is that noise.
+
+The same tree on an AMD EPYC 9B45 (Zen 5, whose AVX-512 runs at full width without
+lowering the clock; Google Cloud C4D, 16 cores without SMT, Ubuntu 26.04), built with
+`-march=znver5` against x86-64-v3: GCC 15.2, the distribution's FFTW 3.3.10 and OpenMP
+OpenBLAS 0.3.32, and SLEEF's AVX2 route in both. The same command and rounds; the ratio
+znver5/v3, the same steps and fields to rounding:
+
+| case | 1 thread | 16 threads |
+|---|---:|---:|
+| `gnlse_soliton` | 0.911 | 0.910 |
+| `argon_blueshift_envelope` | 0.918 | 0.980 |
+| `argon_blueshift_averaged` | 0.932 | 0.943 |
+| `grin_nonlinear` | 0.934 | 0.960 |
+| `argon_blueshift` | 0.937 | 0.996 |
+| the other eight | 0.938–1.003 | 0.949–1.014 |
+
+The geometric mean over all 26 rows is 0.963. `gnlse_soliton` is a 0.07 s run whose
+time does not change with the thread count, so its two columns are one result. Neither
+machine has a case that reaches the 10 % at the default width that
+[#337](https://github.com/LupoLab/solprop/issues/337) asks of run-time dispatch.
+
 ## Reference tables
 
 These tables back the indicative results above.

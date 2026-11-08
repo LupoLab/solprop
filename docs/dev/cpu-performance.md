@@ -58,6 +58,21 @@ measured while it existed.
   - The wheels were first built for v2 and accepted this cost; they now take v3
     (SEP 29, phase 3), and since SEP 43 the x86-64 wheels hold both, chosen at import. Below
     v2, `backend="auto"` falls back to `numpy_ref` with a warning.
+- **x86-64-v4 against v3, with identical libraries**
+  ([#334](https://github.com/LupoLab/solprop/issues/334)). The same tree built both ways,
+  with the same FFTW, OpenBLAS and SLEEF's AVX2 route in each; `benchmarks ab`, the
+  tracking set at a quarter length, three rounds; the same steps and fields to rounding
+  ([ledger](benchmarks.md)).
+  - On an Intel Xeon Gold 6240 (18 cores of one socket, exclusive), `-march=cascadelake`
+    (v4 with VNNI): geometric mean 0.984. The largest gains are at one thread
+    (`argon_blueshift` 0.909, `ctc` 0.924, `grin_nonlinear` 0.943); at 16 threads none
+    gains more than 4 %, and `he_rdw_averaged` is 3.6 % slower at one thread.
+  - On an AMD EPYC 9B45 (Zen 5, 16 cores), whose AVX-512 does not lower the clock,
+    `-march=znver5`: geometric mean 0.963. The largest gain is 9 % (`gnlse_soliton`, a
+    0.07 s run); at 16 threads every other case is within 6 %.
+  - No tracked case on either machine gains the 10 % at the default width that
+    [#337](https://github.com/LupoLab/solprop/issues/337) set for run-time kernel
+    dispatch, so dispatch is not built; the wheels stay v3 (with v2 beside it).
 - **Release `-O3`, checked IPO, Kokkos loop vectorisation, no fast-math**, with
   `-ffp-contract=fast` honouring the protected-operation pragmas
   ([conventions](conventions.md)).
@@ -267,6 +282,18 @@ measured while it existed.
 - **The CPU experiment's rate-interpolation blocks.** The band column already gathers
   each block's live samples into one vector-maths pass, which subsumes its zero-block
   exit and half-active scalar path.
+- **Free space's separable stage propagators by tile through vector maths**
+  ([measurements](benchmarks.md#separable-stage-propagators-as-vector-maths)). Each
+  crossing tile's 512 propagators are formed in one `vmath::sincos` pass (and one
+  `vmath::exp` where any carries loss) before the tile is visited; one libm `sincos` per
+  element took 18 % of `line` at one thread. `line` takes 0.89 of its time at one thread
+  and 0.93 at 16, the Cartesian filament 0.93 at 16. A build without vector maths keeps
+  the per-element form. The other per-element transcendentals
+  [#338](https://github.com/LupoLab/solprop/issues/338) listed (the envelope and
+  trapezoid plasma columns, two-component magnitudes, the Adams corrector and dense
+  observation) were negligible in one-thread profiles of the tracked cases on the Xeon.
+  The largest left is the lossy planar medium's complex square root (`hypot`), about 7 %
+  of `planar`'s one-thread march.
 - **A pooled allocator.** Allocation service in the warmed propagation window is below
   0.25 % of the time, and the native backend makes fewer native requests than `numba_cpu`.
 - **Vector transcendental functions (Accelerate vForce) in the propagator.** They save
@@ -316,21 +343,16 @@ Each has an issue:
   unmeasured ([#328](https://github.com/LupoLab/solprop/issues/328)).
 - **The TE/TM wall's complex GEMM** at one thread ([#331](https://github.com/LupoLab/solprop/issues/331)).
 - **FFTW planning policy per transform shape**: measure against estimate, and wider codelets ([#332](https://github.com/LupoLab/solprop/issues/332)).
-- **Compiler-target comparisons with identical libraries**: v3, v4 or a processor-specific
-  target against v2. On an 18-core AVX-512 server, v4 gave 7–14 % over v3 on the general
-  route only ([#334](https://github.com/LupoLab/solprop/issues/334)).
 - **Explicit SIMD** in the general-modal response and in synthesis and projection ([#335](https://github.com/LupoLab/solprop/issues/335)).
   - An assessment found enough custom arithmetic outside FFTW and BLAS for this to be a
     credible experiment on AVX-512 x86-64 and arm64.
   - It found no evidence yet that it beats the current loops.
-  - First compare compiler targets, then prototype at most one or two kernels.
+  - First compare compiler targets, then prototype at most one or two kernels. The
+    comparison is done (v4 against v3, above): wider vectors gained at most 9 % on an
+    AVX-512 Xeon and on Zen 5, so it gives no case for explicit SIMD on its own.
   - A broad conversion to SIMD types is not justified.
-- **Selective run-time kernel dispatch** (SEP 29 §6.2, [#337](https://github.com/LupoLab/solprop/issues/337)).
 - **A subnormal count on long runs** ([#340](https://github.com/LupoLab/solprop/issues/340)) and **reduced precision** ([#342](https://github.com/LupoLab/solprop/issues/342)).
   The value-safe flags (`-fno-math-errno`, `-fno-trapping-math`) were measured together in
   [#59](https://github.com/LupoLab/solprop/pull/59), with no net gain; [#334](https://github.com/LupoLab/solprop/issues/334) keeps that record.
-- **Vector maths in the remaining per-element kernels** (ADR-059): the trapezoid and
-  envelope plasma columns, whose dependent recurrences need a batched rate pass first,
-  the Adams corrector and dense observation, and the separable stage propagators; and
-  SLEEF on Linux aarch64 and AVX-512 against AVX2, unmeasured end to end
-  ([#338](https://github.com/LupoLab/solprop/issues/338), [#339](https://github.com/LupoLab/solprop/issues/339)).
+- **SLEEF on Linux aarch64, and AVX-512 against AVX2**, unmeasured end to end
+  ([#339](https://github.com/LupoLab/solprop/issues/339)).
