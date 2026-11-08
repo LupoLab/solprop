@@ -1132,8 +1132,11 @@ index entry and tracking issue change then.
     won; A/B 1.003 against an A/A of 0.991.
   - *AMD EPYC 9B45, Windows Server 2025 (the CI wheel, Clang 20, LLVM OpenMP):* the
     table in both calibrations; the A/B, table against table, was not run.
-  - *AMD EPYC 9B45, Linux:* inconclusive at 16 cores (A/A 35 % and 15 % on two Spot and
-    on-demand VMs); one Spot VM was preempted mid-run.
+  - *AMD EPYC 9B45, Linux:* inconclusive at 16 cores on two VMs (A/A 35 % and 15 %;
+    one Spot VM was preempted mid-run); on a third (5 % bar) conclusive, keeping the
+    table (passive 1.25, half the team 1.06); its second calibration kept the wait and
+    team and admitted a copy threshold. The VM type's timings spread widely: its
+    table-against-table A/B ran 0.60–1.52 per case.
   - *Intel Xeon Gold 6240, one socket:* the table in both conclusive calibrations; the
     machine is shared, and a later session was inconclusive (23 %).
   - *Apple M5 Max* (first rules): six top-tier threads kept in both calibrations, a
@@ -1157,8 +1160,8 @@ index entry and tracking issue change then.
   Axion (`h2_raman_averaged` 0.90 with a team of 8, 1.00 at full width with the grain;
   `argon_blueshift_envelope` 0.80 against 0.91): their operations sit above the full
   sizes, and a grain move must win alone. Searching medium width and full sizes
-  together, and a source's transforms as one batch (#584), are the leads. The EPYC 9B45
-  needs a quieter machine for a verdict.
+  together, and a source's transforms as one batch (#584), are the leads. The EPYC 9B45's
+  VMs are too noisy to resolve gains of a few per cent.
 
 ### Phase 6 report — GPU builds
 

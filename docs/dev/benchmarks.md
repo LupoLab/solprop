@@ -2676,7 +2676,7 @@ the transforms' thresholds stay at the table (#587). With them:
 | Google Axion (C4A), three runs | medium width 8, Raman and copy thresholds | 0.965, 0.964, 0.968 | 1.000 | none |
 | AMD EPYC 7763, exclusive node, one NUMA domain | the table (no grain move won) | 1.003 | 0.991 | none |
 | AMD EPYC 9B45 (C4D), Windows Server 2025, the CI wheel | the table, twice | — | — | — |
-| AMD EPYC 9B45 (C4D), Linux | inconclusive (A/A noise 15 %) | — | — | — |
+| AMD EPYC 9B45 (C4D), Linux (5 % bar) | the table; a copy threshold in the second | — | — | — |
 | Intel Xeon Gold 6240, one socket (18 cores) | the table, twice | — | — | — |
 | Apple M5 Max, six top-tier threads (5 % bar) | a Raman threshold of 8193, twice | 1.012 | 1.000 | none that the profile changes |
 
@@ -2700,7 +2700,8 @@ twice, and no planning. The Raman cases did not move (`gnlse_raman_shock` 1.011,
 `argon_blueshift_envelope` 1.088 ran the same computation in both arms (fields equal),
 within the M5 Max's A/A range on those cases (0.89–1.12). ADR-073's table already fits
 this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
-16 cores (A/A 35 % and 15 %), the shared Xeon (23 %), the EPYC 7763's second session
+16 cores on two earlier VMs (A/A 35 % and 15 %; a third VM's session was conclusive at
+2 %, and its table-against-table A/B spread 0.60–1.52 per case), the shared Xeon (23 %), the EPYC 7763's second session
 (31 %).
 
 ### Device settings and the node chunk on an NVIDIA H200 (SEP 46 phase 6)
