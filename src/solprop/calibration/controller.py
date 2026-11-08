@@ -130,7 +130,7 @@ LEVELS: dict[str, Level] = {
 }
 """The levels: about 20 s, a minute and a half and five minutes (SEP 46 section 6.9)."""
 
-ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2, "device": 3}
+ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2}
 """Levels by depth: a higher level replaces a lower one for the same allocation."""
 
 _CLEARED = (

@@ -58,8 +58,8 @@ class MachineProfile:
     created : str
         When it was published, ISO 8601 in UTC.
     level : str
-        The level that measured the row: ``"quick"``, ``"standard"``, ``"thorough"``
-        or ``"device"``.
+        The level that measured the row: ``"quick"``, ``"standard"`` or
+        ``"thorough"``.
     allocation : Mapping[str, object]
         The allocation class the row was measured in.
     exact : bool

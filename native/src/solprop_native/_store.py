@@ -13,7 +13,6 @@ One directory per user, the platform's user cache directory unless
         <generation>.json        # profile rows, their evidence and their FFT wisdom
         claim-<allocation>       # held while one process calibrates that class
         attempts.json            # inconclusive attempts, so that auto waits a day
-      devices/<fingerprint>/...  # a GPU build's profiles, the same layout
       problems/<fingerprint>/<descriptor>.json   # stage-2 refinements
 
 A calibration writes one complete generation file, then atomically replaces
@@ -72,8 +71,8 @@ MODES: tuple[Mode, ...] = ("auto", "use", "off")
 STALE_CLAIM_SECONDS = 60.0
 """How long past its deadline a claim is held before another process removes it."""
 
-type Level = Literal["quick", "standard", "thorough", "device"]
-LEVELS: tuple[Level, ...] = ("quick", "standard", "thorough", "device")
+type Level = Literal["quick", "standard", "thorough"]
+LEVELS: tuple[Level, ...] = ("quick", "standard", "thorough")
 
 
 class StoreWarning(UserWarning):
@@ -320,17 +319,14 @@ class Store:
     ----------
     root : Path
         The store's directory (:func:`cache_directory`, or a read-only one).
-    kind : str
-        ``"machines"`` for CPU profiles, ``"devices"`` for a GPU build's.
     """
 
-    def __init__(self, root: Path, kind: Literal["machines", "devices"] = "machines"):
+    def __init__(self, root: Path):
         self.root = root
-        self.kind = kind
 
     def directory(self, fingerprint: str) -> Path:
         """Return one fingerprint's directory."""
-        return self.root / self.kind / fingerprint
+        return self.root / "machines" / fingerprint
 
     def current(self, fingerprint: str) -> Generation | None:
         """Return the published generation, or ``None`` when there is none.
@@ -380,7 +376,7 @@ class Store:
         `fingerprint` limits it to one machine and build; ``None`` clears them all.
         """
         removed = 0
-        base = self.root / self.kind
+        base = self.root / "machines"
         directories = (
             [self.directory(fingerprint)]
             if fingerprint is not None
