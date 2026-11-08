@@ -68,7 +68,10 @@ families and found each setting's best value to depend on the machine, often str
   16 and no cap.
 - **FFTW plans.** Measured plans for threaded row transforms ran the M5 Max's Raman
   cases in 0.87–0.96 of their time, but added 0.3–4.6 s of planning to each run.
-  #332 recorded measured plans as 12 % slower on a 32-core AVX-512 server.
+  #332 recorded measured plans as 12 % slower on a 32-core AVX-512 server. Patient
+  plans have been seen to run slower than estimated ones, and threaded patient
+  planning of one large shape to take tens of minutes. A more exhaustive effort is not
+  reliably a faster plan.
 
 So PR #576 had to choose per platform: `__APPLE__` in the source (ADR-073), a Windows
 exception to the spin until it was measured (ADR-071), and a table everywhere else
@@ -202,11 +205,27 @@ those measurements, not from the model. The model is kept to choose the ladder a
 check that measured crossovers are plausible.
 
 **FFT planning.** FFTW's planner times candidate algorithms for one shape at a chosen
-effort, and records the winner as wisdom, which later planning reuses at no cost [1].
-Wisdom changes only which exact algorithm runs, so it moves results by rounding only.
-The effort that pays depends on the shape, the thread count and how long the run is.
-The calibration measures the canonical shapes once, for the effort the profile names,
-so that ordinary runs pay no planning time.
+effort (estimate, measure, patient, exhaustive), and records the winner as wisdom,
+which later planning reuses at no cost [1]. Wisdom changes only which exact algorithm
+runs, so it moves results by rounding only. Three properties of the planner shape this
+SEP:
+- *It times a transform alone.* Each candidate runs repeatedly on warm caches with the
+  machine otherwise idle. In a run the transform follows other kernels that have
+  evicted its data, and a threaded plan's threads arrive from other regions. A plan
+  that wins alone can lose in the step; noise during planning (a busy machine,
+  sleeping threads woken at each trial) can also pick a loser. This is the likeliest
+  cause of patient plans running slower than estimated ones.
+- *Its cost grows steeply with effort and threads.* Patient and exhaustive planning
+  try many more decompositions, and with threads also how to divide them; one large
+  threaded shape can take tens of minutes.
+- *Wisdom is used for any later plan of that shape whose effort is the same or less
+  exhaustive.* Wisdom from a patient plan therefore replaces an estimated plan too. A
+  bad plan in a shared wisdom file silently degrades every later run of that shape.
+
+So the calibration never assumes a higher effort is better: it plans each shape class
+at a short ladder of efforts within a time limit, times the resulting plans *inside*
+the calibration problems' steps, at the run's thread count, and keeps the effort, and
+the wisdom, only of the plan that wins there.
 
 **Statistics.** Each comparison interleaves its candidates and repeats them. A
 candidate replaces the built-in value only when its gain exceeds the spread of
@@ -222,7 +241,7 @@ autotuners such as ATLAS [2], and of PR #576's `ab` harness.
 ```text
 solprop calibrate                    # standard: about a minute
 solprop calibrate --quick            # about 20 s: waiting, team and grain at reduced depth
-solprop calibrate --thorough         # several minutes: wider ladders, FFTW patient plans
+solprop calibrate --thorough         # several minutes: wider ladders, longer FFT planning
 solprop calibrate --device           # a GPU build's settings (phase 6), on its device
 solprop calibrate --show             # the profile this machine would use, and its evidence
 solprop calibrate --recipe run.toml  # refine for one simulation (stage 2), bounded budget
@@ -335,19 +354,40 @@ workspace is built through a calibration-only entry point. The constants of
   serially, at the medium width and at the team. That gives $T(W, p)$ per operation
   class and so the crossovers, the medium width and the compact cap.
 - *FFTW:* the canonical row and plane shapes of those problems and of
-  `fft_size="auto"`'s smooth sizes up to a bound, planned at the effort chosen, into
-  the store's wisdom. Threaded-row effort is chosen by timing both.
+  `fft_size="auto"`'s smooth sizes up to a bound, each a *shape class* (size, kind,
+  batch, and serial or threaded with its thread count). For each class:
+  - **Candidates.** Estimate, then measure; patient only at the thorough level and only
+    for serial plans, since the backend threads most transforms itself over serial
+    plans of row blocks. Threaded plans stop at measure. Exhaustive is never tried.
+  - **Time limits.** Every planner call runs under `fftw_set_timelimit`, which makes
+    FFTW return its best plan so far when the limit passes: a few seconds a plan at the
+    standard level, tens of seconds at thorough. The FFT stage has its own total budget
+    (§6.4); shape classes left when it is spent stay at estimate and are listed in the
+    report.
+  - **Isolation.** Each candidate effort is planned in a fresh process, starting from
+    no wisdom, and its wisdom is exported per shape class. Nothing a losing candidate
+    learnt reaches the store.
+  - **In-step timing.** The candidates' plans are timed inside the calibration
+    problems' steps, interleaved and repeated, on the profile's team and waiting
+    policy. A more exhaustive plan is kept only when it beats the less exhaustive one
+    by more than the noise; otherwise the class stays at the lower effort, estimate
+    included.
+  - **Storage.** The store keeps one wisdom string per winning shape class, with its
+    effort and evidence; a run imports those for the shapes it plans. A class whose
+    winner is estimate carries no wisdom, so no earlier wisdom can override it.
 - *Validation:* short windows of the calibration problems, built-in table against
   the candidate profile, interleaved. A setting whose window gain is not established
   reverts to its built-in value. A profile that does not pass validation is stored as
   `inconclusive` and not applied.
 
 **6.4 Budget.** Quick about 20 s, standard about 60 s, both interruptible. Quick
-measures the waiting, the team and the coarse grain with a short validation; standard
-adds the full crossover ladder and FFTW's measured plans for the canonical shapes.
-Thorough adds FFTW's patient effort, wider ladders and longer validation windows:
-several minutes, which a user who once ran Luna with patient plans for every run will
-accept. Each stage's time is bounded and reported.
+measures the waiting, the team and the coarse grain with a short validation, and
+leaves FFTW at today's efforts. Standard adds the full crossover ladder and measured
+plans for the canonical shapes, with a few seconds a plan and about 20 s for the FFT
+stage. Thorough adds serial patient plans, wider ladders and longer validation
+windows, with tens of seconds a plan and a few minutes for the FFT stage, so about
+five minutes in all. No level exceeds its budget by more than one plan's time limit;
+each stage's time is reported.
 
 **6.5 The built-in table.** Phase 0 moves today's constants, including the
 `__APPLE__` switches and ADR-073's divisor, into one table keyed by operating system
@@ -437,6 +477,11 @@ and runtime change from one image to the next.
     whole-node chunk or another width pays. The bootstrap's calibration step stays
     within its stated time. A two-speed device (#366) is reported as inconclusive,
     not fitted.
+11. **FFT planning is safe.** On every machine of item 1, no shape class runs slower in
+    the step under the profile than at estimate, beyond the noise. A store holding
+    wisdom from an earlier, slower patient plan of a class whose winner is estimate
+    does not change that class's plan. The FFT stage of the thorough level ends within
+    its budget at full thread count on the largest canonical shape.
 
 ### 8. Documentation
 
@@ -477,8 +522,10 @@ The calibration is how users get the best speed, so the documentation leads with
 - Benchmarks measure a user's default run (`--threading backend`), calibrated at the
   thorough level (§6.8). The first series after phase 1 starts a new segment in the
   history; each row records its settings.
-- No difference from Luna.jl to record: Luna keeps FFTW wisdom per user in a cache
-  and plans with `FFTW.PATIENT`, which this SEP generalises.
+- No difference from Luna.jl's physics to record. Luna keeps FFTW wisdom per user in
+  a cache, as this SEP does, but plans every shape with `FFTW.PATIENT`; this SEP keeps a
+  patient plan only where it measures faster in the step, and never plans threaded
+  shapes at patient effort.
 
 ### 10. Alternatives considered
 
@@ -522,10 +569,12 @@ The calibration is how users get the best speed, so the documentation leads with
    - *Verifies:* §7 items 1–2 including the Axion and Xeon Gold splits; #328, #329 and #81
      closed.
 3. **FFTW planning.**
-   - Effort per shape class (#332), canonical shapes' wisdom, `--thorough` with
-     patient plans.
-   - *Verifies:* run construction time with a profile no longer than without; window
-     gains where measured plans pay.
+   - The effort ladder per shape class (#332), time limits, isolated planning,
+     in-step timing, per-class wisdom; serial patient plans at `--thorough`.
+   - *Verifies:* run construction time with a profile no longer than without; no shape
+     class slower in the step than at estimate; the FFT stage within its budget on
+     the largest canonical shapes at full thread count; window gains where measured
+     or patient plans pay.
 4. **Stage 2 (SEP 4's use case).**
    - `Simulation.calibrate`, `--recipe`, signatures, scan reuse.
    - *Verifies:* §7 item 7. SEP 4 superseded.
@@ -560,14 +609,20 @@ The calibration is how users get the best speed, so the documentation leads with
 6. **Which device settings pay.** Which of §6.9's settings move a device run by more
    than its noise is unmeasured; phase 6 starts by measuring them on one NVIDIA and one
    AMD device, and drops those that do not.
-7. **Heterogeneous cores elsewhere.** Linux and Windows hybrid chips expose core kinds
+7. **Why exhaustive plans lose.** Phase 3 records each shape class whose patient or
+   measured plan lost in the step, with its alone-and-in-step timings, to tell timing
+   in isolation from planning noise and from thread interplay. If serial patient plans
+   rarely win, the thorough level drops them.
+8. **Heterogeneous cores elsewhere.** Linux and Windows hybrid chips expose core kinds
    (`cpu_capacity`, `EfficiencyClass`); phase 1 reads them, but no such machine has
    been measured.
 
 ### 13. References
 
 1. M. Frigo and S. G. Johnson, "The design and implementation of FFTW3," *Proc. IEEE*
-   **93**, 216–231 (2005). doi:10.1109/JPROC.2004.840301
+   **93**, 216–231 (2005). doi:10.1109/JPROC.2004.840301. With the FFTW 3.3 manual:
+   "Planner Flags", "Words of Wisdom" and `fftw_set_timelimit`,
+   https://www.fftw.org/fftw3_doc/
 2. R. C. Whaley, A. Petitet and J. J. Dongarra, "Automated empirical optimizations of
    software and the ATLAS project," *Parallel Comput.* **27**, 3–35 (2001).
    doi:10.1016/S0167-8191(00)00087-9
@@ -587,8 +642,12 @@ The calibration is how users get the best speed, so the documentation leads with
 
 - 2026-11-08: Drafted (Opus 5.5) from the measurements of PR #576. Proposes to
   supersede SEP 4 on acceptance.
+- 2026-11-08: Tracking issue [#579](https://github.com/LupoLab/solprop/issues/579).
 - 2026-11-08: Revised after the maintainer's answers: automatic quick calibration on
   first use, the platform cache directory, thorough calibration in the benchmarks with
   the settings recorded; GPU builds added as phase 6; documentation led by the
   calibration. Windows' scoped spin measured.
-- 2026-11-08: Tracking issue [#579](https://github.com/LupoLab/solprop/issues/579).
+- 2026-11-08: FFT planning revised after the maintainer's report of patient plans
+  slower than estimated ones and threaded patient planning taking tens of minutes:
+  an effort ladder with time limits, isolated planning, in-step timing and per-class
+  wisdom; no threaded patient plans.
