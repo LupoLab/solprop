@@ -151,14 +151,12 @@ from solprop.transverse_monitor import (
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
 )
 
+# The profile's state is read from the package at each use: a first-use calibration in
+# this process refreshes it (solprop SEP 46 section 5).
+import solprop_native as _package
+
 from . import (
-    BUILTIN_EXECUTION,
-    EXECUTION,
-    EXECUTION_SOURCE,
-    PLANNING,
     PROC_BIND,
-    PROCESS,
-    PROFILE,
     THREAD_BUDGET,
     WAIT_POLICY,
     WATCH_POLICY_FIELDS,
@@ -373,11 +371,13 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 46: the workspace's CPU execution record, the process's (the
         # calibration's where it holds, else the built-in table) unless one is given,
         # as a stage-2 refinement gives one; read back from the state it built.
-        self._execution_source = EXECUTION_SOURCE if cpu_execution is None else "given"
+        self._execution_source = (
+            _package.EXECUTION_SOURCE if cpu_execution is None else "given"
+        )
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
-            | {"cpu_execution": (cpu_execution or EXECUTION).native()}
+            | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
             | _planning_payload(fft_planning)
         )
         self._applied_execution = ExecutionRecord.from_native(
@@ -2002,10 +2002,10 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
             "openmp_proc_bind": PROC_BIND,
-            "calibration": PROFILE.record(
-                PROCESS,
+            "calibration": _package.PROFILE.record(
+                _package.PROCESS,
                 self._applied_execution,
-                BUILTIN_EXECUTION,
+                _package.BUILTIN_EXECUTION,
                 self._execution_source,
             )
             | _planning_record(self._native_state),
@@ -4456,7 +4456,7 @@ def _refined_record(
     Its record applies only while the machine record it refined is still the
     process's: a refinement adds to the machine profile and never outlives it.
     """
-    if PROFILE.fingerprint is None:
+    if _package.PROFILE.fingerprint is None:
         return None
     from ._profile import descriptor
     from ._store import refinement, stores
@@ -4466,24 +4466,26 @@ def _refined_record(
         grid_kind=problem.grid_kind,
         integrator=type(problem.stepper.integrator).__name__,
         sizing=state.execution_sizing,
-        process=PROCESS,
-        fingerprint=PROFILE.fingerprint.digest,
+        process=_package.PROCESS,
+        fingerprint=_package.PROFILE.fingerprint.digest,
     )
-    found = refinement(PROFILE.fingerprint.digest, key, stores())
-    if found is None or found.get("base") != EXECUTION.native():
+    found = refinement(_package.PROFILE.fingerprint.digest, key, stores())
+    if found is None or found.get("base") != _package.EXECUTION.native():
         return None
     changes = found.get("workspace")
     if not isinstance(changes, dict):
         return None
     try:
-        return EXECUTION.updated(cast(dict[str, object], changes)), f"refinement {key}"
+        return _package.EXECUTION.updated(
+            cast(dict[str, object], changes)
+        ), f"refinement {key}"
     except ValueError:
         return None
 
 
 def _planning_payload(given: Mapping[str, object] | None) -> dict[str, object]:
     """Return the problem's ``fft_planning``: the one given, the profile's, or none."""
-    chosen = given if given is not None else PLANNING
+    chosen = given if given is not None else _package.PLANNING
     if chosen is None or _on_device():
         return {}
     return {"fft_planning": dict(chosen)}
@@ -4656,7 +4658,7 @@ def _native_problem(
     return {
         # solprop SEP 46: how the workspace's CPU operations thread, the process's
         # record unless the backend was given one.
-        "cpu_execution": EXECUTION.native(),
+        "cpu_execution": _package.EXECUTION.native(),
         **spatial_data,
         **_channel_payload(problem),
         **_envelope_payload(problem),

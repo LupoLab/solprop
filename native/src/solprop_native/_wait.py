@@ -57,8 +57,8 @@ REQUEST = "SOLPROP_NATIVE_WAIT_REQUEST"
 """solprop's own request for a process, ``spin`` or ``passive`` (solprop SEP 46).
 
 A scan's workers and a calibration's children ask for a wait through it. A user's
-:data:`VARIABLES` still win; the request replaces a calibration's and the default
-rule's choice.
+:data:`VARIABLES` still win, and so does a calibration's row for the process's
+allocation; the request replaces the default rule's choice.
 """
 
 _SETTINGS = {

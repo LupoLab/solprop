@@ -254,7 +254,7 @@ class Slurm:
         for variable in _THREAD_VARIABLES:
             if variable != "SOLPROP_THREADS":
                 lines.append(f"    export {variable}={self.threads}")
-        lines.append("    export OMP_WAIT_POLICY=passive")
+        lines.append("    export SOLPROP_NATIVE_WAIT_REQUEST=passive")
         command = [
             sys.executable,
             "-m",

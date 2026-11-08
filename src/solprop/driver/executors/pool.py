@@ -686,8 +686,11 @@ def _spawn(
     process = context.Process(
         target=_serve, args=(child, work, cpus, threads if after_load else None)
     )
+    # Workers sleep between regions unless the user chose, or a calibration's row for
+    # the workers' allocation did (solprop SEP 46); they never calibrate themselves.
     environment = dict.fromkeys(_THREAD_VARIABLES, str(threads)) | {
-        "OMP_WAIT_POLICY": "passive"
+        "SOLPROP_NATIVE_WAIT_REQUEST": "passive",
+        "SOLPROP_CALIBRATION_ROLE": "worker",
     }
     removed = LOAD_TIME_BLAS_VARIABLES if after_load else ()
     for key in removed:
@@ -915,6 +918,12 @@ class Pool:
             Allocated CPUs and admitted worker count.
         """
         available = _cpus()
+        # SEP 46: the workers' allocation is calibrated at the standard level before
+        # they start, in children pinned like one worker, unless a profile row of
+        # that level already matches.
+        from solprop.calibration.first_use import for_workers  # noqa: PLC0415 - lazy
+
+        for_workers(available[: self.threads])
         process, connection = _spawn(
             work, self.threads, available[: self.threads] if self.pin else ()
         )

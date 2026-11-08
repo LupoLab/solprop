@@ -83,11 +83,16 @@ PROFILE: Choice = choose(
     cpus=PROCESS_CPUS,
     quota=cgroup_cpus(),
 )
+# A scan's worker is given SOLPROP_THREADS by solprop's Pool, its partition: there the
+# row of the workers' allocation may narrow the pool within it.
 _PROFILE_THREADS = PROFILE.threads()
 _REQUESTED_THREADS = (
     min(_PROFILE_THREADS, THREAD_BUDGET.threads)
     if _PROFILE_THREADS is not None
-    and thread_count("SOLPROP_THREADS") is None
+    and (
+        thread_count("SOLPROP_THREADS") is None
+        or os.environ.get("SOLPROP_CALIBRATION_ROLE", "").strip() == "worker"
+    )
     and thread_count("SOLPROP_NATIVE_THREADS") is None
     else _BUDGET_THREADS
 )
@@ -98,7 +103,7 @@ _REQUESTED_THREADS = (
 _WAIT = wait_policy(
     threads=_REQUESTED_THREADS,
     top_tier=top_tier_cores(),
-    preferred=requested_wait() or PROFILE.wait(),
+    preferred=PROFILE.wait() or requested_wait(),
 )
 WAIT_POLICY = _WAIT.description
 
@@ -218,6 +223,33 @@ EXECUTION: ExecutionRecord = (
 )
 # The profile's FFT planning, or None for the plan policy (solprop SEP 46 section 6.7).
 PLANNING: dict[str, object] | None = PROFILE.planning(PROCESS)
+
+
+def refresh_profile() -> str:
+    """Read the store again, keeping the process settings in force (solprop SEP 46).
+
+    A first run that calibrated after this package's import applies the new profile's
+    workspace settings and FFT planning that hold under the process's waiting policy
+    and width; its process settings take effect from the next process. Workspaces
+    built afterwards take the new record.
+
+    Returns
+    -------
+    str
+        Where a workspace's record now comes from (``EXECUTION_SOURCE``).
+    """
+    global PROFILE, EXECUTION, EXECUTION_SOURCE, PLANNING
+    PROFILE = choose(
+        packages=[Path(entry) for entry in __path__],
+        stem=_STEM,
+        cpus=PROCESS_CPUS,
+        quota=cgroup_cpus(),
+    )
+    profiled, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
+    EXECUTION = profiled if _FFT_START is None else profiled.with_fft_start(_FFT_START)
+    PLANNING = PROFILE.planning(PROCESS)
+    return EXECUTION_SOURCE
+
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to

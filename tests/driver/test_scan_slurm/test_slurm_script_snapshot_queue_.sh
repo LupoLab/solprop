@@ -23,7 +23,7 @@ for (( instance=0; instance<2; instance++ )); do
     export OPENBLAS_NUM_THREADS=2
     export MKL_NUM_THREADS=2
     export VECLIB_MAXIMUM_THREADS=2
-    export OMP_WAIT_POLICY=passive
+    export SOLPROP_NATIVE_WAIT_REQUEST=passive
     exec /python -m solprop.scan '/shared/scan/scan '"'"'quoted'"'"'.py' --queue '/shared/scan/point queue' --threads 2 --memory-limit 6442450944 --workers 1 --fresh
   ) &
   pids+=("$!")

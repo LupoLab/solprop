@@ -17,6 +17,7 @@ __all__ = [
     "BoundaryError",
     "BoundaryWarning",
     "CalibrationError",
+    "CalibrationNotice",
     "ConvergenceError",
     "CouplingError",
     "DiluteScalingWarning",
@@ -385,6 +386,16 @@ class GrazingIncidenceWarning(SolpropWarning):
     A spatial spectral bin with an unresolved clamp branch, a coherent wall block near
     its validity limit, or a wall-pair guide (rectangular or slab) past its first-order
     ratios.
+    """
+
+
+class CalibrationNotice(SolpropWarning):
+    """The native backend is calibrating itself to this machine (SEP 46 section 6.10).
+
+    Issued once, before a first native run with no profile for its machine, build
+    and allocation runs the quick calibration (about 20 s), saying where the result
+    goes and how to choose another level or turn it off. Silence it with the standard
+    warnings filters, or with ``SOLPROP_CALIBRATION=use``.
     """
 
 

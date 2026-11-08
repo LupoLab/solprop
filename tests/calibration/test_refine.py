@@ -13,7 +13,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 import solprop_native
-import solprop_native.backend as native_backend
+import solprop_native.backend
 from solprop_native._profile import choose
 
 from solprop.calibration import _native, grain, problems, refine
@@ -31,7 +31,6 @@ def profiled(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
         packages=_native.packages(),
     )
     monkeypatch.setattr(solprop_native, "PROFILE", found)
-    monkeypatch.setattr(native_backend, "PROFILE", found)
     return store
 
 
@@ -113,7 +112,7 @@ def test_a_refinement_of_another_machine_record_is_not_applied(
     assert report.path is not None
     # The machine profile changed since: the refinement's base no longer holds.
     changed = solprop_native.EXECUTION.updated({"compact_threads": 3})
-    monkeypatch.setattr(native_backend, "EXECUTION", changed)
+    monkeypatch.setattr(solprop_native, "EXECUTION", changed)
     backend = solprop_native.backend.NativeBackend(
         simulation.translate(), grid=simulation.grid, modes=simulation.modes
     )
