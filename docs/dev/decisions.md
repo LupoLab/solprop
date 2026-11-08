@@ -2035,3 +2035,18 @@ Withdrawn (development-process record, not a design decision).
 - **Consequences:** `openmp_wait_policy` records `spin` or `passive`. The benchmark harness
   gains a `backend` threading preset that leaves the choice to the backend; its `passive`
   default is unchanged pending a decision on the history's series.
+
+## ADR-072 — SLEEF's vector maths on macOS arm64 too
+
+- **Status:** proposed, 2026-11-08 (for the maintainer's confirmation, PR #576); amends ADR-059.
+- **Context:** ADR-059 kept the system libm on Apple silicon, where SLEEF's AdvSIMD functions
+  measured 11.6 % slower. Since then the plasma column gathers its live samples into blocks
+  and the Adams passes have a lanes form, both used only with vector maths. On an Apple M5 Max
+  (NEON FFTW, PR #576's head, 5 interleaved rounds, same steps): comb-to-continuum 0.840 /
+  0.867 (one / six threads), averaged helium 0.914 / 0.938, Raman GNLSE 0.914 / 0.965, argon
+  0.935 / 0.910, RDW 0.967 / 0.965, the graded-index guide 1.002 / 1.001 within its A/A spread
+  (0.97–1.03); geometric mean 0.934 (solprop issue #339).
+- **Decision:** `SOLPROP_NATIVE_VECTOR_MATH=AUTO` takes SLEEF's u10 AdvSIMD functions on macOS
+  arm64. Linux aarch64 keeps the system libm until measured: glibc's libm is not Apple's.
+- **Consequences:** macOS wheels build and link SLEEF statically, as the x86-64 ones do; fields
+  move by rounding only, within the 1 ulp bound the budgets assume.
