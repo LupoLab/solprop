@@ -207,8 +207,10 @@ struct Rejection {
 /** The spacing of binary64 at a non-negative `x`: `math.ulp`, `numpy.spacing`. */
 [[nodiscard]] double ulp(double x);
 /** `a b + c` as this translation unit rounds it: the strictness test's witness that the
-    decisions' products and sums are rounded separately. */
-[[nodiscard]] double strict_probe(double a, double b, double c);
+    decisions' products and sums are rounded separately. Never inlined: under Clang's
+    LTO an inlined probe merges with the witness's contracting control, which then
+    rounds strictly too and proves nothing (#135). */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
 
 /** The field arithmetic a march hands its trials to. */
 class Engine {

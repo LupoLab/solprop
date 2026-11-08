@@ -11,6 +11,7 @@
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
+#include "solprop_native/watch.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -2524,6 +2525,19 @@ NB_MODULE(_core, module_) {
         return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
       },
       "partials"_a, "rtol"_a, "atol"_a);
+  // solprop #135: the strict files' probes as the built library holds them, beside a
+  // control compiled with this file's contraction. Where the control fuses, a probe
+  // that also fused has lost its file's rule, through inlining or the build's flags.
+  module_.def(
+      "strict_witness",
+      [](const double a, const double b, const double c) {
+        const double product = a * b;
+        const double control = product + c;
+        return nb::make_tuple(control, native::march::strict_probe(a, b, c),
+                              native::watch::strict_probe(a, b, c),
+                              native::rk::strict_probe(a, b, c));
+      },
+      "a"_a, "b"_a, "c"_a);
   module_.def(
       "watch_due",
       [](const nb::dict policy, const nb::dict state, const double z) {

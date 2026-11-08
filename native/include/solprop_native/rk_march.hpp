@@ -46,8 +46,9 @@ namespace solprop_native::rk {
  */
 [[nodiscard]] double weighted_score(const std::vector<double>& partials);
 
-/** The strictness test's witness, as this translation unit rounds `a b + c`. */
-[[nodiscard]] double strict_probe(double a, double b, double c);
+/** The strictness test's witness, as this translation unit rounds `a b + c`; never
+    inlined, as `march::strict_probe`. */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
 
 /**
  * Every number the Runge-Kutta march's controller reads (solprop's `RungeKuttaPolicy`

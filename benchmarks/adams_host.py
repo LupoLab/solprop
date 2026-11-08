@@ -14,7 +14,7 @@ the suite's thread pools.
 Usage::
 
     uv run python -m benchmarks.adams_host CASE [--width N] [--length F] [--stepper S]
-        [--host-stages] [--host-march]
+        [--host-stages] [--host-march] [--step-planes N] [--row-period N]
 
 It prints one JSON record: the wall time, the accepted and rejected steps, the source
 calls, and the host and native time per trial in microseconds. The native backend is
@@ -22,12 +22,16 @@ required; ``--stepper rk`` times a Runge-Kutta run, which has no host figure.
 ``--host-stages`` has the host form a trial's stage rows and tables, as before SEP 39's
 phase 1, and ``--host-march`` steps an admitted run with solprop's Python march
 instead of the native one (phase 2), so that each phase is compared with its own
-build.
+build. ``--step-planes N`` adds a natural stop every N accepted steps and
+``--row-period N`` an energy row every N accepted steps (``StatsSpec.periodic``): with
+N = 1 each is a host event at every step, the frequent-event shapes of SEP 39 section
+7.6 (#273). A busy boundary monitor is `argon_blueshift_envelope`'s own.
 """
 
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import subprocess
@@ -115,7 +119,7 @@ def install() -> HostTotals:
     return totals
 
 
-def _run(
+def _run(  # noqa: PLR0913
     case: str,
     stepper: str,
     width: int,
@@ -123,6 +127,8 @@ def _run(
     *,
     host_stages: bool,
     host_march: bool,
+    step_planes: int = 0,
+    row_period: int = 0,
 ) -> dict[str, Any]:
     """Run the case in this process and return its record."""
     # Before any other OpenMP runtime on macOS.
@@ -134,6 +140,7 @@ def _run(
     from benchmarks.worker import timed_run  # noqa: PLC0415
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
+    from solprop.stats import StatsSpec  # noqa: PLC0415
 
     totals = install()
     if host_march:
@@ -142,6 +149,20 @@ def _run(
         solprop_native.backend.NativeBackend._stage_tables = lambda _self: None  # pyright: ignore[reportAttributeAccessIssue]
     configuration = CASES[case].configuration(stepper, width, "native", fraction)
     simulation = build(configuration)
+    settings = simulation.settings
+    if step_planes:
+        settings = dataclasses.replace(settings, step_planes=step_planes)
+    if row_period:
+        # The case's own statistics are kept, with an energy row between the planes.
+        spec = settings.stats if settings.stats is not None else StatsSpec()
+        spec = dataclasses.replace(
+            spec,
+            names=tuple(dict.fromkeys((*spec.names, "energy"))),
+            periodic=("energy",),
+            period=row_period,
+        )
+        settings = dataclasses.replace(settings, stats=spec)
+    simulation.settings = settings
     problem = simulation.translate()
     engine = select(
         "native",
@@ -168,6 +189,8 @@ def _run(
         fraction=fraction,
         host_stages=host_stages,
         host_march=host_march,
+        step_planes=step_planes,
+        row_period=row_period,
     )
     if totals.march > 0.0:
         record["host_us_per_trial"] = 1e6 * (totals.march - totals.native) / trials
@@ -184,6 +207,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--stepper", default="default")
     parser.add_argument("--host-stages", action="store_true")
     parser.add_argument("--host-march", action="store_true")
+    parser.add_argument("--step-planes", type=int, default=0)
+    parser.add_argument("--row-period", type=int, default=0)
     args = parser.parse_args(argv)
     if os.environ.get(CHILD) == "1":
         record = _run(
@@ -193,6 +218,8 @@ def main(argv: list[str] | None = None) -> int:
             args.length,
             host_stages=args.host_stages,
             host_march=args.host_march,
+            step_planes=args.step_planes,
+            row_period=args.row_period,
         )
         print(json.dumps(record))
         return 0
