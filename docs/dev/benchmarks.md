@@ -3259,3 +3259,15 @@ batches 1 to 12, r2c 50 and 101 (cuFFT 12.4 from CUDA 13.4 and 11.3 from 12.8 al
 binary32 r2c 7 to 9 us). A 2D 512 x 10 transform is 12 us. The four-step split
 (`LongFFT`) takes 23 us at 5120 (256 x 20) and 23 to 25 at 10240 (512 x 20), errors
 about 1e-17 of the largest value.
+
+**NVIDIA A40, inlined kernel bodies** (jl21, `db522ea3` against the same with
+`@inline f(t, m)` in the GPU kernel and the reductions through it; two trees, 3
+rounds, binary64): 0.70. `rdw` 0.64, `argon_blueshift` 0.59, radial 0.64,
+`kerr_beam_192` 0.80, `ctc_reduced` 0.55, `h2_raman_6ps` 0.68, `line` 1.14 (range
+1.06–1.97, fields identical; noisy in every run that day). Left to the inliner, a body
+of a few operations was a device call a sample with its arguments in local memory: a
+1.08 M-sample cube took 296 us against a broadcast's 34, and 33 inlined (binary32 270
+against 13; `scripts/each_cost3.jl`). On the M5 Max GPU the change is neutral (1.01,
+fields identical): Apple's compiler inlines them itself. The four-step transforms
+alone (jl20, the same day): 0.99 (`argon_blueshift` 0.94, `ctc_reduced` 0.92); native
+against Julia at `db522ea3` 1.80 in binary64.

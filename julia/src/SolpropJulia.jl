@@ -65,6 +65,7 @@ real_type(engine) = real(eltype(engine.work.y))
 # Read at load, not at precompilation: a constant would be baked into the cache.
 function __init__()
     TIMING[] = get(ENV, "SOLPROP_JULIA_TIMING", "0") == "1"
+    KERNEL_TIMING[] = get(ENV, "SOLPROP_JULIA_KERNEL_TIMING", "0") == "1"
     COUNT[] = get(ENV, "SOLPROP_JULIA_COUNT", "0") == "1"
     CHECK[] = get(ENV, "SOLPROP_JULIA_CHECK", "0") == "1"
     SAMPLE_PLASMA[] = get(ENV, "SOLPROP_JULIA_PLASMA", "columns") == "samples"

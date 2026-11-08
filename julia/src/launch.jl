@@ -97,15 +97,39 @@ function tiling(tasks, nt, nm, heavy=false)
     pieces, cld(nt, pieces)
 end
 
+# The body inlined at the call (as the CPU loops do): left to the inliner, a body of a
+# few operations became a device call per sample, its arguments through local memory,
+# 9 times slower in binary64 and 20 in binary32 on an A40 (a 1.08 M-sample cube, 296
+# against 33 us; DMOG `scripts/each_cost3.jl`).
 KA.@kernel inbounds = true function each_kernel!(f)
     t, m = KA.@index(Global, NTuple)
-    f(t, m)
+    @inline f(t, m)
 end
 function each_on!(f::F, backend, tasks, nt, nm, heavy) where {F}
     tally!(:launch)
+    if KERNEL_TIMING[]
+        SYNCHRONIZE[]()
+        started = time_ns()
+        each_kernel!(backend, (256, 1))(f; ndrange=(nt, nm))
+        SYNCHRONIZE[]()
+        time_kernel!(F, nt * nm, time_ns() - started)
+        return nothing
+    end
     each_kernel!(backend, (256, 1))(f; ndrange=(nt, nm))
     nothing
 end
+
+# SOLPROP_JULIA_KERNEL_TIMING=1: each GPU pass timed alone (synchronised around it),
+# by the body's name and size: which closure a profiler's generic kernel is.
+const KERNEL_TIMING = Ref(false)
+const KERNEL_TIMES = Dict{String,Tuple{Int,Float64,Int}}()
+function time_kernel!(::Type{F}, size, elapsed) where {F}
+    name = replace(string(nameof(F)), r"#+" => "#")
+    count, total, _ = get(KERNEL_TIMES, name, (0, 0.0, size))
+    KERNEL_TIMES[name] = (count + 1, total + elapsed * 1e-9, size)
+end
+kernel_timings() = Dict(k => collect(v) for (k, v) in KERNEL_TIMES)
+clear_kernel_timings() = empty!(KERNEL_TIMES)
 
 """A device scratch array the engine keeps (`c.scratch`), by its use, type and shape: a
 GPU's pool allocations a trial were dozens."""
@@ -117,7 +141,7 @@ a device reduction over its rows or columns."""
 function reduce_terms(f::F, c, out, nt, nm; use=:terms) where {F}
     scratch = SolpropJulia.scratch(c, use, eltype(out), nt, nm)
     each!(c, nt, nm) do t, m
-        @inbounds scratch[t, m] = f(t, m)
+        @inbounds scratch[t, m] = @inline f(t, m)
     end
     scratch
 end
@@ -188,21 +212,15 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
         return foldl(op, partials; init=neutral)
     end
     tally!(:readback)
-    if heavy
-        # A heavy body a thread: AK's reduction gives each thread several elements
-        # (six blocks for rdw's 10244, its predictor 539 us a trial on an A40), so the
-        # bodies run as an elementwise kernel into scratch and only the sums reduce.
-        scratch = SolpropJulia.scratch(c, :heavy, typeof(neutral), nt * nm)
-        each!(c, nt, nm) do t, m
-            @inbounds scratch[t+(m-1)*nt] = f(t, m)
-        end
-        return AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral,
-                            neutral=neutral)
+    # The bodies run as an elementwise kernel into scratch, inlined (`each_kernel!`), and
+    # only the values reduce: inside AK's reduction the body was a device call per
+    # element, and a heavy one got several elements a thread (six blocks for rdw's
+    # 10244, its predictor 539 us a trial on an A40).
+    scratch = SolpropJulia.scratch(c, heavy ? :heavy : :reduce, typeof(neutral), nt * nm)
+    each!(c, nt, nm) do t, m
+        @inbounds scratch[t+(m-1)*nt] = @inline f(t, m)
     end
-    AK.mapreduce(op, 1:nt*nm; backend=c.backend, init=neutral, neutral=neutral) do i
-        m = (i - 1) ÷ nt + 1
-        f(i - (m - 1) * nt, m)
-    end
+    AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral, neutral=neutral)
 end
 
 """The sum of `f(t, m)` over every sample into `out[1]`, which the next kernel reads: on a
@@ -216,7 +234,7 @@ function sum_device!(f::F, out, c, nt::Integer, nm::Integer; heavy=false) where 
     end
     terms = SolpropJulia.scratch(c, :sum_terms, eltype(out), 1, nt * nm)
     each!(c, nt, nm) do t, m
-        @inbounds terms[1, t+(m-1)*nt] = f(t, m)
+        @inbounds terms[1, t+(m-1)*nt] = @inline f(t, m)
     end
     tally!(:launch)
     sum!(reshape(out, 1, 1), terms)
