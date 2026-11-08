@@ -32,6 +32,7 @@ from driver.test_specified_paths import GRID, PULSE, linear_walkoff
 from driver.test_specified_paths import LENGTH as FIBRE_LENGTH
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import (
+    ENVELOPE_FACTOR,
     FIXED_ORDER,
     TIGHTER,
     assert_in_envelope,
@@ -285,11 +286,17 @@ def test_dense_planes_interpolate_through_the_table(integrator):
     tight = walk_off("numpy_ref", integrator, rtol=1e-8 / TIGHTER, **options).run(
         progress="none"
     )
+    # The Runge-Kutta reference's own error moves with its step choices from machine to
+    # machine (1.2e-9 on an Intel Xeon Gold 6240, 2.6e-10 on an AMD EPYC 7763) while the
+    # native run's stays at 1.2e-9 on both, so its envelope's factor covers that spread
+    # (#572). A wrong phase at an interpolated plane departs far further.
+    factor = 10.0 if isinstance(integrator, RungeKutta) else ENVELOPE_FACTOR
     assert_in_envelope(
         [native.fields("fft")],
         tight.fields("fft"),
         reference.fields("fft"),
         what="dense planes on the z table",
+        factor=factor,
     )
 
 
