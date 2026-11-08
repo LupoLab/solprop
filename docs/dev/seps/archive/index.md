@@ -8,6 +8,7 @@ to follow later changes, which the manual describes ([SEP 0](../sep-0000-process
 :maxdepth: 1
 
 sep-0003-optmat-materials
+sep-0004-execution-autotuning
 sep-0006-dispersive-nonlinearity
 sep-0012-tdse-nonlinear-response
 sep-0013-expensive-response-steppers
