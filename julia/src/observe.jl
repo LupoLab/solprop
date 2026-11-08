@@ -30,31 +30,58 @@ function copy_state!(engine, buffer)
     @section :observe begin
         c, w = engine.config, engine.work
         target = host_wrap(buffer, ComplexF64)
+        scale = engine.config.scale
         if oncpu(c)
             copy_between!(target, w.y, c)
+            scale == 1 || (target .*= scale)
+        elseif sizeof(w.y) > LARGE_STATE
+            # A large state straight into the reader's buffer, one pass (a binary32 one
+            # through a kept staging buffer, converted and scaled in one more): the held
+            # copy, a conversion and the reader's copy were three passes and two fresh
+            # allocations over a Cartesian state's 226 MB.
+            if eltype(w.y) == ComplexF64
+                copyto!(target, w.y)
+                scale == 1 || (target .*= scale)
+            else
+                staging = get!(() -> similar(Array{eltype(w.y)}, size(w.y)), c.scratch, :host_state)
+                copyto!(staging, w.y)
+                target .= scale .* staging
+            end
         else
-            # One copy from the device a state, however many readers ask (`version`).
+            # A small one copied once a state, however many readers ask (`version`):
+            # each copy is a wait on the device (about 0.2 ms on Metal).
             held = w.held_state
             if held[] === nothing || first(held[]) != engine.version
                 held[] = (engine.version, Matrix{ComplexF64}(Array(w.y)))
             end
+            # (The operations of the compile trace: a new broadcast here compiled inside
+            # a timed window, about 8 ms on `rdw`.)
             copyto!(target, last(held[]))
+            scale == 1 || (target .*= scale)
         end
-        scale = engine.config.scale
-        scale == 1 || (target .*= scale)
     end
     nothing
 end
+"""A state above this size (bytes) is copied to each reader directly, not held."""
+const LARGE_STATE = 16 * 2^20
 
 """Load a host state given as its (n_omega, n_modes) column-major view."""
 function load!(engine, input)
     y = engine.work.y
     source = host_wrap(input, ComplexF64)
     inverse = inv(engine.config.scale)
-    if oncpu(engine.config) && eltype(y) == ComplexF64 && inverse == 1
-        copy_between!(y, source, engine.config)
+    c = engine.config
+    if oncpu(c) && eltype(y) == ComplexF64 && inverse == 1
+        copy_between!(y, source, c)
+    elseif eltype(y) == ComplexF64 && inverse == 1
+        # Straight to the device, one pass.
+        copyto!(y, source)
     else
-        copyto!(y, upload(engine.config, eltype(y).(source .* inverse)))
+        # Converted and scaled into a kept host buffer, then one copy up: the scaled
+        # copy, the conversion and a fresh device array were three passes.
+        staging = get!(() -> similar(Array{eltype(y)}, size(y)), c.scratch, :host_state)
+        staging .= source .* inverse
+        copyto!(y, staging)
     end
     reset!(engine)
 end

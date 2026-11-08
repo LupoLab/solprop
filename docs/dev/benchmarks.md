@@ -3346,3 +3346,30 @@ order and the number of defect rows as values, which the variable-order controll
 changes from trial to trial, so a run captured and instantiated a graph for each
 combination it met. Order-independent kernels (the order and rows read from the device,
 loops to the largest) would be needed first.
+
+**NVIDIA A40 against native at `51a153de`** (source graphs; jl31, 3 rounds binary64, 2
+binary32):
+
+| case | native / s | julia / s | ratio | julia32 df32 / s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.053 | 0.073 | 1.38 | 0.066 | 1.22 |
+| `argon_blueshift` | 0.117 | 0.143 | 1.23 | 0.100 | 0.86 |
+| `h2_raman_6ps` | 1.041 | 0.624 | 0.60 | 0.258 | 0.25 |
+| `ctc_reduced` | 0.206 | 0.124 | 0.60 | 0.079 | 0.38 |
+| `radial_filament_256` | 0.167 | 0.240 | 1.42 | 0.127 | 0.73 |
+| `kerr_beam_192` | 0.187 | 0.432 | 2.44 | 0.468 | 2.49 |
+| `line` | 0.095 | 0.120 | 1.28 | 0.103 | 1.05 |
+
+Geometric means 1.15 (binary64) and 0.79 (binary32 df32). `kerr_beam_192`'s window is
+one RK4IP step on a 226 MB state: of its 0.42 s, the copy of the saved plane's field to
+the host took 0.29 (the step's device work waited for, then three host passes and two
+allocations), and the initial load 0.065.
+
+**NVIDIA A40, direct state copies** (a state above 16 MB copied from the device straight
+into the reader's buffer, and a binary64 load copied straight up; a smaller one held
+once a state as before; jl33/jl34 against `51a153de`, 3 rounds): `kerr_beam_192` 0.56
+(binary64, 0.416 to 0.232 s) and 0.60 (binary32 df32), `rdw` 1.01 and 1.01, radial 1.09
+and 0.90 (ranges 1.08–1.25 and 0.72–1.15), `line` 0.98 and 1.02. Against native's 0.187
+s, `kerr_beam_192` is about 1.24 in binary64. A first version that also changed the small
+states' copy to a broadcast cost `rdw` 1.12: the new method compiled inside the timed
+window (the compile trace lists the old operations).

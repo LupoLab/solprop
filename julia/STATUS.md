@@ -275,6 +275,35 @@ Cartesian transverse transform through a transverse-first copy (`Transposed`) gi
 0.92 on `kerr_beam_192` and 0.89 on `line` on the A40 (binary64), and 1.10 and 1.09
 on Metal, so it is CUDA's only.
 
+## 2026-11-08, the GPU host
+
+On the A40, in binary64, native against Julia went from 1.80 in the morning to 1.15 at
+`51a153de` (binary32 df32 from 1.56 to 0.79: Julia faster in five of seven cases), and
+the H200 at `67491bf9` is 1.69 (2.39 before). In order of what each change bought on the A40 (the ledger has every row):
+- **Kernel bodies inlined** (`@inline f(t, m)` in the GPU kernel): left to the
+  inliner, a body was a device call per sample with its arguments in local memory,
+  9 times slower in binary64 and 20 in binary32. 0.70 / 0.62 over the seven cases.
+  Metal's compiler inlines them itself (1.01).
+- **Source graphs** (`graph_source!`): a source's passes, kernels, cuFFT and cuBLAS,
+  captured once and replayed (host 4 us against 300 to 650), its stage scalars read
+  from a device vector so that a gradient replays one graph. 0.95 / 0.89.
+- **Four-step long FFTs** (`LongFFT`): cuFFT runs a binary64 transform of a few
+  thousand points as one block (96 us at 5120); split, 23 us. 0.99 overall, 0.92 to
+  0.94 on the plasma capillaries.
+- **Transverse-first copies** of the Cartesian planes, tiled: 0.89 to 0.95 on the
+  free-space cases (CUDA only; Metal's strided transforms are faster as they are).
+- **Direct state copies**: a large state straight between the device and the reader's
+  buffer (three host passes and two allocations were 0.29 s of `kerr_beam_192`'s
+  0.42 s window). `kerr_beam_192` 0.56, about 1.24 against native.
+
+What is left on a full-rate card (the H200) is the host: Julia's times there are the
+A40's, where native's halve. Per Adams step the host still makes about 11 launches
+outside the graph (predictor, corrector, commit), the trial's table upload and the
+norm's readback, the step controller's true dependency; per saved plane the statistics
+take about 2 ms (`rdw`'s 12 planes in a 2 % window are a third of it). A whole-trial
+graph was tried and reverted: its kernels take the Adams order as a value, so a
+variable-order run captured a graph for each order it met (1.60).
+
 ## Next steps
 
 Roughly in order of what they would tell.
@@ -283,24 +312,14 @@ Roughly in order of what they would tell.
    Julia's host time about a fifth); the statistics' readbacks are fixed (observe 4.7
    of 195 ms). What is left is the source: fusing `source_free!`'s and the DOPRI
    stage's elementwise passes would save perhaps 5 ms.
-2. **The A40's remaining kernels** after the FFT split: the Adams predictor (0.28 ms
-   a trial on `rdw`, its phi functions spilling) and the mode-averaged elementwise
-   kernels at 0.1 ms each over a few thousand elements (latency: too few threads,
-   long binary64 chains).
-3. **The A40 against native (1.81 binary64, 1.48 binary32 df32).** Fair profiles
-   need `nsys --cuda-graph-trace=node` (native's sources run in CUDA graphs). What is
-   left:
-   - Host time between launches (the march and the trial tables while the device
-     idles), about twice native's. Kernel launches are cheap (2.5 us), cuFFT 3 us,
-     cuBLAS 14 us, a readback 31 us (DMOG A40, `scripts/launch_cost.jl`).
-   - The Adams predictor kernel, 0.28 ms a step on `rdw`: its phi functions spill to
-     local memory (120 to 230 bytes; `scripts/phi_regs.jl`).
-   - Cartesian transforms: a 2D FFT over the trailing dimensions of the frequency-first
-     state is 3.4 times one over contiguous leading dimensions (16.2 against 4.8 ms at
-     512 x 192 x 192). A transverse-first layout for free space is the fix.
-   - radial's CUTLASS binary64 GEMMs (the A40 has no binary64 tensor cores).
-   - CUDA graph capture would need the kernels to read their changing scalars from
-     device memory, as native's do.
+2. **The GPU host, continued.** An order-independent Adams trial (the order and the
+   defect rows read from the device, loops to the largest), so that one graph serves
+   a run; the predictor's and corrector's passes fused as native's are; the plane
+   statistics' readbacks folded. Then the H200 and an MI325X again.
+3. **The A40's remaining kernels:** the Adams predictor (0.1 to 0.28 ms a trial, its
+   phi functions spilling, latency-bound on a mode-averaged state's few thousand
+   elements) and radial's CUTLASS binary64 GEMMs (the A40 has no binary64 tensor
+   cores).
 4. **Metal start latency** (about 28 s of kernel compilation): a recorded trace or a
    system image.
 5. **Binary32 on x86**, two to three times binary64 on the Xeon, not subnormals.
