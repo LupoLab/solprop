@@ -211,7 +211,7 @@ are transposed out, transformed contiguously and transposed back: on an A40 0.92
 `kerr_beam_192` and 0.89 on `line` in binary64. Metal's MPSGraph takes the strided
 planes well (the copies made it 1.10 and 1.09), so a device extension asks for it
 (`transposed_planes`). `SOLPROP_JULIA_TRANSPOSE=0` keeps the strided plan, for A/Bs."""
-transposed_planes(backend) = false
+transposed_planes(backend) = get(ENV, "SOLPROP_JULIA_TRANSPOSE", "") == "1"
 struct Transposed{P,B}
     plan::P
     buffer::B
@@ -224,12 +224,14 @@ function transverse_plan(c, kind, spatial, planes)
     Transposed(kind(buffer, Tuple(1:ndims(spatial)-1)), buffer)
 end
 function transverse!(a, p::Transposed, c)
-    spatial = reshape(a, size(a, 1), c.spatial_shape...)
-    n = ndims(spatial)
-    tally!(:transpose, 2)
-    permutedims!(p.buffer, spatial, (2:n..., 1))
+    # The state (n_omega, n_x n_y) and the planes (n_x n_y, n_omega) are each other's
+    # transposes as matrices.
+    nw = size(a, 1)
+    planes = reshape(p.buffer, :, nw)
+    state = reshape(a, nw, :)
+    transpose_device!(planes, state, c)
     p.plan * p.buffer
-    permutedims!(spatial, p.buffer, (n, 1:n-1...))
+    transpose_device!(state, planes, c)
     nothing
 end
 

@@ -131,6 +131,32 @@ end
 kernel_timings() = Dict(k => collect(v) for (k, v) in KERNEL_TIMES)
 clear_kernel_timings() = empty!(KERNEL_TIMES)
 
+"""`out = transpose(inp)` for two device matrices, through 32 x 32 tiles in local memory:
+both the reads and the writes coalesced. GPUArrays' `permutedims!` took 2.65 ms to
+transpose a 384 x 36864 binary64 complex state on an A40, three times the copy's."""
+function transpose_device!(out, inp, c)
+    n1, n2 = size(inp)
+    tally!(:transpose)
+    transpose_kernel!(c.backend, (32, 32))(out, inp; ndrange=(cld(n1, 32) * 32, cld(n2, 32) * 32))
+    out
+end
+KA.@kernel inbounds = true function transpose_kernel!(out, @Const(inp))
+    ti, tj = KA.@index(Local, NTuple)
+    bi, bj = KA.@index(Group, NTuple)
+    tile = KA.@localmem eltype(out) (33, 32)
+    n1, n2 = size(inp)
+    i, j = (bi - 1) * 32 + ti, (bj - 1) * 32 + tj
+    if i <= n1 && j <= n2
+        tile[ti, tj] = inp[i, j]
+    end
+    KA.@synchronize
+    # The tile's transpose, to the block on the other side of the diagonal.
+    p, q = (bj - 1) * 32 + ti, (bi - 1) * 32 + tj
+    if p <= n2 && q <= n1
+        out[p, q] = tile[tj, ti]
+    end
+end
+
 """A device scratch array the engine keeps (`c.scratch`), by its use, type and shape: a
 GPU's pool allocations a trial were dozens."""
 scratch(c, use::Symbol, T, dims...) =
@@ -220,7 +246,14 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
     each!(c, nt, nm) do t, m
         @inbounds scratch[t+(m-1)*nt] = @inline f(t, m)
     end
-    AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral, neutral=neutral)
+    # The reduction's own scratch, kept (AK's `workspace`): a new partials buffer a call
+    # was an allocation from the pool and its copies, dozens a step.
+    workspace = get!(c.scratch, (:reduce_workspace, typeof(op), typeof(neutral), nt * nm)) do
+        AK.workspace(AK.mapreduce, identity, op, scratch; backend=c.backend, init=neutral,
+                     neutral=neutral)
+    end
+    AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral, neutral=neutral,
+                 workspace=workspace)
 end
 
 """The sum of `f(t, m)` over every sample into `out[1]`, which the next kernel reads: on a
@@ -474,7 +507,7 @@ timing_enabled() = TIMING[]
 
 """Whether the device's library takes long binary64 transforms slowly enough to split
 them (`LongFFT`): an extension's hook, false unless it says otherwise."""
-long_transforms(backend) = false
+long_transforms(backend) = get(ENV, "SOLPROP_JULIA_FOURSTEP", "") == "1"
 
 """Plan `kind(a, args...)` on a GPU: the library's plan, or a four-step one (`LongFFT`)
 for a long binary64 transform along the first dimension where the device asks for it."""
