@@ -92,6 +92,8 @@ finds there, and copying a run's folder elsewhere loses nothing.
 - [Scans](scans.md) runs a setup over a grid of its parameters.
 - [Designing a waveguide](design.md) explores a guide's dispersion, loss and
   phase matching with no pulse and no run.
+- [Running on other machines](machines.md) sends runs and scans to a workstation, a
+  Slurm cluster or a rented machine over SSH, and lists every run on every machine.
 
 ```{toctree}
 :hidden:
@@ -101,4 +103,5 @@ classes
 analysis
 scans
 design
+machines
 ```

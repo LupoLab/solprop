@@ -34,11 +34,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from solprop.recipe.quantity import Unit, parse_quantity
+from solprop.service.explore import design_sweep, sweep_values
+from solprop.service.messages import Reply
 
 from solprop_gui.classes.problem import Derived, derived_text
-from solprop_gui.registry.explore import design_sweep, sweep_values
 from solprop_gui.registry.pages import GAS_TITLES
-from solprop_gui.service.messages import Reply
 from solprop_gui.ui.bridge import ServiceBridge
 from solprop_gui.ui.quantity import QuantityField
 from solprop_gui.ui.theme import named_label
@@ -624,7 +624,7 @@ class DesignStage(QWidget):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply.
         """
         purpose = self._pending.pop(reply.request_id, None)

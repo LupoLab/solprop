@@ -6,10 +6,10 @@
 
 The design (docs/dev/gui/design.md, "Code structure") fixes three rules:
 
-- ``model``, ``registry``, ``classes``, ``service`` and ``help`` import no Qt;
+- ``model``, ``registry``, ``classes`` and ``help`` import no Qt;
 - the window's process imports from solprop only the light parts of
-  ``solprop.recipe``; simulation code runs in the kernel and the workers, which live
-  in ``service``;
+  ``solprop.recipe`` and of ``solprop.service``; simulation code runs in the kernel and
+  the workers, which live in ``solprop.service``;
 - nothing imports a private solprop name, so the front end rests on solprop's public
   interface alone.
 """
@@ -26,13 +26,27 @@ import solprop_gui
 PACKAGE = Path(solprop_gui.__file__).parent
 
 QT = ("PySide6", "shiboken6", "pyqtgraph")
-WITHOUT_QT = ("model", "registry", "classes", "service", "help")
-# The modules whose code runs in the window's process: all but the service layer.
+WITHOUT_QT = ("model", "registry", "classes", "help")
+# What the window's process may import from solprop: the light parts of the recipe, and
+# the parts of the service that start, reach and describe its processes.
 WINDOW_PROCESS_SOLPROP = (
     "solprop.recipe.document",
     "solprop.recipe.errors",
     "solprop.recipe.paths",
     "solprop.recipe.quantity",
+    "solprop.service.client",
+    "solprop.service.explore",
+    "solprop.service.frames",
+    "solprop.service.install",
+    "solprop.service.launch",
+    "solprop.service.machines",
+    "solprop.service.messages",
+    "solprop.service.recipes",
+    "solprop.service.reduce",
+    "solprop.service.record",
+    "solprop.service.runs",
+    "solprop.service.states",
+    "solprop.service.worker",
 )
 
 
@@ -67,7 +81,7 @@ def violations(source: str, layer: str) -> list[str]:
             found.append(
                 f"{layer} imports a private solprop name ({module}: {private})"
             )
-        if layer != "service" and module not in WINDOW_PROCESS_SOLPROP:
+        if module not in WINDOW_PROCESS_SOLPROP:
             found.append(f"{layer} imports {module} into the window's process")
     return found
 
@@ -88,10 +102,11 @@ def test_each_module_keeps_its_layer_rules(path: Path):
 @pytest.mark.parametrize(
     ("source", "layer", "rule"),
     [
-        ("from PySide6.QtCore import Qt", "service", "imports Qt"),
+        ("from PySide6.QtCore import Qt", "classes", "imports Qt"),
         ("import pyqtgraph", "model", "imports Qt"),
-        ("from solprop.driver._launch import x", "service", "private"),
-        ("from solprop.recipe.core import _decode", "service", "private"),
+        ("from solprop.driver._launch import x", "model", "private"),
+        ("from solprop.recipe.core import _decode", "ui", "private"),
+        ("from solprop.service.handlers import HANDLERS", "ui", "into the window's"),
         ("import solprop.driver", "ui", "into the window's process"),
         ("from solprop.recipe import Recipe", "model", "into the window's process"),
     ],
@@ -105,7 +120,7 @@ def test_a_broken_rule_is_reported(source: str, layer: str, rule: str):
     [
         ("from PySide6.QtWidgets import QLabel", "ui"),
         ("from solprop.recipe.quantity import parse", "model"),
-        ("from solprop.recipe import Recipe", "service"),
+        ("from solprop.service.messages import Reply", "ui"),
         ("import numpy as np", "registry"),
     ],
 )
@@ -118,7 +133,7 @@ def test_the_window_process_loads_no_simulation_code():
     window = [
         ".".join(("solprop_gui", *path.relative_to(PACKAGE).with_suffix("").parts))
         for path in MODULES
-        if layer_of(path) != "service" and path.name != "__main__.py"
+        if path.name != "__main__.py"
     ]
     window = [name.removesuffix(".__init__") for name in window]
     heavy = ("solprop.driver", "solprop.backends", "h5py", "numba", "optmat")

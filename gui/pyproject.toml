@@ -124,6 +124,7 @@ branch = true
 omit = [
   "*/solprop_gui/app.py",
   "*/solprop_gui/__main__.py",
+  "*/solprop_gui/askpass.py",
   "*/solprop_gui/ui/*",
   "*/solprop_gui/views/*",
 ]

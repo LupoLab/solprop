@@ -10,10 +10,11 @@ setup and moves between the stages; each stage only shows. It is built beside th
 window, which stays runnable until every route has moved here.
 """
 
+import contextlib
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
-from PySide6.QtCore import Qt, QUrl
+from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QAction, QCloseEvent, QDesktopServices, QKeySequence
 from PySide6.QtWidgets import (
     QFileDialog,
@@ -29,6 +30,10 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from solprop.service.machines import LOCAL, Machine
+from solprop.service.messages import Reply
+from solprop.service.recipes import BEAM_ROUTES, without_table
+from solprop.service.worker import SCAN_OUTPUT
 
 from solprop_gui.classes.catalog import (
     CLASSES,
@@ -40,13 +45,11 @@ from solprop_gui.classes.catalog import (
 )
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.model.recipe import BEAM_ROUTES, MISSING, RecipeModel, without_table
+from solprop_gui.model.recipe import MISSING, RecipeModel
 from solprop_gui.model.scans import profile_points
-from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs
+from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs, slug
 from solprop_gui.registry.pages import label
 from solprop_gui.registry.routes import card_of
-from solprop_gui.service.messages import Reply
-from solprop_gui.service.worker import SCAN_OUTPUT
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis import AnalysisSession
 from solprop_gui.ui.analysis_pages import PAGE_VIEWS, OverviewPage
@@ -56,7 +59,10 @@ from solprop_gui.ui.document import Confirm, SetupDocument
 from solprop_gui.ui.help_window import HelpWindow
 from solprop_gui.ui.home import HomePage
 from solprop_gui.ui.identity import LINKS, AboutDialog
+from solprop_gui.ui.machines_dialog import MachinesDialog
+from solprop_gui.ui.machines_hub import MachineStore
 from solprop_gui.ui.run_panel import RunPanel
+from solprop_gui.ui.runs_window import RunsWindow
 from solprop_gui.ui.scan_stage import ScanStage
 from solprop_gui.ui.sheet import SheetStage
 from solprop_gui.ui.theme import STYLE, app_settings, load_font, named_label, repolish
@@ -118,13 +124,6 @@ class WorkflowWindow(QMainWindow):
         bar = self.statusBar()
         bar.messageChanged.connect(lambda text: bar.setVisible(bool(text)))
         bar.hide()
-        # Before any request: the first may find the service out of reach.
-        self.bridge.service_failed.connect(
-            lambda reason: self.notify(
-                f"The solprop service is not available ({reason}): runs end with "
-                "the window."
-            )
-        )
         self.confirm: Confirm = self._ask
         self.stage = Stage.HOME
         self.problem: ProblemClass | None = None
@@ -157,6 +156,8 @@ class WorkflowWindow(QMainWindow):
         self._scan_paths: list[str] = []
         kept = self.settings.value("threads")
         self.run_panel.threads = int(str(kept)) if kept else None
+        self.machine_store = MachineStore(self.settings)
+        self.runs_window: RunsWindow | None = None
         self.home = HomePage()
         self.sheet = SheetStage()
         self.analyse = AnalyseStage(self.session, self.run_panel, self.page_views)
@@ -213,6 +214,12 @@ class WorkflowWindow(QMainWindow):
         self.sheet.scan_wanted.connect(self.scan_keyword)
         self.sheet.run_options.backend_chosen.connect(self._backend_chosen)
         self.sheet.run_options.threads_chosen.connect(self._threads_chosen)
+        self.sheet.run_options.machine_chosen.connect(self._machine_chosen)
+        self.sheet.run_options.machines_wanted.connect(self.edit_machines)
+        self.sheet.run_options.resources_wanted.connect(
+            lambda: self.edit_machines(self._machine_name())
+        )
+        self.bridge.hub.state_changed.connect(self._machine_state)
         self.scans.table_changed.connect(
             lambda table: self.document.edit_table("scan", table)
         )
@@ -235,7 +242,6 @@ class WorkflowWindow(QMainWindow):
         self.session.described.connect(self._file_described)
         self.session.setup_found.connect(self._file_has_setup)
         self.bridge.kernel_lost.connect(self._kernel_lost)
-        self.bridge.runs_listed.connect(self._runs_listed)
         self.bridge.replied.connect(self._on_reply)
 
         self.setWindowTitle("solprop")
@@ -245,10 +251,13 @@ class WorkflowWindow(QMainWindow):
         self._ask_kernel("examples", {}, "examples")
         self._ask_kernel("gases", {}, "gases")
         self._ask_kernel("run_options", {}, "run options")
+        self._show_machines(str(self.settings.value("machine") or LOCAL))
         self.refresh_home()
         self.show_stage(Stage.HOME)
-        # With the service, a run the last window left going is taken over.
-        self.bridge.list_runs()
+        # This computer's helper, warm before the first run; then a run the last
+        # window left going is taken over, found from its record.
+        self.bridge.hub.ensure(Machine(LOCAL))
+        self._find_going_run()
 
     # ------------------------------------------------------------------ the frame
 
@@ -332,7 +341,7 @@ class WorkflowWindow(QMainWindow):
         drawer.hide()
         return drawer
 
-    def _make_menus(self) -> None:
+    def _make_menus(self) -> None:  # noqa: PLR0915 - one action after another
         """Repeat the actions, with their shortcuts, in the platform's menu bar."""
         file_menu = self.menuBar().addMenu("&File")
         home = QAction("&Home", self)
@@ -361,6 +370,24 @@ class WorkflowWindow(QMainWindow):
         redo = self.document.undo.createRedoAction(self, "&Redo")
         redo.setShortcut(QKeySequence.StandardKey.Redo)
         edit_menu.addAction(redo)
+        run_menu = self.menuBar().addMenu("&Run")
+        runs = QAction("&Runs…", self)
+        runs.triggered.connect(self.show_runs)
+        run_menu.addAction(runs)
+        tie = QAction("&Tie runs to this window", self)
+        tie.setCheckable(True)
+        tie.setToolTip(
+            "Runs on this computer stop (resumably) if this window goes, even by a "
+            "crash; otherwise they go on, and Runs finds them again."
+        )
+        tie.setChecked(self.settings.value("tie-runs", "false") in {True, "true"})
+        tie.toggled.connect(self._tie_runs)
+        self.run_panel.tie_to_window = tie.isChecked()
+        run_menu.addAction(tie)
+        machines = QAction("&Machines…", self)
+        # Through a lambda: `triggered` would pass its checked state as the machine.
+        machines.triggered.connect(lambda: self.edit_machines())  # noqa: PLW0108
+        run_menu.addAction(machines)
         help_menu = self.menuBar().addMenu("&Help")
         guide = QAction("User guide", self)
         guide.setShortcut(QKeySequence.StandardKey.HelpContents)
@@ -526,9 +553,25 @@ class WorkflowWindow(QMainWindow):
         Returns
         -------
         str
-            ``"save"``, ``"discard"``, ``"stop"`` or ``"cancel"``.
+            ``"save"``, ``"discard"``, ``"stop"`` or ``"cancel"``; on closing with a
+            run going, ``"keep"``, ``"stop"``, ``"kill"`` or ``"cancel"``.
         """
         box = QMessageBox(QMessageBox.Icon.Question, title, text, parent=self)
+        if title == _CLOSING:
+            answers = {
+                box.addButton("Keep it running", QMessageBox.ButtonRole.AcceptRole): (
+                    "keep"
+                ),
+                box.addButton("Stop it", QMessageBox.ButtonRole.DestructiveRole): (
+                    "stop"
+                ),
+                box.addButton("Kill it", QMessageBox.ButtonRole.DestructiveRole): (
+                    "kill"
+                ),
+                box.addButton(QMessageBox.StandardButton.Cancel): "cancel",
+            }
+            box.exec()
+            return answers.get(box.clickedButton(), "cancel")  # pyright: ignore[reportArgumentType, reportCallIssue]
         stop = "run is going" in text
         answers = {
             box.addButton(
@@ -564,7 +607,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The reply; replies to other requests are ignored.
         """
         purpose = self._pending.pop(reply.request_id, None)
@@ -616,7 +659,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The kernel's reply.
         """
         value = reply.value
@@ -660,7 +703,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The kernel's reply.
         """
         value = reply.value
@@ -905,7 +948,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The ``scan_overview`` reply.
         """
         if reply.ok:
@@ -930,7 +973,7 @@ class WorkflowWindow(QMainWindow):
 
         Parameters
         ----------
-        reply : solprop_gui.service.messages.Reply
+        reply : solprop.service.messages.Reply
             The ``scan_point`` reply.
         """
         if not reply.ok:
@@ -1205,19 +1248,233 @@ class WorkflowWindow(QMainWindow):
             self.document.set_model(model, base=str(Path(path).parent))
             self.has_results = True
 
-    def _runs_listed(self, runs: Sequence[Mapping[str, object]]) -> None:
-        """Take over the latest run the service holds that is still going.
+    def _find_going_run(self) -> None:
+        """Look, on a thread, for a run on this computer still going, and follow it."""
+        import threading  # noqa: PLC0415 - only here
+
+        from solprop.service.runs import list_runs  # noqa: PLC0415 - light
+
+        workspace = self.run_panel.workspace.expanduser()
+        found: list[list[dict[str, object]]] = []
+
+        def look() -> None:
+            """List the workspace's runs."""
+            with contextlib.suppress(OSError, ValueError):
+                found.append(list_runs(workspace, None))
+
+        thread = threading.Thread(target=look, daemon=True)
+        thread.start()
+
+        def check() -> None:
+            """Take over the newest run still going, once the list is read."""
+            if thread.is_alive():
+                QTimer.singleShot(100, check)
+                return
+            runs = found[0] if found else []
+            going = [
+                run
+                for run in runs
+                if run.get("state") in {"starting", "running"} and run.get("record")
+            ]
+            if going and self.run_panel.attach_on(Machine(LOCAL), going[0]):
+                self.has_run = True
+                self.show_stage(Stage.RUN)
+                self.notify(f"Following {going[0]['run_id']}, still going.")
+
+        QTimer.singleShot(100, check)
+
+    # ------------------------------------------------------------------ machines
+
+    def _machine_name(self) -> str:
+        """Return the name of the machine new runs go to.
+
+        Returns
+        -------
+        str
+            Its name; :data:`~solprop.service.machines.LOCAL` for this computer.
+        """
+        machine = self.run_panel.machine
+        return LOCAL if machine is None else machine.name
+
+    def _show_machines(self, chosen: str) -> None:
+        """Offer the remembered machines on the Runs on line, and choose one.
 
         Parameters
         ----------
-        runs : Sequence of Mapping
-            The service's runs, oldest first.
+        chosen : str
+            The machine new runs go to; this computer when it is not remembered.
         """
-        going = [run for run in runs if run.get("alive")]
-        if going and self.run_panel.attach(going[-1]):
+        machines = self.machine_store.machines()
+        machine = next((m for m in machines if m.name == chosen), machines[0])
+        self.sheet.run_options.set_machines(machines, machine.name)
+        self._use_machine(machine)
+
+    def _use_machine(self, machine: Machine) -> None:
+        """Send new runs to a machine, and offer its backends and threads.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            The machine.
+        """
+        self.run_panel.machine = None if machine.local else machine
+        self.settings.setValue("machine", machine.name)
+        state = ""
+        if machine.local:
+            self._ask_kernel("run_options", {}, "run options")
+        else:
+            connection = self.bridge.hub.ensure(machine)
+            state = connection.state
+            if state == "up":
+                self._ask_kernel(
+                    "run_options", {"machine": machine.name}, "run options"
+                )
+        self.sheet.run_options.show_machine(machine, state)
+
+    def _machine_chosen(self, name: str) -> None:
+        """Take a machine picked on the Runs on line.
+
+        Parameters
+        ----------
+        name : str
+            Its name.
+        """
+        machine = self.machine_store.get(name)
+        if machine is not None:
+            self._use_machine(machine)
+
+    def _machine_state(self, name: str, state: str, detail: object) -> None:
+        """Show the chosen machine's connection, and ask it what runs can use there.
+
+        Parameters
+        ----------
+        name : str
+            The machine.
+        state : str
+            Its connection's state.
+        detail : object
+            Its hello, or why it is down or refused.
+        """
+        machine = self.run_panel.machine
+        if machine is None or machine.name != name:
+            return
+        self.sheet.run_options.show_machine(machine, state, detail)
+        if state == "up":
+            self._ask_kernel("run_options", {"machine": name}, "run options")
+
+    def _tie_runs(self, tied: bool) -> None:
+        """Tie new runs on this computer to this window, or not, and remember it.
+
+        Parameters
+        ----------
+        tied : bool
+            Whether a run stops when the window's process has gone.
+        """
+        self.run_panel.tie_to_window = tied
+        self.settings.setValue("tie-runs", "true" if tied else "false")
+
+    def edit_machines(self, current: str | None = None) -> None:
+        """Open the machines dialog, and keep what it leaves.
+
+        Parameters
+        ----------
+        current : str or None, optional
+            The machine to show first.
+        """
+        dialog = MachinesDialog(
+            self.machine_store.machines(), self.bridge.hub, self, current=current
+        )
+        if dialog.exec():
+            self.machine_store.save(dialog.machines)
+        self._show_machines(self._machine_name())
+
+    def show_runs(self) -> None:
+        """Show every run on every machine."""
+        if self.runs_window is None:
+            self.runs_window = RunsWindow(
+                self.machine_store.machines,
+                self.bridge.hub,
+                lambda: self.run_panel.workspace,
+                self._copy_of,
+                self,
+            )
+            self.runs_window.open_wanted.connect(self.open_run)
+            self.runs_window.resume_wanted.connect(self.resume_run)
+            self.runs_window.fetched.connect(self.open_results)
+        self.runs_window.show()
+        self.runs_window.raise_()
+        self.runs_window.activateWindow()
+
+    def _copy_of(self, machine: Machine, run: Mapping[str, object]) -> Path:
+        """Return where a copy of a machine's run goes on this computer.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            The machine.
+        run : Mapping
+            The run's summary.
+
+        Returns
+        -------
+        pathlib.Path
+            A file in the workspace, under a folder named for the machine.
+        """
+        output = PurePosixPath(str(run["output"]))
+        folder = f"from-{slug(machine.name)}"
+        return (
+            self.run_panel.workspace.expanduser()
+            / folder
+            / str(run["run_id"])
+            / output.name
+        )
+
+    def open_run(self, machine: Machine, run: Mapping[str, object]) -> None:
+        """Open a run of the Runs window: follow it while it goes, else its results.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            Its machine.
+        run : Mapping
+            Its summary.
+        """
+        going = run.get("state") in {"queued", "starting", "running"}
+        if going and run.get("record"):
+            if not self._may_leave_run():
+                return
+            if self.run_panel.attach_on(machine, run):
+                self.has_run = True
+                self._own_run = False
+                self.show_stage(Stage.RUN)
+                where = "" if machine.local else f" on {machine.name}"
+                self.notify(f"Following {run['run_id']}{where}.")
+            return
+        output = run.get("output")
+        if not output:
+            self.notify(f"{run['run_id']} has no results yet.")
+            return
+        if not machine.local:
+            self.bridge.hub.ensure(machine)
+            self.bridge.know_folder(machine.name, str(run["folder"]))
+        self.open_results(str(output))
+
+    def resume_run(self, machine: Machine, run: Mapping[str, object]) -> None:
+        """Continue a run of the Runs window, and follow it.
+
+        Parameters
+        ----------
+        machine : solprop.service.machines.Machine
+            Its machine.
+        run : Mapping
+            Its summary.
+        """
+        if not self._may_leave_run():
+            return
+        if self.run_panel.resume_on(machine, run):
             self.has_run = True
+            self._own_run = False
             self.show_stage(Stage.RUN)
-            self.notify(f"Re-attached to {going[-1]['run_id']}.")
 
     def notify(self, text: str) -> None:
         """Show a passing notice at the foot of the window.
@@ -1266,22 +1523,20 @@ class WorkflowWindow(QMainWindow):
         event : PySide6.QtGui.QCloseEvent
             The close.
         """
-        if self.run_panel.active and not self.bridge.service:
-            answer = self.confirm("Run going", "A run is going. Stop it and close?")
-            if answer != "stop":
+        client = self.run_panel.client
+        if self.run_panel.active and client is not None:
+            answer = self.confirm(
+                _CLOSING,
+                f"{self.run_panel.run_id} is still going. Keep it running (Runs "
+                "finds it again), stop it (it can be resumed), or kill it?",
+            )
+            if answer not in {"keep", "stop", "kill"}:
                 event.ignore()
                 return
-            self._leaving_run = True
-            self.run_panel.stop()
-            client = self.run_panel.client
-            if client is not None:
-                # A run stops at its next plane, which may be far: a window being
-                # closed waits a moment, then ends the worker.
-                client.join(_STOP_WAIT_S)
-                if not client.ended.is_set():
-                    client.kill()
-                    client.join(_STOP_WAIT_S)
-        # Closing has dealt with the run: kept by the service, or stopped above.
+            if answer != "keep":
+                # Said now, not queued: the connections close with the window.
+                client.end_now(kill=answer == "kill")
+        # Closing has dealt with the run: kept going, or asked to end.
         guard, self.document.guard = self.document.guard, lambda: True
         try:
             discard = self.document.may_discard()
@@ -1301,8 +1556,8 @@ _WARM_EXAMPLES = ("rdw", "filament")
 (about 0.9 s on the capillary and 0.5 s on the radial route), and is then the
 kernel's, not the first click's."""
 
-_STOP_WAIT_S = 3.0
-"""How long a closing window waits for a stopped run to end before ending it."""
+_CLOSING = "Closing with a run going"
+"""The title of the question a window asks when closed over a run that goes on."""
 
 _SINGLE_RTOL = 1e-6
 """The smallest ``rtol`` solprop accepts in single precision."""

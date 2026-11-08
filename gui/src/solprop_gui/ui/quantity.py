@@ -16,8 +16,9 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QKeyEvent, QWheelEvent
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QLineEdit, QWidget
 from solprop.recipe.errors import RecipeError
+from solprop.service.recipes import split
 
-from solprop_gui.model.quantities import number_in, split, unit_of, write
+from solprop_gui.model.quantities import number_in, unit_of, write
 from solprop_gui.registry.units import pretty, unit_choices
 
 _READABLE_LENGTH = 10

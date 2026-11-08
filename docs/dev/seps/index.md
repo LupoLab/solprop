@@ -25,7 +25,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [0](sep-0000-process.md) | Purpose and process | Active | Process |
 | [1](sep-0001-raman-response.md) | Efficient causal Raman evaluation | Draft | Feature |
 | [2](sep-0002-two-photon-absorption.md) | Two-photon absorption | Draft | Feature |
-| [4](sep-0004-execution-autotuning.md) | Bounded execution autotuning | Draft | Feature |
 | [5](sep-0005-solid-ionisation.md) | Solid ionisation and bulk filamentation | Draft | Feature |
 | [7](sep-0007-laser-gain-dynamics.md) | Laser gain dynamics in solid-core fibres | Draft | Feature |
 | [8](sep-0008-quadratic-crystal-optics.md) | Second-order nonlinearity and birefringent crystal optics | Draft | Feature |
@@ -34,6 +33,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
+| [46](sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Accepted | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -48,6 +48,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | SEP | Title | Status | Type |
 |---|---|---|---|
 | [3](archive/sep-0003-optmat-materials.md) | Materials, Raman responses and ionisation rates from optmat | Final | Change |
+| [4](archive/sep-0004-execution-autotuning.md) | Bounded execution autotuning | Superseded | Feature |
 | [6](archive/sep-0006-dispersive-nonlinearity.md) | Frequency-dependent electronic third-order response | Final | Feature |
 | [12](archive/sep-0012-tdse-nonlinear-response.md) | TDSE-driven nonlinear response for gas-filled capillaries | Final | Feature |
 | [13](archive/sep-0013-expensive-response-steppers.md) | Low-call integration for expensive nonlinear responses | Final | Feature |
@@ -89,7 +90,6 @@ Proposals that are final, rejected, withdrawn or superseded; the
 sep-0000-process
 sep-0001-raman-response
 sep-0002-two-photon-absorption
-sep-0004-execution-autotuning
 sep-0005-solid-ionisation
 sep-0007-laser-gain-dynamics
 sep-0008-quadratic-crystal-optics
@@ -98,6 +98,7 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
+sep-0046-machine-calibration
 template
 archive/index
 ```

@@ -17,6 +17,8 @@ from PySide6.QtWidgets import QBoxLayout, QLabel, QLineEdit, QWidget
 from pytestqt.qtbot import QtBot
 from solprop.constants import C
 from solprop.output import open_file
+from solprop.service.messages import Event
+from solprop.service.states import ExecutionState
 
 from conftest import TINY
 from solprop_gui.classes.catalog import (
@@ -29,8 +31,6 @@ from solprop_gui.classes.catalog import (
 from solprop_gui.classes.problem import AnalysisPage, ProblemClass
 from solprop_gui.classes.workflow import Stage
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.service.messages import Event
-from solprop_gui.service.states import ExecutionState
 from solprop_gui.ui import theme as ui_theme
 from solprop_gui.ui.analyse import AnalyseStage
 from solprop_gui.ui.analysis_pages import (
@@ -1240,7 +1240,7 @@ def test_a_beam_s_plane_and_a_planar_rail(
 def test_opening_something_else_mid_run_asks_and_stops_it(
     window: WorkflowWindow, qtbot: QtBot
 ) -> None:
-    from test_server import SLOW  # noqa: PLC0415 - only here
+    from conftest import SLOW  # noqa: PLC0415 - only here
 
     answers: list[str] = []
     answers_given = ["cancel", "cancel"]

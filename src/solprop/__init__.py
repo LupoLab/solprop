@@ -63,6 +63,7 @@ _SUBMODULES: Final = (
     "pulses",
     "recipe",
     "scan",
+    "service",
     "sol",
     "spatial",
     "spatial_absorber",

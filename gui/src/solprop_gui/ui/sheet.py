@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 from solprop.recipe.errors import RecipeError
+from solprop.service.explore import PIN_SEARCH
 
 from solprop_gui.classes.problem import (
     Derived,
@@ -50,7 +51,6 @@ from solprop_gui.classes.problem import (
 from solprop_gui.model.display import size_text
 from solprop_gui.model.quantities import number_in, write
 from solprop_gui.model.recipe import MISSING, RecipeModel
-from solprop_gui.registry.explore import PIN_SEARCH
 from solprop_gui.registry.pages import GAS_TITLES, label
 from solprop_gui.ui.fields import ParameterRow
 from solprop_gui.ui.pages import Section, issue_keyword

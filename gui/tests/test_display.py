@@ -6,13 +6,13 @@
 
 import numpy as np
 import pytest
+from solprop.service.reduce import light_range
 
 from solprop_gui.model.display import (
     beam_reach,
     decibels,
     even_rows,
     half_width,
-    light_range,
     mirrored_rows,
     pulse_window,
     scaled_unit,

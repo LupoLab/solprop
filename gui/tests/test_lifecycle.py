@@ -11,17 +11,20 @@ milestone's path through the service (design 16).
 import queue
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import numpy as np
 import pytest
+from solprop.service.client import KernelClient
+from solprop.service.launch import prepare, start_direct
+from solprop.service.messages import Event, Reply
+from solprop.service.record import read_events, request_stop
+from solprop.service.worker import OUTPUT, RunSpec
 
 from conftest import TINY
 from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.workspace import list_runs, new_run_folder
-from solprop_gui.service.client import KernelClient, RunClient
-from solprop_gui.service.messages import Event, Reply
-from solprop_gui.service.worker import OUTPUT, RunSpec
 
 TIMEOUT = 120.0
 
@@ -43,20 +46,21 @@ class Kernel:
 
 
 def run_until(spec: RunSpec, stop_after_rows: int | None = None) -> list[Event]:
-    """Run a spec in a worker, stopping it after some rows if asked."""
-    events: queue.Queue[Event] = queue.Queue()
-    client = RunClient(spec, events.put)
+    """Run a spec as a job, following its record, stopping it after some rows."""
+    folder = prepare(spec)
+    start_direct(folder)
     seen: list[Event] = []
-    while True:
-        event = events.get(timeout=TIMEOUT)
-        seen.append(event)
+    offset = 0
+    deadline = time.monotonic() + TIMEOUT
+    while not any(event.terminal for event in seen):
+        assert time.monotonic() < deadline, "the run did not end"
+        events, offset = read_events(folder, offset)
+        seen.extend(events)
         rows = sum(e.kind == "row" for e in seen)
-        if stop_after_rows is not None and rows == stop_after_rows:
-            assert client.stop()
+        if stop_after_rows is not None and rows >= stop_after_rows:
+            request_stop(folder)
             stop_after_rows = None
-        if event.terminal:
-            break
-    client.join(TIMEOUT)
+        time.sleep(0.05)
     return seen
 
 

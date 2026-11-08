@@ -11,7 +11,7 @@ the strip away and brings the rail in.
 
 import time
 from collections.abc import Mapping, Sequence
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import cast
 
 import numpy as np
@@ -301,7 +301,12 @@ class AnalyseStage(QWidget):
         Whether the stage shows a run going, rather than the rail.
     overview : OverviewPage or None
         The page a run draws on.
+    copied : Signal
+        Emitted with a copy's path once the results file is copied, or ``""`` when
+        it was not.
     """
+
+    copied = Signal(str)
 
     def __init__(  # noqa: PLR0915 - the stage's parts
         self,
@@ -704,6 +709,10 @@ class AnalyseStage(QWidget):
         if page.figure() is not None and not spatial:
             self.export_menu.addAction("Publication figure…", self.export_figure)
         self.export_menu.addAction("This page as an image…", self.choose_page_image)
+        if self.session.path is not None:
+            self.export_menu.addAction(
+                "A copy of the results file…", self.choose_results_copy
+            )
         if page.data() is not None:
             self.export_menu.addAction("Data as CSV…", self.export_data)
         if page.python() is not None:
@@ -726,17 +735,81 @@ class AnalyseStage(QWidget):
                 self, "Export figure", "figure.pdf", "Figures (*.pdf *.svg *.png)"
             )
         if path:
+            # The figures come back as bytes and are written here: the file may be a
+            # run's on another machine, whose kernel draws them there.
             self.session.ask(
                 "result_figure",
-                {"path": self.session.path, "file": path, **figure},
-                lambda written: self.said.setText(
-                    "Wrote " + ", ".join(Path(str(w)).name for w in written)
-                ),
+                {"path": self.session.path, "file": path, "bytes": True, **figure},
+                lambda given: self._write_figures(Path(path), given),
                 key="page-figure",
                 failed=lambda reason: self.said.setText(
                     f"The figure was not written: {reason}"
                 ),
             )
+
+    def _write_figures(self, target: Path, given: object) -> None:
+        """Write the figures solprop drew, beside the file chosen.
+
+        Parameters
+        ----------
+        target : pathlib.Path
+            The file chosen; several figures are numbered after it.
+        given : object
+            Each figure's ``name`` and ``data`` (bytes, as ``uint8``).
+        """
+        written = []
+        for figure in given if isinstance(given, list) else []:
+            path = target.with_name(str(figure["name"]))  # pyright: ignore[reportUnknownArgumentType, reportIndexIssue]
+            path.write_bytes(np.asarray(figure["data"], dtype=np.uint8).tobytes())  # pyright: ignore[reportIndexIssue]
+            written.append(path.name)
+        self.said.setText("Wrote " + ", ".join(written))
+
+    def choose_results_copy(self) -> None:  # pragma: no cover - a modal dialog
+        """Ask where to keep a copy of the results file, and copy it there."""
+        if self.session.path is None:
+            return
+        name = PurePosixPath(self.session.path).name
+        path, _ = QFileDialog.getSaveFileName(
+            self, "A copy of the results file", name, "solprop results (*.h5)"
+        )
+        if path:
+            self.save_results_copy(Path(path))
+
+    def save_results_copy(self, target: Path) -> None:
+        """Copy the open results file here: fetched from its machine, or copied.
+
+        Parameters
+        ----------
+        target : pathlib.Path
+            Where the copy goes.
+        """
+        source = self.session.path
+        if source is None:
+            return
+        bridge = self.session.bridge
+        machine = bridge.machine_of({"path": source})
+        self.said.setText(f"Copying {PurePosixPath(source).name}…")
+
+        def done(value: object, error: object) -> None:
+            """Say whether the copy was made.
+
+            Parameters
+            ----------
+            value : object
+                The copy's path.
+            error : object
+                Why it failed, or ``None``.
+            """
+            if error is not None:
+                self.said.setText(f"Not copied: {error}")
+            else:
+                self.said.setText(f"Wrote {Path(str(value)).name}")
+            self.copied.emit(str(value) if error is None else "")
+
+        if machine is not None:
+            bridge.hub.fetch(machine, source, target, lambda *_: None, done)
+            return
+        bridge.hub.copy_here(Path(source), target, done)
 
     def choose_page_image(self) -> None:  # pragma: no cover - a modal dialog
         """Ask where to save the page as drawn, and save it."""
