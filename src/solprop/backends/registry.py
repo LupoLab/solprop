@@ -481,6 +481,13 @@ def select(
     ['mlx', 'native', 'numpy_ref']
     """
     name = resolve_name(name)
+    if name == "native":
+        # SEP 46: a first native workspace in an allocation with no profile row runs
+        # the quick calibration first, before the extension's runtime starts if it
+        # has not yet.
+        from solprop.calibration.first_use import ensure  # noqa: PLC0415 - lazy
+
+        ensure()
     _check_required_device(name)
     if _BENCHMARK_GATED.get() and name != "numpy_ref":
         raise BackendError("the gated plasma benchmark requires numpy_ref")

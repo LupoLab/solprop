@@ -226,9 +226,8 @@ private:
    * response. */
   bool real_signal_{};
   double epsilon0_{};
-  CpuExecutionPool kernel_pool_{CpuPool::kernels}, fft_pool_{CpuPool::fft};
-  CpuExecutionPool raman_pool_{CpuPool::raman_fft},
-      raman_tail_pool_{CpuPool::raman_tail_fft};
+  // The owner's record (`Problem::cpu_execution`), copied at construction.
+  CpuExecutionPool kernel_pool_, fft_pool_, raman_pool_, raman_tail_pool_;
   ExecutionSpace kernels_, transforms_, delayed_transforms_;
   ExecutionSpace response_, tail_response_, dense_, tail_dense_, maps_;
   const ExecutionSpace& response_for(std::size_t count) const {

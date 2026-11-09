@@ -43,6 +43,11 @@ JAXTYPING_HOOK = (
 settings.register_profile("solprop", deadline=None)
 settings.load_profile("solprop")
 
+# A machine calibration (solprop SEP 46) neither runs nor applies in the suite unless a
+# test asks for one, so that a developer's store cannot change what a test measures.
+# Set before the native package's import reads it; subprocesses inherit it.
+os.environ.setdefault("SOLPROP_CALIBRATION", "off")
+
 # Any driver test can select the installed backend, even without collecting
 # tests/backends. A present but broken wheel fails here; only an absent optional wheel
 # is omitted.

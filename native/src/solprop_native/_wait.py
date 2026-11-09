@@ -38,7 +38,7 @@ a user's.
 from __future__ import annotations
 
 import os
-from collections.abc import MutableMapping
+from collections.abc import Mapping, MutableMapping
 from dataclasses import dataclass
 
 VARIABLES = ("OMP_WAIT_POLICY", "GOMP_SPINCOUNT", "KMP_BLOCKTIME")
@@ -52,6 +52,14 @@ SPIN_MILLISECONDS = 1
 
 MARKER = "SOLPROP_NATIVE_WAIT"
 """Set beside the variables this module sets, naming the choice it made."""
+
+REQUEST = "SOLPROP_NATIVE_WAIT_REQUEST"
+"""solprop's own request for a process, ``spin`` or ``passive`` (solprop SEP 46).
+
+A scan's workers and a calibration's children ask for a wait through it. A user's
+:data:`VARIABLES` still win, and so does a calibration's row for the process's
+allocation; the request replaces the default rule's choice.
+"""
 
 _SETTINGS = {
     "spin": {"GOMP_SPINCOUNT": SPIN_COUNT, "KMP_BLOCKTIME": "0"},
@@ -81,18 +89,36 @@ def _ours(environ: MutableMapping[str, str]) -> bool:
     )
 
 
+def requested_wait(environ: Mapping[str, str] = os.environ) -> str | None:
+    """Return :data:`REQUEST`'s ``spin`` or ``passive``, or ``None``.
+
+    Raises
+    ------
+    ValueError
+        For another value.
+    """
+    value = environ.get(REQUEST, "").strip()
+    if not value:
+        return None
+    if value not in _SETTINGS:
+        raise ValueError(f"{REQUEST} must be spin or passive, got {value!r}")
+    return value
+
+
 def wait_policy(
     environ: MutableMapping[str, str] = os.environ,
     *,
     threads: int = 1,
     top_tier: int | None = None,
+    preferred: str | None = None,
 ) -> WaitPolicy:
     """Set the default wait in `environ` unless the user chose; say which.
 
     `threads` is the native pool's size and `top_tier` the cores of the chip's fastest
-    kind where it has several (``None`` otherwise). Returns ``"spin"`` or
-    ``"passive"`` when set here, else ``"environment: NAME=value"`` for the first of
-    :data:`VARIABLES` the user set.
+    kind where it has several (``None`` otherwise). `preferred`, ``"spin"`` or
+    ``"passive"``, is a machine calibration's choice (solprop SEP 46), which replaces
+    the default rule. Returns ``"spin"`` or ``"passive"`` when set here, else
+    ``"environment: NAME=value"`` for the first of :data:`VARIABLES` the user set.
     """
     if not _ours(environ):
         for name in VARIABLES:
@@ -102,7 +128,7 @@ def wait_policy(
     for name in (*VARIABLES, MARKER):
         environ.pop(name, None)
     wider = top_tier is not None and threads > top_tier
-    choice = "passive" if wider else "spin"
+    choice = preferred if preferred in _SETTINGS else "passive" if wider else "spin"
     environ.update(_SETTINGS[choice])
     environ[MARKER] = choice
     return WaitPolicy(choice, SPIN_MILLISECONDS if choice == "spin" else 0)

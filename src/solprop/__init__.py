@@ -37,6 +37,7 @@ _SUBMODULES: Final = (
     "adiabatic",
     "backends",
     "boundaries",
+    "calibration",
     "capabilities",
     "cli",
     "constants",

@@ -124,7 +124,7 @@ def test_exception_hierarchy_roots_at_solprop_error():
             continue
         root = (
             exceptions.SolpropWarning
-            if name.endswith("Warning")
+            if name.endswith(("Warning", "Notice"))
             else exceptions.SolpropError
         )
         assert issubclass(cls, root)

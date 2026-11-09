@@ -27,9 +27,19 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from ._bind import proc_bind
-from ._budget import native_threads, physical_cores, thread_budget, top_tier_cores
+from ._budget import (
+    cgroup_cpus,
+    native_threads,
+    physical_cores,
+    thread_budget,
+    thread_count,
+    top_tier_cores,
+)
 from ._cpu import check_cpu_baseline, select_variant
-from ._wait import wait_policy
+from ._execution import ExecutionRecord
+from ._execution import builtin as _builtin_execution
+from ._profile import Choice, Process, choose
+from ._wait import requested_wait, wait_policy
 
 if platform.system() == "Darwin" and "pyfftw" in sys.modules:
     # solprop does not load pyFFTW; this is reached when a script, or a package it
@@ -59,12 +69,42 @@ _CPUS = len(PROCESS_CPUS) or os.process_cpu_count() or 1
 THREAD_BUDGET = thread_budget(
     _CPUS, physical_cores(PROCESS_CPUS or tuple(range(_CPUS)))
 )
-_REQUESTED_THREADS = native_threads(THREAD_BUDGET)
+_BUDGET_THREADS = native_threads(THREAD_BUDGET)
+
+# A wheel with more than one build registers the chosen one as ``._core`` below.
+_STEM = select_variant(Path(__file__).parent)
+
+# This machine's calibration (solprop SEP 46), when one was published for this build
+# and allocation: an exact row's process settings apply here, before the runtime
+# starts, unless the user set them; each workspace takes its workspace settings.
+PROFILE: Choice = choose(
+    packages=[Path(entry) for entry in __path__],
+    stem=_STEM,
+    cpus=PROCESS_CPUS,
+    quota=cgroup_cpus(),
+)
+# A scan's worker is given SOLPROP_THREADS by solprop's Pool, its partition: there the
+# row of the workers' allocation may narrow the pool within it.
+_PROFILE_THREADS = PROFILE.threads()
+_REQUESTED_THREADS = (
+    min(_PROFILE_THREADS, THREAD_BUDGET.threads)
+    if _PROFILE_THREADS is not None
+    and (
+        thread_count("SOLPROP_THREADS") is None
+        or os.environ.get("SOLPROP_CALIBRATION_ROLE", "").strip() == "worker"
+    )
+    and thread_count("SOLPROP_NATIVE_THREADS") is None
+    else _BUDGET_THREADS
+)
 
 # How the OpenMP runtime's idle threads wait: a short spin within native work, unless
-# the user chose otherwise (ADR-071). The runtime reads this when the core loads it,
-# just below.
-_WAIT = wait_policy(threads=_REQUESTED_THREADS, top_tier=top_tier_cores())
+# the user or a calibration chose otherwise (ADR-071). The runtime reads this when the
+# core loads it, just below.
+_WAIT = wait_policy(
+    threads=_REQUESTED_THREADS,
+    top_tier=top_tier_cores(),
+    preferred=PROFILE.wait() or requested_wait(),
+)
 WAIT_POLICY = _WAIT.description
 
 # Whether its threads are bound: not, unless the user placed them. Kokkos reads this
@@ -74,7 +114,6 @@ PROC_BIND = proc_bind()
 # A wheel with more than one build registers the chosen one as ``._core``, so nothing
 # else knows which it is. The loader finds PyInit__core from the module's name, not the
 # file's.
-_STEM = select_variant(Path(__file__).parent)
 if _STEM != "_core":
     _file = next(Path(__file__).parent.glob(f"{_STEM}.*"))
     _spec = importlib.util.spec_from_file_location(f"{__name__}._core", _file)
@@ -157,10 +196,66 @@ _core.initialize_runtime(
     _pool_request("SOLPROP_NATIVE_FFT_THREADS"),
     _pool_request("SOLPROP_NATIVE_RAMAN_FFT_THREADS"),
     _pool_request("SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS"),
-    _pool_request("SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES", "sample count"),
     _band_request(),
 )
 _core.configure_native_spin(_WAIT.spin_milliseconds)
+
+# The built-in table's CPU execution record for this process (solprop SEP 46 section
+# 6.11): its operating system's values, divided on Apple silicon's spinning top tier,
+# with the user's FFT start. A workspace copies a record when it is built.
+_FFT_START = (
+    _pool_request("SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES", "sample count") or None
+)
+BUILTIN_EXECUTION: ExecutionRecord = _builtin_execution(
+    platform.system(),
+    spin_milliseconds=_WAIT.spin_milliseconds,
+    width=_REQUESTED_THREADS,
+    fft_threshold=_FFT_START,
+)
+
+# The process settings in force, and the record a workspace takes by default: the
+# profile's workspace settings where they hold under them, the user's FFT start over
+# both.
+PROCESS = Process(threads=_REQUESTED_THREADS, wait=WAIT_POLICY)
+_PROFILED, EXECUTION_SOURCE = PROFILE.workspace(PROCESS, BUILTIN_EXECUTION)
+EXECUTION: ExecutionRecord = (
+    _PROFILED if _FFT_START is None else _PROFILED.with_fft_start(_FFT_START)
+)
+# The profile's FFT planning, or None for the plan policy (solprop SEP 46 section 6.7).
+PLANNING: dict[str, object] | None = PROFILE.planning(PROCESS)
+
+
+def refresh_profile() -> str:
+    """Read the store again, keeping the process settings in force (solprop SEP 46).
+
+    A first run that calibrated after this package's import applies the new profile's
+    workspace settings and FFT planning that hold under the process's waiting policy
+    and width; its process settings take effect from the next process. Workspaces
+    built afterwards take the new record.
+
+    Returns
+    -------
+    str
+        Where a workspace's record now comes from (``EXECUTION_SOURCE``).
+    """
+    # The profile's names are this process's state, rebound here and nowhere else;
+    # the backend reads them from the package at each use.
+    global PROFILE, EXECUTION, EXECUTION_SOURCE, PLANNING
+    found = choose(
+        packages=[Path(entry) for entry in __path__],
+        stem=_STEM,
+        cpus=PROCESS_CPUS,
+        quota=cgroup_cpus(),
+    )
+    profiled, source = found.workspace(PROCESS, BUILTIN_EXECUTION)
+    PROFILE = found  # pyright: ignore[reportConstantRedefinition]
+    EXECUTION_SOURCE = source  # pyright: ignore[reportConstantRedefinition]
+    EXECUTION = (  # pyright: ignore[reportConstantRedefinition]
+        profiled if _FFT_START is None else profiled.with_fft_start(_FFT_START)
+    )
+    PLANNING = found.planning(PROCESS)  # pyright: ignore[reportConstantRedefinition]
+    return source
+
 
 # Fit a host OpenBLAS to the Kokkos pool unless its thread count is set explicitly. A
 # pthreads OpenBLAS runs its own pool beside Kokkos's and oversubscribes the cores (2 to
@@ -562,6 +657,11 @@ class BuildInfo:
     threaded_fft_min_samples
         Real-side samples per execution from which a modal or spatial CPU FFT plan
         is threaded; shorter plans run on one FFTW thread.
+
+        This field and the work sizes and medium width below are the built-in
+        table's for this process (``BUILTIN_EXECUTION``, solprop SEP 46), not
+        facts of the build: a workspace may apply a machine calibration's instead,
+        and a run's metadata records the values it applied (``calibration``).
     cpu_size_policy_enabled
         Whether this build supports operation-specific CPU widths (OpenMP CPU only).
     explicit_thread_pools
@@ -756,26 +856,26 @@ def build_info() -> BuildInfo:
         fftw_threads=int(record["fftw_threads"]),
         raman_fft_threads=int(record["raman_fft_threads"]),
         raman_tail_fft_threads=int(record["raman_tail_fft_threads"]),
-        threaded_fft_min_samples=int(record["threaded_fft_min_samples"]),
+        threaded_fft_min_samples=BUILTIN_EXECUTION.fft_threshold,
         cpu_size_policy_enabled=bool(record["cpu_size_policy_enabled"]),
         explicit_thread_pools=int(record["explicit_thread_pools"]),
-        stage_thread_min_elements=int(record["stage_thread_min_elements"]),
-        copy_thread_min_elements=int(record["copy_thread_min_elements"]),
-        flow_thread_min_elements=int(record["flow_thread_min_elements"]),
-        modal_thread_min_elements=int(record["modal_thread_min_elements"]),
-        response_thread_min_elements=int(record["response_thread_min_elements"]),
-        dense_thread_min_elements=int(record["dense_thread_min_elements"]),
-        raman_thread_min_elements=int(record["raman_thread_min_elements"]),
-        stage_full_thread_elements=int(record["stage_full_thread_elements"]),
-        response_full_thread_elements=int(record["response_full_thread_elements"]),
-        response_full_thread_samples=int(record["response_full_thread_samples"]),
-        response_full_thread_columns=int(record["response_full_thread_columns"]),
-        dense_full_thread_elements=int(record["dense_full_thread_elements"]),
-        fft_full_thread_elements=int(record["fft_full_thread_elements"]),
-        raman_full_thread_elements=int(record["raman_full_thread_elements"]),
-        adams_thread_min_elements=int(record["adams_thread_min_elements"]),
-        adams_full_thread_elements=int(record["adams_full_thread_elements"]),
-        cpu_medium_threads=int(record["cpu_medium_threads"]),
+        stage_thread_min_elements=BUILTIN_EXECUTION.stage_threshold,
+        copy_thread_min_elements=BUILTIN_EXECUTION.copy_threshold,
+        flow_thread_min_elements=BUILTIN_EXECUTION.flow_threshold,
+        modal_thread_min_elements=BUILTIN_EXECUTION.modal_threshold,
+        response_thread_min_elements=BUILTIN_EXECUTION.response_threshold,
+        dense_thread_min_elements=BUILTIN_EXECUTION.dense_threshold,
+        raman_thread_min_elements=BUILTIN_EXECUTION.raman_threshold,
+        stage_full_thread_elements=BUILTIN_EXECUTION.stage_full,
+        response_full_thread_elements=BUILTIN_EXECUTION.response_full,
+        response_full_thread_samples=BUILTIN_EXECUTION.response_full_samples,
+        response_full_thread_columns=BUILTIN_EXECUTION.response_full_columns,
+        dense_full_thread_elements=BUILTIN_EXECUTION.dense_full,
+        fft_full_thread_elements=BUILTIN_EXECUTION.fft_full,
+        raman_full_thread_elements=BUILTIN_EXECUTION.raman_full,
+        adams_thread_min_elements=BUILTIN_EXECUTION.adams_threshold,
+        adams_full_thread_elements=BUILTIN_EXECUTION.adams_full,
+        cpu_medium_threads=BUILTIN_EXECUTION.medium_threads,
         band_column=str(record["band_column"]),
         band_tile_threads=int(record["band_tile_threads"]),
         native_arch_enabled=bool(record["native_arch_enabled"]),

@@ -18,6 +18,10 @@ import pytest
 # developer's display is never used. An explicit setting (a debugging session) wins.
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+# A machine calibration (solprop SEP 46) neither runs nor applies here, as in solprop's
+# own suite: a first native run would otherwise calibrate, and its notice is an error.
+os.environ.setdefault("SOLPROP_CALIBRATION", "off")
+
 
 def pytest_configure(config: pytest.Config) -> None:
     """Collect garbage only between tests, as the window collects it between events.

@@ -5,6 +5,8 @@
 #include "solprop_native/core.hpp"
 #include "solprop_native/general_modal.hpp"
 
+#include "execution.hpp"
+
 #include <Kokkos_Core.hpp>
 
 #include <gtest/gtest.h>
@@ -60,6 +62,7 @@ native::Problem modal_problem(const bool real_form, const std::size_t chunk,
                               const std::size_t offset = 0,
                               const std::size_t n_to = 8) {
   native::Problem problem;
+  problem.cpu_execution = native::test::table();
   problem.n_t = n_to / 2;
   problem.n_to = n_to;
   problem.n_omega = n_omega;

@@ -96,10 +96,12 @@ def test_build_info_is_frozen_and_complete() -> None:
         info.thread_count = 99  # type: ignore[misc]
     assert len(info.source_digest) == 64
     assert info.response_full_thread_columns > 0
+    # The work sizes are the process's built-in table (solprop SEP 46), not build facts.
     assert (
         info.response_full_thread_columns
-        == _core.build_record()["response_full_thread_columns"]
+        == native.BUILTIN_EXECUTION.response_full_columns
     )
+    assert "response_full_thread_columns" not in _core.build_record()
     assert isinstance(info.coverage_instrumented, bool)
     assert info.coverage_instrumented == _core.build_record()["coverage_instrumented"]
     if info.coverage_instrumented:

@@ -42,4 +42,5 @@ sep-0042-tolerant-resume
 sep-0043-retire-numba-cpu
 sep-0044-native-edge-read
 sep-0045-native-rk-march
+sep-0046-machine-calibration
 ```

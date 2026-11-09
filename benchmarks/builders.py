@@ -13,6 +13,7 @@ no warning filter hides model warnings.
 from __future__ import annotations
 
 import dataclasses
+import os
 from typing import TYPE_CHECKING, Any
 
 from benchmarks.records import Record, SuiteError
@@ -32,6 +33,37 @@ if TYPE_CHECKING:
     from solprop.driver import Simulation, SimulationSettings
     from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, LineGrid, RadialGrid
     from solprop.stepper import Multistep, RungeKutta
+
+
+NODE_BUDGET = "SOLPROP_BENCH_NODE_BUDGET"
+"""A node budget in bytes for every case's sources, to measure the node chunk (#361).
+
+Set in one arm of ``benchmarks ab`` (``--candidate-env``), it compares two chunks with
+one build. Unset, each case keeps its translation's default.
+"""
+
+
+def _node_budget() -> int | None:
+    """Return the node budget :data:`NODE_BUDGET` asks for, if any.
+
+    Returns
+    -------
+    int or None
+        Bytes, or ``None`` when the variable is unset.
+
+    Raises
+    ------
+    SuiteError
+        When the variable is not a positive integer.
+    """
+    value = os.environ.get(NODE_BUDGET, "").strip()
+    if not value:
+        return None
+    if not value.isdigit() or int(value) <= 0:
+        raise SuiteError(
+            f"{NODE_BUDGET} must be a positive number of bytes, got {value!r}"
+        )
+    return int(value)
 
 
 def integrator(stepper: str) -> Multistep | RungeKutta | None:
@@ -539,6 +571,7 @@ def build(configuration: Record) -> Simulation:
             backend=configuration["backend"],
             fields=fields,
             field_planes=observed["field_planes"],
+            node_budget=_node_budget(),
         )
         if case.step is not None:
             settings = dataclasses.replace(
@@ -583,5 +616,6 @@ def build(configuration: Record) -> Simulation:
         raise SuiteError(f"unknown builder {case.builder}")
     if chosen is not None:
         observed["integrator"] = chosen
+    observed["node_budget"] = _node_budget()  # None: the translation's default
     simulation.settings = dataclasses.replace(simulation.settings, **observed)
     return simulation

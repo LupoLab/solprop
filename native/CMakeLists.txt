@@ -1078,6 +1078,31 @@ if(SKBUILD)
   file(WRITE "${PROJECT_BINARY_DIR}/cpu_baseline.txt" "${SOLPROP_NATIVE_CPU_BASELINE}\n")
   install(FILES "${PROJECT_BINARY_DIR}/cpu_baseline.txt" DESTINATION solprop_native
           RENAME _cpu_baseline.txt)
+  # solprop SEP 46: the build's configuration, which a calibration's fingerprint reads
+  # without loading the extension (and its OpenMP runtime). A variant wheel's builds
+  # share it; the fingerprint also digests the chosen extension itself.
+  set(_build_record "{}")
+  foreach(_field IN ITEMS
+      "compiler_id;${CMAKE_CXX_COMPILER_ID}"
+      "compiler_version;${CMAKE_CXX_COMPILER_VERSION}"
+      "openmp_libraries;${OpenMP_CXX_LIB_NAMES}"
+      "fft_backend;${SOLPROP_NATIVE_HOST_FFT_BACKEND}"
+      "blas_backend;${SOLPROP_NATIVE_BLAS_BACKEND}"
+      "gemm_provider;${SOLPROP_NATIVE_GEMM_PROVIDER}"
+      "raman_fft_provider;${SOLPROP_NATIVE_RAMAN_FFT_PROVIDER}"
+      "vector_math;${SOLPROP_NATIVE_VECTOR_MATH}"
+      "build_profile;${SOLPROP_NATIVE_BUILD_PROFILE}"
+      "device_backend;${SOLPROP_NATIVE_DEVICE_BACKEND}"
+      "device_arch;${SOLPROP_NATIVE_DEVICE_ARCH}")
+    list(POP_FRONT _field _key)
+    string(REPLACE ";" "," _value "${_field}")
+    string(REPLACE "\\" "\\\\" _value "${_value}")
+    string(REPLACE "\"" "\\\"" _value "${_value}")
+    string(JSON _build_record SET "${_build_record}" "${_key}" "\"${_value}\"")
+  endforeach()
+  file(WRITE "${PROJECT_BINARY_DIR}/build_record.json" "${_build_record}\n")
+  install(FILES "${PROJECT_BINARY_DIR}/build_record.json" DESTINATION solprop_native
+          RENAME _build.json)
   # Kokkos, Kokkos Kernels, Kokkos-FFT, SLEEF, nanobind and nanobind's robin_map are
   # compiled into the extension, so the wheel carries their notices beside it. Kokkos-FFT is
   # MIT OR Apache-2.0 WITH LLVM-exception; its MIT terms are the ones taken here.

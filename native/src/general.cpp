@@ -599,16 +599,28 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
                              Complex* output, const std::vector<int>& extents,
                              const int howmany, const int input_distance,
                              const int output_distance, const int sign) {
-  const unsigned effort = fftw_seed_effort(FftShape::planes, space.concurrency());
-  if (effort == FFTW_ESTIMATE)
-    return;
+  std::string sizes;
+  for (const int extent : extents)
+    sizes += (sizes.empty() ? "" : "x") + std::to_string(extent);
+  const std::string key = fft_plan_key(
+      sign == FFTW_FORWARD ? "planes-forward" : "planes-backward", sizes, howmany,
+      input_distance, output_distance, input, output, space.concurrency());
   fftw_init_threads();
+  const auto chosen = begin_seed(key, FftShape::planes, space.concurrency());
+  if (!chosen)
+    return;
   fftw_plan_with_nthreads(space.concurrency());
   auto* in = reinterpret_cast<fftw_complex*>(input);
   auto* out = reinterpret_cast<fftw_complex*>(output);
   const fftw_plan seeded = fftw_plan_many_dft(
       static_cast<int>(extents.size()), extents.data(), howmany, in, nullptr, 1,
-      input_distance, out, nullptr, 1, output_distance, sign, effort);
+      input_distance, out, nullptr, 1, output_distance, sign, *chosen);
+  // The policy has always tolerated a plane it cannot seed; a profile records it.
+  if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
+      (detail::planning == nullptr ||
+       detail::planning->mode == FftPlanning::Mode::legacy))
+    return;
+  end_seed(key, *chosen, seeded != nullptr);
   if (seeded != nullptr)
     fftw_destroy_plan(seeded);
 }
@@ -2109,6 +2121,7 @@ class GeneralWorkspace {
 public:
   explicit GeneralWorkspace(Problem problem) : problem_(std::move(problem)) {
     require_general_problem(problem_);
+    require_cpu_execution(problem_.cpu_execution);
     identity_crop_ = problem_.crop_index.size() == problem_.n_omega;
     for (std::size_t index = 0; identity_crop_ && index < problem_.n_omega; ++index)
       identity_crop_ = problem_.crop_index[index] == index;
@@ -2163,6 +2176,9 @@ public:
     if (!problem_.spatial_absorber_matrix.empty())
       absorber_execution_space_ = kernel_pool_.get(
           CpuOperation::dense, problem_.n_columns() * problem_.n_to * problem_.n_modes);
+    // solprop SEP 46: the workspace's own FFT planning, wisdom isolated from the rest
+    // of the process in a calibration's modes.
+    const FftPlanningScope planning(problem_.fft_planning);
     allocate();
     upload();
     const auto heap_before = heap_bytes();
@@ -2313,6 +2329,9 @@ public:
     return compact_ ? std::max({kernel_pool_.widest(), fft_pool_.widest(),
                                 raman_pool_.widest(), raman_tail_pool_.widest()})
                     : 0;
+  }
+  const CpuExecution& cpu_execution() const noexcept {
+    return kernel_pool_.execution();
   }
   CpuSizing execution_sizing() const {
     auto result = kernel_pool_.sizing();
@@ -2672,10 +2691,10 @@ public:
   // One real mode at several nodes in one chunk: synthesis and projection through
   // the one-mode kernels on the response team (gemm.hpp).
   bool one_mode_products_{};
-  CpuExecutionPool kernel_pool_{CpuPool::kernels};
-  CpuExecutionPool fft_pool_{CpuPool::fft};
-  CpuExecutionPool raman_pool_{CpuPool::raman_fft};
-  CpuExecutionPool raman_tail_pool_{CpuPool::raman_tail_fft};
+  CpuExecutionPool kernel_pool_{CpuPool::kernels, problem_.cpu_execution};
+  CpuExecutionPool fft_pool_{CpuPool::fft, problem_.cpu_execution};
+  CpuExecutionPool raman_pool_{CpuPool::raman_fft, problem_.cpu_execution};
+  CpuExecutionPool raman_tail_pool_{CpuPool::raman_tail_fft, problem_.cpu_execution};
   mutable ExecutionSpace execution_space_;
   ExecutionSpace response_execution_space_, response_tail_execution_space_;
   ExecutionSpace transform_execution_space_, transform_tail_execution_space_;
@@ -3463,6 +3482,10 @@ public:
       }
       if (one.problem_.n_columns() != columns_ || one.problem_.n_omega != omega_)
         throw std::invalid_argument("native batch member layouts differ");
+      // The batch's updates run on one team for every member (solprop SEP 46).
+      if (one.problem_.cpu_execution != kernel_pool_.execution())
+        throw std::invalid_argument(
+            "native batch members' CPU execution records differ");
     }
     const auto count = checked_product(columns_, members_.size(), "batch columns");
     // The batch's updates take its members' team.
@@ -3551,8 +3574,18 @@ public:
 
 private:
   using Descriptors = Kokkos::View<UpdateColumn*, Layout, MemorySpace>;
+  // The first member's record, which every member must share; read before the
+  // constructor's checks, so it refuses an empty or unloaded batch itself.
+  static const CpuExecution&
+  first_execution(const std::vector<std::shared_ptr<GeneralState>>& members) {
+    if (members.empty())
+      throw std::invalid_argument("a native batch needs at least one member");
+    if (!members.front() || members.front()->closed())
+      throw std::invalid_argument("native batch members must be open");
+    return members.front()->workspace_->problem_.cpu_execution;
+  }
   std::vector<std::shared_ptr<GeneralState>> members_;
-  CpuExecutionPool kernel_pool_{CpuPool::kernels};
+  CpuExecutionPool kernel_pool_{CpuPool::kernels, first_execution(members_)};
   ExecutionSpace execution_;
   std::size_t columns_{}, omega_{};
   Descriptors descriptors_;
@@ -17122,6 +17155,12 @@ std::map<std::string, std::size_t> GeneralState::memory_ledger() const {
 CpuSizing GeneralState::execution_sizing() const {
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->execution_sizing();
+}
+const CpuExecution& GeneralState::cpu_execution() const {
+  return workspace_->cpu_execution();
+}
+const FftPlanning& GeneralState::fft_planning() const {
+  return workspace_->problem_.fft_planning;
 }
 double GeneralState::planning_seconds() const noexcept {
   return workspace_ ? workspace_->planning_seconds() : 0.0;
