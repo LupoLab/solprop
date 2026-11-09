@@ -40,6 +40,7 @@ from solprop.backends.events import (
     EventBatch,
     ObservationReady,
     Terminal,
+    join_attempts,
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.host.session import HostSession
@@ -78,6 +79,11 @@ FACTOR = 2.0
 
 REJECTED = 5.0
 """The norm a scripted rejection scores, far above the controller's threshold of one."""
+
+EMPTY = BackendHistory(
+    np.empty(0), np.empty(0), np.empty(0), np.empty(0, dtype=np.bool_), np.empty(0)
+)
+"""An empty attempt record."""
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 CONSUMER = ExportRecipe(power=True, optics=False)
@@ -504,20 +510,59 @@ class Run:
         return terminal
 
     @property
-    def histories(self) -> list[BackendHistory]:
-        """Return each attempt record exactly once: the observations' and terminal's.
+    def chunks(self) -> list[tuple[BackendHistory, StepStats]]:
+        """Return every event's chunk of attempts and rows, in delivery order.
 
-        Progress and snapshot events repeat attempts a later observation carries again
-        (SEP 47 section 5.5), so they are not counted.
+        Each attempt and row is delivered once, by the first event after it, of any
+        kind (SEP 47 section 5.3); an event that carries none gives an empty chunk.
+
+        Returns
+        -------
+        list
+            ``(history, rows)`` per event.
+        """
+        found = []
+        for event in self.events:
+            history = getattr(event, "history", None)
+            rows = getattr(event, "step_stats", None)
+            found.append(
+                (
+                    EMPTY if history is None else history,
+                    StepStats.empty() if rows is None else rows,
+                )
+            )
+        return found
+
+    @property
+    def histories(self) -> list[BackendHistory]:
+        """Return each attempt record exactly once: every event's chunk.
 
         Returns
         -------
         list
             The histories, in committed order.
         """
-        found = [event.history for event in self.observations]
-        if self.terminal.history is not None:
-            found.append(self.terminal.history)
+        return [history for history, _ in self.chunks]
+
+    def assembled(self) -> list[tuple[object, BackendHistory, StepStats]]:
+        """Assemble the chunks as the service loop does, per observation and terminal.
+
+        An observation takes every chunk since the previous observation, its own last;
+        the terminal event likewise, as a terminal checkpoint does. Snapshot and
+        progress chunks are kept for the next of them.
+
+        Returns
+        -------
+        list
+            ``(event, history, rows)`` per observation and for the terminal event.
+        """
+        found: list[tuple[object, BackendHistory, StepStats]] = []
+        held: list[tuple[BackendHistory, StepStats]] = []
+        for event, chunk in zip(self.events, self.chunks, strict=True):
+            held.append(chunk)
+            if isinstance(event, ObservationReady | Terminal):
+                found.append((event, *join_attempts(held)))
+                held = []
         return found
 
     @property
@@ -642,9 +687,10 @@ def _rows(rows: StepStats | None) -> tuple[object, ...]:
 def trace(run: Run) -> list[tuple[object, ...]]:
     """Return a run's numerical and control trace, exactly comparable.
 
-    Every observation's kind, plane, position, attempts (without wall times), periodic
-    rows and statistics, and the terminal outcome with its attempts and rows. Snapshot
-    and progress events are left out: their attempts reappear in the next observation.
+    Every observation's kind, plane, position, assembled attempts (without wall times),
+    periodic rows and statistics, and the terminal outcome with its assembled attempts
+    and rows (:meth:`Run.assembled`). Snapshot and progress events are left out as
+    events: their chunks are assembled into the next observation's.
 
     Parameters
     ----------
@@ -657,7 +703,7 @@ def trace(run: Run) -> list[tuple[object, ...]]:
         One tuple per observation and one for the terminal event.
     """
     found: list[tuple[object, ...]] = []
-    for event in run.events:
+    for event, history, rows in run.assembled():
         if isinstance(event, ObservationReady):
             found.append(
                 (
@@ -665,8 +711,8 @@ def trace(run: Run) -> list[tuple[object, ...]]:
                     event.kind,
                     event.plane_index,
                     event.z,
-                    _history(event.history),
-                    _rows(event.step_stats),
+                    _history(history),
+                    _rows(rows),
                     tuple(
                         (name, np.ascontiguousarray(event.stats[name]).tobytes())
                         for name in sorted(event.stats)
@@ -680,8 +726,8 @@ def trace(run: Run) -> list[tuple[object, ...]]:
                     event.outcome,
                     event.z,
                     event.eligibility,
-                    _history(event.history),
-                    _rows(event.step_stats),
+                    _history(history),
+                    _rows(rows),
                 )
             )
     return found

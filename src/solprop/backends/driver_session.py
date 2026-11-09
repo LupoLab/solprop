@@ -37,6 +37,7 @@ from solprop.backends.events import (
     ServiceKind,
     ServiceRequired,
     Terminal,
+    join_attempts,
 )
 from solprop.backends.export import apply_recipe
 from solprop.backends.protocol import (
@@ -202,63 +203,6 @@ def _rows(rows: StepStats) -> StepStats:
     )
 
 
-def _joined(first: Observation | None, second: Observation) -> Observation:
-    """Prefix a held observation's history and rows to a later one's.
-
-    A running checkpoint drains the driver's history without consuming it (SEP 47
-    section 5.5): the drained part is held and handed on with the next observation.
-
-    Parameters
-    ----------
-    first : solprop.backends.protocol.Observation or None
-        The held observation, or ``None``.
-    second : solprop.backends.protocol.Observation
-        The later observation.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        `second`, its history and rows preceded by `first`'s.
-    """
-    if first is None:
-        return second
-    a, b = first.step_history, second.step_history
-    offset = float(a.wall_time[-1]) if a.n_steps else 0.0
-    history = BackendHistory(
-        z=np.concatenate([a.z, b.z]),
-        dz=np.concatenate([a.dz, b.dz]),
-        error_norm=np.concatenate([a.error_norm, b.error_norm]),
-        accepted=np.concatenate([a.accepted, b.accepted]),
-        wall_time=np.concatenate([a.wall_time, b.wall_time + offset]),
-    )
-    ra, rb = first.step_stats, second.step_stats
-    if ra.n_rows == 0:
-        rows = StepStats(rb.z, rb.step + a.n_steps, rb.values)
-    elif rb.n_rows == 0:
-        rows = ra
-    else:
-        rows = StepStats(
-            np.concatenate([ra.z, rb.z]),
-            np.concatenate([ra.step, rb.step + a.n_steps]),
-            {
-                name: np.concatenate([ra.values[name], rb.values[name]])
-                for name in ra.values
-            },
-        )
-    return dataclasses.replace(
-        second,
-        step_history=history,
-        n_steps=history.n_steps,
-        n_rejected=history.n_rejected,
-        step_stats=rows,
-    )
-
-
-_EMPTY_HISTORY = BackendHistory(
-    np.empty(0), np.empty(0), np.empty(0), np.empty(0, dtype=np.bool_), np.empty(0)
-)
-
-
 def _recorded(driver: Backend, z: float) -> Observation:
     """Return the attempts a driver recorded since its last observation, field-free.
 
@@ -371,12 +315,8 @@ class DriverSession:
         self._rejected = 0
         self._stepped = False
         self._summary: StepSummary | None = None
-        # Attempts counted from summaries since the driver was last drained, and
-        # those of the drain just made; where the next progress report starts.
-        self._counted = (0, 0)
-        self._drained = (0, 0)
-        self._progress_mark = 0
-        self._held: Observation | None = None
+        # Attempts a field fetch drained that no event has delivered yet.
+        self._undelivered: list[tuple[BackendHistory, StepStats]] = []
         self._snapshot_requests = 0
         self._snapshot_pending: int | None = None
         self._observed: Observation | None = None
@@ -524,11 +464,12 @@ class DriverSession:
         if self._driver_halted():
             if self._snapshot_pending is not None:
                 if not self._step_plane_here():
-                    return self._snapshot(step)
+                    return self._snapshot()
             else:
                 # A bounded yield: no barrier, only progress; the plane goes on later.
                 _hook(self._driver, "clear_halt")
-                return self._issue([self._progress()])
+                history, rows = self._chunk()
+                return self._issue([Progress(self._z, history, rows)])
         self._summary = None
         return self._observation(
             ObservationKind.STEP
@@ -697,15 +638,13 @@ class DriverSession:
         if self._monitor_resume is None:
             self._monitor_resume = continuation
 
-    def held_attempts(
-        self, ticket: ExportTicket
-    ) -> tuple[BackendHistory | None, StepStats | None]:
-        """Return every attempt and periodic row since the last observation, unconsumed.
+    def undelivered(self, ticket: ExportTicket) -> tuple[BackendHistory, StepStats]:
+        """Deliver the attempts and rows made since the previous event, once.
 
         For a terminal checkpoint written after a failure outside the session (a
-        service failure, or a signal out of a propagation): the attempts a running
-        checkpoint held and any the driver made since, so that the checkpoint carries
-        all of them since the last saved plane (SEP 47 section 5.5).
+        service failure, or a signal out of a propagation), whose attempts no event
+        delivered. The caller joins them to the chunks it holds since the last saved
+        plane (:func:`solprop.backends.events.join_attempts`).
 
         Parameters
         ----------
@@ -715,16 +654,11 @@ class DriverSession:
         Returns
         -------
         tuple
-            The attempts and the rows (without a batch axis), or ``None`` for each
-            when there are none.
+            The attempts and the rows (without a batch axis); empty when every attempt
+            was delivered.
         """
         self._ledger.check_ticket(ticket)
-        if self._driver.in_flight is None:
-            self._held = _joined(self._held, self._drain(field=False))
-        held = self._held
-        if held is None:
-            return None, None
-        return held.step_history, _rows(held.step_stats)
+        return self._chunk()
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
         """Return the method history at a pending observation, when the march has one.
@@ -865,7 +799,7 @@ class DriverSession:
         self._driver.attach_monitor(self._monitor)
 
     def _account(self, summary: StepSummary) -> None:
-        """Advance the committed position and the attempt counters.
+        """Advance the committed position and the state generation.
 
         Parameters
         ----------
@@ -874,16 +808,12 @@ class DriverSession:
         """
         self._stepped = self._stepped or summary.n_steps > summary.n_rejected
         self._z = float(summary.z)
-        self._attempts += summary.n_steps
-        self._rejected += summary.n_rejected
-        self._counted = (
-            self._counted[0] + summary.n_steps,
-            self._counted[1] + summary.n_rejected,
-        )
         self._generation += 1
 
     def _drain(self, *, field: bool) -> Observation:
         """Observe the driver, draining its attempts and rows since the last drain.
+
+        Every attempt is drained exactly once, so the status counts them here.
 
         Parameters
         ----------
@@ -895,35 +825,45 @@ class DriverSession:
         solprop.backends.protocol.Observation
             The observation.
         """
-        observed = self._driver.observe(field=field)
-        self._drained = self._counted
-        self._counted = (0, 0)
-        self._progress_mark = 0
-        return observed
+        return self._counted(self._driver.observe(field=field))
 
-    def _progress(self) -> Progress:
-        """Report the attempts made since the previous event without draining them.
+    def _counted(self, observed: Observation) -> Observation:
+        """Count a drained observation's attempts into the status.
+
+        Parameters
+        ----------
+        observed : solprop.backends.protocol.Observation
+            Attempts drained from the driver, once.
 
         Returns
         -------
-        solprop.backends.events.Progress
-            The progress, its attempts read from the step driver's record; the next
-            observation still carries them.
+        solprop.backends.protocol.Observation
+            The same observation.
         """
-        entries = list(getattr(self._driver, "_history", ()))[self._progress_mark :]
-        self._progress_mark += len(entries)
-        if not entries:
-            return Progress(self._z, _EMPTY_HISTORY)
-        return Progress(
-            self._z,
-            BackendHistory(
-                z=np.array([entry[0] for entry in entries], dtype=np.float64),
-                dz=np.array([entry[1] for entry in entries], dtype=np.float64),
-                error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
-                accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
-                wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
-            ),
+        self._attempts += observed.n_steps
+        self._rejected += observed.n_rejected
+        return observed
+
+    def _chunk(self) -> tuple[BackendHistory, StepStats]:
+        """Drain the attempts and rows since the previous event, for the next one.
+
+        A state left in flight cannot be observed; the attempts recorded before the
+        abandoned step are drained from the driver's record instead (:func:`_recorded`).
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows (without a batch axis), delivered by exactly one
+            event (:mod:`solprop.backends.events`).
+        """
+        drained = (
+            self._counted(_recorded(self._driver, self._z))
+            if self._driver.in_flight is not None
+            else self._drain(field=False)
         )
+        chunks = [*self._undelivered, (drained.step_history, _rows(drained.step_stats))]
+        self._undelivered = []
+        return join_attempts(chunks)
 
     def _summary_so_far(self, step: StepSummary) -> StepSummary:
         """Merge a propagation's summary with the yields before it on the same plane.
@@ -1058,60 +998,51 @@ class DriverSession:
         solprop.backends.events.EventBatch
             One observation.
         """
-        observed = _joined(self._held, self._drain(field=False))
-        self._held = None
+        history, rows = self._chunk()
         self._observed = None
         try:
             stats = _strip(self._driver.stats(self._request.observation.stats))
         except Exception as error:
-            self._held = observed
-            return self._terminal(Outcome.FAILED, error)
+            return self._terminal(Outcome.FAILED, error, (history, rows))
         event = ObservationReady(
-            z=observed.z,
+            z=self._z,
             kind=kind,
             plane_index=plane,
-            history=observed.step_history,
-            step_stats=_rows(observed.step_stats),
+            history=history,
+            step_stats=rows,
             stats=stats,
             summary=summary,
             ticket=self._ticket(),
         )
         return self._issue([event])
 
-    def _snapshot(self, summary: StepSummary | None = None) -> EventBatch:
+    def _snapshot(self) -> EventBatch:
         """Report a snapshot service request at the current accepted endpoint.
 
-        The attempts and rows since the previous observation are drained from the
-        driver and held, so the next observation still carries them.
-
-        Parameters
-        ----------
-        summary : solprop.backends.protocol.StepSummary or None, optional
-            The propagation that reached the endpoint, reported as progress first.
+        It delivers the attempts and rows since the previous event; the consumer joins
+        them to those it holds since the previous observation for the running
+        checkpoint, and keeps them for the next plane (SEP 47 section 5.5).
 
         Returns
         -------
         solprop.backends.events.EventBatch
-            The progress, if any, and the snapshot request.
+            The snapshot request.
         """
-        drained = self._drain(field=False)
-        self._held = _joined(self._held, drained)
+        history, rows = self._chunk()
         _hook(self._driver, "clear_halt")
         self._snapshot_pending = None
-        events: list[Event] = []
-        if summary is not None:
-            events.append(Progress(self._z, drained.step_history))
-        events.append(
-            ServiceRequired(
-                kind=ServiceKind.SNAPSHOT,
-                z=self._z,
-                message="snapshot at an accepted endpoint",
-                ticket=self._ticket(),
-                history=self._held.step_history,
-                step_stats=_rows(self._held.step_stats),
-            )
+        return self._issue(
+            [
+                ServiceRequired(
+                    kind=ServiceKind.SNAPSHOT,
+                    z=self._z,
+                    message="snapshot at an accepted endpoint",
+                    ticket=self._ticket(),
+                    history=history,
+                    step_stats=rows,
+                )
+            ]
         )
-        return self._issue(events)
 
     def _complete(self) -> EventBatch:
         """Run the final checks and report completion.
@@ -1121,17 +1052,32 @@ class DriverSession:
         solprop.backends.events.EventBatch
             The terminal event.
         """
+        chunk = self._chunk()
         try:
             if self._monitor is not None and self._attached:
                 self._monitor.finish()
         except Exception as error:
-            return self._terminal(Outcome.FAILED, error)
+            return self._terminal(Outcome.FAILED, error, chunk)
         return self._issue(
-            [Terminal(Outcome.COMPLETED, self._z, Eligibility.ELIGIBLE, None, None)],
+            [
+                Terminal(
+                    Outcome.COMPLETED,
+                    self._z,
+                    Eligibility.ELIGIBLE,
+                    None,
+                    None,
+                    *chunk,
+                )
+            ],
             outcome=Outcome.COMPLETED,
         )
 
-    def _terminal(self, outcome: Outcome, error: BaseException) -> EventBatch:
+    def _terminal(
+        self,
+        outcome: Outcome,
+        error: BaseException,
+        chunk: tuple[BackendHistory, StepStats] | None = None,
+    ) -> EventBatch:
         """Report a stop or failure at the last committed position.
 
         Parameters
@@ -1140,6 +1086,9 @@ class DriverSession:
             Stopped or failed.
         error : BaseException
             The primary failure or the stop request.
+        chunk : tuple or None, optional
+            The attempts and rows since the previous event, when already drained for
+            an event the failure replaced; drained here otherwise.
 
         Returns
         -------
@@ -1147,18 +1096,7 @@ class DriverSession:
             The terminal event, with a ticket when the state is valid.
         """
         poisoned = self._driver.in_flight is not None
-        # The attempts of the propagation that failed or stopped, accounted here since
-        # no summary of it was returned. A state left in flight cannot be observed, but
-        # the attempts recorded before the abandoned step were made all the same.
-        fresh = (
-            _recorded(self._driver, self._z) if poisoned else self._drain(field=False)
-        )
-        # Only what no summary counted: a yield's propagations were counted already.
-        counted = self._drained if not poisoned else self._counted
-        self._attempts += max(fresh.n_steps - counted[0], 0)
-        self._rejected += max(fresh.n_rejected - counted[1], 0)
-        held = _joined(self._held, fresh)
-        self._held = None
+        history, rows = self._chunk() if chunk is None else chunk
         self._generation += 1
         self._z = float(getattr(self._driver, "_z", self._z))
         event = Terminal(
@@ -1167,8 +1105,8 @@ class DriverSession:
             Eligibility.POISONED if poisoned else Eligibility.ELIGIBLE,
             error,
             None if poisoned else self._ticket(),
-            held.step_history,
-            _rows(held.step_stats),
+            history,
+            rows,
         )
         return self._issue([event], outcome=outcome)
 
@@ -1187,11 +1125,11 @@ class DriverSession:
         """
         if self._observed is None or self._observed_generation != ticket.generation:
             observed = self._drain(field=True)
-            if observed.n_steps and self._held is None:
-                # Attempts drained by a field fetch belong to the next observation.
-                self._held = observed
-            elif observed.n_steps:
-                self._held = _joined(self._held, observed)
+            if observed.n_steps or observed.step_stats.n_rows:
+                # Attempts a field fetch drained belong to the next event's chunk.
+                self._undelivered.append(
+                    (observed.step_history, _rows(observed.step_stats))
+                )
             self._observed = observed
             self._observed_generation = ticket.generation
             self._converted = None
