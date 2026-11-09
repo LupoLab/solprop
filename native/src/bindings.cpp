@@ -179,9 +179,11 @@ native::TableKind table_kind(const std::string& name) {
 // size, then the response bounds, widths and rules, every key required.
 constexpr std::array<const char*, native::cpu_operation_count> cpu_operation_names{
     "stage", "response", "dense", "fft", "raman", "copy", "flow", "modal", "adams"};
-constexpr std::array<const char*, 6> cpu_execution_scalars{
-    "response_full_samples", "response_full_columns",    "medium_threads",
-    "compact_threads",       "compact_max_fine_samples", "stable_kernel_team"};
+constexpr std::array<const char*, 8> cpu_execution_scalars{
+    "response_full_samples",    "response_full_columns",
+    "medium_threads",           "compact_threads",
+    "compact_max_fine_samples", "stable_kernel_team",
+    "fft_thread_elements",      "fft_long_row"};
 
 native::CpuExecution cpu_execution_from(const nb::dict& values) {
   native::CpuExecution result;
@@ -211,6 +213,8 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
     result.compact_max_fine_samples =
         nb::cast<std::size_t>(field("compact_max_fine_samples"));
     result.stable_kernel_team = nb::cast<bool>(field("stable_kernel_team"));
+    result.fft_thread_elements = nb::cast<std::size_t>(field("fft_thread_elements"));
+    result.fft_long_row = nb::cast<std::size_t>(field("fft_long_row"));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument(
         "a CPU execution record holds nonnegative integers and one bool");
@@ -303,6 +307,8 @@ nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
   result["compact_threads"] = execution.compact_threads;
   result["compact_max_fine_samples"] = execution.compact_max_fine_samples;
   result["stable_kernel_team"] = execution.stable_kernel_team;
+  result["fft_thread_elements"] = execution.fft_thread_elements;
+  result["fft_long_row"] = execution.fft_long_row;
   return result;
 }
 

@@ -100,6 +100,11 @@ class ExecutionRecord:
     stable_kernel_team : bool
         Whether a medium-width kernel takes the full width once its pool holds a
         full-width instance.
+    fft_thread_elements, fft_long_row : int
+        A transform batch from ``fft_threshold`` up to ``fft_full`` takes a thread per
+        ``fft_thread_elements`` samples and at most one a row, or ``medium_threads``
+        if more when its rows are at least ``fft_long_row`` samples long (solprop
+        issue #587); from ``fft_full`` its pool's capacity.
     """
 
     stage_threshold: int
@@ -126,6 +131,8 @@ class ExecutionRecord:
     compact_threads: int
     compact_max_fine_samples: int
     stable_kernel_team: bool
+    fft_thread_elements: int
+    fft_long_row: int
 
     def __post_init__(self) -> None:
         """Refuse a record the native core would refuse."""
@@ -144,6 +151,8 @@ class ExecutionRecord:
             "medium_threads",
             "compact_threads",
             "compact_max_fine_samples",
+            "fft_thread_elements",
+            "fft_long_row",
         ):
             if not _count(getattr(self, name)):
                 raise ValueError(
@@ -278,10 +287,20 @@ def builtin(
     stage = 8192 if apple else 4096
     # The FFT start. On Linux at 32768 the four-mode RDW's 32000-sample coarse batch
     # (n_t 4000) ran serially, its transforms 2.5-3.2 times slower on an 18-core
-    # Cascade Lake socket than the 32768-sample batch's four-thread ones; 16384 also
-    # gains on Zen 3. On an Apple arm64 laptop the serial transforms are the faster
-    # ones at that size, so macOS keeps 32768.
-    fft = 32768 if apple else 16384
+    # Cascade Lake socket than the 32768-sample batch's four-thread ones. Above the
+    # start a batch threads by its shape (solprop issue #587): FFTW divides its rows
+    # among the threads and splits a row only where it is long. Timed alone, batched
+    # real transforms of 1-7 rows ran fastest at about a thread a row on an Intel
+    # Xeon Gold 6240, 16 cores of an AMD EPYC 7763 and an Apple M5 Max, the full
+    # width 1.1-1.6 times slower; many rows of a few thousand samples (128 x 576,
+    # 16 x 6144) wanted 8-18 threads, where four threads were 2-3 times slower; rows
+    # gained from being split, at about four threads, from 16384 samples on Linux
+    # (4 x 3072 also gained 1.3-2.9 times from three threads, so the start is 8192).
+    # On the M5 Max's spinning top tier the start, thread grain and long row are a
+    # sixteenth of the values below: rows split from 4608 samples, at four threads.
+    fft = 32768 if apple else 8192
+    fft_thread_elements = 32768 if apple else 4096
+    fft_long_row = 65536 if apple else 16384
     record = ExecutionRecord(
         stage_threshold=stage,
         stage_full=stage,
@@ -300,7 +319,8 @@ def builtin(
         dense_threshold=1048576,
         dense_full=1048576,
         fft_threshold=fft,
-        fft_full=131072,
+        # Every batch this large takes the full pool, whatever its shape.
+        fft_full=4194304,
         raman_threshold=65536,
         raman_full=262144,
         # An 8192-element temporal copy must stay serial: threading it changed
@@ -344,6 +364,8 @@ def builtin(
         # kinds, the promoted passes took argon_blueshift from 3.0 to 3.2 s at 18
         # threads.
         stable_kernel_team=not apple,
+        fft_thread_elements=fft_thread_elements,
+        fft_long_row=fft_long_row,
     )
     if apple and spin_milliseconds > 0 and width <= SPIN_MAX_TEAM:
         record = _divided(record, SPIN_DIVISOR)
@@ -365,4 +387,6 @@ def _divided(record: ExecutionRecord, divisor: int) -> ExecutionRecord:
         values[f"{name}_full"] = max(
             threshold, getattr(record, f"{name}_full") // divisor
         )
+    for name in ("fft_thread_elements", "fft_long_row"):
+        values[name] = max(1, getattr(record, name) // divisor)
     return dataclasses.replace(record, **values)
