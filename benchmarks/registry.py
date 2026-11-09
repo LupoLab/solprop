@@ -8,6 +8,9 @@ Every case is a complete guide run with its interface's default integrator and
 tolerances (SEP 37), a fixed noise seed (the N = 3 soliton runs noiseless) and the
 native backend unless asked otherwise (SEP 38). The ``tracking`` set is what
 ``python -m benchmarks track`` times by default; every other case runs only when named.
+The ``sep47`` set is SEP 47 section 7.2's matrix of short windows: each case holds the
+events it measures (periodic rows, snapshots, a group's members, repeated inputs, saved
+or field-free planes, a wide coupled flow) and finishes in seconds.
 """
 
 from __future__ import annotations
@@ -34,12 +37,23 @@ SETS = (
     "mode-averaged",
     "advanced",
     "backend-exercise",
+    "sep47",
 )
 TRACKING = "tracking"
 STEPPERS = ("default", "multistep", "multistep-interaction", "rk")
 WIDTHS = ("1", "production")
 SEED = 20261027
 """The noise seed every case fixes, so that its repeats take the same steps."""
+WORKLOADS = ("run", "with_input", "scan", "group")
+OUTPUTS = ("memory", "hdf5")
+_OPTIONAL = {
+    "workload": "run",
+    "output": "memory",
+    "snapshots": None,
+    "own_integrator": False,
+}
+"""Definition fields added after the history began, left out of a digest at their
+defaults so that the cases before them keep theirs."""
 
 
 @dataclass(frozen=True)
@@ -71,7 +85,8 @@ class Case:
     planes : int
         Evenly spaced observations, the last at `length`.
     fields : str
-        ``"all"`` keeps every observed field, ``"planes"`` only the last.
+        ``"all"`` keeps every observed field, ``"planes"`` only the last, ``"none"``
+        none: the planes are field-free (SEP 22).
     step : float or None
         A fixed step in metres; the case then runs its declared fixed schedule and
         admits no stepper override.
@@ -81,6 +96,23 @@ class Case:
         c2d-highcpu-32 (AMD EPYC 7B13, one thread per core) by the tracking run, with
         the boundary monitor attached; `ctc`'s one-thread value is from a run without
         the monitor, which costs it nothing measurable.
+    workload : str
+        What one timed repetition is (SEP 47 section 7.2): ``"run"``, one run of the
+        case; ``"with_input"``, three runs of it with other inputs through
+        ``Simulation.with_input``; ``"scan"``, a four-point ``run_scan`` on ``Local``
+        derived from the case with ``with_input``; ``"group"``, the same four points
+        on ``Batch(4)``, which needs a fixed `step`.
+    output : str
+        Where a ``"run"`` writes: ``"memory"`` or ``"hdf5"``, a file in the worker's
+        scratch directory.
+    snapshots : int or None
+        ``None`` attaches no snapshot controller. Otherwise a ``"run"`` to HDF5 with
+        ``step_planes=1`` and a ``SnapshotController``, which today needs both:
+        ``0`` never requests a snapshot, ``k`` requests one after every ``k``-th
+        accepted step.
+    own_integrator : bool
+        The case sets its integrator, and its name says which march it measures, so
+        it admits no stepper override.
     """
 
     name: str
@@ -96,6 +128,23 @@ class Case:
     fields: str = "all"
     step: float | None = None
     cost: tuple[float | None, float | None] = (None, None)
+    workload: str = "run"
+    output: str = "memory"
+    snapshots: int | None = None
+    own_integrator: bool = False
+
+    def __post_init__(self) -> None:
+        """Refuse a workload, output or snapshot request the worker cannot run."""
+        if self.workload not in WORKLOADS or self.output not in OUTPUTS:
+            raise SuiteError(f"{self.name}: unknown workload or output")
+        if self.fields not in ("all", "planes", "none"):
+            raise SuiteError(f"{self.name}: unknown field retention {self.fields}")
+        if self.workload == "group" and self.step is None:
+            raise SuiteError(f"{self.name}: a group replays a fixed step")
+        if self.snapshots is not None and (
+            self.workload != "run" or self.output != "hdf5" or self.snapshots < 0
+        ):
+            raise SuiteError(f"{self.name}: snapshots need a run to HDF5")
 
     @property
     def tracked(self) -> bool:
@@ -104,8 +153,11 @@ class Case:
 
     @property
     def steppers(self) -> tuple[str, ...]:
-        """Stepper choices the case admits; a fixed schedule admits its own only."""
-        return ("default",) if self.step is not None else STEPPERS
+        """Stepper choices the case admits; a fixed schedule, or a case that sets
+        its integrator, admits its own only."""
+        if self.step is not None or self.own_integrator:
+            return ("default",)
+        return STEPPERS
 
     @property
     def digest(self) -> str:
@@ -113,6 +165,9 @@ class Case:
         record = asdict(self)
         for key in ("sets", "widths", "cost"):
             record.pop(key)
+        for key, default in _OPTIONAL.items():
+            if record[key] == default:
+                record.pop(key)
         return identity(record)
 
     def configuration(  # noqa: PLR0913 - the shared command-line selection
@@ -565,8 +620,121 @@ _EXERCISES = tuple(
     )
 )
 
+# SEP 47 section 7.2: short windows that hold the events each measures, verified by
+# the native adapter's counters (tests/test_benchmark_sessions.py). The fibre windows
+# are 16 mm of gnlse_soliton (benchmarks/sessions.py).
+_FIBRE = "gnlse_soliton's fibre and launch over 16 mm"
+_SESSION = {
+    "interface": "prop_gnlse",
+    "builder": "session",
+    "length": 0.016,
+    "dimensions": (1, 3072, 3072),
+    "planes": 2,
+}
+_SEP47 = (
+    *(
+        Case(
+            f"stats_period1_{name}",
+            1,
+            ("sep47",),
+            own_integrator=True,
+            source=f"{_FIBRE}, an energy and peak-power row every accepted step, "
+            f"{integrator}",
+            **_SESSION,
+        )
+        for name, integrator in (("adams", "Multistep()"), ("rk", "RungeKutta()"))
+    ),
+    *(
+        Case(
+            f"snapshots_{name}",
+            1,
+            ("sep47",),
+            source=f"{_FIBRE} to HDF5 with step_planes=1 and a snapshot controller "
+            f"{requests}",
+            output="hdf5",
+            snapshots=every,
+            **_SESSION,
+        )
+        for name, every, requests in (
+            ("idle", 0, "never asked"),
+            ("sparse", 8, "asked after every eighth accepted step"),
+            ("every", 1, "asked at every accepted endpoint"),
+        )
+    ),
+    Case(
+        "with_input_repeat",
+        1,
+        ("sep47",),
+        source=f"{_FIBRE}, three more inputs through Simulation.with_input",
+        workload="with_input",
+        **_SESSION,
+    ),
+    Case(
+        "scan_local",
+        1,
+        ("sep47",),
+        source=f"{_FIBRE}, four peak powers by with_input in run_scan on Local, "
+        "field-free",
+        workload="scan",
+        fields="none",
+        **_SESSION,
+    ),
+    Case(
+        "group_batch",
+        1,
+        ("sep47",),
+        source="scan_local on Batch(4), replaying ten 1.6 mm steps",
+        workload="group",
+        fields="none",
+        step=1.6e-3,
+        **_SESSION,
+    ),
+    *(
+        Case(
+            f"{base}_{kept}_{output}",
+            1,
+            ("sep47",),
+            interface,
+            "spatial",
+            length,
+            dimensions,
+            f"{base}'s first {length * 1e3:g} mm, "
+            f"{'every field kept' if kept == 'saved' else 'field-free planes'}, "
+            f"to {'HDF5' if output == 'hdf5' else 'memory'}",
+            planes=4,
+            fields="all" if kept == "saved" else "none",
+            output=output,
+        )
+        for base, interface, length, dimensions in (
+            ("radial_filament_256", "prop_radial", 3e-3, (384, 864, 1728)),
+            ("cartesian_filament_128", "prop_free", 1e-3, (128, 128, 864, 1728)),
+        )
+        for kept in ("saved", "free")
+        for output in ("memory", "hdf5")
+    ),
+    *(
+        Case(
+            f"taper_flow_{modes}",
+            1,
+            ("sep47",),
+            "prop_capillary",
+            "advanced",
+            4e-5,
+            (modes, 288, 576),
+            f"He capillary tapering from 50 to 48 um, taper coupling, {modes} modes: "
+            f"{route}",
+            planes=2,
+        )
+        for modes, route in (
+            (4, "the native Adams march on the flow's eigenbasis route"),
+            (17, "wider than 16 channels, solprop's host march"),
+        )
+    ),
+)
+
 CASES = {
-    case.name: case for case in (*_TRACKED, *_MODAL, *_FREE, *_ADVANCED, *_EXERCISES)
+    case.name: case
+    for case in (*_TRACKED, *_MODAL, *_FREE, *_ADVANCED, *_EXERCISES, *_SEP47)
 }
 CASES["smoke"] = Case(
     "smoke",

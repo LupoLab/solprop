@@ -61,6 +61,12 @@ stay as what was measured.
   late.
 - **A later state of a long propagation** is timed by replaying a saved witness into a
   short run, not by regenerating the propagation.
+- **An event's cost is timed on a window that holds it.** The `sep47` set's windows
+  each contain the rows, snapshots, planes, members or flows they measure, and
+  `--counters` reports the native backend's returns to Python by cause beside the
+  timings, so that both builds can be checked to do the same work
+  ([SEP 47's matrix](benchmarking.md#sep-47s-matrix-and-the-structural-counters)). An observation-free window cannot
+  qualify an observation change.
 - **Compare two source trees with alternating pairs** (A/B/A/B…), and report the A/A
   spread beside the ratio; a difference inside the spread is not a result.
 
