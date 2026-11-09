@@ -176,7 +176,8 @@ build works offline and survives a flaky mirror; refresh the copies occasionally
   `SOLPROP_OVERSUBSCRIBE`, which lets an explicit count exceed the CPUs (ADR-052).
 - The native backend's plans and neighbours: `SOLPROP_FFTW_PLAN` (`estimate` in CI and
   tests, `measure` by default, read by `native/include/solprop_native/fft_plan.hpp`),
-  `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps its wisdom)
+  `SOLPROP_FFTW_WISDOM` (a file name, beside which the native backend keeps the plans its
+  runs measure instead of the calibration store, ADR-076)
   and `SOLPROP_BLAS_THREADS` (the width of the other BLAS libraries while a native
   backend lives).
 - In the test suite: `SOLPROP_TEST_BACKEND` (the backend the driver tests select; by

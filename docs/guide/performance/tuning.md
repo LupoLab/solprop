@@ -128,7 +128,7 @@ These settings apply whatever the pool:
 | `SOLPROP_OVERSUBSCRIBE` | `1` lets an explicit count exceed the CPUs and the quota | `0` |
 | `SOLPROP_BLAS_THREADS` | the width of every BLAS other than the native backend's own while a native backend lives ([below](#blas-and-vendor-libraries)) | 1 |
 | `SOLPROP_FFTW_PLAN` | the native backend's FFTW planner effort: `estimate`, `measure` or `patient`; any other value is refused | `measure`, except threaded row transforms, which stay at `estimate` |
-| `SOLPROP_FFTW_WISDOM` | a file name, beside which the native backend keeps its FFTW wisdom ([below](#the-native-backends-pools)) | none |
+| `SOLPROP_FFTW_WISDOM` | a file name, beside which the native backend keeps the FFTW plans its runs measure, instead of the calibration store ([below](#the-native-backends-pools)) | `wisdom.json` in the calibration store |
 
 **Free-space node groups.** A free-space, line or planar evaluation works through the
 plane's columns in node chunks, each paying a fixed cost for its launches, its temporal
@@ -145,11 +145,10 @@ reports ([profiling](#profiling-the-native-backend)).
 **FFTW planning.** `measure` times candidate algorithms once per transform shape and
 keeps the fastest; that pays off on long runs, but the timing is only meaningful on an
 otherwise idle machine, and planning a large multimode problem can take seconds. Use
-`SOLPROP_FFTW_PLAN=estimate` for short runs, tests and busy shared machines, and
-`SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom` to plan once and reuse the plans across
-runs of the same shapes (the wisdom's digest is recorded in each run, since plans chosen
-from different wisdom are different executions). The native backend keeps those plans
-in a file of its own (below).
+`SOLPROP_FFTW_PLAN=estimate` for short runs, tests and busy shared machines. The native
+backend keeps the plans its runs measure, so each transform shape is measured once per
+machine and build, not once per run (below; the plans' digest is recorded in each run,
+since plans chosen from different wisdom are different executions).
 
 ## The native backend's pools
 
@@ -243,42 +242,50 @@ holds them to its rounding bounds, not to identical bits
 Contiguous modal and Raman FFTW plans default to measured planning at one thread and
 estimate planning at wider widths; the explicit effort overrides both, including
 long Raman rows and partial chunks. Measured planning can add substantial construction
-time even when the warmed propagation is faster. When construction dominates a short
-run, keep the plans in a wisdom file (below) rather than give up measuring them;
-`SOLPROP_FFTW_PLAN=estimate` skips planning altogether, but its plans ran one-thread
+time even when the warmed propagation is faster. The native backend keeps the plans it
+measures (below), so a shape pays that once per machine and build rather than on every
+run; `SOLPROP_FFTW_PLAN=estimate` skips planning altogether, but its plans ran one-thread
 windows up to 1.6 times slower on an AMD EPYC 7763. On macOS with NEON FFTW, serial and long
 Raman rows use Kokkos-FFT, while parallel power-of-two rows of at most 16,384 samples
 retain vDSP. The [build guide](building-native.md) describes the coherent dependency
 recipe and the fallback for a library without NEON codelets.
 
-**Reusing the native backend's plans.** `SOLPROP_FFTW_WISDOM`
-keeps the native backend's measured plans: a backend imports them before it
-plans and adds the plans it measured after. Nothing is read or written unless the
-variable names a file. The native backend links its own FFTW, so its plans go to a file
-of their own beside the named one, not to the named file itself: `<name>.native-<key>`, whose key digests the FFTW
-library's version and configuration and the processor model: machines of different
-kinds that share a home directory keep separate plans, and FFTW refuses wisdom another
-build of it wrote. The processes of a scan can share one file. Readers take no lock,
-since the file is only ever replaced whole; a writer takes `<file>.lock`, merges what
-others stored, and writes only when that adds a plan. A file that cannot be read or
-written is reported in the log and costs only the measurement. Wisdom chooses among
-FFTW's exact algorithms, so it changes no result beyond the rounding a fresh
-measurement can change; the run's metadata records `wisdom_loaded` and the
-`wisdom_digest` of the plans in force. For a scan of one-thread jobs it removes most of
-each job's construction: on a Xeon Gold 6240, constructing the averaged helium
-capillary took 1.40 s cold and 0.03 s with the wisdom in place, beside a 0.27 s window
-(1.78 s and 0.05 s on an AMD EPYC 7763), and the comb-to-continuum capillary 5.0 s and
-0.06 s ([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). For example:
+**Reusing the native backend's plans.** The native backend keeps the FFTW plans its
+runs measure, by default: the first run of a transform shape measures its plan and
+stores it, and every later run of that shape, in any process, builds the plan from it
+without measuring. The plans are kept by transform (its kind, sizes, strides,
+placement, alignment and threads), each with the wisdom of that transform alone,
+measured in place by the run that first planned it, inside its own workspace. They
+live in `wisdom.json` in the [calibration store](calibration.md#where-the-results-live)'s
+directory of this machine and build: the processor and its layout, the operating
+system, the native build and the calibration's version, so different machines and
+builds, such as an Apple M1 and an M5 Max sharing a home directory, never share plans.
+`SOLPROP_FFTW_WISDOM` names another file, beside which the plans are kept as
+`<name>.native-<fingerprint>`; `SOLPROP_CALIBRATION=off` keeps no default file, and
+`solprop calibrate --clear` removes both. A [calibration profile](calibration.md)'s own
+plans take precedence: a transform the profile holds is planned from the profile's
+wisdom, and runs never store a plan for it.
 
-```sh
-export SOLPROP_FFTW_WISDOM=~/.cache/solprop/wisdom
-```
+A stored plan applies at any effort: a transform the plan policy leaves at estimate,
+such as a threaded row transform, takes the plan a run under `SOLPROP_FFTW_PLAN=measure`
+stored for it. A plan stored at `measure` does not satisfy `patient`, which measures
+again and stores the new plan. Without a file, a process still reuses the plans it
+measured itself for its later workspaces.
 
-The first job of each shape measures and stores its plans; every later one, in any
-process, finds them. Threaded row transforms are planned at estimate unless
-`SOLPROP_FFTW_PLAN` asks otherwise, so they have no measured plans to keep; but plans
-that a run under an explicit `measure` stored for a width are found by later runs at
-that width, whatever their effort.
+The processes of a scan can share one file. Readers take no lock, since the file is
+only ever replaced whole; a writer takes `<file>.lock`, merges what others stored, and
+writes only when that adds a plan. A name that cannot be used, or a file that cannot be
+read or written, is reported in the log and costs only the measurement. Wisdom chooses
+among FFTW's exact algorithms, so it changes no result beyond the rounding a fresh
+measurement can change; the run's metadata records `wisdom_loaded` (whether the file
+held plans) and the `wisdom_digest` of the plans the workspace built from wisdom or
+measured. For a scan of one-thread jobs it removes most of each job's construction:
+on a Xeon Gold 6240, constructing the averaged helium capillary took 1.40 s cold and
+0.03 s with the plans in place, beside a 0.27 s window (1.78 s and 0.05 s on an AMD
+EPYC 7763), and the comb-to-continuum capillary 5.0 s and 0.06 s
+([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). Under
+`SOLPROP_FFTW_PLAN=measure` on 16 cores of an AMD EPYC 7763, the comb-to-continuum
+capillary's construction fell from 13.7 s to 0.18 s, its window unchanged.
 
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set

@@ -204,6 +204,15 @@ def test_clearing_forgets_the_machines_refinements(tmp_path: Path) -> None:
     assert store.refinement("def", "d2") is None
 
 
+def test_clearing_removes_the_stored_plans(tmp_path: Path) -> None:
+    # The plans runs measured are this machine and build's too (solprop ADR-076).
+    store = Store(tmp_path)
+    store.publish(_generation())
+    (store.directory("abc") / "wisdom.json").write_text("{}", encoding="utf-8")
+    assert store.clear("abc") == 3  # its current, its generation and its plans
+    assert not (store.directory("abc") / "wisdom.json").exists()
+
+
 def test_a_claim_is_exclusive_until_released(tmp_path: Path) -> None:
     store = Store(tmp_path)
     first = store.claim("abc", "cls", time.time() + 60)

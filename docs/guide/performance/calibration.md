@@ -50,7 +50,9 @@ never runs your own simulation; for that, see
    plans made as a run without a profile makes them. A more exhaustive plan is not
    always a faster one, and a plan chosen alone not always the best in the step. Only
    a winning effort's wisdom is kept, so later runs build those plans at once instead
-   of measuring again; without one, runs plan as they would without a profile.
+   of measuring again; without one, runs plan as they would without a profile. The
+   calibration's problems are not yours: the plans of your own transforms are measured
+   by the first run that needs them and kept (below).
 
 A candidate replaces the built-in value only if it **wins in every round** of
 interleaved timings by more than the noise measured by timing the built-in setting
@@ -93,6 +95,14 @@ A job takes its own allocation's row. Without one, it takes the workspace settin
 the row with the same layout and the nearest smaller core count, and otherwise the
 built-in table.
 
+The same directory keeps the **FFT plans runs measure**, in `wisdom.json` beside the
+machine and build's profiles. The first run of a transform shape measures its plan in
+place, inside its own workspace, and stores it; every later run of that shape, in any
+process, builds the plan from it at once. A plan the profile holds keeps precedence:
+runs never read or overwrite one of the profile's winners from this file. The file is
+kept with or without a profile, and goes with the profile when you clear it
+([Performance tuning](tuning.md#the-native-backends-pools) says more).
+
 ## The first run
 
 With no profile for the machine, the build and the job's allocation, the first native
@@ -116,7 +126,7 @@ operation grain at once and the new waiting and team from its next session.
 |---|---|
 | `auto` (default) | use a profile; calibrate quickly on first use when there is none |
 | `use` | use a profile; never measure implicitly |
-| `off` | the built-in table and no stored FFT wisdom, whatever the store holds; for bisecting and for holding settings fixed while code changes |
+| `off` | the built-in table and no stored FFT plans, whatever the store holds (a file `SOLPROP_FFTW_WISDOM` names is still kept); for bisecting and for holding settings fixed while code changes |
 
 The notice is a Python warning of its own category, shown once; silence it with the
 standard warnings filters (`warnings.filterwarnings("ignore",
@@ -171,7 +181,9 @@ built-in table for them. Each candidate's score is its median time relative to t
 built-in setting. Every run records the settings it actually applied in its metadata
 (`calibration` in the backend's settings), so a result says what produced it.
 
-`solprop calibrate --clear` forgets this machine and build's profiles.
+`solprop calibrate --clear` forgets this machine and build's profiles, their
+refinements and the FFT plans runs stored, and the plans kept beside a file
+`SOLPROP_FFTW_WISDOM` names.
 
 ## Refining one simulation
 
@@ -196,8 +208,9 @@ stays the same.
 
 Explicit settings keep their precedence over any profile: `SOLPROP_THREADS`,
 `SOLPROP_NATIVE_THREADS` and the pool variables, `OMP_WAIT_POLICY`, `GOMP_SPINCOUNT` and
-`KMP_BLOCKTIME`, `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM` and
-`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` ([Performance tuning](tuning.md)). A setting
+`KMP_BLOCKTIME`, `SOLPROP_FFTW_PLAN` and `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`
+([Performance tuning](tuning.md)). `SOLPROP_FFTW_WISDOM` only moves the plans runs
+store; the profile's own plans still apply. A setting
 measured under conditions an override changes is not used with it: operation thresholds
 fitted under spinning threads give way to the built-in table when you make the threads
 sleep.
