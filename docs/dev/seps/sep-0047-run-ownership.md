@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (2026-11-08) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | Opus 5.5 (AI) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
 | **Resolution** | — |
@@ -992,3 +992,337 @@ another decision.
   verification, documentation, compatibility and phase requirements accordingly. This
   records maintainer design decisions, not a completed review of the whole proposal;
   the SEP remains Draft pending the reviews required by SEP 0.
+- 2026-11-09: AI review by Opus 5.5 at `d6276194`, recorded below; Part I unchanged.
+
+### AI review — 2026-11-09 — Opus 5.5
+
+**Reviewer:** Opus 5.5 (AI). I read all of Part I at PR #589 commit `d6276194` and
+checked it against main at `e555fcf5`. The code read was the native adapter
+(`native/src/solprop_native/backend.py`, `batch.py`, `__init__.py`); the shared driver,
+low-storage march and lockstep runner (`src/solprop/backends/driver.py`,
+`low_storage.py`, `batch.py`); the run loop, output, snapshot and resume paths
+(`driver/run.py`, `output/schema.py`, `output/hdf5.py`, `output/snapshots.py`,
+`driver/simulation.py`); the MLX backend; kernel contract §§8–12; backends.md §1;
+SEPs 39 and 45 and their reports; and every issue cited in §3.3. I checked the figures
+in §3.2 against the benchmark ledger and SEPs 39 and 45, and they match. I did not
+rerun them, and I re-measured nothing. File and line references are to `e555fcf5`.
+
+I take the maintainer's seven decisions in §12 as given. The points below are about
+delivering and verifying those decisions, not about reopening them. The direction is
+sound. The proposal is careful about numerical identity, it avoids reviving memory
+admission, and it refuses to count a wrapper as success. Six gaps stand out:
+
+- Part I does not yet name the concrete cases that still cross into Python per step.
+- It does not keep the bit-identical native/reference decisions that SEPs 39 and 45
+  established.
+- It treats the boundary monitor as observation, although it feeds the controller.
+- It justifies a host session over native kernels by extension cases that are not
+  supported features.
+- Its delivery plan, one branch that reaches main only at `Final`, is risky at this
+  size.
+- It does not say how draft feature SEPs extend the new descriptors.
+
+This review does not recommend acceptance yet. Every point stays open for the drafting
+agent's response and the maintainer's decisions on R4–R6, R9 and R12.
+
+1. **R1 — High: name the remaining crossings as the concrete use cases (§§2, 3.2,
+   7.2).** SEP 0 asks the motivation to name a concrete use case. Part I argues from
+   structure, and its evidence table mostly shows gains already won. After SEP 45,
+   `gnlse_soliton` takes 11 native calls for 691 steps, with 4.2 % of the run outside
+   them. `argon_blueshift_envelope` spends 3.3 % outside native calls, and 2.1 % of the
+   run is the replayed `monitor.step`. What still returns to Python per accepted step,
+   or close to it:
+   - **Periodic statistics with `period = 1`.** `_bounds` sets the host step to
+     `period - accepted % period` (`backend.py:3053-3081`), so every call returns
+     after one step. Each row then goes through `StepDriver._record_step_stats` →
+     `stats()`, one native reduction and one host copy per row
+     (`driver.py:804-821`). `NativeBackend` overrides none of the three step-statistic
+     hooks.
+   - **A transverse-edge run.** It disables the native watch (`backend.py:3032-3041`),
+     and the Adams march stops at each read (`backend.py:317-319`). A collar edge reads
+     every step.
+   - **Low-storage replay.** One native call and Python booking per step
+     (`low_storage.py:562-599`).
+   - **Lockstep batches,** on every backend. Native forces its Adams members onto the
+     Python replay (`native/.../batch.py:67-108`).
+   - **Snapshots.** They require `step_planes = 1` (`run.py:800`), so a run with
+     snapshots enabled observes every accepted step.
+   - **The host-march fallbacks of R5.**
+   - **A saved plane** builds about three full host arrays: the device-to-host copy;
+     `power_amplitude`, which copies even when every weight is 1
+     (`fourier.py:393-399`); and the optics conversion (`schema.py:4903-4935`).
+     `kerr_beam_384` spends 2.9 s in plane saves (#346).
+
+   **Requested change:** name these in §2 as the cases the proposal exists for. Add a
+   period-1 statistics run, a collar-edge run and a snapshot-every-step run to the
+   §7.2 matrix. Give each a §4.2 bound from the existing measurements. That also ranks
+   the phases by payoff and gives §7.3 something to test structurally (R15).
+
+2. **R2 — High: keep bit-identical decisions between native and reference (§§4.3,
+   6.3, 7.1).** Kernel contract §§11–12 compile the march decisions strictly, with no
+   contraction, so that "on one build the native and reference marches read the same
+   tables and norms and take the same steps". `tests/driver/test_native_rk_march.py`
+   and the native Adams tests compare bit for bit, and #135's strict-FMA witnesses hold
+   the property in the built library. §4.3 says execution changes "need not preserve
+   accepted step counts or bits". §7.1 then falls back to SEP 25 budgets and to
+   envelopes for adaptive runs. The session moves landings, statistics scheduling,
+   monitor prediction, dense observation and event ordering into C++. An off-by-one or
+   a reordering there would hide inside an accuracy envelope, and an exact
+   step-sequence comparison would catch it.
+
+   **Requested change:** state that the native session's control decisions are strict
+   transcriptions of the reference: proposals, acceptance, landings, monitor verdicts,
+   statistics cadence and event order. Given the same norms, the native session must
+   reproduce the reference's attempt sequence exactly on one build. Matched
+   trajectories stay the primary native-against-reference qualification, with
+   envelopes only where the trial's own arithmetic differs. Add the new scheduler code
+   to the strict-file witnesses. §9 should also count the cost: every piece of
+   bookkeeping moved into C++ becomes a second implementation of the Python reference's
+   logic, kept in step by these tests.
+
+3. **R3 — High: the boundary monitor is controller input, and a production
+   cross-check disappears (§§5.3, 6.4, 6.8).** The monitor caps each proposal: the
+   quiet interval, the transverse-edge ceiling and the split collar's crossing cap,
+   in that order (kernel contract §12, attempt step 1). Its stop and warning verdicts
+   end runs. Today `_verify_watch_of` (`backend.py:2820-2840`) holds the Python
+   monitor's booking to the native march's prediction and raises `BackendError` on any
+   difference. Part I groups boundaries with "observation, boundary and export work"
+   and deletes the Python replay (§6.8 row 3). Deleting it is right, since it is most
+   of the residual cost measured by SEP 45. But:
+   - (a) Boundary state belongs to the controller state, ordered against the proposal
+     as §12 orders it, and it must enter checkpoints (the monitor resumes at
+     `run.py:566-574`).
+   - (b) Removing the runtime check removes an oracle. Say what replaces it: a
+     lifecycle-suite test that drives the same watch policy and recorded readings
+     through the native and reference monitors and compares verdicts and caps
+     exactly. Do not keep a production shadow.
+
+4. **R4 — High: one branch that reaches main only at `Final` (§11).** Under SEP 0
+   the implementation merges when the SEP is `Final`. Phases 2–5 rewrite the hottest
+   files: `run.py` (1651 lines), `backends/driver.py` (2995), native `backend.py`
+   (4994), `batch.py`, `low_storage.py`, the run paths of `simulation.py`, the frozen
+   surface tests and every backend. Meanwhile SEP 46 (#582) is in progress and SEP 17
+   is accepted. SEPs 1, 2, 5, 7–11 and 32 will add responses, statistics and state
+   through today's `KernelProblem` extension procedure. The branch would live for weeks
+   and conflict continuously, and phase reports would qualify a base that keeps moving.
+
+   **Requested change, for the maintainer:** choose one of two options.
+   - (a) Split the proposal. SEP 47 keeps the contract, typed descriptors, the
+     reference/host session and the service loop that replaces `run_problem` (phases
+     1–2). A follow-on SEP takes the native session, resident observations, export,
+     groups and deletion (phases 3–5). Each has its own branch and PR.
+   - (b) Grant a recorded SEP 0 exception. Each phase merges when main still works and
+     no dual architecture is visible to users.
+
+   Either way, state the policy for concurrent SEPs: which land on the old seam and are
+   ported by this branch, and which wait for it.
+
+5. **R5 — High: the scope of "every built-in combination currently admitted on
+   native" (§6.3, phase 3).** These configurations run the Python march over native
+   kernels today:
+   - from the RK march's refusals (`backend.py:3304-3336`): a `PIController` subclass
+     that overrides `scale`, `accepts`, `propose`, `rejection_factor`, `start_factor`
+     or `equivalent_norm`, and stage rows formed on the host;
+   - from the Adams march's refusals (`backend.py:2914-2952`, `517-539`):
+     - the `ComparisonMultistep` general paths (PECE, plain Adams–Bashforth, matched
+       pairs), which `guide/numerics/adams.md:146-151` documents as "for the
+       benchmarks only";
+     - the host engine, for coupled flows off the eigenbasis route, wider than
+       `ADAMS_MAX_CHANNELS = 16`, non-exponential, batched or with untransported
+       compensation;
+     - representations the stage tables do not read;
+     - a controller with its own norm scale;
+     - the carrier frame on a z table (#255).
+
+   Porting all of these to C++ is substantial, and several have no production use.
+   Under decision 6, refusing some of them on native by name, while keeping them on
+   `numpy_ref`, is the cleaner design.
+
+   **Requested change:** tabulate each fallback in Part I with a disposition (port in
+   phase 3, refuse on native and keep on the reference, or retire) and its qualifying
+   test. I recommend refusing `ComparisonMultistep` and controller subclasses on
+   native. Port #255 and the wide or off-eigenbasis coupled flows only if a production
+   case needs them.
+
+6. **R6 — High: the host-owned session over native kernels (§6.6).** §6.6 says
+   custom controller or norm code needs Python during propagation. No such extension
+   is documented. `PIController` is a frozen dataclass, `StepperSettings.controller` is
+   typed to it, and overriding subclasses appear only in tests
+   (`test_native_rk_admission.py:41`, `test_resident_adams.py:402`,
+   `test_native_rk_rows.py:192`). TDSE is admitted on `numpy_ref` alone
+   (`registry.py:487-488`). MLX has no "opaque state operations" interface. It is
+   `MlxBackend(NumpySingleBackend(NumpyRefBackend(StepDriver)))`. It overrides
+   `_observed_field`, `_apply_mask` and `_finish`, and it brings its own Adams engine,
+   low-storage engine and lockstep runner. A "kernel-executor interface where the
+   selected backend already supports that combination" would therefore exist on native
+   only to run test-only controller subclasses. It would keep a second native
+   integration surface: trial step, finish, mask, statistics and boundary energies,
+   which is the substance of today's `DRIVER_SURFACE`.
+
+   **Requested change, for the maintainer:** decide whether native implements the
+   host kernel-executor protocol at all. I recommend not. Native would expose only
+   preparation and its session. The host session would serve `numpy_ref` and MLX.
+   Controller variation would become policy data or be refused on native. Correct
+   §6.6's description of the extension cases and of MLX. Say what becomes of
+   `StepDriver` itself. §§6.8 and 9 replace "the protected `StepDriver` surface", but
+   the reference and MLX keep most of `backends/driver.py` and `multistep.py`, so
+   Part I should say whether that hierarchy is the host session, refactored and
+   renamed, or is replaced.
+
+7. **R7 — Medium: yield bounds are exact no-ops today; keep that (§§5.1, 7.1).**
+   Kernel contract §11: "a return hands the state back unrounded, so the bound moves
+   no number, and a test holds a bound of one attempt, of seven and of none to one set
+   of bits." Progress reporters are held to exact no-ops too (backends.md §1). §7.1's
+   wording, that delivery frequency "must not alter scientific policy", is weaker than
+   that.
+
+   **Requested change:** state that `work_limit`, `yield_deadline`, event capacity,
+   acknowledgment timing and reporters leave the trajectory bit-identical on one build.
+   Carry the existing test over to the session API, including a deadline that lands at
+   nondeterministic points.
+
+8. **R8 — Medium: the batch axis and group failures (§§6.2, 6.7; #110).** #110 asks
+   the SEP to say what becomes of `n_batch` in the state, of `batch_params` and of
+   batch runs' saved fields, weighed on measured GPU throughput. §6.2 gives the
+   single-trajectory boundary as `(n_modes, n_pol, n_omega)`. But conventions.md §6
+   and kernel contract §§1 and 9 fix a leading `n_batch` in the state, in observations
+   and in every statistic, and the checkpoint schema stores `n_batch` too
+   (`schema.py:2575`).
+
+   **Requested change:** say whether `n_batch` leaves the problem, observations and
+   statistics; what `batch_params` becomes; and whether files written with a leading
+   `n_batch` stay readable and new ones still carry it.
+
+   Also correct a mismatch in §6.7. It says a stopped member does not stop unrelated
+   members, but today only `BoundaryError` and `BoundaryWarning` are per-member. A
+   non-finite norm, a floor, a trial exception or an in-flight member stops the whole
+   batch (`backends/batch.py:33-61, 144, 183, 193-203`), after earlier members have
+   already advanced that step. Say whether the group preserves this or changes it,
+   and list a change as a behaviour change.
+
+9. **R9 — Medium: restart as claimed and as implemented (§5.5).** Today:
+   - The RK march exports no snapshot. `set_initial` resets the proposal, norms and
+     history on resume (`driver.py:1251-1256`).
+   - Low-storage keeps no history.
+   - With `resume_history=None`, an Adams snapshot over `MARCH_SNAPSHOT_AUTO_BYTES`
+     (256 MiB, `run.py:115, 1207-1222`) is dropped with an INFO log. The resume then
+     restarts the history silently (`simulation.py:4118-4121`); on refusal it warns.
+   - Nothing records the choice in the output.
+
+   §5.5 says history "must never silently reset" and that the choice is "recorded",
+   while also "preserving the existing bounded-export policy". Today's behaviour
+   breaks the first two.
+
+   **Requested change, for the maintainer:** decide which wins. I recommend recording
+   the restart in the resumed run's metadata and warning when the size policy dropped
+   the snapshot, listed as a behaviour change. Also decide whether the RK controller's
+   few scalars join the checkpoint, which would make RK resumes exact continuations,
+   or stay out of scope.
+
+10. **R10 — Medium: extending the new descriptors (§§6.2, 8, 9).** Kernel contract
+    §10 is the procedure that the draft feature SEPs assume. Part I replaces
+    `KernelProblem` without giving its successor's procedure. SEPs 7 (population and
+    pump dynamics) and 32 (Maxwell–Bloch populations) may need state that evolves in
+    z beside the field and the method history. The session's state is defined as
+    field plus history.
+
+    **Requested change:** specify how a route variant, response, statistic or
+    auxiliary state component is added: which descriptor, which validation, which
+    capability report, and which reference and native tests. If auxiliary state is out
+    of scope, say that such a SEP amends this contract. Also say what replaces
+    `KERNEL_SCHEMA_VERSION` and native's `_check_seam`
+    (`native/.../__init__.py:930-975`), given ADR-068's unversioned seam.
+
+11. **R11 — Medium: details of export ownership (§5.4).**
+    - (a) Part of #346 needs no session: the `power_amplitude` copy at unit weights,
+      and fusing the conjugate with the `(-1)^k` pass on the host. Let those land
+      independently, like #584, so that §7.3 measures what the session itself removes.
+    - (b) Single precision widens with `astype(complex128) * scale`
+      (`numpy_ref/single.py:349`, `mlx_gpu/backend.py:597`). The one conversion pass
+      must include the precision scale.
+    - (c) Spatial routes skip the true-power conversion (`run.py:281-303`), so the
+      conversion spec is per route.
+    - (d) A plane observer and the failure checkpoint re-observe the state
+      (`run.py:832-851, 1274-1282`). The single pending field-bearing observation must
+      serve every consumer at a plane without another transfer.
+    - (e) The optics conjugation is an output-layer rule (ADR-017). Say where it lives
+      after the move: one specification consumed by native and by the reference, with
+      resume's inverse.
+
+12. **R12 — Medium: stop latency and snapshots (§§5.1, 5.5).** Today:
+    - The stop flag is polled before each native call.
+    - Calls are bounded by 256 attempts or 0.1 s (`backend.py:2859-2871`).
+    - Signals are acted on only when a call returns, because the GIL is released.
+    - The GUI's stop is a `threading.Event` set by a thread that polls for a stop
+      file.
+
+    One attempt of a large Cartesian run can exceed 0.1 s. Both options in §5.5 are
+    small, so choose now.
+
+    **Requested change, for the maintainer:** I recommend a native atomic flag, set by
+    the Python stop path and by the signal handlers. Native checks it between attempts
+    and between stages, and the call bound stays as a fallback. State the latency in
+    attempts and stages.
+
+    Second, snapshots are serviced after each committed plane, and so they require
+    `step_planes = 1`. As a control operation ("checkpoint at the next eligible
+    boundary"), they could drop that requirement and the per-step return it forces.
+    Say whether they will.
+
+13. **R13 — Medium: specify event order in Part I (§5.3).** "One documented ordering
+    inherited from the existing semantics" defers the conformance suite's
+    specification. The existing order is spread across files:
+    - statistics rows after `_finish` and the advance of z, at different points in
+      the adaptive and replayed marches (backends.md §1);
+    - the monitor reading at that same point, then the natural stop;
+    - at a plane: the output commit, then snapshot service, then the plane observer,
+      then the reporter (`run.py:606-642`);
+    - a warning from `monitor.finish` after the last plane, which replaces "complete"
+      with "failed" and writes a checkpoint (`run.py:647`).
+
+    **Requested change:** tabulate this order in §5.3, because §7.1's exact
+    event-sequence assertions depend on it.
+
+14. **R14 — Medium: keep the statistics channel's rules (§6.4).** Backends.md §1 has
+    two rules that §6.4 should name. First, one implementation of every statistic: a
+    row that lands on a plane equals the plane's value to rounding. Second, the call
+    site rule. The device storage hooks for resident rows already exist and are
+    unused. The native session should keep rows resident and copy them once per
+    delivery. This settles the ownership half of #107 and should say so.
+
+15. **R15 — Low: performance criteria (§7.3).** Python's share after SEP 45 is about
+    1–4 % on the measured cases, so most expected gains fall below the 5 %
+    investigation threshold. A uniform 3 % regression would pass every per-case check.
+
+    **Requested change:** add an aggregate non-regression check, a geometric mean over
+    the matrix no slower than baseline beyond its uncertainty, beside the per-case
+    rule. Add structural count targets that noise cannot hide, for example native
+    returns per accepted step falling to zero for period-1 statistics, collar edges and
+    low-storage replay. Choose windows that contain the planes, rows and edge reads
+    whose cost is being measured. A ten-step window may contain none.
+
+16. **R16 — Low: helper ownership (§6.6).** The existing `Helpers` record (`PLAIN`
+    against `NATIVE`, backends.md §1, `tests/backends/test_helper_ownership.py`) is
+    how the oracle avoids running the compiled code it checks. Cite it in §6.6 and keep
+    the mechanism and its test. MLX currently takes `NATIVE` helpers. Say what it uses
+    under the host session.
+
+17. **R17 — Low: corrections and cross-references.**
+    - **Requires** and §3 could add SEPs 21 (boundary monitor), 22 and 24 (memory-lean
+      execution, low-storage), 29 (distribution, helper ownership) and 33 (single
+      precision and MLX). §13 cites several of them already.
+    - In §3.2, the "1,910 to 17" figure comes from SEP 45 phase 1's in-march
+      boundary checks under Adams. That 2.1 % of the remaining 3.3 % was the replayed
+      `monitor.step` supports §6.8 row 3 directly. Worth saying.
+    - In §6.2, "the current requirement for one backend-independent internal field
+      layout" is not written anywhere. Backends.md §1 already makes layouts private.
+      The real constraint is the shared host march operating on canonical arrays
+      through `StepDriver`. Reword it.
+    - In §6.6, "custom controller or norm code" and MLX's "existing opaque state
+      operations" do not name existing interfaces (R6).
+
+**Questions for the maintainer** (decisions to record beside the points):
+R4 (split the SEP or allow per-phase merges), R5 (which host fallbacks to refuse on
+native), R6 (whether native implements the host kernel-executor protocol), R9 (history
+restart reporting and RK checkpoint continuity) and R12 (stop mechanism; snapshots
+without `step_planes = 1`).
