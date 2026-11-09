@@ -6,6 +6,7 @@
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/crossing.hpp"
+#include "solprop_native/engines.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/rk_march.hpp"
@@ -943,29 +944,9 @@ native::ExponentialWeights exponential_weights(const IndexInput slots,
   return weights;
 }
 
-// A scalar carrier frame's shift and rotations (solprop SEP 35), packed by solprop's
-// adapter as (Im sigma, Re f_0, Im f_0, ..., Re f_{n-1}, Im f_{n-1}) over the `rows`
-// history rows a formula reads; empty for none.
-void carrier_frame(native::ExponentialWeights& weights,
-                   const std::vector<double>& values, const std::size_t rows) {
-  if (values.empty())
-    return;
-  if (rows > native::adams_max_samples || values.size() != 1 + 2 * rows)
-    throw std::invalid_argument(
-        "the carrier frame's rotations have inconsistent extents");
-  weights.shifted = true;
-  weights.shift = values[0];
-  weights.unshift_re = std::cos(values[0]);
-  weights.unshift_im = -std::sin(values[0]);
-  for (std::size_t t = 0; t < rows; ++t) {
-    weights.factor_re[t] = values[1 + 2 * t];
-    weights.factor_im[t] = values[2 + 2 * t];
-  }
-}
-
 void carrier_frame(native::ExponentialWeights& weights, const RealInput carrier,
                    const std::size_t rows) {
-  carrier_frame(weights, real_vector(carrier), rows);
+  native::engines::carrier_frame(weights, real_vector(carrier), rows);
 }
 
 // History rows alone, as a transport or a dense copy names them.
@@ -1388,247 +1369,6 @@ nb::dict march_result_to(const march::Result& result, const march::State& state)
   return out;
 }
 
-// A failure injected at one of the resident engine's stages, after that stage has run
-// `after` more times: solprop's lifecycle tests fail the native march with it.
-struct MarchFault {
-  march::Stage stage = march::Stage::none;
-  std::size_t after = 0;
-  march::Category category = march::Category::backend;
-};
-
-// The resident engine: the general state's startup, exponential trial and accept,
-// with the stage tables of phase 1 (solprop's `_ResidentAdams`).
-class ResidentEngine final : public march::Engine {
-public:
-  ResidentEngine(native::GeneralState& state, const native::stage::Tables& tables,
-                 native::stage::Anchor& anchor, const bool fused,
-                 const bool compensated, const bool interpolate,
-                 std::optional<MarchFault>& fault)
-      : state_(state), tables_(tables), anchor_(anchor), fused_(fused),
-        compensated_(compensated), interpolate_(interpolate), fault_(fault) {}
-
-  void start(const double z) override {
-    inject(march::Stage::startup);
-    const auto row = native::stage::row(tables_, anchor_, z, z);
-    state_.adams_start(0, native::stage::trial(tables_, row));
-    if (compensated_)
-      // The startup sample's rate is read on the far side of a kink.
-      state_.adams_compensation_start(0, native::stage::rate(tables_, z, false));
-  }
-
-  void trial(const double z, const double dz, const march::Stencil& stencil,
-             double* norms) override {
-    inject(march::Stage::trial);
-    std::size_t highest = 0;
-    for (std::size_t index = 0; index < stencil.n_orders; ++index)
-      highest = std::max(highest, stencil.orders[index]);
-    const std::size_t slots = std::min(std::max(highest, stencil.order), stencil.held);
-    if (fused_) {
-      // The interaction formulation: the history transported to the anchor, the
-      // source evaluated at the step's end (solprop's `_ResidentAdams.fused_trial`).
-      const auto weights = native::stage::fused_weights(
-          stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
-          stencil.orders.data(), stencil.n_orders);
-      const auto row = native::stage::row(tables_, anchor_, z, z + dz);
-      const auto found =
-          state_.adams_fused_trial(dz, weights, {}, native::stage::trial(tables_, row));
-      if (found.size() < stencil.n_orders)
-        throw std::logic_error("the trial returned fewer norms than it scored");
-      std::copy(found.begin(),
-                found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
-      return;
-    }
-    auto weights = native::stage::weights(
-        stencil.nodes.data(), stencil.held, stencil.rows.data(), slots, stencil.order,
-        stencil.orders.data(), stencil.n_orders, compensated_);
-    const double end = z + dz;
-    if (tables_.chord != native::stage::Chord::none) {
-      // The carrier frame (solprop's `_ResidentAdams._carrier`): the chord's shift and
-      // each history row's rotation exp(i shift (1 - theta_t)).
-      const double shift = native::stage::chord(tables_, z, end);
-      const std::size_t rows = weights.width - 1;
-      carrier_.assign(1 + 2 * rows, 0.0);
-      carrier_[0] = shift;
-      for (std::size_t t = 0; t < rows; ++t) {
-        const double span = 1.0 - stencil.nodes[t];
-        carrier_[1 + 2 * t] = std::cos(shift * span);
-        carrier_[2 + 2 * t] = std::sin(shift * span);
-      }
-      carrier_frame(weights, carrier_, rows);
-    }
-    const auto row = native::stage::row(tables_, anchor_, z, end);
-    const auto step = native::stage::trial(tables_, row);
-    const auto sample = native::stage::sample(tables_, anchor_, step, end);
-    const auto rate =
-        compensated_ ? native::stage::rate(tables_, end) : std::vector<double>{};
-    const auto found =
-        state_.adams_exponential_trial(dz, weights, {}, step, sample, rate);
-    if (found.size() < stencil.n_orders)
-      throw std::logic_error("the trial returned fewer norms than it scored");
-    std::copy(found.begin(),
-              found.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders), norms);
-  }
-
-  void accept(const double dz, const std::size_t free, const march::Stencil& stencil,
-              const std::vector<march::Entry>& kept) override {
-    inject(march::Stage::accept);
-    native::AdamsWeights dense;
-    for (std::size_t t = 0; t < stencil.order; ++t)
-      dense.slot[t] = stencil.rows[t];
-    dense.width = interpolate_ ? stencil.order + 1 : 0;
-    if (fused_) {
-      // The kept rows are transported to the step's end, oldest first.
-      native::AdamsWeights keep;
-      for (std::size_t t = 0; t < kept.size(); ++t)
-        keep.slot[t] = kept[t].row;
-      keep.width = kept.size();
-      state_.adams_fused_accept(dz, keep, free, dense);
-    } else {
-      state_.adams_exponential_accept(dz, free, dense);
-    }
-    // The step's quadrature score, which solprop's accepted-step hook reads.
-    state_.promote_fsal();
-  }
-
-  double chord_phase(const double z1, const double z2) override {
-    // One batch member per native state: its phase is the batch's largest.
-    return std::fabs(native::stage::chord(tables_, z1, z2));
-  }
-
-  std::vector<double> step_carrier(const std::size_t order) override {
-    if (carrier_.empty())
-      return {};
-    return {carrier_.begin(),
-            carrier_.begin() + static_cast<std::ptrdiff_t>(1 + 2 * order)};
-  }
-
-  std::vector<double> reading() override { return state_.monitor_reading(); }
-
-private:
-  void inject(const march::Stage stage) {
-    if (!fault_ || fault_->stage != stage)
-      return;
-    if (fault_->after > 0) {
-      --fault_->after;
-      return;
-    }
-    const auto category = fault_->category;
-    fault_.reset();
-    if (category == march::Category::convergence)
-      throw native::EnvelopeConvergenceError("an injected native failure");
-    if (category == march::Category::value)
-      throw std::invalid_argument("an injected native failure");
-    throw std::runtime_error("an injected native failure");
-  }
-
-  native::GeneralState& state_;
-  const native::stage::Tables& tables_;
-  native::stage::Anchor& anchor_;
-  bool fused_;
-  bool compensated_;
-  bool interpolate_;
-  std::optional<MarchFault>& fault_;
-  /** The last trial's carrier rotations, `_trial_carrier`. */
-  std::vector<double> carrier_;
-};
-
-// The resident Runge-Kutta engine (solprop SEP 45 phase 3): a staged trial, its norm
-// by the native weak scale, and the accept's recycled stage and finish.
-class ResidentRungeKutta final : public native::rk::Engine {
-public:
-  using Trial = std::function<std::vector<double>(double, double)>;
-  ResidentRungeKutta(native::GeneralState& state, Trial trial, const double rtol,
-                     const double atol, const std::vector<double>& weights)
-      : state_(state), trial_(std::move(trial)), rtol_(rtol), atol_(atol),
-        weights_(weights) {}
-  double trial(const double z, const double dz) override {
-    const auto partials = trial_(z, dz);
-    if (!weights_.empty())
-      return weighted_norm(state_, partials, rtol_, atol_, weights_);
-    return native::rk::score(partials.data(), partials.size() / 3, rtol_, atol_);
-  }
-  // solprop SEP 45 phase 4: a weighted controller's norm, `_score_trial`'s weighted
-  // path with its sums in order.
-  static double weighted_norm(native::GeneralState& state,
-                              const std::vector<double>& partials, const double rtol,
-                              const double atol, const std::vector<double>& weights) {
-    const auto scale = native::rk::weighted_scale(partials.data(), partials.size() / 3,
-                                                  rtol, atol, weights);
-    return native::rk::weighted_score(state.weighted_error(scale));
-  }
-  void accept(const double dz) override {
-    state_.promote_fsal();
-    state_.finish(dz);
-  }
-  std::vector<double> reading() override { return state_.monitor_reading(); }
-
-private:
-  native::GeneralState& state_;
-  Trial trial_;
-  double rtol_;
-  double atol_;
-  const std::vector<double>& weights_;
-};
-
-// A script of norms in place of the field arithmetic, logging what the march asked:
-// the decision-trace tests run solprop's corpus through it.
-class ScriptedEngine final : public march::Engine {
-public:
-  ScriptedEngine(std::vector<double> norms, const double carrier_rate, nb::list& log)
-      : norms_(std::move(norms)), carrier_rate_(carrier_rate), log_(log) {}
-
-  void start(const double z) override {
-    nb::dict event;
-    event["start"] = z;
-    event["stored"] = true;
-    log_.append(event);
-  }
-
-  void trial(const double z, const double dz, const march::Stencil& stencil,
-             double* norms) override {
-    if ((next_ + 1) * 3 > norms_.size())
-      throw std::runtime_error("the script ran out of norms");
-    nb::dict event;
-    event["z"] = z;
-    event["dz"] = dz;
-    event["nodes"] = std::vector<double>(stencil.nodes.begin(),
-                                         stencil.nodes.begin() +
-                                             static_cast<std::ptrdiff_t>(stencil.held));
-    event["slots"] = std::vector<std::size_t>(
-        stencil.rows.begin(),
-        stencil.rows.begin() + static_cast<std::ptrdiff_t>(stencil.held));
-    event["order"] = stencil.order;
-    event["orders"] = std::vector<std::size_t>(
-        stencil.orders.begin(),
-        stencil.orders.begin() + static_cast<std::ptrdiff_t>(stencil.n_orders));
-    log_.append(event);
-    for (std::size_t index = 0; index < stencil.n_orders; ++index)
-      norms[index] = norms_[next_ * 3 + index];
-    ++next_;
-  }
-
-  void accept(double /*dz*/, const std::size_t free, const march::Stencil& stencil,
-              const std::vector<march::Entry>& /*kept*/) override {
-    nb::dict event = nb::cast<nb::dict>(log_[log_.size() - 1]);
-    event["free"] = free;
-    (void)stencil;
-  }
-
-  double chord_phase(const double z1, const double z2) override {
-    // A constant chord turning by `carrier_rate` per metre, as solprop's harness
-    // forms it: the imaginary part of (1j rate)(z2 - z1).
-    return std::fabs(carrier_rate_ * (z2 - z1));
-  }
-
-  [[nodiscard]] std::size_t used() const { return next_; }
-
-private:
-  std::vector<double> norms_;
-  double carrier_rate_;
-  nb::list& log_;
-  std::size_t next_ = 0;
-};
-
 // The scripted march solprop's decision-trace tests drive.
 class ScriptedMarch {
 public:
@@ -1644,51 +1384,42 @@ public:
     const auto bounds = march_bounds_from(bounds_values);
     std::vector<double> remaining(
         norms_.begin() + static_cast<std::ptrdiff_t>(used_ * 3), norms_.end());
-    ScriptedEngine engine(std::move(remaining), carrier_rate_, log_);
+    native::engines::ScriptedEngine engine(std::move(remaining), carrier_rate_, log_);
     const auto result = march::run(policy_, state, engine, bounds, schedule_);
     used_ += engine.used();
     return march_result_to(result, state);
   }
-  nb::list log() const { return log_; }
+  // What the march asked, one dict an entry: a startup's position, or a trial's
+  // position, step, nodes, rows and orders with the row its accept freed.
+  nb::list log() const {
+    nb::list out;
+    for (const auto& entry : log_) {
+      nb::dict event;
+      if (entry.start) {
+        event["start"] = entry.z;
+        event["stored"] = true;
+      } else {
+        event["z"] = entry.z;
+        event["dz"] = entry.dz;
+        event["nodes"] = entry.nodes;
+        event["slots"] = entry.slots;
+        event["order"] = entry.order;
+        event["orders"] = entry.orders;
+        if (entry.free)
+          event["free"] = *entry.free;
+      }
+      out.append(event);
+    }
+    return out;
+  }
 
 private:
   march::Policy policy_;
   std::vector<double> norms_;
   double carrier_rate_;
   march::Schedule schedule_;
-  nb::list log_;
+  std::vector<native::engines::ScriptedEvent> log_;
   std::size_t used_ = 0;
-};
-
-// The scripted Runge-Kutta march solprop's decision-trace tests drive (SEP 45 phase 3):
-// each trial returns its script's norm, or with `h0` the script's noise times the model
-// norm `(dz / h0) ** power`, as solprop's harness forms it.
-class ScriptedRungeKutta final : public native::rk::Engine {
-public:
-  ScriptedRungeKutta(const std::vector<double>& norms, std::size_t& next,
-                     const double h0, const double power, nb::list& log)
-      : norms_(norms), next_(next), h0_(h0), power_(power), log_(log) {}
-  double trial(const double z, const double dz) override {
-    if (next_ >= norms_.size())
-      throw std::out_of_range("the script ran out of norms");
-    nb::dict event;
-    event["z"] = z;
-    event["dz"] = dz;
-    log_.append(event);
-    const double noise = norms_[next_++];
-    return h0_ > 0.0 ? noise * std::pow(dz / h0_, power_) : noise;
-  }
-  void accept(double /*dz*/) override {}
-  std::vector<double> reading() override {
-    throw std::logic_error("a scripted march takes no boundary readings");
-  }
-
-private:
-  const std::vector<double>& norms_;
-  std::size_t& next_;
-  double h0_;
-  double power_;
-  nb::list& log_;
 };
 
 class ScriptedRkMarch {
@@ -1700,11 +1431,21 @@ public:
   nb::dict run(const nb::dict state_values, const nb::dict bounds_values) {
     auto state = rk_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
-    ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
+    native::engines::ScriptedRungeKutta engine(norms_, next_, h0_, policy_.power, log_);
     const auto result = native::rk::run(policy_, state, engine, bounds, schedule_);
     return rk_result_to(result, state);
   }
-  nb::list log() const { return log_; }
+  // Each trial's position and step, one dict a trial.
+  nb::list log() const {
+    nb::list out;
+    for (const auto& entry : log_) {
+      nb::dict event;
+      event["z"] = entry.z;
+      event["dz"] = entry.dz;
+      out.append(event);
+    }
+    return out;
+  }
   [[nodiscard]] std::size_t used() const { return next_; }
 
 private:
@@ -1713,7 +1454,7 @@ private:
   double h0_;
   march::Schedule schedule_;
   std::size_t next_ = 0;
-  nb::list log_;
+  std::vector<native::engines::ScriptedTrial> log_;
 };
 
 class BoundState {
@@ -1855,7 +1596,7 @@ public:
     auto state = rk_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     auto& general = open_state();
-    ResidentRungeKutta engine(
+    native::engines::ResidentRungeKutta engine(
         general,
         [this](const double z, const double dz) {
           return rk_trial(z, dz, rk_nodes_, false);
@@ -1909,8 +1650,8 @@ public:
     if (rk_weights_.empty())
       throw std::logic_error("no weighted controller's weights were configured");
     const std::vector<double> values(partials, partials + 3 * slots);
-    return ResidentRungeKutta::weighted_norm(open_state(), values, rtol, atol,
-                                             rk_weights_);
+    return native::engines::ResidentRungeKutta::weighted_norm(open_state(), values,
+                                                              rtol, atol, rk_weights_);
   }
   void prepare_raman(const std::vector<double>& rates,
                      const std::vector<double>& densities) {
@@ -2065,8 +1806,9 @@ public:
     auto state = march_state_from(state_values);
     const auto bounds = march_bounds_from(bounds_values);
     auto& general = open_state();
-    ResidentEngine engine(general, *stage_tables_, stage_anchor_, march_fused_,
-                          march_compensated_, march_interpolate_, march_fault_);
+    native::engines::ResidentEngine engine(general, *stage_tables_, stage_anchor_,
+                                           march_fused_, march_compensated_,
+                                           march_interpolate_, march_fault_);
     march::Result result;
     {
       const nb::gil_scoped_release release;
@@ -2076,7 +1818,7 @@ public:
   }
   void march_fault(const std::string& stage, const std::size_t after,
                    const std::string& category) {
-    MarchFault fault;
+    native::engines::MarchFault fault;
     if (stage == "startup")
       fault.stage = march::Stage::startup;
     else if (stage == "trial")
@@ -2264,7 +2006,7 @@ private:
   bool march_fused_ = false;
   bool march_compensated_ = false;
   bool march_interpolate_ = false;
-  std::optional<MarchFault> march_fault_;
+  std::optional<native::engines::MarchFault> march_fault_;
 };
 
 class BoundBatch {

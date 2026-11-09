@@ -849,7 +849,7 @@ endif()
 
 add_library(solprop_native_core STATIC src/core.cpp src/crossing.cpp src/general.cpp
   src/general_modal.cpp src/coupled_flow.cpp src/dispersive.cpp src/far_field.cpp
-  src/adams_march.cpp src/watch.cpp src/rk_march.cpp)
+  src/adams_march.cpp src/watch.cpp src/rk_march.cpp src/engines.cpp)
 # solprop SEP 39 and SEP 45: the Adams march's decisions, the boundary watch's
 # predictions and the Runge-Kutta march's positions and norm round as solprop's Python
 # does, so their translation units take no contraction on any build (the flag follows
