@@ -15,12 +15,17 @@ as solprop evaluates them. A general modal basis's statistics read the square ro
 its flux metric (:func:`solprop.stats._whitened`), formed here from the metric's own
 values by the same ``eigh`` on each interval where the metric is constant.
 
-Nothing is fitted, so no statistic carries an approximation the reference does not.
-What would need one is left to the host and refused by the native session by name
-(:func:`uncovered`): the profile statistics (``density``, ``pressure``,
-``core_radius``), which read Python :class:`~solprop.profiles.ZProfile` objects that
-the propagation does not tabulate as such, and the metric statistics of a basis whose
-metric varies inside one of its intervals.
+A profile statistic (``density``, ``pressure``, ``core_radius``) reads its path from
+the representation the propagation already carries when one of the problem's scalar
+tables reproduces the profile at rounding level; otherwise the profile itself is
+lowered at preparation over the whole run (it holds its end value outside its own
+span), with its declared breakpoints as mandatory edges, refined until its measured
+error on a dense check set is at rounding level
+(:data:`PROFILE_TOLERANCE`), or refused by name. Either way the measured error is
+recorded (:attr:`StatisticsLowering.tables`) and reaches the run's execution record
+under ``statistics_tables``: it is what separates a native profile statistic from the
+profile's own value, planes and rows alike. The metric statistics of a basis whose
+metric varies inside one of its intervals stay with the host.
 
 The native evaluation finishes every statistic (the widths, the species reduction, the
 integration ratios); :meth:`StatisticsLowering.unpack` only names and shapes the packed
@@ -50,6 +55,7 @@ if TYPE_CHECKING:
     from solprop.exceptions import SolpropError
     from solprop.grid import TimeGrid
     from solprop.modes.protocol import Mode
+    from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
     from solprop.translate.problem import KernelProblem
 
@@ -59,6 +65,7 @@ __all__ = [
     "ADMITTED_STATISTICS",
     "NODE_POPULATIONS",
     "PLANE_ONLY",
+    "PROFILE_TOLERANCE",
     "STATISTIC_IDS",
     "StatisticsLowering",
     "lower",
@@ -105,6 +112,9 @@ STATISTIC_IDS: Mapping[str, int] = {
             "region_spectrum",
             "aperture_spectrum",
             "aperture_on_axis_spectrum",
+            "density",
+            "pressure",
+            "core_radius",
             NODE_POPULATIONS,
         )
     )
@@ -143,7 +153,22 @@ _RESPONSE = (
     "plasma_undershoot",
     "plasma_work_defect",
     "plasma_boundary_level",
+    "density",
+    "pressure",
+    "core_radius",
 )
+
+PROFILE_TOLERANCE = 1e-13
+"""The largest error a profile statistic's table may carry, relative to the profile's
+largest magnitude on the run, measured on the check set."""
+
+_CHECK_POINTS = 4097
+"""Uniform positions of a profile table's check set, beside its knots and midpoints."""
+
+_FIT_TOLERANCES = (1e-12, 1e-13, 1e-14)
+"""The builder tolerances tried, in turn, for a profile no problem table reproduces."""
+
+_PROFILE_NAMES = ("density", "pressure", "core_radius")
 
 ADMITTED_STATISTICS = (
     "omega0",
@@ -306,9 +331,8 @@ def uncovered(problem: KernelProblem, names: Sequence[str]) -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        The names left to the host, in request order: the plane-only ones, the
-        profile statistics and, on a basis whose metric varies inside an interval,
-        its metric statistics.
+        The names left to the host, in request order: the plane-only ones and, on a
+        basis whose metric varies inside an interval, its metric statistics.
     """
     route = _route(problem)
     admitted = _ADMITTED[route]
@@ -331,12 +355,18 @@ class StatisticsLowering:
         Each output's shape, without a batch axis.
     values : dict
         The plan's lowered inputs, from which :meth:`subset` forms another plan.
+    tables : dict
+        Each profile statistic's table: its source (the problem table it reads, or
+        ``"lowered profile"``), the largest absolute and relative errors measured
+        against the profile and the number of check positions; the record of
+        ``statistics_tables``.
     """
 
     names: tuple[str, ...]
     plan: _core.StatisticsPlan | None
     shapes: dict[str, tuple[int, ...]]
     values: dict[str, object]
+    tables: dict[str, dict[str, object]] = dataclasses.field(default_factory=dict)
 
     def subset(self, names: Sequence[str]) -> StatisticsLowering:
         """Return the plan of some of the names, from the same lowered inputs.
@@ -358,6 +388,7 @@ class StatisticsLowering:
             _core.StatisticsPlan(values) if names else None,
             {name: self.shapes[name] for name in names},
             values,
+            {name: record for name, record in self.tables.items() if name in names},
         )
 
     def unpack(self, packed: np.ndarray) -> dict[str, np.ndarray]:
@@ -530,6 +561,152 @@ def _root_table(problem: KernelProblem) -> dict[str, object] | None:
     )
 
 
+def _measured(
+    table: PiecewiseChebyshev, profile: ZProfile, check: np.ndarray
+) -> tuple[float, float]:
+    """Return a table's largest error against a profile on a check set.
+
+    Parameters
+    ----------
+    table : solprop.translate.chebyshev.PiecewiseChebyshev
+        A scalar table.
+    profile : solprop.profiles.ZProfile
+        The path it stands for.
+    check : numpy.ndarray
+        Positions, m.
+
+    Returns
+    -------
+    tuple of float
+        The largest absolute error, in the profile's units, and the largest
+        magnitude of the profile on the check set.
+    """
+    exact = np.asarray(profile(check), dtype=np.float64)
+    tabulated = np.asarray(table.at_positions(check), dtype=np.float64).reshape(-1)
+    scale = float(np.max(np.abs(exact), initial=0.0))
+    return float(np.max(np.abs(tabulated - exact), initial=0.0)), scale
+
+
+def _check_set(
+    profile: ZProfile, start: float, end: float, edges: np.ndarray
+) -> np.ndarray:
+    """Return the positions a profile table is checked on.
+
+    A uniform grid over the run, every declared knot of the profile inside it, and
+    every edge of the table and every interval's midpoint.
+
+    Parameters
+    ----------
+    profile : solprop.profiles.ZProfile
+        The path.
+    start, end : float
+        The run's span, m.
+    edges : numpy.ndarray
+        The table's breakpoints, m.
+
+    Returns
+    -------
+    numpy.ndarray
+        The positions, increasing.
+    """
+    knots = np.asarray(profile.breakpoints, dtype=np.float64)
+    inside = edges[(edges >= start) & (edges <= end)]
+    middles = 0.5 * (edges[1:] + edges[:-1])
+    return np.unique(
+        np.concatenate(
+            (
+                np.linspace(start, end, _CHECK_POINTS),
+                knots[(knots >= start) & (knots <= end)],
+                inside,
+                middles[(middles >= start) & (middles <= end)],
+            )
+        )
+    )
+
+
+def _covers(table: PiecewiseChebyshev, start: float, end: float) -> bool:
+    """Return whether a table may be evaluated over the whole run."""
+    _, lower, upper, coefficients = table.packed()
+    return (
+        coefficients.shape[2] == 1
+        and not np.iscomplexobj(coefficients)
+        and lower <= start
+        and end <= upper
+    )
+
+
+def _profile_table(
+    problem: KernelProblem, name: str, profile: ZProfile
+) -> tuple[PiecewiseChebyshev, dict[str, object]]:
+    """Return a profile statistic's table and the record of its measured error.
+
+    The propagation's own table of the path when one of the problem's scalar tables
+    reproduces the profile at rounding level over the run; otherwise the profile
+    lowered by the propagation's own tabulation (:func:`solprop.translate.linop.
+    profile_table`), at its declared breakpoints, with the builder's tolerance
+    tightened until the measured error is at rounding level.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    name : str
+        The statistic.
+    profile : solprop.profiles.ZProfile
+        The path it reads.
+
+    Returns
+    -------
+    tuple
+        The table, and its record for ``statistics_tables``.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        Naming the statistic when no table reaches :data:`PROFILE_TOLERANCE`.
+    """
+    from solprop.translate.linop import profile_table
+    from solprop.translate.problem import _walk_tables
+
+    start = float(problem.initial.z)
+    end = float(problem.stepper.z_end)
+    if not end > start:
+        end = start + max(abs(start), 1.0) * 1e-12
+
+    def record(source: str, error: float, scale: float, count: int) -> dict:
+        return {
+            "source": source,
+            "max_error": error,
+            "relative_error": error / scale if scale > 0.0 else 0.0,
+            "check_points": count,
+        }
+
+    def acceptable(error: float, scale: float) -> bool:
+        return error <= PROFILE_TOLERANCE * scale
+
+    for source, table in _walk_tables(problem):  # pyright: ignore[reportPrivateUsage]
+        if not _covers(table, start, end):
+            continue
+        check = _check_set(profile, start, end, np.asarray(table.breakpoints))
+        error, scale = _measured(table, profile, check)
+        if acceptable(error, scale):
+            return table, record(source, error, scale, check.size)
+    best = math.inf
+    for tolerance in _FIT_TOLERANCES:
+        table = profile_table(profile, start, end, tol=tolerance)
+        check = _check_set(profile, start, end, np.asarray(table.breakpoints))
+        error, scale = _measured(table, profile, check)
+        if acceptable(error, scale):
+            return table, record("lowered profile", error, scale, check.size)
+        best = min(best, error / scale if scale > 0.0 else math.inf)
+    msg = (
+        f"the {name} statistic: its profile cannot be tabulated to rounding level "
+        f"over the run (best measured relative error {best:.3g}, above "
+        f"{PROFILE_TOLERANCE:g})"
+    )
+    raise BackendError(msg)
+
+
 def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tuple:
     """Return an output's shape on this problem, without a batch axis.
 
@@ -582,6 +759,7 @@ def lower(
     *,
     grid: TimeGrid | None,
     modes: Sequence[Mode] | None = None,
+    profiles: Mapping[str, ZProfile] | None = None,
     apertures: tuple[np.ndarray, np.ndarray, int] | None = None,
     on_axis: np.ndarray | None = None,
 ) -> StatisticsLowering:
@@ -600,6 +778,8 @@ def lower(
         The time grid; the widths and the general spectral flux read it.
     modes : sequence of Mode or None, optional
         The mode set; ``peak_intensity`` on a modal route reads its axis synthesis.
+    profiles : mapping or None, optional
+        The z profiles the profile statistics read (:func:`_profile_table`).
     apertures : tuple or None, optional
         A spatial route's far-field tables packed for the native pass (the adapter's
         ``_aperture_payload``): the apertures, the regions and the exponent.
@@ -665,7 +845,19 @@ def lower(
         "n_absorbed": len(ABSORBED_CHANNELS),
         "root": None,
         "spectral_prefactor": 0.0,
+        "profiles": [None, None, None],
     }
+    tables: dict[str, dict[str, object]] = {}
+    for index, name in enumerate(_PROFILE_NAMES):
+        if name not in asked:
+            continue
+        if profiles is None or name not in profiles:
+            msg = f"the {name} statistic needs the {name!r} profile"
+            raise BackendError(msg)
+        table, tables[name] = _profile_table(problem, name, profiles[name])
+        slots = plan["profiles"]
+        assert isinstance(slots, list)
+        slots[index] = _table(table)
     if asked & {"fwhm_t", "fwhm_t_outer"}:
         if grid is None:
             msg = "the half-maximum widths need the time grid at construction"
@@ -746,4 +938,4 @@ def lower(
         plan[key] = np.ascontiguousarray(plan[key], dtype=np.float64)
     shapes = {name: _shape(problem, name, spec.n_windows, plan) for name in names}
     native = _core.StatisticsPlan(plan) if names else None
-    return StatisticsLowering(names, native, shapes, plan)
+    return StatisticsLowering(names, native, shapes, plan, tables)

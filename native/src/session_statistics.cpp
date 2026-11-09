@@ -591,6 +591,8 @@ void Plan::validate() const {
     table.validate("channel preionisation");
   for (const auto& table : species_density)
     table.validate("species density");
+  for (const auto& table : profiles)
+    table.validate("profile");
   check(channel_preionisation.empty() || channel_preionisation.size() == n_channels,
         "has one preionisation a channel");
   check(species_density.size() == n_species, "has one density a species");
@@ -612,6 +614,13 @@ void Plan::validate() const {
   const Wanted wanted(outputs);
   if (wanted.any({Stat::fwhm_t, Stat::fwhm_t_outer}))
     check(t.size() == n_t, "lacks the time axis its widths read");
+  for (const auto [stat, index] :
+       {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
+        std::pair{Stat::core_radius, 2}})
+    if (wanted(stat))
+      check(profiles[static_cast<std::size_t>(index)].present() &&
+                profiles[static_cast<std::size_t>(index)].n_values == 1,
+            "lacks a profile statistic's table");
 }
 
 std::size_t Plan::width(const Stat stat) const {
@@ -671,6 +680,11 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
     if (plan.route == Route::spatial)
       spatial(state, plan, z, wanted, results);
   }
+  for (const auto [stat, index] :
+       {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
+        std::pair{Stat::core_radius, 2}})
+    if (wanted(stat))
+      put(results, stat, {plan.profiles[static_cast<std::size_t>(index)].scalar(z)});
   std::vector<double> packed;
   packed.reserve(plan.packed_size());
   for (const Stat stat : plan.outputs) {

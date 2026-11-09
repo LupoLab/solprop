@@ -2355,6 +2355,11 @@ public:
       plan->transverse = static_cast<statistics::Transverse>(transverse);
       plan->node_weights = real_vector(exact_array<RealInput>(values["node_weights"]));
       plan->aeff = table_from<double>(values["aeff"]);
+      const auto profiles = nb::cast<nb::list>(values["profiles"]);
+      if (profiles.size() != plan->profiles.size())
+        throw std::invalid_argument("a statistics plan has three profile slots");
+      for (std::size_t index = 0; index < plan->profiles.size(); ++index)
+        plan->profiles[index] = table_from<double>(profiles[index]);
       plan->far_field_axis = nb::cast<bool>(values["far_field_axis"]);
       const auto apertures = exact_array<RealInput>(values["apertures"]);
       if (apertures.ndim() != 2)

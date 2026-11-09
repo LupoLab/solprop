@@ -374,6 +374,7 @@ class NativeBackend(StepDriver[_core.State]):
         self._statistics_plans: dict[
             tuple[int, tuple[str, ...]], tuple[StatsSpec, StatisticsLowering]
         ] = {}
+        self._statistics_tables: dict[str, dict[str, object]] = {}
         # solprop ADR-076: the plans runs of this machine and build measured before
         # are offered to the workspace, and those it measures are kept after it.
         wisdom = _wisdom.wisdom_file() if fft_planning is None else None
@@ -1627,7 +1628,7 @@ class NativeBackend(StepDriver[_core.State]):
             )
         # solprop SEP 47: the native plan, the one implementation of each statistic a
         # native session's rows and planes also read; only the plane-only statistics
-        # (the axis row's, the widths, zdw) and the profiles take the host.
+        # (the axis row's, the widths, zdw) take the host.
         return self._planned_with_host(
             spec, spatial_names, axis_names, population_names
         )
@@ -1689,6 +1690,7 @@ class NativeBackend(StepDriver[_core.State]):
                 names,
                 grid=self._grid,
                 modes=self._modes,
+                profiles=self._profiles,
                 apertures=apertures,
                 on_axis=on_axis,
             )
@@ -1696,6 +1698,7 @@ class NativeBackend(StepDriver[_core.State]):
                 self._statistics_plans.clear()
             held = (spec, lowering)
             self._statistics_plans[key] = held
+            self._statistics_tables.update(lowering.tables)
         lowering: StatisticsLowering = held[1]
         assert lowering.plan is not None
         try:
@@ -2044,6 +2047,9 @@ class NativeBackend(StepDriver[_core.State]):
             work["rk_march"] = (
                 "native" if self._rk_march_state else f"host: {self._rk_refusal}"
             )
+        if self._statistics_tables:
+            # The profile statistics' tables and their measured errors (SEP 47 6.4).
+            work["statistics_tables"] = dict(self._statistics_tables)
         return {
             **work,
             **facts.info,

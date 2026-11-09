@@ -26,9 +26,9 @@ every other feature by name before allocating anything (:func:`refusal`):
   fallback;
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
-  (:mod:`solprop_native._statistics`), except the profile statistics, which read
-  Python profiles; those and the plane-only statistics the host finishes
-  (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
+  (:mod:`solprop_native._statistics`), the profile statistics from tables whose
+  measured error the execution record carries; the plane-only statistics the host
+  finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
 - no boundary monitor, dense output, low-storage replay, comparison method, custom
   controller, group, noise model, TDSE, resumed run or method-history snapshot.
 """
@@ -265,8 +265,7 @@ def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
     if left:
         return (
             f"the statistics {left!r}, which the host finishes: a plane-only "
-            "statistic, a profile statistic (a Python profile the propagation does "
-            "not tabulate), a metric that varies inside an interval, or not a "
+            "statistic, a metric that varies inside an interval, or not a "
             "statistic of this route"
         )
     responses = problem.responses
@@ -353,7 +352,8 @@ class NativeSession:
         union = tuple(dict.fromkeys((*spec.names, *self._row_names)))
         # One set of far-field tables, read by the plan and handed to the backend.
         self._far_field = FarFieldTables(problem)
-        lowering = self._lower(union, grid, modes)
+        lowering = self._lower(union, grid, modes, profiles)
+        self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
         self._row_lowering = lowering.subset(self._row_names)
         # The chunks since the previous observation (the transitional shim).
@@ -387,6 +387,7 @@ class NativeSession:
         names: tuple[str, ...],
         grid: TimeGrid | None,
         modes: Sequence[Mode] | None,
+        profiles: Mapping[str, ZProfile] | None,
     ) -> StatisticsLowering:
         """Lower statistics for the native plan, with their far-field tables.
 
@@ -398,6 +399,8 @@ class NativeSession:
             The time grid.
         modes : sequence of Mode or None
             The mode set.
+        profiles : mapping or None
+            The z profiles.
 
         Returns
         -------
@@ -420,6 +423,7 @@ class NativeSession:
                 names,
                 grid=grid,
                 modes=modes,
+                profiles=profiles,
                 apertures=apertures,
             )
         except BackendError as error:
@@ -807,6 +811,9 @@ class NativeSession:
         record: dict[str, object] = {}
         if self._backend is not None and not self.closed:
             record.update(self._backend.metadata())
+        if self._statistics_tables:
+            # The profile statistics' tables and their measured errors (SEP 47 6.4).
+            record["statistics_tables"] = dict(self._statistics_tables)
         record["native_session"] = {
             "march_calls": status.march_calls,
             "rows_taken": status.rows_taken,

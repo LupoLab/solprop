@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include <array>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -15,8 +16,10 @@
  * the propagation itself carries -- solprop's piecewise Chebyshev tables of z
  * (`solprop.translate.chebyshev.PiecewiseChebyshev`) for the plasma density, the
  * preionisation of each channel, the species densities, the taper, the effective
- * area and the modal power weight, and the basis metric's square root formed from
- * the metric's own values on each interval. Nothing is fitted. `evaluate` reads the
+ * area and the modal power weight, the basis metric's square root formed from the
+ * metric's own values on each interval, and each profile statistic's path: the
+ * propagation's table of it, or the profile lowered once with a measured, recorded
+ * error at rounding level. `evaluate` reads the
  * resident state through the native statistics passes and finishes every statistic
  * natively: the half-maximum widths, the species reduction and the plasma
  * integration ratios are formed here, with no Python finishing. Python names the
@@ -73,11 +76,14 @@ enum class Stat : int {
   region_spectrum = 27,
   aperture_spectrum = 28,
   aperture_on_axis_spectrum = 29,
-  node_populations = 30,
+  density = 30,
+  pressure = 31,
+  core_radius = 32,
+  node_populations = 33,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 31;
+inline constexpr int stat_count = 34;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -152,6 +158,10 @@ struct Plan {
   Transverse transverse = Transverse::none;
   std::vector<double> node_weights;
   RealTable aeff;
+  /** The tables of `density`, `pressure` and `core_radius`, in that order: the
+      propagation's own where it carries the path, else the profile lowered at
+      preparation with its error measured and recorded. */
+  std::array<RealTable, 3> profiles;
   // A spatial route: whether `on_axis_spectrum` comes from the far-field pass (a
   // Cartesian or line grid), and the far-field tables, `(n_apertures,
   // far_field_aperture_constants + n_omega)`

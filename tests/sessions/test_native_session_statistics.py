@@ -31,7 +31,7 @@ from sessions.executors import PLANES, entrance, fibre, window
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
-from solprop.exceptions import BackendError, SolpropError, TranslationError
+from solprop.exceptions import SolpropError, TranslationError
 from solprop.stats import (
     CATALOGUE,
     PLASMA_INTEGRATION_STATISTICS,
@@ -434,42 +434,79 @@ def test_the_plasma_and_weight_statistics_are_native():
     assert max(float(record.stats["electron_density"]) for record in seen) > 0.0
 
 
+PROFILES = ("energy", "density", "pressure", "core_radius")
+
+
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-@pytest.mark.parametrize("name", ["density", "pressure", "core_radius"])
-def test_a_profile_statistic_is_refused_by_name_and_exact_on_a_plane(name):
-    """A profile statistic reads a Python profile the propagation does not tabulate:
-    the session refuses it by name rather than approximate it, and the backend's
-    plane statistic is the profile's own value, past the profile's span included (a
-    piecewise-linear core radius shorter than the run, which clamps)."""
-    from solprop.profiles import PiecewiseLinear  # noqa: PLC0415
-    from solprop.stats import profile_value  # noqa: PLC0415
+@pytest.mark.parametrize(
+    "radius",
+    ["constant", "kink-short"],
+    ids=["constant radius", "a kinked radius shorter than the run"],
+)
+def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
+    """SEP 47 section 6.4: a profile statistic reads a z table, the propagation's own
+    where one reproduces the profile, else the profile lowered at preparation; its
+    measured error is at rounding level and recorded in the execution record, bounds
+    the difference from the reference (which reads the profile) and rows equal planes.
+
+    The kinked radius is piecewise linear with a knot inside the run and ends before
+    it, holding its last value beyond.
+    """
+    from solprop.profiles import Constant, PiecewiseLinear  # noqa: PLC0415
 
     grid, problem, modes, profiles = _capillary()
-    profiles["core_radius"] = PiecewiseLinear(
-        np.array([0.0, 1e-3]), np.array([125e-6, 120e-6])
-    )
-    spec = StatsSpec(names=("energy", name), periodic=("energy",), period=1)
-    request = describe_run(problem, stats=spec)
-    reason = native_session.refusal(problem, request)
-    assert reason is not None and repr(name) in reason
-    with pytest.raises(BackendError, match=name):
-        native_session.NativeSession(
-            problem,
-            request,
-            entrance(problem),
-            grid=grid,
-            modes=modes,
-            profiles=profiles,
+    profiles["core_radius"] = (
+        Constant(125e-6)
+        if radius == "constant"
+        else PiecewiseLinear(
+            np.array([0.0, 1.3e-3, 3e-3]), np.array([125e-6, 119e-6, 122e-6])
         )
-    backend = select("native", problem, grid=grid, modes=modes, profiles=profiles)
+    )
+    seen, status, counters, lowering, spec = _run(
+        problem, PROFILES, grid=grid, modes=modes, profiles=profiles
+    )
+    _check_rows(seen, PROFILES)
+    _check_structure(seen, status, counters)
+    tables = lowering.tables
+    assert set(tables) == {"density", "pressure", "core_radius"}
+    for name, record in tables.items():
+        assert record["relative_error"] <= native_statistics.PROFILE_TOLERANCE, name
+        assert record["check_points"] > 4000, name
+    reference = _reference(
+        problem, spec, seen, grid=grid, modes=modes, profiles=profiles
+    )
+    for record, want in zip(seen, reference, strict=True):
+        for name in ("density", "pressure", "core_radius"):
+            bound = tables[name]["max_error"]
+            _within(record.stats[name], want[name], bound, f"{name} at {record.z}")
+        _within(
+            record.stats["energy"],
+            want["energy"],
+            _scalar_bound(problem, want["energy"]),
+            f"energy at {record.z}",
+        )
+    if radius != "constant":
+        assert tables["core_radius"]["source"] == "lowered profile"
+        past = [record for record in seen if record.z > 3e-3]
+        assert past
+        for record in past:
+            assert (
+                abs(float(record.stats["core_radius"]) - 122e-6)
+                <= tables["core_radius"]["max_error"]
+            )
+    # The record reaches the session's execution record.
+    session = native_session.NativeSession(
+        problem,
+        describe_run(problem, stats=spec),
+        entrance(problem),
+        grid=grid,
+        modes=modes,
+        profiles=profiles,
+    )
     try:
-        field = problem.initial.field0
-        for z in (0.0, 2e-3, 4e-3):
-            backend.set_initial(field, None, z=z, resume=z > 0.0)
-            value = backend.stats(StatsSpec(names=(name,)))[name]
-            assert value[0] == profile_value(profiles[name], z), z
+        assert session.execution_record()["statistics_tables"] == tables
     finally:
-        backend.close()
+        session.close()
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
