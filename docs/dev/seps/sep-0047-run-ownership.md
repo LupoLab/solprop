@@ -15,7 +15,7 @@
 | **Requires** | SEPs 21, 22, 24, 25, 29, 33, 39, 44, 45 and 46 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` (draft PR to follow); started 2026-11-09 |
+| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` ([#605](https://github.com/LupoLab/solprop/pull/605)); started 2026-11-09 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
