@@ -7,6 +7,12 @@
 This runner is the correctness baseline for fused batch kernels. It executes the
 selected backend's existing kernels for each member at each shared step. It does
 not amortise GPU kernel launches and is not a device-batching performance claim.
+
+**The native bridge's temporary copy.** Since SEP 47 phase 2 only the native backend's
+batch runs on :class:`LockstepRunner`, as the bridge that keeps its execution working
+until its own session replaces it; the NumPy reference groups its members with its own
+copy (:class:`solprop.backends.host.group.HostGroup`). This module is removed with
+SEP 47's native session: the native backend leaves it in phase 3 and phase 5 deletes it.
 """
 
 import copy

@@ -49,7 +49,7 @@ from modal_provider_cases import (
 )
 from solprop import fourier
 from solprop.backends import select
-from solprop.backends.batch import LockstepRunner
+from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
@@ -1243,7 +1243,7 @@ def batched_run(guide, grid, **overrides):
 
 
 @pytest.mark.medium
-@pytest.mark.parametrize("runner_factory", [LockstepRunner, NumpyBatchBackend])
+@pytest.mark.parametrize("runner_factory", [HostGroup, NumpyBatchBackend])
 def test_a_general_guide_batch_is_what_its_members_run_alone(
     guide, grid, runner_factory
 ):
@@ -1330,7 +1330,7 @@ def test_two_guides_never_share_a_batch_group(guide, grid):
             backend.set_initial(problem.initial.field0, None)
             loaded.append(backend)
         with pytest.raises(BackendError, match="identical guide/table/gauge identity"):
-            LockstepRunner(loaded)
+            HostGroup(loaded)
 
 
 def test_the_driver_refuses_a_mixed_group_before_a_backend_is_reached(

@@ -21,12 +21,16 @@ import numpy as np
 import pytest
 
 from bounds import assert_within
-from scripted_driver import ScriptedDriver
+from scripted_driver import HostScriptedDriver, ScriptedDriver
 from solprop.backends.driver import (
     INITIAL_STEP_STATS_CAPACITY,
     StepDriver,
     reached,
 )
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.numpy_ref.batch import NumpyBatchBackend
+from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import BatchBackend, StepStats
 from solprop.exceptions import BackendError
 from solprop.log import BarReporter, LogReporter, NullReporter
@@ -53,13 +57,24 @@ def present(value):
     return value
 
 
+@pytest.fixture(params=[ScriptedDriver, HostScriptedDriver], ids=["bridge", "host"])
+def scripted(request):
+    """The scripted driver on each copy of the step loop (SEP 47 phase 2).
+
+    The native bridge's :class:`~solprop.backends.driver.StepDriver` and the
+    reference's own :class:`~solprop.backends.host.driver.HostDriver` started as one
+    loop and must keep its step control: every claim here holds of both.
+    """
+    return request.param
+
+
 @pytest.fixture
-def driver(soliton_problem, narrow_grid):
-    """Return ``(**kwargs) -> ScriptedDriver`` loaded at the entrance."""
+def driver(soliton_problem, narrow_grid, scripted):
+    """Return ``(**kwargs) -> ScriptedDriver`` loaded at the entrance, on each copy."""
 
     def build(*, planes=(LENGTH,), field=None, noise=None, **kwargs):
         problem = soliton_problem(narrow_grid, 1, save_planes=list(planes))
-        made = ScriptedDriver(problem, grid=narrow_grid, **kwargs)
+        made = scripted(problem, grid=narrow_grid, **kwargs)
         made.set_initial(problem.initial.field0 if field is None else field, noise)
         return made
 
@@ -107,7 +122,7 @@ def test_a_rejected_step_is_recorded_and_not_kept(driver):
 
 
 def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """A refused step is retried shorter by the rejection factor, with no growth on top.
 
@@ -121,7 +136,7 @@ def test_a_rejected_step_is_retried_at_the_rejection_factor_alone(
         narrow_grid, 1, save_planes=[LENGTH], controller=controller
     )
     # Three easy steps fill the lag and ask for growth; the fourth fails narrowly.
-    made = ScriptedDriver(problem, grid=narrow_grid, norms=[0.01, 0.01, 0.01, 1.0001])
+    made = scripted(problem, grid=narrow_grid, norms=[0.01, 0.01, 0.01, 1.0001])
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     accepted = made.observe().step_history.accepted
@@ -165,12 +180,12 @@ def test_the_history_covers_only_the_steps_since_the_last_observation(driver):
 
 
 def test_a_replayed_schedule_takes_its_steps_as_given(
-    driver, soliton_problem, narrow_grid
+    scripted, driver, soliton_problem, narrow_grid
 ):
     """A replay never rejects and reads its position off the schedule's edges."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
-    made = ScriptedDriver(problem, grid=narrow_grid, norms=[5.0] * 8)
+    made = scripted(problem, grid=narrow_grid, norms=[5.0] * 8)
     made.set_initial(problem.initial.field0, None)
     summary = made.propagate_to(LENGTH)
     assert summary.n_steps == 8
@@ -181,7 +196,7 @@ def test_a_replayed_schedule_takes_its_steps_as_given(
     assert not summary.met_tolerance
 
 
-def test_a_replay_that_runs_out_says_so(soliton_problem, narrow_grid):
+def test_a_replay_that_runs_out_says_so(scripted, soliton_problem, narrow_grid):
     """A schedule too short for the target is an error, not a quiet stop."""
     full = soliton_problem(
         narrow_grid,
@@ -197,7 +212,7 @@ def test_a_replay_that_runs_out_says_so(soliton_problem, narrow_grid):
             full.stepper, schedule=FixedSchedule.uniform(0.0, LENGTH / 2, LENGTH / 8)
         ),
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH / 2)
     with pytest.raises(BackendError, match="cannot reach"):
@@ -205,7 +220,7 @@ def test_a_replay_that_runs_out_says_so(soliton_problem, narrow_grid):
 
 
 def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """A running sum of rounded steps misses its plane by more than eight ulps.
 
@@ -221,44 +236,46 @@ def test_a_schedule_of_equal_steps_lands_on_a_plane_its_running_sum_misses(
     problem = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH / 2)
     assert made._schedule_index == 200
     assert made._z == middle
     made.propagate_to(LENGTH)
     assert made._schedule_index == 400
-    resumed = ScriptedDriver(problem, grid=narrow_grid)
+    resumed = scripted(problem, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     assert resumed._schedule_index == 200
 
 
 def test_a_resume_continues_a_replay_from_the_edge_it_stopped_at(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """``set_initial(z=)`` finds the schedule index the position belongs to."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     problem = soliton_problem(
         narrow_grid, 1, save_planes=[LENGTH / 2, LENGTH], schedule=schedule
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     assert made._schedule_index == 4
     made.propagate_to(LENGTH)
     assert len(made.calls) == 4
 
 
-def test_a_resume_off_the_schedule_s_edges_is_refused(soliton_problem, narrow_grid):
+def test_a_resume_off_the_schedule_s_edges_is_refused(
+    scripted, soliton_problem, narrow_grid
+):
     """A position the run never stopped at cannot continue a replay in step."""
     schedule = FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8)
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     with pytest.raises(BackendError, match="one of its edges"):
         made.set_initial(problem.initial.field0, None, z=LENGTH / 3)
 
 
 def test_the_input_noise_model_adds_its_realisation_once(
-    driver, soliton_problem, narrow_grid
+    scripted, driver, soliton_problem, narrow_grid
 ):
     """Added at the entrance and never again, so a resume is not given a second draw."""
     problem = soliton_problem(
@@ -267,9 +284,9 @@ def test_the_input_noise_model_adds_its_realisation_once(
         save_planes=[LENGTH],
         noise=input_noise(narrow_grid, np.random.default_rng(7)),
     )
-    entrance = ScriptedDriver(problem, grid=narrow_grid)
+    entrance = scripted(problem, grid=narrow_grid)
     entrance.set_initial(problem.initial.field0, None)
-    resumed = ScriptedDriver(problem, grid=narrow_grid)
+    resumed = scripted(problem, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
     assert not np.array_equal(present(entrance._state), masked)
@@ -278,7 +295,7 @@ def test_the_input_noise_model_adds_its_realisation_once(
 
 
 def test_the_modified_noise_model_keeps_its_realisation_apart(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """The propagating field never carries it; it is advanced by the unitary phase."""
     problem = soliton_problem(
@@ -287,7 +304,7 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
         save_planes=[LENGTH],
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert np.array_equal(
         present(made._state), problem.initial.field0 * problem.grids.active_mask
@@ -300,7 +317,9 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
     assert present(made._noise_phase()).shape == problem.shape
 
 
-def test_a_given_realisation_replaces_the_contract_s(soliton_problem, narrow_grid):
+def test_a_given_realisation_replaces_the_contract_s(
+    scripted, soliton_problem, narrow_grid
+):
     """The realisation given to ``set_initial`` wins over the assembled one."""
     problem = soliton_problem(
         narrow_grid,
@@ -308,7 +327,7 @@ def test_a_given_realisation_replaces_the_contract_s(soliton_problem, narrow_gri
         save_planes=[LENGTH],
         noise=modified_noise(narrow_grid, np.random.default_rng(7)),
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(
         problem.initial.field0,
         modified_noise(narrow_grid, np.random.default_rng(11)),
@@ -326,10 +345,12 @@ def test_a_run_without_noise_reports_no_phase(driver, narrow_grid):
     assert made._noise_at(made._stage_scalars(0.0, 0.0)) is None
 
 
-def test_the_guards_refuse_what_cannot_be_done(driver, soliton_problem, narrow_grid):
+def test_the_guards_refuse_what_cannot_be_done(
+    scripted, driver, soliton_problem, narrow_grid
+):
     """Closed, unloaded, backwards, off the table, and the wrong shape."""
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    empty = ScriptedDriver(problem, grid=narrow_grid)
+    empty = scripted(problem, grid=narrow_grid)
     with pytest.raises(BackendError, match="no initial state"):
         empty.propagate_to(LENGTH)
     with pytest.raises(BackendError, match="expected"):
@@ -354,14 +375,14 @@ def test_the_guards_refuse_what_cannot_be_done(driver, soliton_problem, narrow_g
 
 
 def test_statistics_without_a_grid_say_which_backend_to_give_one_to(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """The message names the backend, so it is actionable for whichever one it is."""
     problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
-    made = ScriptedDriver(problem)
+    made = scripted(problem)
     with pytest.raises(BackendError, match="'scripted'"):
         made._require_grid()
-    assert ScriptedDriver(problem, grid=narrow_grid)._require_grid() is narrow_grid
+    assert scripted(problem, grid=narrow_grid)._require_grid() is narrow_grid
 
 
 # --------------------------------------------------------------- progress reporting
@@ -532,7 +553,7 @@ def rows_of(made):
 
 
 def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """The trap this test exists for, and the reason the call is not in a hook.
 
@@ -548,7 +569,7 @@ def test_a_row_is_taken_at_the_position_the_accepted_step_reached(
         problem = periodic(
             soliton_problem(narrow_grid, 1, save_planes=[LENGTH], **extra)
         )
-        made = ScriptedDriver(problem, grid=narrow_grid)
+        made = scripted(problem, grid=narrow_grid)
         made.set_initial(problem.initial.field0, None)
         rows = rows_of(made)
         # `ScriptedDriver.stats` returns `self._z`, so the recorded value is the
@@ -568,10 +589,12 @@ def test_the_channel_is_empty_unless_the_run_asks_for_one(driver):
     assert rows.names == ()
 
 
-def test_a_row_indexes_the_attempt_it_was_taken_after(soliton_problem, narrow_grid):
+def test_a_row_indexes_the_attempt_it_was_taken_after(
+    scripted, soliton_problem, narrow_grid
+):
     """The index is into the plane's own history, which counts rejected attempts."""
     problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]))
-    made = ScriptedDriver(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1])
+    made = scripted(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1])
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     observed = made.observe()
@@ -585,11 +608,11 @@ def test_a_row_indexes_the_attempt_it_was_taken_after(soliton_problem, narrow_gr
 
 
 def test_the_period_counts_accepted_steps_and_a_rejection_is_not_one(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """A rejected attempt neither advances the phase nor records a row."""
     problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=2)
-    made = ScriptedDriver(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1, 0.1, 0.1])
+    made = scripted(problem, grid=narrow_grid, norms=[5.0, 0.1, 0.1, 0.1, 0.1])
     made.set_initial(problem.initial.field0, None)
     made.propagate_to(LENGTH)
     observed = made.observe()
@@ -598,11 +621,13 @@ def test_the_period_counts_accepted_steps_and_a_rejection_is_not_one(
     np.testing.assert_array_equal(observed.step_stats.step, accepted[1::2])
 
 
-def test_the_rows_of_one_plane_are_flushed_with_it(soliton_problem, narrow_grid):
+def test_the_rows_of_one_plane_are_flushed_with_it(
+    scripted, soliton_problem, narrow_grid
+):
     """`observe` drains the buffer, so a plane's rows are its own."""
     planes = [LENGTH / 2, LENGTH]
     problem = periodic(soliton_problem(narrow_grid, 1, save_planes=planes))
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     seen = []
     for plane in planes:
@@ -617,7 +642,7 @@ def test_the_rows_of_one_plane_are_flushed_with_it(soliton_problem, narrow_grid)
 
 
 def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """More rows than `INITIAL_STEP_STATS_CAPACITY`, so the doubling is exercised."""
     n_steps = 3 * INITIAL_STEP_STATS_CAPACITY
@@ -625,7 +650,7 @@ def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
     problem = periodic(
         soliton_problem(narrow_grid, 1, save_planes=[LENGTH], schedule=schedule)
     )
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     rows = rows_of(made)
     assert rows.n_rows == n_steps
@@ -633,10 +658,10 @@ def test_the_buffer_grows_across_a_plane_with_more_steps_than_its_capacity(
     np.testing.assert_array_equal(rows.step, np.arange(n_steps))
 
 
-def test_a_load_starts_the_period_again(soliton_problem, narrow_grid):
+def test_a_load_starts_the_period_again(scripted, soliton_problem, narrow_grid):
     """`set_initial` resets the phase, so a resume is not the uninterrupted run."""
     problem = periodic(soliton_problem(narrow_grid, 1, save_planes=[LENGTH]), period=3)
-    made = ScriptedDriver(problem, grid=narrow_grid)
+    made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert made._accepted_steps == 0
     made.propagate_to(LENGTH)
@@ -648,9 +673,9 @@ def test_a_load_starts_the_period_again(soliton_problem, narrow_grid):
 
 @pytest.mark.parametrize("replay", [False, True])
 def test_alternate_statistics_storage_hooks_keep_shared_acceptance_and_period(
-    soliton_problem, narrow_grid, replay
+    scripted, soliton_problem, narrow_grid, replay
 ):
-    class DeferredRows(ScriptedDriver):
+    class DeferredRows(scripted):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.pending = []
@@ -686,7 +711,7 @@ def test_alternate_statistics_storage_hooks_keep_shared_acceptance_and_period(
     )
     norms = () if replay else (5.0, 0.1)
     deferred = DeferredRows(problem, grid=narrow_grid, norms=norms)
-    default = ScriptedDriver(problem, grid=narrow_grid, norms=norms)
+    default = scripted(problem, grid=narrow_grid, norms=norms)
     for owner in (deferred, default):
         owner.set_initial(problem.initial.field0, None)
     for plane in (LENGTH / 2, LENGTH):
@@ -716,7 +741,7 @@ def test_alternate_statistics_storage_hooks_keep_shared_acceptance_and_period(
 
 
 def test_a_statistic_that_changes_shape_within_a_plane_is_refused(
-    soliton_problem, narrow_grid
+    scripted, soliton_problem, narrow_grid
 ):
     """The buffer is laid out from the first row and indexes by that shape.
 
@@ -726,7 +751,7 @@ def test_a_statistic_that_changes_shape_within_a_plane_is_refused(
     statistic.
     """
 
-    class Widening(ScriptedDriver):
+    class Widening(scripted):
         def stats(self, spec) -> dict[str, np.ndarray]:
             width = 1 + len(self._history) // 2
             return {name: np.zeros((1, width)) for name in spec.names}
@@ -1108,7 +1133,7 @@ def test_a_trials_bundles_taken_together_are_kept_until_the_next_hoist(driver):
     made.close()
 
 
-def test_the_surface_a_backend_subclasses_is_frozen(driver):
+def test_the_surface_a_backend_subclasses_is_frozen(soliton_problem, narrow_grid):
     """The protected driver surface and stage bundles are the seam's literal.
 
     A compiled backend is built against these names and shapes, and its build stays
@@ -1127,7 +1152,9 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
         assert str(inspect.signature(getattr(BatchBackend, name))) == signature, name
     for name, signature in DRIVER_SURFACE.items():
         assert str(inspect.signature(getattr(StepDriver, name))) == signature, name
-    made = driver()
+    problem = soliton_problem(narrow_grid, 1, save_planes=[LENGTH])
+    made = ScriptedDriver(problem, grid=narrow_grid)
+    made.set_initial(problem.initial.field0, None)
     for name in DRIVER_ATTRIBUTES:
         assert hasattr(made, name), name
     made.close()
@@ -1136,6 +1163,108 @@ def test_the_surface_a_backend_subclasses_is_frozen(driver):
         tuple(f.name for f in dataclasses.fields(StageScalars)) == STAGE_SCALARS_FIELDS
     )
     assert tuple(f.name for f in dataclasses.fields(MarchPolicy)) == MARCH_POLICY_FIELDS
+
+
+HOST_SURFACE: dict[str, str] = {
+    "_adams_adopt": (
+        "(self, advanced: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega'], "
+        "dz: float) -> jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']"
+    ),
+    "_adams_block": "(self, z: float, dz: float) -> object",
+    "_adams_lab_source": (
+        "(self, lab: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega'], position: float, *, "
+        "purpose: Literal['startup', 'predictor', 'corrected', "
+        "'diagnostic'] = 'predictor') -> jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']"
+    ),
+    "_adams_propagator": (
+        "(self, anchor: float, position: float) -> jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']"
+    ),
+    "_adams_restore": (
+        "(self, z: float, state: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']) -> None"
+    ),
+    "_adams_source": (
+        "(self, lab: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega'], anchor: float, position: float, *, "
+        "purpose: Literal['startup', 'predictor', 'corrected', "
+        "'diagnostic'] = 'predictor') -> tuple[jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega'], jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']]"
+    ),
+    "_apply_mask": (
+        "(self, state: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']) -> _StateT"
+    ),
+    "_begin_plane": "(self) -> None",
+    "_dense_stages": "(self) -> list[numpy.ndarray]",
+    "_finish": "(self, state: _StateT, dz: float) -> _StateT",
+    "_march_to": "(self, target: float) -> None",
+    "_norm_controller": "(self) -> solprop.stepper.controller.PIController",
+    "_observed_field": (
+        "(self, state: _StateT) -> jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega']"
+    ),
+    "_on_accepted_step": "(self) -> None",
+    "_prefactor": (
+        "(self, "
+        "bundle: solprop.translate.stage.StageScalars) -> jaxtyping.Complex[ndarray, "
+        "'n_modes n_pol n_omega']"
+    ),
+    "_record": "(self, z: float, dz: float, norm: float, accepted: bool) -> None",
+    "_release_source_calls": "(self) -> None",
+    "_reserve_source_calls": "(self, count: int) -> None",
+    "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
+    "metadata": "(self) -> dict[str, object]",
+    "restore_call_ledgers": (
+        "(self, logical: collections.abc.Mapping[str, object], "
+        "atomic: collections.abc.Mapping[str, object] | None = None) -> None"
+    ),
+    "set_initial": (
+        "(self, field: jaxtyping.Complex[ndarray, "
+        "'n_batch n_modes n_pol n_omega'], "
+        "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
+        "resume: bool = False) -> None"
+    ),
+    "stats": "(self, spec: solprop.stats.StatsSpec) -> dict[str, numpy.ndarray]",
+}
+"""Every ``HostDriver`` hook a NumPy reference backend overrides (SEP 47 phase 2).
+
+The reference's own driver is no compiled seam, but its backends are written against
+these signatures: a change here changes what ``numpy_ref``, its single-precision
+backend and its group override, in the same commit."""
+
+HOST_ATTRIBUTES = (
+    "helpers",
+    "max_batch",
+    "name",
+    "observes_fresh_field",
+    "propagator_default",
+    "reads_transverse_edge",
+)
+"""The ``HostDriver`` class attributes a NumPy reference backend sets."""
+
+
+def test_the_host_hooks_the_reference_overrides_are_frozen():
+    overridden = {
+        name
+        for backend in (NumpyRefBackend, NumpySingleBackend, NumpyBatchBackend)
+        for owner in backend.__mro__
+        if owner.__module__.startswith("solprop.backends.numpy_ref")
+        for name in vars(owner)
+        if hasattr(HostDriver, name) and not name.startswith("__")
+    } - {"_abc_impl"}
+    assert overridden == set(HOST_SURFACE) | set(HOST_ATTRIBUTES)
+    for name, signature in HOST_SURFACE.items():
+        hook = getattr(HostDriver, name)
+        if isinstance(hook, property):
+            assert hook.fget is not None
+            hook = hook.fget
+        assert str(inspect.signature(hook)) == signature, name
 
 
 def test_the_native_surface_is_inside_the_frozen_one():

@@ -377,9 +377,11 @@ class NativeSession:
         self._spec = spec
         self._row_spec = dataclasses.replace(spec, names=self._row_names, periodic=())
         self._row_shapes: dict[str, tuple[int, ...]] = {}
-        # The chunks since the previous observation (the transitional shim).
-        self._held: list[BackendHistory] = []
-        self._held_rows: list[StepStats] = []
+        # The attempts since the previous observation, for its summary alone.
+        self._plane_norms: list[float] = []
+        self._plane_steps = 0
+        self._plane_rejected = 0
+        self._plane_wall = 0.0
         backend = NativeBackend(problem, grid=grid, modes=modes, profiles=profiles)
         self._backend: NativeBackend | None = backend
         try:
@@ -904,23 +906,22 @@ class NativeSession:
         except _core.SessionLifecycleError as error:
             raise SessionError(str(error)) from None
 
-    def held_attempts(
-        self, ticket: ExportTicket
-    ) -> tuple[BackendHistory | None, StepStats | None]:
-        """Return every attempt and periodic row since the last observation, unconsumed.
+    def undelivered(self, ticket: ExportTicket) -> tuple[BackendHistory, StepStats]:
+        """Return the attempts and rows made since the previous event: none.
 
-        For a terminal checkpoint written after a failure outside the session: the
-        chunks every batch since the last observation delivered (SEP 47 section 5.5).
+        Every native batch delivers its whole chunk with its event (SEP 47 section
+        5.3), and nothing advances between batches, so no attempt is ever left
+        undelivered.
 
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            The pending ticket the checkpoint is written for.
+            The pending ticket a checkpoint is written for.
 
         Returns
         -------
         tuple
-            The attempts and the rows, or ``None`` for each when there are none.
+            An empty history and no rows.
 
         Raises
         ------
@@ -930,10 +931,7 @@ class NativeSession:
         if ticket.receipt.session != self._id:
             msg = f"the ticket for z = {ticket.z!r} m belongs to another session"
             raise SessionError(msg)
-        if not self._held:
-            return None, None
-        history, rows = self._since_observation()
-        return history, rows if rows.n_rows else None
+        return self._history(np.empty((0, 5))), self._no_rows()
 
     def pending_ticket(self) -> ExportTicket | None:
         """Return a ticket for the committed state while a batch is pending.
@@ -1130,62 +1128,6 @@ class NativeSession:
             },
         )
 
-    def _hold(self, chunk: BackendHistory, rows: StepStats) -> None:
-        """Keep a chunk until the next observation (the transitional shim below).
-
-        Parameters
-        ----------
-        chunk : solprop.backends.protocol.BackendHistory
-            The chunk's attempts.
-        rows : solprop.backends.protocol.StepStats
-            Its rows, their steps indexing the chunk.
-        """
-        offset = sum(history.n_steps for history in self._held)
-        self._held.append(chunk)
-        if rows.n_rows:
-            self._held_rows.append(StepStats(rows.z, rows.step + offset, rows.values))
-
-    def _since_observation(self) -> tuple[BackendHistory, StepStats]:
-        """Return every held chunk since the previous observation, assembled.
-
-        TODO(SEP 47 exactly-once chunked delivery): once solprop's service loop
-        assembles a plane's history and rows from the chunks each event carries, this
-        shim and :meth:`_hold` go, and every event hands over its own chunk alone.
-        Until then ``ObservationReady``, ``ServiceRequired(SNAPSHOT)`` and ``Terminal``
-        carry everything since the previous observation, as the protocol has it today.
-
-        Returns
-        -------
-        tuple
-            The attempts and the rows since the previous observation.
-        """
-        held = self._held
-        history = BackendHistory(
-            z=np.concatenate([chunk.z for chunk in held]) if held else np.empty(0),
-            dz=np.concatenate([chunk.dz for chunk in held]) if held else np.empty(0),
-            error_norm=np.concatenate([chunk.error_norm for chunk in held])
-            if held
-            else np.empty(0),
-            accepted=np.concatenate([chunk.accepted for chunk in held])
-            if held
-            else np.empty(0, dtype=np.bool_),
-            wall_time=np.concatenate([chunk.wall_time for chunk in held])
-            if held
-            else np.empty(0),
-        )
-        parts = self._held_rows
-        if not parts:
-            return history, self._no_rows()
-        rows = StepStats(
-            np.concatenate([part.z for part in parts]),
-            np.concatenate([part.step for part in parts]),
-            {
-                name: np.concatenate([part.values[name] for part in parts])
-                for name in parts[0].values
-            },
-        )
-        return history, rows
-
     @staticmethod
     def _history(attempts: np.ndarray) -> BackendHistory:
         """Return a chunk's attempt rows as a history.
@@ -1208,35 +1150,53 @@ class NativeSession:
             wall_time=np.ascontiguousarray(attempts[:, 4]),
         )
 
-    def _summary(self, history: BackendHistory, z: float) -> StepSummary:
-        """Return the cost and tolerance of the propagation an observation reports.
+    def _count(self, chunk: BackendHistory) -> None:
+        """Count a delivered chunk's attempts toward the next observation's summary.
 
         Parameters
         ----------
-        history : solprop.backends.protocol.BackendHistory
-            Its attempts since the previous observation.
+        chunk : solprop.backends.protocol.BackendHistory
+            The attempts one event delivered; their wall times start at that chunk.
+        """
+        self._plane_norms.extend(chunk.error_norm[chunk.accepted].tolist())
+        self._plane_steps += chunk.n_steps
+        self._plane_rejected += chunk.n_rejected
+        if chunk.n_steps:
+            self._plane_wall += float(chunk.wall_time[-1])
+
+    def _summary(self, z: float) -> StepSummary:
+        """Return the cost and tolerance of the propagation an observation reports.
+
+        Formed from every chunk since the previous observation, as the driver forms
+        it from the same attempts, and started afresh.
+
+        Parameters
+        ----------
         z : float
             Its position, m.
 
         Returns
         -------
         solprop.backends.protocol.StepSummary
-            The summary, as the driver forms it from the same attempts.
+            The summary.
         """
         record = ControlRecord.from_norms(
             self._problem.stepper.controller,
-            history.error_norm[history.accepted].tolist(),
-            n_rejected=history.n_rejected,
+            self._plane_norms,
+            n_rejected=self._plane_rejected,
         )
-        return StepSummary(
+        summary = StepSummary(
             z=z,
-            n_steps=history.n_steps,
-            n_rejected=history.n_rejected,
+            n_steps=self._plane_steps,
+            n_rejected=self._plane_rejected,
             max_norm=record.max_norm,
             mean_norm=record.mean_norm,
-            wall_time=float(history.wall_time[-1]) if history.n_steps else 0.0,
+            wall_time=self._plane_wall,
             met_tolerance=record.met_tolerance,
         )
+        self._plane_norms, self._plane_steps, self._plane_rejected = [], 0, 0
+        self._plane_wall = 0.0
+        return summary
 
     def _event(
         self,
@@ -1267,21 +1227,21 @@ class NativeSession:
         ticket = (
             ExportTicket(receipt, event.generation, event.z) if event.ticket else None
         )
-        self._hold(chunk, rows)
+        # Exactly-once chunked delivery (SEP 47 section 5.3): the event carries the
+        # attempts and rows since the previous event, and the caller assembles them.
+        self._count(chunk)
         if event.kind == _PROGRESS:
-            return Progress(event.z, chunk)
-        history, held_rows = self._since_observation()
+            return Progress(event.z, chunk, rows)
         if event.kind == _OBSERVATION:
             assert ticket is not None
-            self._held, self._held_rows = [], []
             return ObservationReady(
                 z=event.z,
                 kind=_KINDS[event.observation],
                 plane_index=event.plane_index,
-                history=history,
-                step_stats=held_rows,
+                history=chunk,
+                step_stats=rows,
                 stats=self._plane_stats(batch),
-                summary=self._summary(history, event.z),
+                summary=self._summary(event.z),
                 ticket=ticket,
             )
         if event.kind == _SNAPSHOT:
@@ -1290,13 +1250,13 @@ class NativeSession:
                 z=event.z,
                 message="snapshot at an accepted endpoint",
                 ticket=ticket,
-                history=history,
-                step_stats=held_rows,
+                history=chunk,
+                step_stats=rows,
             )
         if event.kind == _WARNING:
             # A boundary warning (SEP 47 section 5.5): the caller emits it, and its
-            # filters may raise it; the committed field and the attempts since the
-            # last observation are there for that failure's checkpoint.
+            # filters may raise it; the committed field and the chunk are there for
+            # that failure's checkpoint.
             assert self._monitor is not None
             notice = _watch.Notice.of(event.notice)
             if notice.kind is _watch.NoticeKind.REMOVAL:
@@ -1308,24 +1268,31 @@ class NativeSession:
                 message=str(warning),
                 category=type(warning),
                 ticket=ticket,
-                history=history,
-                step_stats=held_rows,
+                history=chunk,
+                step_stats=rows,
                 warning=warning,
             )
         outcome = _OUTCOMES[event.outcome]
         assert outcome is not None
-        self._held, self._held_rows = [], []
         if outcome is Outcome.COMPLETED:
             self._log_finish()
-            return Terminal(Outcome.COMPLETED, event.z, Eligibility.ELIGIBLE)
+            return Terminal(
+                Outcome.COMPLETED,
+                event.z,
+                Eligibility.ELIGIBLE,
+                None,
+                None,
+                chunk,
+                rows,
+            )
         return Terminal(
             outcome,
             event.z,
             Eligibility.ELIGIBLE,
             self._error(event, outcome),
             ticket,
-            history,
-            held_rows,
+            chunk,
+            rows,
         )
 
     def _log_finish(self) -> None:

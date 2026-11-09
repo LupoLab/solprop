@@ -29,6 +29,7 @@ import pytest
 from backends.low_storage_cases import parity_bound
 from backends.test_low_storage import MARCH
 from bounds import assert_within, gamma, propagation_growth, step_evaluations
+from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.low_storage import LowStorageMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import absorber
@@ -355,13 +356,14 @@ def test_the_march_s_norm_reads_a_mask_with_a_hard_zero(monkeypatch):
     leaf = free_leaf(problem.linear.separable)
     problem, mask = with_masked_bin(on_leaf(problem, leaf), leaf)
     seen = []
-    accept = LowStorageMarch._accept
+    # The reference's march and the native bridge's each accept for themselves.
+    for march in (HostLowStorageMarch, LowStorageMarch):
 
-    def capture(self, z, dz, squared):
-        seen.append(squared)
-        return accept(self, z, dz, squared)
+        def capture(self, z, dz, squared, accept=march._accept):
+            seen.append(squared)
+            return accept(self, z, dz, squared)
 
-    monkeypatch.setattr(LowStorageMarch, "_accept", capture)
+        monkeypatch.setattr(march, "_accept", capture)
     for implementation in (NumpyRefBackend, NativeBackend):
         seen.clear()
         state = run(implementation, problem, grid)

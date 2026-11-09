@@ -10,12 +10,11 @@ falls due, and reports what happened as a short batch of immutable events. Event
 completed work or explicit service requests; none of them is a second live
 controller. Four kinds exist, and the set is closed:
 
-- :class:`ObservationReady`: a requested plane, its statistics, the attempts since
-  the previous observation and, while the batch is pending, an export ticket for its
-  field;
+- :class:`ObservationReady`: a requested plane, its statistics and, while the batch
+  is pending, an export ticket for its field;
 - :class:`ServiceRequired`: an operation the caller must complete before the session
   advances further, such as delivering a warning or persisting a snapshot;
-- :class:`Progress`: attempts and accounting since the previous event, with no field;
+- :class:`Progress`: a bounded yield's accounting, with no field;
 - :class:`Terminal`: the outcome of the run, its committed position and whether that
   position can be resumed.
 
@@ -23,6 +22,22 @@ A batch (:class:`EventBatch`) carries a :class:`Receipt`. Acknowledging the rece
 releases the batch's resources, invalidates its tickets and lets the session advance
 across the barrier the batch ended at. A receipt is good once: acknowledging it twice,
 or acknowledging an older one, is refused, so no barrier is crossed twice.
+
+**Attempts are delivered exactly once, in chunks.** Every event carries the attempts
+(:class:`~solprop.backends.protocol.BackendHistory`) and periodic statistics rows
+(:class:`~solprop.backends.protocol.StepStats`, without a batch axis) made since the
+*previous event*, whatever its kind -- not since the previous observation. Each
+attempt and each row is in exactly one event's chunk, so a session buffers at most
+the attempts of one bounded advance, and a full buffer yields a :class:`Progress`
+rather than discarding records (SEP 47 section 5.3). A row's ``step`` indexes the
+attempts of its own chunk. Wall times count from the start of their chunk.
+
+The consumer assembles what spans several events: a saved plane's history is the
+chunks since the previous observation, its own last (:func:`join_attempts`); a running
+checkpoint's is the chunks since the previous observation up to and including the
+snapshot's, which it includes without consuming, so the next plane still receives
+them; a terminal checkpoint's is the chunks since the previous observation up to and
+including the terminal event's (SEP 47 section 5.5).
 """
 
 from __future__ import annotations
@@ -32,12 +47,12 @@ import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    import numpy as np
+    from collections.abc import Iterable, Mapping
 
 __all__ = [
     "Eligibility",
@@ -53,6 +68,7 @@ __all__ = [
     "ServiceRequired",
     "Terminal",
     "emit_warning",
+    "join_attempts",
 ]
 
 
@@ -184,9 +200,10 @@ class ObservationReady:
         The index of the save plane this observation answers, into the request's save
         planes; ``-1`` for the launch plane.
     history : solprop.backends.protocol.BackendHistory
-        Every attempt since the previous observation, accepted and rejected.
+        Every attempt since the previous event, accepted and rejected: the last chunk
+        of the plane's history (module docstring).
     step_stats : solprop.backends.protocol.StepStats
-        The periodic statistics rows sampled since the previous observation.
+        The periodic statistics rows sampled since the previous event, likewise.
     stats : collections.abc.Mapping
         The plane's statistics by catalogue name, without a row or batch axis.
     summary : solprop.backends.protocol.StepSummary
@@ -224,11 +241,13 @@ class ServiceRequired:
         field a failure checkpoint persists should the warning be raised; ``None``
         otherwise.
     history : solprop.backends.protocol.BackendHistory or None
-        For a snapshot or a warning, the attempts since the previous observation,
-        included in a checkpoint there without being consumed (SEP 47 section 5.5).
+        For a snapshot or a warning, the attempts since the previous event: the last
+        chunk of a checkpoint's history there, which includes the chunks since the
+        previous observation without consuming them (SEP 47 section 5.5). ``None``
+        otherwise.
     step_stats : solprop.backends.protocol.StepStats or None
-        For a snapshot or a warning, the periodic rows since the previous
-        observation, likewise.
+        For a snapshot or a warning, the periodic rows since the previous event,
+        likewise.
     warning : Warning or None
         For a warning, the instance to emit, with every attribute its issuer gives it
         (:func:`emit_warning`); ``None`` to emit `category` with `message`.
@@ -288,19 +307,23 @@ def emit_warning(event: ServiceRequired, *, stacklevel: int = 2) -> None:
 
 @dataclass(frozen=True, eq=False)
 class Progress:
-    """Attempts since the previous event, with no field.
+    """A bounded yield: the attempts since the previous event, with no field.
 
     Attributes
     ----------
     z : float
         Committed position, m.
     history : solprop.backends.protocol.BackendHistory
-        The attempts made since the previous event, for a progress reporter. Delivery
-        changes nothing numerical; the next observation's history still holds them.
+        The attempts made since the previous event, delivered here once; the consumer
+        keeps them for the next plane (module docstring). Delivery changes nothing
+        numerical.
+    step_stats : solprop.backends.protocol.StepStats
+        The periodic rows sampled since the previous event, likewise.
     """
 
     z: float
     history: BackendHistory
+    step_stats: StepStats = field(default_factory=StepStats.empty)
 
 
 @dataclass(frozen=True, eq=False)
@@ -321,10 +344,12 @@ class Terminal:
         The committed field at `z`, exportable for a terminal checkpoint while the batch
         is pending; ``None`` when the state is poisoned.
     history : solprop.backends.protocol.BackendHistory or None
-        The attempts since the last observation, which a terminal checkpoint carries;
-        ``None`` when there are none to report.
+        The attempts since the previous event: the last chunk of a terminal
+        checkpoint's history, which carries every chunk since the previous observation
+        (module docstring). Delivered also for a poisoned state, whose attempts before
+        the abandoned one were made all the same.
     step_stats : solprop.backends.protocol.StepStats or None
-        The periodic rows since the last observation, likewise.
+        The periodic rows since the previous event, likewise.
     """
 
     outcome: Outcome
@@ -368,3 +393,92 @@ class EventBatch:
         if self.events and isinstance(self.events[-1], Terminal):
             return self.events[-1]
         return None
+
+
+def join_attempts(
+    chunks: Iterable[tuple[BackendHistory | None, StepStats | None]],
+) -> tuple[BackendHistory, StepStats]:
+    """Assemble consecutive chunks of attempts and rows into one record.
+
+    The consumer's half of exactly-once chunked delivery (module docstring): a plane's
+    or a checkpoint's history is its chunks in delivery order. Each row's ``step`` is
+    offset by the attempts of the chunks before its own, and each chunk's wall times by
+    the last wall time assembled before it, so the record reads as one span.
+
+    Parameters
+    ----------
+    chunks : iterable
+        ``(history, rows)`` per event, in delivery order; ``None`` for an event that
+        carries none.
+
+    Returns
+    -------
+    tuple
+        The assembled history and rows (rows without a batch axis).
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.backends.events import join_attempts
+    >>> from solprop.backends.protocol import BackendHistory, StepStats
+    >>> def chunk(z, wall):
+    ...     n = len(z)
+    ...     history = BackendHistory(np.array(z), np.full(n, 0.1), np.zeros(n),
+    ...                              np.ones(n, bool), np.array(wall))
+    ...     rows = StepStats(np.array(z[-1:]), np.array([n - 1]),
+    ...                      {"energy": np.array([1.0])})
+    ...     return history, rows
+    >>> first, second = chunk([0.1, 0.2], [1.0, 2.0]), chunk([0.3], [1.0])
+    >>> history, rows = join_attempts([first, second])
+    >>> history.wall_time.tolist(), rows.step.tolist()
+    ([1.0, 2.0, 3.0], [1, 2])
+    """
+    histories: list[BackendHistory] = []
+    rows: list[StepStats] = []
+    attempts = 0
+    wall = 0.0
+    for history, chunk_rows in chunks:
+        if chunk_rows is not None and chunk_rows.n_rows:
+            rows.append(
+                StepStats(chunk_rows.z, chunk_rows.step + attempts, chunk_rows.values)
+            )
+        if history is not None and history.n_steps:
+            histories.append(
+                BackendHistory(
+                    z=history.z,
+                    dz=history.dz,
+                    error_norm=history.error_norm,
+                    accepted=history.accepted,
+                    wall_time=history.wall_time + wall,
+                )
+            )
+            attempts += history.n_steps
+            wall += float(history.wall_time[-1])
+
+    def column(name: str, dtype: type = np.float64) -> np.ndarray:
+        return np.concatenate(
+            [
+                np.empty(0, dtype=dtype),
+                *(getattr(part, name) for part in histories),
+            ]
+        )
+
+    joined = BackendHistory(
+        z=column("z"),
+        dz=column("dz"),
+        error_norm=column("error_norm"),
+        accepted=column("accepted", np.bool_),
+        wall_time=column("wall_time"),
+    )
+    if not rows:
+        return joined, StepStats.empty()
+    if len(rows) == 1:
+        return joined, rows[0]
+    return joined, StepStats(
+        np.concatenate([part.z for part in rows]),
+        np.concatenate([part.step for part in rows]),
+        {
+            name: np.concatenate([part.values[name] for part in rows])
+            for name in rows[0].values
+        },
+    )

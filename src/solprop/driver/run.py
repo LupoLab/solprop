@@ -522,7 +522,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     )
     # The session and its service loop (SEP 47): imported here, since the service
     # loop builds on this module's output transactions.
-    from solprop.backends.driver_session import DriverSession  # noqa: PLC0415
+    from solprop.backends.sessions import start_session  # noqa: PLC0415
     from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
     from solprop.translate.run_request import (  # noqa: PLC0415
         HistoryPolicy,
@@ -544,7 +544,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         start_plane,
         len(spec.names),
     )
-    session = DriverSession(
+    session = start_session(
         backend,
         problem,
         request,

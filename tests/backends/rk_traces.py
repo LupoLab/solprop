@@ -34,6 +34,7 @@ from typing import Any
 import numpy as np
 
 from solprop.backends.driver import StepDriver, reached
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.rk_core import RungeKuttaPolicy
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.controller import PIController
@@ -175,11 +176,13 @@ class _Monitor:
         self.transverse = None if ceiling is None else _Edge(ceiling)
 
 
-class _Harness(StepDriver):
+class _Scripted:
     """A stub backend: the driver surface the Runge-Kutta march calls, recording it.
 
     Built without the driver's initialiser, which needs a translated problem; the march
-    reads only the members set here and the methods overridden below.
+    reads only the members set here and the methods overridden below. Mixed into each
+    driver family: the native bridge's (:class:`_Harness`) and the reference's own
+    (:class:`_HostHarness`, SEP 47 phase 2), whose marches must decide alike.
     """
 
     name = "scripted"
@@ -312,13 +315,24 @@ class _Harness(StepDriver):
         }
 
 
-def run_scenario(scenario: Scenario) -> dict[str, Any]:
-    """Run a scenario through the current Runge-Kutta march and return its trace.
+class _Harness(_Scripted, StepDriver):
+    """The stub over the native bridge's driver."""
+
+
+class _HostHarness(_Scripted, HostDriver):
+    """The stub over the reference's own driver."""
+
+
+def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
+    """Run a scenario through a Python Runge-Kutta march and return its trace.
 
     Parameters
     ----------
     scenario : Scenario
         The scripted march.
+    host : bool, optional
+        Whether to run the reference's driver (the default) or the native bridge's
+        copy.
 
     Returns
     -------
@@ -328,7 +342,7 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
         or the exception's class and message) with the controller's state at that
         point, including any attempt left in flight.
     """
-    harness = _Harness(scenario)
+    harness = _HostHarness(scenario) if host else _Harness(scenario)
     if scenario.targets is not None:
         targets = list(scenario.targets)
     elif not scenario.save_planes:

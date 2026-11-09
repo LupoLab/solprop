@@ -49,8 +49,9 @@ The spine on the left is the call sequence, from the convenience function down t
 plots; the column on the right is what each stage hands to the next, in the colour of the
 layer that owns it. The annotations between them are
 [architecture.md §5](architecture.md)'s own. The thing to notice is where the boundary
-falls: the outer driver visits save planes, while `StepDriver.propagate_to` runs the
-shared Python step loop. Reference passes, compiled kernels and library transforms,
+falls: the outer driver visits save planes, while the step driver's `propagate_to` runs
+the Python step loop (the reference's `HostDriver`, or the native bridge's
+`StepDriver`, [SEP 47](seps/sep-0047-run-ownership.md) phase 2). Reference passes, compiled kernels and library transforms,
 or one native trial do the numerical work behind that loop.
 
 ![One run of solprop, from prop_capillary through the kernel problem and the step driver to a saved plane](figures/one_run.svg)
@@ -90,7 +91,9 @@ Text: [architecture.md §8](architecture.md) for the passes,
 
 The seam at the top is the whole of what a backend is. Under it is the step loop no
 backend reimplements — the march, the replay, the landing, the controller, the history,
-the noise and the per-stage bundle all live in `backends/driver.py` — and under that the
+the noise and the per-stage bundle all live in the step driver — the reference's own in
+`backends/host/driver.py` and the native bridge's temporary copy in `backends/driver.py`
+since [SEP 47](seps/sep-0047-run-ownership.md) phase 2 — and under that the
 the implemented backends: NumPy reference and native (built from `native/`). Each
 supplies trial/state operations and the relevant hooks; the loop's
 statistics channel and progress reporter call back through the seam. Fixed fibre

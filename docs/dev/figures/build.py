@@ -697,6 +697,7 @@ MODULES = {
                 "precision",
                 "tdse",
                 "tdse_source",
+                "run_request",
             ),
         ),
     ),
@@ -717,6 +718,22 @@ MODULES = {
                 "rk_core",
                 "exponential",
                 "low_storage",
+                "session",
+                "events",
+                "export",
+                "driver_session",
+                "sessions",
+            ),
+        ),
+        Module(
+            "backends/host/",
+            (
+                "driver",
+                "adams",
+                "general",
+                "low_storage",
+                "group",
+                "session",
             ),
         ),
         Module(
@@ -795,6 +812,7 @@ MODULES = {
                 "defaults",
                 "estimate",
                 "plane_view",
+                "service",
             ),
         ),
         Module(
@@ -2611,7 +2629,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "backends/driver.py  ·  StepDriver, and no backend reimplements it",
+        "HostDriver (reference)  ·  StepDriver (native bridge)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

@@ -397,10 +397,14 @@ def test_a_warned_step_s_row_follows_its_barrier_indexed_once(march):
     )
     _compare(driver, native)
     assert native.warning_events
-    for event in native.run.observations[1:]:
-        rows = event.step_stats
-        assert rows.n_rows == int(event.history.accepted.sum())
-        np.testing.assert_array_equal(event.history.z[rows.step], rows.z)
+    # A warning chunk's row indexes the chunk before it (-1): assembled, as the
+    # service loop does, every row indexes its own step's attempt once.
+    assert any((rows.step < 0).any() for _, rows in native.run.chunks if rows.n_rows)
+    for event, history, rows in native.run.assembled()[1:]:
+        if not isinstance(event, ObservationReady):
+            continue
+        assert rows.n_rows == int(history.accepted.sum())
+        np.testing.assert_array_equal(history.z[rows.step], rows.z)
 
 
 def _through_serve(simulation: Simulation, kind: str, *, error: bool = False) -> Any:

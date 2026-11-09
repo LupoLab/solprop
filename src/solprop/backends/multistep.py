@@ -19,7 +19,7 @@ its state, so no table is queried backwards. Every derivative keeps its position
 the identity of the field it was evaluated at -- the accepted field, or the predicted
 one PEC stores in its place.
 
-The march is shared: a backend supplies two hooks of the step driver,
+The march is shared by its two copies: a backend supplies two hooks of the step driver,
 ``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
 anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
 recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
@@ -38,6 +38,15 @@ section 6.1):
 - a hard kink is landed on and the history restarted on its far side; a save plane is
   a pure observation and keeps the history;
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
+
+**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
+:class:`AdamsMarch` serves only the native backend's inherited driver, as the bridge
+that keeps its execution working until its own session replaces it; the NumPy reference
+marches with its own copy (:class:`solprop.backends.host.adams.HostAdamsMarch`). The
+rest of this module -- the kernels, the host engine :class:`HostHistory`, the tables and
+the call ledger -- is stateless numerical code both share. :class:`AdamsMarch` is
+removed with SEP 47's native session: the native backend leaves it in phase 3 and
+phase 5 deletes it.
 """
 
 import logging
@@ -53,12 +62,12 @@ from scipy.linalg import expm
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
-from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
     phi_functions,
 )
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
@@ -78,6 +87,7 @@ from solprop.translate.linop import phi_rate
 from solprop.translate.tdse import TDSEPurpose
 
 if TYPE_CHECKING:
+    from solprop.backends.driver import StepDriver
     from solprop.backends.multistep_general import GeneralPath
 
 __all__ = [
@@ -2019,8 +2029,10 @@ class HostHistory:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state, source evaluation and propagators are used.
+    backend : StepDriver or HostDriver
+        The backend whose state, source evaluation and propagators are used: the native
+        bridge's inherited driver (:class:`solprop.backends.driver.StepDriver`) or the
+        reference's own (:class:`solprop.backends.host.driver.HostDriver`, SEP 47).
     method : solprop.stepper.multistep.Multistep
         The method.
     kernels : AdamsKernels
@@ -2033,7 +2045,7 @@ class HostHistory:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels,
         exponential: ExponentialKernels | None,
@@ -2901,7 +2913,10 @@ def _rows_read(
     return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
-def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
+def _divisor(
+    backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
+    state: _State,
+) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
     See :func:`solprop.backends.multistep_general._norm_function` for why the state
@@ -2909,7 +2924,7 @@ def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
+    backend : StepDriver or HostDriver
         The backend, for the controller and the in-band mask.
     state : numpy.ndarray
         The accepted state before the step.
@@ -2954,7 +2969,7 @@ class AdamsMarch:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: "StepDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,

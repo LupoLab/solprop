@@ -325,6 +325,9 @@ void Session::drain(Batch& batch) {
   // Exactly-once delivery: the chunk moves into the batch, and the buffers start
   // again at their bounded capacity.
   batch.attempts = std::move(history_);
+  // Each chunk's wall times start at the previous event (`join_attempts` offsets
+  // them by the chunks before).
+  clock_ = Clock::now();
   history_ = {};
   history_.reserve(attempt_columns * plan_.attempt_capacity);
   batch.row_width = row_width_;
@@ -354,7 +357,6 @@ Event Session::observe(Batch& batch, const Observation kind, const std::int64_t 
     event.has_stats = true;
   }
   drain(batch);
-  clock_ = Clock::now();
   return event;
 }
 

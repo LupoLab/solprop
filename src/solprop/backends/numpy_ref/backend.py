@@ -31,9 +31,9 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Num
 
 from solprop._helpers import PLAIN
-from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
-from solprop.backends.low_storage import LowStorageMarch
+from solprop.backends.host.driver import HostDriver, refuse_general_leaves
+from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.admission import (
@@ -134,7 +134,7 @@ become the largest error in the step. The number is a judgement, not a measureme
 """
 
 
-class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
+class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
     """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
 
     The oracle of ``docs/dev/backends.md`` section 2. It implements
@@ -296,14 +296,14 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         integrator = problem.stepper.integrator
         self._adams = None
         if isinstance(integrator, Multistep):
-            # The shared march reads this package's passes, so it is imported when a
-            # run asks for it rather than with the package.
-            from solprop.backends.multistep import AdamsMarch  # noqa: PLC0415
+            # The march's engine reads this package's passes, so it is imported when
+            # a run asks for it rather than with the package.
+            from solprop.backends.host.adams import HostAdamsMarch  # noqa: PLC0415
 
-            self._adams = AdamsMarch(self, integrator)
+            self._adams = HostAdamsMarch(self, integrator)
         elif isinstance(integrator, LowStorageRungeKutta):
             # The host engine is the oracle (SEP 24 section 6.5).
-            self._low_storage = LowStorageMarch(self, integrator)
+            self._low_storage = HostLowStorageMarch(self, integrator)
         self._adams_held: (
             tuple[float, float, StageScalars, Complex[np.ndarray, ...]] | None
         ) = None
@@ -1214,8 +1214,8 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         z : float, optional
             The position the state belongs to, m; positive for a resume, which starts
             the history afresh unless
-            :meth:`~solprop.backends.driver.StepDriver.restore_march` then continues
-            it.
+            :meth:`~solprop.backends.host.driver.HostDriver.restore_march` then
+            continues it.
         resume : bool, optional
             Whether `field` came back from a saved plane, and so never takes the
             ``input`` draw.

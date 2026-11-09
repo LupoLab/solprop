@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
-from solprop.backends.multistep import AdamsMarch
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
@@ -81,7 +81,7 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
     backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
     if compensation is not None:
         method = problem.stepper.integrator
-        backend._adams = AdamsMarch(backend, method, compensation=compensation)
+        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, fields = [], []

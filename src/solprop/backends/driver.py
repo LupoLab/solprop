@@ -11,9 +11,14 @@ else. Written once here, they are the same
 step control on every backend, so a change to ``docs/dev/stepper.md`` section 3 is made
 in one place and a disagreement between two backends can only be the kernels.
 
-**Every backend runs this loop**, the reference included: the oracle is the passes and
-the per-element arithmetic, not the march, and a march written twice has to be kept
-identical by hand.
+**The native bridge's temporary copy.** Since SEP 47 phase 2 only the native backend
+runs this loop, as the bridge that keeps its execution working until its own session
+replaces it; the NumPy reference runs its own copy
+(:class:`solprop.backends.host.driver.HostDriver`) and shares stateless numerical
+modules with this one, plus the exceptions :mod:`solprop.backends.host` records. This
+module is removed with SEP 47's native session: the native backend leaves it in phase 3
+and phase 5 deletes it.
+
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
 ``_begin_plane`` and ``_on_accepted_step``, are where a backend scores whatever a plane
@@ -677,9 +682,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         SEP 24 section 6.4: :class:`solprop.backends.low_storage.LowStorageMarch`
         replays the schedule and commits each step; an engine
         (:class:`~solprop.backends.low_storage.LowStorageEngine`) holds the registers
-        and makes the step's four passes. ``None``, the default, takes the host engine
-        (:class:`~solprop.backends.low_storage.HostLowStorage`) over this backend's
-        :meth:`_adams_lab_source` and :meth:`_adams_propagator`.
+        and makes the step's four passes. The native backend, the only one on this
+        bridge since SEP 47 phase 2, keeps its registers resident and returns its
+        engine; the reference marches on its own driver's host engine.
 
         Parameters
         ----------
@@ -689,10 +694,14 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         object
-            The backend's own engine, or ``None`` for the host one.
+            The backend's own engine.
+
+        Raises
+        ------
+        NotImplementedError
+            Always: a backend on this bridge supplies its own engine.
         """
-        del method
-        return None
+        raise NotImplementedError
 
     def _adams_propagator(
         self, anchor: float, position: float

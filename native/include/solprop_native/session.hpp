@@ -252,7 +252,7 @@ struct Event {
 };
 
 /** Columns of one attempt row: its end, step, scaled norm, acceptance and the wall
-    time since the previous observation, s. */
+    time since the previous event, s. */
 constexpr std::size_t attempt_columns = 5;
 
 /** What one `advance` reports (SEP 47 section 5.3, exactly-once chunked delivery): one

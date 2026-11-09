@@ -12,15 +12,16 @@ its run request and a start, it returns a started :class:`~solprop.backends.sess
 RunSession` with whatever probes the implementation can offer. Every executor answers
 the same tests.
 
-- ``reference`` is the NumPy reference. Today it is the transitional
-  :class:`~solprop.backends.driver_session.DriverSession` over ``numpy_ref``; the
-  independent host session replaces its factory in :data:`EXECUTORS`, one line.
+- ``reference`` is the NumPy reference, in its own session
+  (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
 - ``native`` is the compiled backend, through the same transitional session until its
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
 - ``native-session`` is the native execution session itself
   (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
   native backend owns the run, its boundary monitor included, whose decisions and
   record are native (:attr:`Executor.native_monitor`).
+- ``scripted-host`` is the same script on the reference's own driver, in the
+  reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
@@ -37,7 +38,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from scripted_driver import SCALE, ScriptedDriver
+from scripted_driver import SCALE, HostScriptedDriver, ScriptedDriver
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
@@ -46,8 +47,10 @@ from solprop.backends.events import (
     ServiceRequired,
     Terminal,
     emit_warning,
+    join_attempts,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.backends.registry import select
 from solprop.backends.session import (
@@ -83,6 +86,11 @@ FACTOR = 2.0
 
 REJECTED = 5.0
 """The norm a scripted rejection scores, far above the controller's threshold of one."""
+
+EMPTY = BackendHistory(
+    np.empty(0), np.empty(0), np.empty(0), np.empty(0, dtype=np.bool_), np.empty(0)
+)
+"""An empty attempt record."""
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 CONSUMER = ExportRecipe(power=True, optics=False)
@@ -178,7 +186,7 @@ class ScriptedWarning(UserWarning):
     """What a scripted committed endpoint warns with."""
 
 
-class SessionScript(ScriptedDriver):
+class _Outcomes:
     """A scripted driver with the outcomes the lifecycle tests choose.
 
     Trials and accepted steps are counted from 1 since the load.
@@ -211,7 +219,7 @@ class SessionScript(ScriptedDriver):
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)
+        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
@@ -226,11 +234,11 @@ class SessionScript(ScriptedDriver):
                 self._in_flight = (z, dz)
             msg = f"scripted failure at trial {self.trials}"
             raise ScriptedError(msg)
-        norm, state = super()._trial_step(z, dz)
+        norm, state = super()._trial_step(z, dz)  # pyright: ignore[reportAttributeAccessIssue]
         return (REJECTED if self.trials in self._reject_at else norm), state
 
     def _take_step_stats(self):
-        super()._take_step_stats()
+        super()._take_step_stats()  # pyright: ignore[reportAttributeAccessIssue]
         self.accepted += 1
         if self.accepted == self._warn_at:
             warnings.warn(
@@ -238,6 +246,14 @@ class SessionScript(ScriptedDriver):
                 ScriptedWarning,
                 stacklevel=2,
             )
+
+
+class SessionScript(_Outcomes, ScriptedDriver):
+    """The scripted outcomes on the native bridge's inherited driver."""
+
+
+class HostSessionScript(_Outcomes, HostScriptedDriver):
+    """The scripted outcomes on the reference's own driver (SEP 47 phase 2)."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -278,8 +294,10 @@ class Factory(Protocol):
         ...
 
 
-def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
-    """Return a factory of transitional sessions over a step driver.
+def _over_driver(
+    make: Callable[..., Any], *, host_state: bool, session: type = DriverSession
+) -> Factory:
+    """Return a factory of sessions over a step driver.
 
     Parameters
     ----------
@@ -287,6 +305,8 @@ def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
         ``(problem, **script) -> driver``.
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
+    session : type, optional
+        The session class: the transitional session by default.
 
     Returns
     -------
@@ -304,11 +324,9 @@ def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
             return observe(field=field)
 
         driver.observe = counted
-        session = DriverSession(
-            driver, problem, request, start, listener=listener, stop=stop
-        )
+        started = session(driver, problem, request, start, listener=listener, stop=stop)
         return Started(
-            session,
+            started,
             field_reads=lambda: reads[0],
             live_state=(lambda: driver._state) if host_state else None,
         )
@@ -334,6 +352,24 @@ def _selected(name: str) -> Callable[..., Any]:
         return select(name, problem, grid=window(), modes=[fibre().mode])
 
     return make
+
+
+def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
+    """Return a scripted driver on the reference's own driver for a problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    **script
+        The outcomes, as :class:`SessionScript` takes them.
+
+    Returns
+    -------
+    HostSessionScript
+        The driver.
+    """
+    return HostSessionScript(problem, grid=window(), **script)
 
 
 def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
@@ -473,9 +509,9 @@ class Executor:
 
 
 EXECUTORS: dict[str, Executor] = {
-    # The independent host session (SEP 47 phase 2) replaces this factory.
     "reference": Executor(
-        "reference", _over_driver(_selected("numpy_ref"), host_state=True)
+        "reference",
+        _over_driver(_selected("numpy_ref"), host_state=True, session=HostSession),
     ),
     "native": Executor(
         "native",
@@ -490,6 +526,11 @@ EXECUTORS: dict[str, Executor] = {
         _native_session,
         requires="solprop_native",
         native_monitor=True,
+    ),
+    "scripted-host": Executor(
+        "scripted-host",
+        _over_driver(_host_scripted, host_state=True, session=HostSession),
+        scripted=True,
     ),
 }
 """Every executor of the suite, by name."""
@@ -550,20 +591,59 @@ class Run:
         return terminal
 
     @property
-    def histories(self) -> list[BackendHistory]:
-        """Return each attempt record exactly once: the observations' and terminal's.
+    def chunks(self) -> list[tuple[BackendHistory, StepStats]]:
+        """Return every event's chunk of attempts and rows, in delivery order.
 
-        Progress and snapshot events repeat attempts a later observation carries again
-        (SEP 47 section 5.5), so they are not counted.
+        Each attempt and row is delivered once, by the first event after it, of any
+        kind (SEP 47 section 5.3); an event that carries none gives an empty chunk.
+
+        Returns
+        -------
+        list
+            ``(history, rows)`` per event.
+        """
+        found = []
+        for event in self.events:
+            history = getattr(event, "history", None)
+            rows = getattr(event, "step_stats", None)
+            found.append(
+                (
+                    EMPTY if history is None else history,
+                    StepStats.empty() if rows is None else rows,
+                )
+            )
+        return found
+
+    @property
+    def histories(self) -> list[BackendHistory]:
+        """Return each attempt record exactly once: every event's chunk.
 
         Returns
         -------
         list
             The histories, in committed order.
         """
-        found = [event.history for event in self.observations]
-        if self.terminal.history is not None:
-            found.append(self.terminal.history)
+        return [history for history, _ in self.chunks]
+
+    def assembled(self) -> list[tuple[object, BackendHistory, StepStats]]:
+        """Assemble the chunks as the service loop does, per observation and terminal.
+
+        An observation takes every chunk since the previous observation, its own last;
+        the terminal event likewise, as a terminal checkpoint does. Snapshot and
+        progress chunks are kept for the next of them.
+
+        Returns
+        -------
+        list
+            ``(event, history, rows)`` per observation and for the terminal event.
+        """
+        found: list[tuple[object, BackendHistory, StepStats]] = []
+        held: list[tuple[BackendHistory, StepStats]] = []
+        for event, chunk in zip(self.events, self.chunks, strict=True):
+            held.append(chunk)
+            if isinstance(event, ObservationReady | Terminal):
+                found.append((event, *join_attempts(held)))
+                held = []
         return found
 
     @property
@@ -692,9 +772,10 @@ def _rows(rows: StepStats | None) -> tuple[object, ...]:
 def trace(run: Run) -> list[tuple[object, ...]]:
     """Return a run's numerical and control trace, exactly comparable.
 
-    Every observation's kind, plane, position, attempts (without wall times), periodic
-    rows and statistics, and the terminal outcome with its attempts and rows. Snapshot
-    and progress events are left out: their attempts reappear in the next observation.
+    Every observation's kind, plane, position, assembled attempts (without wall times),
+    periodic rows and statistics, and the terminal outcome with its assembled attempts
+    and rows (:meth:`Run.assembled`). Snapshot and progress events are left out as
+    events: their chunks are assembled into the next observation's.
 
     Parameters
     ----------
@@ -707,7 +788,7 @@ def trace(run: Run) -> list[tuple[object, ...]]:
         One tuple per observation and one for the terminal event.
     """
     found: list[tuple[object, ...]] = []
-    for event in run.events:
+    for event, history, rows in run.assembled():
         if isinstance(event, ObservationReady):
             found.append(
                 (
@@ -715,8 +796,8 @@ def trace(run: Run) -> list[tuple[object, ...]]:
                     event.kind,
                     event.plane_index,
                     event.z,
-                    _history(event.history),
-                    _rows(event.step_stats),
+                    _history(history),
+                    _rows(rows),
                     tuple(
                         (name, np.ascontiguousarray(event.stats[name]).tobytes())
                         for name in sorted(event.stats)
@@ -730,8 +811,8 @@ def trace(run: Run) -> list[tuple[object, ...]]:
                     event.outcome,
                     event.z,
                     event.eligibility,
-                    _history(event.history),
-                    _rows(event.step_stats),
+                    _history(history),
+                    _rows(rows),
                 )
             )
     return found

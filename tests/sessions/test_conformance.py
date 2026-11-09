@@ -44,9 +44,11 @@ from solprop.backends.events import (
     ObservationKind,
     ObservationReady,
     Outcome,
+    Progress,
     ServiceKind,
     ServiceRequired,
     Terminal,
+    join_attempts,
 )
 from solprop.backends.session import (
     RunSession,
@@ -417,31 +419,48 @@ def _assert_committed_order(run: Run) -> None:
     assert [event.z for event in planes] == list(PLANES)
     positions = [event.z for event in observations]
     assert positions == sorted(positions) and len(set(positions)) == len(positions)
-    accepted = 0
-    for event in observations[1:]:
-        history = event.history
-        before = accepted
-        accepted += int(history.accepted.sum())
-        assert event.stats.keys() == {"energy", "peak_power"}
-        if event.kind is ObservationKind.STEP:
-            assert accepted % 3 == 0
-            low = PLANES[event.plane_index - 1] if event.plane_index else 0.0
-            assert low < event.z < PLANES[event.plane_index]
-        rows = event.step_stats
-        assert rows.values.keys() == {"energy"}
-        assert rows.values["energy"].shape == (
-            rows.n_rows,
-            *event.stats["energy"].shape,
-        )
-        if rows.n_rows:
-            np.testing.assert_array_equal(history.z[rows.step], rows.z)
-            assert history.accepted[rows.step].all()
-            counted = before + np.cumsum(history.accepted)[rows.step]
-            assert (counted % 2 == 0).all()
+    _check_chunks(run, observations[-1].stats["energy"].shape, period=2)
     assert run.attempts == run.status.attempts > 0
     assert sum(int((~history.accepted).sum()) for history in run.histories) == (
         run.status.rejected
     )
+
+
+def _check_chunks(run: Run, shape: tuple[int, ...], period: int) -> None:
+    """Check every event's chunk of a run with step planes every third step.
+
+    A row's step indexes its own chunk's attempts, rows fall on every `period`-th
+    accepted step, step planes on every third, and statistics carry no batch axis.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The run.
+    shape : tuple
+        The ``energy`` statistic's shape at a plane.
+    period : int
+        The rows' period, accepted steps.
+    """
+    accepted = 0
+    for event, (history, rows) in zip(run.events, run.chunks, strict=True):
+        before = accepted
+        accepted += int(history.accepted.sum())
+        if isinstance(event, ObservationReady) and event.kind is not (
+            ObservationKind.LAUNCH
+        ):
+            assert event.stats.keys() == {"energy", "peak_power"}
+            assert event.stats["energy"].shape == shape
+        if isinstance(event, ObservationReady) and event.kind is ObservationKind.STEP:
+            assert accepted % 3 == 0
+            low = PLANES[event.plane_index - 1] if event.plane_index else 0.0
+            assert low < event.z < PLANES[event.plane_index]
+        if rows.n_rows:
+            assert rows.values.keys() == {"energy"}
+            assert rows.values["energy"].shape == (rows.n_rows, *shape)
+            np.testing.assert_array_equal(history.z[rows.step], rows.z)
+            assert history.accepted[rows.step].all()
+            counted = before + np.cumsum(history.accepted)[rows.step]
+            assert (counted % period == 0).all()
 
 
 def test_attempt_records_add_up_to_the_status(start):
@@ -451,6 +470,41 @@ def test_attempt_records_add_up_to_the_status(start):
     assert run.attempts == run.status.attempts == started.session.status().attempts
     ends = run.accepted_ends()
     assert (np.diff(ends) > 0).all() and ends[-1] == LENGTH
+
+
+@pytest.mark.parametrize("work_limit", [1, 3, 10**6])
+def test_every_attempt_and_row_is_delivered_exactly_once(start, work_limit):
+    """SEP 47 section 5.3: event storage is bounded; chunks are delivered once.
+
+    Each event, a yield's progress as much as a plane, a snapshot or the terminal
+    event, delivers the attempts since the previous event. Taken in order the chunks
+    are every attempt the listener heard, each once, and every periodic row, each
+    once; a yield bound of one attempt yields progress events that carry them.
+    """
+    holder: list[RunSession] = []
+    heard: list[tuple[float, float, bool]] = []
+
+    def listener(z: float, dz: float, accepted: bool) -> None:
+        heard.append((z, dz, accepted))
+        if len(heard) % 5 == 0:
+            holder[0].request_snapshot()
+
+    started = start(soliton(step_planes=3, period=1), listener=listener)
+    holder.append(started.session)
+    run = drive(started, work_limit=work_limit)
+    history, rows = join_attempts(run.chunks)
+    np.testing.assert_array_equal(history.z, [z for z, _, _ in heard])
+    np.testing.assert_array_equal(history.dz, [dz for _, dz, _ in heard])
+    np.testing.assert_array_equal(history.accepted, [ok for _, _, ok in heard])
+    assert run.attempts == run.status.attempts == len(heard)
+    # Period one: a row at every accepted endpoint, each once, at its own attempt.
+    np.testing.assert_array_equal(rows.z, history.z[history.accepted])
+    np.testing.assert_array_equal(rows.step, np.flatnonzero(history.accepted))
+    assert any(isinstance(event, ServiceRequired) for event in run.events)
+    progress = [event for event in run.events if isinstance(event, Progress)]
+    if work_limit == 1:
+        assert progress and all(event.history.n_steps for event in progress)
+    _check_chunks(run, run.observations[-1].stats["energy"].shape, period=1)
 
 
 # ------------------------------------------------------------------- field-free
@@ -710,8 +764,9 @@ def test_a_snapshot_requested_at_the_entrance_waits_for_an_accepted_endpoint(sta
     """SEP 47 section 5.5: a snapshot latch is serviced at the next accepted endpoint.
 
     The entrance is not an accepted endpoint, so a request made there is serviced at
-    the end of the first accepted step, with the attempts that reached it; the next
-    plane still carries them.
+    the end of the first accepted step, delivering the attempts that reached it; the
+    next plane delivers only the attempts after them, and the two chunks assemble into
+    the plane's history.
     """
     started = start(soliton())
     session = started.session
@@ -733,11 +788,16 @@ def test_a_snapshot_requested_at_the_entrance_waits_for_an_accepted_endpoint(sta
     session.acknowledge(batch.receipt)
     batch, plane = _next_observation(session)
     assert plane.kind is ObservationKind.PLANE and plane.plane_index == 0
-    for column in ("z", "dz", "error_norm", "accepted"):
-        np.testing.assert_array_equal(
-            getattr(plane.history, column)[: snapshot.history.n_steps],
-            getattr(snapshot.history, column),
-        )
+    assert plane.history.n_steps > 0
+    assert plane.history.z[0] > snapshot.z  # nothing delivered twice
+    history, _ = join_attempts(
+        [
+            (snapshot.history, snapshot.step_stats),
+            (plane.history, plane.step_stats),
+        ]
+    )
+    assert history.accepted.sum() == 1 + plane.history.accepted.sum()
+    assert history.z[-1] == plane.z
 
 
 def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(start):
@@ -746,8 +806,8 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
 
     The request is latched at the first trial after the first plane (from the attempt
     listener, standing in for a control token set at that attempt). It is serviced at
-    the next accepted endpoint; its history and rows are those since the first plane,
-    and the second plane's are the same, followed by the rest.
+    the next accepted endpoint, delivering the attempts and rows since the first plane;
+    the second plane delivers the rest, and its assembled record is the two chunks.
     """
     holder: list[RunSession] = []
     heard: list[tuple[float, float, bool]] = []
@@ -772,22 +832,34 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
     )
     end = next(z for z, _, accepted in heard[requested:] if accepted)
     assert snapshot.z == end
-    launch, first, second = run.observations[:3]
+    _, first, second = run.observations[:3]
     assert (first.plane_index, second.plane_index) == (0, 1)
     assert first.z < snapshot.z < second.z
     assert snapshot.history is not None and snapshot.step_stats is not None
-    # The attempts from the first plane to the endpoint, that one included.
+    # The attempts from the first plane to the endpoint, that one included: the
+    # chunks the events after the first plane delivered, up to the snapshot's own
+    # (progress events, from bounded yields or a listener, deliver some first).
+    events, chunks = run.events, run.chunks
+    after_first = events.index(first) + 1
+    upto = events.index(snapshot) + 1
+    delivered = sum(history.n_steps for history, _ in chunks[:after_first])
     reached = [z for z, _, _ in heard].index(end) + 1
-    count = reached - launch.history.n_steps - first.history.n_steps
-    assert snapshot.history.n_steps == count
-    for column in ("z", "dz", "error_norm", "accepted"):
-        np.testing.assert_array_equal(
-            getattr(second.history, column)[:count], getattr(snapshot.history, column)
-        )
-    rows = snapshot.step_stats
-    assert rows.n_rows == int(snapshot.history.accepted.sum())
-    np.testing.assert_array_equal(second.step_stats.z[: rows.n_rows], rows.z)
-    np.testing.assert_array_equal(second.step_stats.step[: rows.n_rows], rows.step)
+    count = reached - delivered
+    since, rows = join_attempts(chunks[after_first:upto])
+    assert since.n_steps == count
+    assert rows.n_rows == int(since.accepted.sum())
+    np.testing.assert_array_equal(since.z[rows.step], rows.z)
+    # The chunks after it deliver only what followed; assembled, the record is whole.
+    later, _ = join_attempts(chunks[upto : events.index(second) + 1])
+    assert later.n_steps == 0 or later.z[0] > snapshot.z
+    ((_, history, assembled),) = [
+        entry for entry in run.assembled() if entry[0] is second
+    ]
+    assert history.n_steps == count + later.n_steps
+    heard_since = heard[reached - count : reached + later.n_steps]
+    np.testing.assert_array_equal(history.z, [z for z, _, _ in heard_since])
+    np.testing.assert_array_equal(assembled.z[: rows.n_rows], rows.z)
+    np.testing.assert_array_equal(assembled.step[: rows.n_rows], rows.step)
     assert run.attempts == run.status.attempts
 
 

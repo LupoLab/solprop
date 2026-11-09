@@ -26,6 +26,7 @@ from bounds import assert_within, fft_bound, step_evaluations
 from driver.test_field_free_planes import cartesian, low_storage, replay_bound
 from runtime_types import unchecked
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import available, select
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationRunner
@@ -218,7 +219,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
     with simulation.runner() as runner:
         with pytest.raises(RuntimeError, match="on purpose"):
             runner.run(inputs(simulation)[0], progress=_Stop())
-        left = cast("StepDriver", runner.backend)
+        left = cast("StepDriver | HostDriver", runner.backend)
         if dense:
             # The failed run held the march ahead of its interpolated plane.
             assert left._dense_ahead is not None

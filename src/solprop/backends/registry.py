@@ -41,7 +41,7 @@ from solprop.translate.problem import KernelProblem
 from solprop.translate.tdse import TDSEBinding
 
 if TYPE_CHECKING:
-    from solprop.backends.driver import StepDriver
+    from solprop.backends.host.driver import HostDriver
 
 __all__ = [
     "BACKENDS",
@@ -531,12 +531,12 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
         if any(isinstance(owner, NumpySingleBackend) for owner in owners):
             # NumpyBatchBackend's stage arithmetic over the member axis is binary64;
             # the single-precision path's members each take their own binary32
-            # trial. The runner's member validation refuses mixed precisions.
-            from solprop.backends.batch import (  # noqa: PLC0415 - lazy backend
-                LockstepRunner,
+            # trial. The group's member validation refuses mixed precisions.
+            from solprop.backends.host.group import (  # noqa: PLC0415 - lazy backend
+                HostGroup,
             )
 
-            return LockstepRunner(cast("Sequence[StepDriver[object]]", owners))
+            return HostGroup(cast("Sequence[HostDriver[object]]", owners))
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
     if name == "native":
         # The native package has its own strict type gate.

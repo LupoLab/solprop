@@ -34,6 +34,8 @@ import numpy as np
 from solprop._helpers import PLAIN
 from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import CarrierChord, CarrierReference
+from solprop.backends.host.adams import HostAdamsMarch
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.multistep import AdamsKernels, AdamsMarch, ExponentialKernels
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.stepper.multistep import Multistep
@@ -133,7 +135,7 @@ class Scenario:
 class _Engine:
     """The engine a march hands its state-sized work to, replaced by a script."""
 
-    def __init__(self, harness: _Harness, method: Multistep) -> None:
+    def __init__(self, harness: _Scripted, method: Multistep) -> None:
         self.harness = harness
         self.n_slots = method.order + 2
         self.dense = None
@@ -255,11 +257,13 @@ class _Monitor:
         self.interval = interval
 
 
-class _Harness(StepDriver):
-    """A stub backend: the driver surface :class:`AdamsMarch` calls, recording it.
+class _Scripted:
+    """A stub backend: the driver surface an Adams march calls, recording it.
 
     Built without the driver's initialiser, which needs a translated problem; the march
-    reads only the members set here and the methods overridden below.
+    reads only the members set here and the methods overridden below. Mixed into each
+    driver family: the native bridge's (:class:`_Harness`) and the reference's own
+    (:class:`_HostHarness`, SEP 47 phase 2), whose marches must decide alike.
     """
 
     name = "scripted"
@@ -284,7 +288,7 @@ class _Harness(StepDriver):
         self.pending: dict[str, Any] = {}
         self.events: list[dict[str, Any]] = []
         self.engine: _Engine | None = None
-        self.march: AdamsMarch | None = None
+        self.march: AdamsMarch | HostAdamsMarch | None = None
 
     # The driver's abstract members, which the march never calls.
 
@@ -298,10 +302,6 @@ class _Harness(StepDriver):
         raise NotImplementedError
 
     # The driver surface the march uses.
-
-    def _adams_engine(self, method: Multistep, compensation: str) -> _Engine:
-        self.engine = _Engine(self, method)
-        return self.engine
 
     def _adams_state(self) -> np.ndarray:
         return np.zeros((1, 1, 1, 1), dtype=np.complex128)
@@ -337,6 +337,20 @@ class _Harness(StepDriver):
         self.pending = {}
 
 
+class _Harness(_Scripted, StepDriver):
+    """The stub over the native bridge's driver, which hands the march its engine."""
+
+    def _adams_engine(self, method: Multistep, compensation: str) -> _Engine:
+        self.engine = _Engine(self, method)
+        return self.engine
+
+
+class _HostHarness(_Scripted, HostDriver):
+    """The stub over the reference's driver; the engine is given to its march."""
+
+    helpers = PLAIN
+
+
 LEDGER = (
     "startup",
     "predictor",
@@ -350,14 +364,16 @@ LEDGER = (
 """The call ledger's counters, in the order a trace lists them."""
 
 
-def _march_state(harness: _Harness, march: AdamsMarch) -> dict[str, Any]:
+def _march_state(
+    harness: _Scripted, march: AdamsMarch | HostAdamsMarch
+) -> dict[str, Any]:
     """Return the march's controller state after an attempt.
 
     Parameters
     ----------
-    harness : _Harness
+    harness : _Scripted
         The stub backend.
-    march : AdamsMarch
+    march : AdamsMarch or HostAdamsMarch
         The march.
 
     Returns
@@ -380,13 +396,16 @@ def _march_state(harness: _Harness, march: AdamsMarch) -> dict[str, Any]:
     }
 
 
-def run_scenario(scenario: Scenario) -> dict[str, Any]:
-    """Run a scenario through the current :class:`AdamsMarch` and return its trace.
+def run_scenario(scenario: Scenario, *, host: bool = True) -> dict[str, Any]:
+    """Run a scenario through a Python Adams march and return its trace.
 
     Parameters
     ----------
     scenario : Scenario
         The scripted march.
+    host : bool, optional
+        Whether to run the reference's march (:class:`HostAdamsMarch`, the default)
+        or the native bridge's copy (:class:`AdamsMarch`).
 
     Returns
     -------
@@ -395,15 +414,22 @@ def run_scenario(scenario: Scenario) -> dict[str, Any]:
         the march stopped (``"done"`` or the exception's class and message) with the
         controller's state at that point, including any attempt left in flight.
     """
-    harness = _Harness(scenario)
     method = Multistep(formulation="exponential", **scenario.method)
-    # Real kernels, which the scripted engine never calls.
-    march = AdamsMarch(
-        harness,
-        method,
-        kernels=AdamsKernels(helpers=PLAIN),
-        exponential=ExponentialKernels(helpers=PLAIN),
-    )
+    harness: _Scripted
+    march: AdamsMarch | HostAdamsMarch
+    if host:
+        harness = _HostHarness(scenario)
+        harness.engine = _Engine(harness, method)
+        march = HostAdamsMarch(harness, method, engine=harness.engine)
+    else:
+        harness = _Harness(scenario)
+        # Real kernels, which the scripted engine never calls.
+        march = AdamsMarch(
+            harness,
+            method,
+            kernels=AdamsKernels(helpers=PLAIN),
+            exponential=ExponentialKernels(helpers=PLAIN),
+        )
     harness.march = march
     if scenario.targets is not None:
         targets = list(scenario.targets)

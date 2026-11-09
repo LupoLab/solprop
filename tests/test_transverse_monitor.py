@@ -14,13 +14,14 @@ import dataclasses
 import math
 import warnings
 from pathlib import Path
-from types import SimpleNamespace
+from types import ModuleType, SimpleNamespace
 from typing import Any, cast
 
 import numpy as np
 import pytest
 
-from solprop.backends.driver import _clean_launch_columns
+from solprop.backends import driver as bridge
+from solprop.backends.host import driver as host
 from solprop.backends.registry import available
 from solprop.boundaries import SpatialAbsorber, SpatialAbsorberDesign
 from solprop.driver import Simulation
@@ -339,7 +340,10 @@ def test_a_resume_restores_a_collars_totals_and_continues_its_current() -> None:
     )
 
 
-def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise() -> None:
+@pytest.mark.parametrize("module", [host, bridge], ids=["host", "bridge"])
+def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise(
+    module: ModuleType,
+) -> None:
     # They stand in for `mask(field + noise) - noise`, which on a device would mean a
     # copy of the state. The two differ only by the rounding of adding and subtracting
     # the noise, relative to the column's energy.
@@ -350,7 +354,7 @@ def test_the_clean_launch_columns_are_the_masked_launch_less_its_noise() -> None
     active = np.ones(16, dtype=bool)
     active[:3] = False
     expected = np.sum(np.abs(active * (field + noise) - noise) ** 2, axis=(1, 2))
-    found = _clean_launch_columns(field, noise, active)
+    found = module._clean_launch_columns(field, noise, active)
     np.testing.assert_allclose(found, expected, rtol=1e-13)
 
 
