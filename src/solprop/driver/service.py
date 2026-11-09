@@ -264,7 +264,7 @@ class _Exports:
         return self._phase
 
 
-Chunk = tuple[BackendHistory | None, BackendRows | None]
+_Chunk = tuple[BackendHistory | None, BackendRows | None]
 """One event's attempts and periodic rows, as it delivered them."""
 
 
@@ -279,7 +279,7 @@ class _Chunks:
 
     def __init__(self) -> None:
         """Start with nothing held."""
-        self._chunks: list[Chunk] = []
+        self._chunks: list[_Chunk] = []
 
     def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
         """Hold one event's chunk.
