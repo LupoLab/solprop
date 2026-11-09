@@ -1,0 +1,608 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The execution-session contract between solprop and a backend (SEP 47 section 5).
+
+Python constructs and validates the scientific problem
+(:class:`solprop.translate.problem.KernelProblem`) and resolves every run policy into
+an immutable :class:`solprop.translate.run_request.RunRequest`. A backend prepares
+them once (:meth:`SessionBackend.prepare`), and the prepared execution starts one
+:class:`RunSession` per trajectory. The session is the only owner of that trajectory's
+mutable numerical state: the field, the method's history, the controller and monitor,
+the counters and cursors, and the pending events. Python's service loop
+(:mod:`solprop.driver.service`) advances it, services the events it yields -- files,
+callbacks, warnings, progress -- and acknowledges them::
+
+    prepared = backend.prepare(problem, request, options)
+    with prepared.start(start) as session:
+        while not session.finished:
+            batch = session.advance(work_limit=256, deadline=0.1)
+            service(batch)
+            session.acknowledge(batch.receipt)
+
+Yields are exact transport no-ops (SEP 47 section 5.1): the attempt bound, the
+deadline, the event capacity and the timing of acknowledgments change when control
+returns, never the numerical state or the control trace.
+
+Control requests travel separately from the immutable request: a thread-safe
+:class:`StopToken` asks for a stop at the next safe boundary, and
+:meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted
+endpoint (SEP 47 section 5.5).
+
+:class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
+receipts, the pending barrier, closing and poisoning. It holds no numerical state.
+"""
+
+from __future__ import annotations
+
+import enum
+import itertools
+import threading
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
+
+from solprop.backends.events import (
+    EventBatch,
+    ExportTicket,
+    Outcome,
+    Receipt,
+)
+from solprop.exceptions import BackendError
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+    from types import TracebackType
+
+    import numpy as np
+    from jaxtyping import Complex
+
+    from solprop.backends.export import ExportRecipe
+    from solprop.noise import NoiseRealisation
+    from solprop.output.schema import MarchSnapshot
+    from solprop.translate.problem import KernelProblem
+    from solprop.translate.run_request import RunRequest
+
+__all__ = [
+    "DEFAULT_DEADLINE",
+    "DEFAULT_WORK_LIMIT",
+    "ExecutionOptions",
+    "PreparedExecution",
+    "RunSession",
+    "SessionBackend",
+    "SessionError",
+    "SessionLedger",
+    "SessionState",
+    "SessionStatus",
+    "SnapshotReceipt",
+    "Start",
+    "StopToken",
+]
+
+DEFAULT_WORK_LIMIT = 256
+"""Attempts one ``advance`` makes at most before yielding, as the native marches do.
+
+Python signal handlers run only between native calls, so a bounded return keeps a
+long run interruptible (SEP 47 section 5.5).
+"""
+
+DEFAULT_DEADLINE = 0.1
+"""Host seconds after which ``advance`` yields at its next safe boundary, s."""
+
+
+class SessionError(BackendError):
+    """A session was used outside its lifecycle.
+
+    Raised for a stale or foreign receipt, an advance across an unacknowledged barrier,
+    use after close or after a terminal outcome, or an export with an expired ticket.
+    """
+
+
+class StopToken:
+    """A thread-safe request to stop a run at its next safe boundary.
+
+    Setting it from any thread -- a GUI's stop button, a signal handler on the main
+    thread, a scan's supervisor -- asks every session attached to it to finish the
+    attempt in hand, complete that endpoint's mandatory accounting, and end with
+    :attr:`~solprop.backends.events.Outcome.STOPPED` (SEP 47 section 5.5). It
+    implements :class:`solprop.log.StopFlag`.
+
+    Examples
+    --------
+    >>> from solprop.backends.session import StopToken
+    >>> token = StopToken()
+    >>> token.is_set()
+    False
+    >>> token.set()
+    >>> token.is_set()
+    True
+    """
+
+    def __init__(self) -> None:
+        """Create a token that is not set."""
+        self._event = threading.Event()
+        self._lock = threading.Lock()
+        self._listeners: list[Callable[[], None]] = []
+
+    def set(self) -> None:
+        """Request a stop, and forward it to every attached session."""
+        with self._lock:
+            self._event.set()
+            listeners = tuple(self._listeners)
+        for listener in listeners:
+            listener()
+
+    def clear(self) -> None:
+        """Withdraw the request, for a token reused between runs."""
+        self._event.clear()
+
+    def is_set(self) -> bool:
+        """Return whether a stop was requested.
+
+        Returns
+        -------
+        bool
+            True once :meth:`set` was called and not cleared.
+        """
+        return self._event.is_set()
+
+    def attach(self, listener: Callable[[], None]) -> Callable[[], None]:
+        """Call `listener` whenever the token is set, and now if it already is.
+
+        Native sessions attach the store of their own atomic flag, so that a stop set
+        from another thread reaches a march that holds no Python lock.
+
+        Parameters
+        ----------
+        listener : callable
+            Called with no arguments. It must not raise and must not block.
+
+        Returns
+        -------
+        callable
+            Detaches the listener.
+        """
+        with self._lock:
+            self._listeners.append(listener)
+            already = self._event.is_set()
+        if already:
+            listener()
+
+        def detach() -> None:
+            with self._lock:
+                if listener in self._listeners:
+                    self._listeners.remove(listener)
+
+        return detach
+
+
+@dataclass(frozen=True)
+class ExecutionOptions:
+    """Execution choices that are not part of the numerical problem.
+
+    Two runs may share their scientific description while differing in these (SEP 47
+    section 4.3). They are recorded as execution metadata, never compared by a restart.
+
+    Attributes
+    ----------
+    node_budget : int or None
+        An explicit workspace budget for node chunks, bytes; ``None`` leaves the
+        backend's automatic choice. An explicit budget is authoritative.
+    backend_options : collections.abc.Mapping
+        Backend-specific execution options, passed through untouched (for example a
+        native CPU execution record).
+    """
+
+    node_budget: int | None = None
+    backend_options: Mapping[str, object] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, eq=False)
+class Start:
+    """Where a session starts: an initial state, or a checkpoint being resumed.
+
+    Attributes
+    ----------
+    field : numpy.ndarray
+        The state in internal amplitude units and the FFT convention, complex,
+        shape ``(n_modes, n_pol, n_omega)``. The session takes ownership of a copy
+        made once at start, so mutating the caller's array afterwards changes nothing.
+    z : float
+        Its position, m.
+    noise : solprop.noise.NoiseRealisation or None
+        The run's noise realisation, when a noise model is active.
+    plane_index : int
+        The first save plane strictly beyond `z`.
+    march : solprop.output.schema.MarchSnapshot or None
+        A method history to restore, when resuming one that was retained.
+    ledgers : collections.abc.Mapping or None
+        Persisted call ledgers to restore (TDSE and budgeted sources).
+    monitor : collections.abc.Mapping or None
+        When resuming a monitored run, the monitor's continuation: ``"record"``, its
+        persisted record; ``"plane"``, whether the resumed position is a saved plane;
+        ``"unwatched"``, the spans the earlier executions left unwatched.
+    plane_pending : bool
+        Whether the plane at `z` is owed (the launch plane of a fresh run, or a resumed
+        position whose plane was not saved).
+    resume : bool
+        Whether `field` was loaded from a plane the run already saved, so that an
+        ``input`` noise realisation is not added a second time.
+    """
+
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    z: float
+    noise: NoiseRealisation | None = None
+    plane_index: int = 0
+    march: MarchSnapshot | None = None
+    ledgers: Mapping[str, object] | None = None
+    monitor: Mapping[str, object] | None = None
+    plane_pending: bool = True
+    resume: bool = False
+
+
+class SessionState(enum.Enum):
+    """Where a session is in its lifecycle.
+
+    Attributes
+    ----------
+    READY : str
+        It can advance.
+    PENDING : str
+        A batch is out; it advances again once that batch is acknowledged.
+    FINISHED : str
+        It yielded a terminal event; nothing more can happen but close.
+    CLOSED : str
+        Its resources are released.
+    """
+
+    READY = "ready"
+    PENDING = "pending"
+    FINISHED = "finished"
+    CLOSED = "closed"
+
+
+@dataclass(frozen=True)
+class SessionStatus:
+    """A compact, read-only view of a session, for reporting.
+
+    Attributes
+    ----------
+    z : float
+        The committed position, m.
+    plane_index : int
+        The next save plane to observe.
+    attempts : int
+        Attempts made, accepted and rejected.
+    rejected : int
+        Rejected attempts among them.
+    state : SessionState
+        Lifecycle state.
+    outcome : solprop.backends.events.Outcome or None
+        The terminal outcome, once finished.
+    """
+
+    z: float
+    plane_index: int
+    attempts: int
+    rejected: int
+    state: SessionState
+    outcome: Outcome | None = None
+
+
+@dataclass(frozen=True)
+class SnapshotReceipt:
+    """Identifies a snapshot request until it is fulfilled or refused.
+
+    Attributes
+    ----------
+    request : int
+        Sequence number of the request in its session, from 1.
+    coalesced : bool
+        Whether it joined an equivalent request still outstanding, so that one
+        snapshot fulfils both (SEP 47 section 5.5 makes coalescing explicit).
+    """
+
+    request: int
+    coalesced: bool
+
+
+@runtime_checkable
+class RunSession(Protocol):
+    """One trajectory's numerical execution, owned by its backend.
+
+    See :mod:`solprop.backends.session` for the loop that drives it.
+    """
+
+    @property
+    def finished(self) -> bool:
+        """Return whether a terminal event was yielded."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the session was closed."""
+        ...
+
+    def status(self) -> SessionStatus:
+        """Return a read-only summary of the session."""
+        ...
+
+    def advance(
+        self,
+        *,
+        work_limit: int = DEFAULT_WORK_LIMIT,
+        deadline: float = DEFAULT_DEADLINE,
+    ) -> EventBatch:
+        """Run until a barrier, the attempt bound or the deadline, and report it."""
+        ...
+
+    def acknowledge(self, receipt: Receipt) -> None:
+        """Release a batch and allow advancing across its barrier."""
+        ...
+
+    def export(
+        self,
+        ticket: ExportTicket,
+        recipe: ExportRecipe,
+        out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Fill a destination with a pending observation's converted field."""
+        ...
+
+    def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
+        """Return the noise phase at a pending observation, when a noise model runs."""
+        ...
+
+    def request_snapshot(self) -> SnapshotReceipt:
+        """Latch a snapshot for the next eligible accepted endpoint."""
+        ...
+
+    def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
+        """Return the method history at a pending observation, when retained."""
+        ...
+
+    def march_snapshot_nbytes(self) -> int | None:
+        """Return the size a method-history snapshot would have, without making it."""
+        ...
+
+    def execution_record(self) -> Mapping[str, object]:
+        """Return the session's execution facts for the run's execution record."""
+        ...
+
+    def monitor_record(self) -> Mapping[str, object] | None:
+        """Return the boundary monitor's record, or ``None`` without a monitor."""
+        ...
+
+    def close(self) -> None:
+        """Release the session's resources; idempotent."""
+        ...
+
+    def __enter__(self) -> "RunSession":  # noqa: UP037 - runtime type hook
+        """Return the session, for scoped ownership."""
+        ...
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
+    ) -> None:
+        """Close the session."""
+        ...
+
+
+@runtime_checkable
+class PreparedExecution(Protocol):
+    """A backend's lowering of one problem and request, reusable across sessions."""
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it."""
+        ...
+
+    def start(self, start: Start) -> RunSession:
+        """Start a session from an initial state or a checkpoint."""
+        ...
+
+    def metadata(self) -> Mapping[str, object]:
+        """Return the execution metadata recorded with the run."""
+        ...
+
+    def memory_ledger(self) -> Mapping[str, int]:
+        """Return every retained buffer by name, bytes."""
+        ...
+
+    def close(self) -> None:
+        """Release the prepared resources; idempotent."""
+        ...
+
+
+class SessionBackend(Protocol):
+    """A backend that prepares executions (SEP 47 section 6.1)."""
+
+    name: str
+
+    def prepare(
+        self,
+        problem: KernelProblem,
+        request: RunRequest,
+        options: ExecutionOptions,
+    ) -> PreparedExecution:
+        """Lower a problem and request; refuse an unsupported one before allocating."""
+        ...
+
+
+_SESSION_IDS = itertools.count(1)
+
+
+class SessionLedger:
+    """The lifecycle bookkeeping of a Python session; no numerical state.
+
+    It issues receipts, records the pending barrier, refuses stale or foreign
+    receipts and advancing across an unacknowledged barrier, and remembers whether the
+    session finished, failed or closed.
+
+    Examples
+    --------
+    >>> from solprop.backends.session import SessionLedger
+    >>> ledger = SessionLedger()
+    >>> receipt = ledger.issue()
+    >>> ledger.ticket_valid(receipt)
+    True
+    >>> ledger.acknowledge(receipt)
+    >>> ledger.ticket_valid(receipt)
+    False
+    """
+
+    def __init__(self) -> None:
+        """Start a ready session's ledger."""
+        self.session = next(_SESSION_IDS)
+        self._sequence = 0
+        self._pending: Receipt | None = None
+        self.state = SessionState.READY
+        self.outcome: Outcome | None = None
+
+    def check_advance(self) -> None:
+        """Refuse to advance a session that is pending, finished or closed.
+
+        Raises
+        ------
+        SessionError
+            Naming the state that forbids it.
+        """
+        if self.state is SessionState.PENDING:
+            msg = "acknowledge the pending batch before advancing the session again"
+            raise SessionError(msg)
+        if self.state is SessionState.FINISHED:
+            msg = "the session has ended and cannot advance"
+            raise SessionError(msg)
+        self.check_open()
+
+    def check_open(self) -> None:
+        """Refuse a closed session.
+
+        Raises
+        ------
+        SessionError
+            If the session was closed.
+        """
+        if self.state is SessionState.CLOSED:
+            msg = "the session is closed"
+            raise SessionError(msg)
+
+    def issue(self, *, outcome: Outcome | None = None) -> Receipt:
+        """Issue the receipt of a new pending batch.
+
+        Parameters
+        ----------
+        outcome : solprop.backends.events.Outcome or None, optional
+            The batch's terminal outcome, when it ends the session.
+
+        Returns
+        -------
+        solprop.backends.events.Receipt
+            The batch's receipt.
+        """
+        self._sequence += 1
+        receipt = Receipt(self.session, self._sequence)
+        self._pending = receipt
+        self.state = SessionState.PENDING
+        if outcome is not None:
+            self.outcome = outcome
+        return receipt
+
+    def acknowledge(self, receipt: Receipt) -> None:
+        """Accept the pending batch's receipt.
+
+        Parameters
+        ----------
+        receipt : solprop.backends.events.Receipt
+            The receipt to acknowledge.
+
+        Raises
+        ------
+        SessionError
+            If the receipt is not the pending one: foreign, stale or repeated.
+        """
+        self.check_open()
+        if receipt != self._pending:
+            msg = (
+                f"receipt {receipt} is not the pending batch's "
+                f"({self._pending}): a foreign, stale or repeated acknowledgment"
+            )
+            raise SessionError(msg)
+        self._pending = None
+        self.state = (
+            SessionState.FINISHED if self.outcome is not None else SessionState.READY
+        )
+
+    def ticket_valid(self, receipt: Receipt) -> bool:
+        """Return whether tickets of a batch can still be exported.
+
+        Parameters
+        ----------
+        receipt : solprop.backends.events.Receipt
+            The batch's receipt.
+
+        Returns
+        -------
+        bool
+            True while that batch is the pending one.
+        """
+        return self.state is not SessionState.CLOSED and receipt == self._pending
+
+    def check_ticket(self, ticket: ExportTicket) -> None:
+        """Refuse an export with an expired or foreign ticket.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The ticket presented.
+
+        Raises
+        ------
+        SessionError
+            If its batch is no longer pending.
+        """
+        if not self.ticket_valid(ticket.receipt):
+            msg = (
+                f"the export ticket for z = {ticket.z!r} m has expired: its batch was "
+                "acknowledged, or it belongs to another session"
+            )
+            raise SessionError(msg)
+
+    def close(self) -> bool:
+        """Mark the session closed.
+
+        Returns
+        -------
+        bool
+            True the first time, False when it was already closed.
+        """
+        if self.state is SessionState.CLOSED:
+            return False
+        self.state = SessionState.CLOSED
+        self._pending = None
+        return True
+
+    @property
+    def pending(self) -> Receipt | None:
+        """Return the pending batch's receipt.
+
+        Returns
+        -------
+        solprop.backends.events.Receipt or None
+            The receipt, or ``None`` when nothing is pending.
+        """
+        return self._pending
+
+    @property
+    def finished(self) -> bool:
+        """Return whether a terminal batch was issued.
+
+        Returns
+        -------
+        bool
+            True once the session yielded its terminal event.
+        """
+        return self.outcome is not None

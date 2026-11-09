@@ -3098,6 +3098,9 @@ class _NativeAdamsMarch(AdamsMarch):
         every = backend._problem.stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
+        if backend._halt_requested:
+            # A pending snapshot latch (solprop SEP 47): return after every step.
+            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None
@@ -3522,6 +3525,9 @@ class _NativeRungeKuttaMarch:
         every = backend._problem.stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
+        if backend._halt_requested:
+            # A pending snapshot latch (solprop SEP 47): return after every step.
+            steps.append(1)
         monitor = backend._monitor
         checked = None
         read_at = None

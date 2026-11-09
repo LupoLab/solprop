@@ -32,7 +32,7 @@ from solprop import capabilities, sol
 from solprop.backends.protocol import Observation
 from solprop.backends.registry import available
 from solprop.driver import Simulation
-from solprop.driver import run as run_module
+from solprop.driver import service as service_module
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, OutputError
 from solprop.output import (
@@ -204,14 +204,14 @@ def test_every_march_delivers_its_planes_and_keeps_none_alive(
     kept: list[bool] = []
     positions: list[float] = []
     alive: list[bool] = []
-    observed = run_module._observed
+    built = service_module._plane
 
-    def watched(problem, backend, *, keep) -> Observation:
+    def watched(event, exports, *, keep) -> SavedPlane:
         alive.extend(reference() is not None for reference in earlier)
         earlier.clear()
-        return observed(problem, backend, keep=keep)
+        return built(event, exports, keep=keep)
 
-    monkeypatch.setattr(run_module, "_observed", watched)
+    monkeypatch.setattr(service_module, "_plane", watched)
 
     def receive(plane: SavedPlane) -> None:
         earlier.append(weakref.ref(plane))

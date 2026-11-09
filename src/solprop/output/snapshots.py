@@ -275,6 +275,7 @@ class SnapshotController:
         require_history: bool,
         persist: Callable[[], None],
         provenance: RunMetadata | None = None,
+        z: float | None = None,
     ) -> None:
         """Publish one requested endpoint, reopening both writers before returning.
 
@@ -293,13 +294,16 @@ class SnapshotController:
         provenance : RunMetadata or None, optional
             Current execution's version and Git record. Defaults to the writer's
             metadata; the driver supplies its current record when resuming.
+        z : float or None, optional
+            The accepted endpoint, m, when `persist` records it as a running
+            checkpoint; the writer's last recorded position by default.
         """
         if not self._due():
             return
         assert output.outcome is not None
         provenance = output.metadata if provenance is None else provenance
         assert provenance is not None
-        z = output.outcome.z
+        z = output.outcome.z if z is None else z
         started = time.monotonic()
         requested = self._requested
         self._attempted = requested

@@ -30,32 +30,27 @@ The manual page is ``docs/guide/setup/running.md``.
 
 import dataclasses
 import logging
-import math
-import time
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled, poll
+from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.driver.plane_view import PlaneWatch
-from solprop.driver.summary import resources, run_summary
+from solprop.backends.session import Start
+from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
     DriverError,
     OutputError,
     ResponseBudgetError,
-    RunTerminated,
-    StopRequested,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
-    InterruptibleReporter,
     LogReporter,
     ProgressChoice,
     ProgressReporter,
@@ -304,7 +299,7 @@ def _power_observation(problem: KernelProblem, observation: Observation) -> Obse
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
-def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and commit sequence
+def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     problem: KernelProblem,
     backend: Backend,
     output: Output,
@@ -323,6 +318,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     boundary_monitor: BoundaryMonitor | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
+    start: Start | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
@@ -414,6 +410,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
         the first run start and never rewritten; ``None`` records none.
+    start : solprop.backends.session.Start or None, optional
+        Where the run starts. ``None`` when the caller already loaded the backend with
+        its starting state (:meth:`~solprop.backends.protocol.Backend.set_initial`).
 
     Raises
     ------
@@ -477,232 +476,60 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         # The low-storage march records 0.0, "not estimated" (SEP 24 section 6.3).
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
-    backend.set_progress(reporter)
-    backend.set_stop(stop)
-    started = time.perf_counter()
-    clock = RunClock.start()
+    # The session and its service loop (SEP 47): imported here, since the service
+    # loop builds on this module's output transactions.
+    from solprop.backends.driver_session import DriverSession  # noqa: PLC0415
+    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.translate.run_request import (  # noqa: PLC0415
+        HistoryPolicy,
+        describe_run,
+    )
+
+    request = describe_run(
+        problem,
+        stats=spec,
+        retention=retention,
+        start_plane=start_plane,
+        monitor=boundary_monitor,
+        history=HistoryPolicy.from_choice(resume_history),
+        snapshots=snapshots is not None,
+    )
     logger.debug(
         "running %d save planes from index %d, collecting %d statistics",
         planes.size,
         start_plane,
         len(spec.names),
     )
-    checkpoint_output = _open_run(
-        output,
-        metadata,
+    session = DriverSession(
         backend,
-        tdse_binding,
-    )
-    if recipe is not None and isinstance(output, PlaneStore):
-        with committing():
-            output.record_recipe(recipe)
-    # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
-    # and every save plane; a resumed one keeps what it holds and grows to the rest.
-    reserve = getattr(output, "reserve", None)
-    if reserve is not None:
-        reserve(planes.size + 1)
-    _retain(output, retention, problem.shape[1:])
-    reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
-    # Read before this execution's first record replaces the earlier one's.
-    _refuse_unread_collar(problem, backend)
-    resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
-    _announce(
         problem,
-        metadata,
-        backend,
-        output,
-        reporter,
-        (start_plane, reached),
-        boundary_check=None if boundary_monitor is None else boundary_monitor.check,
+        request,
+        start,
+        listener=reporter.step,
+        started=reporter.started,
+        stop=stop,
+        owns=False,
     )
-    keeper = _MarchKeeper(output, backend, resume_history)
-    # A plane observer is shown each committed plane (SEP 41, S3); a field the output
-    # does not keep is fetched from the backend only when the observer asks.
-    watch = PlaneWatch(
-        reporter,
-        metadata,
-        lambda: _fetched(problem, backend),
-        clock.observer,
-    )
-    pending: SavedPlane | None = None
-    pending_save_count = output.n_saved
-    snapshots_started = False
-    failure: BaseException | None = None
     try:
-        if snapshots is not None:
-            snapshots._start()
-            snapshots_started = True
-        _record_execution(
-            checkpoint_output,
-            backend,
-            tdse_binding,
-            _Status("running", reached),
-            clock=clock,
-        )
-        # The entrance is saved when the handler holds nothing, rather than whenever the
-        # run starts at plane zero: a run interrupted before it reached its first save
-        # plane leaves a file holding the entrance and nothing else, and resuming it
-        # starts at plane zero again without wanting a second copy of it.
-        if output.n_saved == 0 or missing_current_save:
-            keep = retention.keeps(output.n_saved)
-            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
-            pending = dataclasses.replace(
-                pending,
-                stats={
-                    name: np.asarray(value[0])
-                    for name, value in backend.stats(spec).items()
-                },
-            )
-            with committing():
-                output.save(pending)
-                _record_execution(
-                    checkpoint_output,
-                    backend,
-                    tdse_binding,
-                    _Status("running", reached),
-                    clock=clock,
-                )
-            watch.show(pending, output.n_saved - 1)
-        if boundary_monitor is not None:
-            if resumed:
-                # The record continues across the resume (SEP 21, ADR-057).
-                boundary_monitor.resume(
-                    monitored,
-                    plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
-                    unwatched=unwatched,
-                )
-            backend.attach_monitor(boundary_monitor)
-        index = start_plane
-        while index < planes.size:
-            # Before the first step and between planes, for a backend that does not
-            # poll per trial itself.
-            poll(stop)
-            target = float(planes[index])
-            pending = None
-            pending_save_count = output.n_saved
-            summary = backend.propagate_to(target)
-            if not summary.met_tolerance:
-                logger.warning(
-                    "a step was too coarse for the tolerance it is scaled by on the "
-                    "way to the save plane at z = %.6e m (plane %d of %d): the largest "
-                    "scaled error norm was %.3e against the requested 1.0",
-                    target,
-                    index + 1,
-                    planes.size,
-                    summary.max_norm,
-                )
-            keep = retention.keeps(output.n_saved)
-            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
-            pending_save_count = output.n_saved
-            pending = dataclasses.replace(
-                pending,
-                stats={
-                    name: np.asarray(value[0])
-                    for name, value in backend.stats(spec).items()
-                },
-            )
-            # The plane, the march's snapshot beside it and the execution record are
-            # one commit: a signal waits for the three (`solprop._interrupts`).
-            with committing():
-                output.save(pending)
-                keeper.keep(pending.z)
-                reached = summary.z
-                _record_execution(
-                    checkpoint_output,
-                    backend,
-                    tdse_binding,
-                    _Status("running", reached),
-                    clock=clock,
-                )
-            if snapshots is not None:
-                assert isinstance(output, HDF5Output)
-
-                def persist(z: float = reached) -> None:
-                    keeper.keep(
-                        z,
-                        required=isinstance(problem.stepper.integrator, Multistep),
-                    )
-                    _record_execution(
-                        checkpoint_output,
-                        backend,
-                        tdse_binding,
-                        _Status("running", z),
-                        clock=clock,
-                    )
-
-                snapshots._service(
-                    output,
-                    tdse_archive,
-                    next_save_index=int(np.searchsorted(planes, reached, side="right")),
-                    require_history=isinstance(problem.stepper.integrator, Multistep),
-                    persist=persist,
-                    provenance=metadata,
-                )
-            watch.show(pending, output.n_saved - 1)
-            reporter.plane(summary.z, summary)
-            # A natural step can stop short of the requested plane (SEP 14).
-            if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
-                index += 1
-        if boundary_monitor is not None:
-            boundary_monitor.finish()
-        with committing():
-            _record_execution(
-                checkpoint_output,
-                backend,
-                tdse_binding,
-                _Status("complete", reached),
-                clock=clock,
-            )
-        reporter.finished(time.perf_counter() - started)
-        if isinstance(reporter, SummarisingReporter):
-            reporter.summary(resources(usage(clock)))
-    except BaseException as error:
-        failure = error
-        failed_z = _persist_failure(
-            problem,
-            backend,
-            checkpoint_output,
-            tdse_binding,
-            keeper,
-            _FailedObservation(
-                pending,
-                output.n_saved > pending_save_count,
-                error,
-                reached,
-                clock,
-                output.n_saved > 0 and retention.keeps(output.n_saved - 1),
+        serve(
+            session,
+            output,
+            ServiceContext(
+                problem=problem,
+                request=request,
+                metadata=metadata,
+                reporter=reporter,
+                retention=retention,
+                resume_history=resume_history,
+                snapshots=snapshots,
+                tdse_binding=tdse_binding,
+                tdse_archive=tdse_archive,
+                recipe=recipe,
+                start_plane=start_plane,
             ),
         )
-        if failed_z is not None:
-            reached = failed_z
-        if isinstance(error, RunTerminated | StopRequested):
-            # A stop the caller asked for is not a warning; a signal may be one.
-            logger.log(
-                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
-                "%s at z = %.6e m; %s",
-                error,
-                reached,
-                "the run's state there is written, and resume=True continues it"
-                if failed_z is not None
-                else "no state was written there",
-            )
-        # A reporter holding a terminal (a bar) gives it back before the error
-        # propagates; a reporter implementing only the four basic calls is not told,
-        # and it is not this loop's business to demand more of it.
-        if isinstance(reporter, InterruptibleReporter):
-            reporter.interrupted(reached, error)
-        raise
     finally:
-        backend.set_stop(None)
-        try:
-            output.close()
-        except BaseException as error:
-            if failure is None:
-                raise
-            failure.add_note(f"the optical output could not be closed: {error}")
-        finally:
-            if snapshots is not None and snapshots_started:
-                snapshots._finish()
+        session.close()
 
 
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object

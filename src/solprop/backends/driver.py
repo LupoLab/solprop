@@ -380,6 +380,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # whether a step that crossed a densely observed plane ends on a step to save.
         self._natural_count = 0
         self._natural_due = False
+        self._halt_requested = False
         self._history: list[tuple[float, float, float, bool, float]] = []
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
@@ -1255,6 +1256,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._history = []
         self._natural_count = 0
         self._natural_due = False
+        self._halt_requested = False
         self._clock = time.perf_counter()
         # A resume is a second run for a reporter's purposes: it starts from a different
         # z and its own clock, so the next plane announces itself afresh.
@@ -1804,11 +1806,42 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         every = self._problem.stepper.step_planes
         self._natural_count += 1
         if every == 0 or self._natural_count % every:
-            return False
+            return self._halted_short(target)
         if reached(self._z, target):
             self._natural_due = not reached(target, self._z)
             return False
         return True
+
+    def request_halt(self) -> None:
+        """Stop the march at the next accepted endpoint short of its target.
+
+        The execution session's snapshot latch (SEP 47 section 5.5): ``propagate_to``
+        returns at the end of the next accepted step, as at a natural stop, without
+        counting it as one, so the session can service a snapshot there. An endpoint on
+        the target itself is observed as the plane, and the latch stays set for the
+        session to find. A native march returns after every accepted step while it is
+        set (``host_step`` of one).
+        """
+        self._halt_requested = True
+
+    def clear_halt(self) -> None:
+        """Withdraw a halt requested with :meth:`request_halt`, once it is serviced."""
+        self._halt_requested = False
+
+    def _halted_short(self, target: float) -> bool:
+        """Return whether a requested halt stops the march here, short of `target`.
+
+        Parameters
+        ----------
+        target : float
+            The position the call is stepping to, m.
+
+        Returns
+        -------
+        bool
+            True when a halt is requested and the endpoint is short of `target`.
+        """
+        return self._halt_requested and not reached(self._z, target)
 
     def _natural_stop_due(self, target: float) -> bool:
         """Return whether a step to save ends before `target`, with the march there.

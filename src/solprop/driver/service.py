@@ -1,0 +1,696 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""The service loop: Python's side of an execution session (SEP 47 section 5).
+
+A session (:mod:`solprop.backends.session`) owns the run's numerical state and its
+schedule. This loop advances it and services what it reports -- saved planes and their
+output transactions, plane observers and progress, snapshot persistence, warnings and
+the terminal record -- then acknowledges each batch. It holds no numerical state of its
+own: it never rediscovers the next plane, rebuilds a statistic or replays the attempts
+to reconstruct a controller.
+
+Ordering follows SEP 47 section 5.3: a plane is committed with its method history and
+its execution record in one transaction (:func:`solprop._interrupts.committing`); a
+snapshot is serviced after that commit; the plane observer and the reporter follow.
+A service failure leaves the batch unacknowledged, so the field it names can still be
+exported for the terminal checkpoint, and the primary failure is preserved.
+"""
+
+from __future__ import annotations
+
+import dataclasses
+import logging
+import time
+from dataclasses import dataclass
+from typing import TYPE_CHECKING
+
+import numpy as np
+
+from solprop._host import RunClock, usage
+from solprop._interrupts import committing
+from solprop.backends.events import (
+    ObservationKind,
+    ObservationReady,
+    Outcome,
+    ServiceKind,
+    ServiceRequired,
+    Terminal,
+)
+from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import StepStats as BackendRows
+from solprop.driver.plane_view import PlaneWatch
+from solprop.driver.run import (
+    _announce,
+    _FailedObservation,
+    _history_of,
+    _MarchKeeper,
+    _open_run,
+    _record_abandoned_step,
+    _record_execution,
+    _refuse_unread_collar,
+    _resume_position,
+    _retain,
+    _Status,
+)
+from solprop.driver.summary import resources
+from solprop.exceptions import ResponseBudgetError, RunTerminated, StopRequested
+from solprop.log import InterruptibleReporter, SummarisingReporter
+from solprop.output.hdf5 import HDF5Output
+from solprop.output.schema import (
+    PlaneStore,
+    SavedPlane,
+    StepHistory,
+    StepStats,
+    TerminalCheckpoint,
+    _adopted,
+)
+from solprop.stepper.multistep import Multistep
+
+if TYPE_CHECKING:
+    from solprop.backends.driver_session import DriverSession
+    from solprop.backends.events import ExportTicket
+    from solprop.log import ProgressReporter
+    from solprop.output.schema import (
+        CheckpointOutput,
+        FieldRetention,
+        Output,
+        RecipeRecord,
+        RunMetadata,
+    )
+    from solprop.output.snapshots import SnapshotController
+    from solprop.output.tdse_archive import TDSEArchiveWriter
+    from solprop.translate.problem import KernelProblem
+    from solprop.translate.run_request import RunRequest
+    from solprop.translate.tdse import TDSEBinding
+
+__all__ = ["ServiceContext", "serve"]
+
+logger = logging.getLogger("solprop.driver.run")
+
+_CONSUMER = ExportRecipe(power=True, optics=False)
+"""The field a saved plane, a plane observer and a checkpoint record all hold: output
+amplitudes in the internal FFT convention (SEP 47 section 5.4). The plane store makes
+the optics conversion on its way to disk."""
+
+
+@dataclass(frozen=True)
+class ServiceContext:
+    """What the service loop needs besides the session and the output.
+
+    Attributes
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    metadata : solprop.output.schema.RunMetadata
+        The run's record.
+    reporter : solprop.log.ProgressReporter
+        Where progress goes.
+    retention : solprop.output.schema.FieldRetention
+        Which planes keep their field.
+    resume_history : bool or None
+        The public method-history retention choice.
+    snapshots : solprop.output.snapshots.SnapshotController or None
+        Snapshot requests, when enabled.
+    tdse_binding : solprop.translate.tdse.TDSEBinding or None
+        A live atomic runtime.
+    tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None
+        A live archive to suspend beside the optical writer.
+    recipe : solprop.output.schema.RecipeRecord or None
+        The recipe the run was built from.
+    start_plane : int
+        The first save plane beyond the starting state.
+    """
+
+    problem: KernelProblem
+    request: RunRequest
+    metadata: RunMetadata
+    reporter: ProgressReporter
+    retention: FieldRetention
+    resume_history: bool | None
+    snapshots: SnapshotController | None
+    tdse_binding: TDSEBinding | None
+    tdse_archive: TDSEArchiveWriter | None
+    recipe: RecipeRecord | None
+    start_plane: int
+
+
+def _rows(rows: BackendRows) -> StepStats:
+    """Return a session's periodic rows in the form an output handler stores.
+
+    Parameters
+    ----------
+    rows : solprop.backends.protocol.StepStats
+        The rows, with a leading row axis and no batch axis.
+
+    Returns
+    -------
+    solprop.output.schema.StepStats
+        The same rows.
+    """
+    return StepStats(z=rows.z, step=rows.step, values=dict(rows.values))
+
+
+class _Exports:
+    """One detached export per pending ticket, shared by every consumer.
+
+    The output, a plane observer and a terminal checkpoint asking for the same field
+    share one array (SEP 47 section 5.4); a field-free plane fetches nothing unless a
+    consumer asks.
+
+    Parameters
+    ----------
+    session : solprop.backends.driver_session.DriverSession
+        The session whose tickets are exported.
+    """
+
+    def __init__(self, session: DriverSession) -> None:
+        """Start with nothing exported."""
+        self._session = session
+        self._ticket: ExportTicket | None = None
+        self._field: np.ndarray | None = None
+        self._phase: np.ndarray | None = None
+
+    def field(self, ticket: ExportTicket) -> np.ndarray:
+        """Return the consumer field for a ticket, exporting it once.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            A pending ticket.
+
+        Returns
+        -------
+        numpy.ndarray
+            Read-only output amplitudes in the internal convention.
+        """
+        if self._ticket != ticket or self._field is None:
+            field = self._session.export(ticket, _CONSUMER)
+            field.setflags(write=False)
+            phase = self._session.noise_phase(ticket)
+            if phase is not None:
+                phase.setflags(write=False)
+            self._ticket, self._field, self._phase = ticket, field, phase
+        return self._field
+
+    def release(self) -> None:
+        """Drop the exported field once its batch is acknowledged."""
+        self._ticket = self._field = self._phase = None
+
+    def phase(self, ticket: ExportTicket) -> np.ndarray | None:
+        """Return the noise phase for a ticket, exported with its field.
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            A pending ticket.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The phase, or ``None`` without a noise model.
+        """
+        self.field(ticket)
+        return self._phase
+
+
+def _plane(event: ObservationReady, exports: _Exports, *, keep: bool) -> SavedPlane:
+    """Build the plane an output stores from an observation.
+
+    Parameters
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    exports : _Exports
+        Its field, when kept.
+    keep : bool
+        Whether the plane keeps its field.
+
+    Returns
+    -------
+    solprop.output.schema.SavedPlane
+        The plane.
+    """
+    field = exports.field(event.ticket) if keep else None
+    phase = exports.phase(event.ticket) if keep else None
+    return SavedPlane(
+        z=event.z,
+        field=None if field is None else _adopted(field),
+        stats=dict(event.stats),
+        step_history=_history_of(event.history),
+        step_stats=_rows(event.step_stats),
+        noise_phase=None if phase is None else _adopted(phase),
+    )
+
+
+def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
+    session: DriverSession,
+    output: Output,
+    context: ServiceContext,
+) -> None:
+    """Advance a session to its end, servicing every event it reports.
+
+    Parameters
+    ----------
+    session : solprop.backends.driver_session.DriverSession
+        The started session.
+    output : solprop.output.schema.Output
+        Where the planes go; closed when the loop ends, whether or not it succeeded.
+    context : ServiceContext
+        Everything else the service needs.
+
+    Raises
+    ------
+    BaseException
+        The run's primary failure, a stop request or a signal, after its terminal
+        record and any checkpoint are written.
+    """
+    problem, reporter = context.problem, context.reporter
+    backend = session.driver
+    planes = context.request.observation.save_planes
+    started = time.perf_counter()
+    clock = RunClock.start()
+    checkpoint_output = _open_run(
+        output, context.metadata, backend, context.tdse_binding
+    )
+    if context.recipe is not None and isinstance(output, PlaneStore):
+        with committing():
+            output.record_recipe(context.recipe)
+    reserve = getattr(output, "reserve", None)
+    if reserve is not None:
+        reserve(planes.size + 1)
+    _retain(output, context.retention, problem.shape[1:])
+    reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
+    _refuse_unread_collar(problem, backend)
+    monitor = session.monitor
+    _announce(
+        problem,
+        context.metadata,
+        backend,
+        output,
+        reporter,
+        (context.start_plane, reached),
+        boundary_check=None if monitor is None else monitor.check,
+    )
+    keeper = _MarchKeeper(output, backend, context.resume_history)
+    exports = _Exports(session)
+    current: list[ObservationReady | None] = [None]
+
+    def fetch() -> np.ndarray:
+        event = current[0]
+        assert event is not None  # the observer is shown a pending plane only
+        return exports.field(event.ticket)
+
+    watch = PlaneWatch(reporter, context.metadata, fetch, clock.observer)
+    pending: SavedPlane | None = None
+    pending_save_count = output.n_saved
+    pending_ticket: ExportTicket | None = None
+    snapshots = context.snapshots
+    snapshots_started = False
+    terminal_rows: tuple[object, object] = (None, None)
+    failure: BaseException | None = None
+    adams = isinstance(context.request.integration.method, Multistep)
+    try:
+        if snapshots is not None:
+            snapshots._start()
+            snapshots_started = True
+        _record_execution(
+            checkpoint_output,
+            backend,
+            context.tdse_binding,
+            _Status("running", reached),
+            clock=clock,
+        )
+        while not session.finished:
+            if snapshots is not None and snapshots._due():
+                session.request_snapshot()
+            pending = None
+            pending_save_count = output.n_saved
+            pending_ticket = None
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    if event.kind is ObservationKind.LAUNCH and not (
+                        output.n_saved == 0 or missing_current_save
+                    ):
+                        # A resumed file already holds the plane at its position.
+                        continue
+                    current[0] = event
+                    pending_ticket = event.ticket
+                    if event.kind is not ObservationKind.LAUNCH:
+                        _warn_coarse(event, planes)
+                    keep = context.retention.keeps(output.n_saved)
+                    pending = _plane(event, exports, keep=keep)
+                    pending_save_count = output.n_saved
+                    with committing():
+                        output.save(pending)
+                        if event.kind is not ObservationKind.LAUNCH:
+                            keeper.keep(pending.z)
+                            reached = event.z
+                        _record_execution(
+                            checkpoint_output,
+                            backend,
+                            context.tdse_binding,
+                            _Status("running", reached),
+                            clock=clock,
+                        )
+                    watch.show(pending, output.n_saved - 1)
+                    if event.kind is not ObservationKind.LAUNCH:
+                        reporter.plane(event.z, event.summary)
+                elif isinstance(event, ServiceRequired):
+                    if event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
+                        assert isinstance(output, HDF5Output)
+                        _service_snapshot(
+                            event,
+                            output,
+                            checkpoint_output,
+                            backend,
+                            keeper,
+                            exports,
+                            context,
+                            clock=clock,
+                            adams=adams,
+                        )
+                elif isinstance(event, Terminal):
+                    if event.outcome is Outcome.COMPLETED:
+                        with committing():
+                            _record_execution(
+                                checkpoint_output,
+                                backend,
+                                context.tdse_binding,
+                                _Status("complete", reached),
+                                clock=clock,
+                            )
+                    else:
+                        assert event.error is not None
+                        pending_ticket = event.ticket
+                        terminal_rows = (event.history, event.step_stats)
+                        raise event.error
+            session.acknowledge(batch.receipt)
+            exports.release()
+            current[0] = None
+            pending = None
+        reporter.finished(time.perf_counter() - started)
+        if isinstance(reporter, SummarisingReporter):
+            reporter.summary(resources(usage(clock)))
+    except BaseException as error:
+        failure = error
+        failed_z = _persist_failure(
+            session,
+            checkpoint_output,
+            context,
+            keeper,
+            exports,
+            pending_ticket,
+            terminal_rows,
+            _FailedObservation(
+                pending,
+                output.n_saved > pending_save_count,
+                error,
+                reached,
+                clock,
+                output.n_saved > 0 and context.retention.keeps(output.n_saved - 1),
+            ),
+        )
+        if failed_z is not None:
+            reached = failed_z
+        if isinstance(error, RunTerminated | StopRequested):
+            logger.log(
+                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
+                "%s at z = %.6e m; %s",
+                error,
+                reached,
+                "the run's state there is written, and resume=True continues it"
+                if failed_z is not None
+                else "no state was written there",
+            )
+        if isinstance(reporter, InterruptibleReporter):
+            reporter.interrupted(reached, error)
+        raise
+    finally:
+        try:
+            output.close()
+        except BaseException as error:
+            if failure is None:
+                raise
+            failure.add_note(f"the optical output could not be closed: {error}")
+        finally:
+            if snapshots is not None and snapshots_started:
+                snapshots._finish()
+
+
+def _warn_coarse(event: ObservationReady, planes: np.ndarray) -> None:
+    """Log a plane whose propagation did not meet its tolerance.
+
+    Parameters
+    ----------
+    event : solprop.backends.events.ObservationReady
+        The observation.
+    planes : numpy.ndarray
+        The requested save planes, m.
+    """
+    summary = event.summary
+    if summary.met_tolerance:
+        return
+    index = min(event.plane_index, planes.size - 1)
+    logger.warning(
+        "a step was too coarse for the tolerance it is scaled by on the way to the "
+        "save plane at z = %.6e m (plane %d of %d): the largest scaled error norm was "
+        "%.3e against the requested 1.0",
+        float(planes[index]),
+        index + 1,
+        planes.size,
+        summary.max_norm,
+    )
+
+
+def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's context
+    event: ServiceRequired,
+    output: HDF5Output,
+    checkpoint_output: CheckpointOutput | None,
+    backend: object,
+    keeper: _MarchKeeper,
+    exports: _Exports,
+    context: ServiceContext,
+    *,
+    clock: RunClock,
+    adams: bool,
+) -> None:
+    """Persist a running checkpoint at an accepted endpoint and copy the snapshot.
+
+    At a saved plane the plane is the checkpoint, as before; elsewhere the endpoint's
+    field and the attempts and rows since the last plane are written as a running
+    checkpoint without being consumed (SEP 47 section 5.5).
+
+    Parameters
+    ----------
+    event : solprop.backends.events.ServiceRequired
+        The snapshot request.
+    output : solprop.output.hdf5.HDF5Output
+        The live writer.
+    checkpoint_output : solprop.output.schema.CheckpointOutput or None
+        The writer as a checkpoint store.
+    backend : object
+        The driver, for the execution record.
+    keeper : _MarchKeeper
+        Keeps the method history beside the checkpoint.
+    exports : _Exports
+        The endpoint's field.
+    context : ServiceContext
+        The run's context.
+    clock : solprop._host.RunClock
+        When the run started.
+    adams : bool
+        Whether the run's method keeps an Adams history, which a snapshot requires.
+    """
+    snapshots = context.snapshots
+    assert snapshots is not None
+    z = event.z
+    at_plane = output.n_saved > 0 and float(output["z"][-1]) == z
+    checkpoint = None
+    if not at_plane:
+        assert event.ticket is not None
+        history = event.history
+        rows = event.step_stats
+        checkpoint = TerminalCheckpoint(
+            plane=SavedPlane(
+                z=z,
+                field=_adopted(exports.field(event.ticket)),
+                stats={},
+                step_history=StepHistory.empty()
+                if history is None
+                else _history_of(history),
+                step_stats=StepStats.empty() if rows is None else _rows(rows),
+                noise_phase=None,
+            ),
+            next_save_index=int(
+                np.searchsorted(context.request.observation.save_planes, z, "right")
+            ),
+            landed=True,
+        )
+
+    def persist() -> None:
+        keeper.keep(z, required=adams)
+        _record_execution(
+            checkpoint_output,
+            backend,  # pyright: ignore[reportArgumentType]
+            context.tdse_binding,
+            _Status("running", z),
+            clock=clock,
+            checkpoint=checkpoint,
+        )
+
+    snapshots._service(
+        output,
+        context.tdse_archive,
+        next_save_index=int(
+            np.searchsorted(context.request.observation.save_planes, z, "right")
+        ),
+        require_history=adams,
+        persist=persist,
+        provenance=context.metadata,
+        z=z,
+    )
+
+
+def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
+    session: DriverSession,
+    output: CheckpointOutput | None,
+    context: ServiceContext,
+    keeper: _MarchKeeper,
+    exports: _Exports,
+    ticket: ExportTicket | None,
+    rows: tuple[object, object],
+    failure: _FailedObservation,
+) -> float | None:
+    """Checkpoint the accepted state without replacing the original exception.
+
+    Parameters
+    ----------
+    session : solprop.backends.driver_session.DriverSession
+        The session, its last batch still pending.
+    output : solprop.output.schema.CheckpointOutput or None
+        Handler supporting terminal checkpoints, when available.
+    context : ServiceContext
+        The run's context.
+    keeper : _MarchKeeper
+        Keeps the method history beside the checkpoint.
+    exports : _Exports
+        Shares a field already exported for the pending plane.
+    ticket : solprop.backends.events.ExportTicket or None
+        The committed field to checkpoint, or ``None`` when the state is poisoned or
+        the failure arose outside the session.
+    rows : tuple
+        The terminal event's attempts and periodic rows since the last observation,
+        or ``None`` for each.
+    failure : solprop.driver.run._FailedObservation
+        The primary failure and the plane in hand.
+
+    Returns
+    -------
+    float or None
+        The checkpointed position, m, when one was written.
+    """
+    if output is None:
+        return None
+    backend = session.driver
+    in_flight = backend.in_flight
+    if failure.pending is None and in_flight is not None:
+        _record_abandoned_step(
+            backend, output, context.tdse_binding, failure, in_flight
+        )
+        return None
+    if ticket is None:
+        ticket = _fallback_ticket(session)
+        if ticket is None:
+            return None
+    problem = context.problem
+    reached = None
+    try:
+        pending = failure.pending
+        field = _adopted(exports.field(ticket))
+        phase = exports.phase(ticket)
+        if pending is None or pending.z != ticket.z:
+            history, step_rows = rows
+            pending = SavedPlane(
+                z=ticket.z,
+                field=field,
+                stats={},
+                step_history=StepHistory.empty()
+                if history is None
+                else _history_of(history),  # pyright: ignore[reportArgumentType]
+                step_stats=StepStats.empty() if step_rows is None else _rows(step_rows),  # pyright: ignore[reportArgumentType]
+                noise_phase=None if phase is None else _adopted(phase),
+            )
+        elif pending.field is None:
+            pending = dataclasses.replace(
+                pending,
+                field=field,
+                noise_phase=None if phase is None else _adopted(phase),
+            )
+        history = pending.step_history
+        ends = (history.z + history.h)[history.accepted]
+        landed = (
+            not context.request.observation.dense
+            or pending.z == problem.initial.z
+            or bool(np.any(np.isclose(ends, pending.z, rtol=1e-12, atol=0.0)))
+        )
+        if failure.already_saved:
+            pending = dataclasses.replace(
+                pending, step_history=StepHistory.empty(), step_stats=StepStats.empty()
+            )
+        reached = pending.z
+        checkpoint = TerminalCheckpoint(
+            plane=pending,
+            next_save_index=int(
+                np.searchsorted(
+                    context.request.observation.save_planes, pending.z, side="right"
+                )
+            ),
+            landed=landed,
+        )
+        with committing(deliver=False):
+            _record_execution(
+                output,
+                backend,
+                context.tdse_binding,
+                _Status(
+                    "budget_exhausted"
+                    if isinstance(failure.error, ResponseBudgetError)
+                    else "failed",
+                    reached,
+                    f"{type(failure.error).__name__}: {failure.error}",
+                ),
+                clock=failure.clock,
+                checkpoint=checkpoint,
+            )
+            keeper.keep(reached)
+    except Exception as checkpoint_error:
+        failure.error.add_note(
+            f"terminal checkpoint could not be persisted: {checkpoint_error}"
+        )
+        logger.exception("could not persist the terminal checkpoint")
+    return reached
+
+
+def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
+    """Return a ticket for the committed state after a failure outside the session.
+
+    A service failure -- an output error, a signal during a commit -- leaves the
+    session's batch pending, so its state is still where the batch left it. When the
+    session already finished, nothing is pending and nothing can be exported.
+
+    Parameters
+    ----------
+    session : solprop.backends.driver_session.DriverSession
+        The session.
+
+    Returns
+    -------
+    solprop.backends.events.ExportTicket or None
+        A ticket for the pending state, or ``None``.
+    """
+    return session.pending_ticket()
