@@ -62,7 +62,6 @@ from scipy.linalg import expm
 from solprop._helpers import PLAIN, Helpers
 from solprop._interrupts import committing
 from solprop.backends import adams_core
-from solprop.backends.driver import StepDriver
 from solprop.backends.exponential import (
     CarrierReference,
     carrier_reference,
@@ -88,6 +87,7 @@ from solprop.translate.linop import phi_rate
 from solprop.translate.tdse import TDSEPurpose
 
 if TYPE_CHECKING:
+    from solprop.backends.driver import StepDriver
     from solprop.backends.multistep_general import GeneralPath
 
 __all__ = [
@@ -2045,7 +2045,7 @@ class HostHistory:
 
     def __init__(
         self,
-        backend: StepDriver | HostDriver,
+        backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels,
         exponential: ExponentialKernels | None,
@@ -2913,7 +2913,10 @@ def _rows_read(
     return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
-def _divisor(backend: StepDriver | HostDriver, state: _State) -> np.ndarray:
+def _divisor(
+    backend: "StepDriver | HostDriver",  # noqa: UP037 - lazy bridge type
+    state: _State,
+) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
     See :func:`solprop.backends.multistep_general._norm_function` for why the state
@@ -2966,7 +2969,7 @@ class AdamsMarch:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: "StepDriver",  # noqa: UP037 - lazy bridge type
         method: Multistep,
         kernels: AdamsKernels | None = None,
         exponential: ExponentialKernels | None = None,

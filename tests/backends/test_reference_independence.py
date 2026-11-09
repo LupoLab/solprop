@@ -17,7 +17,10 @@ session.
 
 import ast
 import importlib
+import os
 import pkgutil
+import subprocess
+import sys
 from contextlib import closing
 from pathlib import Path
 from types import ModuleType
@@ -35,12 +38,14 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
+from solprop.backends.multistep import HostHistory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
+from solprop.stepper.multistep import ComparisonMultistep
 from solprop.translate.run_request import describe_run
 
 PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
@@ -58,6 +63,12 @@ LEGACY_NAMES = {
     "solprop.backends.low_storage": {"LowStorageMarch"},
 }
 """The bridge's classes in modules whose other contents are shared numerical code."""
+
+LEGACY_CLASS_NAMES = frozenset(
+    {"StepDriver", "AdamsMarch", "GeneralPath", "LowStorageMarch", "LockstepRunner"}
+)
+"""The bridge's control classes by name: no identifier of the reference may be one,
+whatever route reached it -- an import, an alias, or a module attribute."""
 
 LEGACY_CLASSES = (
     driver.StepDriver,
@@ -84,6 +95,24 @@ def _modules() -> list[str]:
 MODULES = _modules()
 
 
+def _tree(name: str) -> ast.Module:
+    """Return a module's parsed source.
+
+    Parameters
+    ----------
+    name : str
+        The module.
+
+    Returns
+    -------
+    ast.Module
+        Its syntax tree.
+    """
+    module = importlib.import_module(name)
+    assert module.__file__ is not None
+    return ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
+
+
 def _imports(name: str) -> list[tuple[str, set[str]]]:
     """Return every import a module's source makes, function bodies included.
 
@@ -98,11 +127,8 @@ def _imports(name: str) -> list[tuple[str, set[str]]]:
         ``(module, names)`` per import: the imported module and the names taken from
         it, empty for a plain ``import``.
     """
-    module = importlib.import_module(name)
-    assert module.__file__ is not None
-    tree = ast.parse(Path(module.__file__).read_text(encoding="utf-8"))
     found: list[tuple[str, set[str]]] = []
-    for node in ast.walk(tree):
+    for node in ast.walk(_tree(name)):
         if isinstance(node, ast.Import):
             found.extend((alias.name, set()) for alias in node.names)
         elif isinstance(node, ast.ImportFrom) and node.module is not None:
@@ -124,6 +150,56 @@ def test_a_reference_module_imports_no_legacy_control(name):
     for module, taken in _imports(name):
         assert module not in LEGACY_MODULES, (name, module)
         assert not taken & LEGACY_NAMES.get(module, set()), (name, module, taken)
+
+
+@pytest.mark.parametrize("name", MODULES)
+def test_a_reference_module_names_no_legacy_control_by_any_route(name):
+    # `from solprop.backends import multistep` then `multistep.AdamsMarch`, an alias
+    # (`import solprop.backends.low_storage as ls`; `ls.LowStorageMarch`) or an
+    # imported name: every route names the class, as an identifier or an attribute.
+    for node in ast.walk(_tree(name)):
+        if isinstance(node, ast.Name):
+            assert node.id not in LEGACY_CLASS_NAMES, (name, node.id, node.lineno)
+        elif isinstance(node, ast.Attribute):
+            assert node.attr not in LEGACY_CLASS_NAMES, (name, node.attr, node.lineno)
+        elif isinstance(node, ast.alias):
+            assert node.name.rsplit(".", 1)[-1] not in LEGACY_CLASS_NAMES, (
+                name,
+                node.name,
+            )
+
+
+def test_the_route_check_sees_a_module_attribute():
+    # The check above on a snippet that reaches a legacy class through its module.
+    tree = ast.parse(
+        "from solprop.backends import multistep as m\nmarch = m.AdamsMarch\n"
+    )
+    attributes = [
+        node.attr for node in ast.walk(tree) if isinstance(node, ast.Attribute)
+    ]
+    assert set(attributes) & LEGACY_CLASS_NAMES == {"AdamsMarch"}
+
+
+def test_importing_the_reference_loads_no_legacy_driver():
+    # A fresh interpreter, without the native package: the reference, its session and
+    # the run layer's door load neither the inherited driver nor the bridge's batch.
+    code = (
+        "import sys\n"
+        "import solprop.backends.numpy_ref, solprop.backends.numpy_ref.batch\n"
+        "import solprop.backends.numpy_ref.single, solprop.backends.host.session\n"
+        "import solprop.backends.host.adams, solprop.backends.host.group\n"
+        "import solprop.backends.sessions\n"
+        f"watched = {{*{list(LEGACY_MODULES)!r}, 'solprop_native'}}\n"
+        "print(','.join(sorted(set(sys.modules) & watched)))\n"
+    )
+    found = subprocess.run(
+        [sys.executable, "-c", code],
+        capture_output=True,
+        text=True,
+        check=True,
+        env={**os.environ, "SOLPROP_CALIBRATION": "off"},
+    )
+    assert found.stdout.strip() == "", found.stdout
 
 
 @pytest.mark.parametrize("name", MODULES)
@@ -200,3 +276,16 @@ def test_the_host_session_refuses_a_bridge_driver(soliton_problem, narrow_grid):
             HostSession(scripted, problem, describe_run(problem), None)
     finally:
         scripted.close()
+
+
+def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
+    soliton_problem, narrow_grid
+):
+    # The bridge's march takes a resident engine on the fused and exponential paths
+    # only; the reference's takes an injected one there alone, and names what it lacks.
+    problem = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
+    with closing(NumpyRefBackend(problem, grid=narrow_grid)) as backend:
+        with pytest.raises(BackendError, match="exponential path lacks"):
+            HostAdamsMarch(backend, Multistep(), engine=object())
+        general = HostAdamsMarch(backend, ComparisonMultistep(order=3), engine=object())
+        assert isinstance(general._engine, HostHistory)
