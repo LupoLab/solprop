@@ -11,6 +11,12 @@ rows to an engine. :class:`~solprop.backends.multistep.AdamsMarch` hands their t
 :class:`GeneralPath`, which keeps their arithmetic and shares the march's controller,
 history, ledger and lifecycle (SEP 39 phase 0, Q7). The selected method and the
 one-order-higher PEC variants never reach it.
+
+**The native bridge's temporary copy.** Since SEP 47 phase 2 only the native backend's
+inherited Adams march reaches :class:`GeneralPath`; the NumPy reference has its own
+copy (:class:`solprop.backends.host.general.HostGeneralPath`). This module is removed
+with SEP 47's native session: the native backend leaves it in phase 3 and phase 5
+deletes it.
 """
 
 import math

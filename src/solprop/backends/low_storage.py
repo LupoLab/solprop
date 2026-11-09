@@ -48,6 +48,14 @@ backend may keep its own where its state lives (``StepDriver._low_storage_engine
 :class:`HostLowStorage` is the host engine and the oracle, over the backend's
 ``_adams_lab_source`` and ``_adams_propagator``.
 
+**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
+:class:`LowStorageMarch` serves only the native backend's inherited driver, as the
+bridge that keeps its execution working until its own session replaces it; the NumPy
+reference replays with its own copy
+(:class:`solprop.backends.host.low_storage.HostLowStorageMarch`) over the shared host
+engine, :class:`HostLowStorage`. :class:`LowStorageMarch` is removed with SEP 47's
+native session: the native backend leaves it in phase 3 and phase 5 deletes it.
+
 References
 ----------
 .. [1] J. D. Lawson, "Generalized Runge-Kutta processes for stable systems with large

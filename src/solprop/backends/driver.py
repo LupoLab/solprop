@@ -11,9 +11,13 @@ else. Written once here, they are the same
 step control on every backend, so a change to ``docs/dev/stepper.md`` section 3 is made
 in one place and a disagreement between two backends can only be the kernels.
 
-**Every backend runs this loop**, the reference included: the oracle is the passes and
-the per-element arithmetic, not the march, and a march written twice has to be kept
-identical by hand.
+**The native bridge's temporary copy.** Since SEP 47 phase 2 only the native backend
+runs this loop, as the bridge that keeps its execution working until its own session
+replaces it; the NumPy reference runs its own copy
+(:class:`solprop.backends.host.driver.HostDriver`) and shares only stateless numerical
+modules with this one. This module is removed with SEP 47's native session: the native
+backend leaves it in phase 3 and phase 5 deletes it.
+
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
 ``_begin_plane`` and ``_on_accepted_step``, are where a backend scores whatever a plane

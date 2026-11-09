@@ -19,7 +19,7 @@ its state, so no table is queried backwards. Every derivative keeps its position
 the identity of the field it was evaluated at -- the accepted field, or the predicted
 one PEC stores in its place.
 
-The march is shared: a backend supplies two hooks of the step driver,
+The march is shared by its two copies: a backend supplies two hooks of the step driver,
 ``_adams_source`` (one source evaluation at a lab-frame field, returned in the step's
 anchor frame) and ``_adams_propagator``, and the driver's own state, landing and
 recording do the rest. ``numpy_ref`` evaluates through its reference passes (SEP 14
@@ -38,6 +38,15 @@ section 6.1):
 - a hard kink is landed on and the history restarted on its far side; a save plane is
   a pure observation and keeps the history;
 - a load or a resume starts afresh, at order one, and its startup calls are counted.
+
+**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
+:class:`AdamsMarch` serves only the native backend's inherited driver, as the bridge
+that keeps its execution working until its own session replaces it; the NumPy reference
+marches with its own copy (:class:`solprop.backends.host.adams.HostAdamsMarch`). The
+rest of this module -- the kernels, the host engine :class:`HostHistory`, the tables and
+the call ledger -- is stateless numerical code both share. :class:`AdamsMarch` is
+removed with SEP 47's native session: the native backend leaves it in phase 3 and
+phase 5 deletes it.
 """
 
 import logging
