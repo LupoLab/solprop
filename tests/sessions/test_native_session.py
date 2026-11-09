@@ -426,3 +426,50 @@ def test_observations_carry_the_rows_since_the_previous_one():
         assert event.history.accepted[rows.step].all()
         assert rows.values["energy"].shape == (rows.n_rows, 1, 1)
     assert isinstance(run.events[-1], Terminal)
+
+
+def test_the_native_export_is_apply_recipe_to_the_bit():
+    """SEP 47 section 5.4: the fused native pass is ``apply_recipe``, bitwise.
+
+    A launch field with signed zeros in both parts and values of every sign is exported
+    with each recipe, into new arrays and into destinations, and compared with the
+    reference conversion of the same field at the same position.
+    """
+    from solprop.backends.export import ExportRecipe, apply_recipe  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.translate.linop import power_weight_at  # noqa: PLC0415
+
+    problem = _case()
+    rng = np.random.default_rng(47)
+    field = np.array(problem.initial.field0[0], copy=True)
+    field.real[..., ::7] = -0.0
+    field.imag[..., ::5] = -0.0
+    field.imag[..., 1::11] = 0.0
+    field.real[..., 3::13] *= -rng.random(field[..., 3::13].shape)
+    session = native_session.NativeSession(
+        problem,
+        describe_run(problem),
+        Start(field=field, z=0.0),
+        grid=window(),
+        modes=[fibre().mode],
+    )
+    batch = session.advance()
+    (launch,) = batch.events
+    assert isinstance(launch, ObservationReady)
+    weight = power_weight_at(problem, 0.0)
+    # The loaded state, which the launch's mask may have changed from `field`: the
+    # identity export is a lossless copy of it.
+    field = np.array(
+        session.export(launch.ticket, ExportRecipe(power=False, optics=False))
+    )
+    for power in (False, True):
+        for optics in (False, True):
+            recipe = ExportRecipe(power=power, optics=optics)
+            expected = apply_recipe(field, recipe, weight=weight if power else None)
+            got = session.export(launch.ticket, recipe)
+            assert got.tobytes() == expected.tobytes(), recipe
+            out = np.empty_like(expected)
+            assert session.export(launch.ticket, recipe, out=out) is out
+            assert out.tobytes() == expected.tobytes(), recipe
+    assert np.signbit(field.real).any() and np.signbit(field.imag).any()
+    session.close()
