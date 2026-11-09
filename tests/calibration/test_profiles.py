@@ -99,6 +99,35 @@ def test_no_profile_means_the_built_in_table(environ: dict[str, str]) -> None:
     assert "profile:      none (the built-in table applies)" in off
 
 
+def test_clearing_removes_the_plans_runs_measured(
+    environ: dict[str, str], tmp_path: Path
+) -> None:
+    """The stored FFT plans go with the profile, and a named file's too (ADR-076)."""
+    found = calibration.choice(environ)
+    assert found.fingerprint is not None
+    digest = found.fingerprint.digest
+    default = calibration.store_directory(environ) / "machines" / digest / "wisdom.json"
+    default.parent.mkdir(parents=True)
+    default.write_text("{}", encoding="utf-8")
+    named = tmp_path / "plans"
+    kept = named.with_name(f"plans.native-{digest}")
+    kept.write_text("{}", encoding="utf-8")
+    other = named.with_name("plans.native-another")
+    other.write_text("{}", encoding="utf-8")
+    assert calibration.clear(environ | {"SOLPROP_FFTW_WISDOM": str(named)}) == 2
+    assert not default.exists()
+    assert not kept.exists()
+    assert other.exists()
+    # Nothing left to remove, and an unusable name is passed over.
+    assert calibration.clear(environ | {"SOLPROP_FFTW_WISDOM": "."}) == 0
+    # Under off, runs still keep the named file, and clearing still finds it.
+    kept.write_text("{}", encoding="utf-8")
+    off = environ | {"SOLPROP_CALIBRATION": "off", "SOLPROP_FFTW_WISDOM": str(named)}
+    assert calibration.clear(off) == 1
+    assert not kept.exists()
+    assert other.exists()
+
+
 def test_a_published_profile_is_read_shown_exported_and_cleared(
     environ: dict[str, str], tmp_path: Path
 ) -> None:

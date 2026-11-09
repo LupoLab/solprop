@@ -224,8 +224,9 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
 }
 
 // solprop SEP 46 phase 3: a workspace's FFT planning, as solprop_native's backend
-// writes it: its mode, each group's effort, the profile's wisdom by plan key, and a
-// capture's effort and time limit; absent, the plan policy (`legacy`).
+// writes it: its mode, each group's effort, the profile's wisdom by plan key, a
+// capture's effort and time limit, and the plans runs measured before with whether to
+// keep new ones (ADR-076); absent, the plan policy (`legacy`).
 [[maybe_unused]] native::FftPlanning fft_planning_from(const nb::dict& values) {
   native::FftPlanning result;
   try {
@@ -271,6 +272,11 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
     }
     if (values.contains("time_limit"))
       result.time_limit = nb::cast<double>(values["time_limit"]);
+    if (values.contains("stored"))
+      for (auto [key, text] : nb::cast<nb::dict>(values["stored"]))
+        result.stored[nb::cast<std::string>(key)] = nb::cast<std::string>(text);
+    if (values.contains("keep"))
+      result.keep = nb::cast<bool>(values["keep"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("an FFT planning record has the wrong types");
   }
@@ -288,9 +294,17 @@ nb::dict fft_planning_dict(const native::FftPlanning& planning) {
   nb::list missing;
   for (const auto& key : planning.missing)
     missing.append(key);
+  nb::dict measured;
+  for (const auto& [key, text] : planning.measured)
+    measured[key.c_str()] = text;
+  nb::list reused;
+  for (const auto& key : planning.reused)
+    reused.append(key);
   result["groups"] = groups;
   result["captured"] = captured;
   result["missing"] = missing;
+  result["measured"] = measured;
+  result["reused"] = reused;
   return result;
 }
 
@@ -2766,8 +2780,8 @@ NB_MODULE(_core, module_) {
   module_.def("scoped_block_time", &native::scoped_block_time);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
-  // FFTW's wisdom as text for solprop's SOLPROP_FFTW_WISDOM, whose file the adapter
-  // owns (solprop_native._wisdom). None where there is none to keep: a device build,
+  // FFTW's wisdom as text, for the plan store the adapter owns
+  // (solprop_native._wisdom). None where there is none to keep: a device build,
   // which plans with the device FFT, or a provider without FFTW's wisdom.
   module_.def("export_fftw_wisdom", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)

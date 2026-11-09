@@ -2,77 +2,88 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The native backend keeps FFTW wisdom in a shared file only when one is named."""
+"""The native backend keeps the FFTW plans its runs measure, by default (ADR-076)."""
 
 from __future__ import annotations
 
+import json
 import logging
 import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from conftest import PhaseACase
 
+import solprop_native
 from solprop_native import NativeBackend, _core, _wisdom
 
-_PREAMBLE = "(fftw-test fftw_wisdom #x1 #x2 #x3 #x4"
-
-
-class _FakeFftw:
-    """FFTW's wisdom as a set of entry lines under one preamble."""
-
-    def __init__(self, *entries: str) -> None:
-        self.entries: set[str] = set(entries)
-        self.exports = 0
-
-    def export_fftw_wisdom(self) -> str:
-        self.exports += 1
-        body = "".join(f"  ({entry})\n" for entry in sorted(self.entries))
-        return f"{_PREAMBLE}\n{body})\n"
-
-    def import_fftw_wisdom(self, text: str) -> bool:
-        lines = text.splitlines()
-        if not lines or lines[0] != _PREAMBLE or lines[-1] != ")":
-            return False
-        self.entries |= {line.strip()[1:-1] for line in lines[1:-1]}
-        return True
+_KEY = "machine-and-build"
 
 
 @pytest.fixture
-def fake(monkeypatch: pytest.MonkeyPatch) -> _FakeFftw:
-    """Give the wisdom module a fake FFTW and forget what it knew of every file."""
-    fftw = _FakeFftw("plan a")
-    monkeypatch.setattr(_wisdom, "_core", fftw)
-    monkeypatch.setattr(_wisdom, "_imported", {})
-    monkeypatch.setattr(_wisdom, "_known", {})
-    return fftw
+def fresh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Forget what the wisdom module read and measured; give it a fixed machine key."""
+    monkeypatch.setattr(_wisdom, "_read", {})
+    monkeypatch.setattr(_wisdom, "_measured", {})
+    monkeypatch.setattr(_wisdom, "machine_key", lambda: _KEY)
+    monkeypatch.setattr(_wisdom, "_keeps_wisdom", lambda: True)
 
 
-def test_nothing_is_kept_unless_a_file_is_named(
-    monkeypatch: pytest.MonkeyPatch, fake: _FakeFftw
+def _plans(path: Path) -> dict[str, str]:
+    """Return a plan file's plans."""
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data["format"] == _wisdom.FORMAT
+    return data["plans"]
+
+
+@pytest.mark.usefixtures("fresh")
+def test_the_default_file_is_the_machines_in_the_store(tmp_path: Path) -> None:
+    environ = {"SOLPROP_CACHE_DIR": str(tmp_path), "SOLPROP_CALIBRATION": "auto"}
+    path = _wisdom.wisdom_file(environ)
+    assert path == tmp_path / "machines" / _KEY / _wisdom.FILE
+    assert _wisdom.wisdom_file(environ | {"SOLPROP_CALIBRATION": "use"}) == path
+
+
+@pytest.mark.usefixtures("fresh")
+def test_off_keeps_no_default_file_but_a_named_one(tmp_path: Path) -> None:
+    environ = {"SOLPROP_CACHE_DIR": str(tmp_path), "SOLPROP_CALIBRATION": "off"}
+    assert _wisdom.wisdom_file(environ) is None
+    named = environ | {_wisdom.ENVIRONMENT: str(tmp_path / "wisdom")}
+    assert _wisdom.wisdom_file(named) == tmp_path / f"wisdom.native-{_KEY}"
+
+
+@pytest.mark.usefixtures("fresh")
+def test_a_named_file_is_keyed_beside_it(tmp_path: Path) -> None:
+    # pathlib expands ``~`` from the process's HOME.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setenv("HOME", str(tmp_path))
+        found = _wisdom.wisdom_file({_wisdom.ENVIRONMENT: "~/other"})
+    assert found == tmp_path / f"other.native-{_KEY}"
+
+
+@pytest.mark.usefixtures("fresh")
+@pytest.mark.parametrize("named", [".", "..", "~nouser-solprop-test/w"])
+def test_an_unusable_name_warns_and_keeps_nothing(
+    named: str, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.delenv(_wisdom.ENVIRONMENT, raising=False)
-    assert _wisdom.wisdom_file() is None
-    assert _wisdom.wisdom_file("") is None
-    assert not _wisdom.load(None)
-    assert not _wisdom.store(None)
-    assert fake.exports == 0
+    with caplog.at_level(logging.WARNING, logger=_wisdom.__name__):
+        assert _wisdom.wisdom_file({_wisdom.ENVIRONMENT: named}) is None
+    assert "cannot keep FFTW plans" in caplog.text
 
 
-def test_the_native_file_is_keyed_beside_the_named_one(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.usefixtures("fresh")
+def test_a_store_without_a_home_warns_and_keeps_nothing(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ) -> None:
-    monkeypatch.setenv(_wisdom.ENVIRONMENT, str(tmp_path / "wisdom"))
-    path = _wisdom.wisdom_file()
-    if _core.export_fftw_wisdom() is None:
-        assert path is None
-        return
-    assert path is not None
-    assert path.parent == tmp_path
-    assert path.name.startswith("wisdom.native-")
-    assert path == _wisdom.wisdom_file(str(tmp_path / "wisdom"))
-    monkeypatch.setenv("HOME", str(tmp_path))
-    assert _wisdom.wisdom_file("~/other") == tmp_path / f"other.{path.suffix[1:]}"
+    def homeless() -> Path:
+        raise RuntimeError("Could not determine home directory.")
+
+    monkeypatch.setattr(Path, "home", staticmethod(homeless))
+    with caplog.at_level(logging.WARNING, logger=_wisdom.__name__):
+        assert _wisdom.wisdom_file({"SOLPROP_CALIBRATION": "auto"}) is None
+    assert "Could not determine home directory" in caplog.text
 
 
 def test_a_build_without_fftw_wisdom_keeps_no_file(
@@ -84,142 +95,299 @@ def test_a_build_without_fftw_wisdom_keeps_no_file(
             return None
 
     monkeypatch.setattr(_wisdom, "_core", _Device())
-    _wisdom._key.cache_clear()  # pyright: ignore[reportPrivateUsage]
+    _wisdom._keeps_wisdom.cache_clear()  # pyright: ignore[reportPrivateUsage]
     try:
-        assert _wisdom.wisdom_file(str(tmp_path / "wisdom")) is None
-        assert _wisdom.digest() is None
+        assert _wisdom.wisdom_file({"SOLPROP_CACHE_DIR": str(tmp_path)}) is None
+        assert _wisdom.digest({}) is None
     finally:
-        _wisdom._key.cache_clear()  # pyright: ignore[reportPrivateUsage]
+        _wisdom._keeps_wisdom.cache_clear()  # pyright: ignore[reportPrivateUsage]
 
 
-def test_the_processor_is_named_from_its_model_lines() -> None:
-    processor = _wisdom._processor  # pyright: ignore[reportPrivateUsage]
-    x86 = "processor\t: 0\nmodel name\t: Example CPU @ 2.60GHz\nflags\t: fpu\n"
-    assert processor(x86) == "Example CPU @ 2.60GHz"
-    arm = "CPU implementer\t: 0x41\nCPU part\t: 0xd0c\nCPU part\t: 0xd0c\n"
-    assert processor(arm) == "0x41 0xd0c"
-    assert isinstance(processor("nothing to see\n"), str)
-    assert isinstance(processor(), str)
-
-
-def test_wisdom_round_trips_and_an_unchanged_run_writes_nothing(
-    fake: _FakeFftw, tmp_path: Path
+def test_the_machine_key_is_the_profiles_fingerprint(
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    path = tmp_path / "nested" / "wisdom.native-key"
-    assert not _wisdom.load(path)
-    assert _wisdom.store(path)
-    assert path.read_text(encoding="ascii") == fake.export_fftw_wisdom()
-    version = path.stat().st_mtime_ns
-    # Nothing planned since: no lock, no read, no write.
-    assert not _wisdom.store(path)
-    assert path.stat().st_mtime_ns == version
-    # A process that knows the file already does not read it again.
-    assert _wisdom.load(path)
-    # A fresh process imports the file.
-    _wisdom._imported.clear()  # pyright: ignore[reportPrivateUsage]
-    _wisdom._known.clear()  # pyright: ignore[reportPrivateUsage]
-    fake.entries = set()
-    assert _wisdom.load(path)
-    assert fake.entries == {"plan a"}
-    assert not _wisdom.store(path)
+    _wisdom.machine_key.cache_clear()
+    try:
+        key = _wisdom.machine_key()
+        assert len(key) == 24
+        found = solprop_native.PROFILE.fingerprint
+        if found is not None:
+            assert key == found.digest
+        # Under SOLPROP_CALIBRATION=off the package took none, and it is computed.
+        monkeypatch.setattr(
+            solprop_native, "PROFILE", solprop_native.PROFILE.__class__(mode="off")
+        )
+        _wisdom.machine_key.cache_clear()
+        assert _wisdom.machine_key() == key
+    finally:
+        _wisdom.machine_key.cache_clear()
 
 
-def test_a_writer_merges_what_others_stored(fake: _FakeFftw, tmp_path: Path) -> None:
-    path = tmp_path / "wisdom.native-key"
-    other = _FakeFftw("plan b")
-    path.write_text(other.export_fftw_wisdom(), encoding="ascii")
-    assert _wisdom.store(path)
-    assert fake.entries == {"plan a", "plan b"}
-    merged = _FakeFftw()
-    assert merged.import_fftw_wisdom(path.read_text(encoding="ascii"))
-    assert merged.entries == {"plan a", "plan b"}
-    # Our plans are in the file now: a merge adds nothing, and nothing is written.
-    _wisdom._known.clear()  # pyright: ignore[reportPrivateUsage]
+@pytest.mark.usefixtures("fresh")
+def test_plans_round_trip_and_an_unchanged_run_writes_nothing(tmp_path: Path) -> None:
+    path = tmp_path / "nested" / "wisdom.json"
+    assert _wisdom.plans(path) == ({}, False)
+    assert _wisdom.store(path, {"r2c:a": "(a)"})
+    assert _plans(path) == {"r2c:a": "(a)"}
     version = path.stat().st_mtime_ns
-    assert not _wisdom.store(path)
+    # Nothing new: no write.
+    assert not _wisdom.store(path, {"r2c:a": "(a)"})
+    assert not _wisdom.store(path, {})
     assert path.stat().st_mtime_ns == version
+    assert _wisdom.plans(path) == ({"r2c:a": "(a)"}, True)
+    # This process's own plans are offered too, over the file's, and alone without one.
+    _wisdom.remember({"c2r:b": "(b)"})
+    assert _wisdom.plans(path) == ({"r2c:a": "(a)", "c2r:b": "(b)"}, True)
+    assert _wisdom.plans(None) == ({"c2r:b": "(b)"}, False)
+    assert not _wisdom.store(None, {"c2r:b": "(b)"})
+
+
+@pytest.mark.usefixtures("fresh")
+def test_a_writer_merges_what_others_stored(tmp_path: Path) -> None:
+    path = tmp_path / "wisdom.json"
+    path.write_text(
+        json.dumps({"format": 1, "plans": {"r2c:a": "(a)"}}), encoding="utf-8"
+    )
+    assert _wisdom.store(path, {"c2r:b": "(b)"})
+    assert _plans(path) == {"r2c:a": "(a)", "c2r:b": "(b)"}
+    # A plan measured again, since its wisdom no longer sufficed, replaces it.
+    assert _wisdom.store(path, {"r2c:a": "(a2)"})
+    assert _plans(path)["r2c:a"] == "(a2)"
     assert not list(tmp_path.glob(".*"))
 
 
-def test_a_writer_waits_for_the_lock(fake: _FakeFftw, tmp_path: Path) -> None:
-    path = tmp_path / "wisdom.native-key"
+@pytest.mark.usefixtures("fresh")
+def test_a_profiles_keys_are_never_stored(tmp_path: Path) -> None:
+    path = tmp_path / "wisdom.json"
+    assert not _wisdom.store(path, {"r2c:a": "(a)"}, profiled={"r2c:a"})
+    assert not path.exists()
+    assert _wisdom.store(path, {"r2c:a": "(a)", "c2r:b": "(b)"}, profiled={"r2c:a"})
+    assert _plans(path) == {"c2r:b": "(b)"}
+
+
+@pytest.mark.usefixtures("fresh")
+def test_a_writer_waits_for_the_lock(tmp_path: Path) -> None:
+    path = tmp_path / "wisdom.json"
     if _wisdom.fcntl is None:  # pragma: no cover - Windows: there is no writer lock
         pytest.skip("no writer lock on this platform")
-    writer = threading.Thread(target=_wisdom.store, args=(path,))
+    writer = threading.Thread(target=_wisdom.store, args=(path, {"r2c:a": "(a)"}))
     with _wisdom._exclusive(path):  # pyright: ignore[reportPrivateUsage]
         writer.start()
         writer.join(0.2)
         assert writer.is_alive()
         assert not path.exists()
     writer.join()
-    assert path.read_text(encoding="ascii") == fake.export_fftw_wisdom()
+    assert _plans(path) == {"r2c:a": "(a)"}
 
 
-def test_foreign_or_unreadable_wisdom_is_reported_and_ignored(
-    fake: _FakeFftw, tmp_path: Path, caplog: pytest.LogCaptureFixture
+@pytest.mark.usefixtures("fresh")
+@pytest.mark.parametrize(
+    "text",
+    [
+        "not json at all",
+        "[1, 2]",
+        json.dumps({"format": 0, "plans": {}}),
+        json.dumps({"format": 1, "plans": {"r2c:a": 3}}),
+    ],
+)
+def test_a_malformed_file_is_reported_ignored_and_replaced(
+    text: str, tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:
-    foreign = tmp_path / "foreign"
-    foreign.write_text("not wisdom at all", encoding="ascii")
+    path = tmp_path / "wisdom.json"
+    path.write_text(text, encoding="utf-8")
     with caplog.at_level(logging.WARNING, logger=_wisdom.__name__):
-        assert not _wisdom.load(foreign)
-        # A writer replaces it with this process's wisdom.
-        assert _wisdom.store(foreign)
-    assert "is not this FFTW's wisdom" in caplog.text
-    assert foreign.read_text(encoding="ascii") == fake.export_fftw_wisdom()
+        assert _wisdom.plans(path) == ({}, False)
+        assert _wisdom.store(path, {"r2c:a": "(a)"})
+    assert "ignoring the FFTW plans" in caplog.text
+    assert _plans(path) == {"r2c:a": "(a)"}
+
+
+@pytest.mark.usefixtures("fresh")
+def test_an_unreadable_or_unwritable_file_is_reported(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
     binary = tmp_path / "binary"
     binary.write_bytes(b"\xff\xfe")
-    unwritable = tmp_path / "a file" / "wisdom"
+    unwritable = tmp_path / "a file" / "wisdom.json"
     unwritable.parent.write_text("", encoding="ascii")
-    caplog.clear()
     with caplog.at_level(logging.WARNING, logger=_wisdom.__name__):
-        assert not _wisdom.load(binary)
-        assert not _wisdom.store(unwritable)
-    assert "cannot read FFTW wisdom" in caplog.text
-    assert "cannot store FFTW wisdom" in caplog.text
+        assert _wisdom.plans(binary) == ({}, False)
+        assert not _wisdom.store(unwritable, {"r2c:a": "(a)"})
+    assert "cannot read FFTW plans" in caplog.text
+    assert "cannot store FFTW plans" in caplog.text
 
 
+@pytest.mark.usefixtures("fresh")
 def test_a_failed_replace_leaves_no_partial_file(
-    fake: _FakeFftw, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    path = tmp_path / "wisdom.native-key"
+    path = tmp_path / "wisdom.json"
 
     def refuse(self: Path, target: Path) -> Path:
         raise PermissionError(f"cannot replace {target}")
 
     monkeypatch.setattr(Path, "replace", refuse)
-    assert not _wisdom.store(path)
+    assert not _wisdom.store(path, {"r2c:a": "(a)"})
     assert not path.exists()
     assert sorted(one.name for one in tmp_path.iterdir()) == [f"{path.name}.lock"]
 
 
-def test_the_digest_follows_the_wisdom(fake: _FakeFftw) -> None:
-    before = _wisdom.digest()
+@pytest.mark.usefixtures("fresh")
+def test_the_digest_follows_the_plans() -> None:
+    before = _wisdom.digest({"r2c:a": "(a)"})
     assert before is not None
     assert len(before) == 16
-    fake.entries.add("plan c")
-    assert _wisdom.digest() != before
+    assert _wisdom.digest({"r2c:a": "(a)", "c2r:b": "(b)"}) != before
 
 
-def test_a_backend_keeps_and_reuses_its_plans(
-    phase_a_case: PhaseACase, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.fixture
+def measured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
+    """Measure every transform, keep plans under `tmp_path`; return the file."""
+    if _core.export_fftw_wisdom() is None:
+        pytest.skip("this build keeps no FFTW wisdom")
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "measure")
+    monkeypatch.setenv(_wisdom.ENVIRONMENT, str(tmp_path / "wisdom"))
+    monkeypatch.setattr(_wisdom, "_read", {})
+    monkeypatch.setattr(_wisdom, "_measured", {})
+    _core.forget_fftw_wisdom()
+    path = _wisdom.wisdom_file()
+    assert path is not None
+    return path
+
+
+@dataclass(frozen=True)
+class _Planned:
+    """What a workspace's planning did with its plans."""
+
+    measured: dict[str, str]
+    reused: list[str]
+    groups: dict[str, str]
+    missing: list[str]
+
+
+def _planning(backend: NativeBackend) -> _Planned:
+    found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+    return _Planned(
+        measured=cast(dict[str, str], found["measured"]),
+        reused=cast(list[str], found["reused"]),
+        groups=cast(dict[str, str], found["groups"]),
+        missing=cast(list[str], found["missing"]),
+    )
+
+
+def test_a_second_run_of_a_shape_plans_without_measuring(
+    phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     problem, grid = phase_a_case
-    monkeypatch.setenv(_wisdom.ENVIRONMENT, str(tmp_path / "wisdom"))
-    path = _wisdom.wisdom_file()
     first = NativeBackend(problem, grid=grid)
     try:
         metadata = first.metadata()
+        found = _planning(first)
         assert metadata["wisdom_loaded"] is False
-        if path is None:
-            assert metadata["wisdom_digest"] is None
-            return
         assert isinstance(metadata["wisdom_digest"], str)
-        assert path.is_file()
-        assert _core.import_fftw_wisdom(path.read_text(encoding="ascii"))
+        assert found.measured
+        assert found.reused == []
+        kept = _plans(measured)
+        assert kept == found.measured
+    finally:
+        first.close()
+    # A new process: nothing of this one's plans in memory or in FFTW.
+    monkeypatch.setattr(_wisdom, "_read", {})
+    monkeypatch.setattr(_wisdom, "_measured", {})
+    _core.forget_fftw_wisdom()
+    second = NativeBackend(problem, grid=grid)
+    try:
+        metadata = second.metadata()
+        found = _planning(second)
+        assert metadata["wisdom_loaded"] is True
+        assert metadata["wisdom_digest"] is not None
+        assert found.measured == {}
+        assert set(found.reused) == set(kept)
+    finally:
+        second.close()
+    assert _plans(measured) == kept
+
+
+def test_off_still_reuses_a_processs_own_plans(
+    phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    problem, grid = phase_a_case
+    monkeypatch.delenv(_wisdom.ENVIRONMENT)
+    assert _wisdom.wisdom_file() is None  # the tests run under off
+    first = NativeBackend(problem, grid=grid)
+    try:
+        assert _planning(first).measured
     finally:
         first.close()
     second = NativeBackend(problem, grid=grid)
     try:
-        assert second.metadata()["wisdom_loaded"] is True
+        assert _planning(second).measured == {}
+        assert _planning(second).reused
+        assert second.metadata()["wisdom_loaded"] is False
+    finally:
+        second.close()
+    assert not measured.exists()
+
+
+def test_a_profiles_winner_takes_precedence_over_stored_plans(
+    phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    problem, grid = phase_a_case
+    first = NativeBackend(problem, grid=grid)
+    try:
+        kept = dict(_planning(first).measured)
+    finally:
+        first.close()
+    winner, *others = sorted(kept)
+    # A profile holding one of the transforms, at measure for the rest: its own wisdom
+    # plans it, the stored plans the rest, and its key is never stored.
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "")
+    monkeypatch.setattr(
+        solprop_native,
+        "PLANNING",
+        {
+            "mode": "profile",
+            "efforts": {"rows": "measure", "threaded_rows": "measure"},
+            "wisdom": {winner: kept[winner]},
+        },
+    )
+    measured.write_text(
+        json.dumps({"format": 1, "plans": {key: kept[key] for key in others}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(_wisdom, "_read", {})
+    monkeypatch.setattr(_wisdom, "_measured", {})
+    second = NativeBackend(problem, grid=grid)
+    try:
+        found = _planning(second)
+        assert found.missing == []
+        assert winner in found.groups
+        assert winner not in found.reused
+        assert found.measured == {}
+        assert set(found.reused) == set(others)
+    finally:
+        second.close()
+    assert sorted(_plans(measured)) == others
+
+
+def test_an_estimate_run_takes_the_stored_plans_without_seeding(
+    phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A transform left at estimate imports its stored plan for its estimate plan."""
+    problem, grid = phase_a_case
+    first = NativeBackend(problem, grid=grid)
+    try:
+        kept = sorted(_planning(first).measured)
+    finally:
+        first.close()
+    monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
+    monkeypatch.setattr(_wisdom, "_read", {})
+    monkeypatch.setattr(_wisdom, "_measured", {})
+    _core.forget_fftw_wisdom()
+    second = NativeBackend(problem, grid=grid)
+    try:
+        found = _planning(second)
+        assert found.measured == {}
+        assert set(found.reused) == set(kept)
     finally:
         second.close()

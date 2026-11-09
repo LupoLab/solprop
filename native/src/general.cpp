@@ -618,8 +618,10 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
   // The policy has always tolerated a plane it cannot seed; a profile records it.
   if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
       (detail::planning == nullptr ||
-       detail::planning->mode == FftPlanning::Mode::legacy))
+       detail::planning->mode == FftPlanning::Mode::legacy)) {
+    release_seed(key, false);
     return;
+  }
   end_seed(key, *chosen, seeded != nullptr);
   if (seeded != nullptr)
     fftw_destroy_plan(seeded);
