@@ -1035,6 +1035,7 @@ DRIVER_ATTRIBUTES = (
     "_history",
     "_monitor",
     "_natural_count",
+    "_halt_requested",
     "_norm_controller",
     "_progress",
     "_propagator_mode",
