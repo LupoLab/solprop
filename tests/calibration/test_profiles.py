@@ -120,6 +120,12 @@ def test_clearing_removes_the_plans_runs_measured(
     assert other.exists()
     # Nothing left to remove, and an unusable name is passed over.
     assert calibration.clear(environ | {"SOLPROP_FFTW_WISDOM": "."}) == 0
+    # Under off, runs still keep the named file, and clearing still finds it.
+    kept.write_text("{}", encoding="utf-8")
+    off = environ | {"SOLPROP_CALIBRATION": "off", "SOLPROP_FFTW_WISDOM": str(named)}
+    assert calibration.clear(off) == 1
+    assert not kept.exists()
+    assert other.exists()
 
 
 def test_a_published_profile_is_read_shown_exported_and_cleared(

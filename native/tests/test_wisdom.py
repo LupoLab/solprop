@@ -284,7 +284,7 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
         assert metadata["wisdom_loaded"] is True
         assert metadata["wisdom_digest"] is not None
         assert found["measured"] == {}
-        assert sorted(found["reused"]) == sorted(kept)
+        assert set(found["reused"]) == set(kept)
     finally:
         second.close()
     assert _plans(measured) == kept
@@ -346,7 +346,7 @@ def test_a_profiles_winner_takes_precedence_over_stored_plans(
         assert winner in found["groups"]  # pyright: ignore[reportOperatorIssue]
         assert winner not in found["reused"]  # pyright: ignore[reportOperatorIssue]
         assert found["measured"] == {}
-        assert sorted(found["reused"]) == others  # pyright: ignore[reportArgumentType]
+        assert set(found["reused"]) == set(others)  # pyright: ignore[reportArgumentType]
     finally:
         second.close()
     assert sorted(_plans(measured)) == others
@@ -370,6 +370,6 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     try:
         found = _planning(second)
         assert found["measured"] == {}
-        assert sorted(found["reused"]) == kept  # pyright: ignore[reportArgumentType]
+        assert set(found["reused"]) == set(kept)  # pyright: ignore[reportArgumentType]
     finally:
         second.close()

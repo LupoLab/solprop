@@ -160,20 +160,36 @@ inline void import_beneath(const std::string& text) {
     static_cast<void>(fftw_import_wisdom_from_string(held.c_str()));
 }
 
+// The wisdom already known for a transform: measured earlier in this workspace, or
+// stored by an earlier run; none when it must be measured.
+inline const std::string* known_wisdom(const FftPlanning& planning,
+                                       const std::string& key) {
+  if (const auto found = planning.measured.find(key); found != planning.measured.end())
+    return &found->second;
+  if (const auto found = planning.stored.find(key); found != planning.stored.end())
+    return &found->second;
+  return nullptr;
+}
+
 // Begin planning a transform alone (`FftPlanning::stored`): set the workspace's wisdom
-// aside and import only the transform's own stored wisdom, if any.
+// aside and import only the transform's own known wisdom; a transform to be measured
+// starts from what this workspace measured so far, so that it shares their sub-plans
+// as a workspace planning in one wisdom does, and from nothing else.
 inline void plan_alone(FftPlanning& planning, const std::string& key) {
   planning.held = export_fftw_wisdom();
   fftw_forget_wisdom();
-  if (const auto found = planning.stored.find(key); found != planning.stored.end())
-    static_cast<void>(fftw_import_wisdom_from_string(found->second.c_str()));
+  if (const std::string* known = known_wisdom(planning, key))
+    static_cast<void>(fftw_import_wisdom_from_string(known->c_str()));
+  else
+    for (const auto& entry : planning.measured)
+      static_cast<void>(fftw_import_wisdom_from_string(entry.second.c_str()));
   planning.alone = true;
 }
 
-// End a transform planned alone: keep its own wisdom if it measured, note a reuse if
-// not, then give the workspace back its wisdom, imported over the transform's so that
-// a profile's plans keep their entries. Every seed begun alone ends here, planned or
-// not.
+// End a transform planned alone: keep its own wisdom if it measured, note a reuse of a
+// stored plan if not, then give the workspace back its wisdom, imported over the
+// transform's so that a profile's plans keep their entries. Every seed begun alone
+// ends here, planned or not.
 inline void release_seed(const std::string& key, const bool planned) {
   FftPlanning* planning = detail::planning;
   if (planning == nullptr || !planning->alone)
@@ -182,11 +198,13 @@ inline void release_seed(const std::string& key, const bool planned) {
   std::string own;
   if (planned) {
     own = export_fftw_wisdom();
-    const auto found = planning->stored.find(key);
-    if (found != planning->stored.end() && !adds_wisdom(own, found->second))
-      planning->reused.push_back(key);
-    else if (planning->keep)
+    const std::string* known = known_wisdom(*planning, key);
+    if (known != nullptr && !adds_wisdom(own, *known)) {
+      if (!planning->measured.contains(key))
+        planning->reused.push_back(key);
+    } else if (planning->keep) {
       planning->measured[key] = own;
+    }
   }
   fftw_forget_wisdom();
   if (!own.empty())
@@ -251,7 +269,7 @@ inline std::optional<unsigned> begin_seed(const std::string& key, const FftShape
     }
     return std::nullopt;
   }
-  if (planning->keep || stored != planning->stored.end())
+  if (planning->keep || known_wisdom(*planning, key) != nullptr)
     plan_alone(*planning, key);
   return effort;
 }

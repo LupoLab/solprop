@@ -302,8 +302,10 @@ void require_cpu_execution(const CpuExecution& execution);
     `stored` holds each transform's own wisdom by key, below the profile's `wisdom`,
     which is consulted first. A transform seeded above estimate that `stored` holds, or
     any when `keep` is set, is planned alone: the workspace's wisdom is set aside, the
-    transform's stored wisdom alone imported, and after the seed the workspace's wisdom
-    comes back over the transform's. A plan the stored wisdom built is listed in
+    transform's stored wisdom alone imported (or, for one to measure, what the
+    workspace measured so far, whose sub-plans it may share), and after the seed the
+    workspace's wisdom comes back over the transform's. A transform seeded twice is
+    measured once. A plan the stored wisdom built is listed in
     `reused`, as is one left at estimate whose stored wisdom was imported for its
     estimate plan; one that measured is kept in `measured` when `keep` is set. */
 struct FftPlanning {

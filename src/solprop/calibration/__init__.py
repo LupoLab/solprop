@@ -287,16 +287,26 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
         The files removed.
     """
     found = choice(environ)
-    if found.fingerprint is None:
-        return 0
-    digest = found.fingerprint.digest
-    removed = _native.store.Store(store_directory(environ)).clear(digest)
+    removed = 0
+    if found.fingerprint is not None:
+        digest = found.fingerprint.digest
+        removed = _native.store.Store(store_directory(environ)).clear(digest)
     named = (os.environ if environ is None else environ).get("SOLPROP_FFTW_WISDOM", "")
-    if named.strip():
+    if not named.strip():
+        return removed
+    try:
+        if found.fingerprint is None:
+            # SOLPROP_CALIBRATION=off reads no profile, but runs still keep the named
+            # file, under the same fingerprint (solprop_native._wisdom.machine_key).
+            build = _native.fingerprint.build_identity(
+                _native.packages(), _native.variant()
+            )
+            digest = _native.fingerprint.fingerprint(
+                _native.topology.read_topology(), build
+            ).digest
         base = Path(named.strip()).expanduser()
-        try:
-            base.with_name(f"{base.name}.native-{digest}").unlink()
-            removed += 1
-        except OSError, ValueError, RuntimeError:
-            pass
+        base.with_name(f"{base.name}.native-{digest}").unlink()
+        removed += 1
+    except OSError, ValueError, RuntimeError:
+        pass
     return removed
