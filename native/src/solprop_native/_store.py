@@ -11,6 +11,7 @@ One directory per user, the platform's user cache directory unless
       machines/<fingerprint>/
         current                  # names the published generation
         <generation>.json        # profile rows, their evidence and their FFT wisdom
+        wisdom.json              # the FFT plans runs measured (solprop ADR-076)
         claim-<allocation>       # held while one process calibrates that class
         attempts.json            # inconclusive attempts, so that auto waits a day
       problems/<fingerprint>/<descriptor>.json   # stage-2 refinements
@@ -371,11 +372,13 @@ class Store:
         return path
 
     def clear(self, fingerprint: str | None = None) -> int:
-        """Remove ``current``, every generation and every refinement; return a count.
+        """Remove ``current``, every generation and refinement, and the stored plans.
 
-        Never a live claim. `fingerprint` limits it to one machine and build; ``None``
-        clears them all. A stage-2 refinement goes with its machine's profile, since
-        one fitted over the built-in table would otherwise still apply.
+        Return how many files went. The stored plans are ``wisdom.json``, the FFT plans
+        runs measured (``_wisdom``, solprop ADR-076). Never a live claim.
+        `fingerprint` limits it to one machine and build; ``None`` clears them all. A
+        stage-2 refinement goes with its machine's profile, since one fitted over the
+        built-in table would otherwise still apply.
         """
         removed = 0
         directories: list[Path] = []
