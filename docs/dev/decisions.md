@@ -2185,8 +2185,9 @@ Withdrawn (development-process record, not a design decision).
   - *What is kept.* Each plan key (`fft_plan_key`: kind, sizes, strides, placement,
     alignment and threads, as a calibration keys its winners) holds the wisdom of that
     transform alone, measured in place by the first run that planned it: the seed plans
-    with the workspace's other wisdom set aside, from the key's stored wisdom only, and its
-    own wisdom is exported after it (`FftPlanning::stored`, `keep`, `measured`,
+    with the workspace's other wisdom set aside, from the key's stored wisdom only (one to
+    measure from what the workspace itself measured so far, whose sub-plans it shares, so
+    that a cold run measures as much as before), and its own wisdom is exported after it (`FftPlanning::stored`, `keep`, `measured`,
     `reused`). A stored plan applies at any effort, as FFTW applies wisdom: a transform
     left at estimate takes it for its estimate plan, unseeded.
   - *Where.* `wisdom.json` in the calibration store's directory of the machine and build
