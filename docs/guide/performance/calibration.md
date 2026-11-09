@@ -10,9 +10,9 @@ changes a result beyond rounding: it chooses among exact algorithms and thread c
 as the built-in defaults do.
 
 ```sh
-solprop calibrate                # standard: about a minute and a half
-solprop calibrate --quick        # about 20 s
-solprop calibrate --thorough     # about five minutes
+solprop calibrate                # standard: about two minutes
+solprop calibrate --quick        # about 30 s
+solprop calibrate --thorough     # about seven minutes
 solprop calibrate --show         # the profile this job would use, and its evidence
 ```
 
@@ -38,15 +38,15 @@ never runs your own simulation; for that, see
    production-sized problems can show what a narrower team costs). Each candidate is a
    child process with those settings.
 2. **Operation grain.** Each kind of operation (stage passes, responses, products,
-   Raman histories, copies) threads above a size threshold; the transforms keep the
-   built-in thresholds, which count elements, since transforms of one size thread best
-   in opposite ways by their shape. The
-   calibration moves each threshold past the work sizes the problems actually run,
-   and tries other medium widths and compact teams for one-column problems.
+   Raman histories, copies, transforms) threads above a size threshold. A batch of
+   transforms threads by its shape: about one thread per row, more only where the rows
+   are long, so the calibration also halves and doubles the samples per thread. The calibration moves each threshold past the
+   work sizes the problems actually run, and tries other medium widths and compact
+   teams for one-column problems.
 3. **FFT planning** (standard and thorough). Every transform the problems create is
-   planned alone at FFTW's `measure` effort, and serial ones at `patient` too at the
-   thorough level, within a time limit; each group of plans (serial rows, threaded rows,
-   transverse planes) keeps the effort that runs fastest *inside the step*, against
+   planned alone at FFTW's `measure` effort within a time limit; each group of plans
+   (serial rows, threaded rows, transverse planes) keeps the effort that runs fastest
+   *inside the step*, against
    plans made as a run without a profile makes them. A more exhaustive plan is not
    always a faster one, and a plan chosen alone not always the best in the step. Only
    a winning effort's wisdom is kept, so later runs build those plans at once instead
@@ -62,9 +62,9 @@ the calibration says so and publishes nothing.
 
 | level | time | waiting and team | grain | FFT planning | rounds |
 |---|---|---|---|---|---|
-| `--quick` | about 20 s | the wait only | medium width and compact team | plan policy | 3 |
-| standard | about 90 s | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
-| `--thorough` | about 5 min | yes | thresholds and full sizes of every operation | `measure` and `patient`, 20 s a plan | 7 |
+| `--quick` | about 30 s | the wait only | medium width and compact team | plan policy | 3 |
+| standard | about 2 min | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
+| `--thorough` | about 7 min | yes | thresholds and full sizes of every operation | `measure`, 20 s a plan | 7 |
 
 The standard and thorough levels also calibrate the smaller allocations they can pin
 children to inside the job, such as one socket, one NUMA node or one L3 cache group,
@@ -100,7 +100,7 @@ run prints a notice like
 
 ```text
 CalibrationNotice: solprop is calibrating the native backend to this machine (quick,
-about 20 s on 18 cores; once per machine, allocation and release). The profile is kept
+about 30 s on 18 cores; once per machine, allocation and release). The profile is kept
 in /home/me/.cache/solprop. Run `solprop calibrate` for a fuller calibration, or set
 SOLPROP_CALIBRATION=use to never measure, or =off to ignore profiles.
 ```

@@ -29,8 +29,11 @@ from ._topology import Topology
 
 __all__ = ["CALIBRATION_VERSION", "Fingerprint", "build_identity", "fingerprint"]
 
-CALIBRATION_VERSION = 1
-"""The calibration's own version, raised when its probes, problems or rules change."""
+CALIBRATION_VERSION = 2
+"""The calibration's own version, raised when its probes, problems or rules change.
+
+2: the transforms' grain moves by shape and no plan is captured at patient (solprop
+ADR-075)."""
 
 
 @dataclass(frozen=True)
