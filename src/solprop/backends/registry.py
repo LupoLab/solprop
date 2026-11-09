@@ -48,10 +48,8 @@ __all__ = [
     "FAR_FIELD_BACKENDS",
     "REMOVED_BACKENDS",
     "REQUIRE_DEVICE_SETTING",
-    "SINGLE_ONLY",
     "BackendEntry",
     "available",
-    "metal_available",
     "resolve_name",
     "select",
     "select_batch",
@@ -81,8 +79,6 @@ class BackendEntry:
 BACKENDS: Mapping[str, BackendEntry] = {
     "numpy_ref": BackendEntry(requires=(), extras=()),
     "native": BackendEntry(requires=("solprop_native",), extras=()),
-    # Apple-silicon GPUs through MLX, single precision only (SEP 33).
-    "mlx": BackendEntry(requires=("mlx",), extras=("mlx",)),
 }
 """The backends this package knows, by name."""
 
@@ -93,11 +89,13 @@ REMOVED_BACKENDS: Mapping[str, str] = {
         "unthreaded and far slower. Output and snapshots that record numba_cpu still "
         "load"
     ),
+    "mlx": (
+        "the experimental mlx backend was retired in SEP 47: use backend='native', "
+        "the solprop-native package, or, for precision='single', backend='numpy_ref', "
+        "the reference. Output that records mlx still opens"
+    ),
 }
 """What to say about a backend that no longer exists, by the name it had."""
-
-SINGLE_ONLY: frozenset[str] = frozenset({"mlx"})
-"""The backends that compute in binary32 only (SEP 33): Apple GPUs have no binary64."""
 
 FAR_FIELD_BACKENDS: tuple[str, ...] = ("numpy_ref", "native")
 """The backends that form the far-field statistics of SEP 23.
@@ -134,8 +132,9 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     True
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    # Single precision refuses the far-field statistics in validation (SEP 33).
-    if not asked or name in ("numpy_ref", "mlx"):
+    # numpy_ref forms every far-field statistic, in binary64; single precision
+    # refuses them in validation (SEP 33).
+    if not asked or name == "numpy_ref":
         return None
     formed = _plugin_far_field(name)
     if formed is None:
@@ -186,9 +185,9 @@ def available(precision: str = "double") -> tuple[str, ...]:
     Parameters
     ----------
     precision : {'double', 'single'}, optional
-        The arithmetic asked for (SEP 33). ``"double"``, the default, lists the binary64
-        backends, which leaves out ``mlx``; ``"single"`` lists those that admit single
-        precision (:data:`solprop.translate.precision.SINGLE_PRECISION_BACKENDS`).
+        The arithmetic asked for (SEP 33). ``"double"``, the default, lists every
+        backend; ``"single"`` lists those that admit single precision
+        (:data:`solprop.translate.precision.SINGLE_PRECISION_BACKENDS`).
 
     Returns
     -------
@@ -201,41 +200,8 @@ def available(precision: str = "double") -> tuple[str, ...]:
     >>> "numpy_ref" in available()
     True
     """
-    if precision == "single":
-        names = SINGLE_PRECISION_BACKENDS
-    else:
-        names = tuple(name for name in BACKENDS if name not in SINGLE_ONLY)
+    names = SINGLE_PRECISION_BACKENDS if precision == "single" else tuple(BACKENDS)
     return tuple(name for name in names if _satisfied(BACKENDS[name]))
-
-
-def metal_available() -> bool:
-    """Return whether the ``mlx`` backend can run on a Metal GPU here (SEP 33, Q8).
-
-    Imports MLX only when it is installed: asking on another platform imports nothing.
-
-    Returns
-    -------
-    bool
-        True when MLX is installed and reports a Metal device.
-    """
-    if not _satisfied(BACKENDS["mlx"]):
-        return False
-    return _metal_device()  # pragma: no cover - needs MLX, macOS on Apple silicon
-
-
-def _metal_device() -> bool:  # pragma: no cover - needs MLX, macOS on Apple silicon
-    """Return whether MLX reports a Metal device, MLX being installed.
-
-    Returns
-    -------
-    bool
-        ``mlx.core.metal.is_available()``.
-    """
-    import mlx.core as mx  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
-
-    import solprop.backends.mlx_gpu  # noqa: F401, PLC0415 - sets MLX_ENABLE_TF32 first
-
-    return bool(mx.metal.is_available())
 
 
 def resolve_name(name: str = "auto") -> str:
@@ -312,8 +278,7 @@ def _device_build(name: str) -> bool:
     Returns
     -------
     bool
-        True for ``native`` built for CUDA or HIP. Metal isn't counted: ``mlx`` keeps
-        its own arrangements for now.
+        True for ``native`` built for CUDA or HIP.
     """
     if resolve_name(name) != "native":
         return False
@@ -478,7 +443,7 @@ def select(
     --------
     >>> from solprop.backends.registry import BACKENDS
     >>> sorted(BACKENDS)
-    ['mlx', 'native', 'numpy_ref']
+    ['native', 'numpy_ref']
     """
     name = resolve_name(name)
     if name == "native":
@@ -573,15 +538,6 @@ def select_batch(owners: Sequence[Backend]) -> BatchBackend:
 
             return HostGroup(cast("Sequence[HostDriver[object]]", owners))
         return NumpyBatchBackend(cast(Sequence[NumpyRefBackend], owners))
-    if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
-        from solprop.backends.mlx_gpu.backend import (  # noqa: PLC0415 - lazy backend
-            MlxBackend,
-        )
-        from solprop.backends.mlx_gpu.batch import (  # noqa: PLC0415 - lazy backend
-            MlxBatchRunner,
-        )
-
-        return MlxBatchRunner(cast(Sequence[MlxBackend], owners))
     if name == "native":
         # The native package has its own strict type gate.
         from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
@@ -686,8 +642,4 @@ def _construct(
             Backend,
             NativeBackend(problem, grid=grid, modes=modes, profiles=profiles),
         )
-    if name == "mlx":  # pragma: no cover - needs MLX, macOS on Apple silicon
-        from solprop.backends.mlx_gpu.backend import MlxBackend  # noqa: PLC0415
-
-        return MlxBackend(problem, grid=grid, modes=modes, profiles=profiles)
     raise AssertionError(f"unhandled backend registry entry {name!r}")

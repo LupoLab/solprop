@@ -82,15 +82,13 @@ def integrator(stepper: str) -> Multistep | RungeKutta | None:
 def variant(configuration: Record) -> Record:
     """Return the keywords that turn a case into its backend, precision, noise and grid.
 
-    ``precision`` is ``"single"`` on ``mlx`` and ``"double"`` elsewhere unless the
-    configuration names it. A single-precision run, or one asked for ``noise="none"``,
+    ``precision`` is ``"double"`` unless the configuration names it. A single-precision
+    run, or one asked for ``noise="none"``,
     is noiseless: no seed and no noise model, so that a cross-backend A/B compares
     one workload. ``fft_size="pow2"`` rebuilds the case's time grid at the next power
     of two; the transverse grids are kept, as their sizes set the physics.
     """
-    precision = configuration.get("precision") or (
-        "single" if configuration["backend"] == "mlx" else "double"
-    )
+    precision = configuration.get("precision") or "double"
     noiseless = precision == "single" or configuration.get("noise") == "none"
     fft_size = configuration.get("fft_size") or "case"
     if fft_size not in ("case", "pow2"):
@@ -343,7 +341,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
 
 
 def spatial_grids(
-    name: str, fft_size: str = "case", precision: str = "double"
+    name: str, fft_size: str = "case"
 ) -> tuple[EnvelopeGrid | FieldGrid, FreeGrid | LineGrid | RadialGrid]:
     """Return a free-space case's time and transverse grids, without its launch.
 
@@ -385,8 +383,6 @@ def spatial_grids(
         (350e-9, 2e-6) if plasma else (500e-9, 1.6e-6),
         250e-15,
         fft_size="pow2" if fft_size == "pow2" else "auto",
-        # As the keyword interfaces choose for a run on mlx (single precision).
-        transforms="mlx" if precision == "single" else "fftw",
     )
     if name == "spatial_absorber":
         # SEP 40: the aperture of three waists with 2.6 radii of room outside it, for
@@ -463,7 +459,7 @@ def spatial(
     options = options or variant({"backend": "native"})
     if name == "planar":
         return _planar(settings)
-    grid, space = spatial_grids(name, options["fft_size"], options["precision"])
+    grid, space = spatial_grids(name, options["fft_size"])
     plasma = "filament" in name
     medium = SpatialMedium("Ar", 1.0)
     chi3 = gamma3("Ar", wavelength=800e-9)

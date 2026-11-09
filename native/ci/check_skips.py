@@ -39,9 +39,6 @@ EXPECTED: tuple[str, ...] = (
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
     # Other backends and packages a lane doesn't install.
-    r"mlx is not installed",
-    r"could not import 'mlx\.core': .*",
-    r"this GPU computes float32 products even with TF32 enabled",
     r"Pyroraptor at the pinned revision is not installed",
     # A lane on native has its wheel; these are the no-native lane's.
     r"solprop-native is installed",

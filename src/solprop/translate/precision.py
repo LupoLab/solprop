@@ -82,12 +82,11 @@ binary64 at 1e-4 does, or closer. An explicit tolerance above it is the caller's
 is admitted.
 """
 
-SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref", "mlx")
+SINGLE_PRECISION_BACKENDS: tuple[str, ...] = ("numpy_ref",)
 """The backends that admit ``precision="single"``.
 
-``numpy_ref`` is the single-precision oracle (SEP 33 phase 1) and ``mlx`` the Apple-GPU
-backend (phase 2). ``native`` refuses it by name until a later proposal adds its own
-mode.
+``numpy_ref`` is the single-precision oracle (SEP 33 phase 1). ``native`` refuses it by
+name until a later proposal adds its own mode.
 """
 
 
@@ -272,7 +271,7 @@ def admit_precision(
     if backend not in SINGLE_PRECISION_BACKENDS:
         msg = (
             f"backend {backend!r} computes in binary64 only and refuses "
-            f"precision='single'; the backends that admit it are "
+            f"precision='single'; it runs on "
             f"{', '.join(SINGLE_PRECISION_BACKENDS)} (SEP 33)"
         )
         raise TranslationError(msg)

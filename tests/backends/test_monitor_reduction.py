@@ -13,8 +13,7 @@ reading drains the sum, beside the energies of what the last step's split found.
 (:meth:`solprop.monitor.BoundaryMonitor.energies`, ``split_sums``), the oracle every
 other backend is held to here, on the probes of ``tests/monitor_cases.py``: each route's
 tiny case launched with a copy of its pulse near the window's edge, so that every
-region holds light. ``mlx``, single precision only, is held to the single-precision
-oracle on the same probes in ``tests/backends/test_mlx.py``.
+region holds light.
 """
 
 from __future__ import annotations

@@ -18,7 +18,7 @@ import pytest
 
 from solprop.cli import main
 from solprop.driver import Simulation
-from solprop.exceptions import MaterialRangeWarning
+from solprop.exceptions import BackendError, MaterialRangeWarning
 from solprop.profiles import PiecewiseLinear
 from solprop.pulses import DataPulse, SechPulse
 from solprop.recipe import Recipe, RecipeError, RecipeIssue, parameters
@@ -125,6 +125,25 @@ def test_get_and_set_take_paths_and_check_the_value(recipe):
     assert caught.value.parameter == "length"
     with pytest.raises(RecipeError, match=r"lengthx"):
         recipe.set("lengthx", 1.0)
+
+
+def test_a_recipe_naming_the_retired_mlx_backend_is_refused_by_name():
+    """SEP 47 retired mlx: its recipe is refused, never run on another backend."""
+    retired = Recipe.loads(GNLSE.replace('backend = "numpy_ref"', 'backend = "mlx"'))
+    with pytest.raises(BackendError, match="mlx backend was retired in SEP 47"):
+        retired.build()
+
+
+def test_a_grid_s_retired_transforms_keyword_is_refused_by_name():
+    """SEP 47 removed the grids' transforms keyword with the mlx backend."""
+    text = Recipe.example("coherent_wall").to_text()
+    assert 'trange = "300 fs"' in text
+    retired = Recipe.loads(
+        text.replace('trange = "300 fs"', 'trange = "300 fs", transforms = "fftw"', 1)
+    )
+    (issue,) = retired.check()
+    assert issue.parameter == "grid.transforms"
+    assert "transforms was retired in SEP 47" in issue.message
 
 
 def test_unknown_keys_and_routes_are_refused():

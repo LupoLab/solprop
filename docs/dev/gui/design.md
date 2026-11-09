@@ -1291,7 +1291,7 @@ All are decided: Q1 by D8, Q2 by SEP 41 as recommended, and Q3–Q12 as recommen
 | Q8 | Minimum screen size. | 1280 × 800, usable at 1024 × 700. |
 | Q9 | Should the GUI ever accept Python snippets (a custom pulse shape, a custom response)? | No; "Export as Python" is the way out. |
 | Q10 | Compare-runs in the first release? | Revised by D16: no. Comparison is rare, so it comes later, as overlays of lines. |
-| Q11 | Expose GPU backends (mlx on Apple silicon, device builds)? | Yes, in Advanced, with the precision rule enforced. |
+| Q11 | Expose GPU backends (mlx on Apple silicon, device builds)? | Yes, in Advanced, with the precision rule enforced. The `mlx` backend was retired in SEP 47 and is no longer offered. |
 | Q12 | Accessibility targets (keyboard-only use, screen readers)? | Keyboard-complete from the start; screen readers best effort through Qt. |
 
 ## 15. Changes proposed to solprop

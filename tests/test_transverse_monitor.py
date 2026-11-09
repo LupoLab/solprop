@@ -377,7 +377,7 @@ def test_the_start_of_run_summary_says_what_the_edge_can_report() -> None:
         return str(dict(summary.rows)["transverse edge"])
 
     assert "watched" in row("numpy_ref", BoundaryCheck())
-    assert "unwatched on mlx" in row("mlx", BoundaryCheck())
+    assert "unwatched on other" in row("other", BoundaryCheck())
     assert row("numpy_ref", None).endswith("off (boundary_check=None)")
 
 

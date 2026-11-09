@@ -190,7 +190,7 @@ that reduces each plane to a few numbers and drops it costs one field volume on 
 that plane, the one the observation already crossed with, and a handler may equally keep
 `plane.field` for as long as it likes. A `SavedPlane` you construct yourself copies what it
 is given. On a free-space run the boundary check reads the transverse edge at that plane too:
-`native` does it where the state lives, and `numpy_ref` and `mlx` on their host copy, which
+`native` does it where the state lives, and `numpy_ref` on its host copy, which
 [costs more](../setup/running.md#many-inputs-one-backend-the-runner) than the plane does.
 
 The handler converts the field on the way out, because the file is where the internal

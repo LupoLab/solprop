@@ -26,7 +26,7 @@ import pytest
 import convergence_records as cr
 from solprop.backends.registry import BACKENDS, available
 
-RETIRED_BACKENDS = frozenset({"numba_cuda", "numba_cpu"})
+RETIRED_BACKENDS = frozenset({"numba_cuda", "numba_cpu", "mlx"})
 """Backends whose rows stay as evidence after the backend itself was deleted."""
 
 MOVED_WRITERS = {
@@ -283,24 +283,20 @@ def test_a_writer_that_went_with_its_backend_is_retired_or_looked_up_where_it_mo
 
 def test_a_writer_of_an_absent_backend_counts_and_a_renamed_one_does_not(monkeypatch):
     """The relaxation is exactly one parametrisation on an uninstalled backend."""
-    monkeypatch.setattr(
-        "test_convergence_records.available", lambda: ("numpy_ref", "native")
-    )
-    collected = {"tests/backends/test_x.py::test_y[native]"}
-    assert "mlx" in BACKENDS
-    assert _writer_exists("tests/backends/test_x.py::test_y[mlx]", collected)
-    assert not _writer_exists("tests/backends/test_z.py::test_y[mlx]", collected)
+    monkeypatch.setattr("test_convergence_records.available", lambda: ("numpy_ref",))
+    collected = {"tests/backends/test_x.py::test_y[numpy_ref]"}
+    assert "native" in BACKENDS
     assert _writer_exists("tests/backends/test_x.py::test_y[native]", collected)
-    assert not _writer_exists("tests/backends/test_x.py::test_y[numpy_ref]", collected)
+    assert not _writer_exists("tests/backends/test_z.py::test_y[native]", collected)
+    assert _writer_exists("tests/backends/test_x.py::test_y[numpy_ref]", collected)
+    assert not _writer_exists("tests/backends/test_z.py::test_y[numpy_ref]", collected)
     assert not _writer_exists("tests/backends/test_x.py::test_gone", collected)
 
 
 def test_absent_backend_writer_preserves_all_other_case_parameters(monkeypatch):
     """The optional-wheel lane still checks family, rate and test identity."""
-    monkeypatch.setattr(
-        "test_convergence_records.available", lambda: ("numpy_ref", "mlx")
-    )
-    collected = {"tests/backends/test_x.py::test_y[envelope-mlx-0.0]"}
+    monkeypatch.setattr("test_convergence_records.available", lambda: ("numpy_ref",))
+    collected = {"tests/backends/test_x.py::test_y[envelope-numpy_ref-0.0]"}
     assert _writer_exists(
         "tests/backends/test_x.py::test_y[envelope-native-0.0]", collected
     )
@@ -308,7 +304,7 @@ def test_absent_backend_writer_preserves_all_other_case_parameters(monkeypatch):
         "tests/backends/test_x.py::test_y[field-native-0.0]",
         "tests/backends/test_x.py::test_y[envelope-native-1000.0]",
         "tests/backends/test_x.py::test_z[envelope-native-0.0]",
-        "tests/backends/test_x.py::test_y[envelope-numpy_ref-0.0]",
+        "tests/backends/test_x.py::test_y[envelope-numpy_ref-1000.0]",
     ):
         assert not _writer_exists(node, collected)
 

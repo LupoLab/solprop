@@ -39,8 +39,8 @@ from benchmarks.system import (
     thread_environment,
 )
 
-BACKENDS = ("numpy_ref", "native", "mlx")
-"""The backends a benchmark can name; ``mlx`` only on an Apple GPU."""
+BACKENDS = ("numpy_ref", "native")
+"""The backends a benchmark can name."""
 
 REPEAT_TOLERANCE = 1e-9
 """The relative L2 difference two repeats' final fields may have: rounding only."""
@@ -82,13 +82,13 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
         "--backend",
         choices=BACKENDS,
         default="native",
-        help="mlx runs in single precision, noiselessly; the others in double",
+        help="every backend runs in double precision",
     )
     parser.add_argument(
         "--noise",
         choices=("case", "none"),
         default="case",
-        help="none drops each case's noise, to match an mlx run's workload",
+        help="none drops each case's noise",
     )
     parser.add_argument(
         "--fft-size",
