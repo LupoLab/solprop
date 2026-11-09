@@ -261,15 +261,16 @@ class DriverSession:
     Parameters
     ----------
     driver : solprop.backends.protocol.Backend
-        The driver, freshly constructed for `problem`, holding no state yet. The session
-        owns it from here and closes it with itself.
+        The driver, constructed for `problem`. A driver reused from an earlier run is
+        loaded again from `start`, which restores everything its march reads. The
+        session closes it with itself when `owns` is set.
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    start : solprop.backends.session.Start or None
-        Where the run starts; ``None`` when the caller already loaded the driver and
-        the run starts at its first plane with the launch plane owed (transitional).
+    start : solprop.backends.session.Start
+        Where the run starts. The session loads it into the driver -- the field, the
+        noise, the call ledgers and any method history -- and takes its field.
     listener : callable or None, optional
         Called with each attempt as it is made, for a progress reporter. It observes
         only; it cannot change the run.
@@ -287,7 +288,7 @@ class DriverSession:
         driver: Backend,
         problem: KernelProblem,
         request: RunRequest,
-        start: Start | None,
+        start: Start,
         *,
         listener: AttemptListener | None = None,
         started: Callable[[float, float, int], None] | None = None,
@@ -301,16 +302,14 @@ class DriverSession:
         self._ledger = SessionLedger()
         self._planes = np.asarray(request.observation.save_planes, dtype=np.float64)
         self._owns = owns
-        self._index = (
-            request.observation.start_plane if start is None else start.plane_index
-        )
-        self._launch_pending = True if start is None else start.plane_pending
+        self._index = start.plane_index
+        self._launch_pending = start.plane_pending
         # The session takes over the request's fresh monitor and feeds it.
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
-        self._monitor_resume = None if start is None else start.monitor
+        self._monitor_resume = start.monitor
         self._attached = False
         self._generation = 0
-        self._z = float(getattr(driver, "_z", 0.0) if start is None else start.z)
+        self._z = float(start.z)
         self._attempts = 0
         self._rejected = 0
         self._stepped = False
@@ -333,10 +332,8 @@ class DriverSession:
 
         driver.set_progress(_Attempts(counted, started))
         driver.set_stop(stop)
-        if start is None:
-            return
         driver.set_initial(
-            np.asarray(start.field)[np.newaxis],
+            np.asarray(start.take_field())[np.newaxis],
             start.noise,
             z=float(start.z),
             resume=start.resume,
@@ -345,6 +342,10 @@ class DriverSession:
             logical = start.ledgers.get("logical", {})
             atomic = start.ledgers.get("atomic", {})
             driver.restore_call_ledgers(logical, atomic)  # pyright: ignore[reportArgumentType]
+        # After the field, which resets the method's history, as a resume always did.
+        self._march_refusal = (
+            None if start.march is None else driver.restore_march(start.march)
+        )
 
     # -- protocol -------------------------------------------------------------------
 
@@ -618,9 +619,11 @@ class DriverSession:
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:
         """Continue a resumed run's boundary-monitor record, before it is attached.
 
-        For a caller that loaded the driver itself (``start=None``) and so could not
-        pass the continuation in :class:`~solprop.backends.session.Start`; one given
-        there is kept.
+        The record is read from the run's output, which the service loop opens only
+        once the session has loaded its start, so that the opened record states the
+        loaded backend's execution facts; it reaches the session before its first
+        advance past the launch plane. A continuation given in the
+        :class:`~solprop.backends.session.Start` is kept.
 
         Parameters
         ----------
@@ -699,20 +702,16 @@ class DriverSession:
         """
         return self._driver.march_export_refusal()
 
-    def restore_march(self, snapshot: MarchSnapshot) -> str | None:
-        """Install a persisted method history before the first advance.
-
-        Parameters
-        ----------
-        snapshot : solprop.output.schema.MarchSnapshot
-            The persisted history.
+    @property
+    def march_refusal(self) -> str | None:
+        """Return why the start's method history could not be installed.
 
         Returns
         -------
         str or None
-            Why it could not be installed, or ``None`` when it was.
+            The reason, or ``None`` when it was installed or the start carried none.
         """
-        return self._driver.restore_march(snapshot)
+        return self._march_refusal
 
     def execution_record(self) -> Mapping[str, object]:
         """Return the session's execution facts.
@@ -1152,3 +1151,4 @@ class DriverSession:
         field = self._fielded(ticket).field
         assert field is not None  # observed with its field
         return field[0]
+

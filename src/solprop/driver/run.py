@@ -30,6 +30,7 @@ The manual page is ``docs/guide/setup/running.md``.
 
 import dataclasses
 import logging
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
@@ -46,6 +47,7 @@ from solprop.exceptions import (
     BackendError,
     DriverError,
     OutputError,
+    SolpropWarning,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
@@ -71,6 +73,7 @@ from solprop.output.schema import (
     CheckpointOutput,
     FieldRetention,
     FieldsChoice,
+    MarchSnapshot,
     Output,
     PlaneStore,
     RecipeRecord,
@@ -269,11 +272,11 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     backend: Backend,
     output: Output,
     *,
+    start: Start,
     metadata: RunMetadata,
     stats_spec: StatsSpec | None = None,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
-    start_plane: int = 0,
     tdse_binding: TDSEBinding | None = None,
     resume_history: bool | None = None,
     fields: FieldsChoice = "all",
@@ -283,16 +286,16 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     boundary_monitor: BoundaryMonitor | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
-    start: Start | None = None,
     restoration: Mapping[str, object] | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
     The loop of ``docs/dev/architecture.md`` section 5, usable without a
-    :class:`solprop.driver.simulation.Simulation`. The backend must already hold its
-    initial state (:meth:`solprop.backends.protocol.Backend.set_initial`); the handler
-    is opened here, saved to plane by plane, and closed in a ``finally`` so that an
-    interrupted run leaves a readable file.
+    :class:`solprop.driver.simulation.Simulation`. The run starts a session on the
+    constructed backend from `start` (SEP 47); the handler is opened here, saved to
+    plane by plane, and closed in a ``finally`` so that an interrupted run leaves a
+    readable file. The backend stays open for the caller, who may start another run
+    on it.
 
     The plane at ``problem.initial.z`` is saved first, with an empty step history, and
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
@@ -308,9 +311,17 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     problem : solprop.translate.problem.KernelProblem
         The translated problem, whose ``stepper.save_planes`` is the itinerary.
     backend : solprop.backends.protocol.Backend
-        The backend stepping it, already loaded with its initial state.
+        The backend stepping it, constructed for `problem`. The run loads `start` into
+        it and leaves it open.
     output : solprop.output.schema.Output
         Where the planes go. Closed when the loop ends, whether or not it succeeded.
+    start : solprop.backends.session.Start
+        Where the run starts: :meth:`~solprop.backends.session.Start.entrance` for a
+        fresh run, or a resumed state with its ``plane_index``, the first save plane
+        strictly beyond it. A resume loads either the last regular plane or a separate
+        terminal checkpoint at its actual absolute position; the launch plane is
+        written when the handler holds no regular observations, so a resumed run never
+        stores it twice. The session takes the start's field.
     metadata : solprop.output.schema.RunMetadata
         The record of the run, written when the handler opens.
         :func:`solprop.driver.simulation.metadata_for` builds one.
@@ -331,11 +342,6 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         Seconds between the line reporter's periodic lines, s; ``0`` leaves only the
         plane and closing lines. A bar has its own redraw period and a given reporter
         its own business, so it is ignored for both.
-    start_plane : int, optional
-        Index of the first save plane strictly beyond the loaded state. A resume
-        loads either the last regular plane or a separate terminal checkpoint at
-        its actual absolute position. The launch plane is written when the handler
-        holds no regular observations, so a resumed run never stores it twice.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Explicit live atomic runtime owned by the caller. Its ledgers and execution
         facts are captured before the caller closes it. TDSE requires an output
@@ -377,13 +383,13 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
         the first run start and never rewritten; ``None`` records none.
-    start : solprop.backends.session.Start or None, optional
-        Where the run starts. ``None`` when the caller already loaded the backend with
-        its starting state (:meth:`~solprop.backends.protocol.Backend.set_initial`).
     restoration : collections.abc.Mapping or None, optional
         On a resume, what the caller restored of the method history, written into
         every execution record under ``outcome.execution["restart"]`` beside what this
-        execution keeps; ``None`` records no restoration.
+        execution keeps; ``None`` records no restoration. When the start carries a
+        method history (``start.march``), this is the record of its restoration, and
+        a history the session cannot install is warned about and recorded as reset
+        instead.
 
     Raises
     ------
@@ -391,15 +397,16 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         If the statistics given here disagree with the problem's own about the
         between-planes channel; if the problem carries a batch axis, which the output
         schema has no room for yet; if the record and the problem disagree about
-        whether this is a general modal run; if `start_plane` is not a plane of
-        this problem; or if the field retention is not valid, names a plane outside
-        the run, asks for ``fields='planes'`` beside ``step_planes`` (whose plane
-        count is not known in advance), or is not ``'all'`` for an output that cannot
-        store field-free planes.
+        whether this is a general modal run; if the start's ``plane_index`` is not a
+        plane of this problem; or if the field retention is not valid, names a plane
+        outside the run, asks for ``fields='planes'`` beside ``step_planes`` (whose
+        plane count is not known in advance), or is not ``'all'`` for an output that
+        cannot store field-free planes.
 
     Examples
     --------
     >>> from solprop.backends.registry import select
+    >>> from solprop.backends.session import Start
     >>> from solprop.driver.run import run_problem
     >>> from solprop.driver.simulation import metadata_for
     >>> from solprop.grid import EnvelopeGrid
@@ -417,9 +424,8 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     ...                    save_planes=[0.005, 0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
     >>> backend = select("numpy_ref", problem, grid=grid, modes=[gnlse.mode])
-    >>> backend.set_initial(problem.initial.field0, None)
     >>> handler = MemoryOutput()
-    >>> run_problem(problem, backend, handler,
+    >>> run_problem(problem, backend, handler, start=Start.entrance(problem),
     ...             metadata=metadata_for(problem, grid, modes=[gnlse.mode]))
     >>> backend.close()
     >>> handler.n_saved, handler["z"].tolist()
@@ -427,6 +433,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     """
     spec = problem.stats_spec if stats_spec is None else stats_spec
     planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)
+    start_plane = start.plane_index
     _refuse_unrunnable(problem, spec, start_plane, planes.size, metadata=metadata)
     # The backend's door for a spec handed here rather than the problem's own, which
     # `select` already checked (SEP 23: a backend without a statistic refuses it).
@@ -471,6 +478,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         start_plane,
         len(spec.names),
     )
+    march = start.march
     session = start_session(
         backend,
         problem,
@@ -482,6 +490,8 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         owns=False,
     )
     try:
+        if march is not None and restoration is not None:
+            restoration = _restored(march, restoration, session.march_refusal)
         serve(
             session,
             output,
@@ -503,6 +513,47 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         )
     finally:
         session.close()
+
+
+def _restored(
+    march: MarchSnapshot,
+    restoration: Mapping[str, object],
+    refusal: str | None,
+) -> Mapping[str, object]:
+    """Return a resume's restoration record once its session tried the history.
+
+    The caller hands the session the method history it decided to continue, with the
+    record of a successful restoration; a history the session could not install
+    (another engine's rows, another build's shapes) starts afresh, which is warned
+    about once and recorded as a reset (SEP 47 section 5.5).
+
+    Parameters
+    ----------
+    march : solprop.output.schema.MarchSnapshot
+        The history the start carried.
+    restoration : collections.abc.Mapping
+        The record of its restoration, as the caller expects it.
+    refusal : str or None
+        Why the session could not install it, or ``None`` when it did.
+
+    Returns
+    -------
+    collections.abc.Mapping
+        The record of what happened.
+    """
+    if refusal is None:
+        logger.info(
+            "continuing the Adams history at order %d, %d samples",
+            march.order,
+            len(march.identities),
+        )
+        return restoration
+    # Asked to continue a history this backend cannot install: the run is still
+    # correct to the integrator's tolerance, but it does less than was asked, so say so.
+    warnings.warn(
+        f"the Adams history starts afresh: {refusal}", SolpropWarning, stacklevel=4
+    )
+    return {**restoration, "state": "reset", "reason": "incompatible_representation"}
 
 
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object

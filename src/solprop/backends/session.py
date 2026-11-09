@@ -206,16 +206,22 @@ class ExecutionOptions:
     backend_options: Mapping[str, object] = field(default_factory=dict)
 
 
-@dataclass(frozen=True, eq=False)
+@dataclass(eq=False)
 class Start:
     """Where a session starts: an initial state, or a checkpoint being resumed.
 
+    A start is handed to one session, which takes its field (:meth:`take_field`): the
+    session loads a copy made once at start, and the start forgets the array, so an
+    input that nothing else holds -- a runner's caller's array -- is released before
+    the first step rather than held through the run by every frame that passed the
+    start along (SEP 47 section 5.4).
+
     Attributes
     ----------
-    field : numpy.ndarray
+    field : numpy.ndarray or None
         The state in internal amplitude units and the FFT convention, complex,
-        shape ``(n_modes, n_pol, n_omega)``. The session takes ownership of a copy
-        made once at start, so mutating the caller's array afterwards changes nothing.
+        shape ``(n_modes, n_pol, n_omega)``; ``None`` once a session took it.
+        Mutating the caller's array after the start changes nothing.
     z : float
         Its position, m.
     noise : solprop.noise.NoiseRealisation or None
@@ -238,7 +244,7 @@ class Start:
         ``input`` noise realisation is not added a second time.
     """
 
-    field: Complex[np.ndarray, "n_modes n_pol n_omega"]
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None
     z: float
     noise: NoiseRealisation | None = None
     plane_index: int = 0
@@ -247,6 +253,58 @@ class Start:
     monitor: Mapping[str, object] | None = None
     plane_pending: bool = True
     resume: bool = False
+
+    @classmethod
+    def entrance(
+        cls, problem: KernelProblem, *, noise: NoiseRealisation | None = None
+    ) -> "Start":  # noqa: UP037 - runtime type hook
+        """Return the fresh start of a problem: its launch state, its launch plane owed.
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.KernelProblem
+            The translated problem, whose initial state has one member.
+        noise : solprop.noise.NoiseRealisation or None, optional
+            A realisation to carry instead of the one the problem was assembled with.
+
+        Returns
+        -------
+        Start
+            The start at ``problem.initial.z``, before the first save plane.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            If the problem's initial state has more than one member.
+        """
+        field0 = problem.initial.field0
+        if field0.shape[0] != 1:
+            msg = (
+                f"a session starts one trajectory, and this problem's initial state "
+                f"has {field0.shape[0]} members"
+            )
+            raise BackendError(msg)
+        return cls(field=field0[0], z=float(problem.initial.z), noise=noise)
+
+    def take_field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Hand the field to the session starting here, and forget it.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field, shape ``(n_modes, n_pol, n_omega)``; the caller copies it.
+
+        Raises
+        ------
+        SessionError
+            If a session already took it: a start is used once.
+        """
+        field = self.field
+        if field is None:
+            msg = "this start was already used: a start is handed to one session"
+            raise SessionError(msg)
+        self.field = None
+        return field
 
 
 class SessionState(enum.Enum):

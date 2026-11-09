@@ -50,6 +50,7 @@ from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import resolve_name, select
+from solprop.backends.session import Start
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -232,6 +233,7 @@ from solprop.output.schema import (
     FieldRetention,
     FieldsChoice,
     GridRecord,
+    MarchSnapshot,
     ModeRecord,
     NoiseRecord,
     NoiseResolution,
@@ -3692,7 +3694,7 @@ class Simulation(Displayed):
                     tdse_binding=binding,
                 )
                 restoration: dict[str, object] = {}
-                start_plane = self._prime(
+                start = self._start(
                     backend,
                     problem,
                     state,
@@ -3704,11 +3706,11 @@ class Simulation(Displayed):
                     problem,
                     backend,
                     handler,
+                    start=start,
                     metadata=metadata,
                     stats_spec=problem.stats_spec,
                     progress=progress,
                     progress_period=progress_period,
-                    start_plane=start_plane,
                     tdse_binding=binding,
                     resume_history=self.settings.resume_history,
                     fields=retention.fields,
@@ -4057,7 +4059,7 @@ class Simulation(Displayed):
                 stored.seed,
             )
 
-    def _prime(
+    def _start(
         self,
         backend: Backend,
         problem: KernelProblem,
@@ -4065,13 +4067,17 @@ class Simulation(Displayed):
         *,
         kept: bool = False,
         restoration: dict[str, object] | None = None,
-    ) -> int:
-        """Load the backend with the state the run starts from, and say where that is.
+    ) -> Start:
+        """Return where the run starts: the entrance, or the state a file resumes.
+
+        The run's session loads it (SEP 47): the field, the noise, a resume's call
+        ledgers and the method history this run continues.
 
         Parameters
         ----------
         backend : solprop.backends.protocol.Backend
-            The backend about to step.
+            The backend about to step, asked only whether its march can carry a
+            method history.
         problem : solprop.translate.problem.KernelProblem
             The translated problem, which carries the initial state.
         state : solprop.output.hdf5.ResumeState or None
@@ -4086,16 +4092,14 @@ class Simulation(Displayed):
 
         Returns
         -------
-        int
-            Index of the first save plane still to propagate to.
+        solprop.backends.session.Start
+            The start, whose ``plane_index`` is the first save plane still to propagate
+            to.
         """
         if state is None:
-            backend.set_initial(
-                problem.initial.field0,
-                _realisation(problem) if kept else None,
-                z=problem.initial.z,
+            return Start.entrance(
+                problem, noise=_realisation(problem) if kept else None
             )
-            return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
             "resuming at z = %.6e m, plane %d of %d",
@@ -4105,18 +4109,13 @@ class Simulation(Displayed):
         )
         # A field-free plane resumes only a finished run, which never gets here.
         assert state.plane.field is not None
-        field = state.plane.field[np.newaxis]
+        field = state.plane.field
         if problem.transform.geometry is None:
             field = power_amplitude(
-                field, power_weight_at(problem, state.plane.z), inverse=True
-            )
-        backend.set_initial(field, None, z=state.plane.z, resume=True)
-        if state.outcome is not None:
-            backend.restore_call_ledgers(
-                state.outcome.logical_calls, state.outcome.atomic_calls
-            )
+                field[np.newaxis], power_weight_at(problem, state.plane.z), inverse=True
+            )[0]
         integrator = problem.stepper.integrator
-        record = self._continue_march(
+        record, march = self._continue_march(
             backend,
             state,
             adams=isinstance(integrator, Multistep),
@@ -4124,28 +4123,42 @@ class Simulation(Displayed):
         )
         if restoration is not None:
             restoration.update(record)
-        return next_plane
+        return Start(
+            field=field,
+            z=float(state.plane.z),
+            plane_index=next_plane,
+            march=march,
+            ledgers=None
+            if state.outcome is None
+            else {
+                "logical": state.outcome.logical_calls,
+                "atomic": state.outcome.atomic_calls,
+            },
+            resume=True,
+        )
 
-    def _continue_march(  # noqa: PLR0911 - one return per restoration
+    def _continue_march(
         self,
         backend: Backend,
         state: ResumeState,
         *,
         adams: bool = True,
         low_storage: bool = False,
-    ) -> dict[str, object]:
-        """Continue the Adams history from the file's snapshot, where one fits.
+    ) -> tuple[dict[str, object], MarchSnapshot | None]:
+        """Decide whether the Adams history continues from the file's snapshot.
 
-        Says what was restored, for the resumed execution record (SEP 47 section
-        5.5), and warns once when an Adams history the run expected is not restored:
-        omitted by the automatic size limit, or kept but not installable here. A
-        history set aside on request (``resume_history=False``) is recorded without a
-        warning.
+        Says what is restored, for the resumed execution record (SEP 47 section 5.5),
+        and warns once when an Adams history the run expected is not restored:
+        omitted by the automatic size limit, or kept where this backend's march
+        cannot carry it. A history set aside on request (``resume_history=False``) is
+        recorded without a warning. A history handed on is installed by the run's
+        session, which warns and records a reset if it cannot
+        (:func:`solprop.driver.run.run_problem`).
 
         Parameters
         ----------
         backend : solprop.backends.protocol.Backend
-            The backend, loaded at the resume position.
+            The backend, asked whether its march can carry a history.
         state : solprop.output.hdf5.ResumeState
             What the file holds.
         adams : bool, optional
@@ -4157,18 +4170,21 @@ class Simulation(Displayed):
 
         Returns
         -------
-        dict
+        record : dict
             ``"state"`` (``"restored"``, ``"reset"`` or ``"not_applicable"``),
             ``"reason"`` and ``"z"``, m; for an Adams method also ``"retention"``, what
             the file states it kept there, ``{"state": "unknown"}`` where it states
             nothing.
+        march : solprop.output.schema.MarchSnapshot or None
+            The history the run's session is to install, or ``None``.
         """
         z = state.plane.z
         if low_storage:
-            return {"state": "not_applicable", "reason": "no_method_history", "z": z}
+            record = {"state": "not_applicable", "reason": "no_method_history", "z": z}
+            return record, None
         if not adams:
             # The proposal and the norm memory start afresh (issue #596).
-            return {"state": "reset", "reason": "unsupported_method", "z": z}
+            return {"state": "reset", "reason": "unsupported_method", "z": z}, None
         execution = None if state.outcome is None else state.outcome.execution
         recorded = retention_at(execution, z)
         retention: dict[str, object] = (
@@ -4190,7 +4206,7 @@ class Simulation(Displayed):
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
-            return reset("explicit_policy")
+            return reset("explicit_policy"), None
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
         refusal = backend.march_export_refusal()
@@ -4200,31 +4216,16 @@ class Simulation(Displayed):
                 SolpropWarning,
                 stacklevel=2,
             )
-            return reset("incompatible_representation")
+            return reset("incompatible_representation"), None
         if state.march is None:
-            return self._missing_history(retention, reset)
-        reason = backend.restore_march(state.march)
-        if reason is None:
-            logger.info(
-                "continuing the Adams history at order %d, %d samples",
-                state.march.order,
-                len(state.march.identities),
-            )
-            return {
-                "state": "restored",
-                "reason": "retained_history",
-                "z": z,
-                "retention": retention,
-            }
-        # Asked to continue a history this backend cannot install (another
-        # engine's rows, another build's shapes): the run is still correct to the
-        # integrator's tolerance, but it does less than was asked, so say so.
-        warnings.warn(
-            f"the Adams history starts afresh: {reason}",
-            SolpropWarning,
-            stacklevel=2,
-        )
-        return reset("incompatible_representation")
+            return self._missing_history(retention, reset), None
+        restored: dict[str, object] = {
+            "state": "restored",
+            "reason": "retained_history",
+            "z": z,
+            "retention": retention,
+        }
+        return restored, state.march
 
     @staticmethod
     def _missing_history(
@@ -7189,12 +7190,15 @@ class Simulation(Displayed):
 
 @dataclasses.dataclass(frozen=True)
 class _LoadedRun:
-    """What a runner's march needs once its input is in the backend, and nothing more.
+    """What a runner's march needs, its input held by its start alone.
 
     Attributes
     ----------
     problem : solprop.translate.problem.KernelProblem
         The derived problem, without its input (:func:`_without_input`).
+    start : solprop.backends.session.Start
+        The input's start. The run's session takes its field, so that nothing holds
+        the input through the march (issue #447).
     handler : solprop.output.schema.Output
         Where the planes go.
     metadata : solprop.output.schema.RunMetadata
@@ -7208,6 +7212,7 @@ class _LoadedRun:
     """
 
     problem: KernelProblem
+    start: Start
     handler: Output
     metadata: RunMetadata
     retention: FieldRetention
@@ -7453,8 +7458,9 @@ class SimulationRunner(Displayed):
                 noise=noise,
                 input_identity=input_identity,
             )
-            # The load is the last to read the input, and every frame that saw it has
-            # returned but this one: the march holds no volume for it (issue #447).
+            # The start holds the input, and every frame that saw it has returned but
+            # this one; the session takes it from the start, so the march holds no
+            # volume for it (issue #447).
             del initial
             return self._march(
                 loaded, progress=progress, progress_period=progress_period
@@ -7525,11 +7531,11 @@ class SimulationRunner(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None,
         input_identity: str | None,
     ) -> _LoadedRun:
-        """Derive one input's run, open its handler and load the input into the backend.
+        """Derive one input's run, open its handler and build the input's start.
 
-        The derived simulation and its problem are this frame's alone: they, the
-        converted launch of a modal route and the view of the input all go when it
-        returns.
+        The derived simulation and its problem are this frame's alone: they go when it
+        returns, and the start alone holds the converted launch of a modal route or the
+        view of the input, until the run's session takes it.
 
         Parameters
         ----------
@@ -7563,13 +7569,12 @@ class SimulationRunner(Displayed):
             handler, _ = _open_output(output, metadata, resume=False)
             retention = field_retention(problem, settings.fields, settings.field_planes)
             monitor = derived._boundary_monitor()
-            self._backend.set_initial(
-                problem.initial.field0,
-                None if isinstance(noise, str) else _realisation(problem),
-                z=problem.initial.z,
+            start = Start.entrance(
+                problem, noise=None if isinstance(noise, str) else _realisation(problem)
             )
         return _LoadedRun(
             _without_input(problem),
+            start,
             handler,
             metadata,
             retention,
@@ -7607,6 +7612,7 @@ class SimulationRunner(Displayed):
                 problem,
                 self._backend,
                 handler,
+                start=loaded.start,
                 metadata=loaded.metadata,
                 stats_spec=problem.stats_spec,
                 progress=progress,

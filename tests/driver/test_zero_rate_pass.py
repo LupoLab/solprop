@@ -19,6 +19,7 @@ import pytest
 from bounds import assert_within
 from driver.test_field_free_planes import cartesian, replay_bound
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
 from solprop.boundaries import absorber
 from solprop.driver.run import run_problem
 from solprop.exceptions import TranslationError
@@ -57,11 +58,11 @@ def run(simulation, problem):
     backend = select(simulation.settings.backend, problem, grid=simulation.grid)
     output = MemoryOutput()
     try:
-        backend.set_initial(problem.initial.field0, None)
         run_problem(
             problem,
             backend,
             output,
+            start=Start.entrance(problem),
             metadata=simulation.metadata(),
             progress="none",
         )

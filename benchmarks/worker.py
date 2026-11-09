@@ -215,13 +215,13 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     """
     import numpy as np  # noqa: PLC0415
 
+    from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.driver.run import run_problem  # noqa: PLC0415
     from solprop.output import MemoryOutput, SnapshotController  # noqa: PLC0415
     from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
 
     if (output == "hdf5" or snapshots is not None) and scratch is None:
         raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
-    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     path = None if scratch is None else scratch / "run.h5"
     handler: Output = (
         HDF5Output(path) if output == "hdf5" and path is not None else MemoryOutput()
@@ -240,6 +240,7 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
         problem,
         engine,
         handler,
+        start=Start.entrance(problem),
         metadata=simulation.metadata(),
         stats_spec=problem.stats_spec,
         progress="none" if progress is None else progress,
@@ -404,13 +405,39 @@ def _warm(
     if engine is None:
         _repetition(configuration, simulation, problem, engine, retention, root)
     else:
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        if configuration["warmup"]:
-            engine.propagate_to(configuration["warmup"] * configuration["stop"])
-        # Observe once, so that the observation path's first use is warm too.
-        engine.observe(field=True)
-        engine.stats(problem.stats_spec)
+        warm_up(engine, problem, configuration["warmup"] * configuration["stop"])
     return time.perf_counter() - started
+
+
+def warm_up(engine: Backend, problem: KernelProblem, until: float) -> None:
+    """Warm a backend up, untimed, through a session from the problem's launch.
+
+    The session observes the launch plane, with its statistics and its field, so that
+    the observation path's first use is warm too, and propagates until its first
+    bounded yield or plane at or past `until`, m: a little past it, by at most one
+    yield's work. The backend stays open for the timed runs, each of which starts
+    from the launch again.
+    """
+    from solprop.backends.events import ObservationReady  # noqa: PLC0415
+    from solprop.backends.export import ExportRecipe  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.backends.sessions import start_session  # noqa: PLC0415
+    from solprop.translate.run_request import describe_run  # noqa: PLC0415
+
+    session = start_session(
+        engine, problem, describe_run(problem), Start.entrance(problem), owns=False
+    )
+    try:
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    session.export(event.ticket, ExportRecipe(power=True, optics=False))
+            session.acknowledge(batch.receipt)
+            if session.status().z >= until:
+                break
+    finally:
+        session.close()
 
 
 def _repeat_difference(finals: list[np.ndarray]) -> float | None:

@@ -38,7 +38,7 @@ def start_session(  # noqa: PLR0913 - the session context
     backend: Backend,
     problem: KernelProblem,
     request: RunRequest,
-    start: Start | None,
+    start: Start,
     *,
     listener: AttemptListener | None = None,
     started: Callable[[float, float, int], None] | None = None,
@@ -50,15 +50,14 @@ def start_session(  # noqa: PLR0913 - the session context
     Parameters
     ----------
     backend : solprop.backends.protocol.Backend
-        The loaded backend, freshly constructed for `problem`, holding no state yet
-        unless `start` is ``None``.
+        The backend, constructed for `problem`. A backend reused from an earlier
+        run is loaded again from `start`, which restores everything a march reads.
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
-    start : solprop.backends.session.Start or None
-        Where the run starts; ``None`` when the caller already loaded the backend and
-        the run starts at its first plane with the launch plane owed (transitional).
+    start : solprop.backends.session.Start
+        Where the run starts; the session takes its field.
     listener : callable or None, optional
         Called with each attempt as it is made, for a progress reporter.
     started : callable or None, optional
@@ -85,3 +84,4 @@ def start_session(  # noqa: PLR0913 - the session context
         stop=stop,
         owns=owns,
     )
+
