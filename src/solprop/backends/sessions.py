@@ -10,19 +10,22 @@ The NumPy reference runs in its own session
 bridge, until its own session replaces it in phase 3 -- runs in the transitional
 session over the inherited driver
 (:class:`solprop.backends.driver_session.DriverSession`). :func:`start_session` chooses
-by the driver's type, so the run layer has one door.
+by the driver's type, so the run layer has one door. :func:`start_group` is the door
+for a group of compatible members (SEP 47 section 6.7), served on every backend by the
+transitional group over the lockstep runners
+(:class:`solprop.backends.driver_session.DriverGroupSession`).
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from solprop.backends.driver_session import DriverSession
+from solprop.backends.driver_session import DriverGroupSession, DriverSession
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from solprop.backends.driver_session import AttemptListener
     from solprop.backends.protocol import Backend
@@ -31,7 +34,7 @@ if TYPE_CHECKING:
     from solprop.translate.problem import KernelProblem
     from solprop.translate.run_request import RunRequest
 
-__all__ = ["start_session"]
+__all__ = ["start_group", "start_session"]
 
 
 def start_session(  # noqa: PLR0913 - the session context
@@ -85,3 +88,34 @@ def start_session(  # noqa: PLR0913 - the session context
         owns=owns,
     )
 
+
+def start_group(
+    members: Sequence[Backend],
+    problems: Sequence[KernelProblem],
+    requests: Sequence[RunRequest],
+    starts: Sequence[Start],
+    *,
+    stop: StopFlag | None = None,
+) -> DriverGroupSession:
+    """Start the group that advances compatible members through one fixed schedule.
+
+    Parameters
+    ----------
+    members : collections.abc.Sequence of solprop.backends.protocol.Backend
+        One constructed backend per member, all of one backend; the group owns them
+        once constructed.
+    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+        Each member's independently translated problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request, with its own fresh boundary monitor.
+    starts : collections.abc.Sequence of solprop.backends.session.Start
+        Each member's entrance.
+    stop : solprop.log.StopFlag or None, optional
+        A group-wide stop token.
+
+    Returns
+    -------
+    solprop.backends.driver_session.DriverGroupSession
+        The started group (:class:`~solprop.backends.session.GroupSession`).
+    """
+    return DriverGroupSession(members, problems, requests, starts, stop=stop)

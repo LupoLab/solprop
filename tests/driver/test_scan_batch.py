@@ -118,7 +118,9 @@ def test_batch_rejects_non_scan_work():
 
 def test_batch_refuses_memory_before_backend_construction(tmp_path, monkeypatch):
     constructed = []
-    monkeypatch.setattr(_scan_batch, "_load", lambda *args: constructed.append(args))
+    monkeypatch.setattr(
+        _scan_batch, "_construct", lambda *args: constructed.append(args)
+    )
     scan = Scan("batch", base_seed=772, power=[1.0])
     with pytest.raises(DriverError, match="cannot fit one member"):
         run_scan(
@@ -238,7 +240,12 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
         scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
     )
     assert result.status.tolist() == ["done"] * 3
-    assert fields == asked
+    # The group drains every window's attempts field-free and fetches the fields of a
+    # plane only when the scan reads it; the closing window has no plane.
+    assert fields == [
+        *(call for keep in asked for call in ((False, True) if keep else (False,))),
+        False,
+    ]
     assert_points_matched(result, reference, scan, builder, what="batch member")
 
 

@@ -58,6 +58,7 @@ __all__ = [
     "Event",
     "EventBatch",
     "ExportTicket",
+    "GroupBatch",
     "ObservationKind",
     "ObservationReady",
     "Outcome",
@@ -341,6 +342,38 @@ class EventBatch:
         if self.events and isinstance(self.events[-1], Terminal):
             return self.events[-1]
         return None
+
+
+@dataclass(frozen=True, eq=False)
+class GroupBatch:
+    """What one call to a group's ``advance`` produced: one common schedule window.
+
+    A group (:class:`solprop.backends.session.GroupSession`) advances its members
+    through one shared fixed schedule. Each member keeps its own events: its
+    observations, with its own attempts and statistics and a ticket for its field,
+    and its own terminal outcome (SEP 47 section 6.7).
+
+    Attributes
+    ----------
+    receipt : Receipt
+        Acknowledge it to release the window and advance to the next.
+    members : tuple of tuple
+        Each member's events in member order, in committed order; empty for a
+        member that ended in an earlier window.
+    outcome : Outcome or None
+        The group's own outcome when the batch ends it: ``COMPLETED`` once the
+        schedule is run, whatever each member's outcome; ``FAILED`` or ``STOPPED``
+        when a group-wide failure or stop ended every member still running.
+        ``None`` otherwise.
+    error : BaseException or None
+        A group-wide failure's primary error, carried also by each such member's
+        :class:`Terminal`; ``None`` otherwise.
+    """
+
+    receipt: Receipt
+    members: tuple[tuple[Event, ...], ...]
+    outcome: Outcome | None = None
+    error: BaseException | None = None
 
 
 def join_attempts(

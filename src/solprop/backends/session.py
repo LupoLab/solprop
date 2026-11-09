@@ -39,6 +39,10 @@ Control requests travel separately from the immutable request: a thread-safe
 :meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted
 endpoint (SEP 47 section 5.5).
 
+A :class:`GroupSession` advances compatible trajectories through one common fixed
+schedule, a window at a time, and reports each member's own events and outcome (SEP 47
+section 6.7).
+
 :class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
 receipts, the pending barrier, closing and poisoning. It holds no numerical state.
 """
@@ -54,6 +58,7 @@ from typing import TYPE_CHECKING, Protocol, runtime_checkable
 from solprop.backends.events import (
     EventBatch,
     ExportTicket,
+    GroupBatch,
     Outcome,
     Receipt,
 )
@@ -76,6 +81,7 @@ __all__ = [
     "DEFAULT_DEADLINE",
     "DEFAULT_WORK_LIMIT",
     "ExecutionOptions",
+    "GroupSession",
     "PreparedExecution",
     "RunSession",
     "SessionBackend",
@@ -455,6 +461,101 @@ class RunSession(Protocol):
         trace: TracebackType | None,
     ) -> None:
         """Close the session."""
+        ...
+
+
+@runtime_checkable
+class GroupSession(Protocol):
+    """Compatible trajectories advanced together through one common fixed schedule.
+
+    A group request is a sequence of independently translated member problems that
+    pass the compatibility predicate a batched scan groups its points by; the
+    common schedule's maximum error norm is a diagnostic only (SEP 47 section 6.7).
+    Each :meth:`advance` runs every member still running through the next common
+    schedule window -- to the next save plane -- and reports each member's own
+    events (:class:`~solprop.backends.events.GroupBatch`)::
+
+        with group:
+            while not group.finished:
+                batch = group.advance()
+                service(batch)                 # each member's planes and outcome
+                group.acknowledge(batch.receipt)
+
+    **Failure.** A boundary error, or a boundary warning raised as an error, ends
+    that member alone with a :class:`~solprop.backends.events.Terminal`, and the
+    others go on. A non-finite error norm, a step floor, a trial exception or an
+    in-flight failure ends the group: every member still running ends with the same
+    error. Members are stepped in turn, so earlier members may already have advanced
+    the failed scheduled step: each terminal reports that member's actual committed
+    position and checkpoint eligibility, and no common cursor or rollback is
+    invented. A group-wide stop request ends every running member at a common
+    accepted endpoint.
+    """
+
+    @property
+    def n_members(self) -> int:
+        """Return the number of members."""
+        ...
+
+    @property
+    def finished(self) -> bool:
+        """Return whether every member has ended."""
+        ...
+
+    @property
+    def closed(self) -> bool:
+        """Return whether the group was closed."""
+        ...
+
+    def advance(self) -> GroupBatch:
+        """Run every running member through the next common window, and report it."""
+        ...
+
+    def acknowledge(self, receipt: Receipt) -> None:
+        """Release a window's batch and allow advancing past it."""
+        ...
+
+    def export(
+        self,
+        member: int,
+        ticket: ExportTicket,
+        recipe: ExportRecipe,
+        out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
+    ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Fill a destination with one member's converted field at a pending ticket."""
+        ...
+
+    def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
+        """Return one member's noise phase at a pending ticket."""
+        ...
+
+    def member_status(self, member: int) -> SessionStatus:
+        """Return one member's committed position, counters and outcome."""
+        ...
+
+    def execution_record(self, member: int) -> Mapping[str, object]:
+        """Return one member's execution facts."""
+        ...
+
+    def monitor_record(self, member: int) -> Mapping[str, object] | None:
+        """Return one member's boundary-monitor record, ``None`` when unwatched."""
+        ...
+
+    def close(self) -> None:
+        """Release every member's resources; idempotent."""
+        ...
+
+    def __enter__(self) -> "GroupSession":  # noqa: UP037 - runtime type hook
+        """Return the group, for scoped ownership."""
+        ...
+
+    def __exit__(
+        self,
+        kind: type[BaseException] | None,
+        error: BaseException | None,
+        trace: TracebackType | None,
+    ) -> None:
+        """Close the group."""
         ...
 
 
