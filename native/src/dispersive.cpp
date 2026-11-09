@@ -988,38 +988,38 @@ DispersiveResponse::DispersiveResponse(const Problem& problem, CpuExecutionPool&
 DispersiveResponse::~DispersiveResponse() { close(); }
 
 void DispersiveResponse::plan(CpuExecutionPool& transforms) {
-  const auto space_for = [&](const std::size_t samples) -> const ExecutionSpace& {
-    return transforms.get(CpuOperation::fft, samples);
+  const auto space_for = [&](const auto& rows) -> const ExecutionSpace& {
+    return transforms.get(CpuOperation::fft, rows.size(), row_length(rows));
   };
   constexpr int axis = -1;
   if (!in_place_) {
     if (form_ == DispersiveForm::real)
       inverse_real_ = std::make_unique<InverseRealPlan>(
-          space_for(filtered_real_.size()), filtered_spectrum_, filtered_real_,
+          space_for(filtered_real_), filtered_spectrum_, filtered_real_,
           KokkosFFT::Direction::backward, axis);
     else
       inverse_complex_ = std::make_unique<ComplexPlan>(
-          space_for(filtered_complex_.size()), filtered_spectrum_, filtered_complex_,
+          space_for(filtered_complex_), filtered_spectrum_, filtered_complex_,
           KokkosFFT::Direction::backward, axis);
   }
   if (borrowed_)
     return;
   if (form_ == DispersiveForm::real) {
     forward_real_ = std::make_unique<ForwardRealPlan>(
-        space_for(products_real_.size()), products_real_, spectra_,
+        space_for(products_real_), products_real_, spectra_,
         KokkosFFT::Direction::forward, axis);
     if (embedded_)
       coarse_real_plan_ = std::make_unique<ForwardRealPlan>(
-          space_for(coarse_real_.size()), coarse_real_, spectra_,
+          space_for(coarse_real_), coarse_real_, spectra_,
           KokkosFFT::Direction::forward, axis);
   } else {
-    forward_complex_ = std::make_unique<ComplexPlan>(
-        space_for(products_complex_.size()), products_complex_, spectra_,
-        KokkosFFT::Direction::forward, axis);
+    forward_complex_ =
+        std::make_unique<ComplexPlan>(space_for(products_complex_), products_complex_,
+                                      spectra_, KokkosFFT::Direction::forward, axis);
     if (embedded_)
-      coarse_complex_plan_ = std::make_unique<ComplexPlan>(
-          space_for(coarse_complex_.size()), coarse_complex_, spectra_,
-          KokkosFFT::Direction::forward, axis);
+      coarse_complex_plan_ =
+          std::make_unique<ComplexPlan>(space_for(coarse_complex_), coarse_complex_,
+                                        spectra_, KokkosFFT::Direction::forward, axis);
   }
 }
 
@@ -1395,32 +1395,33 @@ SeparableDispersive::SeparableDispersive(const Problem& problem, CpuExecutionPoo
 SeparableDispersive::~SeparableDispersive() { close(); }
 
 void SeparableDispersive::plan(CpuExecutionPool& transforms) {
-  const auto space_for = [&](const std::size_t samples) -> const ExecutionSpace& {
-    return transforms.get(CpuOperation::fft, samples);
+  const auto space_for = [&](const auto& rows) -> const ExecutionSpace& {
+    return transforms.get(CpuOperation::fft, rows.size(), row_length(rows));
   };
   constexpr int axis = -1;
   if (!in_place_) {
     if (form_ == DispersiveForm::real)
       inverse_real_ = std::make_unique<InverseRealPlan>(
-          space_for(filtered_real_.size()), filtered_spectrum_, filtered_real_,
+          space_for(filtered_real_), filtered_spectrum_, filtered_real_,
           KokkosFFT::Direction::backward, axis);
     else
       inverse_complex_ = std::make_unique<ComplexPlan>(
-          space_for(filtered_complex_.size()), filtered_spectrum_, filtered_complex_,
+          space_for(filtered_complex_), filtered_spectrum_, filtered_complex_,
           KokkosFFT::Direction::backward, axis);
   }
   if (borrowed_)
     return;
   if (form_ == DispersiveForm::real)
     forward_real_ = std::make_unique<ForwardRealPlan>(
-        space_for(products_real_.size()), products_real_, spectra_,
+        space_for(products_real_), products_real_, spectra_,
         KokkosFFT::Direction::forward, axis);
   else
-    forward_complex_ = std::make_unique<ComplexPlan>(
-        space_for(products_complex_.size()), products_complex_, spectra_,
-        KokkosFFT::Direction::forward, axis);
+    forward_complex_ =
+        std::make_unique<ComplexPlan>(space_for(products_complex_), products_complex_,
+                                      spectra_, KokkosFFT::Direction::forward, axis);
   if (tail_rows_ != 0) {
-    const auto& tail_space = space_for(tail_rows_ * n_to_);
+    const auto& tail_space =
+        transforms.get(CpuOperation::fft, tail_rows_ * n_to_, n_to_);
     if (!in_place_) {
       if (form_ == DispersiveForm::real)
         tail_inverse_real_.create(tail_space, filtered_spectrum_, filtered_real_, rows_,
@@ -1743,18 +1744,20 @@ GeneralDispersive::~GeneralDispersive() { close(); }
 void GeneralDispersive::plan(CpuExecutionPool& transforms) {
   constexpr int axis = -1;
   inverse_ = std::make_unique<ComplexPlan>(
-      transforms.get(CpuOperation::fft, filtered_.size()), filtered_spectrum_,
-      filtered_, KokkosFFT::Direction::backward, axis);
+      transforms.get(CpuOperation::fft, filtered_.size(), row_length(filtered_)),
+      filtered_spectrum_, filtered_, KokkosFFT::Direction::backward, axis);
   if (real_)
     forward_real_ = std::make_unique<ForwardRealPlan>(
-        transforms.get(CpuOperation::fft, products_real_.size()), products_real_,
-        spectra_, KokkosFFT::Direction::forward, axis);
+        transforms.get(CpuOperation::fft, products_real_.size(),
+                       row_length(products_real_)),
+        products_real_, spectra_, KokkosFFT::Direction::forward, axis);
   else
     forward_complex_ = std::make_unique<ComplexPlan>(
-        transforms.get(CpuOperation::fft, products_complex_.size()), products_complex_,
-        spectra_, KokkosFFT::Direction::forward, axis);
+        transforms.get(CpuOperation::fft, products_complex_.size(),
+                       row_length(products_complex_)),
+        products_complex_, spectra_, KokkosFFT::Direction::forward, axis);
   if (tail_rows_ != 0) {
-    const auto& space = transforms.get(CpuOperation::fft, tail_rows_ * n_to_);
+    const auto& space = transforms.get(CpuOperation::fft, tail_rows_ * n_to_, n_to_);
     tail_inverse_.create(space, filtered_spectrum_, filtered_, rows_, tail_rows_,
                          KokkosFFT::Direction::backward);
     if (real_)

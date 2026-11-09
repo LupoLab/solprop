@@ -345,6 +345,15 @@ private:
   CpuSizing sizing_;
 };
 
+/** A transform batch's row length, as its CPU width and sizing record count it
+    (`CpuExecutionPool::get`'s `fine_samples` for the FFT and Raman classes): extent 0
+    counts the rows and the remaining extents make one row, so a transverse plane is
+    one row; a rank-1 view is one row. */
+template <class View> [[nodiscard]] std::size_t row_length(const View& rows) noexcept {
+  const std::size_t count = View::rank() == 1 ? 1 : rows.extent(0);
+  return count == 0 ? 0 : rows.size() / count;
+}
+
 /** Whether the host FFTW's threaded loops take a scoped team (`CpuTeamScope`): the
     OpenMP FFTW with its loop callback (FFTW 3.3.9 and later). Without it a compact
     problem's transforms stay serial. The first call installs the callback, whose
