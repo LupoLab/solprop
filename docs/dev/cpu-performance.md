@@ -207,7 +207,10 @@ measured while it existed.
   - Why the calibration's measured and patient plans "rarely won": they were rarely
     timed. On all three machines the thorough level's patient capture never finished
     within its share of the stage, and the timing in the step then ran out of rounds
-    before a verdict (no noise estimate), so every group fell back to the policy.
+    before a verdict (no noise estimate), so every group fell back to the policy. The
+    previous build did the same on the EPYC 7763 (thorough: no verdict; standard: no
+    transform planned within the stage's share), and so still does this one without
+    patient plans: the stage needs more of the levels' time than it gets.
     Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
     (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
     estimate's serial plans 1.06–2.8 of measure's.

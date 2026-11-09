@@ -2989,9 +2989,40 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
   // The FFT pools keep their medium widths: FFTW's threaded loops run on the
   // runtime's whole team and only distribute fewer iterations.
   native::CpuExecutionPool transforms(native::CpuPool::fft, native::test::table());
-  EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(), cap);
+  EXPECT_EQ(transforms
+                .get(native::CpuOperation::fft,
+                     native::test::table()[native::CpuOperation::fft].full)
+                .concurrency(),
+            cap);
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(),
             native::test::table().medium_threads);
+}
+
+TEST(CpuThreadPolicy, TransformBatchesThreadByRowsAndRowLength) {
+  // solprop issue #587: from the start, a thread per fft_thread_elements samples, at
+  // most one a row, or up to the medium width for rows of fft_long_row samples.
+  if (!native::cpu_size_policy_enabled)
+    GTEST_SKIP() << "needs automatic per-operation sizing";
+  native::CpuExecution execution = native::test::table();
+  execution.grain[static_cast<std::size_t>(native::CpuOperation::fft)] = {8192,
+                                                                          1U << 22};
+  execution.fft_thread_elements = 4096;
+  execution.fft_long_row = 16384;
+  execution.medium_threads = 4;
+  const native::ThreadPolicy policy{18, 18, 18, 18};
+  const auto threads = [&](const std::size_t rows, const std::size_t length) {
+    return native::operation_threads(policy, execution, native::CpuPool::fft,
+                                     native::CpuOperation::fft, rows * length, length);
+  };
+  EXPECT_EQ(threads(1, 4096), 1);      // below the start
+  EXPECT_EQ(threads(4, 3072), 3);      // three threads' worth of samples
+  EXPECT_EQ(threads(4, 10240), 4);     // a thread a row
+  EXPECT_EQ(threads(1, 10240), 1);     // a short row is not split
+  EXPECT_EQ(threads(1, 32768), 4);     // a long row, split to the medium width
+  EXPECT_EQ(threads(12, 10240), 12);   // one a row
+  EXPECT_EQ(threads(128, 1152), 18);   // many short rows take the pool
+  EXPECT_EQ(threads(289, 128), 9);     // 36992 samples
+  EXPECT_EQ(threads(1, 1U << 22), 18); // the full size is a backstop
 }
 
 TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
@@ -3105,7 +3136,8 @@ TEST(CpuThreadPolicy, MatrixPackingDoesNotInheritTheDenseWorkWidth) {
 TEST(CpuThreadPolicy, WorkspacesKeepIndependentChoicesAndReleaseTheirPools) {
   auto problem = general_problem(native::FieldFamily::envelope);
   native::GeneralState small(problem);
-  problem.n_to = native::test::table()[native::CpuOperation::fft].full;
+  // One long row, past the compact bound: its transforms thread by shape.
+  problem.n_to = 65536;
   problem.time_window.assign(problem.n_to, 1.0);
   problem.time_window_derivative.assign(problem.n_to, 0.0);
   problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));
@@ -3113,10 +3145,13 @@ TEST(CpuThreadPolicy, WorkspacesKeepIndependentChoicesAndReleaseTheirPools) {
   native::GeneralState another_small(general_problem(native::FieldFamily::envelope));
   const auto small_sizing = small.execution_sizing();
   EXPECT_EQ(small_sizing, another_small.execution_sizing());
-  const auto key = "fft.fft." + std::to_string(problem.n_to);
+  const auto key = "fft.fft." + std::to_string(problem.n_to) + ".samples." +
+                   std::to_string(problem.n_to);
   EXPECT_EQ(large.execution_sizing().at(key).at("elements"), problem.n_to);
   EXPECT_EQ(large.execution_sizing().at(key).at("threads"),
-            static_cast<std::size_t>(native::ExecutionSpace().concurrency()));
+            static_cast<std::size_t>(native::operation_threads(
+                native::thread_policy(), native::test::table(), native::CpuPool::fft,
+                native::CpuOperation::fft, problem.n_to, problem.n_to)));
   large.close();
   EXPECT_EQ(small.execution_sizing(), small_sizing);
   small.close();

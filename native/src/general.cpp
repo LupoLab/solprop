@@ -2611,8 +2611,9 @@ public:
   // is 0 (solprop issue #584): one transform of every row, threaded by its shape, in
   // place of one a transform over only the modes' rows, which left most of the
   // threads idle: on 18 cores of an Intel Xeon Gold 6240 the pack ran rdw 0.90,
-  // argon_blueshift 0.88 and ctc 0.92 of their windows. A host keeps the coarse rows after the
-  // fine ones so that a deferred quadrature's stages transform the fine block alone.
+  // argon_blueshift 0.88 and ctc 0.92 of their windows. A host keeps the coarse rows
+  // after the fine ones so that a deferred quadrature's stages transform the fine block
+  // alone.
   bool packs_forward() const noexcept {
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
     // A compact problem keeps its separate transforms: its one row a transform runs
