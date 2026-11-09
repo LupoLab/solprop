@@ -91,3 +91,11 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
+- [SEP 47 — Backend-owned execution sessions](seps/sep-0047-run-ownership.md):
+  make each backend own its numerical run, including stepping, observations, boundaries,
+  accounting and export preparation, while Python owns the scientific description and
+  external services. Replace native driver inheritance and mirrored state with typed
+  descriptors and a session protocol; retain an independent NumPy oracle and explicit
+  host execution for Python extensions. Backend lowering owns packing, chunks and
+  workspace lifetimes. Completion requires deleting the replaced machinery and
+  qualifying correctness, field traffic and performance, not merely adding a wrapper.

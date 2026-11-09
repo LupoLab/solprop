@@ -34,6 +34,7 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
 | [46](sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Accepted | Change |
+| [47](sep-0047-run-ownership.md) | Backend-owned execution sessions | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
 the compiled backends, and SEP 16, which unified the multistep family and made it the
@@ -99,6 +100,7 @@ sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
 sep-0046-machine-calibration
+sep-0047-run-ownership
 template
 archive/index
 ```
