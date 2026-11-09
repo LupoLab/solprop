@@ -67,6 +67,7 @@ from jaxtyping import Complex, Float
 
 from solprop._interrupts import committing
 from solprop.backends.driver import StepDriver, replay_tolerance
+from solprop.backends.host.driver import HostDriver
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
@@ -263,9 +264,11 @@ class HostLowStorage:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state, hooks and boundary treatments are used; its state is
-        a host array in the canonical layout.
+    backend : StepDriver or HostDriver
+        The backend whose state, hooks and boundary treatments are used -- the native
+        bridge's inherited driver (:class:`solprop.backends.driver.StepDriver`) or the
+        reference's own (:class:`solprop.backends.host.driver.HostDriver`, SEP 47); its
+        state is a host array in the canonical layout.
     method : solprop.stepper.low_storage.LowStorageRungeKutta
         The march.
 
@@ -284,7 +287,9 @@ class HostLowStorage:
     memory ledger, and :meth:`close` releases them.
     """
 
-    def __init__(self, backend: StepDriver[Any], method: LowStorageRungeKutta) -> None:
+    def __init__(
+        self, backend: StepDriver[Any] | HostDriver[Any], method: LowStorageRungeKutta
+    ) -> None:
         """Hold the backend with no registers yet."""
         self._backend = backend
         self._method = method

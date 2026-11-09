@@ -59,6 +59,7 @@ from solprop.backends.exponential import (
     carrier_reference,
     phi_functions,
 )
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError, ConvergenceError, ResponseBudgetError
 from solprop.output.schema import MarchSnapshot
@@ -2019,8 +2020,10 @@ class HostHistory:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state, source evaluation and propagators are used.
+    backend : StepDriver or HostDriver
+        The backend whose state, source evaluation and propagators are used: the native
+        bridge's inherited driver (:class:`solprop.backends.driver.StepDriver`) or the
+        reference's own (:class:`solprop.backends.host.driver.HostDriver`, SEP 47).
     method : solprop.stepper.multistep.Multistep
         The method.
     kernels : AdamsKernels
@@ -2033,7 +2036,7 @@ class HostHistory:
 
     def __init__(
         self,
-        backend: StepDriver,
+        backend: StepDriver | HostDriver,
         method: Multistep,
         kernels: AdamsKernels,
         exponential: ExponentialKernels | None,
@@ -2901,7 +2904,7 @@ def _rows_read(
     return [factor * store[slot] for factor, slot in zip(factors, slots, strict=False)]
 
 
-def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
+def _divisor(backend: StepDriver | HostDriver, state: _State) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
     See :func:`solprop.backends.multistep_general._norm_function` for why the state
@@ -2909,7 +2912,7 @@ def _divisor(backend: StepDriver, state: _State) -> np.ndarray:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
+    backend : StepDriver or HostDriver
         The backend, for the controller and the in-band mask.
     state : numpy.ndarray
         The accepted state before the step.
