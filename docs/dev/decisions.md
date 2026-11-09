@@ -2142,8 +2142,10 @@ Withdrawn (development-process record, not a design decision).
     `fft_thread_elements` samples, at most one a row, or up to the medium width when its
     rows are at least `fft_long_row` long; `fft_full` is a backstop. Linux and Windows
     8192, 4096 and 16384; macOS 32768, 32768 and 65536, a sixteenth on a spinning top tier
-    (ADR-073). The calibration's grain moves the threshold and halves and doubles the two
-    shape settings.
+    (ADR-073). The calibration's grain moves the threshold and halves and doubles
+    `fft_thread_elements`, after every other class (each such move changes nearly every
+    problem's width, and with the long row's moves too a thorough calibration ran out of
+    rounds).
   - *One forward pack.* On a host, as on a device, a modal stage's forward rows (the
     projection's fine and coarse, the in-stage absorber's, the held currents') are one
     batch and one plan, the coarse rows after the fine so that a deferred quadrature's
@@ -2151,7 +2153,9 @@ Withdrawn (development-process record, not a design decision).
     `SOLPROP_NATIVE_FORWARD_PACK=0` turns the pack off.
   - *Planning.* Threaded rows stay at estimate by default; the thorough calibration no
     longer plans at patient, and records each candidate's plans timed alone beside its
-    verdict in the step.
+    verdict in the step. The FFT stage's timing in the step still runs out of rounds at
+    the standard and thorough levels on the machines measured, as it did before this
+    change; giving it time is the maintainer's call on the levels' budgets.
 - **Consequences:** against the previous build, the tracking set ran 0.977 (Xeon Gold
   6240) and 0.981 (EPYC 7763) on geometric mean: `argon_blueshift` 0.80–0.87, `ctc`
   0.89–0.92, `rdw` 0.91–0.95, `line` 0.87–0.93, the rest within their spread; fields agree

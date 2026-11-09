@@ -138,6 +138,8 @@ def test_the_transforms_shape_settings_are_moved_where_they_change_a_width() -> 
         "fft thread elements 2048",
         "fft thread elements 8192",
     ]
+    # The transforms go last, after every other class's moves.
+    assert TIMED[-1] == "fft"
 
 
 def test_the_best_admitted_candidate_of_each_setting_is_kept() -> None:

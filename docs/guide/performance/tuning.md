@@ -198,7 +198,7 @@ thread per 4,096 samples (32,768 on macOS, a sixteenth of that on a spinning top
 and at most one per row, since FFTW divides a batch's rows among its threads; rows of at
 least 16,384 samples (65,536 on macOS) are split, up to `min(4, C)` threads. A batch of
 a few long rows therefore takes about one thread a row, many short rows the full pool.
-The calibration moves both settings.
+The calibration moves the samples per thread.
 
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|

@@ -3000,17 +3000,17 @@ did not change it (1.34). One-column problems keep their separate transforms.
 **Against the previous build** (both together; one-column problems unpacked; 5 %
 windows, three rounds, fields within 1e-12):
 
-| case | Xeon 18 | Xeon 36 | EPYC 16 |
-|---|---:|---:|---:|
-| `argon_blueshift` | 0.87 | 0.80 | 0.86 |
-| `ctc` | 0.89 | 0.91 | 0.92 |
-| `rdw` | 0.91 | 0.95 | 0.95 |
-| `line` | 0.93 | 0.87 | 0.88 |
-| `radial_filament_256` | 0.97 | 1.01 | 0.99 |
-| `gnlse_raman_shock` | 0.94 | 0.99 | 0.98 |
-| `grin_nonlinear` | 1.01 | 0.93 | 1.01 |
-| `kerr_beam_192` | 1.02 | 1.04 | 1.01 |
-| geometric mean (with one-thread rows, 11 cases) | 0.977 | | 0.981 |
+| case | Xeon 18 | Xeon 36 | EPYC 16 | M5 Max 6 (contended) |
+|---|---:|---:|---:|---:|
+| `argon_blueshift` | 0.87 | 0.80 | 0.86 | 0.92 |
+| `ctc` | 0.89 | 0.91 | 0.92 | 0.98 |
+| `rdw` | 0.91 | 0.95 | 0.95 | 0.95 |
+| `line` | 0.93 | 0.87 | 0.88 | 1.00 |
+| `radial_filament_256` | 0.97 | 1.01 | 0.99 | 1.00 |
+| `gnlse_raman_shock` | 0.94 | 0.99 | 0.98 | 1.00 |
+| `grin_nonlinear` | 1.01 | 0.93 | 1.01 | 1.00 |
+| `kerr_beam_192` | 1.02 | 1.04 | 1.01 | 0.99 |
+| geometric mean, with the one-thread rows | 0.977 | | 0.981 | 0.993 |
 
 The shape rule alone (pack off) gave `line` 0.91 and 0.90 (Xeon 18 and 36) and 0.89
 (EPYC), and `grin_nonlinear` 0.95 on the EPYC; the one-thread rows stay within

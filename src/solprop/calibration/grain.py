@@ -44,20 +44,25 @@ __all__ = [
 type Record = Mapping[str, int | bool]
 """A native execution record (``ExecutionRecord.native()``)."""
 
-TIMED = ("stage", "response", "fft", "raman", "copy", "dense", "modal")
+TIMED = ("stage", "response", "raman", "copy", "dense", "modal", "fft")
 """The classes whose thresholds the grain moves, in the order their candidates go.
 
 The exponential Adams trial's passes and a coupled flow's matrix functions run in
 no calibration window: their thresholds keep the built-in table's. The transforms
 thread by shape (rows and row length, solprop issue #587), so beside their threshold
-the grain moves their thread grain and long row (:data:`SHAPE_MOVES`) rather than
-their full size: by element count alone, a full width from 98304 elements won 0.56
-on a line's many short rows and ran ``grin_nonlinear``'s few long rows 8-10 % slower
-on AMD EPYC cores (SEP 46 Part II).
+the grain moves their thread grain (:data:`SHAPE_MOVES`) rather than their full size:
+by element count alone, a full width from 98304 elements won 0.56 on a line's many
+short rows and ran ``grin_nonlinear``'s few long rows 8-10 % slower on AMD EPYC cores
+(SEP 46 Part II). They go last: a move of theirs changes nearly every problem's width,
+so each costs a round's worth of windows, and a level's limit drops them first.
 """
 
-SHAPE_MOVES = ("fft_thread_elements", "fft_long_row")
-"""The transforms' shape settings the grain halves and doubles."""
+SHAPE_MOVES = ("fft_thread_elements",)
+"""The transforms' shape settings the grain halves and doubles.
+
+Not the long row: with its moves too, a thorough calibration of 16 cores of an AMD
+EPYC 7763 timed 21 grain candidates and ran out of rounds before any verdict, where 17
+had concluded."""
 
 
 @dataclass(frozen=True)
