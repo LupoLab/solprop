@@ -155,7 +155,7 @@ predictions for a newly restructured engine.
 | [#576](https://github.com/LupoLab/solprop/pull/576) improved CPU execution through thread waiting, widths, vector math and kernel work. Its M5 comparison changed Julia/native from about 0.79 to 1.05. | A language comparison also measures execution choices inside each backend. |
 | [#585](https://github.com/LupoLab/solprop/pull/585) reduced a Xeon Gold 6240 Kerr-beam build from 6.48 to 4.68 s and translation from 5.20 to 2.83 s, while its recorded run stayed about 35.8 s and march about 24.1 s. | Construction, export, statistics and stepping need separate attribution. The run-minus-march difference is not all Python overhead. |
 | [#586](https://github.com/LupoLab/solprop/pull/586) improved separable phase evaluation with vector math while preserving the representation. | Compiled tables can enable efficient execution; abandoning them is not itself an optimization. |
-| [#582](https://github.com/LupoLab/solprop/pull/582), now merged as SEP 46, makes CPU policy workspace-specific and reports substantial H200 gains for some larger node chunks. | Workspace and chunk decisions need backend information. The originally examined report was preliminary; its completed qualification is in SEP 46. Neither claims every GPU benefits from larger chunks. |
+| [#582](https://github.com/LupoLab/solprop/pull/582), now merged as SEP 46, makes CPU policy workspace-specific. Its phase 6 measured 6–25% gains from larger chunks on H200 spatial routes, but retained no calibrated device setting and landed no new device chunk default. | The measured larger chunk is separate work in #361, to be qualified on CUDA and HIP. It may land on the current seam; SEP 47 then moves ownership of that qualified rule into backend lowering. |
 
 The [Julia experiment, #559](https://github.com/LupoLab/solprop/pull/559), is particularly
 instructive because it consumes substantially the same translated numerical description.
@@ -178,15 +178,26 @@ I/O cannot disappear. These fractions overlap other useful work and must not be 
 The published period-1 statistics profiles in the
 [native Adams ledger](../benchmarks.md#the-native-adams-march) report approximately
 290 microseconds per trial outside the march on EPYC 7763 and 75 microseconds on an
-Apple M5 Max (one and sixteen threads). That includes requested reductions, so it is
-not a measurement of removable dispatch alone.
+Apple M5 Max (one and sixteen threads). The ledger attributes that cost to producing
+the row, rather than the return itself. The opportunity is therefore resident rows,
+shared numerical work and bulk transfer (§6.4), not a 290/75-microsecond saving merely
+from removing a return. Required reductions remain work and must be timed separately.
+
+The ledger's `step_planes=1` cases provide a proxy for the per-step observation forced
+by today's snapshot requirement: at one thread the M5 host time per trial falls from
+39.5 to 15.2 microseconds (Python march to native march), while the native EPYC case
+costs about 58 microseconds per step (160 microseconds on the Python march). They
+measure the forced observation/natural-stop path, not snapshot persistence or file
+copying, and do not make that whole cost removable. Phase 1 must separate avoiding
+unrequested per-step observations from servicing actual snapshot requests.
 
 No isolated current measurement supplies a removable-time fraction for collar checks,
-low-storage replay, lockstep, snapshots or each host fallback. Inventing a numerical
-ceiling for each would be misleading. Phase 1 must measure these separately, including
-their required work, before ranking performance payoff. Monitor replay and export
-traffic have quantified opportunities already; complete ownership and explicit lifecycle
-contracts are reasons for the remaining work even if their timing gains are small.
+low-storage replay, lockstep, snapshot persistence itself or each host fallback.
+Inventing a numerical ceiling for each would be misleading. Phase 1 must measure
+these separately, including their required work, before ranking performance payoff.
+Monitor replay, export traffic and forced-observation proxies have quantified evidence
+already; complete ownership and explicit lifecycle contracts also justify work whose
+timing gains may be small.
 
 #### 3.3 Issue disposition and dependencies
 
@@ -197,7 +208,7 @@ The intended disposition is explicit:
 |---|---|
 | [#110](https://github.com/LupoLab/solprop/issues/110), march protocol, batch axis, route union and tolerance split | This proposal supplies all four design decisions. Acceptance can settle its request for a design; implementation still has the gates below. |
 | [#346](https://github.com/LupoLab/solprop/issues/346), saved-plane traffic | Direct implementation target: explicit destinations and one export conversion pass, qualified without weakening ownership or file semantics. |
-| [#361](https://github.com/LupoLab/solprop/issues/361), backend-owned node chunks; [#349](https://github.com/LupoLab/solprop/issues/349), conservative chunk accounting | Direct targets for backend lowering and workspace planning, coordinated with SEP 46. Do not duplicate work that #582 lands first. |
+| [#361](https://github.com/LupoLab/solprop/issues/361), backend-owned node chunks; [#349](https://github.com/LupoLab/solprop/issues/349), conservative chunk accounting | Direct targets for backend lowering and workspace planning. SEP 46 measured the device opportunity but landed no chunk change. #361 may land first on the current seam with CUDA/HIP qualification; phase 3 moves its rule from translation into backend lowering without changing its qualified default. #349's live-buffer accounting remains explicit work, not something #582 completed. |
 | [#255](https://github.com/LupoLab/solprop/issues/255), carrier frame with general z tables | Built-in native coverage gap to remove in the session migration. Preserve the existing method; no silent switch to a different carrier representation. |
 | [#351](https://github.com/LupoLab/solprop/issues/351), padded Chebyshev degrees | Related optimization enabled by explicit representations; not a prerequisite or an automatic closure. |
 | [#356](https://github.com/LupoLab/solprop/issues/356), actual fused batching | The group contract is decided here. A general fused batch implementation and its performance claim remain separate work. |
@@ -480,9 +491,9 @@ power-of-two state scale where applicable, route-specific amplitude conversion, 
 the spectral origin factor `(-1)^k` together with conjugation. Modal routes use the
 declared true-power weights; spatial routes retain their field measure and skip that
 modal conversion. Native applies the recipe in a fused pass where qualified. This
-moves evaluation, not the definition of power or Fourier signs. It must avoid creating
-a full intermediate internal-convention host field just
-to convert it into another full host allocation. Whether conversion occurs before a
+moves evaluation, not the definition of power or Fourier signs. Avoid a redundant
+full host intermediate, such as exporting an unnormalized field merely to normalize
+and copy it into another allocation. Whether conversion occurs before a
 device transfer or while filling a host destination is an execution choice measured on
 that device.
 
@@ -496,13 +507,26 @@ retention.
 
 Key an export by committed state generation (or dense observation), selection and
 representation. Output and plane observers requesting the same payload share the
-detached result, including during failure handling; they do not re-observe it. A
-restart payload may need unconverted internal state and history, which are not the
-same payload as a saved true-power optics field. Plan combined exports when both are
-known to be required, and account for both retained representations. Do not promise
-lossless reconstruction of internal state by inverting rounded normalization, or
-retain an unconditional extra raw field merely to avoid a rare checkpoint transfer.
-A dense plane at another position cannot substitute for an endpoint checkpoint.
+detached result, including during failure handling; they do not re-observe it.
+
+Field checkpoints, including the new running checkpoints, keep today's
+`TerminalCheckpoint` representation: the accepted field in the output amplitude
+convention (true-power modal amplitudes, or the route's spatial field measure), and
+the internal FFT convention at the Python record boundary. HDF5 applies the same
+optics conversion as a regular saved plane. A field restart reverses that Fourier
+conversion and inverts the modal true-power weights where applicable, just as today;
+reconstruction of the propagation state is at rounding level, not a lossless inverse
+of normalization. This SEP does not introduce a raw-state field-checkpoint dataset.
+
+A landed field checkpoint and a coincident saved plane share one exported field and
+its output conversion, including when checkpointing follows an output failure.
+They must not trigger a second observation, device transfer or amplitude conversion.
+For these field consumers, a dense plane at a different position requires a separate
+payload from the endpoint checkpoint. The optional Adams `MarchSnapshot` is a distinct
+existing method-history record, including raw state and engine rows; preserve its
+representation and retention policy rather than confusing it with the field
+checkpoint. Its required payload is accounted for separately. A new raw-state
+field-checkpoint format would need its own justified change; it is not implied here.
 
 Lossless storage and round trips remain exact for already-converted values. Fusing a
 nontrivial normalization is an independent arithmetic computation and is assessed under
@@ -534,9 +558,11 @@ requirement. A request latched by a control token is serviced at the next accept
 endpoint; a Python-polled request enters at a bounded yield and is eligible from then
 on. It does not force a numerical landing or change the accepted itinerary. Before
 copying a snapshot file, persist a valid checkpoint and any required method history,
-plus the next observation cursor, even when no ordinary plane is due. Use the existing
-checkpoint/output transaction machinery, extended to record a running checkpoint;
-do not create a false terminal outcome or mark an uncommitted field resumable.
+plus the next observation cursor, even when no ordinary plane is due. Running
+checkpoints reuse the existing checkpoint record/datasets and output transaction,
+with optional restart metadata and a matching running execution record; no new
+checkpoint dataset or field representation is added. Do not create a false terminal
+outcome or mark an uncommitted field resumable.
 Before that checkpoint, drain and commit every earlier owed dense observation crossed
 by the accepted step. The baseline does not persist a checkpoint that would require
 an unserialized dense extension to reconstruct missing planes on resume.
@@ -704,20 +730,28 @@ decided before allocation/propagation, never by falling back halfway through a n
 session. Built-in production capabilities are retained; reference-only diagnostic
 methods are explicitly separated from that promise.
 
-| Current host-march case | Final disposition and qualifying witness |
-|---|---|
-| RK/Adams with ordinary built-in controller, including supported norm weights/regions | Native session. Exercise default and nondefault policies, strict identical-input decision traces, independent field/norm comparisons and refusals of invalid policies. |
-| `PIController` subclasses overriding scale/accept/propose/rejection/start/equivalent-norm methods | Reference host session only; native refuses the override by name. These subclasses currently occur in tests, not a documented native extension API. Preserve reference experiments and test native admission before allocation. |
-| `ComparisonMultistep` general PEC/PECE, Adams–Bashforth and matched comparison paths | Keep the benchmark-only comparison family on the reference; refuse it on native. Update benchmark callers and admission tests. Production Adams is not removed with these comparison methods. |
-| Coupled flow off the eigenbasis path, dimensions above the current 16-channel march limit, non-exponential or untransported-compensation paths | Port admitted built-in cases in phase 3, preserving the chosen flow and arithmetic protections. Test small/large dimensions, transport variants, matched steps and converged short runs; lack of an existing performance case is not permission to drop a scientific capability. |
-| Host-formed rows or operator/prefactor representations missing from native stage-table evaluation | Lower every admitted built-in representation in phase 3; test each representation's values, trial and event lifecycle. Retire private host-row/debug switches as production execution modes; retain diagnostic witnesses through test interfaces. |
-| Carrier-frame general z table (#255) | Port the native CPU gap without changing the carrier approximation; test varying tables, history and restart. Existing explicit GPU capability refusals remain unless separately qualified. |
-| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 4, with actual member parameters and cursors. Preserve existing coupled-batch refusals; this does not newly admit every coupled flow as a group. |
-| Private host-engine or host-march forcing switches | Retire from production; replace their diagnostic purpose with independent reference and identical-input control tests. |
+| Current host-march case | Native CPU disposition and qualifying witness | CUDA/HIP disposition by Final |
+|---|---|---|
+| RK/Adams with ordinary built-in controller, including supported norm weights/regions | Native session. Exercise default and nondefault policies, strict identical-input decision traces, independent field/norm comparisons and refusals of invalid policies. | Port the current admitted device combinations and qualify the session on both CUDA and HIP in phase 5; preserve existing route/method refusals. |
+| `PIController` subclasses overriding scale/accept/propose/rejection/start/equivalent-norm methods | Reference host session only; native refuses the override by name. These subclasses currently occur in tests, not a documented native extension API. Preserve reference experiments and test native admission before allocation. | Refuse by name on both CUDA and HIP, as on native CPU; this is the intentional admission change in §9. |
+| `ComparisonMultistep` general PEC/PECE, Adams–Bashforth and matched comparison paths | Keep the benchmark-only comparison family on the reference; refuse it on native. Update benchmark callers and admission tests. Production Adams is not removed with these comparison methods. | Refuse by name on both CUDA and HIP, as on native CPU; this is the intentional admission change in §9. |
+| Coupled flow off the eigenbasis path or above the current 16-channel march limit; other admitted non-exponential or untransported-compensation host-engine paths | Port admitted built-in cases in phase 3, preserving the chosen flow and arithmetic protections. Test small/large dimensions, transport variants, matched steps and converged short runs; lack of an existing performance case is not permission to drop a scientific capability. | Port and qualify on both CUDA and HIP in phase 5, explicitly including off-eigenbasis and more-than-16-channel coupled cases. Retain the existing constant-Schur/frozen-residual and exponential-Adams scope beside a coupled flow; no CF4 or new coupled formulation is admitted. |
+| Host-formed rows or operator/prefactor representations missing from native stage-table evaluation | Lower every admitted built-in representation in phase 3; test each representation's values, trial and event lifecycle. Retire private host-row/debug switches as production execution modes; retain diagnostic witnesses through test interfaces. | Port admitted device-ready representations and qualify on both CUDA and HIP in phase 5. General operator/prefactor z tables that are not device-ready remain refused by name, as today. |
+| Carrier-frame general z table (#255) | Port the native CPU gap without changing the carrier approximation; test varying tables, history and restart. | All carrier-frame runs remain refused by name on both CUDA and HIP, as today. This CPU port does not admit device carrier frames or general z tables. |
+| Native members forced to host replay by lockstep/nominal batching | Native group session in phase 4, with actual member parameters and cursors. Preserve existing coupled-batch refusals; this does not newly admit every coupled flow as a group. | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 5, including per-member events and partially advanced group failures. Coupled-flow groups remain refused. |
+| Low-storage replay's Python loop around resident native registers | Native session in phase 3 on the existing diagonal-flow routes; qualify replay, event bounds, stop and in-flight failure semantics. | Port admitted device-ready diagonal-flow cases to the session and qualify on both CUDA and HIP in phase 5. HIP is already qualified; CUDA is admitted but not yet qualified, so its session needs actual-device evidence before Final. |
+| Private host-engine or host-march forcing switches | Retire from production; replace their diagnostic purpose with independent reference and identical-input control tests. | Retire on both CUDA and HIP as well; retain explicit test probes, not a production host executor. |
 
 This table is a deliberate native admission change for custom Python controllers and
 benchmark-only comparison methods. It does not authorize dropping built-in production
 coupled flows or silently selecting a different tolerance, method or carrier model.
+Porting includes native ownership of control around device kernels; it does not
+require a device-resident controller. No new production device refusal is selected
+by this table. Temporary internal adapters may preserve existing device paths between
+phased merges, but Final requires the listed CUDA/HIP session witnesses on actual
+devices. Host compilation is not qualification. If a port cannot meet this gate,
+keep the SEP In progress or seek an explicit revised capability decision; do not
+silently turn an existing device capability into a refusal.
 
 #### 6.4 Observations as prepared numerical work
 
@@ -761,6 +795,11 @@ The backend chooses its node chunk and scratch plan from actual live buffers, av
 execution resources, explicit user limits and SEP 46's execution record. Translation
 does not freeze a CPU-derived node chunk into the scientific problem. An explicit
 workspace budget remains authoritative; automatic selection can use backend knowledge.
+SEP 46 retained no calibrated device setting. If #361 lands its separately qualified
+chunk default first, phase 3 moves that rule into backend lowering unchanged; changing
+the qualified default again requires its own evidence and recorded decision. The
+move preserves explicit user budgets and the rule that translation does not initialize
+a device runtime before a scan forks.
 Live-range reuse must account for retained dense output, histories, asynchronous
 transfers and pending events, not merely the arrays used in one source evaluation.
 
@@ -909,6 +948,13 @@ snapshots without saved-step planes, automatic Adams-history omission, explicit
 history-off policy and legacy metadata. Check group failures after earlier members
 have committed: reported member positions must match reality, including invalid
 in-flight members. No checkpoint or success outcome may be fabricated.
+Verify that running and terminal checkpoints use the existing field representation
+and datasets, with the present rounding-level normalization inverse on resume.
+Test non-unit modal power weights, spatial routes, field-free output, old files and
+optional Adams history. A landed checkpoint and coincident saved plane must share
+one export/transfer; a dense plane at another position uses its own payload. Exercise
+each device disposition in §6.3 on CUDA and HIP as specified, including wide and
+off-eigenbasis coupled cases, groups and low-storage replay, before Final.
 
 Use the existing independently justified rounding budgets for matched computations,
 extending their operation and conditioning terms where arithmetic changes. Derive any
@@ -1004,8 +1050,10 @@ if retained, even though no case crosses 5%. The aggregate cannot excuse a per-c
 regression. State the matrix and weighting before seeing results.
 
 Structural counters must show **zero native returns caused solely by periodic
-statistics, internal collar checks or low-storage iteration**, when the buffer and
-work bounds permit continued execution. Bounded service returns, full buffers,
+statistics, internal collar checks, transverse-edge reads, low-storage iteration,
+scheduled steps of a native fixed-schedule group, or snapshots being enabled with no
+request pending**, when the buffer and work bounds permit continued execution.
+Bounded service returns, full buffers,
 warnings, requested field output and actual snapshot I/O are counted separately;
 zero total returns per step is not required. This measures removal of ownership
 overhead without hiding required work or relying on noisy sub-percent timings.
@@ -1137,6 +1185,12 @@ observations/export/groups (phase 4), and final deletion/qualification (phase 5)
 adjacent milestones may be combined when that makes a clearer review. Use topic
 branches `feature/sep-0047-<milestone>` and draft PRs while each is developed. This is
 an exception for SEP 47, not a general change to SEP 0.
+It is also indexed in [SEP 0's history](sep-0000-process.md#history). While this SEP
+is a Draft, its **Implementation** field stays `—`. At implementation start, list
+each successive `feature/sep-0047-<milestone>` branch and linked PR in that field, in
+delivery order, adding entries as PRs are opened and retaining merged entries. Part II
+records each milestone's commits, current owner and checks; the header must not point
+only to the latest branch and lose the earlier implementation PRs.
 
 Each merge has targeted tests, manual updates and a Part II report stating the current
 production owner, remaining adapters and their removal milestone. Temporary internal
@@ -1174,7 +1228,8 @@ as current main rather than treated as an indefinitely moving dependency.
    Verify event ordering, failure and resume before moving native execution. No new
    native fast path is required in this milestone.
 3. **Native preparation and complete built-in session.** Integrate SEP 46 policy,
-   backend-owned lowering and allocation records. Adopt the existing native Adams/RK
+   backend-owned lowering and allocation records; move any qualified #361 chunk rule
+   without changing its default. Adopt the existing native Adams/RK
    engines; move low-storage replay and remaining admitted built-in host march cases
    into the session under §6.3's explicit port/refuse/retire inventory. Keep controller,
    history, boundary state and actual work native across advances. Verify all built-in
@@ -1190,8 +1245,9 @@ as current main rather than treated as an indefinitely moving dependency.
    into this phase.
 5. **Removal and release qualification.** Delete the transitional native driver
    inheritance, mirrored records, private lockstep access and replaced contract tables.
-   Complete CUDA/HIP qualification on actual devices and MLX compatibility within their
-   existing scopes. Record paired performance and structural results, resolve or
+   Complete every CUDA/HIP session port and actual-device witness in §6.3, including
+   wide/off-eigenbasis coupled flows, groups and low-storage replay, and preserve MLX
+   compatibility within its existing scope. Record paired performance and structural results, resolve or
    explicitly document every regression, update rules/manuals, and close only issues
    whose own acceptance criteria have been met. Archive this SEP at `Final` only when
    the replacement is the production architecture and no required path depends on the
@@ -1306,6 +1362,10 @@ another decision.
   review and the response remain separately readable below.
 - 2026-11-09: AI re-review by Opus 5.5 of the revision at `a6a21302`, recorded below;
   Part I unchanged.
+- 2026-11-09: Responded to A1–A6 without reopening the maintainer's decisions.
+  Clarified checkpoint representation and export reuse, made every native port's
+  CUDA/HIP disposition explicit, corrected the SEP 46 and frequent-event evidence,
+  completed structural counters and indexed the phased-merge exception in SEP 0.
 
 ### AI review — 2026-11-09 — Opus 5.5
 
@@ -1928,3 +1988,69 @@ acceptance after the human review that SEP 0 still requires.
    in `decisions.md`, so that readers of the process find it. Also say how the
    **Implementation** field names the successive `feature/sep-0047-<milestone>`
    branches and their PRs.
+
+### Response to re-review — 2026-11-09 — GPT-6
+
+Checked A1–A6 against main at `eee57c65`, including `TerminalCheckpoint`, the HDF5
+checkpoint writer/reader, field resume, native admission/host-engine selection,
+backends.md §9, SEP 46's phase 6 report and the frequent-event benchmark ledger.
+The re-review at `622a3957` is preserved unchanged above. It accepts the R1–R17
+responses and requests these clarifications before human review; this drafting
+response does not set acceptance or claim new numerical/device qualification.
+
+1. **A1 — Accepted.** §§5.4–5.5 now retain the existing field-checkpoint representation
+   explicitly: output amplitudes in the internal FFT convention at the Python record
+   boundary, stored through the same optics conversion as regular saved fields.
+   Field resume keeps today's rounding-level inverse of the modal weights. Running
+   checkpoints reuse the existing record/datasets and optional restart metadata;
+   no raw-state field-checkpoint dataset is introduced. A landed checkpoint and
+   coincident plane share one exported field and conversion, including on failure;
+   a dense plane at another position needs its own payload. The existing optional
+   Adams `MarchSnapshot` remains a separate raw-state/history record under its current
+   policy. §7.1 now names non-unit weights, old files, running records and shared-export
+   witnesses. This removes the ambiguity in my original R11 response without promising
+   lossless inversion or changing the file format.
+
+2. **A2 — Accepted; preserve production device capabilities.** Every §6.3 row now
+   specifies its CUDA/HIP disposition, and low-storage replay has its own row. Coupled
+   cases off the eigenbasis or above 16 channels, existing groups and low-storage
+   execution are session ports, with actual CUDA and HIP qualification required by
+   phase 5. CUDA low-storage is currently admitted but not qualified; the table says
+   so and requires evidence rather than silently treating compilation as qualification.
+   Existing carrier-frame, non-device-ready z-table, CF4 and coupled-group refusals
+   remain; custom controllers and comparison methods receive the already-agreed native
+   refusal on CPU and devices alike. No additional production capability is dropped.
+   §§7.1 and 11 make these tests a Final gate, with temporary internal adapters permitted
+   only during the agreed transition. A missing device port cannot silently become a
+   new refusal.
+
+3. **A3 — Accepted.** The #582 and #361/#349 rows in §§3.2–3.3 now say that SEP 46
+   retained no calibrated device setting and landed no new chunk default. It measured
+   a 6–25% H200 spatial gain and left the qualified default change to #361. That work
+   may land first on the current seam; §§6.5 and 11 require phase 3 to move the rule
+   into lowering without changing its qualified default, while retaining explicit
+   budgets and safe process/device initialization. #349 is not claimed complete.
+
+4. **A4 — Accepted.** §3.2 now attributes the 290/75-microsecond period-1 figures to
+   the row itself, as the ledger does. The intended optimization is resident rows,
+   shared work and bulk transfer, not saving that whole time by eliminating a return.
+   Added the `step_planes=1` proxy: M5 39.5 → 15.2 microseconds per trial and EPYC
+   approximately 58 microseconds per native step. These measure the forced observation
+   path, not snapshot persistence or file copies; phase 1 must distinguish the two.
+   The earlier blanket statement that there was no relevant snapshot evidence is
+   narrowed accordingly. These are read historical measurements, not new timings.
+
+5. **A5 — Accepted.** §7.3's zero-return causes now include transverse-edge reads,
+   scheduled steps of native fixed-schedule groups, and snapshots enabled without a
+   pending request, beside periodic statistics, collar checks and low-storage steps.
+   Required service, actual snapshots, warnings and bounded returns remain counted
+   separately, so the structural requirement does not pretend that I/O is free.
+
+6. **A6 — Accepted.** Added the approved SEP 47 exception to SEP 0's History, linking
+   §11 and preserving the general process rule. §11 now requires the Implementation
+   header to retain every successive milestone branch and linked PR in delivery order,
+   with commits and verification in Part II. It remains `—` while this is a Draft;
+   no implementation PR or formal acceptance is invented.
+
+All six points are addressed within the existing decisions. The proposal remains
+Draft / In review pending the human review and acceptance required by SEP 0.
