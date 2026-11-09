@@ -68,8 +68,12 @@ def pin(cpus: Sequence[int]) -> None:
         import ctypes  # noqa: PLC0415 - Windows only
 
         mask = sum(1 << cpu for cpu in cpus if cpu < 64)
-        kernel = ctypes.windll.kernel32
-        kernel.SetProcessAffinityMask(kernel.GetCurrentProcess(), ctypes.c_size_t(mask))
+        # A private handle on the DLL, so that declaring the types touches no one
+        # else's; a HANDLE and a DWORD_PTR are pointer wide.
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel.SetProcessAffinityMask.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+        kernel.SetProcessAffinityMask(kernel.GetCurrentProcess(), mask)
 
 
 _PLANS_PER_PROBLEM = 4

@@ -90,8 +90,40 @@ def test_every_calibration_problem_builds() -> None:
 
 
 def test_pinning_sets_the_affinity_mask() -> None:
+    if sys.platform == "win32":  # pragma: no cover - Windows
+        import ctypes  # noqa: PLC0415 - Windows only
+
+        kernel = ctypes.WinDLL("kernel32")
+        kernel.GetCurrentProcess.restype = ctypes.c_void_p
+        kernel.GetProcessAffinityMask.argtypes = (
+            ctypes.c_void_p,
+            ctypes.POINTER(ctypes.c_size_t),
+            ctypes.POINTER(ctypes.c_size_t),
+        )
+        kernel.SetProcessAffinityMask.argtypes = (ctypes.c_void_p, ctypes.c_size_t)
+        process = kernel.GetCurrentProcess()
+
+        def mask() -> int:
+            own, system = ctypes.c_size_t(), ctypes.c_size_t()
+            assert kernel.GetProcessAffinityMask(
+                process, ctypes.byref(own), ctypes.byref(system)
+            )
+            return own.value
+
+        held = mask()
+        try:
+            first = (held & -held).bit_length() - 1
+            child.pin([first])
+            assert mask() == 1 << first
+            child.pin([])
+            assert mask() == 1 << first
+        finally:
+            kernel.SetProcessAffinityMask(process, held)
+        return
     if not hasattr(os, "sched_getaffinity"):
-        pytest.skip("no affinity masks on this platform")
+        # macOS has no affinity masks: pinning leaves the process as it is.
+        child.pin([0])
+        return
     before = os.sched_getaffinity(0)
     try:
         first = min(before)

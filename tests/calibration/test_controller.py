@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
 from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
@@ -144,7 +145,10 @@ def scripted(
     monkeypatch.setattr(controller, "nested", lambda topology, cpus: [])
     # Sixteen CPUs whatever the runner has, so eight and four of them are classes apart.
     machine = _native.topology._flat(tuple(range(16)), "test")  # pyright: ignore[reportPrivateUsage]
-    monkeypatch.setattr(_native.topology, "read_topology", lambda *a, **k: machine)
+    # The profile module binds its own name at import: patch both, so that one
+    # imported here first is not left reading the fake machine after the test.
+    for module in (_native.topology, _native.profile):
+        monkeypatch.setattr(module, "read_topology", lambda *a, **k: machine)
     environ = {"SOLPROP_CACHE_DIR": str(tmp_path / "store"), "PATH": ""}
     return Script, environ
 
@@ -379,8 +383,11 @@ def test_a_busy_host_or_a_short_budget_is_inconclusive(
     assert report.status == "inconclusive"
     assert "other tasks running" in report.reason
     monkeypatch.setattr(controller, "_telemetry", lambda path=None: None)
-    # The whole budget is the reserve: no round fits.
-    short = calibrate("quick", 1e-3, environ=environ, cpus=range(8))
+    # The whole budget is the reserve: no round fits, however fast the scripted
+    # children start.
+    whole = dataclasses.replace(controller.LEVELS["quick"], reserve=1.0)
+    monkeypatch.setitem(controller.LEVELS, "quick", whole)
+    short = calibrate("quick", environ=environ, cpus=range(8))
     assert short.status == "inconclusive"
     assert short.reason == "too few rounds within the budget"
 
