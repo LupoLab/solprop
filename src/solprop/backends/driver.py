@@ -267,6 +267,36 @@ class _StepStatsBuffer:
         }
 
 
+def _split_crossing_message(z: float, cap: float, step: float) -> str:
+    """Return the message of a fixed schedule refused by the split collar's cap.
+
+    One text for the driver's refusal (``StepDriver._refuse_scheduled_crossing``) and
+    a backend whose session holds the cap natively (SEP 47 section 6.4).
+
+    Parameters
+    ----------
+    z : float
+        Where the cap was read, m.
+    cap : float
+        The split temporal collar's crossing limit, m.
+    step : float
+        The schedule's longest step before the next check, m.
+
+    Returns
+    -------
+    str
+        The message.
+    """
+    return (
+        f"at z = {z:.6e} m the split temporal collar's crossing limit "
+        f"fell to {cap:.3e} m, below the fixed schedule's step {step:.3e} m "
+        "before the next check: light has spread into bins that walk faster "
+        "than the launch's, and a step that long could carry it through the "
+        "collar and round the window undamped. Take shorter steps, step "
+        'adaptively, or use absorber_scheme="nonlinear"'
+    )
+
+
 class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is private
     """The interaction-picture step loop, with the stage evaluation left to a subclass.
 
@@ -2345,15 +2375,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         step = float(np.max(ahead))
         cap = monitor.step_cap
         if step > cap:
-            msg = (
-                f"at z = {position:.6e} m the split temporal collar's crossing limit "
-                f"fell to {cap:.3e} m, below the fixed schedule's step {step:.3e} m "
-                "before the next check: light has spread into bins that walk faster "
-                "than the launch's, and a step that long could carry it through the "
-                "collar and round the window undamped. Take shorter steps, step "
-                'adaptively, or use absorber_scheme="nonlinear"'
-            )
-            raise BoundaryError(msg)
+            raise BoundaryError(_split_crossing_message(position, cap, step))
 
     def _set_collar_quiet(self, quiet: bool) -> None:
         """Say whether the collar is quiet.

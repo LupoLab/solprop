@@ -26,7 +26,11 @@ every other feature by name before allocating anything (:func:`refusal`):
   fallback;
 - plane and periodic statistics that the native ``statistics`` entry computes
   completely today, with a power weight constant in z;
-- no boundary monitor, dense output, low-storage replay, comparison method, custom
+- the temporal boundary monitor, which the native session owns (SEP 47 section 6.4):
+  its every decision and record are native, a warning is a
+  :class:`~solprop.backends.events.ServiceRequired` barrier and a stop a terminal
+  failure, and a monitored resume continues the record natively;
+- no transverse edge, dense output, low-storage replay, comparison method, custom
   controller, group, noise model, TDSE, resumed run or method-history snapshot.
 """
 
@@ -64,12 +68,15 @@ from solprop.backends.session import (
 )
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, GridError, StopRequested
+from solprop.monitor import (
+    _log_finish,  # pyright: ignore[reportPrivateUsage] - one log line
+)
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.linop import power_weight_at
 
-from . import _core
+from . import _core, _watch
 from .backend import (
     _SPATIAL_STAT_FLAGS,  # pyright: ignore[reportPrivateUsage]
     _STAT_FLAGS,  # pyright: ignore[reportPrivateUsage]
@@ -88,6 +95,7 @@ if TYPE_CHECKING:
     from solprop.grid import TimeGrid
     from solprop.log import StopFlag
     from solprop.modes.protocol import Mode
+    from solprop.monitor import BoundaryMonitor
     from solprop.output.schema import MarchSnapshot
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
@@ -144,7 +152,7 @@ _STATES = (
     SessionState.CLOSED,
 )
 _OUTCOMES = (None, Outcome.COMPLETED, Outcome.STOPPED, Outcome.FAILED)
-_OBSERVATION, _PROGRESS, _SNAPSHOT, _TERMINAL = range(4)
+_OBSERVATION, _PROGRESS, _SNAPSHOT, _TERMINAL, _WARNING = range(5)
 _OVERRIDES = (
     "scale",
     "accepts",
@@ -200,8 +208,9 @@ def refusal(
         return "a controller with its own " + ", ".join(overridden)
     if request.observation.dense:
         return "dense output (interpolated save planes)"
-    if request.boundary.monitor is not None:
-        return "a boundary monitor"
+    monitor = request.boundary.monitor
+    if monitor is not None and monitor.transverse is not None:
+        return "a boundary monitor's transverse edge"
     if problem.initial.noise_model != "none":
         return f"the {problem.initial.noise_model!r} noise model"
     if problem.tdse is not None:
@@ -211,8 +220,6 @@ def refusal(
             return "a method-history resume (MarchSnapshot)"
         if start.ledgers is not None:
             return "restored call ledgers"
-        if start.monitor is not None:
-            return "a resumed boundary monitor"
         if start.resume:
             return "a resumed run"
         if start.noise is not None:
@@ -354,6 +361,8 @@ class NativeSession:
             raise BackendError(msg)
         self._problem = problem
         self._request = request
+        self._monitor: BoundaryMonitor | None = request.boundary.monitor
+        self._finish_logged = False
         self._id = next(_SESSION_IDS)
         self._listener = listener
         self._stop = stop
@@ -429,6 +438,17 @@ class NativeSession:
             raise BackendError(msg)
         assert march is not None
         march._configure()
+        monitor = self._monitor
+        if monitor is not None:
+            # The monitor's weights where the state lives, read at every check, and the
+            # split collar's walk-off buckets (`attach_monitor`); the monitor stays
+            # solprop's and fresh: the session owns its state natively.
+            driver._bind_monitor(
+                dataclasses.replace(
+                    monitor,
+                    crossing=self._problem.split_crossing if monitor.split else None,
+                )
+            )
         kind = "adams" if isinstance(integrator, Multistep) else "runge_kutta"
         return kind, march._state(False)
 
@@ -487,7 +507,47 @@ class NativeSession:
             "replay_length": 0.0 if schedule is None else float(schedule.total_length),
             "call_attempts": CALL_ATTEMPTS,
             "call_seconds": CALL_SECONDS,
+            "monitor": self._monitor_plan(start),
         }
+
+    def _monitor_plan(self, start: Start) -> dict[str, object] | None:
+        """Return the native monitor's configuration and any record it continues.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the run starts, with a monitored resume's continuation.
+
+        Returns
+        -------
+        dict or None
+            The monitor's plan, or ``None`` without a monitor.
+        """
+        monitor = self._monitor
+        if monitor is None:
+            return None
+        backend = self._driver(self._backend)
+        plan: dict[str, object] = {
+            "config": _watch.monitor_config(
+                monitor,
+                self._problem.split_crossing if monitor.split else None,
+                can_rest=bool(backend._collar_can_rest()),
+            ),
+            "resume": start.monitor is not None,
+        }
+        continuation = start.monitor
+        if continuation is not None:
+            record = continuation.get("record")
+            plan["record"] = _watch.resumption(
+                cast("Mapping[str, object]", record)
+                if isinstance(record, Mapping)
+                else None
+            )
+            plan["plane"] = bool(continuation.get("plane", False))
+            plan["unwatched"] = _watch.unwatched_of(
+                cast("Sequence[tuple[float, float]]", continuation.get("unwatched", ()))
+            )
+        return plan
 
     # -- protocol -------------------------------------------------------------------
 
@@ -779,14 +839,21 @@ class NativeSession:
         return record
 
     def monitor_record(self) -> Mapping[str, object] | None:
-        """Return ``None``: the prototype refuses a boundary monitor.
+        """Return the boundary monitor's record, which the native session keeps.
 
         Returns
         -------
-        None
-            No monitor.
+        collections.abc.Mapping or None
+            The record as :meth:`solprop.monitor.BoundaryMonitor.summary` lays it out,
+            or ``None`` without a monitor.
         """
-        return None
+        monitor = self._monitor
+        if monitor is None:
+            return None
+        native = self._native.monitor_record()
+        if native is None:
+            return None
+        return _watch.record_of(monitor.check, native)
 
     def close(self) -> None:
         """Release the native session and its backend; idempotent."""
@@ -1118,10 +1185,29 @@ class NativeSession:
                 history=history,
                 step_stats=held_rows,
             )
+        if event.kind == _WARNING:
+            # A boundary warning (SEP 47 section 5.5): the caller emits it, and its
+            # filters may raise it; the committed field and the attempts since the
+            # last observation are there for that failure's checkpoint.
+            assert self._monitor is not None
+            notice = event.notice
+            if notice["kind"] == _watch.NOTICE_KINDS.index("removal"):
+                self._log_finish()
+            message, category = _watch.notice_warning(self._monitor.check, notice)
+            return ServiceRequired(
+                kind=ServiceKind.WARNING,
+                z=event.z,
+                message=message,
+                category=category,
+                ticket=ticket,
+                history=history,
+                step_stats=held_rows,
+            )
         outcome = _OUTCOMES[event.outcome]
         assert outcome is not None
         self._held, self._held_rows = [], []
         if outcome is Outcome.COMPLETED:
+            self._log_finish()
             return Terminal(Outcome.COMPLETED, event.z, Eligibility.ELIGIBLE)
         return Terminal(
             outcome,
@@ -1132,6 +1218,19 @@ class NativeSession:
             history,
             held_rows,
         )
+
+    def _log_finish(self) -> None:
+        """Log the monitor's removal and guard peaks once, at the end (D5)."""
+        if self._finish_logged or self._monitor is None:
+            return
+        self._finish_logged = True
+        record = self._native.monitor_record()
+        if record is not None:
+            _log_finish(
+                float(record["removed_fraction"]),
+                float(record["guard_low_max"]),
+                float(record["guard_high_max"]),
+            )
 
     def _error(self, event: _core.SessionEvent, outcome: Outcome) -> BaseException:
         """Return the exception a stopped or failed session reports.
@@ -1153,6 +1252,9 @@ class NativeSession:
         """
         if outcome is Outcome.STOPPED:
             return StopRequested(self._stop)
+        notice = event.notice
+        if notice["kind"] != 0 and self._monitor is not None:
+            return _watch.notice_error(self._monitor.check, notice)
         if event.schedule_exhausted:
             schedule = self._problem.stepper.schedule
             end = math.nan if schedule is None else float(schedule.z_end)

@@ -23,6 +23,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
+import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -447,7 +448,18 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     if event.kind is not ObservationKind.LAUNCH:
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
-                    if event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
+                    if event.kind is ServiceKind.WARNING:
+                        # A warning barrier (SEP 47 section 5.5): the filters may
+                        # raise it, which fails the run at this committed endpoint,
+                        # its field and attempts there for the checkpoint.
+                        pending_ticket = event.ticket
+                        terminal_rows = (event.history, event.step_stats)
+                        warnings.warn(
+                            event.message,
+                            event.category or UserWarning,
+                            stacklevel=2,
+                        )
+                    elif event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
                         assert isinstance(output, HDF5Output)
                         _service_snapshot(
                             event,

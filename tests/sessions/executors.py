@@ -19,8 +19,8 @@ the same tests.
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
 - ``native-session`` is the native execution session itself
   (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
-  native backend owns the run. It lacks the capabilities its prototype refuses (a
-  boundary monitor), and the tests that need one skip it by name.
+  native backend owns the run, its boundary monitor included, whose decisions and
+  record are native (:attr:`Executor.native_monitor`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
@@ -42,6 +42,8 @@ from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
     ObservationReady,
+    ServiceKind,
+    ServiceRequired,
     Terminal,
 )
 from solprop.backends.export import ExportRecipe
@@ -427,6 +429,11 @@ class Executor:
     capabilities : frozenset of str
         What it can be asked to run beyond the soliton (:data:`CAPABILITIES`); a test
         that needs another skips it explicitly (:meth:`require`).
+    native_monitor : bool
+        Whether the session owns its boundary monitor's state natively, so that the
+        request's solprop monitor stays fresh and the session's
+        :meth:`~solprop.backends.session.RunSession.monitor_record` alone shows what
+        it did (SEP 47 section 6.4).
     """
 
     name: str
@@ -434,6 +441,7 @@ class Executor:
     requires: str | None = None
     scripted: bool = False
     capabilities: frozenset[str] = CAPABILITIES
+    native_monitor: bool = False
 
     def require(self, capability: str) -> None:
         """Skip the calling test when this executor lacks a capability.
@@ -480,7 +488,7 @@ EXECUTORS: dict[str, Executor] = {
         "native-session",
         _native_session,
         requires="solprop_native",
-        capabilities=frozenset(),
+        native_monitor=True,
     ),
 }
 """Every executor of the suite, by name."""
@@ -618,6 +626,11 @@ def drive(
     while not session.finished:
         batch = session.advance(work_limit=work_limit, deadline=deadline)
         batches.append(batch)
+        for event in batch.events:
+            if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
+                # A warning barrier: emitted as a service loop emits it (SEP 47 5.5).
+                assert event.category is not None
+                warnings.warn(event.message, event.category, stacklevel=2)
         if export is not None:
             fields.extend(
                 np.array(session.export(event.ticket, export))
