@@ -479,9 +479,12 @@ def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
 
     monkeypatch.setattr(NumpyRefBackend, "observe", observe)
     stored(simulation.run(progress="none"))
-    # Each plane is observed field-free; the field crosses only for the two planes
-    # that keep it (SEP 47 section 5.4: an export only on request).
-    assert asked == [False, True, False, False, False, False, True]
+    # Every event drains its attempts field-free (a yield's and the terminal event's
+    # too, SEP 47 section 5.3); the field crosses only for the two planes that keep it
+    # (section 5.4: an export only on request), the entrance first.
+    assert asked.count(True) == 2
+    assert asked[:2] == [False, True]
+    assert asked.index(True, 2) > asked.index(False, 2)
 
 
 def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
