@@ -2168,8 +2168,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-076 — Runs keep the FFTW plans they measure, by transform, by default
 
-- **Status:** proposed with the pull request stacked on PR #598 (issue #136), for the
-  maintainer.
+- **Status:** proposed with PR #602 (issue #136), for the maintainer.
 - **Context:** measured plans for threaded rows win in the step (0.94–0.97, ADR-075), but
   planning them costs up to 12 s of a run's construction (`ctc` on 16 cores of an AMD EPYC
   7763: 13.8 s against 1.6 s), so the policy left them at estimate. Wisdom outlived the
@@ -2209,14 +2208,21 @@ Withdrawn (development-process record, not a design decision).
     others stored. A name that cannot be used (an empty file name, an unknown user's
     home, no home at all) and a file that cannot be read or written log a warning and the
     run plans without stored plans (#136).
-- **Consequences:** under `SOLPROP_FFTW_PLAN=measure` on an Intel Xeon Gold 6240 (18 and
-  36 threads, five interleaved rounds), constructing the backend took 23.2 s cold and
-  0.12 s with the stored plans for `ctc`, 6.7 s and 0.10 s for `rdw`, 4.9 s and 0.07 s
-  for `h2_raman_averaged` and 3.5 s and 0.6 s for `grin_nonlinear`; the windows with the
-  stored plans ran 1.015 of those with plans each run measured in place on geometric
-  mean, every case's range spanning 1 (`h2_raman_averaged` 1.011 and 1.024, ranges
-  0.96–1.05 and 0.98–1.04). Fields agree to rounding. The store holds about 9 kB a case
-  (36 kB for those four at two widths) and grows with the shapes a user runs; nothing
-  evicts a plan, and `--clear` empties it. Plans kept by the earlier opt-in file are not
-  read. Measured threaded rows stay off by default: a plan measured once now costs
-  nothing after, which leaves the policy's threaded-rows effort for the maintainer.
+- **Consequences:** under `SOLPROP_FFTW_PLAN=measure` on 16 cores (one NUMA domain) of an
+  AMD EPYC 7763, five interleaved rounds against PR #598, a cold run plans as before
+  (`ctc` 13.7 s, `h2_raman_averaged` 5.1 s, `grin_nonlinear` 3.6 s, `rdw` 1.8 s, both
+  builds) and a warm one builds its backend in 0.18, 0.13, 0.36 and 0.16 s; on an Intel
+  Xeon Gold 6240 at 18 and 36 threads `ctc` took 23 s cold and 0.12 s warm. Windows with
+  the stored plans ran as those with plans measured in place: `h2_raman_averaged` 0.99–1.02
+  across four comparisons on the EPYC (same build and against #598, two independent
+  stored measurements), no slower than plans measured in place; `ctc` 1.003–1.017, its
+  range spanning 1 with a second stored measurement, so the plan a single measurement
+  picks; `rdw` 1.00; the Xeon's geometric mean 1.015, every range spanning 1. Fields agree
+  to rounding. A first attempt that planned each transform from nothing measured a key
+  seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon against 1.4 s);
+  a transform to measure now starts from the workspace's own measurements. The store
+  holds about 20 kB a case at one width (80 kB for four cases on the EPYC) and grows with
+  the shapes a user runs; nothing evicts a plan, and `--clear` empties it. Plans kept by
+  the earlier opt-in file are not read. Measured threaded rows stay off by default: a
+  plan measured once now costs nothing after, which leaves the policy's threaded-rows
+  effort for the maintainer.
