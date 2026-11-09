@@ -773,6 +773,7 @@ MODULES = {
             (
                 "command",
                 "controller",
+                "first_use",
                 "child",
                 "grain",
                 "problems",

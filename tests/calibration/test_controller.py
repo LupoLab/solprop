@@ -132,7 +132,7 @@ class _Scripted(controller._Child):  # pyright: ignore[reportPrivateUsage]
 def scripted(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> tuple[type[_Scripted], dict[str, str]]:
-    """Scripted children on an eight-core allocation with an empty store."""
+    """Scripted children on a sixteen-CPU machine with an empty store."""
 
     class Script(_Scripted):
         started: ClassVar[list[str]] = []
@@ -142,6 +142,9 @@ def scripted(
     monkeypatch.setattr(controller, "_native_budget", lambda cpus: 8)
     monkeypatch.setattr(controller._process, "top_tier_cores", lambda: None)  # pyright: ignore[reportPrivateUsage]
     monkeypatch.setattr(controller, "nested", lambda topology, cpus: [])
+    # Sixteen CPUs whatever the runner has, so eight and four of them are classes apart.
+    machine = _native.topology._flat(tuple(range(16)), "test")  # pyright: ignore[reportPrivateUsage]
+    monkeypatch.setattr(_native.topology, "read_topology", lambda *a, **k: machine)
     environ = {"SOLPROP_CACHE_DIR": str(tmp_path / "store"), "PATH": ""}
     return Script, environ
 
