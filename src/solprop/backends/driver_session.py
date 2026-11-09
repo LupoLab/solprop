@@ -371,6 +371,11 @@ class DriverSession:
         self._rejected = 0
         self._stepped = False
         self._summary: StepSummary | None = None
+        # Attempts counted from summaries since the driver was last drained, and
+        # those of the drain just made; where the next progress report starts.
+        self._counted = (0, 0)
+        self._drained = (0, 0)
+        self._progress_mark = 0
         self._held: Observation | None = None
         self._snapshot_requests = 0
         self._snapshot_pending: int | None = None
@@ -523,7 +528,7 @@ class DriverSession:
             else:
                 # A bounded yield: no barrier, only progress; the plane goes on later.
                 _hook(self._driver, "clear_halt")
-                return self._issue([Progress(self._z, _EMPTY_HISTORY)])
+                return self._issue([self._progress()])
         self._summary = None
         return self._observation(
             ObservationKind.STEP
@@ -715,7 +720,7 @@ class DriverSession:
         """
         self._ledger.check_ticket(ticket)
         if self._driver.in_flight is None:
-            self._held = _joined(self._held, self._driver.observe(field=False))
+            self._held = _joined(self._held, self._drain(field=False))
         held = self._held
         if held is None:
             return None, None
@@ -871,7 +876,54 @@ class DriverSession:
         self._z = float(summary.z)
         self._attempts += summary.n_steps
         self._rejected += summary.n_rejected
+        self._counted = (
+            self._counted[0] + summary.n_steps,
+            self._counted[1] + summary.n_rejected,
+        )
         self._generation += 1
+
+    def _drain(self, *, field: bool) -> Observation:
+        """Observe the driver, draining its attempts and rows since the last drain.
+
+        Parameters
+        ----------
+        field : bool
+            Whether the field crosses too.
+
+        Returns
+        -------
+        solprop.backends.protocol.Observation
+            The observation.
+        """
+        observed = self._driver.observe(field=field)
+        self._drained = self._counted
+        self._counted = (0, 0)
+        self._progress_mark = 0
+        return observed
+
+    def _progress(self) -> Progress:
+        """Report the attempts made since the previous event without draining them.
+
+        Returns
+        -------
+        solprop.backends.events.Progress
+            The progress, its attempts read from the step driver's record; the next
+            observation still carries them.
+        """
+        entries = list(getattr(self._driver, "_history", ()))[self._progress_mark :]
+        self._progress_mark += len(entries)
+        if not entries:
+            return Progress(self._z, _EMPTY_HISTORY)
+        return Progress(
+            self._z,
+            BackendHistory(
+                z=np.array([entry[0] for entry in entries], dtype=np.float64),
+                dz=np.array([entry[1] for entry in entries], dtype=np.float64),
+                error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
+                accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
+                wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
+            ),
+        )
 
     def _summary_so_far(self, step: StepSummary) -> StepSummary:
         """Merge a propagation's summary with the yields before it on the same plane.
@@ -1006,7 +1058,7 @@ class DriverSession:
         solprop.backends.events.EventBatch
             One observation.
         """
-        observed = _joined(self._held, self._driver.observe(field=False))
+        observed = _joined(self._held, self._drain(field=False))
         self._held = None
         self._observed = None
         try:
@@ -1042,7 +1094,7 @@ class DriverSession:
         solprop.backends.events.EventBatch
             The progress, if any, and the snapshot request.
         """
-        drained = self._driver.observe(field=False)
+        drained = self._drain(field=False)
         self._held = _joined(self._held, drained)
         _hook(self._driver, "clear_halt")
         self._snapshot_pending = None
@@ -1099,12 +1151,12 @@ class DriverSession:
         # no summary of it was returned. A state left in flight cannot be observed, but
         # the attempts recorded before the abandoned step were made all the same.
         fresh = (
-            _recorded(self._driver, self._z)
-            if poisoned
-            else self._driver.observe(field=False)
+            _recorded(self._driver, self._z) if poisoned else self._drain(field=False)
         )
-        self._attempts += fresh.n_steps
-        self._rejected += fresh.n_rejected
+        # Only what no summary counted: a yield's propagations were counted already.
+        counted = self._drained if not poisoned else self._counted
+        self._attempts += max(fresh.n_steps - counted[0], 0)
+        self._rejected += max(fresh.n_rejected - counted[1], 0)
         held = _joined(self._held, fresh)
         self._held = None
         self._generation += 1
@@ -1134,7 +1186,7 @@ class DriverSession:
             The driver's observation with its field.
         """
         if self._observed is None or self._observed_generation != ticket.generation:
-            observed = self._driver.observe(field=True)
+            observed = self._drain(field=True)
             if observed.n_steps and self._held is None:
                 # Attempts drained by a field fetch belong to the next observation.
                 self._held = observed
