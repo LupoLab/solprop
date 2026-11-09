@@ -279,7 +279,8 @@ on Metal, so it is CUDA's only.
 
 On the A40, in binary64, native against Julia went from 1.80 in the morning to 1.15 at
 `51a153de` (binary32 df32 from 1.56 to 0.79: Julia faster in five of seven cases), and
-the H200 at `67491bf9` is 1.69 (2.39 before). In order of what each change bought on the A40 (the ledger has every row):
+the H200 at `67491bf9` is 1.69 (2.39 before), and an AMD MI300X at `1b17fc75` 1.28 (the
+MI325X's was 2.48), without graphs, which are CUDA's only so far. In order of what each change bought on the A40 (the ledger has every row):
 - **Kernel bodies inlined** (`@inline f(t, m)` in the GPU kernel): left to the
   inliner, a body was a device call per sample with its arguments in local memory,
   9 times slower in binary64 and 20 in binary32. 0.70 / 0.62 over the seven cases.
@@ -312,10 +313,15 @@ Roughly in order of what they would tell.
    Julia's host time about a fifth); the statistics' readbacks are fixed (observe 4.7
    of 195 ms). What is left is the source: fusing `source_free!`'s and the DOPRI
    stage's elementwise passes would save perhaps 5 ms.
-2. **The GPU host, continued.** An order-independent Adams trial (the order and the
-   defect rows read from the device, loops to the largest), so that one graph serves
-   a run; the predictor's and corrector's passes fused as native's are; the plane
-   statistics' readbacks folded. Then the H200 and an MI325X again.
+2. **The GPU host, continued.** Nsight per-step timelines against native
+   (`scripts/step_timeline.py` on DMOG) show the device's work equal on
+   `argon_blueshift` and Julia's step idle 164 us against native's 88 (A40, binary64).
+   Tried and reverted, each with its numbers in the ledger: a whole-trial graph (an
+   order-dependent key), an order-independent one (phi functions to the largest width
+   cost more), fused device reductions (`ctc_reduced` 10 to 20 % slower in binary32).
+   What is left to try: a plane's observations in one Julia call (each call now waits
+   on the device separately, about 0.5 ms of idle a plane beyond native's), and graphs
+   on ROCm (AMDGPU.jl's stream capture, untried; the MI300X runs without them).
 3. **The A40's remaining kernels:** the Adams predictor (0.1 to 0.28 ms a trial, its
    phi functions spilling, latency-bound on a mode-averaged state's few thousand
    elements) and radial's CUTLASS binary64 GEMMs (the A40 has no binary64 tensor

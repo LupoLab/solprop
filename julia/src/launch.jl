@@ -238,74 +238,22 @@ function reduce_each(f::F, op::O, neutral, c, nt::Integer, nm::Integer; heavy=fa
         return foldl(op, partials; init=neutral)
     end
     tally!(:readback)
-    out = scratch(c, :reduce_out, typeof(neutral), 1)
-    fused_reduce!(f, op, out, neutral, c, nt, nm)
-    @inbounds Array(out)[1]
-end
-
-"""Fold `op` over `f(t, m)` at every sample into the device's `out[1]`, from `neutral`:
-each element formed inside the reduction's first pass (one a thread up to 262144, then
-strided), each block reduced in local memory, the blocks' partials reduced by one more
-block. Nothing comes back to the host and nothing is allocated. Native's reductions are
-shaped so; Julia's were an elementwise pass into scratch, then AK's reduction, which
-finished its last stage on the host: about 50 us of an idle device a step on an A40
-(Nsight, `scripts/step_timeline.py`). The order is the tree's (SEP 25 bounds it)."""
-function fused_reduce!(f::F, op::O, out, neutral, c, nt::Integer, nm::Integer) where {F,O}
-    CHECK[] && check_body(F)
-    n = Int(nt) * Int(nm)
-    blocks = clamp(cld(n, REDUCE_BLOCK), 1, REDUCE_PARTIALS)
-    partials = scratch(c, :reduce_partials, typeof(neutral), REDUCE_PARTIALS)
-    tally!(:launch, 2)
-    reduce_body!(c.backend, REDUCE_BLOCK)(partials, f, op, neutral, Int(nt), n; ndrange=blocks * REDUCE_BLOCK)
-    reduce_partials!(c.backend, REDUCE_BLOCK)(out, partials, op, neutral, blocks; ndrange=REDUCE_BLOCK)
-    out
-end
-const REDUCE_BLOCK = 256
-const REDUCE_PARTIALS = 1024
-KA.@kernel inbounds = true function reduce_body!(partials, f, op, neutral, nt, n)
-    local_index = KA.@index(Local, Linear)
-    group = KA.@index(Group, Linear)
-    groups = KA.@ndrange()[1] ÷ REDUCE_BLOCK
-    shared = KA.@localmem eltype(partials) (REDUCE_BLOCK,)
-    value = neutral
-    i = (group - 1) * REDUCE_BLOCK + local_index
-    while i <= n
-        m = (i - 1) ÷ nt + 1
-        value = op(value, @inline f(i - (m - 1) * nt, m))
-        i += groups * REDUCE_BLOCK
+    # The bodies run as an elementwise kernel into scratch, inlined (`each_kernel!`), and
+    # only the values reduce: inside AK's reduction the body was a device call per
+    # element, and a heavy one got several elements a thread (six blocks for rdw's
+    # 10244, its predictor 539 us a trial on an A40).
+    scratch = SolpropJulia.scratch(c, heavy ? :heavy : :reduce, typeof(neutral), nt * nm)
+    each!(c, nt, nm) do t, m
+        @inbounds scratch[t+(m-1)*nt] = @inline f(t, m)
     end
-    shared[local_index] = value
-    KA.@synchronize
-    width = REDUCE_BLOCK ÷ 2
-    while width > 0
-        if local_index <= width
-            shared[local_index] = op(shared[local_index], shared[local_index+width])
-        end
-        KA.@synchronize
-        width ÷= 2
+    # The reduction's own scratch, kept (AK's `workspace`): a new partials buffer a call
+    # was an allocation from the pool and its copies, dozens a step.
+    workspace = get!(c.scratch, (:reduce_workspace, typeof(op), typeof(neutral), nt * nm)) do
+        AK.workspace(AK.mapreduce, identity, op, scratch; backend=c.backend, init=neutral,
+                     neutral=neutral)
     end
-    local_index == 1 && (partials[group] = shared[1])
-end
-KA.@kernel inbounds = true function reduce_partials!(out, @Const(partials), op, neutral, count)
-    local_index = KA.@index(Local, Linear)
-    shared = KA.@localmem eltype(out) (REDUCE_BLOCK,)
-    value = neutral
-    i = local_index
-    while i <= count
-        value = op(value, partials[i])
-        i += REDUCE_BLOCK
-    end
-    shared[local_index] = value
-    KA.@synchronize
-    width = REDUCE_BLOCK ÷ 2
-    while width > 0
-        if local_index <= width
-            shared[local_index] = op(shared[local_index], shared[local_index+width])
-        end
-        KA.@synchronize
-        width ÷= 2
-    end
-    local_index == 1 && (out[1] = shared[1])
+    AK.mapreduce(identity, op, scratch; backend=c.backend, init=neutral, neutral=neutral,
+                 workspace=workspace)
 end
 
 """The sum of `f(t, m)` over every sample into `out[1]`, which the next kernel reads: on a
@@ -317,7 +265,13 @@ function sum_device!(f::F, out, c, nt::Integer, nm::Integer; heavy=false) where 
         @inbounds out[1] = reduce_each(f, +, zero(eltype(out)), c, nt, nm; heavy=heavy)
         return out
     end
-    fused_reduce!(f, +, out, zero(eltype(out)), c, nt, nm)
+    terms = SolpropJulia.scratch(c, :sum_terms, eltype(out), 1, nt * nm)
+    each!(c, nt, nm) do t, m
+        @inbounds terms[1, t+(m-1)*nt] = @inline f(t, m)
+    end
+    tally!(:launch)
+    sum!(reshape(out, 1, 1), terms)
+    out
 end
 
 # FFTW's planner measures every plan unless SOLPROP_FFTW_PLAN says otherwise. Unlike

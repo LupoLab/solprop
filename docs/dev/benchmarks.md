@@ -3401,3 +3401,34 @@ reduction's first pass, the blocks' partials by a second, the one value read bac
 0.96 (`rdw` 0.99, `argon_blueshift` 0.99, `ctc_reduced` 0.99, `h2_raman_6ps` 0.98,
 radial 1.05; `line` and `kerr_beam_192` noisy). In Nsight `argon_blueshift`'s step went
 from 539 to 509 us, its idle from 164 to 136 (native 88).
+
+**AMD Instinct MI300X** (DigitalOcean, atl1, a VF, ROCm 10.0 in the image, gfx942, 20
+host cores) at `1b17fc75`: native's HIP build (4 minutes) against `julia` on AMDGPU.jl,
+`--device`, 2 % windows; the Julia GPU tests passed there (33 selected). Julia on ROCm
+has the inlined bodies, the fused reductions and the direct copies, but not the graphs
+(CUDA's only so far).
+
+| case | native / s | julia / s | ratio | julia32 df32 / s | ratio |
+|---|---:|---:|---:|---:|---:|
+| `rdw` | 0.036 | 0.058 | 1.62 | 0.111 | 3.08 |
+| `argon_blueshift` | 0.063 | 0.106 | 1.68 | 0.101 | 1.56 |
+| `h2_raman_6ps` | 0.241 | 0.263 | 1.09 | 0.254 | 1.06 |
+| `ctc_reduced` | 0.068 | 0.063 | 0.92 | 0.083 | 1.20 |
+| `radial_filament_256` | 0.054 | 0.095 | 1.75 | 0.085 | 1.58 |
+| `kerr_beam_192` | 0.117 | 0.104 | 0.89 | 0.141 | 1.26 |
+| `line` | 0.062 | 0.080 | 1.30 | 0.080 | 1.29 |
+
+Geometric means 1.28 (binary64; the MI325X's was 2.48 at `a6722029`) and 1.48 (binary32
+df32, 2 rounds). On a card with binary64 at full rate the double-float wide type costs
+more than binary64 itself (`rdw` 0.111 s against 0.058), so binary32 with df32 belongs to
+cards without fast binary64 (an A40, an Apple GPU).
+
+**Fused device reductions, reverted.** Binary32 df32 against `e3b07264` (jl37, jl41):
+1.15 over the seven cases in jl37, and in a focused rerun `ctc_reduced` 1.11 (1.06–1.14),
+`argon_blueshift` 0.98, `h2_raman_6ps` 0.96. A hybrid (heavy bodies' values into scratch
+first, then the two-pass device reduction; light ones fused) measured binary64 1.01 and
+binary32 0.98, `ctc_reduced` still 1.20 in binary32 (jl42). The kernel timer, without
+graphs, shows no slower kernel on `ctc_reduced` (0.149 against 0.144 s), so the loss is in
+how the reductions sit beside the replayed graphs, not found. Neither version measures
+better over whole windows, so AK's reductions (with kept workspaces) stay; the per-trial
+host staging kept from `1b17fc75` is unchanged.
