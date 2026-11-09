@@ -362,7 +362,9 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
     `effort` with `FFTW_WISDOM_ONLY` (`plan`; NaN when the wisdom no longer builds
     it), and of the same transform at FFTW_ESTIMATE (`estimate`), each the median of
     five batches after a warm execution, on the key's threads and on arrays of its
-    alignment. FFTW's wisdom is forgotten before each plan and after. */
+    alignment, inside a native scope (`CpuTeamScope`) as a step's transforms run, so
+    that idle threads wait as they do there. FFTW's wisdom is forgotten before each
+    plan and after. */
 struct PlanAlone {
   double plan{}, estimate{};
 };
@@ -413,6 +415,9 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
   const auto input_offset = static_cast<std::size_t>(std::stoi(parts[6]));
   const auto output_offset = static_cast<std::size_t>(std::stoi(parts[7]));
   const int threads = std::stoi(parts[8].substr(1));
+  // The step's waiting policy and FFTW team: without the scope LLVM's runtime sleeps
+  // its idle threads at once (`KMP_BLOCKTIME=0`) and each loop pays their wake-up.
+  const CpuTeamScope scope(threads);
   const bool r2c = kind == "r2c", c2r = kind == "c2r";
   const bool planes = kind.starts_with("planes-");
   const int sign = kind.ends_with("backward") ? FFTW_BACKWARD : FFTW_FORWARD;
