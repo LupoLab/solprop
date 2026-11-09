@@ -279,8 +279,9 @@ on Metal, so it is CUDA's only.
 
 On the A40, in binary64, native against Julia went from 1.80 in the morning to 1.15 at
 `51a153de` (binary32 df32 from 1.56 to 0.79: Julia faster in five of seven cases), and
-the H200 at `67491bf9` is 1.69 (2.39 before), and an AMD MI300X at `1b17fc75` 1.28 (the
-MI325X's was 2.48), without graphs, which are CUDA's only so far. In order of what each change bought on the A40 (the ledger has every row):
+the H200 at `67491bf9` was 1.69 (2.39 before), an H100 at `6f686ea4` (with the graphs and
+the copy fix) is 1.25, and an AMD MI300X at `1b17fc75` 1.28 (the MI325X's was 2.48),
+without graphs, which are CUDA's only so far. In order of what each change bought on the A40 (the ledger has every row):
 - **Kernel bodies inlined** (`@inline f(t, m)` in the GPU kernel): left to the
   inliner, a body was a device call per sample with its arguments in local memory,
   9 times slower in binary64 and 20 in binary32. 0.70 / 0.62 over the seven cases.

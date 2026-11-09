@@ -3442,3 +3442,9 @@ weight's rebinding, the populations, the boundary energies), and the calls' own 
 copies and waits; CUDA.jl uploads each GEMM's two scalars separately (an allocation
 from the pool and an 8-byte copy each). One Julia call a plane, returning everything the
 plane's statistics need, is the change this points at.
+
+**NVIDIA H100** (DigitalOcean, tor1, CUDA 13.1, 20 host cores) at `6f686ea4` (source
+graphs, direct copies; native's build HOPPER90), binary64, 3 rounds: native against
+Julia 1.25 (`kerr_beam_192` 0.66, `ctc_reduced` 0.98, `h2_raman_6ps` 1.13,
+`argon_blueshift` 1.42, `rdw` 1.59, radial 1.60, `line` 1.77; fields within 4e-14). The
+H200 at `67491bf9`, before the graphs and the copy fix, was 1.69.
