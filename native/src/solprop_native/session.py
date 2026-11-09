@@ -363,6 +363,7 @@ class NativeSession:
         self._request = request
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
         self._finish_logged = False
+        self._sequence = 0
         self._id = next(_SESSION_IDS)
         self._listener = listener
         self._stop = stop
@@ -532,22 +533,40 @@ class NativeSession:
                 monitor,
                 self._problem.split_crossing if monitor.split else None,
                 can_rest=bool(backend._collar_can_rest()),
-            ),
+            ).native(),
             "resume": start.monitor is not None,
         }
-        continuation = start.monitor
-        if continuation is not None:
-            record = continuation.get("record")
-            plan["record"] = _watch.resumption(
+        if start.monitor is not None:
+            plan.update(self._continuation(start.monitor))
+        return plan
+
+    @staticmethod
+    def _continuation(continuation: Mapping[str, object]) -> dict[str, object]:
+        """Return a monitored resume's continuation as the native session reads it.
+
+        Parameters
+        ----------
+        continuation : collections.abc.Mapping
+            As :attr:`solprop.backends.session.Start.monitor`.
+
+        Returns
+        -------
+        dict
+            The earlier record's resumption, whether the run resumes at a saved plane,
+            and the stretches run since without a monitor.
+        """
+        record = continuation.get("record")
+        return {
+            "record": _watch.resumption(
                 cast("Mapping[str, object]", record)
                 if isinstance(record, Mapping)
                 else None
-            )
-            plan["plane"] = bool(continuation.get("plane", False))
-            plan["unwatched"] = _watch.unwatched_of(
+            ).native(),
+            "plane": bool(continuation.get("plane", False)),
+            "unwatched": _watch.unwatched_of(
                 cast("Sequence[tuple[float, float]]", continuation.get("unwatched", ()))
-            )
-        return plan
+            ),
+        }
 
     # -- protocol -------------------------------------------------------------------
 
@@ -636,6 +655,7 @@ class NativeSession:
         except _core.SessionLifecycleError as error:
             raise SessionError(str(error)) from None
         receipt = Receipt(self._id, batch.sequence)
+        self._sequence = batch.sequence
         # Each batch is one event and the chunk since the previous one, delivered once.
         chunk = self._history(batch.attempts)
         if self._listener is not None:
@@ -836,6 +856,10 @@ class NativeSession:
             "export_bytes": status.export_bytes,
             "buffer_bytes": status.buffer_bytes,
         }
+        monitor = self.monitor_record()
+        if monitor is not None:
+            # Where the driver's record carries its monitor's (`StepDriver.metadata`).
+            record["boundary_monitor"] = monitor
         return record
 
     def monitor_record(self) -> Mapping[str, object] | None:
@@ -854,6 +878,90 @@ class NativeSession:
         if native is None:
             return None
         return _watch.record_of(monitor.check, native)
+
+    def continue_monitor(self, continuation: Mapping[str, object]) -> None:
+        """Continue a resumed run's boundary-monitor record, before it is attached.
+
+        Parameters
+        ----------
+        continuation : collections.abc.Mapping
+            As :attr:`solprop.backends.session.Start.monitor`; one given there is kept.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the monitor already watches the run.
+        """
+        if self._monitor is None:
+            return
+        held = self._continuation(continuation)
+        try:
+            self._native.continue_monitor(
+                cast("dict[str, object]", held["record"]),
+                bool(held["plane"]),
+                cast("list[list[float]]", held["unwatched"]),
+            )
+        except _core.SessionLifecycleError as error:
+            raise SessionError(str(error)) from None
+
+    def held_attempts(
+        self, ticket: ExportTicket
+    ) -> tuple[BackendHistory | None, StepStats | None]:
+        """Return every attempt and periodic row since the last observation, unconsumed.
+
+        For a terminal checkpoint written after a failure outside the session: the
+        chunks every batch since the last observation delivered (SEP 47 section 5.5).
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The pending ticket the checkpoint is written for.
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows, or ``None`` for each when there are none.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the ticket belongs to another session.
+        """
+        if ticket.receipt.session != self._id:
+            msg = f"the ticket for z = {ticket.z!r} m belongs to another session"
+            raise SessionError(msg)
+        if not self._held:
+            return None, None
+        history, rows = self._since_observation()
+        return history, rows if rows.n_rows else None
+
+    def pending_ticket(self) -> ExportTicket | None:
+        """Return a ticket for the committed state while a batch is pending.
+
+        Returns
+        -------
+        solprop.backends.events.ExportTicket or None
+            A ticket bound to the pending batch, or ``None`` when none is pending or
+            the session is closed: the native state exports only while its batch is.
+        """
+        status = self._native.status()
+        if _STATES[status.state] is not SessionState.PENDING or self._sequence == 0:
+            return None
+        return ExportTicket(
+            Receipt(self._id, self._sequence), status.generation, status.z
+        )
+
+    @property
+    def reads_transverse_edge(self) -> bool:
+        """Return whether the session's backend reads a transverse edge (SEP 40).
+
+        Returns
+        -------
+        bool
+            True: the native backend reads it, though this session refuses a
+            monitor's edge for now.
+        """
+        return NativeBackend.reads_transverse_edge
 
     def close(self) -> None:
         """Release the native session and its backend; idempotent."""
@@ -1190,18 +1298,19 @@ class NativeSession:
             # filters may raise it; the committed field and the attempts since the
             # last observation are there for that failure's checkpoint.
             assert self._monitor is not None
-            notice = event.notice
-            if notice["kind"] == _watch.NOTICE_KINDS.index("removal"):
+            notice = _watch.Notice.of(event.notice)
+            if notice.kind is _watch.NoticeKind.REMOVAL:
                 self._log_finish()
-            message, category = _watch.notice_warning(self._monitor.check, notice)
+            warning = _watch.notice_warning(self._monitor.check, notice)
             return ServiceRequired(
                 kind=ServiceKind.WARNING,
                 z=event.z,
-                message=message,
-                category=category,
+                message=str(warning),
+                category=type(warning),
                 ticket=ticket,
                 history=history,
                 step_stats=held_rows,
+                warning=warning,
             )
         outcome = _OUTCOMES[event.outcome]
         assert outcome is not None
@@ -1252,8 +1361,8 @@ class NativeSession:
         """
         if outcome is Outcome.STOPPED:
             return StopRequested(self._stop)
-        notice = event.notice
-        if notice["kind"] != 0 and self._monitor is not None:
+        notice = _watch.Notice.of(event.notice)
+        if notice.kind is not _watch.NoticeKind.NONE and self._monitor is not None:
             return _watch.notice_error(self._monitor.check, notice)
         if event.schedule_exhausted:
             schedule = self._problem.stepper.schedule

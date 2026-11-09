@@ -2377,6 +2377,14 @@ public:
   }
   native::session::Status status() const noexcept { return session_->status(); }
   std::size_t elements() const { return session_->elements(); }
+  // Continue a resumed run's monitor record; takes the session's lock.
+  void continue_monitor(const nb::dict record, const bool plane,
+                        const nb::handle unwatched) {
+    auto resumption = watch_resumption_from(record);
+    auto stretches = watch_stretches_from(unwatched);
+    const nb::gil_scoped_release release;
+    session_->continue_monitor(resumption, plane, stretches);
+  }
   // The boundary monitor's record, or None; takes the session's lock.
   nb::object monitor_record() {
     std::optional<native::watch::Record> record;
@@ -4058,6 +4066,8 @@ NB_MODULE(_core, module_) {
       .def("status", &BoundSession::status)
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
+      .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
+           "unwatched"_a)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
   // to feed recorded readings through it and its own monitor alike.

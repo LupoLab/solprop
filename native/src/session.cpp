@@ -303,8 +303,9 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
 
 void Session::take_row() {
   // `_record_step_stats`: the row of the step just committed, its attempt index the
-  // one
-  // `_record` has just appended, counted in the chunk.
+  // one `_record` has just appended, counted in the chunk: `-1` when a warning barrier
+  // delivered that attempt in the chunk before (a row the barrier's continuation
+  // takes), so that the assembled history indexes it exactly once.
   const double z = position();
   const auto values = resident_->statistics(plan_.row_statistics, z);
   if (row_width_ == 0)
@@ -314,7 +315,7 @@ void Session::take_row() {
   if (row_values_.capacity() == 0)
     row_values_.reserve(plan_.row_capacity * row_width_);
   row_z_.push_back(z);
-  row_step_.push_back(chunk_attempts() - 1);
+  row_step_.push_back(static_cast<std::int64_t>(chunk_attempts()) - 1);
   row_values_.insert(row_values_.end(), values.begin(), values.end());
   rows_taken_.fetch_add(1, std::memory_order_relaxed);
   published_width_.store(row_width_, std::memory_order_relaxed);
@@ -438,8 +439,10 @@ void Session::warning(Batch& batch, const Notice& notice) {
 void Session::monitor_stop(Batch& batch, const Notice& notice) {
   Failure failure;
   failure.reason = march::Reason::error;
-  failure.category = notice.kind == Notice::Kind::reading ? march::Category::backend
-                                                          : march::Category::refused;
+  failure.category =
+      notice.kind == Notice::Kind::guard || notice.kind == Notice::Kind::crossing
+          ? march::Category::refused
+          : march::Category::backend;
   failure.notice = notice;
   failure.cursor = cursor();
   terminal(batch, Outcome::failed, std::move(failure));
@@ -461,6 +464,10 @@ bool Session::judged(Batch& batch, const watch::Judgement& judgement) {
     notice.kind = Notice::Kind::reading;
     monitor_stop(batch, notice);
     return true;
+  case watch::Verdict::divide:
+    notice.kind = Notice::Kind::division;
+    monitor_stop(batch, notice);
+    return true;
   case watch::Verdict::warn:
     notice.kind = Notice::Kind::guard;
     warning(batch, notice);
@@ -473,14 +480,10 @@ bool Session::judged(Batch& batch, const watch::Judgement& judgement) {
 bool Session::refused_crossing(Batch& batch) {
   // `_refuse_scheduled_crossing`: a replay's longest step before the next check
   // against the cap the check just read.
-  if (!plan_.replay || !monitor_->config().policy.crossing)
-    return false;
-  const auto& steps = schedule().steps;
-  const std::size_t first = static_cast<std::size_t>(cursor());
-  if (first >= steps.size())
-    return false;
-  const double longest = watch::longest_ahead(steps, first, monitor_->steps_to_check());
-  if (!(longest > monitor_->cap()))
+  const double longest = watch::refused_crossing(
+      monitor_->config().policy.crossing, plan_.replay, schedule().steps,
+      static_cast<std::size_t>(cursor()), monitor_->steps_to_check(), monitor_->cap());
+  if (!(longest > 0.0))
     return false;
   Notice notice;
   notice.kind = Notice::Kind::crossing;
@@ -765,6 +768,20 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     terminal(failed, Outcome::failed, failure_of(error));
     return issue(std::move(failed), Outcome::failed);
   }
+}
+
+void Session::continue_monitor(const watch::Resumption& record, const bool plane,
+                               const std::vector<std::array<double, 2>>& unwatched) {
+  const std::scoped_lock lock(mutex_);
+  require_open();
+  if (attached_)
+    throw LifecycleError("a boundary monitor is continued before it watches the run");
+  if (!plan_.monitor || plan_.monitor->resume)
+    return;
+  plan_.monitor->resume = true;
+  plan_.monitor->record = record;
+  plan_.monitor->plane = plane;
+  plan_.monitor->unwatched = unwatched;
 }
 
 std::optional<watch::Record> Session::monitor_record() const {

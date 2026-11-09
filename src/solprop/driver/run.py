@@ -40,7 +40,7 @@ from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import Start
+from solprop.backends.session import RunSession, Start
 from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
@@ -261,6 +261,79 @@ def _power_observation(problem: KernelProblem, observation: Observation) -> Obse
             observation.field, power_weight_at(problem, observation.z)
         ),
     )
+
+
+class SessionFacts:
+    """A session's execution facts, as the service loop's records read a backend's.
+
+    The transitional output and record helpers (:mod:`solprop.driver.run`) read a
+    backend: its name, metadata, method history and in-flight state. A session that
+    owns its backend answers them through its protocol: its execution record, its
+    method-history size, and an in-place step it never leaves in flight.
+
+    Parameters
+    ----------
+    session : solprop.backends.session.RunSession
+        The session.
+    """
+
+    in_flight = None
+    """A session's failures leave no step for the loop to observe in flight."""
+
+    def __init__(self, session: RunSession) -> None:
+        """Read the session's facts through its protocol."""
+        self._session = session
+        record = session.execution_record()
+        self.name = str(record.get("backend", type(session).__name__))
+        self.reads_transverse_edge = bool(
+            getattr(session, "reads_transverse_edge", False)
+        )
+
+    def metadata(self) -> dict[str, object]:
+        """Return the session's execution record.
+
+        Returns
+        -------
+        dict
+            The record, with the monitor's under ``boundary_monitor``.
+        """
+        return dict(self._session.execution_record())
+
+    def march_snapshot(self) -> None:
+        """Return ``None``: method history is the session's, not a backend's.
+
+        Returns
+        -------
+        None
+            No snapshot.
+        """
+        return
+
+    def march_snapshot_nbytes(self, z: float) -> int | None:
+        """Return the size of the session's method-history snapshot, or ``None``.
+
+        Parameters
+        ----------
+        z : float
+            The position, m.
+
+        Returns
+        -------
+        int or None
+            Bytes, or ``None`` without one.
+        """
+        del z
+        return self._session.march_snapshot_nbytes()
+
+    def march_export_refusal(self) -> str | None:
+        """Return why the session's method history is not exported here.
+
+        Returns
+        -------
+        str or None
+            The reason.
+        """
+        return "this session keeps no method history the service loop can export"
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
@@ -508,7 +581,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
     problem: KernelProblem,
     metadata: RunMetadata,
-    backend: Backend,
+    backend: Backend | SessionFacts,
     output: Output,
     reporter: ProgressReporter,
     start: tuple[int, float],
@@ -754,7 +827,9 @@ def _resume_position(
     return reached, missing_current_save
 
 
-def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
+def _refuse_unread_collar(
+    problem: KernelProblem, backend: Backend | SessionFacts
+) -> None:
     """Refuse a requested collar on a backend that does not read its return (SEP 40).
 
     A requested real-space collar is judged by what it returns, which the monitor's
@@ -852,7 +927,7 @@ def _earlier_execution(
 def _open_run(
     output: Output,
     metadata: RunMetadata,
-    backend: Backend,
+    backend: Backend | SessionFacts,
     binding: TDSEBinding | None,
 ) -> CheckpointOutput | None:
     """Attach actual runtime facts outside the scientific resume identity.
@@ -883,7 +958,7 @@ def _open_run(
 def open_run_record(
     output: Output,
     metadata: RunMetadata,
-    backend: Backend,
+    backend: Backend | SessionFacts,
     binding: TDSEBinding | None,
 ) -> None:
     """Open an output with the run's record and execution facts, and save nothing.
@@ -1010,7 +1085,7 @@ class _MarchKeeper:
     def __init__(
         self,
         output: Output,
-        backend: Backend,
+        backend: Backend | SessionFacts,
         policy: bool | None,
         *,
         method: Literal["adams", "rk", "low_storage"] = "adams",
@@ -1280,7 +1355,7 @@ class _Status:
 
 def _record_execution(  # noqa: PLR0913 - the record's parts
     output: CheckpointOutput | None,
-    backend: Backend,
+    backend: Backend | SessionFacts,
     binding: TDSEBinding | None,
     status: _Status,
     *,

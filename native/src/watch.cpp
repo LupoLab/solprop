@@ -61,14 +61,15 @@ void settle(const Policy& policy, State& state, const bool light, const double* 
   state.quiet = policy.quiet_collar && state.quiet_run >= policy.quiet_checks;
 }
 
-/** `_found` then `_judged`: the energy and regions a committed step is judged on.
-    False where `_found` raises: the split found nothing where the state holds light. */
-bool judged(const Policy& policy, const double* reading, double& total,
-            double* regions) {
+/** `_found` then `_judged`: the energy and regions a committed step is judged on, or,
+    without `found` (the launch), the reading's own. False where `_found` raises: the
+    split found nothing where the state holds light. */
+bool judged(const Policy& policy, const double* reading, const bool found_by_split,
+            double& total, double* regions) {
   total = reading[0];
   for (std::size_t index = 0; index < 4; ++index)
     regions[index] = reading[1 + index];
-  if (policy.split) {
+  if (found_by_split && policy.split) {
     const double* found = reading + 6;
     if (!(found[0] > 0.0 || !(reading[0] > 0.0)))
       return false;
@@ -86,11 +87,10 @@ bool judged(const Policy& policy, const double* reading, double& total,
 
 /** `_above(regions) / total`: each region's share above the floor's. */
 void shares_of(const Policy& policy, const double total, const double* regions,
-               double* above, double* shares) {
+               double* shares) {
   for (std::size_t index = 0; index < 4; ++index) {
     const double over = regions[index] - policy.floor_regions[index];
-    above[index] = index < 3 ? clip_low(over) : over;
-    shares[index] = above[index] / total;
+    shares[index] = (index < 3 ? clip_low(over) : over) / total;
   }
 }
 
@@ -163,7 +163,7 @@ Verdict check(const Policy& policy, State& state, const double* reading,
     state.cap = split_limit(policy, reading + reading_head);
   double total = 0.0;
   double regions[4];
-  if (!judged(policy, reading, total, regions))
+  if (!judged(policy, reading, true, total, regions))
     return Verdict::error;
   const bool was_quiet = state.quiet;
   state.since = 0;
@@ -174,15 +174,23 @@ Verdict check(const Policy& policy, State& state, const double* reading,
     settle(policy, state, false, nullptr, 0.0);
     return state.quiet != was_quiet ? Verdict::quiet : Verdict::none;
   }
-  double above[4];
   double shares[4];
-  shares_of(policy, total, regions, above, shares);
+  shares_of(policy, total, regions, shares);
   settle(policy, state, true, shares, regions[2] / total);
   double worst = 0.0;
   const Verdict verdict = judge_shares(policy, state, shares, worst);
   if (verdict != Verdict::none)
     return verdict;
   return state.quiet != was_quiet ? Verdict::quiet : Verdict::none;
+}
+
+double refused_crossing(const bool crossing, const bool replay,
+                        const std::vector<double>& steps, const std::size_t cursor,
+                        const std::uint64_t ahead, const double cap) {
+  if (!crossing || !replay || cursor >= steps.size())
+    return 0.0;
+  const double longest = longest_ahead(steps, cursor, ahead);
+  return longest > cap ? longest : 0.0;
 }
 
 double longest_ahead(const std::vector<double>& steps, const std::size_t cursor,
@@ -245,11 +253,6 @@ void Monitor::commit(const double z) {
 void Monitor::settle_from(const bool light, const double* shares,
                           const double raw_collar) {
   settle(config_.policy, state_, light, shares, raw_collar);
-}
-
-double Monitor::above(const double* regions, const std::size_t index) const {
-  const double over = regions[index] - config_.policy.floor_regions[index];
-  return index < 3 ? clip_low(over) : over;
 }
 
 Judgement Monitor::judge(const double* shares, const double z, const bool launch) {
@@ -344,12 +347,9 @@ Judgement Monitor::launch(const double* reading, const std::size_t size, const d
   judgement.launch = true;
   last_ = judgement;
   // The launch is judged on its own reading, not on what a split found (`_judged`).
-  double total = reading[0];
-  double regions[4] = {reading[1], reading[2], reading[3], reading[4]};
-  if (total <= 0.0 || !std::isfinite(total)) {
-    total = 0.0;
-    regions[0] = regions[1] = regions[2] = regions[3] = 0.0;
-  }
+  double total = 0.0;
+  double regions[4];
+  judged(policy, reading, false, total, regions);
   const bool resuming = resuming_;
   resuming_ = false;
   if (resuming)
@@ -369,9 +369,8 @@ Judgement Monitor::launch(const double* reading, const std::size_t size, const d
     restore_quiet();
     return judgement;
   }
-  double above_floor[4];
   double shares[4];
-  shares_of(policy, total, regions, above_floor, shares);
+  shares_of(policy, total, regions, shares);
   settle_from(true, shares, regions[2] / total);
   restore_quiet();
   state_.has_last = true;
@@ -418,7 +417,7 @@ Judgement Monitor::step(const double* reading, const std::size_t size, const dou
   last_ = judgement;
   double total = 0.0;
   double regions[4];
-  if (!judged(policy, reading, total, regions)) {
+  if (!judged(policy, reading, true, total, regions)) {
     judgement.verdict = Verdict::error;
     last_ = judgement;
     return judgement;
@@ -435,15 +434,22 @@ Judgement Monitor::step(const double* reading, const std::size_t size, const dou
     floor_removed_ += floor_taken_ / launch_;
   }
   floor_taken_ = 0.0;
-  state_.has_last = true;
-  state_.last_z = z;
   if (!(total > policy.launch_floor)) {
     // Nothing was launched, or nothing is left: no light to judge.
+    state_.has_last = true;
+    state_.last_z = z;
     has_raw_last_ = true;
     raw_last_z_ = z;
     raw_last_rate_ = 0.0;
     collar_now_ = 0.0;
     settle_from(false, nullptr, 0.0);
+    return judgement;
+  }
+  if (launch_ == 0.0) {
+    // Light after a launch that held none: solprop's monitor divides by the launch
+    // energy here and raises ZeroDivisionError.
+    judgement.verdict = Verdict::divide;
+    last_ = judgement;
     return judgement;
   }
   // The whole field's record, floor included, kept beside the judged one; a resting
@@ -459,10 +465,11 @@ Judgement Monitor::step(const double* reading, const std::size_t size, const dou
   raw_last_z_ = z;
   raw_last_rate_ = raw_rate;
   raw_guard_max_ = py_max(raw_guard_max_, py_max(regions[0], regions[1]) / total);
-  double above_floor[4];
   double shares[4];
-  shares_of(policy, total, regions, above_floor, shares);
+  shares_of(policy, total, regions, shares);
   settle_from(true, shares, regions[2] / total);
+  state_.has_last = true;
+  state_.last_z = z;
   collar_max_ = py_max(collar_max_, shares[2]);
   collar_now_ = shares[2];
   for (std::size_t edge = 0; edge < 2; ++edge) {

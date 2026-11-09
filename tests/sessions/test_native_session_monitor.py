@@ -39,6 +39,7 @@ from solprop.backends.events import (
     ServiceKind,
     ServiceRequired,
     Terminal,
+    emit_warning,
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
@@ -118,24 +119,38 @@ class Served:
     """What serving a session to its end gave."""
 
     run: Run
-    warnings: list[str]
+    warnings: list[tuple[object, ...]]
     raised: tuple[float, BaseException] | None
     record: dict[str, Any] | None
     warning_events: list[ServiceRequired]
 
 
-def _start(simulation: Simulation, kind: str, start: Start | None = None) -> Any:
-    """Start a session of `kind` on a simulation's fresh monitored run."""
-    # Statistics the native session takes natively, with periodic rows after each
-    # second step's check (SEP 47 section 5.3), as the problem's own: the driver
-    # takes its rows from the problem.
+def _prepared(simulation: Simulation, period: int = 2) -> tuple[Any, Any]:
+    """Return a simulation's problem and its monitored run request.
+
+    Statistics the native session takes natively, with periodic rows every `period`
+    accepted steps after each step's check (SEP 47 section 5.3), as the problem's own:
+    the driver takes its rows from the problem.
+    """
     problem = dataclasses.replace(
         simulation.translate(),
         stats_spec=StatsSpec(
-            names=("energy", "peak_power"), periodic=("energy",), period=2
+            names=("energy", "peak_power"), periodic=("energy",), period=period
         ),
     )
-    request = describe_run(problem, monitor=simulation._boundary_monitor())
+    return problem, describe_run(problem, monitor=simulation._boundary_monitor())
+
+
+def _start(
+    simulation: Simulation,
+    kind: str,
+    start: Start | None = None,
+    *,
+    period: int = 2,
+    prepared: tuple[Any, Any] | None = None,
+) -> Any:
+    """Start a session of `kind` on a simulation's fresh monitored run."""
+    problem, request = _prepared(simulation, period) if prepared is None else prepared
     if start is None:
         start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
     context = {
@@ -172,7 +187,7 @@ def _serve(session: Any, *, error: bool = False) -> Served:
                     assert event.ticket is not None and event.ticket.z == event.z
                     field = session.export(event.ticket, IDENTITY)
                     try:
-                        warnings.warn(event.message, event.category, stacklevel=1)
+                        emit_warning(event)
                     except BoundaryWarning as warning:
                         assert (
                             field.shape == session.export(event.ticket, IDENTITY).shape
@@ -184,15 +199,23 @@ def _serve(session: Any, *, error: bool = False) -> Served:
             session.acknowledge(batch.receipt)
     status = session.status()
     record = session.monitor_record()
-    messages = [str(one.message) for one in caught]
+    messages = [_identity(one.message) for one in caught]
     return Served(
         Run(batches, [], status), messages, raised, dict(record or {}), events
     )
 
 
+def _identity(warning: BaseException | str) -> tuple[object, ...]:
+    """Return a warning's class, text, arguments and attributes, to compare them."""
+    assert isinstance(warning, Warning), "a warning was issued without its instance"
+    return (type(warning), str(warning), warning.args, sorted(vars(warning).items()))
+
+
 def _compare(driver: Served, native: Served) -> None:
     """Require the same trace, warnings, outcome and record."""
+    # The same warnings, class, text and attributes (``parameter``) alike.
     assert native.warnings == driver.warnings
+    assert all(one[3] == [("parameter", "boundary_check")] for one in native.warnings)
     assert trace(native.run) == trace(driver.run)
     assert native.record == driver.record
     for event in native.warning_events:
@@ -202,10 +225,10 @@ def _compare(driver: Served, native: Served) -> None:
             assert where == pytest.approx(event.z, rel=1e-6)
 
 
-def _both(simulation_of, **serve: Any) -> tuple[Served, Served]:
+def _both(simulation_of, *, period: int = 2, **serve: Any) -> tuple[Served, Served]:
     served = []
     for kind in ("driver", "native"):
-        session = _start(simulation_of(), kind)
+        session = _start(simulation_of(), kind, period=period)
         try:
             served.append(_serve(session, **serve))
         finally:
@@ -241,7 +264,8 @@ def test_a_raised_warning_ends_the_run_at_its_endpoint(march):
     assert isinstance(terminal.error, BoundaryWarning)
     assert native.raised is not None
     z, warning = native.raised
-    assert (z, str(warning)) == (terminal.z, str(terminal.error))
+    assert terminal.error is not None
+    assert (z, _identity(warning)) == (terminal.z, _identity(terminal.error))
     # The observations before it are the driver's.
     assert trace(native.run) == trace(driver.run)[:-1]
 
@@ -280,7 +304,7 @@ def test_the_final_removal_warns_before_completion():
     driver, native = _both(lambda: walker(0.9e-12, check=check))
     _compare(driver, native)
     assert native.run.terminal.outcome is Outcome.COMPLETED
-    assert any("temporal collar removed" in one for one in native.warnings)
+    assert any("temporal collar removed" in str(one[1]) for one in native.warnings)
     last = native.warning_events[-1]
     assert "temporal collar removed" in last.message
     # The barrier precedes the terminal event and follows the last plane.
@@ -296,9 +320,10 @@ def test_a_raised_final_warning_is_a_failure_with_its_field():
     terminal = driver.run.terminal
     assert terminal.outcome is Outcome.FAILED
     assert native.raised is not None
-    assert (native.raised[0], str(native.raised[1])) == (
+    assert terminal.error is not None
+    assert (native.raised[0], _identity(native.raised[1])) == (
         terminal.z,
-        str(terminal.error),
+        _identity(terminal.error),
     )
 
 
@@ -361,3 +386,99 @@ def test_a_resumed_monitor_continues_the_driver_s_record(closing):
     assert native.record is not None
     assert native.record["resumed_at"] == [z]
     assert native.record["steps"] > record["steps"]
+
+
+@pytest.mark.parametrize("march", sorted(MARCHES))
+def test_a_warned_step_s_row_follows_its_barrier_indexed_once(march):
+    # A row every accepted step: the warned step's row is taken after its barrier, in
+    # the next chunk, and still indexes that step's attempt in the assembled history.
+    driver, native = _both(
+        lambda: walker(1.2 * TRANGE, integrator=MARCHES[march]()), period=1
+    )
+    _compare(driver, native)
+    assert native.warning_events
+    for event in native.run.observations[1:]:
+        rows = event.step_stats
+        assert rows.n_rows == int(event.history.accepted.sum())
+        np.testing.assert_array_equal(event.history.z[rows.step], rows.z)
+
+
+def _through_serve(simulation: Simulation, kind: str, *, error: bool = False) -> Any:
+    """Run a monitored session through the service loop; return its output.
+
+    The production selection of the native session is not wired yet: the loop is
+    handed the session directly, with the context ``run_problem`` would give it.
+    """
+    from solprop.driver.run import field_retention  # noqa: PLC0415
+    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.driver.simulation import metadata_for  # noqa: PLC0415
+    from solprop.log import resolve_reporter  # noqa: PLC0415
+    from solprop.output import MemoryOutput  # noqa: PLC0415
+
+    prepared = _prepared(simulation)
+    problem, request = prepared
+    session = _start(simulation, kind, prepared=prepared)
+    output = MemoryOutput()
+    context = ServiceContext(
+        problem=problem,
+        request=request,
+        metadata=metadata_for(problem, simulation.grid, modes=simulation.modes),
+        reporter=resolve_reporter("none"),
+        retention=field_retention(problem, "all", ()),
+        resume_history=None,
+        snapshots=None,
+        tdse_binding=None,
+        tdse_archive=None,
+        recipe=None,
+        start_plane=0,
+    )
+    caught: list[warnings.WarningMessage] = []
+    raised: BaseException | None = None
+    try:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("error" if error else "always", BoundaryWarning)
+            try:
+                serve(session, output, context)
+            except (BoundaryError, BoundaryWarning) as failure:
+                raised = failure
+    finally:
+        session.close()
+    return output, [_identity(one.message) for one in caught], raised
+
+
+def _saved(output: Any) -> dict[str, Any]:
+    """Return what a run's output holds: planes, fields, statistics and records."""
+    outcome = output.outcome
+    record = dict(outcome.execution["boundary_monitor"])
+    return {
+        "z": np.asarray(output["z"]).tolist(),
+        "fields": np.asarray(output.fields("fft")).tobytes(),
+        "energy": np.asarray(output["stats/energy"]).tobytes(),
+        "status": outcome.status,
+        "monitor": record,
+    }
+
+
+@pytest.mark.parametrize(
+    ("drift", "error", "failure"),
+    [
+        (1.2 * TRANGE, False, BoundaryError),
+        (0.47 * TRANGE, True, BoundaryWarning),
+        (0.1 * TRANGE, False, type(None)),
+    ],
+    ids=["stopped", "raised", "clear"],
+)
+def test_a_monitored_native_session_runs_through_the_service_loop(
+    drift, error, failure
+):
+    # The loop serves the native session as it serves the driver's: the same planes
+    # and fields, the same warnings issued by the loop from the barriers, the same
+    # failure and the same monitor record in the run's execution record.
+    driver = _through_serve(walker(drift), "driver", error=error)
+    native = _through_serve(walker(drift), "native", error=error)
+    assert native[1] == driver[1]
+    assert isinstance(native[2], failure)
+    assert (type(native[2]), str(native[2])) == (type(driver[2]), str(driver[2]))
+    saved = _saved(native[0])
+    assert saved == _saved(driver[0])
+    assert saved["status"] == ("complete" if failure is type(None) else "failed")

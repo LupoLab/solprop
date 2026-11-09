@@ -443,18 +443,13 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
     result.readings.insert(result.readings.end(), reading.begin(), reading.end());
     result.reading_rows.push_back(result.rows.size() / row_columns - 1);
     watch::Verdict verdict = watch::check(rules, state.watch, reading.data(), state.z);
-    if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
-        state.cursor < n_steps) {
-      // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
-      // against the cap this check read.
-      const std::size_t ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
-          watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
-      double longest = schedule.steps[state.cursor];
-      for (std::size_t index = 1; index < ahead; ++index)
-        longest = std::max(longest, schedule.steps[state.cursor + index]);
-      if (longest > state.watch.cap)
-        verdict = watch::Verdict::refuse;
-    }
+    // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
+    // against the cap this check read.
+    if (verdict == watch::Verdict::none &&
+        watch::refused_crossing(rules.crossing, bounds.replay, schedule.steps,
+                                state.cursor, watch::steps_to_check(rules, state.watch),
+                                state.watch.cap) > 0.0)
+      verdict = watch::Verdict::refuse;
     return verdict;
   };
   // A stop already requested ends the call before its first attempt (SEP 47 5.5).

@@ -87,6 +87,8 @@ enum class Verdict : int {
   quiet = 3,  ///< the quiet collar's verdict changes
   refuse = 4, ///< a replayed schedule passes the crossing cap before the next check
   error = 5,  ///< `_found` raises: the split found nothing where the state holds light
+  divide = 6, ///< the owning monitor's check divides by a launch that held no energy,
+              ///< where solprop's monitor raises `ZeroDivisionError`
 };
 
 /** Validate a policy; throw `std::invalid_argument` naming the field at fault. */
@@ -107,6 +109,14 @@ void skip(State& state);
     (at least one), as `_refuse_scheduled_crossing` takes `np.max` of them. */
 [[nodiscard]] double longest_ahead(const std::vector<double>& steps, std::size_t cursor,
                                    std::uint64_t ahead);
+/** `_refuse_scheduled_crossing`: the longest step of a replay with a crossing limit
+    before the next check, `ahead` steps at most, when it passes `cap`; zero when the
+    schedule is held to the cap, or there is no replay, limit or step left. The one
+    predicate of the marches' checks and a session's. */
+[[nodiscard]] double refused_crossing(bool crossing, bool replay,
+                                      const std::vector<double>& steps,
+                                      std::size_t cursor, std::uint64_t ahead,
+                                      double cap);
 
 /*
  * The owning monitor (solprop SEP 47 sections 4.3, 5.5 and 6.4, and the maintainer's
@@ -290,7 +300,6 @@ private:
   void commit(double z);
   void read_cap(const double* reading, std::size_t size);
   void settle_from(bool light, const double* shares, double raw_collar);
-  [[nodiscard]] double above(const double* regions, std::size_t index) const;
   [[nodiscard]] Judgement judge(const double* shares, double z, bool launch);
   void restore_quiet();
   void plane_row(double z);
@@ -349,13 +358,14 @@ template <class Reader>
     return Verdict::none;
   }
   const std::vector<double> reading = read();
-  const bool was_quiet = monitor.quiet();
+  const bool rested = monitor.rests();
   Verdict verdict = monitor.step(reading.data(), reading.size(), z).verdict;
-  if (verdict == Verdict::none && monitor.quiet() != was_quiet)
+  // The stages change only where the collar's rest does.
+  if (verdict == Verdict::none && monitor.rests() != rested)
     verdict = Verdict::quiet;
-  if ((verdict == Verdict::none || verdict == Verdict::quiet) && replay &&
-      monitor.config().policy.crossing && cursor < steps.size() &&
-      longest_ahead(steps, cursor, monitor.steps_to_check()) > monitor.cap())
+  if ((verdict == Verdict::none || verdict == Verdict::quiet) &&
+      refused_crossing(monitor.config().policy.crossing, replay, steps, cursor,
+                       monitor.steps_to_check(), monitor.cap()) > 0.0)
     verdict = Verdict::refuse;
   return verdict;
 }

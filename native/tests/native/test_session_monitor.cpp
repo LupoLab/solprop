@@ -182,6 +182,12 @@ TEST(SessionMonitor, AWarningIsABarrierBeforeItsStepsRow) {
   EXPECT_EQ(warned.attempts.size() / session::attempt_columns, 3U);
   EXPECT_DOUBLE_EQ(warned.event.notice.z, warned.event.z);
   const auto plane = next(run, session::EventKind::observation);
+  // The warned step's row follows its barrier, indexing the barrier chunk's last
+  // attempt, its step's: exactly once in the assembled history.
+  ASSERT_FALSE(plane.row_step.empty());
+  EXPECT_EQ(plane.row_step[0], -1);
+  for (std::size_t row = 1; row < plane.row_step.size(); ++row)
+    EXPECT_EQ(plane.row_step[row], static_cast<std::int64_t>(row) - 1);
   const auto rows = rows_of(plane);
   ASSERT_FALSE(rows.empty());
   for (std::size_t index = 0; index < rows.size(); ++index)

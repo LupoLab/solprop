@@ -197,6 +197,8 @@ struct Notice {
     removal = 2,  ///< the collar's removal at the end of a run (`finish`)
     crossing = 3, ///< a replay's step passes the split collar's cap
     reading = 4,  ///< the split found nothing where the state holds light (`_found`)
+    division = 5, ///< light after a launch that held none, where solprop's monitor
+                  ///< divides by the launch energy (`ZeroDivisionError`)
   };
   Kind kind = Kind::none;
   /** For a guard: whether it is the launch's judgement. */
@@ -256,13 +258,15 @@ constexpr std::size_t attempt_columns = 5;
 /** What one `advance` reports (SEP 47 section 5.3, exactly-once chunked delivery): one
     event, and the chunk of attempts and periodic rows made since the previous event,
     moved out of the session's buffers and delivered once. A row's `step` indexes the
-    chunk's attempts. */
+    chunk's attempts, counted from the chunk's first; it is negative for a row whose
+    attempt an earlier chunk delivered: a row taken after a warning barrier, which
+    delivered its step's attempt, is `-1`, the barrier chunk's last. */
 struct Batch {
   std::uint64_t sequence = 0;
   Event event;
   std::vector<double> attempts;
   std::vector<double> row_z;
-  std::vector<std::uint64_t> row_step;
+  std::vector<std::int64_t> row_step;
   std::vector<double> row_values;
   std::size_t row_width = 0;
   std::vector<double> plane_stats;
@@ -331,6 +335,12 @@ public:
   /** The boundary monitor's record (`BoundaryMonitor.summary`'s numbers), or none
       without a monitor; takes the session's lock. */
   [[nodiscard]] std::optional<watch::Record> monitor_record() const;
+  /** Continue a resumed run's monitor record before the monitor watches the run
+      (`DriverSession.continue_monitor`): a continuation the plan already holds is
+      kept, and a session without a monitor has nothing to continue. Takes the
+      session's lock; refused once the monitor watches. */
+  void continue_monitor(const watch::Resumption& record, bool plane,
+                        const std::vector<std::array<double, 2>>& unwatched);
   /** Release the engine, the leased state and every buffer; idempotent. Returns
       whether the session is closed: false only when its lock could not be taken, and
       then nothing was released. Waits for an advance in hand. */
@@ -410,7 +420,7 @@ private:
   std::vector<double> history_;
   Clock::time_point clock_;
   std::vector<double> row_z_;
-  std::vector<std::uint64_t> row_step_;
+  std::vector<std::int64_t> row_step_;
   std::vector<double> row_values_;
   std::size_t row_width_ = 0;
 

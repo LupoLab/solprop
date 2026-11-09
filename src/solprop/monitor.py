@@ -228,6 +228,56 @@ def _log_finish(removed: float, low: float, high: float) -> None:
     )
 
 
+def _boundary_warning(message: str) -> BoundaryWarning:
+    """Return the warning the monitor issues, with its attributes (SEP 41, S10).
+
+    One construction for every owner of a monitor's decisions: the monitor here and a
+    backend whose session judges natively (SEP 47 section 6.4), so that both issue the
+    same warning.
+
+    Parameters
+    ----------
+    message : str
+        Its text.
+
+    Returns
+    -------
+    solprop.exceptions.BoundaryWarning
+        The warning, concerning ``boundary_check``.
+    """
+    return BoundaryWarning(message, parameter="boundary_check")
+
+
+def _count(value: float, name: str) -> int:
+    """Return a resumed record's count, refusing one that is not a whole count.
+
+    Python's ``int`` of the recorded number, which truncates; a count that is not
+    finite, or truncates below zero, is refused, by the monitor here and by a native
+    session's alike (SEP 47 section 5.5).
+
+    Parameters
+    ----------
+    value : float
+        The recorded number.
+    name : str
+        Its field, for the message.
+
+    Returns
+    -------
+    int
+        The count.
+
+    Raises
+    ------
+    BoundaryError
+        When `value` is not finite or is negative.
+    """
+    if not math.isfinite(value) or math.trunc(value) < 0:
+        msg = f"a resumed boundary record holds an invalid count: {name} = {value!r}"
+        raise BoundaryError(msg)
+    return int(value)
+
+
 def _number(
     record: Mapping[str, object], name: str, default: float = math.nan
 ) -> float:
@@ -842,13 +892,15 @@ class BoundaryMonitor:
         quiet_checks = _number(record, "quiet_checks", math.nan)
         if math.isfinite(quiet_checks):
             self._restored_quiet = (
-                int(quiet_checks),
+                _count(quiet_checks, "quiet_checks"),
                 bool(record.get("collar_quiet", False)),
             )
         self._raw_guard_max = _number(record, "raw_guard_max", 0.0)
-        self._steps = int(_number(record, "steps", 0.0))
-        self._skipped = int(_number(record, "skipped", 0.0))
-        self._left_out_checks = int(_number(record, "collar_left_out_checks", 0.0))
+        self._steps = _count(_number(record, "steps", 0.0), "steps")
+        self._skipped = _count(_number(record, "skipped", 0.0), "skipped")
+        self._left_out_checks = _count(
+            _number(record, "collar_left_out_checks", 0.0), "collar_left_out_checks"
+        )
         resumed = record.get("resumed_at")
         if isinstance(resumed, list):
             self._resumed_at = [float(one) for one in cast("list[float]", resumed)]
@@ -1044,10 +1096,7 @@ class BoundaryMonitor:
         if worst > check.budget and not self._warned:
             self._warned = True
             warnings.warn(
-                BoundaryWarning(
-                    _guard_message(check, worst, z, stop=False),
-                    parameter="boundary_check",
-                ),
+                _boundary_warning(_guard_message(check, worst, z, stop=False)),
                 stacklevel=3,
             )
 
@@ -1434,8 +1483,5 @@ class BoundaryMonitor:
         _log_finish(removed, self._guard_max[0], self._guard_max[1])
         if removed > 0.0 and math.sqrt(removed) > self.check.budget:
             warnings.warn(
-                BoundaryWarning(
-                    _removal_message(self.check, removed), parameter="boundary_check"
-                ),
-                stacklevel=2,
+                _boundary_warning(_removal_message(self.check, removed)), stacklevel=2
             )

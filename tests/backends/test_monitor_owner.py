@@ -46,7 +46,7 @@ pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="the native backend is not installed"
 )
 
-NONE, STOP, WARN, QUIET, REFUSE, ERROR = range(6)
+NONE, STOP, WARN, QUIET, REFUSE, ERROR, DIVIDE = range(7)
 U = 2.0**-53
 """The unit roundoff of binary64."""
 
@@ -86,7 +86,7 @@ class Pair:
         self.python = monitor
         self.watch = watch
         self.native = core.Monitor(
-            watch.monitor_config(monitor, monitor.crossing, can_rest=can_rest)
+            watch.monitor_config(monitor, monitor.crossing, can_rest=can_rest).native()
         )
         self.can_rest = can_rest
         self.steps = 0
@@ -115,6 +115,8 @@ class Pair:
                 return STOP, str(error)
             except BackendError:
                 return ERROR, None
+            except ZeroDivisionError:
+                return DIVIDE, None
         messages = [
             str(one.message)
             for one in caught
@@ -134,7 +136,7 @@ class Pair:
             assert message == self.watch._guard_message(
                 check, judgement["worst"], z, stop=verdict == STOP
             )
-        if verdict in (STOP, ERROR):
+        if verdict in (STOP, ERROR, DIVIDE):
             # solprop's monitor raised part-way; only the cap, read first, is promised.
             assert self.native.step_cap == self.python.step_cap
             return verdict
@@ -158,7 +160,9 @@ class Pair:
     def resume(self, record: dict | None, *, plane: bool, unwatched=()) -> None:
         self.python.resume(record, plane=plane, unwatched=unwatched)
         self.native.resume(
-            self.watch.resumption(record), plane, self.watch.unwatched_of(unwatched)
+            self.watch.resumption(record).native(),
+            plane,
+            self.watch.unwatched_of(unwatched),
         )
 
     def launch(self, energies: BoundaryEnergies, z: float, floor=None) -> int:
@@ -480,3 +484,43 @@ def test_the_floor_s_split_removal_is_within_its_bound(steps, seed):
         return
     _run(pair, steps)
     pair.records(floor_steps=pair.steps)
+
+
+def test_light_after_a_launch_that_held_none_fails_alike():
+    # solprop's monitor divides by the launch energy and raises ZeroDivisionError; the
+    # native one reports that failure, which the session raises as solprop does.
+    _, watch = _modules()
+    pair = Pair(_python(split=False, quiet=False), can_rest=False)
+    empty = _energies(pair.python, 0.0, [0.0, 0.0, 0.0, 0.0], 1.0)
+    assert pair.launch(empty, 0.0) == NONE
+    light = _energies(pair.python, 1.0, [0.0, 0.0, 0.0, 1e-3], 1.0)
+    assert pair.step(light, 1e-3) == DIVIDE
+    notice = watch.Notice(watch.NoticeKind.DIVISION, False, 1e-3, 0.0, 0.0, 0.0)
+    error = watch.notice_error(pair.python.check, notice)
+    with pytest.raises(ZeroDivisionError) as raised:
+        _ = 1.0 / 0.0
+    assert (type(error), str(error)) == (ZeroDivisionError, str(raised.value))
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [("steps", -1.0), ("skipped", math.nan), ("quiet_checks", -2.0), ("steps", 2.7)],
+)
+def test_a_record_s_counts_are_read_alike(name, value):
+    # A count that is not whole is refused by both resumes alike; a fraction truncates.
+    _, watch = _modules()
+    earlier = Pair(_python(split=False, quiet=False), can_rest=False)
+    _launch(earlier)
+    record = earlier.python.summary()
+    record[name] = value
+    if math.isfinite(value) and value >= 0.0:
+        pair = Pair(_python(split=False, quiet=False), can_rest=False)
+        pair.resume(record, plane=False)
+        _launch(pair)
+        pair.records()
+        return
+    with pytest.raises(BoundaryError) as python:
+        _python(split=False, quiet=False).resume(record, plane=False)
+    with pytest.raises(BoundaryError) as native:
+        watch.resumption(record)
+    assert str(native.value) == str(python.value)

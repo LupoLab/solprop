@@ -45,6 +45,7 @@ from solprop.backends.events import (
     ServiceKind,
     ServiceRequired,
     Terminal,
+    emit_warning,
 )
 from solprop.backends.export import ExportRecipe
 from solprop.backends.protocol import BackendHistory, StepStats
@@ -629,8 +630,7 @@ def drive(
         for event in batch.events:
             if isinstance(event, ServiceRequired) and event.kind is ServiceKind.WARNING:
                 # A warning barrier: emitted as a service loop emits it (SEP 47 5.5).
-                assert event.category is not None
-                warnings.warn(event.message, event.category, stacklevel=2)
+                emit_warning(event)
         if export is not None:
             fields.extend(
                 np.array(session.export(event.ticket, export))
