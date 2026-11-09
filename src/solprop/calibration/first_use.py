@@ -209,6 +209,10 @@ def _calibrate(
     CalibrationReport or None
         The report, or ``None`` when nothing was measured.
     """
+    if len(cpus) < 2:
+        # One CPU has no team, waiting or grain to choose: a single-threaded scan's
+        # workers run on the built-in table without measuring (SEP 46 Part II).
+        return None
     try:
         _native.packages()
         _native.store.mode(environ)

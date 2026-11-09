@@ -109,6 +109,14 @@ def test_use_off_and_workers_never_measure(
     assert auto == []
 
 
+def test_a_single_cpu_is_never_measured(
+    auto: list[tuple[str, tuple[int, ...]]],
+) -> None:
+    # A single-threaded scan's workers: nothing to choose, so no notice and no wait.
+    assert first_use.for_workers([0]) is None
+    assert auto == []
+
+
 def test_a_device_build_is_left_to_its_own_calibration(
     auto: list[tuple[str, tuple[int, ...]]], monkeypatch: pytest.MonkeyPatch
 ) -> None:

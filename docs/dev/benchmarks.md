@@ -2712,6 +2712,44 @@ this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
 2 %, and its table-against-table A/B spread 0.60–1.52 per case), the shared Xeon (23 %), the EPYC 7763's second session
 (31 %).
 
+### Scan workers calibrated on an AMD EPYC 7763 node (SEP 46)
+
+[SEP 46](seps/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
+whole node of two AMD EPYC 7763 (128 cores, 8 NUMA domains), exclusive, GCC 16, commit
+`ad1df42e` of #582. The workload is an RDW tuning scan: a four-mode helium capillary
+(125 µm core radius, 5 cm, 7.5 fs at 800 nm, plasma) over pressure (0.6–1.2 bar) and
+energy (150–275 µJ), run by `run_scan` on `Pool`. Each arm is one scan, in three rounds
+of shuffled order: `table` (`SOLPROP_CALIBRATION=off`: workers wait passively), `spin`
+(the table with `GOMP_SPINCOUNT=10000`, so workers spin) and `calibrated` (`auto`, after
+one warm-up scan that calibrated the workers' allocation). Wall seconds:
+
+| config | table | spin | calibrated | warm-up (calibrating) |
+|---|---|---|---|---:|
+| A: 128 workers × 1 thread, 20 × 20 points | 464, 690, 415 | — | 505, 496, 459 | 577 |
+| B: 4 workers × 4 threads on one NUMA domain, 4 × 4 points | 21.6, 25.9, 20.3 | 22.1, 20.4, 21.9 | 24.9, 23.0, 20.6 | 111.8 |
+| C: 8 workers × 16 threads, 4 × 4 points | 25.9, 27.9, 26.2 | 25.8, 37.5, 25.9 | 29.0, 29.2, 30.6 | 114.6 |
+
+- **What the calibration chose.** The 4- and 16-core rows kept the table's waiting and
+  team (passive 1.13 and 1.18 times slower in the calibration's children, half the team
+  1.46 and 1.08), found the grain inconclusive and planned nothing. A calibrated worker
+  therefore differs from the table's only in spinning, which is the `spin` arm.
+- **Config C's calibrated arm** ran 1.05–1.17 times the table's in its rounds, but a
+  second job on the same node, nine shuffled scans, did not repeat it: `off` 27.4, 26.6,
+  24.9, 24.9, 31.1; `use` (the same profile, no first-use check) 25.7, 25.9, 26.5, 27.6,
+  31.0; `auto` 25.8, 25.4, 25.8. Scans of every arm land near 31 s at times. The
+  first-use check costs the scan's parent 0.4 s (0.2 s the second time).
+- **Workers spinning or passive** (B and C): the same within the node's spread. The
+  calibration's lone-process verdict against passive waiting does not carry to
+  concurrent workers here, and does not cost them either.
+- **Single-threaded workers** (A): the one-core class's standard calibration ran out of
+  its 90 s before three rounds of its problems in series and published nothing, to try
+  again a day later. One CPU has no team, waiting or grain to choose, so a one-CPU
+  allocation is now never measured. No setting differed between A's arms; the first
+  scan of each round ran slowest whichever arm it was (505, 690, 459 against 464, 496,
+  415).
+- **The one-off cost** is the warm-up's extra time: about 90 s a worker class, once per
+  machine, allocation class and release.
+
 ### Device settings and the node chunk on an NVIDIA H200 (SEP 46 phase 6)
 
 SEP 46 phase 6 measures which device settings move a run beyond its noise (section

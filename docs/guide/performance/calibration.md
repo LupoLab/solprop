@@ -132,6 +132,8 @@ A scan calibrates its workers' allocation at the standard level before it starts
 in a child pinned like one worker, unless a standard or thorough row already matches;
 a scan usually runs for a long time, often after waiting in a queue, so a minute up
 front is cheap. Workers never calibrate. Remote scans calibrate on their own hosts.
+A scan whose workers run one thread each never calibrates: one CPU has no team,
+waiting or grain to choose.
 
 On a cluster, calibrate once per node type and share the profile:
 

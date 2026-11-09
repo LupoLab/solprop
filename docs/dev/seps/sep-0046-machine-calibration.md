@@ -1168,6 +1168,33 @@ index entry and tracking issue change then.
   together, and a source's transforms as one batch (#584), are the leads. The EPYC 9B45's
   VMs are too noisy to resolve gains of a few per cent.
 
+### Scan-worker report — section 7 item 14 on a cluster node
+
+- **Scope:** a scan's workers, 2026-11-09, Opus 5.5 (AI) for John Travers, on a whole
+  node of two AMD EPYC 7763 (128 cores), commit `ad1df42e`; the rows are in the
+  benchmark ledger
+  ([Scan workers calibrated on an AMD EPYC 7763 node](../benchmarks.md#scan-workers-calibrated-on-an-amd-epyc-7763-node-sep-46)).
+- **Method:** the maintainers' common scan, an RDW tuning scan of a four-mode helium
+  capillary over pressure and energy, on `Pool`: 128 single-threaded workers over
+  20 × 20 points, 4 workers of 4 threads on one NUMA domain, and 8 workers of 16 threads.
+  Each against the table (workers passive) and the table with spinning workers, three
+  shuffled rounds, after one warm-up scan that calibrated the workers' allocation.
+- **Found:**
+  - *Nothing to gain.* The 4- and 16-core rows kept the table (spin, the full team, the
+    grain inconclusive, no planning), so a calibrated worker differs only by spinning.
+    Spinning and passive workers ran the same within the node's spread; a slower
+    calibrated arm at 8 × 16 (1.05–1.17) did not repeat in nine further scans, and the
+    parent's first-use check costs 0.4 s.
+  - *A defect, fixed.* A one-core allocation's standard calibration ran out of its 90 s
+    before three rounds of its problems in series, published nothing and would try again
+    a day later. One CPU has no team, waiting or grain to choose: a one-CPU allocation
+    is now never measured (`SINGLE_CPU`), so single-threaded scans neither wait nor
+    see a notice (a deviation from sections 6.4 and 6.10: one CPU is never calibrated implicitly).
+  - *The one-off cost:* about 90 s a worker class, once per machine, allocation class
+    and release.
+- **#314** (workers against threads a worker) stays open: this measured each split's
+  waiting, not the split itself.
+
 ### Phase 6 report — GPU builds
 
 - **Scope:** phase 6, 2026-11-08, on an NVIDIA H200 (CUDA 13.1, US$8.46); an AMD
@@ -1541,3 +1568,5 @@ are left to the maintainer as §12 items 4–7.
   item 1; revised (per-problem admission at the noise plus 5 %, production-sized
   problems, planning against the table, transforms at the table). Phase 6 measured on
   an NVIDIA H200; no device setting kept as calibrated, the chunk to #361.
+- 2026-11-09: Scan workers measured on an AMD EPYC 7763 node: the table kept, workers'
+  waiting immaterial; one-CPU allocations are no longer calibrated.

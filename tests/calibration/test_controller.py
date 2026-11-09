@@ -382,6 +382,19 @@ def test_a_busy_host_or_a_short_budget_is_inconclusive(
     assert short.reason == "too few rounds within the budget"
 
 
+def test_one_cpu_is_never_measured(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    report = calibrate("standard", environ=environ, cpus=[0])
+    assert report.status == "inconclusive"
+    assert report.reason == controller.SINGLE_CPU
+    assert script.started == []
+    # Nothing is recorded, so nothing waits a day to try again.
+    found = _native.store.Store(Path(environ["SOLPROP_CACHE_DIR"]))
+    assert found.inconclusive_since(report.fingerprint, _key(report)) is None
+
+
 def test_a_failed_child_publishes_nothing_and_every_child_is_reaped(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:

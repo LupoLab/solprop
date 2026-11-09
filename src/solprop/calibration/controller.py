@@ -57,6 +57,7 @@ __all__ = [
     "LEVELS",
     "ORDER",
     "POLICY",
+    "SINGLE_CPU",
     "CalibrationReport",
     "Candidate",
     "Level",
@@ -132,6 +133,13 @@ LEVELS: dict[str, Level] = {
 
 ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2}
 """Levels by depth: a higher level replaces a lower one for the same allocation."""
+
+SINGLE_CPU = "one CPU: no team, waiting or grain to choose (the built-in table applies)"
+"""Why an allocation of one CPU is never measured.
+
+A standard calibration of one core of an AMD EPYC 7763 ran out of its 90 s before three
+rounds of its problems in series, and could not have chosen anything (SEP 46 Part II).
+"""
 
 _CLEARED = (
     "SOLPROP_THREADS",
@@ -1809,6 +1817,14 @@ def calibrate(
     machine = _native.topology.read_topology()
     held = tuple(_process.allowed_cpus() if cpus is None else cpus)
     allocation = _native.allocation.classify(machine, held, _process.cgroup_cpus())
+    if len(held) < 2:
+        return CalibrationReport(
+            level=chosen.name,
+            status="inconclusive",
+            fingerprint=plan.digest,
+            allocation=allocation.record(),
+            reason=SINGLE_CPU,
+        )
     plan.say(f"{chosen.name} calibration of {allocation.cores} cores")
     reserve = seconds * chosen.reserve
     report = _calibrate_allocation(plan, held, allocation, reserve)
