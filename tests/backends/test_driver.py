@@ -21,6 +21,7 @@ import numpy as np
 import pytest
 
 from bounds import assert_within
+from scripted_driver import ScriptedDriver
 from solprop.backends.driver import (
     INITIAL_STEP_STATS_CAPACITY,
     StepDriver,
@@ -50,58 +51,6 @@ def present(value):
     """
     assert value is not None
     return value
-
-
-class ScriptedDriver(StepDriver):
-    """A driver whose stage evaluation multiplies by a constant and scores from a list.
-
-    The state advances by a factor per step so that a rejected step can be seen not to
-    have been kept, and the error norms come from a script so that acceptance,
-    rejection and the controller's response are exercised without needing a problem
-    whose physics happens to produce them.
-    """
-
-    name = "scripted"
-
-    def __init__(self, problem, *, norms=(), factor=1.0, scale=LENGTH / 8, **kwargs):
-        super().__init__(problem, **kwargs)
-        self._norms = list(norms)
-        self._factor = factor
-        self._scale = scale
-        self.calls: list[tuple[float, float]] = []
-        self.proposals: list[float] = []
-        self.accepted_hooks = 0
-        self.planes_begun = 0
-
-    def _trial_step(self, z, dz):
-        self.calls.append((z, dz))
-        self.proposals.append(self._proposal)
-        # A fifth-order embedded estimate: the norm has to fall like dz^5 or the
-        # controller's equivalent_norm reads every short landing step as a failure and
-        # the proposal collapses. A constant would test the loop against a stand-in the
-        # loop was never written for.
-        norm = self._norms.pop(0) if self._norms else (dz / self._scale) ** 5
-        state = self._require_state() * self._factor
-        return norm, self._apply_mask(state)
-
-    def _apply_mask(self, state):
-        return state * self._problem.grids.active_mask
-
-    def _on_accepted_step(self):
-        self.accepted_hooks += 1
-
-    def stats(self, spec) -> dict[str, np.ndarray]:
-        """Return one scriptable number per name: the position the row was taken at."""
-        state = self._require_state()
-        return {name: np.full((state.shape[0],), self._z) for name in spec.names}
-
-    def _begin_plane(self):
-        self.planes_begun += 1
-
-    def close(self):
-        """Release the state, as the seam requires."""
-        self._state = None
-        self._closed = True
 
 
 @pytest.fixture
