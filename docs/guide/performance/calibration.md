@@ -45,9 +45,9 @@ never runs your own simulation; for that, see
    work sizes the problems actually run, and tries other medium widths and compact
    teams for one-column problems.
 3. **FFT planning** (standard and thorough). Every transform the problems create is
-   planned alone at FFTW's `measure` effort, and serial ones at `patient` too at the
-   thorough level, within a time limit; each group of plans (serial rows, threaded rows,
-   transverse planes) keeps the effort that runs fastest *inside the step*, against
+   planned alone at FFTW's `measure` effort within a time limit; each group of plans
+   (serial rows, threaded rows, transverse planes) keeps the effort that runs fastest
+   *inside the step*, against
    plans made as a run without a profile makes them. A more exhaustive plan is not
    always a faster one, and a plan chosen alone not always the best in the step. Only
    a winning effort's wisdom is kept, so later runs build those plans at once instead
@@ -65,7 +65,7 @@ the calibration says so and publishes nothing.
 |---|---|---|---|---|---|
 | `--quick` | about 20 s | the wait only | medium width and compact team | plan policy | 3 |
 | standard | about 90 s | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
-| `--thorough` | about 5 min | yes | thresholds and full sizes of every operation | `measure` and `patient`, 20 s a plan | 7 |
+| `--thorough` | about 5 min | yes | thresholds and full sizes of every operation | `measure`, 20 s a plan | 7 |
 
 The standard and thorough levels also calibrate the smaller allocations they can pin
 children to inside the job, such as one socket, one NUMA node or one L3 cache group,

@@ -1321,17 +1321,19 @@ POLICY: dict[str, str] = {
 
 
 def _planning_candidates(
-    level: Level, measured: Mapping[str, object], patient: Mapping[str, object] | None
+    measured: Mapping[str, object],
 ) -> list[tuple[str, str, dict[str, object]]]:
     """Return each group's candidate plannings.
 
+    No group tries ``patient``: on an Intel Xeon Gold 6240, 16 cores of an AMD EPYC
+    7763 and an Apple M5 Max its capture never finished within the thorough level's
+    share of the stage, so it was never timed and only took the time the timing in
+    the step needed (solprop issue #595).
+
     Parameters
     ----------
-    level : Level
-        The level: patient plans only at thorough, and only for serial rows.
-    measured, patient : Mapping[str, object]
-        Captures at measure and at patient effort (``patient`` ``None`` below
-        thorough): ``wisdom`` and ``groups`` by plan key.
+    measured : Mapping[str, object]
+        The capture at measure: ``wisdom`` and ``groups`` by plan key.
 
     Returns
     -------
@@ -1375,17 +1377,6 @@ def _planning_candidates(
         found.append(
             ("rows estimate", "rows", planning(POLICY | {"rows": "estimate"}, wisdom))
         )
-        if patient is not None and level.fulls:
-            found.append(
-                (
-                    "rows patient",
-                    "rows",
-                    planning(
-                        POLICY | {"rows": "patient"},
-                        wisdom | cast(dict[str, str], patient["wisdom"]),
-                    ),
-                )
-            )
     if "threaded_rows" in present:
         found.append(
             (
@@ -1409,7 +1400,6 @@ def _alone_ratios(
     candidates: Sequence[tuple[str, str, Mapping[str, object]]],
     groups: Mapping[str, str],
     measured: Mapping[str, object],
-    patient: Mapping[str, object] | None,
 ) -> dict[str, dict[str, float]]:
     """Return each candidate's plans' execution alone over the policy's (issue #595).
 
@@ -1419,9 +1409,9 @@ def _alone_ratios(
         Each candidate's name, group and planning (:func:`_planning_candidates`).
     groups : Mapping[str, str]
         Each plan key's group.
-    measured, patient : Mapping[str, object] or None
-        The captures, whose ``alone`` holds each plan's seconds as captured
-        (``plan``) and at estimate (``estimate``).
+    measured : Mapping[str, object]
+        The capture at measure, whose ``alone`` holds each plan's seconds as
+        captured (``plan``) and at estimate (``estimate``).
 
     Returns
     -------
@@ -1431,10 +1421,7 @@ def _alone_ratios(
         candidate's verdict in the step, it tells a plan slower alone from one that
         loses only in the step.
     """
-    timed = {
-        "measure": cast(dict[str, dict[str, float]], measured.get("alone", {})),
-        "patient": cast(dict[str, dict[str, float]], (patient or {}).get("alone", {})),
-    }
+    timed = cast(dict[str, dict[str, float]], measured.get("alone", {}))
 
     def seconds(key: str, effort: str) -> float | None:
         """Return a plan's seconds alone at `effort`, or ``None``.
@@ -1444,17 +1431,14 @@ def _alone_ratios(
         key : str
             The plan key.
         effort : str
-            ``"estimate"``, ``"measure"`` or ``"patient"``.
+            ``"estimate"`` or ``"measure"``.
 
         Returns
         -------
         float or None
             The seconds, when timed and finite.
         """
-        if effort == "estimate":
-            value = timed["measure"].get(key, {}).get("estimate")
-        else:
-            value = timed[effort].get(key, {}).get("plan")
+        value = timed.get(key, {}).get("estimate" if effort == "estimate" else "plan")
         return value if value is not None and math.isfinite(value) else None
 
     ratios: dict[str, dict[str, float]] = {}
@@ -1484,8 +1468,8 @@ def _planning(
 ) -> tuple[dict[str, object], dict[str, str], dict[str, object]]:
     """Choose each FFT plan group's effort in the chosen setup (SEP 46 phase 3).
 
-    The child plans every transform alone at measure (and at patient, thorough),
-    from no wisdom within the level's time limit; the policy's efforts with that
+    The child plans every transform alone at measure, from no wisdom within the
+    level's time limit; the policy's efforts with that
     wisdom are the base, and each group's other effort a candidate, timed in the
     step on the problems holding that group's transforms and admitted by §6.5's rule;
     the winners are validated together. Quick leaves the plan policy.
@@ -1551,15 +1535,9 @@ def _planning(
         # timed, and plan as a run without a profile does.
         if not measured["groups"]:
             return {}, {}, {"reason": "no transform planned within the stage's share"}
-        patient = None
-        if plan.level.fulls:
-            plan.say("planning the serial transforms at patient")
-            patient = capture("patient", _CAPTURE_SHARE)
-            if patient.get("skipped"):
-                patient = None  # incomplete: patient is not a candidate
     except _ChildError as error:
         return {}, {}, {"reason": str(error)}
-    candidates = _planning_candidates(plan.level, measured, patient)
+    candidates = _planning_candidates(measured)
     groups = cast(dict[str, str], measured["groups"])
     contains = cast(dict[str, list[str]], measured["problems"])
     evidence: dict[str, object] = {
@@ -1567,7 +1545,7 @@ def _planning(
         "skipped": list(cast(list[str], measured.get("skipped", []))),
         "planning_seconds": measured["seconds"],
         "candidates": [name for name, _, _ in candidates],
-        "alone": _alone_ratios(candidates, groups, measured, patient),
+        "alone": _alone_ratios(candidates, groups, measured),
     }
     timed = [
         (
@@ -1616,12 +1594,8 @@ def _planning(
                 "efforts": chosen,
                 "wisdom": {
                     key: text
-                    for key, text in (
-                        cast(dict[str, str], measured["wisdom"])
-                        | (cast(dict[str, str], patient["wisdom"]) if patient else {})
-                    ).items()
+                    for key, text in cast(dict[str, str], measured["wisdom"]).items()
                     if chosen[groups.get(key, "rows")] != "estimate"
-                    and (chosen[groups.get(key, "rows")] != "patient" or patient)
                 },
             }
             validation = _validate_setups(
