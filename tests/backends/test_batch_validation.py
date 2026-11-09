@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from backends import test_batch_lockstep as fixtures
-from backends.test_driver import ScriptedDriver
+from scripted_driver import ScriptedDriver
 from solprop.backends import Backend, select_batch
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.numpy_ref import passes
