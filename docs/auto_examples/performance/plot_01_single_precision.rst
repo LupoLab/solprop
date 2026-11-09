@@ -18,28 +18,26 @@
 .. _sphx_glr_auto_examples_performance_plot_01_single_precision.py:
 
 
-Single precision on an Apple GPU
-================================
+Single precision
+================
 
 A run can hold its field and evaluate its nonlinear response in binary32 with
-``precision="single"``, which halves the memory of every field-sized buffer and is what
-an Apple-silicon GPU computes in. Whether a problem keeps its accuracy in binary32 is
-a property of the problem, so this example runs two of them both ways and compares:
-the photoionisation blue shift of
+``precision="single"``, which halves the memory of every field-sized buffer. Whether a
+problem keeps its accuracy in binary32 is a property of the problem, so this example
+runs two of them both ways and compares: the photoionisation blue shift of
 :doc:`/auto_examples/processes/plot_06_ionisation_blue_shift`, here on an envelope grid
 with the envelope-grid plasma, and a short radial argon filament on a field grid. Each
-runs in binary64 on ``backend="auto"`` and in binary32, where ``"auto"`` chooses the
-``mlx`` backend on a Mac with a Metal GPU.
+runs in binary64 on the default backend, ``native``, and in binary32 on the reference
+backend, ``numpy_ref``, which is named explicitly: it is the backend that runs single
+precision.
 
 **What to look for.** The two precisions' output spectra lie on top of each other on a
-40 dB scale; their difference, normwise over the whole saved field, is a few times
-:math:`10^{-5}` for the capillary and of order :math:`10^{-6}` for the filament -- set
-by the controller's tolerance and the binary32 propagator's rounding, which accumulates
-over the run's steps -- and the energy, the spectral centroid, the electron density, the
-peak intensity and the beam radius agree to the digits printed. At these sizes much
-of each run's wall time is its set-up. The printed times, from an Apple M5 Max, show the
-GPU ahead on the capillary and behind ``native``'s binary64 run on the short filament,
-while the envelope plasma's step itself is several times faster on the GPU
+40 dB scale; their difference, normwise over the whole saved field, is set by the
+controller's tolerance and the binary32 propagator's rounding, which accumulates over
+the run's steps, and the energy, the spectral centroid, the electron density, the peak
+intensity and the beam radius agree to the digits printed. The printed times show the
+unthreaded reference's binary32 run slower than ``native``'s binary64 one: here single
+precision is a check of accuracy, not a speed-up
 (:doc:`/guide/performance/single-precision`).
 
 **What is approximate.** Single precision's tolerance floor is ``rtol = 1e-6`` (the
@@ -48,12 +46,12 @@ noise-free comb-to-continuum, reaches its accuracy over a shorter length, as the
 :doc:`survival record </guide/performance/single-precision>` states. Timings depend on
 the machine and its load.
 
-.. GENERATED FROM PYTHON SOURCE LINES 38-40
+.. GENERATED FROM PYTHON SOURCE LINES 36-38
 
 The capillary, in both precisions
 ---------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 40-98
+.. GENERATED FROM PYTHON SOURCE LINES 38-101
 
 .. code-block:: Python
 
@@ -75,6 +73,10 @@ The capillary, in both precisions
     from solprop.stepper import PIController
 
 
+    # Binary64 on the default backend, binary32 on the reference, the backend that runs it.
+    BACKENDS = {"double": "auto", "single": "numpy_ref"}
+
+
     def capillary(precision):
         """Run the blue-shift capillary on an envelope grid; return it and its time."""
         started = time.perf_counter()
@@ -93,6 +95,7 @@ The capillary, in both precisions
             plasma=True,
             n_save=101,
             precision=precision,
+            backend=BACKENDS[precision],
             progress="none",
             noise=None,
         )
@@ -123,19 +126,19 @@ The capillary, in both precisions
 
  .. code-block:: none
 
-    double: 31.1 s on native
-    single: 6.1 s on mlx
-    field difference at the end 5.8e-05
+    double: 275.6 s on native
+    single: 4600.4 s on numpy_ref
+    field difference at the end 1.0e-05
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 99-101
+.. GENERATED FROM PYTHON SOURCE LINES 102-104
 
 The spectra and the plasma
 --------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 101-134
+.. GENERATED FROM PYTHON SOURCE LINES 104-137
 
 .. code-block:: Python
 
@@ -191,7 +194,7 @@ The spectra and the plasma
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 135-141
+.. GENERATED FROM PYTHON SOURCE LINES 138-144
 
 A radial filament, in both precisions
 -------------------------------------
@@ -200,7 +203,7 @@ A 30 fs pulse at three times the critical power for self-focusing, 3 cm in argon
 one bar, on 256 radial nodes in 2 mm and a field grid: Kerr self-focusing and the
 field-grid plasma on every node.
 
-.. GENERATED FROM PYTHON SOURCE LINES 141-203
+.. GENERATED FROM PYTHON SOURCE LINES 144-207
 
 .. code-block:: Python
 
@@ -236,6 +239,7 @@ field-grid plasma on every node.
                 save_planes=list(np.linspace(0.0, 0.03, 31)[1:]),
                 ionisation_field_range=(1e7, 1e11),
                 precision=precision,
+                backend=BACKENDS[precision],
             ),
             noise=None,
         ).run()
@@ -279,9 +283,11 @@ field-grid plasma on every node.
 
  .. code-block:: none
 
-    double: 1.3 s on native
-    single: 2.3 s on mlx
-    field difference at 3 cm 1.7e-06
+    BoundaryWarning: the safety ramp has removed 1.47e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
+    double: 1.9 s on native
+    BoundaryWarning: the safety ramp has removed 1.47e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
+    single: 42.2 s on numpy_ref
+    field difference at 3 cm 7.5e-07
     double: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
     single: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
 
@@ -291,7 +297,7 @@ field-grid plasma on every node.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (0 minutes 40.950 seconds)
+   **Total running time of the script:** (82 minutes 0.639 seconds)
 
 
 .. _sphx_glr_download_auto_examples_performance_plot_01_single_precision.py:

@@ -3,28 +3,26 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 r"""
-Single precision on an Apple GPU
-================================
+Single precision
+================
 
 A run can hold its field and evaluate its nonlinear response in binary32 with
-``precision="single"``, which halves the memory of every field-sized buffer and is what
-an Apple-silicon GPU computes in. Whether a problem keeps its accuracy in binary32 is
-a property of the problem, so this example runs two of them both ways and compares:
-the photoionisation blue shift of
+``precision="single"``, which halves the memory of every field-sized buffer. Whether a
+problem keeps its accuracy in binary32 is a property of the problem, so this example
+runs two of them both ways and compares: the photoionisation blue shift of
 :doc:`/auto_examples/processes/plot_06_ionisation_blue_shift`, here on an envelope grid
 with the envelope-grid plasma, and a short radial argon filament on a field grid. Each
-runs in binary64 on ``backend="auto"`` and in binary32, where ``"auto"`` chooses the
-``mlx`` backend on a Mac with a Metal GPU.
+runs in binary64 on the default backend, ``native``, and in binary32 on the reference
+backend, ``numpy_ref``, which is named explicitly: it is the backend that runs single
+precision.
 
 **What to look for.** The two precisions' output spectra lie on top of each other on a
-40 dB scale; their difference, normwise over the whole saved field, is a few times
-:math:`10^{-5}` for the capillary and of order :math:`10^{-6}` for the filament -- set
-by the controller's tolerance and the binary32 propagator's rounding, which accumulates
-over the run's steps -- and the energy, the spectral centroid, the electron density, the
-peak intensity and the beam radius agree to the digits printed. At these sizes much
-of each run's wall time is its set-up. The printed times, from an Apple M5 Max, show the
-GPU ahead on the capillary and behind ``native``'s binary64 run on the short filament,
-while the envelope plasma's step itself is several times faster on the GPU
+40 dB scale; their difference, normwise over the whole saved field, is set by the
+controller's tolerance and the binary32 propagator's rounding, which accumulates over
+the run's steps, and the energy, the spectral centroid, the electron density, the peak
+intensity and the beam radius agree to the digits printed. The printed times show the
+unthreaded reference's binary32 run slower than ``native``'s binary64 one: here single
+precision is a check of accuracy, not a speed-up
 (:doc:`/guide/performance/single-precision`).
 
 **What is approximate.** Single precision's tolerance floor is ``rtol = 1e-6`` (the
@@ -55,6 +53,10 @@ from solprop.spatial import SpatialMedium, critical_power
 from solprop.stepper import PIController
 
 
+# Binary64 on the default backend, binary32 on the reference, the backend that runs it.
+BACKENDS = {"double": "auto", "single": "numpy_ref"}
+
+
 def capillary(precision):
     """Run the blue-shift capillary on an envelope grid; return it and its time."""
     started = time.perf_counter()
@@ -73,6 +75,7 @@ def capillary(precision):
         plasma=True,
         n_save=101,
         precision=precision,
+        backend=BACKENDS[precision],
         progress="none",
         noise=None,
     )
@@ -170,6 +173,7 @@ for precision in ("double", "single"):
             save_planes=list(np.linspace(0.0, 0.03, 31)[1:]),
             ionisation_field_range=(1e7, 1e11),
             precision=precision,
+            backend=BACKENDS[precision],
         ),
         noise=None,
     ).run()
