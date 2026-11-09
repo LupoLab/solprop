@@ -2153,9 +2153,10 @@ Withdrawn (development-process record, not a design decision).
     `SOLPROP_NATIVE_FORWARD_PACK=0` turns the pack off.
   - *Planning.* Threaded rows stay at estimate by default; the thorough calibration no
     longer plans at patient, and records each candidate's plans timed alone beside its
-    verdict in the step. The FFT stage's timing in the step still runs out of rounds at
-    the standard and thorough levels on the machines measured, as it did before this
-    change; giving it time is the maintainer's call on the levels' budgets.
+    verdict in the step, and times in the step only the candidates faster alone. The
+    levels take 30 s, 2 min and 7 min (maintainer, 2026-11-09): with 20 s, 90 s and
+    5 min the FFT stage ran out of rounds at the standard and thorough levels on every
+    machine measured, before this change too.
 - **Consequences:** against the previous build, the tracking set ran 0.977 (Xeon Gold
   6240) and 0.981 (EPYC 7763) on geometric mean: `argon_blueshift` 0.80–0.87, `ctc`
   0.89–0.92, `rdw` 0.91–0.95, `line` 0.87–0.93, the rest within their spread; fields agree

@@ -214,9 +214,13 @@ measured while it existed.
     Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
     (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
     estimate's serial plans 1.06–2.8 of measure's.
-  - The thorough level no longer plans at patient, which leaves the time to its
-    timing in the step; each candidate's plans timed alone are kept beside its verdict
-    (`evidence.planning.alone`).
+  - The thorough level no longer plans at patient; a candidate whose plans are no
+    faster alone (median ratio 0.98 or more) is not timed in the step; and the levels
+    take 30 s, 2 min and 7 min (from 20 s, 90 s and 5 min). On the EPYC 7763 the stage
+    then reached a verdict: estimate's serial rows (2.11 alone) and planes (1.26) were
+    pruned, and `threaded_rows measure` scored 0.99 on the calibration's problems but
+    tied a round, so the policy held. Each candidate's plans timed alone are kept beside
+    its verdict (`evidence.planning.alone`, `pruned`).
 
 **Tried and not adopted**
 - **`FFTW_PATIENT` planning.** It adds seconds of construction and gave no measured
