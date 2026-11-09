@@ -1304,6 +1304,8 @@ another decision.
   the delivery, native-interface, restart and control arbitrations. Updated against
   main after SEP 46 completed; deferred full RK continuation to #596. The original
   review and the response remain separately readable below.
+- 2026-11-09: AI re-review by Opus 5.5 of the revision at `a6a21302`, recorded below;
+  Part I unchanged.
 
 ### AI review — 2026-11-09 — Opus 5.5
 
@@ -1811,3 +1813,118 @@ Documentation validation: `git diff --check`, codespell on changed documentation
 `poe docs` with Sphinx warnings treated as errors passed in the supported lightweight
 environment. No native build, parity qualification, new benchmark or full test gate
 was run for this documentation-only response.
+
+### AI re-review — 2026-11-09 — Opus 5.5
+
+**Reviewer:** Opus 5.5 (AI). I re-read all of Part I at `a6a21302`, the maintainer
+decisions recorded beside R4, R5/R6, R9 and R12, and the drafting agent's response. I
+checked them against main at `eee57c65`, which has SEP 46 Final. I checked the new
+factual claims against the code, the benchmark ledger, SEP 46's phase 6 report and
+issue #596. My original review text is unchanged apart from the inserted decisions.
+
+**Verdict.** Every point R1–R17 is answered. Part I, §12 items 4 and 8–10, the
+roadmap entry and the response agree with the maintainer's decisions, and the
+revision introduces no contradiction between sections. I accept the response's two
+corrections of my own points:
+
+- R2: the existing bit-for-bit RK test compares the host and native marches over the
+  same native kernels. It never compared independent NumPy arithmetic.
+- R17: `native/AGENTS.md:105` does forbid backend-dependent field layout.
+
+The corrected §4.3 is the right formulation. Exact traces cover identical inputs,
+SEP 25 covers independent arithmetic, and both tests are required.
+
+Two gaps remain, A1 and A2 below, both cheap to close. A3–A6 are small corrections.
+None of them reopens a decision. Once A1 and A2 are answered, I have no objection to
+acceptance after the human review that SEP 0 still requires.
+
+| Point | Status at `a6a21302` |
+|---|---|
+| R1 | Answered: §§2, 3.2 and 7.2. Note A4 on the ledger's attribution. |
+| R2 | Answered: §§4.3 and 7.1, with the premise corrected. |
+| R3 | Answered: §§5.3 and 6.4. Cap order, restart state and test-only exact watch replay. |
+| R4 | Answered: §11 records the exception and the concurrent-feature policy. Note A6. |
+| R5 | Answered: the §6.3 inventory. Note A2 on device scope. |
+| R6 | Answered: §6.6. No host-over-native executor, MLX described correctly, `StepDriver` removed by Final. |
+| R7 | Answered: §§5.1 and 7.1. Exact lifecycle witnesses. |
+| R8 | Answered: §§6.2 and 6.7. Member descriptions, the checkpoint batch axis and the preserved failure policy. |
+| R9 | Answered: §5.5, with #596 for RK continuation. |
+| R10 | Answered: the §6.2 extension table, including auxiliary state. |
+| R11 | Answered for (a), (b), (c) and (e). (d) is qualified, but see A1. |
+| R12 | Answered: §5.5. The signal semantics are now stated correctly. |
+| R13 | Answered: the §5.3 table. I checked it against kernel contract §§11–12 and `run.py`. |
+| R14–R16 | Answered: §§6.4, 7.3 and 6.6. |
+| R17 | Answered, with the correction above. |
+
+1. **A1 — Medium: say what a checkpoint stores (§§5.4, 5.5).** A
+   `TerminalCheckpoint` stores the accepted field in the internal FFT convention and
+   the output amplitude convention (`output/schema.py:2465-2484`). A resume inverts
+   the true-power weights to rebuild the state (`driver/simulation.py:4100-4105`).
+   Today's restart is therefore already "reconstruction of internal state by
+   inverting rounded normalization", at rounding level. A landed checkpoint at a plane
+   is also the same array as that plane before its optics conversion. §5.4 now says
+   a restart payload "may need unconverted internal state" that is "not the same
+   payload". It also says lossless inversion is not promised. Together these leave
+   open whether checkpoints change representation. If they did, that would mean a new
+   checkpoint dataset, a second export at coincident planes, and a format question
+   under §9.
+
+   **Requested change:** state that checkpoints, including the new running
+   checkpoints of §5.5, keep today's representation and today's rounding-level
+   inverse. A landed checkpoint and a coincident saved plane then share one export,
+   and only a dense plane, which sits at another position, needs a separate payload.
+   Say that running checkpoints reuse the existing checkpoint record, plus the
+   optional restart metadata, with no new dataset. A raw-state checkpoint would be
+   its own justified change, not implied here.
+
+2. **A2 — Medium: the device scope of each ported host-march case (§6.3, phase 5).**
+   Backends.md §9 lists CUDA/HIP as "qualified" for these:
+   - Adams beside a coupled flow, including the configurations that use the host
+     march today: off-eigenbasis bins and more than 16 channels;
+   - lockstep batches;
+   - the low-storage march, under HIP.
+
+   With no host-over-native executor, each of these must become a device-session
+   path, qualified on real CUDA/HIP hardware, or be newly refused on device builds.
+   A refusal would be a recorded capability change under §9. §6.3 states device scope
+   only for #255.
+
+   **Requested change:** give every §6.3 row its device disposition: ported and
+   qualified on CUDA/HIP in phase 5, or refused on device by name and listed in §9's
+   intentional changes.
+
+3. **A3 — Low: update the #361/#349 row (§3.3) and the #582 row (§3.2) for SEP 46
+   Final.** SEP 46's phase 6 report kept no calibrated device setting. It measured a
+   6–25 % gain from the larger node chunk on the H200's spatial routes, and it decided
+   that the chunk lands through #361 as its own PR, qualified on CUDA and HIP. "Do not
+   duplicate work that #582 lands first" is therefore obsolete, because #582 landed no
+   chunk change.
+
+   **Requested change:** say that #361 may land first on the current seam. Phase 3
+   then moves the chunk rule from translation into backend lowering without changing
+   #361's qualified default.
+
+4. **A4 — Low: two readings of the ledger (§3.2).**
+   - For period-1 statistics, the ledger attributes the roughly 290 µs (EPYC) and
+     75 µs (M5) per step to "the row itself rather than the return"
+     (`benchmarks.md:1361-1363, 1384-1385`). The payoff there therefore comes from
+     resident rows and bulk transfer (§6.4), not from removing the return. Say so, so
+     that phase 1's targets start from the right expectation.
+   - "No isolated current measurement … for snapshots" overlooks the
+     `step_planes = 1` rows, which is what snapshots force today. On the M5 they cost
+     39.5 → 15.2 µs per trial (Python march → native march), and on the EPYC a
+     natural stop costs about 58 µs a step. These are a usable proxy for the
+     snapshot-forced observation. Cite them.
+
+5. **A5 — Low: complete the structural counters (§7.3).** The zero-return causes
+   listed are periodic statistics, internal collar checks and low-storage iteration.
+   Add three more, as §7.2 already measures them:
+   - transverse-edge reads (SEP 44);
+   - the scheduled steps of a native fixed-schedule group;
+   - a run with snapshots enabled but no request pending.
+
+6. **A6 — Low: bookkeeping for the SEP 0 exception (§11).** The exception is recorded
+   only in SEP 47. Add a line to SEP 0's Part III history, or record it at acceptance
+   in `decisions.md`, so that readers of the process find it. Also say how the
+   **Implementation** field names the successive `feature/sep-0047-<milestone>`
+   branches and their PRs.
