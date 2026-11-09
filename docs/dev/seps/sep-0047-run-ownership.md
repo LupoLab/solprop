@@ -6,7 +6,7 @@
 | **Title** | Backend-owned execution sessions |
 | **Author** | John Travers |
 | **Drafting agent** | GPT-6 (2026-11-08); Opus 5.5 (acceptance revisions, 2026-11-09) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | Opus 5.5 (AI); John Travers (human) |
 | **Type** | Change |
@@ -15,7 +15,7 @@
 | **Requires** | SEPs 21, 22, 24, 25, 29, 33, 39, 44, 45 and 46 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers. Milestones in delivery order: (1) phases 1–2, branch `feature/sep-0047-contract` (draft PR to follow); started 2026-11-09 |
 | **Manual pages** | — |
 
 ## Part I — Proposal
@@ -1542,6 +1542,12 @@ another decision.
 
 ## Part II — Implementation record
 
+### Milestone 1 (phases 1–2) — in progress
+
+Branch `feature/sep-0047-contract`, started 2026-11-09 by Opus 5.5 (AI) as manager,
+with work packages developed on sub-branches and reviewed before merging. Phase reports
+follow as the packages land.
+
 ## Part III — History
 
 - 2026-11-08: Drafted following the analysis of current main, PRs #576, #585, #586,
@@ -1576,6 +1582,7 @@ another decision.
   and transition questions it raised; Part I revised for those decisions and for the
   clarifications listed in the record below. #584 is now delivered by PR #598.
 - 2026-11-09: Accepted by John Travers (human review) in #589.
+- 2026-11-09: Implementation started on `feature/sep-0047-contract` (phases 1–2).
 
 ### AI review — 2026-11-09 — Opus 5.5
 
