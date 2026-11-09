@@ -25,14 +25,11 @@ never a view of a live workspace, and the session never writes to it again.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
+from jaxtyping import Complex, Float
 
 from solprop.exceptions import BackendError, GridError
-
-if TYPE_CHECKING:
-    from jaxtyping import Complex, Float
 
 __all__ = ["ExportRecipe", "apply_recipe"]
 

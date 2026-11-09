@@ -20,13 +20,17 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Callable
-from typing import TYPE_CHECKING, cast
+from collections.abc import Callable, Mapping
+from types import TracebackType
+from typing import cast
 
 import numpy as np
+from jaxtyping import Complex
 
+from solprop.backends.driver import StepDriver
 from solprop.backends.events import (
     Eligibility,
+    Event,
     EventBatch,
     ExportTicket,
     ObservationKind,
@@ -38,8 +42,9 @@ from solprop.backends.events import (
     ServiceRequired,
     Terminal,
 )
-from solprop.backends.export import apply_recipe
+from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.protocol import (
+    Backend,
     BackendHistory,
     Observation,
     StepStats,
@@ -53,27 +58,15 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    Start,
 )
 from solprop.exceptions import StopRequested
-from solprop.log import NullReporter
+from solprop.log import NullReporter, PlaneSummary, StopFlag
+from solprop.monitor import BoundaryMonitor
+from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from types import TracebackType
-
-    from jaxtyping import Complex
-
-    from solprop.backends.driver import StepDriver
-    from solprop.backends.events import Event
-    from solprop.backends.export import ExportRecipe
-    from solprop.backends.protocol import Backend
-    from solprop.backends.session import Start
-    from solprop.log import PlaneSummary, StopFlag
-    from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import MarchSnapshot
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 __all__ = ["AttemptListener", "DriverSession"]
 

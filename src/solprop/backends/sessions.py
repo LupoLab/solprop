@@ -15,21 +15,16 @@ by the driver's type, so the run layer has one door.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from collections.abc import Callable
 
-from solprop.backends.driver_session import DriverSession
+from solprop.backends.driver_session import AttemptListener, DriverSession
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from solprop.backends.driver_session import AttemptListener
-    from solprop.backends.protocol import Backend
-    from solprop.backends.session import Start
-    from solprop.log import StopFlag
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
+from solprop.backends.protocol import Backend
+from solprop.backends.session import Start
+from solprop.log import StopFlag
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 __all__ = ["start_session"]
 

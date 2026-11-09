@@ -39,8 +39,13 @@ from __future__ import annotations
 import enum
 import itertools
 import threading
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from types import TracebackType
+from typing import Protocol, runtime_checkable
+
+import numpy as np
+from jaxtyping import Complex
 
 from solprop.backends.events import (
     EventBatch,
@@ -48,20 +53,12 @@ from solprop.backends.events import (
     Outcome,
     Receipt,
 )
+from solprop.backends.export import ExportRecipe
 from solprop.exceptions import BackendError
-
-if TYPE_CHECKING:
-    from collections.abc import Callable, Mapping
-    from types import TracebackType
-
-    import numpy as np
-    from jaxtyping import Complex
-
-    from solprop.backends.export import ExportRecipe
-    from solprop.noise import NoiseRealisation
-    from solprop.output.schema import MarchSnapshot
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
+from solprop.noise import NoiseRealisation
+from solprop.output.schema import MarchSnapshot
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "DEFAULT_DEADLINE",

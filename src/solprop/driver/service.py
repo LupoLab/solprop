@@ -12,7 +12,7 @@ own: it never rediscovers the next plane, rebuilds a statistic or replays the at
 to reconstruct a controller.
 
 Ordering follows SEP 47 section 5.3: a plane is committed with its method history and
-its execution record in one transaction (:func:`solprop._interrupts.committing`); a
+its execution record in one transaction (``solprop._interrupts.committing``); a
 snapshot is serviced after that commit; the plane observer and the reporter follow.
 A service failure leaves the batch unacknowledged, so the field it names can still be
 exported for the terminal checkpoint, and the primary failure is preserved.
@@ -23,14 +23,17 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 import numpy as np
 
 from solprop._host import RunClock, usage
 from solprop._interrupts import committing, poll
+from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
+    EventBatch,
+    ExportTicket,
     ObservationKind,
     ObservationReady,
     Outcome,
@@ -59,38 +62,34 @@ from solprop.driver.run import (
 )
 from solprop.driver.summary import resources
 from solprop.exceptions import ResponseBudgetError, RunTerminated, StopRequested
-from solprop.log import InterruptibleReporter, SummarisingReporter
+from solprop.log import (
+    InterruptibleReporter,
+    ProgressReporter,
+    StopFlag,
+    SummarisingReporter,
+)
 from solprop.output.hdf5 import HDF5Output
 from solprop.output.schema import (
+    CheckpointOutput,
+    FieldRetention,
+    Output,
     PlaneStore,
+    RecipeRecord,
+    RunMetadata,
     SavedPlane,
     StepHistory,
     StepStats,
     TerminalCheckpoint,
     _adopted,
 )
+from solprop.output.snapshots import SnapshotController
+from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stepper.multistep import Multistep
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
+from solprop.translate.tdse import TDSEBinding
 
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    from solprop.backends.driver_session import DriverSession
-    from solprop.backends.events import EventBatch, ExportTicket
-    from solprop.log import ProgressReporter, StopFlag
-    from solprop.output.schema import (
-        CheckpointOutput,
-        FieldRetention,
-        Output,
-        RecipeRecord,
-        RunMetadata,
-    )
-    from solprop.output.snapshots import SnapshotController
-    from solprop.output.tdse_archive import TDSEArchiveWriter
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
-    from solprop.translate.tdse import TDSEBinding
-
-__all__ = ["ServiceContext", "serve"]
+__all__ = ["MONITOR_RECONSTRUCTED", "ServiceContext", "serve"]
 
 logger = logging.getLogger("solprop.driver.run")
 

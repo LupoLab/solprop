@@ -28,15 +28,12 @@ or acknowledging an older one, is refused, so no barrier is crossed twice.
 from __future__ import annotations
 
 import enum
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING
+
+import numpy as np
 
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
-
-if TYPE_CHECKING:
-    from collections.abc import Mapping
-
-    import numpy as np
 
 __all__ = [
     "Eligibility",
