@@ -99,3 +99,6 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   host execution for Python extensions. Backend lowering owns packing, chunks and
   workspace lifetimes. Completion requires deleting the replaced machinery and
   qualifying correctness, field traffic and performance, not merely adding a wrapper.
+  The architectural decisions are agreed: APIs may be freely broken for a cleaner
+  design, with callers, tests and documentation updated together and a changelog
+  listing; compatibility layers and migration guides are unnecessary.

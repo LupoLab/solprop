@@ -74,6 +74,12 @@ In scope:
 - remove replaced interfaces and loops, and qualify the replacement across existing
   supported execution modes.
 
+Public and internal APIs may be broken wherever doing so produces cleaner code or a
+cleaner structure. The project is young and has no downstream users; retaining old API
+shapes is not a goal. Update solprop's callers, tests and documentation together, keep
+the supported functionality working, and list the API changes in the changelog.
+Compatibility shims, deprecation periods and migration guides are not required (§9).
+
 Outside this SEP are new physics, a new integrator, changed tolerances or monitoring
 defaults, reduced-precision native propagation, a Julia production backend, a general
 expression compiler, distributed propagation and a new output file format. Moving
@@ -263,11 +269,17 @@ storage, identities and explicitly exact no-ops remain exact.
 
 #### 5.1 User-facing behaviour
 
-Existing `Simulation`, convenience functions, recipes, scan executors, output handlers,
-backend names and precision choices remain the entry points. No new required option is
-introduced. Existing choices of solver, tolerances, statistics, field retention,
-boundaries, snapshots and stop flags keep their meaning. Native still refuses physics
-outside its admitted scope.
+The user-facing layer continues to support simulation construction, recipes, scans,
+outputs and backend selection. Their APIs, including public constructors and extension
+interfaces, may be redesigned or replaced wherever that makes the code and structure
+cleaner. Update all in-repository callers, including the GUI and examples, to the new
+API in the same implementation; no old entry point must be retained for compatibility.
+
+Solver, tolerance, statistics, field-retention, boundary, snapshot and stop capabilities
+remain working and tested. Their scientific meaning and defaults do not change merely
+because their configuration API changes. Native still refuses physics outside its
+admitted scope. The manual describes the resulting API directly, and the changelog
+lists the API changes; migration instructions and deprecation stages are unnecessary.
 
 The session protocol is initially an internal contract shared by solprop and
 solprop-native, not a new public user API. Its conceptual use is:
@@ -385,8 +397,8 @@ to convert it into another full host allocation. Whether conversion occurs befor
 device transfer or while filling a host destination is an execution choice measured on
 that device.
 
-Existing output handlers may retain every array they receive. The compatibility path
-therefore returns detached, owned arrays; the backend never reuses or mutates them.
+An output handler may retain every ordinary observation array it receives. Such
+observations return detached, owned arrays; the backend never reuses or mutates them.
 An optional destination provider may recycle storage only under an explicit ownership
 contract and after consumption. A view into a live propagation workspace is never an
 ordinary observation. Field-free events allocate and transfer no field. A terminal
@@ -402,9 +414,10 @@ user arrays or destroying a reusable simulation's launch field.
 #### 5.5 Stop, failure, warning and restart semantics
 
 A stop is observed at a documented safe boundary. Native advances release the GIL;
-bounded yields let Python poll arbitrary existing stop flags and signals. A native-safe
-stop token may reduce latency but is not required of existing callers. No Python callback
-is invoked from a worker or device kernel.
+bounded yields let Python service stop requests and signals. The stop interface may
+use a native-safe token or host polling under §9's API policy; its latency and supported
+calling patterns must be documented and tested. No Python callback is invoked from a
+worker or device kernel.
 
 The session owns the complete state of accepted numerical decisions. Boundary checking
 and stop decisions are not reconstructed from a second Python monitor. Python formats
@@ -426,8 +439,8 @@ pools. Query snapshot size and eligibility before allocating or transferring its
 payload, preserving the existing bounded-export policy. Reconstruct observation
 cursors from the committed output and checkpoint so a resumed dense or step-plane run
 neither loses nor repeats an owed observation. Import checks the existing scientific
-compatibility rules. A history whose
-format cannot be converted must be explicitly refused or restarted through the existing
+compatibility rules. A history whose format cannot be converted must be explicitly
+refused or restarted through the existing
 documented field-only path, with that choice recorded. It must never silently reset
 history. Existing saved files remain readable; output schema changes are not required
 by this proposal.
@@ -514,11 +527,12 @@ tolerances, norm semantics, controller parameters and step limits. A replay
 specification supplies its exact itinerary and existing diagnostic policy. Save planes
 and observation sampling belong to the observation request.
 
-These internal descriptors are assembled from existing public objects. This SEP does
-not change public constructors or choose new defaults. Method-specific mutable order,
-history, error memory, trial state and counters belong only to the session. Coefficients
-and validation rules may be shared as immutable data; controller implementations in
-NumPy and native remain independently testable.
+Public configuration objects may be redesigned around these descriptors; retaining
+existing constructors or aliases is unnecessary. This changes configuration structure,
+not scientific defaults. Method-specific mutable order, history, error memory, trial
+state and counters belong only to the session. Coefficients and validation rules may be
+shared as immutable data; controller implementations in NumPy and native remain
+independently testable.
 
 All built-in combinations currently admitted on native must be supported by its session,
 including combinations whose march currently returns to Python for implementation
@@ -581,8 +595,10 @@ current provider lifetime, attempted-call budgets, archive ordering and transact
 semantics and remains reference-only under its existing admission rules.
 
 This is a declared execution mode, reported at preparation and in metadata, not a
-surprise fallback midway through a native run. Preserve existing supported public
-extension behaviour and refusal/warning policy. Unsupported new callbacks are refused.
+surprise fallback midway through a native run. Preserve supported extension capabilities
+and explicit admission, but redesign their APIs where that simplifies the host session.
+Existing callback signatures and private inheritance hooks need no compatibility layer.
+Unsupported callbacks are refused.
 Host execution does not justify retaining native mirrors of `StepDriver`: it uses a
 small explicit numerical-operations protocol. Ordinary built-in native runs never
 construct a host controller shadow.
@@ -671,6 +687,13 @@ ownership and accurate actual-work totals. Use the same lifecycle conformance su
 all session implementations, alongside independent numerical tests; do not make the
 native implementation the lifecycle oracle.
 
+Update tests to the new APIs while preserving their physical, numerical, lifecycle
+and ownership assertions. Remove tests of deliberately retired API shapes where they
+no longer specify supported behaviour; replace coverage of their retained capabilities
+through the new interface. Keeping tests green must not mean deleting or weakening
+correctness checks to conceal a regression. Solprop, its GUI, examples and supported
+workflows must work with the new API before completion.
+
 #### 7.2 Performance experiments
 
 Record a baseline after SEP 46 and any concurrent kernel work used by the implementation.
@@ -742,29 +765,46 @@ and prepared-resource reuse. Document the explicit cost and scope of Python exte
 without exposing internal packet plumbing in normal user flows. Explain that
 statistics and saved fields remain requested work, and that a native session need not
 put its controller on the GPU. Add a short developer example for implementing a session
-and a failing output consumer. A new full-size gallery is unnecessary; existing short
-examples exercise the unchanged public API.
+and a failing output consumer. A new full-size gallery is unnecessary; update existing
+examples to the new API and regenerate any affected gallery output under the usual
+documentation rules. Describe the current API directly, without migration guides,
+old-to-new API tables or deprecation instructions.
 
 Every implementation phase adds its API docstrings, manual changes and benchmark
 ledger evidence with its tests. The final release-note fragment names this SEP and
-the internal contract break. No runtime feature is advertised merely because this
-Draft has merged.
+lists the public and internal API changes. A simple changelog listing is sufficient
+notice of API breaks. No runtime feature is advertised merely because this Draft
+has merged.
 
 ### 9. Compatibility and impact
 
-The public simulation and file interfaces retain their semantics. Existing files remain
-readable, saved fields keep their convention and units, and explicit extension cases
-keep their supported execution path. Recipe identity and scientific restart checks
-must not acquire hardware-dependent packing or calibration data. Execution provenance
-can record the new session and lowering choices without changing scientific identity.
+**API compatibility is not a constraint on this restructuring.** The project is young
+and has no downstream users. Public and internal APIs may be freely broken, and should
+be changed when doing so gives cleaner code or structure. There is no requirement for
+deprecation periods, compatibility aliases, shims, migration paths or migration
+documentation. Public signatures do not need a separate approval merely because they
+change within this agreed design.
+
+Update solprop's own callers, GUI, tests, examples, recipes and documentation together.
+Keep solprop working, preserve the supported scientific and operational capabilities,
+and pass the required checks. The manual and docstrings describe the new API; the
+changelog simply lists the changes. Temporary adapters may help develop the one
+implementation branch, but must not become permanent compatibility machinery.
+
+API freedom does not change the numerical problem or authorize silently changing
+scientific defaults. Existing saved files remain readable and saved fields keep their
+convention and units; a new output format remains outside this SEP. Recipe identity and
+scientific restart checks must not acquire hardware-dependent packing or calibration
+data. Execution provenance can record the new session and lowering choices without
+changing scientific identity.
 
 The internal backend contract deliberately breaks: `KernelProblem`, the protected
 `StepDriver` surface and stage bundles are replaced or reduced to their new roles.
 Update the frozen contract tests and native bindings in the same implementation PR.
 The distributions remain released together at one pinned version; no independent seam
-version is introduced (ADR-068). Editable-source digest checks remain. External code
-using internal backend members must migrate; do not preserve those internals at the
-cost of permanent duplicate state ownership.
+version is introduced (ADR-068). Editable-source digest checks remain. Remove retired
+internal interfaces and their obsolete contract tables instead of preserving duplicate
+state ownership for hypothetical callers.
 
 The native C++ code will grow to own a run, while the native Python adapter and shared
 driver machinery should shrink substantially. Total line count alone is not success:
@@ -833,13 +873,17 @@ and native gates run in CI as required by the repository rules.
    operations on a cheap run and a large field before committing to their layout.
    Verify that the protocol does not require an extra retained field or controller
    shadow. Set the before/after deletion inventory and phase-specific performance
-   targets from this evidence.
+   targets from this evidence. Choose the clean public configuration API and identify
+   the in-repository callers and tests that change with it; no migration plan for old
+   APIs is required.
 2. **Reference and host session.** Split immutable method/tolerance/observation inputs,
    introduce route variants and implement the reference lifecycle with its independent
    numerical algorithms. Replace the outer numerical driver with the service loop.
-   Preserve Python extensions, TDSE transactions, MLX and old public entry points
-   through transitional adapters. Verify event ordering, failure and resume before
-   moving native execution. No new native fast path is required in this milestone.
+   Retain Python extension capabilities, TDSE transactions and MLX while updating their
+   interfaces and callers directly. Replace obsolete public entry points where that
+   simplifies the design; transitional adapters are optional development aids only.
+   Verify event ordering, failure and resume before moving native execution. No new
+   native fast path is required in this milestone.
 3. **Native preparation and complete built-in session.** Integrate SEP 46 policy,
    backend-owned lowering and allocation records. Adopt the existing native Adams/RK
    engines; move low-storage replay and remaining admitted built-in host march cases
@@ -864,33 +908,41 @@ and native gates run in CI as required by the repository rules.
 
 ### 12. Open questions
 
-The following decisions require maintainer and independent AI review before acceptance.
-Recommendations are deliberate, rather than leaving the architecture to implementation.
+John Travers resolved the seven architectural decisions on 2026-11-09. These are the
+agreed design direction; full proposal review under SEP 0 still precedes formal
+acceptance.
 
-1. **How far should ownership move?** Recommend the complete numerical session,
-   including observations, boundaries, accounting and export preparation, with Python
-   retaining science construction and external transactions. Approving only another
-   native march wrapper would materially change the proposal.
-2. **May internal layouts differ by backend?** Recommend yes, with canonical host
-   boundaries and explicit packing costs. This deliberately changes the present native
-   rule, and needs agreement before acceptance.
-3. **How should Python extension support survive?** Recommend one declared host-owned
-   session using explicit numerical operations, with full preservation of currently
-   supported cases. Do not force custom Python code into descriptors or quietly drop it.
-4. **How much batching belongs here?** Recommend explicit group ownership and a coarse
-   native schedule loop, while leaving general fused kernels and adaptive ensembles
-   outside this SEP. This resolves the architectural ambiguity without claiming #356's
-   unmeasured throughput benefit.
-5. **Is structural simplification sufficient?** Recommend yes, provided correctness,
-   deletion and non-regression criteria hold. Large universal speedups are not a
-   condition of acceptance, and small timings cannot excuse retaining two architectures.
+1. **Ownership:** the backend owns the complete numerical session, including
+   observations, boundaries, accounting and export preparation. Python retains science
+   construction and external transactions (§§5–6.1).
+2. **Representations:** Python constructs and validates a numerical description that
+   retains mathematical structure. The backend owns packing, materialization, evaluation
+   and execution choices, without silently changing scientific approximations (§6.2).
+3. **Layouts:** internal layouts may differ by backend, with canonical host boundaries,
+   explicit packing costs and numerical-equivalence tests (§6.2).
+4. **Python extensions:** retain supported capabilities through an explicit host-owned
+   session and narrow numerical operations. The old private inheritance contract is
+   removed; extension APIs may change under decision 6 (§6.6).
+5. **Groups:** include explicit group ownership and coarse native fixed-schedule
+   advancement. General fused kernels and adaptive ensembles remain separate work
+   (§6.7).
+6. **API freedom:** freely break public and internal APIs wherever that produces cleaner
+   code or structure. Keep solprop working and tests passing, update documentation to
+   the new API, and list changes in the changelog. No compatibility layers, deprecation
+   periods, migration paths or migration documentation are required (§9).
+7. **Success:** structural simplification is a sufficient primary benefit, with mandatory
+   correctness and deletion requirements. Target performance neutrality or improvement;
+   a repeatable per-case regression of 5% beyond measurement uncertainty triggers an
+   explicit decision under §7.3, not automatic acceptance or rejection.
 
-The exact descriptor field names, packet capacities and native class decomposition are
-deferred to phase 1 under the invariants above. Whether a particular GPU benefits from
-conversion before transfer, a larger graph or a device controller is deferred to phases
-3–4 measurements. Neither changes scientific semantics. A need for a new approximation,
-output format, public signature or dependency returns to review rather than being
-decided implicitly during implementation.
+No maintainer choice among these seven remains open. Phase 1 determines the exact
+public configuration API, descriptor fields, packet capacities, yield intervals and
+native class decomposition under these decisions. Whether a particular GPU benefits
+from conversion before transfer, a larger graph or a device controller is deferred to
+phases 3–4 measurements. These choices do not change scientific semantics. A new
+approximation, output format, dependency or departure from the agreed architecture
+returns to review; an API break within the agreed design does not by itself require
+another decision.
 
 ### 13. References
 
@@ -931,3 +983,12 @@ decided implicitly during implementation.
   #582 and #559, and the performance-labelled issues. No implementation or fresh
   performance measurements are claimed. Tracking issue:
   [#588](https://github.com/LupoLab/solprop/issues/588).
+- 2026-11-09: John Travers accepted all seven architectural recommendations recorded
+  in §12. On API compatibility he clarified that the project is young and has no
+  downstream users: APIs may be freely broken wherever this gives cleaner code or
+  structure, provided solprop keeps working and its tests pass. Documentation should
+  describe the new API, and a simple changelog listing is sufficient; migration paths
+  and migration documentation are unnecessary. Revised the interface, extension,
+  verification, documentation, compatibility and phase requirements accordingly. This
+  records maintainer design decisions, not a completed review of the whole proposal;
+  the SEP remains Draft pending the reviews required by SEP 0.
