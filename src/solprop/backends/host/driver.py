@@ -11,11 +11,12 @@ else. Written once here, they are the step control of every NumPy reference back
 
 **The reference owns this loop** since SEP 47 phase 2: :class:`HostDriver` is a copy of
 the inherited driver the native bridge still runs on
-(:class:`solprop.backends.driver.StepDriver`), so that the reference session shares
-only stateless numerical modules -- the controller cores, tableaux, coefficient
-evaluation and stage tables -- with that bridge. The copies started identical; their
-decisions on identical inputs stay bit-identical (the decision traces of
-``tests/backends``).
+(:class:`solprop.backends.driver.StepDriver`), so that the reference shares stateless
+numerical modules -- the controller cores, tableaux, coefficient evaluation and stage
+tables -- with that bridge, and transitionally the session lifecycle and the host
+engines (the exceptions :mod:`solprop.backends.host` records). The copies started
+identical; their decisions on identical inputs stay bit-identical (the decision traces
+of ``tests/backends``).
 What a backend supplies is ``_trial_step``, ``_apply_mask`` and ``stats``, plus
 ``_finish`` when it has boundary treatments of its own; two optional hooks,
 ``_begin_plane`` and ``_on_accepted_step``, are where a backend scores whatever a plane

@@ -11,11 +11,13 @@ outcome with its checkpoint eligibility, over the reference's own driver
 (:class:`solprop.backends.host.driver.HostDriver`). It imports nothing of the inherited
 driver the native bridge still runs on.
 
-For phase 2 the lifecycle is the transitional session's
-(:class:`solprop.backends.driver_session.DriverSession`), which drives any driver
-through the backend protocol and the halt and yield hooks a host driver keeps
-(``request_halt``, ``clear_halt``, ``set_halt_check``, ``poll_halt`` and the latch
-``_halted``); a later step of SEP 47 restructures it.
+**A recorded exception.** The reference otherwise shares only stateless numerical
+modules with the native bridge, but for phase 2 its lifecycle is the transitional
+session's (:class:`solprop.backends.driver_session.DriverSession`), reused by
+subclassing: it drives any driver through the backend protocol and the halt and yield
+hooks a host driver keeps (``request_halt``, ``clear_halt``, ``set_halt_check``,
+``poll_halt`` and the latch ``_halted``). The exception is removed when a later step of
+SEP 47 restructures this session into the reference's own.
 """
 
 from __future__ import annotations

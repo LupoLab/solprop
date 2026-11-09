@@ -74,18 +74,8 @@ def start_session(  # noqa: PLR0913 - the session context
         A :class:`~solprop.backends.host.session.HostSession` for a reference
         backend, or the transitional session for any other.
     """
-    if isinstance(backend, HostDriver):
-        return HostSession(
-            backend,
-            problem,
-            request,
-            start,
-            listener=listener,
-            started=started,
-            stop=stop,
-            owns=owns,
-        )
-    return DriverSession(
+    session = HostSession if isinstance(backend, HostDriver) else DriverSession
+    return session(
         backend,
         problem,
         request,

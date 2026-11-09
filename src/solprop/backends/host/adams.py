@@ -7,11 +7,12 @@
 The controller, history, ledger and lifecycle of :class:`HostAdamsMarch`, owned by the
 NumPy reference since SEP 47 phase 2: copied from the shared march that the native
 bridge still inherits (:class:`solprop.backends.multistep.AdamsMarch`), so that the
-reference session shares only stateless numerical modules with that bridge. The
-state-sized arithmetic stays shared: the march hands every operation of its fused and
-exponential paths to the host engine (:class:`solprop.backends.multistep.HostHistory`),
-whose kernels and tables are numerical data structures, and the comparison variants'
-trials to :class:`solprop.backends.host.general.HostGeneralPath`. The decisions are
+control is the reference's own. The state-sized arithmetic stays shared, a recorded
+exception (:mod:`solprop.backends.host`): the march hands every operation of its fused
+and exponential paths to the host engine
+(:class:`solprop.backends.multistep.HostHistory`), which the bridge's march also takes
+where native keeps no resident history, and the comparison variants' trials to
+:class:`solprop.backends.host.general.HostGeneralPath`. The decisions are
 :mod:`solprop.backends.adams_core`'s functions of one policy record.
 
 The method, its lifecycle and its numbers are those of
@@ -66,10 +67,18 @@ class HostAdamsMarch:
         test witness only.
     engine : object, optional
         An :class:`~solprop.backends.multistep.AdamsEngine` for the fused and
-        exponential paths; ``None``, the default, takes the host engine
-        (:class:`~solprop.backends.multistep.HostHistory`) over the backend's hooks. A
-        scripted engine drives the controller alone, for the decision traces of SEP 39
-        section 7.1. Typed ``object`` because the engine protocol is structural.
+        exponential paths, which the general path never takes, as the bridge's march
+        never takes a resident engine there; ``None``, the default, takes the host
+        engine (:class:`~solprop.backends.multistep.HostHistory`) over the backend's
+        hooks. A scripted engine drives the controller alone, for the decision traces
+        of SEP 39 section 7.1. Typed ``object`` because the engine protocol is
+        structural and not checkable at run time; the members the path calls are
+        checked here instead.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If `engine` lacks a member its path calls.
     """
 
     def __init__(
@@ -106,11 +115,13 @@ class HostAdamsMarch:
         # Every state-sized operation goes to an engine (SEP 16 phase 3b), the host
         # one unless a scripted engine is given. The general path's arithmetic stays
         # in its own class.
-        self._engine: AdamsEngine = (
-            HostHistory(backend, method, self._kernels, self._exponential, compensation)
-            if engine is None
-            else cast("AdamsEngine", engine)
-        )
+        if engine is not None and (self._fused or self._exponential is not None):
+            _check_engine(engine, exponential=self._exponential is not None)
+            self._engine: AdamsEngine = cast("AdamsEngine", engine)
+        else:
+            self._engine = HostHistory(
+                backend, method, self._kernels, self._exponential, compensation
+            )
         # The comparison variants' general path keeps its arithmetic in a class of its
         # own (SEP 39 Q7); the selected method's paths never reach it.
         self._general: HostGeneralPath | None = None
@@ -1019,3 +1030,40 @@ class HostAdamsMarch:
         self._backend._proposal = limit_step(
             dz, outcome.factor, policy.dz_min, policy.dz_max
         )
+
+
+_ENGINE_MEMBERS = (
+    "n_slots",
+    "carrier",
+    "dense",
+    "reset",
+    "hold",
+    "restore",
+    "start",
+    "value",
+    "observe",
+)
+"""What every march path asks of an engine, beside its own trial and acceptance."""
+
+
+def _check_engine(engine: object, *, exponential: bool) -> None:
+    """Refuse an injected engine that lacks a member its path calls.
+
+    Parameters
+    ----------
+    engine : object
+        The engine, an :class:`~solprop.backends.multistep.AdamsEngine`.
+    exponential : bool
+        Whether the path is the exponential formulation's, or the fused one's.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        Naming the missing members.
+    """
+    family = "exponential" if exponential else "fused"
+    wanted = (*_ENGINE_MEMBERS, f"{family}_trial", f"{family}_accept")
+    missing = [name for name in wanted if not hasattr(engine, name)]
+    if missing:
+        msg = f"an Adams engine for the {family} path lacks {', '.join(missing)}"
+        raise BackendError(msg)
