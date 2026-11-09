@@ -171,6 +171,7 @@ from . import (
 )
 from ._execution import ExecutionRecord
 from ._helpers import NATIVE
+from ._statistics import StatisticsLowering, lower, uncovered
 
 type ComplexArray = npt.NDArray[np.complex128]
 type RealArray = npt.NDArray[np.float64]
@@ -288,6 +289,9 @@ from which :func:`solprop.backends.numpy_ref.passes.plasma_integration_statistic
 
 _PLASMA_INTEGRATION_PARTS = 6
 
+_STATISTICS_PLANS = 16
+"""The most native statistics plans a backend keeps, one per spec and names."""
+
 
 class NativeBackend(StepDriver[_core.State]):
     """Propagate modal, radial or Cartesian fields with persistent Kokkos state.
@@ -371,6 +375,10 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
         self._far_field = FarFieldTables(problem)
+        # solprop SEP 47: the native statistics plans lowered for the specs asked.
+        self._statistics_plans: dict[
+            tuple[int, tuple[str, ...]], tuple[StatsSpec, StatisticsLowering]
+        ] = {}
         # solprop ADR-076: the plans runs of this machine and build measured before
         # are offered to the workspace, and those it measures are kept after it.
         wisdom = _wisdom.wisdom_file() if fft_planning is None else None
@@ -1549,7 +1557,23 @@ class NativeBackend(StepDriver[_core.State]):
         if refusal is not None:
             raise BackendError(refusal)
         if general_modal:
-            return self._general_statistics(spec, grid_value)
+            # solprop SEP 47: the route's statistics are the native plan's, the one
+            # implementation a native session's rows and planes also read; only a
+            # name it leaves (``zdw``) is collected on the host.
+            weight_refusal = weight_refusal_for(
+                spec.names, power_weight_at(self._problem, self._z)
+            )
+            if weight_refusal is not None:
+                raise BackendError(weight_refusal)
+            left = uncovered(self._problem, spec.names)
+            values = self._planned_statistics(spec, left)
+            if left:
+                values.update(
+                    self._general_statistics(
+                        dataclasses.replace(spec, names=left, periodic=()), grid_value
+                    )
+                )
+            return values
         integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
         if integration_names and (
             not self._problem.responses.population_channels
@@ -1607,6 +1631,13 @@ class NativeBackend(StepDriver[_core.State]):
                 "the electron density and the peak ionisation rate need a compiled "
                 "plasma response, and this problem declares none"
             )
+        if not axis_names:
+            # solprop SEP 47: the native plan, the one implementation of each
+            # statistic a native session's rows and planes also read.
+            return self._planned_with_host(spec, spatial_names)
+        # A call that also asks for an on-axis plasma statistic keeps the host finish
+        # below: a Radau rule's axis node reuses this call's per-node population scan
+        # (SEP 19), which the plan reduces natively without handing it back.
         on_axis = np.empty(0, dtype=np.float64)
         if "peak_intensity" in native_names:
             if self._modes is None:
@@ -1703,6 +1734,93 @@ class NativeBackend(StepDriver[_core.State]):
         if spatial_names:
             values.update(self._spatial_statistics(spatial_names, spec))
         values.update(self._profile_statistics(spec))
+        return values
+
+    def _planned_statistics(
+        self, spec: StatsSpec, left: Sequence[str] = ()
+    ) -> dict[str, np.ndarray]:
+        """Evaluate a spec's statistics with the native plan (solprop SEP 47 6.4).
+
+        The plan is lowered once for the spec and its names and kept: every
+        statistic is evaluated and finished natively, from the problem's own z
+        tables, as a native session's rows and planes are.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            The statistics.
+        left : sequence of str, optional
+            Names the plan does not evaluate, left to the caller.
+
+        Returns
+        -------
+        dict
+            The statistics, each with a leading batch axis.
+        """
+        names = tuple(name for name in spec.names if name not in left)
+        if not names:
+            return {}
+        key = (id(spec), names)
+        held = self._statistics_plans.get(key)
+        if held is None or held[0] is not spec:
+            apertures = None
+            if self._problem.transform.geometry is not None:
+                apertures = _aperture_payload(
+                    self._far_field.for_spec(spec), self._problem.shape[-1]
+                )
+            lowering = lower(
+                self._problem,
+                spec,
+                names,
+                grid=self._grid,
+                modes=self._modes,
+                profiles=self._profiles,
+                apertures=apertures,
+            )
+            if len(self._statistics_plans) >= _STATISTICS_PLANS:
+                self._statistics_plans.clear()
+            held = (spec, lowering)
+            self._statistics_plans[key] = held
+        lowering: StatisticsLowering = held[1]
+        assert lowering.plan is not None
+        with _envelope_errors():
+            packed = self._native_state.planned_statistics(lowering.plan, self._z)
+        return {name: value[None] for name, value in lowering.unpack(packed).items()}
+
+    def _planned_with_host(
+        self, spec: StatsSpec, spatial_names: set[str]
+    ) -> dict[str, np.ndarray]:
+        """Evaluate a modal or spatial spec: the plan, and the plane-only names left.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            The statistics.
+        spatial_names : set of str
+            Its spatial statistics.
+
+        Returns
+        -------
+        dict
+            The statistics, each with a leading batch axis.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            For a name neither the plan nor the host evaluates.
+        """
+        left = uncovered(self._problem, spec.names)
+        values = self._planned_statistics(spec, left)
+        widths = set(left) & spatial_names & {"beam_radius", "fwhm_r"}
+        if widths:
+            values.update(self._spatial_statistics(widths, spec))
+        rest = tuple(name for name in left if name not in widths)
+        if rest:
+            values.update(
+                self._profile_statistics(
+                    dataclasses.replace(spec, names=rest, periodic=())
+                )
+            )
         return values
 
     def _axis_row_populations(

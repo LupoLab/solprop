@@ -28,6 +28,7 @@ namespace {
 namespace session = solprop_native::session;
 namespace march = solprop_native::march;
 namespace rk = solprop_native::rk;
+namespace statistics = solprop_native::statistics;
 
 volatile double factor_a = 1.0 + 0x1p-30;
 volatile double factor_b = 1.0 - 0x1p-30;
@@ -150,8 +151,9 @@ Built build(std::vector<int> rejects = {}, const int fail_at = 0,
   session::Plan plan;
   plan.planes = {0.01, 0.02, 0.03};
   plan.step_planes = step_planes;
-  plan.plane_statistics.kind = session::StatisticsRecipe::Kind::temporal;
-  plan.plane_statistics.flags = 2;
+  auto statistics = std::make_shared<statistics::Plan>();
+  statistics->outputs = {statistics::Stat::energy};
+  plan.plane_statistics.plan = std::move(statistics);
   plan.row_statistics = plan.plane_statistics;
   plan.period = period;
   plan.attempt_capacity = attempt_capacity;

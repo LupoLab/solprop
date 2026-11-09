@@ -24,8 +24,10 @@ every other feature by name before allocating anything (:func:`refusal`):
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
-- plane and periodic statistics that the native ``statistics`` entry computes
-  completely today, with a power weight constant in z;
+- every periodic-capable statistic of the catalogue on these routes, plane and
+  periodic, each evaluated and finished natively from a plan lowered once
+  (:mod:`solprop_native._statistics`); the plane-only statistics the host finishes
+  (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
 - no boundary monitor, dense output, low-storage replay, comparison method, custom
   controller, group, noise model, TDSE, resumed run or method-history snapshot.
 """
@@ -62,18 +64,30 @@ from solprop.backends.session import (
     SessionStatus,
     SnapshotReceipt,
 )
-from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, GridError, StopRequested
+from solprop.output.capability import (
+    declared_capability,
+    refusal_for,
+    withheld_accessors,
+)
+from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.linop import power_weight_at
 
 from . import _core
+from ._statistics import (
+    ADMITTED_GENERAL_STATISTICS,
+    ADMITTED_SPATIAL_STATISTICS,
+    ADMITTED_STATISTICS,
+    StatisticsLowering,
+    lower,
+    uncovered,
+)
 from .backend import (
-    _SPATIAL_STAT_FLAGS,  # pyright: ignore[reportPrivateUsage]
-    _STAT_FLAGS,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
+    _aperture_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
     native_march_refusal,
@@ -95,27 +109,12 @@ if TYPE_CHECKING:
     from solprop.translate.run_request import RunRequest
 
 __all__ = [
+    "ADMITTED_GENERAL_STATISTICS",
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
     "NativeSession",
     "refusal",
 ]
-
-ADMITTED_STATISTICS = (
-    "omega0",
-    "energy",
-    "energy_window",
-    "peak_power",
-    "peak_power_window",
-    "peak_power_total",
-)
-"""The modal statistics the prototype session takes natively, plane and periodic: those
-the native ``statistics`` entry computes completely, without a host finish or a
-z-dependent input other than a constant power weight."""
-
-ADMITTED_SPATIAL_STATISTICS = ("energy", "on_axis_intensity", "peak_intensity")
-"""The spatial statistics it takes natively (``spatial_statistics``' scalar flags), with
-``on_axis_spectrum`` beside them off the free-space kind."""
 
 CALL_ATTEMPTS = 256
 """A march call's most attempts, as the driver's native marches bound them (SEP 39)."""
@@ -226,6 +225,10 @@ def refusal(
 def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
     """Return why the session refuses a run's statistics, naming them, or ``None``.
 
+    Every statistic the native plan evaluates on the route is admitted, plane and
+    periodic (:mod:`solprop_native._statistics`); the plane-only statistics the host
+    finishes are refused by name, and so is what the backend itself would refuse.
+
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
@@ -241,67 +244,40 @@ def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
     names = tuple(spec.names)
     if not names:
         return None
-    if problem.transform.modal_tables is not None:
-        return (
-            f"the general modal route's statistics {names!r}, which the host finishes"
-        )
-    geometry = problem.transform.geometry
-    if geometry is not None:
-        admitted: set[str] = set(ADMITTED_SPATIAL_STATISTICS)
-        if geometry.kind != "free":
-            admitted.add("on_axis_spectrum")
-    else:
-        admitted = set(ADMITTED_STATISTICS)
-        if problem.linear.power_weight_constant is None:
-            return (
-                f"the statistics {names!r} at a power weight that varies with z, "
-                "which the host evaluates before each row"
-            )
-    refused = [name for name in names if name not in admitted]
-    if refused:
-        return (
-            f"the statistics {tuple(refused)!r}, which the native statistics entry "
-            "does not finish without the host"
-        )
-    return None
-
-
-def _recipe(
-    problem: KernelProblem, names: Sequence[str], spec: StatsSpec
-) -> dict[str, object]:
-    """Return a statistics evaluation's fixed arguments, for the native session.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The problem.
-    names : sequence of str
-        The admitted statistics to evaluate.
-    spec : solprop.stats.StatsSpec
-        Their windows.
-
-    Returns
-    -------
-    dict
-        The recipe: its kind, flags, windows, power weight and intensity factor.
-    """
-    spatial = problem.transform.geometry is not None
-    table = _SPATIAL_STAT_FLAGS if spatial else _STAT_FLAGS
-    flags = 0
-    for name in names:
-        flags |= table[name]
-    weight = problem.linear.power_weight_constant
-    return {
-        "kind": 0 if not names else (2 if spatial else 1),
-        "flags": flags,
-        "windows": np.ascontiguousarray(spec.energy_windows, dtype=np.float64).reshape(
-            -1
+    general_modal = problem.transform.modal_tables is not None
+    refused = refusal_for(
+        declared_capability(
+            general_modal=general_modal,
+            spatial=problem.transform.geometry is not None,
         ),
-        "power_weight": _EMPTY
-        if spatial or weight is None
-        else np.ascontiguousarray(weight, dtype=np.float64).reshape(-1),
-        "intensity_factor": 0.5 * EPS0 * C,
-    }
+        names,
+        withheld=withheld_accessors(
+            general_modal=general_modal,
+            coupled_flow=problem.linear.coupled_flow is not None,
+        ),
+    )
+    if refused is not None:
+        return f"statistics the backend refuses ({refused})"
+    left = uncovered(problem, names)
+    if left:
+        return (
+            f"the statistics {left!r}, plane-only statistics the host finishes or "
+            "not statistics of this route"
+        )
+    responses = problem.responses
+    if set(names) & set(PLASMA_INTEGRATION_STATISTICS) and (
+        not responses.population_channels or responses.envelope_plasma is not None
+    ):
+        return (
+            "the plasma integration diagnostics, which read the field-grid plasma "
+            "column this problem does not carry"
+        )
+    if (
+        set(names) & {"electron_density", "peak_ionisation_rate"}
+        and not responses.population_channels
+    ):
+        return "the plasma statistics of a problem with no compiled plasma response"
+    return None
 
 
 class NativeSession:
@@ -362,11 +338,13 @@ class NativeSession:
         self._spatial = problem.transform.geometry is not None
         self._shape = tuple(problem.shape[1:])
         spec = request.observation.stats
-        self._plane_names = tuple(spec.names)
         self._row_names = tuple(spec.periodic)
         self._spec = spec
-        self._row_spec = dataclasses.replace(spec, names=self._row_names, periodic=())
         self._row_shapes: dict[str, tuple[int, ...]] = {}
+        # The statistics are lowered once, before anything is allocated: plane and
+        # periodic rows read the same native implementation of each.
+        self._plane_lowering = self._lower(tuple(spec.names), grid, modes, profiles)
+        self._row_lowering = self._lower(self._row_names, grid, modes, profiles)
         # The chunks since the previous observation (the transitional shim).
         self._held: list[BackendHistory] = []
         self._held_rows: list[StepStats] = []
@@ -386,6 +364,56 @@ class NativeSession:
             self._detach = cast("Callable[[], None]", attach(self._native.request_stop))
 
     # -- preparation ----------------------------------------------------------------
+
+    def _lower(
+        self,
+        names: tuple[str, ...],
+        grid: TimeGrid | None,
+        modes: Sequence[Mode] | None,
+        profiles: Mapping[str, ZProfile] | None,
+    ) -> StatisticsLowering:
+        """Lower statistics for the native plan, with their far-field tables.
+
+        Parameters
+        ----------
+        names : tuple of str
+            The statistics.
+        grid : solprop.grid.TimeGrid or None
+            The time grid.
+        modes : sequence of Mode or None
+            The mode set.
+        profiles : mapping or None
+            The z profiles.
+
+        Returns
+        -------
+        solprop_native._statistics.StatisticsLowering
+            The lowering.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming an input a statistic lacks.
+        """
+        apertures = None
+        if self._spatial and names:
+            from solprop.backends.spatial import FarFieldTables
+
+            tables = FarFieldTables(self._problem).for_spec(self._spec)
+            apertures = _aperture_payload(tables, int(self._problem.shape[-1]))
+        try:
+            return lower(
+                self._problem,
+                self._spec,
+                names,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                apertures=apertures,
+            )
+        except BackendError as error:
+            msg = f"the native session does not run {error}"
+            raise BackendError(msg) from error
 
     def _prepare(
         self, backend: NativeBackend, start: Start
@@ -477,8 +505,8 @@ class NativeSession:
             "next_plane": int(start.plane_index),
             "launch_pending": bool(start.plane_pending),
             "step_planes": int(observation.step_planes),
-            "plane_statistics": _recipe(self._problem, self._plane_names, self._spec),
-            "row_statistics": _recipe(self._problem, self._row_names, self._spec),
+            "plane_statistics": self._plane_lowering.plan,
+            "row_statistics": self._row_lowering.plan,
             "period": int(self._spec.period) if rows else 0,
             "attempt_capacity": ATTEMPT_CAPACITY,
             "row_capacity": ROW_CAPACITY,
@@ -855,45 +883,6 @@ class NativeSession:
             msg = "an export destination must be writeable, C-contiguous complex128"
             raise BackendError(msg)
 
-    def _unpack(
-        self, names: tuple[str, ...], spec: StatsSpec, packed: np.ndarray
-    ) -> dict[str, np.ndarray]:
-        """Name one packed statistics evaluation with the backend's own unpacking.
-
-        Parameters
-        ----------
-        names : tuple of str
-            The statistics it holds.
-        spec : solprop.stats.StatsSpec
-            Their windows.
-        packed : numpy.ndarray
-            The values the native evaluation packed, in its fixed order.
-
-        Returns
-        -------
-        dict
-            The statistics by catalogue name, without a batch axis.
-
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If the evaluation's size is not what the names take.
-        """
-        backend = self._driver(self._backend)
-        if self._spatial:
-            unpacked, used = backend._spatial_scalars(set(names), packed)
-            if used != packed.size:
-                msg = (
-                    f"native spatial statistics returned {packed.size} values; "
-                    f"consumed {used}"
-                )
-                raise BackendError(msg)
-        else:
-            unpacked = backend._unpack_statistics(
-                names, spec, packed, backend._require_grid()
-            )
-        return {name: np.asarray(value[0]) for name, value in unpacked.items()}
-
     def _plane_stats(self, batch: _core.SessionBatch) -> dict[str, np.ndarray]:
         """Return a batch's plane statistics by name.
 
@@ -909,7 +898,7 @@ class NativeSession:
         """
         if not batch.event.has_stats:
             return {}
-        return self._unpack(self._plane_names, self._spec, batch.plane_stats[0])
+        return self._plane_lowering.unpack(batch.plane_stats[0])
 
     def _chunk_rows(self, batch: _core.SessionBatch) -> StepStats:
         """Return a batch's chunk of periodic rows, its steps indexing the chunk.
@@ -928,10 +917,7 @@ class NativeSession:
         step = batch.row_step.reshape(-1).astype(np.int64)
         if z.size == 0:
             return self._no_rows()
-        unpacked = [
-            self._unpack(self._row_names, self._row_spec, row)
-            for row in batch.row_values
-        ]
+        unpacked = [self._row_lowering.unpack(row) for row in batch.row_values]
         values = {
             name: np.stack([row[name] for row in unpacked]) for name in self._row_names
         }
