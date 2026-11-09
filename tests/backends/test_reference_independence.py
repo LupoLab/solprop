@@ -42,6 +42,7 @@ from solprop.backends.multistep import HostHistory
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import NumpySingleBackend
+from solprop.backends.session import Start
 from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
@@ -261,10 +262,10 @@ def test_the_run_layer_serves_the_reference_with_the_host_session(
     problem = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
     request = describe_run(problem)
     reference = NumpyRefBackend(problem, grid=narrow_grid)
-    with start_session(reference, problem, request, None) as session:
+    with start_session(reference, problem, request, Start.entrance(problem)) as session:
         assert type(session) is HostSession
     scripted = cast("Any", ScriptedDriver(problem, grid=narrow_grid))
-    with start_session(scripted, problem, request, None) as session:
+    with start_session(scripted, problem, request, Start.entrance(problem)) as session:
         assert type(session) is DriverSession
 
 
@@ -273,7 +274,9 @@ def test_the_host_session_refuses_a_bridge_driver(soliton_problem, narrow_grid):
     scripted = cast("Any", ScriptedDriver(problem, grid=narrow_grid))
     try:
         with pytest.raises(BackendError, match="host driver"):
-            HostSession(scripted, problem, describe_run(problem), None)
+            HostSession(
+                scripted, problem, describe_run(problem), Start.entrance(problem)
+            )
     finally:
         scripted.close()
 
