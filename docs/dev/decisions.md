@@ -2085,3 +2085,40 @@ Withdrawn (development-process record, not a design decision).
   thresholds; Linux, Windows and wider teams are unchanged. A grain calibrated per machine at
   start-up (from the measured region cost and a small-pass probe) is the general form and a
   lead; this decision measures one platform and keeps to it.
+
+## ADR-074 — A per-user calibration store, calibrated on first use, below explicit settings
+
+- **Status:** proposed with SEP 46's implementation (PR #582), for the maintainer.
+- **Context:** the native backend's CPU execution settings (operation thresholds, medium and
+  compact widths, the stable team, the waiting policy and team width, FFT plan efforts) were
+  constants chosen on two or three machines; PR #576 found them not to transfer (ADR-073).
+  SEP 46 replaces them by a measured profile, which has to live somewhere, start somehow and
+  rank against the overrides users already rely on.
+- **Decision:**
+  - *Store.* One directory per user, the platform's cache directory (`SOLPROP_CACHE_DIR`
+    moves it), with read-only shared directories after it (`SOLPROP_CALIBRATION_PATH`).
+    Profiles are keyed by a fingerprint of the machine, the operating system, the native
+    build (its build record and a digest of the extension) and the calibration's version,
+    and within it by allocation class; generations are published whole and named by an
+    atomic swap; a claim file per allocation class makes one process calibrate it.
+  - *Process and workspace settings.* The pool width and the waiting policy are fixed when
+    the runtime starts and read from the profile at import; operation grain and FFT
+    planning are copied into each workspace when it is built (`CpuExecution`,
+    `FftPlanning`), and apply only where they were validated under the process settings in
+    force. The built-in table, keyed by operating system, is a profile's fallback.
+  - *First use.* Under `SOLPROP_CALIBRATION=auto` (the default) the first native workspace
+    in an allocation with no row runs the quick calibration, after a `CalibrationNotice`;
+    importing never calibrates. A scan calibrates its workers' allocation at the standard
+    level first. `use` never measures; `off` ignores profiles.
+  - *Precedence.* The user's explicit settings first (`SOLPROP_THREADS`, the pool variables,
+    the wait variables, `SOLPROP_FFTW_PLAN`, `SOLPROP_FFTW_WISDOM`,
+    `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`); then a stage-2 refinement of the very
+    execution; then the allocation's row (an exact one, or the nearest smaller of the same
+    layout for workspace settings); then the built-in table. solprop's own requests (a scan
+    worker's passive wait, `SOLPROP_NATIVE_WAIT_REQUEST`) rank below a row.
+- **Consequences:** solprop writes to the user's cache directory for the first time; a
+  read-only or missing directory leaves runs on the table, with one warning. A first native
+  run on a new machine, allocation or release takes about 20 s longer, once, and says why.
+  Every run records the profile and the settings it applied (`calibration`). The test
+  suites and the documentation build run with `SOLPROP_CALIBRATION=off`; benchmark series
+  calibrate each build thorough first and record the profile per row.

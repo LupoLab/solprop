@@ -310,6 +310,7 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             fields.parent.mkdir(parents=True, exist_ok=True)
             np.save(fields, final, allow_pickle=False)
         return {
+            "calibration": calibration_label(engine.metadata()),
             "construction_seconds": construction,
             "backend_seconds": backend_seconds,
             "warmup_seconds": warmup,
@@ -339,6 +340,22 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
         }
     finally:
         engine.close()
+
+
+def calibration_label(metadata: Record) -> str | None:
+    """Name the machine profile a run applied: ``built-in``, or its level and
+    generation, with ``+refinement`` where a stage-2 refinement applied (SEP 46)."""
+    found = metadata.get("calibration")
+    if not isinstance(found, dict):
+        return None
+    profile = found.get("profile")
+    label = (
+        f"{profile['level']}:{profile['generation']}"
+        if isinstance(profile, dict)
+        else "built-in"
+    )
+    source = str(found.get("workspace_source", ""))
+    return label + ("+refinement" if source.startswith("refinement") else "")
 
 
 def main() -> int:

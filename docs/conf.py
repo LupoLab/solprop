@@ -31,6 +31,11 @@ from sphinx_gallery.utils import get_md5sum
 if _watchdog := os.environ.get("SOLPROP_DOCS_WATCHDOG"):
     faulthandler.dump_traceback_later(float(_watchdog), exit=False)
 
+# A machine calibration (SEP 46) neither runs nor applies while the galleries run:
+# their committed output must not show a first-use notice, nor depend on the machine
+# that refreshed it.
+os.environ.setdefault("SOLPROP_CALIBRATION", "off")
+
 # Gallery examples may select the native backend automatically. Load it and its OpenMP
 # runtime before autodoc or a tutorial imports the rest of the stack, as the tests do.
 if importlib.util.find_spec("solprop_native") is not None:

@@ -7,6 +7,7 @@
 #include "solprop_native/plasma.hpp"
 
 #include "bounds.hpp"
+#include "execution.hpp"
 
 #include <Kokkos_Core.hpp>
 
@@ -93,6 +94,7 @@ std::vector<double> real_time(const std::vector<Complex>& spectrum,
 
 native::Problem base_problem(const native::FieldFamily family) {
   native::Problem problem;
+  problem.cpu_execution = native::test::table();
   problem.n_t = family == native::FieldFamily::envelope ? 4 : 4;
   problem.n_to = family == native::FieldFamily::envelope ? 4 : 8;
   problem.n_omega = family == native::FieldFamily::envelope ? 4 : 3;
@@ -1136,12 +1138,12 @@ TEST(GeneralState, MemoryLedgerMatchesConditionalAllocationFormulae) {
   // One slot per thread of the response operation's own width (problem-size policy).
   const auto response_elements =
       problem.node_chunk * problem.effective_node_pol() * problem.n_to;
-  const int width =
-      native::cpu_size_policy_enabled
-          ? native::operation_threads(native::thread_policy(), native::CpuPool::kernels,
-                                      native::CpuOperation::response, response_elements,
-                                      problem.n_to)
-          : native::ExecutionSpace().concurrency();
+  const int width = native::cpu_size_policy_enabled
+                        ? native::operation_threads(
+                              native::thread_policy(), native::test::table(),
+                              native::CpuPool::kernels, native::CpuOperation::response,
+                              response_elements, problem.n_to)
+                        : native::ExecutionSpace().concurrency();
   const auto slots =
       std::min(problem.node_chunk, static_cast<std::size_t>(std::max(1, width)));
   EXPECT_EQ(ledger.at("plasma_device_scan"), 3 * slots * problem.n_to * real);
@@ -2735,24 +2737,31 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
       CpuOperation::fft,   CpuOperation::raman,    CpuOperation::copy,
       CpuOperation::flow,  CpuOperation::modal,    CpuOperation::adams};
   const std::array thresholds{
-      native::stage_thread_min_elements, native::response_thread_min_elements,
-      native::dense_thread_min_elements, native::default_threaded_fft_min_samples,
-      native::raman_thread_min_elements, native::copy_thread_min_elements,
-      native::flow_thread_min_elements,  native::modal_thread_min_elements,
-      native::adams_thread_min_elements};
+      native::test::table()[native::CpuOperation::stage].threshold,
+      native::test::table()[native::CpuOperation::response].threshold,
+      native::test::table()[native::CpuOperation::dense].threshold,
+      native::test::table()[native::CpuOperation::fft].threshold,
+      native::test::table()[native::CpuOperation::raman].threshold,
+      native::test::table()[native::CpuOperation::copy].threshold,
+      native::test::table()[native::CpuOperation::flow].threshold,
+      native::test::table()[native::CpuOperation::modal].threshold,
+      native::test::table()[native::CpuOperation::adams].threshold};
   const std::array full_thresholds{
-      native::stage_full_thread_elements, native::response_full_thread_elements,
-      native::dense_full_thread_elements, native::fft_full_thread_elements,
-      native::raman_full_thread_elements, native::copy_thread_min_elements,
-      native::flow_thread_min_elements,   native::modal_thread_min_elements,
-      native::adams_full_thread_elements};
+      native::test::table()[native::CpuOperation::stage].full,
+      native::test::table()[native::CpuOperation::response].full,
+      native::test::table()[native::CpuOperation::dense].full,
+      native::test::table()[native::CpuOperation::fft].full,
+      native::test::table()[native::CpuOperation::raman].full,
+      native::test::table()[native::CpuOperation::copy].threshold,
+      native::test::table()[native::CpuOperation::flow].threshold,
+      native::test::table()[native::CpuOperation::modal].threshold,
+      native::test::table()[native::CpuOperation::adams].full};
   for (const int cap : {1, 2, 3, 8, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap,
-                                native::default_threaded_fft_min_samples};
+    native::ThreadPolicy policy{cap, cap, cap, cap};
     for (std::size_t index = 0; index < operations.size(); ++index) {
       const auto width = [&](const std::size_t elements) {
-        return native::operation_threads(policy, CpuPool::kernels, operations[index],
-                                         elements);
+        return native::operation_threads(policy, native::test::table(),
+                                         CpuPool::kernels, operations[index], elements);
       };
       EXPECT_EQ(width(0), native::cpu_size_policy_enabled ? 1 : cap);
       EXPECT_EQ(width(thresholds[index] - 1),
@@ -2760,7 +2769,7 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
       EXPECT_EQ(width(thresholds[index]),
                 native::cpu_size_policy_enabled
                     ? (thresholds[index] < full_thresholds[index]
-                           ? std::min(cap, native::cpu_medium_threads)
+                           ? std::min(cap, native::test::table().medium_threads)
                            : cap)
                     : cap);
       EXPECT_EQ(width(full_thresholds[index]), cap);
@@ -2777,15 +2786,18 @@ TEST(CpuThreadPolicy, AutomaticBoundariesAreMonotoneAndCapped) {
 }
 
 TEST(CpuThreadPolicy, ShortCopiesDoNotInheritTheStageWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18, native::default_threaded_fft_min_samples};
-  EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+  native::ThreadPolicy policy{18, 18, 18, 18};
+  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                      native::CpuPool::kernels,
                                       native::CpuOperation::copy, 8192),
             native::cpu_size_policy_enabled ? 1 : 18);
-  EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                      native::CpuPool::kernels,
                                       native::CpuOperation::stage, 8196),
             18);
   policy.explicit_pools = 1;
-  EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                      native::CpuPool::kernels,
                                       native::CpuOperation::copy, 8192),
             18);
 }
@@ -2798,9 +2810,10 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
 #if defined(__APPLE__)
   GTEST_SKIP() << "macOS keeps the 8192/32768 boundaries";
 #endif
-  native::ThreadPolicy policy{18, 18, 18, 18, native::default_threaded_fft_min_samples};
+  native::ThreadPolicy policy{18, 18, 18, 18};
   const auto width = [&](const native::CpuOperation operation, const std::size_t n) {
-    return native::operation_threads(policy, native::CpuPool::kernels, operation, n);
+    return native::operation_threads(policy, native::test::table(),
+                                     native::CpuPool::kernels, operation, n);
   };
   using native::CpuOperation;
   EXPECT_EQ(width(CpuOperation::stage, 8004), width(CpuOperation::stage, 8196));
@@ -2810,9 +2823,10 @@ TEST(CpuThreadPolicy, SmoothGridSizesKeepThePowerOfTwoWidths) {
 }
 
 TEST(CpuThreadPolicy, CoupledMatrixWindowRetainsFullWidth) {
-  native::ThreadPolicy policy{72, 72, 72, 72, 32768, -1};
+  native::ThreadPolicy policy{72, 72, 72, 72, -1};
   // Active bins * modes^3 in the measured three-mode wall, independent of runtime.
-  EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+  EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                      native::CpuPool::kernels,
                                       native::CpuOperation::flow, 1433 * 3 * 3 * 3),
             72);
 }
@@ -2821,25 +2835,24 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
   using native::CpuOperation;
   using native::CpuPool;
   for (const int cap : {1, 3, 18, 72}) {
-    native::ThreadPolicy policy{cap, cap, cap, cap,
-                                native::default_threaded_fft_min_samples};
+    native::ThreadPolicy policy{cap, cap, cap, cap};
     const auto width = [&](const std::size_t rows, const std::size_t samples) {
-      return native::operation_threads(policy, CpuPool::kernels, CpuOperation::response,
-                                       rows * samples, samples);
+      return native::operation_threads(policy, native::test::table(), CpuPool::kernels,
+                                       CpuOperation::response, rows * samples, samples);
     };
     EXPECT_EQ(width(33, 4096),
               native::cpu_size_policy_enabled ? std::min(cap, 4) : cap);
-    const auto columns = native::response_full_thread_columns;
+    const auto columns = native::test::table().response_full_columns;
     EXPECT_EQ(width(columns - 1, 1024),
               native::cpu_size_policy_enabled ? std::min(cap, 4) : cap);
     EXPECT_EQ(width(columns, 1024), cap);
     EXPECT_EQ(width(columns, 1), native::cpu_size_policy_enabled ? 1 : cap);
     EXPECT_EQ(width(44, 2048), cap);
     EXPECT_EQ(width(68, 2048), cap);
-    EXPECT_EQ(width(1, native::response_full_thread_samples - 1),
+    EXPECT_EQ(width(1, native::test::table().response_full_samples - 1),
               native::cpu_size_policy_enabled ? std::min(cap, 4) : cap);
-    EXPECT_EQ(width(1, native::response_full_thread_samples), cap);
-    EXPECT_EQ(width(0, native::response_full_thread_samples),
+    EXPECT_EQ(width(1, native::test::table().response_full_samples), cap);
+    EXPECT_EQ(width(0, native::test::table().response_full_samples),
               native::cpu_size_policy_enabled ? 1 : cap);
     for (std::size_t rows = 1; rows <= 64; rows *= 2) {
       int previous = 1;
@@ -2858,42 +2871,49 @@ TEST(CpuThreadPolicy, ResponseShapeThresholdsAreMonotoneAndCapped) {
 TEST(CpuThreadPolicy, ExplicitPoolsBypassSizingIndependently) {
   using native::CpuOperation;
   using native::CpuPool;
-  native::ThreadPolicy policy{7, 6, 5, 4, native::default_threaded_fft_min_samples};
+  native::ThreadPolicy policy{7, 6, 5, 4};
   const std::array pools{CpuPool::kernels, CpuPool::fft, CpuPool::raman_fft,
                          CpuPool::raman_tail_fft};
   for (unsigned requested = 0; requested < pools.size(); ++requested) {
     policy.explicit_pools = 1U << requested;
     for (unsigned other = 0; other < pools.size(); ++other) {
-      const auto actual =
-          native::operation_threads(policy, pools[other], CpuOperation::fft, 1);
+      const auto actual = native::operation_threads(policy, native::test::table(),
+                                                    pools[other], CpuOperation::fft, 1);
       EXPECT_EQ(actual, requested == other || !native::cpu_size_policy_enabled
                             ? 7 - static_cast<int>(other)
                             : 1);
     }
   }
   policy.explicit_pools = 0;
-  policy.threaded_fft_min_samples = 17;
-  EXPECT_EQ(native::operation_threads(policy, CpuPool::fft, CpuOperation::fft, 16),
-            native::cpu_size_policy_enabled ? 1 : 6);
-  EXPECT_EQ(native::operation_threads(policy, CpuPool::fft, CpuOperation::fft, 17),
-            native::cpu_size_policy_enabled ? std::min(6, native::cpu_medium_threads)
-                                            : 6);
+  // A record's own FFT start (solprop SEP 46: SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES).
+  auto execution = native::test::table();
+  execution.grain[static_cast<std::size_t>(CpuOperation::fft)].threshold = 17;
+  EXPECT_EQ(
+      native::operation_threads(policy, execution, CpuPool::fft, CpuOperation::fft, 16),
+      native::cpu_size_policy_enabled ? 1 : 6);
+  EXPECT_EQ(
+      native::operation_threads(policy, execution, CpuPool::fft, CpuOperation::fft, 17),
+      native::cpu_size_policy_enabled
+          ? std::min(6, native::test::table().medium_threads)
+          : 6);
 }
 
 TEST(CpuThreadPolicy, GeneralModalTransformsKeepTheirMeasuredWidth) {
-  native::ThreadPolicy policy{18, 18, 18, 18, native::default_threaded_fft_min_samples};
+  native::ThreadPolicy policy{18, 18, 18, 18};
   for (const std::size_t elements : {98496U, 209304U}) {
-    EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+    EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                        native::CpuPool::kernels,
                                         native::CpuOperation::modal, elements),
               18);
-    EXPECT_EQ(native::operation_threads(policy, native::CpuPool::kernels,
+    EXPECT_EQ(native::operation_threads(policy, native::test::table(),
+                                        native::CpuPool::kernels,
                                         native::CpuOperation::dense, elements),
               native::cpu_size_policy_enabled ? 1 : 18);
   }
 }
 
 TEST(CpuThreadPolicy, MetadataNamesEveryOperationClass) {
-  native::CpuExecutionPool pool(native::CpuPool::kernels);
+  native::CpuExecutionPool pool(native::CpuPool::kernels, native::test::table());
   const std::array operations{
       native::CpuOperation::stage, native::CpuOperation::response,
       native::CpuOperation::dense, native::CpuOperation::fft,
@@ -2948,15 +2968,17 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
   // operations too; without one, they keep the medium width. On macOS medium
   // operations keep the medium width beside one too (`stable_kernel_team`).
   const int cap = native::thread_policy().kernels;
-  const int promoted = native::stable_kernel_team ? cap : native::cpu_medium_threads;
-  if (!native::cpu_size_policy_enabled || cap <= native::cpu_medium_threads)
+  const int promoted = native::test::table().stable_kernel_team
+                           ? cap
+                           : native::test::table().medium_threads;
+  if (!native::cpu_size_policy_enabled || cap <= native::test::table().medium_threads)
     GTEST_SKIP() << "needs per-operation sizing and more than the medium width";
   const auto response = std::size_t{33} * 4096;
-  native::CpuExecutionPool alone(native::CpuPool::kernels);
+  native::CpuExecutionPool alone(native::CpuPool::kernels, native::test::table());
   EXPECT_EQ(alone.get(native::CpuOperation::response, response, 4096).concurrency(),
-            native::cpu_medium_threads);
+            native::test::table().medium_threads);
   EXPECT_EQ(alone.get(native::CpuOperation::stage, 1).concurrency(), 1);
-  native::CpuExecutionPool full(native::CpuPool::kernels);
+  native::CpuExecutionPool full(native::CpuPool::kernels, native::test::table());
   EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(), cap);
   EXPECT_EQ(full.get(native::CpuOperation::response, response, 4096).concurrency(),
             promoted);
@@ -2966,10 +2988,10 @@ TEST(CpuThreadPolicy, AKernelPoolAtFullWidthKeepsItsTeam) {
   EXPECT_EQ(full.sizing().at(key).at("threads"), static_cast<std::size_t>(promoted));
   // The FFT pools keep their medium widths: FFTW's threaded loops run on the
   // runtime's whole team and only distribute fewer iterations.
-  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  native::CpuExecutionPool transforms(native::CpuPool::fft, native::test::table());
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(), cap);
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(),
-            native::cpu_medium_threads);
+            native::test::table().medium_threads);
 }
 
 TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
@@ -2979,18 +3001,19 @@ TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
   const auto policy = native::thread_policy();
   if (!native::cpu_size_policy_enabled || policy.explicit_pools != 0)
     GTEST_SKIP() << "needs automatic per-operation sizing";
-  const int team = std::min(policy.kernels, native::cpu_compact_threads);
-  native::CpuExecutionPool kernels(native::CpuPool::kernels);
+  const int team = std::min(policy.kernels, native::test::table().compact_threads);
+  native::CpuExecutionPool kernels(native::CpuPool::kernels, native::test::table());
   kernels.compact();
   EXPECT_EQ(kernels.widest(), 0);
   EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1U << 20).concurrency(), team);
   EXPECT_EQ(kernels.get(native::CpuOperation::response, std::size_t{33} * 4096, 4096)
                 .concurrency(),
-            native::stable_kernel_team ? team
-                                       : std::min(team, native::cpu_medium_threads));
+            native::test::table().stable_kernel_team
+                ? team
+                : std::min(team, native::test::table().medium_threads));
   EXPECT_EQ(kernels.get(native::CpuOperation::stage, 1).concurrency(), 1);
   EXPECT_EQ(kernels.widest(), team);
-  native::CpuExecutionPool transforms(native::CpuPool::fft);
+  native::CpuExecutionPool transforms(native::CpuPool::fft, native::test::table());
   transforms.compact();
   const int threaded = native::fftw_team_loops() ? team : 1;
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1U << 20).concurrency(),
@@ -2998,13 +3021,15 @@ TEST(CpuThreadPolicy, ACompactPoolKeepsAFewThreads) {
   // A medium transform takes the whole team; a Raman one keeps its own start.
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 32768).concurrency(), threaded);
   EXPECT_EQ(transforms.get(native::CpuOperation::fft, 1000).concurrency(), 1);
-  native::CpuExecutionPool raman(native::CpuPool::raman_fft);
+  native::CpuExecutionPool raman(native::CpuPool::raman_fft, native::test::table());
   raman.compact();
   EXPECT_EQ(raman.get(native::CpuOperation::raman, 32768).concurrency(), 1);
-  EXPECT_EQ(raman.get(native::CpuOperation::raman, native::raman_thread_min_elements)
+  EXPECT_EQ(raman
+                .get(native::CpuOperation::raman,
+                     native::test::table()[native::CpuOperation::raman].threshold)
                 .concurrency(),
             threaded);
-  native::CpuExecutionPool full(native::CpuPool::kernels);
+  native::CpuExecutionPool full(native::CpuPool::kernels, native::test::table());
   EXPECT_EQ(full.get(native::CpuOperation::stage, 1U << 20).concurrency(),
             policy.kernels);
 }
@@ -3022,7 +3047,7 @@ TEST(CpuThreadPolicy, CompactProblemsHaveOneColumnOnOneNode) {
   pairs.n_pol_transform = 2;
   EXPECT_FALSE(native::compact_problem(pairs));
   auto long_column = base;
-  long_column.n_to = native::compact_max_fine_samples;
+  long_column.n_to = native::test::table().compact_max_fine_samples;
   EXPECT_FALSE(native::compact_problem(long_column));
   auto modal = base;
   modal.general_modal = true;
@@ -3036,8 +3061,8 @@ TEST(CpuThreadPolicy, CompactProblemsHaveOneColumnOnOneNode) {
 }
 
 TEST(CpuThreadPolicy, MetadataDistinguishesEqualWorkWithDifferentResponseShapes) {
-  native::CpuExecutionPool pool(native::CpuPool::kernels);
-  const auto samples = native::response_full_thread_samples;
+  native::CpuExecutionPool pool(native::CpuPool::kernels, native::test::table());
+  const auto samples = native::test::table().response_full_samples;
   pool.get(native::CpuOperation::response, samples, 4096);
   pool.get(native::CpuOperation::response, samples, samples);
   const auto sizing = pool.sizing();
@@ -3080,7 +3105,7 @@ TEST(CpuThreadPolicy, MatrixPackingDoesNotInheritTheDenseWorkWidth) {
 TEST(CpuThreadPolicy, WorkspacesKeepIndependentChoicesAndReleaseTheirPools) {
   auto problem = general_problem(native::FieldFamily::envelope);
   native::GeneralState small(problem);
-  problem.n_to = native::fft_full_thread_elements;
+  problem.n_to = native::test::table()[native::CpuOperation::fft].full;
   problem.time_window.assign(problem.n_to, 1.0);
   problem.time_window_derivative.assign(problem.n_to, 0.0);
   problem.carrier.assign(problem.n_to, Complex(1.0, 0.0));

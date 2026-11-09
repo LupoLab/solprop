@@ -11,6 +11,8 @@ processes.
 
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import numpy.typing as npt
 import pytest
@@ -19,6 +21,10 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
 from solprop.translate.problem import KernelProblem, assemble
+
+# A machine calibration (solprop SEP 46) neither runs nor applies in the suite unless a
+# test asks for one, so that a developer's store cannot change what a test measures.
+os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 
 # Trigger the documented macOS runtime ordering without adding an unused binding.
 __import__("solprop_native")

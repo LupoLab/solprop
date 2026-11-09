@@ -161,6 +161,71 @@ def show_plan(rows: list[Record], skipped: list[str], runs: int) -> None:
     )
 
 
+CALIBRATION_LEVELS = ("thorough", "standard", "quick", "none")
+"""``--calibrate``'s levels: how each build is calibrated before a series (SEP 46)."""
+
+
+def worker_calibration(environ: dict[str, str]) -> dict[str, str]:
+    """Return a worker's ``SOLPROP_CALIBRATION``: ``use``, or ``off`` if asked.
+
+    A worker applies the profile the series was calibrated with and never measures
+    inside a timed window (SEP 46 section 6.13); ``off`` holds the built-in table for
+    an experiment that must keep the settings fixed while the code changes.
+    """
+    chosen = environ.get("SOLPROP_CALIBRATION", "").strip().lower()
+    return {"SOLPROP_CALIBRATION": "off" if chosen == "off" else "use"}
+
+
+def calibrate_builds(
+    pythons: dict[str, str],
+    level: str,
+    output: Path,
+    environments: dict[str, dict[str, str]] | None = None,
+) -> Record:
+    """Calibrate each distinct build at `level` before a series (SEP 46 section 6.13).
+
+    Each interpreter runs ``python -m solprop calibrate --LEVEL`` once, with its arm's
+    own variables, so that an A/B's two builds each get their own profile, as two
+    releases would for a user; its report is kept under ``calibration/``. ``none``
+    calibrates nothing and the series runs on whatever profiles exist; an arm under
+    ``SOLPROP_CALIBRATION=off`` runs the built-in table and calibrates nothing either.
+    """
+    if level == "none":
+        return {}
+    import os  # noqa: PLC0415
+
+    done: dict[str, Record] = {}
+    found: Record = {}
+    for arm, python in pythons.items():
+        if python in done:
+            found[arm] = done[python]
+            continue
+        environment = dict(os.environ) | (environments or {}).get(arm, {})
+        if worker_calibration(environment)["SOLPROP_CALIBRATION"] == "off":
+            found[arm] = {"level": "off"}
+            continue
+        completed = subprocess.run(
+            [python, "-m", "solprop", "calibrate", f"--{level}"],
+            capture_output=True,
+            text=True,
+            check=False,
+            env=environment,
+        )
+        report = output / "calibration" / f"{arm}.txt"
+        report.parent.mkdir(parents=True, exist_ok=True)
+        report.write_text(completed.stdout + completed.stderr, encoding="utf-8")
+        done[python] = {
+            "level": level,
+            "status": completed.returncode,
+            "summary": completed.stdout.splitlines()[:1],
+        }
+        found[arm] = done[python]
+        print(
+            f"calibrated {arm} ({level}): {' '.join(completed.stdout.splitlines()[:1])}"
+        )
+    return found
+
+
 def launch_worker(
     python: str,
     request: Record,

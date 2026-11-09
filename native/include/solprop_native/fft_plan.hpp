@@ -7,9 +7,13 @@
 #include <KokkosFFT.hpp>
 #include <memory>
 
+#include "solprop_native/core.hpp"
+
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+#include <cstdint>
 #include <cstdlib>
 #include <fftw3.h>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -48,6 +52,136 @@ inline unsigned fftw_seed_effort(const FftShape shape, const int threads) {
                               std::string(effort) + "'");
 }
 
+// An effort's FFTW flag.
+inline unsigned fftw_effort_flag(const std::string_view effort) {
+  if (effort == "estimate")
+    return FFTW_ESTIMATE;
+  if (effort == "measure")
+    return FFTW_MEASURE;
+  if (effort == "patient")
+    return FFTW_PATIENT;
+  throw std::invalid_argument("an FFTW effort is estimate, measure or patient, not '" +
+                              std::string(effort) + "'");
+}
+
+namespace detail {
+// The planning of the workspace this thread is building (`FftPlanningScope`).
+inline thread_local FftPlanning* planning = nullptr;
+} // namespace detail
+
+/** While it lives, the calling thread's seeds follow `planning` (solprop SEP 46). In
+    profile and capture modes FFTW's process-wide wisdom is forgotten at the start and
+    at the end, so that no wisdom from an earlier workspace, a file or another
+    candidate reaches this one, and none of this one's outlives it. Planning holds the
+    GIL, which serialises FFTW's planner. */
+class FftPlanningScope {
+public:
+  explicit FftPlanningScope(FftPlanning& planning)
+      : saved_(detail::planning), forgets_(planning.mode != FftPlanning::Mode::legacy) {
+    detail::planning = &planning;
+    if (forgets_) {
+      fftw_init_threads();
+      fftw_forget_wisdom();
+    }
+  }
+  ~FftPlanningScope() {
+    if (forgets_)
+      fftw_forget_wisdom();
+    detail::planning = saved_;
+  }
+  FftPlanningScope(const FftPlanningScope&) = delete;
+  FftPlanningScope& operator=(const FftPlanningScope&) = delete;
+  FftPlanningScope(FftPlanningScope&&) = delete;
+  FftPlanningScope& operator=(FftPlanningScope&&) = delete;
+
+private:
+  FftPlanning* saved_;
+  bool forgets_;
+};
+
+// The flags a transform of `key` and `shape` on `threads` threads is seeded with, or
+// none to leave it to Kokkos-FFT's estimate plan: the policy, or the workspace's
+// planning (`FftPlanning`), which this records the transform in. Capture forgets the
+// wisdom before the seed and sets the planner's time limit; profile imports the
+// transform's own wisdom.
+inline std::optional<unsigned> begin_seed(const std::string& key, const FftShape shape,
+                                          const int threads) {
+  FftPlanning* planning = detail::planning;
+  if (planning == nullptr || planning->mode == FftPlanning::Mode::legacy) {
+    const unsigned effort = fftw_seed_effort(shape, threads);
+    if (effort == FFTW_ESTIMATE)
+      return std::nullopt;
+    return effort;
+  }
+  const char* group = shape == FftShape::planes ? "planes"
+                      : threads > 1             ? "threaded_rows"
+                                                : "rows";
+  planning->groups[key] = group;
+  if (planning->mode == FftPlanning::Mode::capture) {
+    const unsigned effort = fftw_effort_flag(planning->capture_effort);
+    if (effort == FFTW_ESTIMATE)
+      return std::nullopt;
+    fftw_forget_wisdom();
+    fftw_set_timelimit(planning->time_limit > 0.0 ? planning->time_limit
+                                                  : FFTW_NO_TIMELIMIT);
+    return effort;
+  }
+  const std::string& chosen = shape == FftShape::planes ? planning->planes
+                              : threads > 1             ? planning->threaded_rows
+                                                        : planning->rows;
+  const unsigned effort = fftw_effort_flag(chosen);
+  if (const auto found = planning->wisdom.find(key); found != planning->wisdom.end()) {
+    if (fftw_import_wisdom_from_string(found->second.c_str()) == 0) {
+      planning->missing.push_back(key);
+      return std::nullopt;
+    }
+    return effort | FFTW_WISDOM_ONLY;
+  }
+  if (effort == FFTW_ESTIMATE)
+    return std::nullopt;
+  return effort;
+}
+
+// Finish a seed begun with `flags`: a capture keeps the transform's wisdom and lifts
+// the time limit; a profile's plan that no longer builds from its wisdom is recorded,
+// and left to the estimate plan. Any other failure to plan is an error.
+inline void end_seed(const std::string& key, const unsigned flags, const bool planned) {
+  FftPlanning* planning = detail::planning;
+  const bool capture =
+      planning != nullptr && planning->mode == FftPlanning::Mode::capture;
+  if (capture)
+    fftw_set_timelimit(FFTW_NO_TIMELIMIT);
+  if (!planned) {
+    if ((flags & FFTW_WISDOM_ONLY) != 0U && planning != nullptr) {
+      planning->missing.push_back(key);
+      return;
+    }
+    throw std::runtime_error("FFTW could not plan the transform " + key);
+  }
+  if (capture) {
+    const auto release = [](char* pointer) { std::free(pointer); };
+    const std::unique_ptr<char, decltype(release)> text(fftw_export_wisdom_to_string(),
+                                                        release);
+    planning->captured[key] = text ? std::string(text.get()) : std::string();
+  }
+}
+
+// A transform's identity for its wisdom: its kind, the sizes and distances, in- or
+// out-of-place, the arrays' alignment and the threads (solprop SEP 46 section 6.7).
+inline std::string fft_plan_key(const std::string_view kind, const std::string& sizes,
+                                const int howmany, const int input_distance,
+                                const int output_distance, const void* input,
+                                const void* output, const int threads) {
+  const auto alignment = [](const void* pointer) {
+    return std::to_string(
+        fftw_alignment_of(static_cast<double*>(const_cast<void*>(pointer))));
+  };
+  return std::string(kind) + ":" + sizes + ":" + std::to_string(howmany) + ":" +
+         std::to_string(input_distance) + ":" + std::to_string(output_distance) + ":" +
+         (input == output ? "in" : "out") + ":" + alignment(input) + ":" +
+         alignment(output) + ":t" + std::to_string(threads);
+}
+
 // Seed only last-axis, contiguous, out-of-place row transforms. Planning may
 // destroy BOTH buffers: callers must invoke this before filling working data, and
 // before the transform's own Kokkos-FFT plan exists, which would otherwise keep
@@ -56,9 +190,6 @@ inline unsigned fftw_seed_effort(const FftShape shape, const int threads) {
 template <class Execution, class Input, class Output>
 void seed_row_fft_wisdom(const Execution& execution, const Input& input,
                          const Output& output, const KokkosFFT::Direction direction) {
-  const auto effort = fftw_seed_effort(FftShape::rows, execution.concurrency());
-  if (effort == FFTW_ESTIMATE)
-    return;
   constexpr bool real_input =
       std::is_same_v<typename Input::non_const_value_type, double>;
   constexpr bool real_output =
@@ -76,7 +207,19 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   const int rows = static_cast<int>(input.extent(0));
   const int input_width = static_cast<int>(input.extent(1));
   const int output_width = static_cast<int>(output.extent(1));
+  const bool forward = direction == KokkosFFT::Direction::forward;
+  const std::string key =
+      fft_plan_key(real_input    ? "r2c"
+                   : real_output ? "c2r"
+                   : forward     ? "c2c-forward"
+                                 : "c2c-backward",
+                   std::to_string(samples), rows, input_width, output_width,
+                   input.data(), output.data(), execution.concurrency());
   fftw_init_threads();
+  const auto chosen = begin_seed(key, FftShape::rows, execution.concurrency());
+  if (!chosen)
+    return;
+  const unsigned effort = *chosen;
   fftw_plan_with_nthreads(execution.concurrency());
   fftw_plan seeded = nullptr;
   if constexpr (real_input)
@@ -92,12 +235,10 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
     seeded = fftw_plan_many_dft(
         1, &samples, rows, reinterpret_cast<fftw_complex*>(input.data()), &input_width,
         1, input_width, reinterpret_cast<fftw_complex*>(output.data()), &output_width,
-        1, output_width,
-        direction == KokkosFFT::Direction::forward ? FFTW_FORWARD : FFTW_BACKWARD,
-        effort);
-  if (seeded == nullptr)
-    throw std::runtime_error("FFTW could not plan a contiguous row transform");
-  fftw_destroy_plan(seeded);
+        1, output_width, forward ? FFTW_FORWARD : FFTW_BACKWARD, effort);
+  end_seed(key, effort, seeded != nullptr);
+  if (seeded != nullptr)
+    fftw_destroy_plan(seeded);
 }
 
 // FFTW's process-wide wisdom as text, for solprop's opt-in SOLPROP_FFTW_WISDOM: the
@@ -125,6 +266,14 @@ inline bool import_fftw_wisdom(const std::string& text) {
   return fftw_import_wisdom_from_string(text.c_str()) != 0;
 }
 
+} // namespace solprop_native
+#else
+namespace solprop_native {
+// Device builds plan with cuFFT or rocFFT, which keep no wisdom.
+class FftPlanningScope {
+public:
+  explicit FftPlanningScope(FftPlanning& /*planning*/) noexcept {}
+};
 } // namespace solprop_native
 #endif
 

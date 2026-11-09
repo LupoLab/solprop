@@ -6,17 +6,17 @@
 | **Title** | Calibrating the native backend to its machine |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-08) |
-| **Status** | Accepted |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
 | **Resolution** | Accepted 2026-11-08 by John Travers, after the AI review, the drafting agent's response and the maintainer's decisions on §12 items 1–7 ([LupoLab/solprop#580](https://github.com/LupoLab/solprop/pull/580)). |
 | **Requires** | — |
-| **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
+| **Supersedes** | [SEP 4](sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phases 0–6 complete and verified (2026-11-09; on a Google Axion, AMD EPYC 7763 and 9B45 under Linux and Windows, Intel Xeon Gold 6240 and Platinum 8581C, an Apple M5 Max and an NVIDIA H200) |
+| **Manual pages** | [Calibrating solprop to your machine](../../../guide/performance/calibration.md) |
 
 ## Part I — Proposal
 
@@ -145,7 +145,7 @@ one more machine. This SEP stops treating them as constants.
   source's node chunk from `node_budget`, whatever the device (#361). The device
   bootstrap scripts build from source on every rental.
 - Every choice can be overridden by an environment variable
-  ([tuning guide](../../guide/performance/tuning.md)). A run records its pools,
+  ([tuning guide](../../../guide/performance/tuning.md)). A run records its pools,
   budget and waiting in its metadata (`execution_sizing`, `thread_budget`,
   `openmp_wait_policy`).
 
@@ -844,6 +844,405 @@ index entry and tracking issue change then.
 
 ## Part II — Implementation record
 
+### Phase 0 report — the store, the split and the built-in table
+
+- **Scope:** phase 0, 2026-11-08, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0046-machine-calibration` (LupoLab/solprop#582), commits `47271792` and
+  `80f2fe31`, on `main` after #576 and #581.
+- **Delivered:**
+  - `native/include/solprop_native/core.hpp`, `native/src/core.cpp`,
+    `native/src/general.cpp`, `native/src/general_modal.cpp`,
+    `native/src/bindings.cpp`: the workspace settings leave the source. A
+    `CpuExecution` record (each operation's threshold and full size, the response
+    bounds, the medium and compact widths, the compact bound, the stable-team rule) is
+    a field of the native problem, copied into every `CpuExecutionPool` of a workspace,
+    its general modal source and its batch, which refuses members whose records differ.
+    `operation_threads` reads it instead of constants; `ThreadPolicy` keeps only
+    process settings. A problem without a valid record is refused. `State.cpu_execution`
+    reads it back.
+  - `native/src/solprop_native/_execution.py`: the built-in table, keyed by operating
+    system, with the measurements behind each value moved from `core.hpp`'s comments;
+    the `__APPLE__` switches and ADR-073's divisor are rules of the table, applied for
+    the process at import (`BUILTIN_EXECUTION`).
+  - `native/src/solprop_native/_store.py`, `_topology.py`, `_allocation.py`,
+    `_fingerprint.py`, `_profile.py`: the store (§6.8), topology and allocation classes
+    (§6.4), the fingerprint (§5), and the choice of row with its precedence rules;
+    standard library only.
+  - `native/CMakeLists.txt`: `_build.json` beside the extension.
+  - `native/src/solprop_native/__init__.py`, `_wait.py`, `backend.py`: at import, an
+    exact row's pool width and wait apply before the runtime starts unless the user set
+    them; each workspace takes the record `PROFILE.workspace` resolves (or one given to
+    `NativeBackend(cpu_execution=...)`, for stage 2); `metadata()["calibration"]`.
+  - `src/solprop/calibration/` and `solprop calibrate --show/--export/--import/--clear`
+    (`src/solprop/cli.py`), loading the pure modules by path; `CalibrationError`.
+  - Tests: `native/tests/test_execution.py`, `test_store.py`, `test_profile.py`,
+    `test_profile_import.py`, `tests/calibration/test_profiles.py`; the C++ tests take
+    `native/tests/native/execution.hpp`'s record. Both conftests default
+    `SOLPROP_CALIBRATION=off`, so that a developer's store never changes a test.
+  - `docs/dev/architecture.md` §4 and figure 1, `docs/guide/setup/recipes.md`, and
+    `changelog.d/sep-0046-machine-calibration.added.md`.
+- **Deviations from the proposal:**
+  - *LLVM's block time inside native calls stays a process setting.* §5 lists it among
+    the workspace settings, but the outermost `CpuTeamScope` on a thread sets it, so two
+    workspaces nested or batched in one call could not hold different values, and the
+    waiting candidates of phase 1 (passive, a spin scoped to native calls, a
+    process-wide spin) already choose it.
+  - *The planning transaction moves to phase 3,* beside the per-class wisdom it applies.
+    Until phase 3 writes wisdom there is none to apply, and a run plans as today.
+  - *No schema change.* §9 expected one; the record goes into the backend's free-form
+    settings, which ADR-063 does not version.
+  - *The build is identified by a digest of the extension file,* with `_build.json` for
+    its configuration. The native source digest is generated at build time and is
+    readable only from the loaded extension; the file's digest also separates two builds
+    of one source. An editable install keeps its built files apart from its sources, so
+    every directory of the package is searched.
+  - *Claims are per allocation class* (`claim-<class>`), and inconclusive attempts are
+    kept in `attempts.json`, so that `auto` can wait a day (phase 5).
+  - *Two edges move.* A user's `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` equal to the
+    default is no longer divided on a spinning Mac, as any other value already was; and
+    `BuildInfo`'s threshold fields report the process's table, divided where runs divide
+    it, where they reported the undivided constants.
+- **Decisions:** the precedence of §5 (the user's settings, then a refinement, then the
+  row, then the table), the record's 24 fields as its native and stored form, and the
+  allocation class's span structure (kinds, shared L2 groups, L3 groups, NUMA nodes,
+  sockets, SMT, a quota) are the store's ADR, written with phase 5.
+- **Verification:**
+  - The table equals the former constants on every system, frozen per platform
+    (`test_execution.py`), including the spinning Mac's divided values.
+  - On the Xeon (GCC 16.2, OpenMP, Release): the native C++ tests (`cpu-debug` preset)
+    pass; the native Python suite passes (614 tests before one fixture fix, then the
+    affected modules again); `tests/test_process.py`, `test_native_forced_threads.py`,
+    `test_driver.py`, `tests/calibration`, the recipe tests and the structure figures
+    pass.
+  - §7 item 7: a direct import applies a hand-written profile's width, wait and
+    workspace settings and records them, read back (`test_profile_import.py`); two live
+    states hold different records (`test_execution.py`). The notebook case belongs to
+    phase 5's first use.
+  - §7 item 8: exact and nearest-smaller rows, equal core counts on one and two sockets,
+    an override of the thread count or the wait sending workspace settings back to the
+    table (`test_profile.py`, `test_profile_import.py`).
+  - §7 item 10: concurrent claims admit one, stale claims by deadline and by a dead
+    owner, two hosts, corrupt and foreign generations, a failed publication keeping the
+    previous generation, read-only directories (`test_store.py`); Windows runs in CI.
+  - `solprop calibrate --show` and the native import agree on this machine's fingerprint
+    and allocation, and the command never loads the extension.
+- **Sources checked:** none new; the table's values and measurements were moved from
+  `core.hpp` unchanged.
+- **Limitations:**
+  - Windows reads its first processor group only (64 logical CPUs) and no core kinds;
+    macOS has no affinity, so its classes count cores by kind.
+  - The scan workers' settings are still Pool's explicit variables until phase 5 marks
+    them as solprop's.
+- **Open questions:**
+  - Q1. solprop's TDSE consistency cache keeps the Linux-style cache directory on macOS,
+    while the store uses the platform's (`Library/Caches` in the home directory). Should
+    the two share the platform's directory? (#583)
+- **Handoff:** phase 1 builds the controller, its children and §6.5's selection on
+  `_profile`, `_store` and `NativeBackend(cpu_execution=...)`; measuring starts there.
+
+### Phase 1 report — the controller; waiting, team and region cost
+
+- **Scope:** phase 1, 2026-11-08, Opus 5.5 (AI) for John Travers, on
+  `feature/sep-0046-machine-calibration` (#582), commits `4baf5f94`, `e6398638` and
+  `d855e8f9`.
+- **Delivered:**
+  - `src/solprop/calibration/selection.py`: section 6.5's rule, pure.
+  - `src/solprop/calibration/child.py`: one candidate's process settings, pinned before the
+    runtime starts, serving JSON lines (prepare, time, sizing, capture, regions, exit).
+  - `src/solprop/calibration/problems.py`: the five calibration problems.
+  - `src/solprop/calibration/controller.py`: the levels, one monotonic deadline, the
+    built-in child timed twice a round for the A/A noise, host load, hypervisor steal and
+    busy SMT siblings, the winner's validation by window, publication that keeps other
+    classes' and higher levels' rows, nested allocations, and every child reaped.
+  - `solprop calibrate [--quick|--thorough] [--budget S]`; `solprop.calibration.calibrate`.
+  - `native/src/solprop_native/_wait.py`: `SOLPROP_NATIVE_WAIT_REQUEST`, solprop's own
+    request for a wait, below the user's variables and a row.
+  - `benchmarks/ab.py`: `--baseline-env` and `--candidate-env`.
+- **Deviations from the proposal:**
+  - *Windows are trial steps* (`StepDriver.timed_step`), repeated from the initial state:
+    the same work for every candidate, without the step controller.
+  - *A row is published when the built-in rules win*, with their values, so that `auto`
+    does not calibrate the allocation again.
+  - *Children warm each window with two untimed steps*: without them the A/A noise on the
+    Xeon was 6–8 %, the first window after another child paying for its evicted caches.
+- **Verification** (Intel Xeon Gold 6240, GCC 16.2, socket 1 unless stated):
+  - `tests/calibration/test_selection.py` (ties, drift, outliers, missing rounds, a win on
+    average but not in every round, a failed combination, the drop order) and
+    `test_controller.py` on scripted children (every outcome, deadlines, failed children,
+    held claims, nested classes, publication rules); one real quick calibration (medium).
+  - Standard on 18 cores: 23 s before phases 2–3; passive waiting 1.26–1.32 times slower,
+    half the socket 0.97–0.99, the built-in rules kept. Quick: 8–13 s.
+  - The whole machine (36 cores, two sockets): A/A noise 10–23 % in three runs, so
+    inconclusive, as the Xeon's 36-thread timings are known not to repeat; its socket
+    (18 cores with their siblings) got its row as a nested allocation.
+- **Limitations:** nested allocations run only while a third of the budget is left, which
+  at the standard level is rarely after phases 2 and 3; the thorough level covers them.
+- **Handoff:** phase 2 fits the grain in the chosen child.
+
+### Phase 2 report — operation grain
+
+- **Scope:** phase 2, 2026-11-08, commit `eccf9ec7`.
+- **Delivered:** `src/solprop/calibration/grain.py` (candidates from the problems'
+  `execution_sizing`, the width rule, the best of each setting) and the controller's grain
+  stage, timed on the problems each candidate changes and validated together.
+- **Deviations from the proposal:**
+  - *Candidates come from the work sizes the problems run, not from per-operation
+    timings through Kokkos Tools.* A kernel's label does not name its operation class, and
+    an operation's threshold matters only where it falls between two work sizes a problem
+    runs; so a class's candidates are its one-step moves past the nearest of them (thread
+    one more size, serialise one, widen one, narrow one), at most four, with the medium
+    width (2, 8) and the compact team (4, 16) beside them. §6.5 still decides each.
+  - *Quick fits the medium width and compact team only* (its "coarse grain"); standard
+    moves thresholds, at most ten candidates; thorough moves full sizes too.
+  - *The Adams trial's passes and a coupled flow keep the table*: no trial-step window
+    runs them.
+- **Verification:** `tests/calibration/test_grain.py`, the grain cases of
+  `test_controller.py`. On the Xeon's socket, standard admitted a medium width of 8 and a
+  compact team of 4: windows' geometric mean 0.885 (`line` 0.71, `radial` 0.81,
+  capillary 1.02); every stage, FFT and response threshold move lost by 2–126 %, as
+  ADR-073 found for this machine. A later run on the shared machine admitted the medium
+  width alone; another was inconclusive (A/A 0.11–0.23) while another user's job ran on
+  the socket's hyperthreads, which the SMT check now reports.
+- **Limitations:** whether these admissions hold on the tracking set is §7 item 1's
+  measurement, still to run.
+
+### Phase 3 report — FFTW planning
+
+- **Scope:** phase 3, 2026-11-08, commit `33e9934a`.
+- **Delivered:** `FftPlanning` and `FftPlanningScope` (`core.hpp`, `fft_plan.hpp`), the
+  seeds' `begin_seed`/`end_seed`, `State.fft_planning`, the controller's FFT stage, the
+  row's `planning` and the generation's wisdom, `PLANNING` at import and
+  `NativeBackend(fft_planning=...)`.
+- **Deviations from the proposal:**
+  - *Efforts are chosen per group* (serial rows, threaded rows, transverse planes), the
+    policy's own split, not per shape class; the wisdom is still per exact plan key, and
+    a run's shape the profile does not hold is seeded at its group's effort.
+  - *The planning transaction is per workspace*: it forgets before planning and after,
+    imports each plan's own wisdom at its seed and builds it with `FFTW_WISDOM_ONLY`. The
+    seeds and the Kokkos-FFT plans are not interleaved in the code (a workspace seeds
+    several transforms, then plans them), so an estimate plan can still meet wisdom that
+    another plan of the *same* workspace imported, as today's measured seeds already
+    allow; nothing from an earlier workspace, a file or another candidate reaches it.
+  - *Captures need no fresh process*: each capture forgets before its seed, so it holds
+    exactly that plan's wisdom.
+- **Verification:** `native/tests/test_planning.py` (§7 item 9: stale wisdom never
+  reaches a profiled workspace, two workspaces in either order, unbuildable wisdom falls
+  back and is recorded, malformed planning refused); controller tests. On the Xeon's
+  socket the 16 transforms of the five problems planned at measure in 10 s; serial rows at
+  estimate lost (1.12); threaded rows at measure won once (0.96, validated at 0.972,
+  `line` 0.89) and were inside the noise in a later run.
+- **Open questions:** Q2. §12 item 10's alone-against-in-step timings are not recorded:
+  the capture times planning, not the plan alone.
+
+### Phase 4 report — stage 2
+
+- **Scope:** phase 4, 2026-11-08, commit `9677809b`.
+- **Delivered:** `src/solprop/calibration/refine.py`, `Simulation.calibrate`,
+  `solprop calibrate --recipe`, `_profile.descriptor`, refinements in the store
+  (`problems/<fingerprint>/<descriptor>.json`) and the backend's lookup.
+- **Deviations from the proposal:**
+  - *Windows are trial steps at the start and a third and two thirds along the run*, from
+    the launch field, with the operators there; accuracy compares the trial steps' fields
+    with the base's (within ten times rtol), so the "same acceptance structure" test is
+    moot. A low-storage march times its own step and has no fields to compare.
+  - *The descriptor digests the operations' keys from `execution_sizing`* (class and work
+    of every operation: dimensions, chunk, response buffers, transform sizes), the shape,
+    grid, integrator, process settings and fingerprint; the plan keys follow from these and
+    are not listed separately.
+  - *A refinement applies only while the machine record it refined is the process's*, so it
+    never outlives the profile beneath it.
+- **Verification:** `tests/calibration/test_refine.py` on real native workspaces with
+  scripted timings (a stored refinement reused by a later backend, not by another grid,
+  not after the profile changed; inaccurate candidates and combinations kept back; noise,
+  deadline, no profile); a real refinement of the radial filament ran in 34 s and was
+  inconclusive on the shared Xeon (A/A 0.15).
+
+### Phase 5 report — first use, scans, benchmarks and documentation
+
+- **Scope:** phase 5, 2026-11-08, commits `59e15e4d`, `bc66ec18`, `c83cc0ca`, `02062f20`.
+- **Delivered:** `src/solprop/calibration/first_use.py`, the hooks in
+  `backends/registry.py` and `driver/executors/pool.py`, `CalibrationNotice`,
+  `solprop_native.refresh_profile`, the scan workers' wait request and role, the Slurm
+  script's request; `benchmarks` `--calibrate`, worker `SOLPROP_CALIBRATION=use`, the
+  history's `calibration` column; `docs/guide/performance/calibration.md` and the other
+  pages of section 8; ADR-074; the release notes.
+- **Deviations from the proposal:**
+  - *The notice is a warning and a log record, not a reporter call*: the run's reporter is
+    resolved after the backend is chosen. The GUI service already turns warnings into
+    events.
+  - *The remote install script does not calibrate*: a GUI-managed host is often a
+    cluster's login node, which is the wrong machine and shared; compute nodes calibrate
+    on first use.
+- **Verification:** `tests/calibration/test_first_use.py`; the Slurm snapshots; the
+  benchmark tests. A first native run in a fresh script on the Xeon's socket printed the
+  notice once, calibrated and ran in 19 s; the second run did not calibrate.
+- **Limitations:** §7 items 1–3, 13 and 16 need the A/B campaign on the machines of §7
+  item 1 (the Xeon quiet, DMOG's EPYC 7763, Google C4D under Linux and Windows and C4A,
+  and the maintainer's M5 Max), which is still to run, as is phase 6.
+
+### Verification report — section 7 items 1–4, and the revisions it forced
+
+- **Scope:** section 7 items 1–4 and 16 on the machines of item 1, 2026-11-08, Opus 5.5
+  (AI) for John Travers; the maintainer ran the Apple M5 Max. Commits `27fb0131` to
+  `0aaf84f0` of #582. The rows, commands and spend are in the benchmark ledger
+  ([Machine calibration against the built-in table](../../benchmarks.md#machine-calibration-against-the-built-in-table-sep-46)).
+- **Method:** a thorough calibration on 16 cores (18 on the Xeon, 6 top-tier on the
+  M5 Max), then the tracking set calibrated against built-in (`benchmarks ab`, a fifth
+  of each case, three rounds), an A/A control and a second calibration. Both arms run
+  as default runs, with no thread count of their own (an empty `SOLPROP_THREADS` and
+  `SOLPROP_NATIVE_THREADS`). Without that, a worker's explicit width kept the profile's
+  team width out, and with it every setting fitted at another width: the first Axion A/B
+  measured nothing of its profile (every case 1.00, fields equal to the bit).
+- **The first rules failed item 1.**
+  - *Team width from small problems.* On a Google Axion a team of 8 won the five
+    problems by 16 % and ran the tracking set's large cases up to 1.8 times slower
+    (geometric mean 1.094). A round's score was the geometric mean over the problems,
+    so a large win on some carried a loss on others, and every problem was far smaller
+    than a production run.
+  - *Untested wisdom.* On an AMD EPYC 9B45 the FFT stage's fallback, the policy's
+    efforts with the captured wisdom, ran `h2_raman_averaged` 1.18 times slower. Its
+    4608-point plan, chosen alone in the capture, ran slower in the step than a plan
+    measured in place, and the fallback was every candidate's base, so it was never
+    compared with the table.
+  - *Element-count thresholds.* A full transform width from 98304 elements won 0.56 on
+    the line problem's many short rows and ran `grin_nonlinear` 1.08–1.10 slower on
+    both EPYCs.
+- **Revisions (deviations from sections 6.5, 6.7 and 6.9, all in `75cae69b` to
+  `0aaf84f0`):**
+  - *Per-problem admission.* A candidate must also be slower on no problem than its
+    median ratio's bar, `1 + noise + TOLERANCE`; the combined validation uses the same
+    bar. `TOLERANCE` is 5 %, the maintainer's choice (section 7 item 1 asked for 2 %).
+  - *Production-sized problems.* Standard and thorough also time `gnlse_large` (16384
+    samples), `capillary_large` (four modes on 5120), `radial_large` (384 nodes) and
+    `line_large` (4096 columns). Quick tries no narrower team. Standard takes about 90 s
+    (78 s on 8 Xeon cores).
+  - *FFT planning against the table.* Candidates and their validation are compared with
+    the plan policy as a run without a profile plans, and nothing is published unless an
+    effort wins. Each capture takes a budget out of the stage's share and keeps what it
+    planned when cut short; standard plans at 0.25 s a plan. The grain stage leaves
+    planning half the time left.
+  - *Transforms at the table.* The grain no longer moves `fft_threshold` or `fft_full`
+    (#587: key the transforms' width on rows and row length).
+- **Results with the revised rules** (2 % bar):
+  - *Google Axion:* medium width 8 and two thresholds in three runs; geometric means
+    0.965, 0.964, 0.968 against an A/A of 1.000, no case beyond its A/A range plus 2 %;
+    gains to 15 % on the few-mode and Raman cases. The team of 8 was refused on
+    `radial_large` (1.17–1.18). The last run's two calibrations agreed (item 3).
+  - *AMD EPYC 7763 (exclusive node, one NUMA domain):* the table, as no grain move
+    won; A/B 1.003 against an A/A of 0.991.
+  - *AMD EPYC 9B45, Windows Server 2025 (the CI wheel, Clang 20, LLVM OpenMP):* the
+    table in both calibrations; the A/B, table against table, was not run.
+  - *AMD EPYC 9B45, Linux:* inconclusive at 16 cores on two VMs (A/A 35 % and 15 %;
+    one Spot VM was preempted mid-run); on a third (5 % bar) conclusive, keeping the
+    table (passive 1.25, half the team 1.06); its second calibration kept the wait and
+    team and admitted a copy threshold. The VM type's timings spread widely: its
+    table-against-table A/B ran 0.60–1.52 per case.
+  - *Intel Xeon Gold 6240, one socket:* the table in both conclusive calibrations; the
+    machine is shared, and a later session was inconclusive (23 %).
+  - *Intel Xeon Platinum 8581C (Emerald Rapids), 12 cores* (5 % bar): the table's
+    waiting and team (passive 1.94 times slower), medium width 8 and the Axion's Raman
+    and copy thresholds, in both calibrations; A/B 0.989 against an A/A of 0.996,
+    `ctc` 0.87, `gnlse_raman_shock` 0.94, no case beyond its noise. The quick level
+    (first use) admitted the medium width alone: 0.999, `ctc` 0.90 (section 7 item 13).
+  - *Apple M5 Max* (first rules): six top-tier threads kept in both calibrations, a
+    Raman threshold of 8193 admitted; A/B 1.002 and 1.008, `h2_raman_averaged` 1.04,
+    the stored wisdom the revision removes. With the revised rules (5 % bar), the same
+    Raman threshold in both calibrations and no planning; A/B 1.012 against an A/A of
+    1.000, no case the profile changes beyond its noise (the argon cases' 1.09–1.15 ran
+    identical computations, within their A/A range of 0.89–1.12).
+- **Item 2.** Found as measured by hand: spin everywhere, passive refused by 1.10–1.78;
+  six top-tier threads on the M5 Max; the Xeon's thresholds near the table; Windows'
+  spin, now the table's since #576. Not found: the M5 Max's lower thresholds beyond
+  ADR-073's, which the table already applies; the Xeon's compact cap near 8.
+- **Item 3.** Same waiting and team in every pair of conclusive calibrations; the same
+  grain in the last Axion pair and in every M5 Max pair, while three earlier second calibrations (Axion,
+  EPYC 7763, Windows) found the grain inconclusive and kept the table.
+- **Item 4.** Every noisy session reported `inconclusive` and published nothing for its
+  allocation: the EPYC 9B45 (35 %, 15 %), the EPYC 7763's second (31 %), the Xeon (23 %).
+- **Item 16.** Not met by the first rules (above); under the revised rules no machine
+  published planning except one EPYC 9B45 calibration (`rows patient`), not yet A/B'd.
+- **Open:** the few-mode cases keep part of the gain a narrower team gave them on the
+  Axion (`h2_raman_averaged` 0.90 with a team of 8, 1.00 at full width with the grain;
+  `argon_blueshift_envelope` 0.80 against 0.91): their operations sit above the full
+  sizes, and a grain move must win alone. Searching medium width and full sizes
+  together, and a source's transforms as one batch (#584), are the leads. The EPYC 9B45's
+  VMs are too noisy to resolve gains of a few per cent.
+
+### Scan-worker report — section 7 item 14 on a cluster node
+
+- **Scope:** a scan's workers, 2026-11-09, Opus 5.5 (AI) for John Travers, on a whole
+  node of two AMD EPYC 7763 (128 cores), commit `ad1df42e`; the rows are in the
+  benchmark ledger
+  ([Scan workers calibrated on an AMD EPYC 7763 node](../../benchmarks.md#scan-workers-calibrated-on-an-amd-epyc-7763-node-sep-46)).
+- **Method:** the maintainers' common scan, an RDW tuning scan of a four-mode helium
+  capillary over pressure and energy, on `Pool`: 128 single-threaded workers over
+  20 × 20 points, 4 workers of 4 threads on one NUMA domain, and 8 workers of 16 threads.
+  Each against the table (workers passive) and the table with spinning workers, three
+  shuffled rounds, after one warm-up scan that calibrated the workers' allocation.
+- **Found:**
+  - *Nothing to gain.* The 4- and 16-core rows kept the table (spin, the full team, the
+    grain inconclusive, no planning), so a calibrated worker differs only by spinning.
+    Spinning and passive workers ran the same within the node's spread; a slower
+    calibrated arm at 8 × 16 (1.05–1.17) did not repeat in nine further scans, and the
+    parent's first-use check costs 0.4 s.
+  - *A defect, fixed.* A one-core allocation's standard calibration ran out of its 90 s
+    before three rounds of its problems in series, published nothing and would try again
+    a day later. One CPU has no team, waiting or grain to choose: a one-CPU allocation
+    is now never measured (`SINGLE_CPU`), so single-threaded scans neither wait nor
+    see a notice (a deviation from sections 6.4 and 6.10: one CPU is never calibrated implicitly).
+  - *The one-off cost:* about 90 s a worker class, once per machine, allocation class
+    and release.
+- **#314** (workers against threads a worker) stays open: this measured each split's
+  waiting, not the split itself.
+
+### Phase 6 report — GPU builds
+
+- **Scope:** phase 6, 2026-11-08, on an NVIDIA H200 (CUDA 13.1, US$8.46); an AMD
+  Instinct MI325X was not available in the session.
+- **Measured** (benchmark ledger, "Device settings and the node chunk on an NVIDIA
+  H200"): graph replay pays and stays on; team and reduction widths of 128/256 and
+  512/1024 do not pay beyond the noise; the node chunk pays 6–25 % on the spatial routes
+  (#361's bar is 10 %), and an 8 GiB budget takes nearly all of it. The device tests
+  passed on the branch's build.
+- **Decision** (the maintainer's): phase 6 keeps no calibrated device setting. There is
+  no `solprop calibrate --device`, no device fingerprint or `devices/` store, and no
+  bootstrap step: nothing would be fitted. The chunk is a better default, not a
+  per-machine measurement, and it raises a device run's default memory use, so it lands
+  through #361 as its own PR, qualified on CUDA and HIP. Section 7 item 15 is answered
+  by that: no device-calibrated setting, so nothing to verify beyond the measurements.
+- **Delivered:** `SOLPROP_BENCH_NODE_BUDGET` in the benchmark builders (one arm of an
+  A/B at another node budget), and the measurements on #361.
+
+### Final report — completion
+
+- **Scope:** completion under SEP 0 §6, 2026-11-09, Opus 5.5 (AI) for John Travers.
+- **Phases:** 0–6 are implemented and reported above; the verification and scan-worker
+  reports cover section 7 items 1–4, 14 and 16, and phase 6 answers item 15. The CI
+  gate passes on the branch.
+- **Backends:** the calibration fits the native backend's CPU execution and leaves its
+  results unchanged beyond rounding (section 7 item 6). `numpy_ref`, `mlx` and Julia
+  have no execution settings to fit and are out of scope (section 2).
+- **Manual:** [Calibrating solprop to your machine](../../../guide/performance/calibration.md)
+  is new and ends with a link here. The installation, tuning, recipes and native build
+  pages, the README, ADR-074 and the release notes say what changed.
+- **Open questions moved to issues:**
+  - §12 item 1, a quick profile upgrading itself to standard: #591.
+  - The few-mode cases' narrower-team gain (verification report): #592, beside #584.
+  - The grain the Axion and the Emerald Rapids agreed on, as the table's: #593.
+  - §12 item 11, hybrid-core Linux and Windows machines: #594.
+  - §12 item 10, why plans chosen alone lose in the step: #595.
+  - §12 item 8 stays on #229, the transforms' thresholds on #587, the node chunk on
+    #361 and the scan split on #314.
+  - §12 item 3, answered: the waiting and team agreed in every pair of conclusive
+    calibrations and the grain did in the last pairs (item 3). A benchmark row records
+    the profile it ran on (`calibration`: its level and generation), so a step in a
+    series can be traced to a changed profile; series are not split by it.
+- **Issues answered:** #328 (thresholds measured on Windows, aarch64 and macOS, and fitted
+  per machine), #332 (FFTW effort per shape and processor: measured, and the policy kept
+  where nothing won) and #115 (SEP 4, superseded). #81 and #329 stay open: the
+  calibration gained `gnlse_raman_shock` 6–15 % on the untuned machines without
+  explaining its scaling, and did not requalify the scalar wall.
+
 ## Part III — History
 
 - 2026-11-08: Drafted (Opus 5.5) from the measurements of PR #576. Proposes to
@@ -1190,3 +1589,15 @@ are left to the maintainer as §12 items 4–7.
 - 2026-11-08: Clarified before the acceptance merged, after an automated review (Codex) on
   #580: a first run, still on its original process settings, applies only workspace
   settings validated under them (§5, §6.4).
+- 2026-11-08: Implementation started (Opus 5.5) on `feature/sep-0046-machine-calibration`.
+- 2026-11-08: Phase 0 complete: the store, the split into process and workspace settings,
+  and the built-in table.
+- 2026-11-08: Phases 1–5 implemented; their verification on the machines of section 7 item
+  1 and phase 6 remain.
+- 2026-11-08: Verification on the machines of section 7 item 1. The first rules failed
+  item 1; revised (per-problem admission at the noise plus 5 %, production-sized
+  problems, planning against the table, transforms at the table). Phase 6 measured on
+  an NVIDIA H200; no device setting kept as calibrated, the chunk to #361.
+- 2026-11-09: Scan workers measured on an AMD EPYC 7763 node: the table kept, workers'
+  waiting immaterial; one-CPU allocations are no longer calibrated.
+- 2026-11-09: Final. Open questions moved to #591–#595; archived.
