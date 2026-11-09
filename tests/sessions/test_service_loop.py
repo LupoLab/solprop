@@ -15,9 +15,12 @@ import numpy as np
 import pytest
 
 from sessions.executors import PLANES, entrance, fibre, soliton, window
+from solprop.backends.driver_session import DriverSession
 from solprop.backends.registry import select
+from solprop.backends.session import StopToken
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
+from solprop.exceptions import StopRequested
 from solprop.log import NullReporter
 from solprop.output import CallbackOutput, MemoryOutput
 from solprop.output.schema import Output, SavedPlane
@@ -156,3 +159,79 @@ def test_a_callback_consumer_failure_propagates_and_delivers_each_plane_once():
     with pytest.raises(ConsumerError):
         _run(CallbackOutput(receive))
     assert delivered == [0.0, *PLANES[:FAILING]]
+
+
+def _yield_every_attempt(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every advance of the run yield after one attempt."""
+    advance = DriverSession.advance
+
+    def bounded(self, *, work_limit=1, deadline=1e6):
+        del work_limit, deadline
+        return advance(self, work_limit=1, deadline=1e6)
+
+    monkeypatch.setattr(DriverSession, "advance", bounded)
+
+
+class _StoppingReporter(NullReporter):
+    """A reporter that hears every attempt and sets a stop at one of them."""
+
+    def __init__(self, at: int) -> None:
+        self.heard: list[tuple[float, float, bool]] = []
+        self.token = StopToken()
+        self._at = at
+
+    def step(self, z, dz, accepted) -> None:
+        self.heard.append((z, dz, accepted))
+        if len(self.heard) == self._at:
+            self.token.set()
+
+
+@pytest.mark.parametrize("yields", [False, True], ids=["whole planes", "every attempt"])
+def test_assembled_planes_and_checkpoints_do_not_depend_on_chunking(
+    monkeypatch, yields
+):
+    """SEP 47 sections 5.3 and 5.5: the service loop assembles each plane's and the
+    terminal checkpoint's attempts from chunks, whatever the yields deliver them in.
+
+    A stop is set at the seventh attempt, between planes. Each stored plane holds the
+    attempts since the previous one and the checkpoint those since the last stored
+    plane, each heard attempt exactly once, whether each advance runs to a barrier or
+    yields after every attempt.
+    """
+    if yields:
+        _yield_every_attempt(monkeypatch)
+    reporter = _StoppingReporter(at=7)
+    output = _FailingStore(fails=False)
+    problem = soliton()
+    backend = select("numpy_ref", problem, grid=window(), modes=[fibre().mode])
+    try:
+        run_problem(
+            problem,
+            backend,
+            output,
+            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            progress=reporter,
+            start=entrance(problem),
+            stop=reporter.token,
+        )
+    except StopRequested:
+        pass
+    finally:
+        backend.close()
+    checkpoint = output.terminal_checkpoint
+    assert checkpoint is not None
+    records = [plane.step_history for plane in output.offered]
+    records.append(checkpoint.plane.step_history)
+    assert records[0].n_steps == 0  # the launch plane
+    # A record stores each step's start and length; its end is the attempt heard.
+    np.testing.assert_allclose(
+        np.concatenate([record.z + record.h for record in records]),
+        [z for z, _, _ in reporter.heard],
+        rtol=1e-14,
+    )
+    np.testing.assert_array_equal(
+        np.concatenate([record.accepted for record in records]),
+        [accepted for _, _, accepted in reporter.heard],
+    )
+    assert checkpoint.plane.step_history.n_steps > 0
+    assert checkpoint.plane.z == reporter.heard[-1][0]

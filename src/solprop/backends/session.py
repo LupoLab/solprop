@@ -25,6 +25,15 @@ Yields are exact transport no-ops (SEP 47 section 5.1): the attempt bound, the
 deadline, the event capacity and the timing of acknowledgments change when control
 returns, never the numerical state or the control trace.
 
+Event storage is bounded (SEP 47 section 5.3): every event delivers, exactly once,
+the attempts and periodic rows made since the *previous event* -- a yield's
+:class:`~solprop.backends.events.Progress` as much as an observation, a snapshot or
+the terminal event -- and a row's ``step`` indexes its own chunk's attempts. A session
+therefore buffers no more than one advance's attempts, and the service loop, not the
+session, assembles a plane's or a checkpoint's history from the chunks
+(:func:`solprop.backends.events.join_attempts`). The status counts every attempt once,
+as it is drained.
+
 Control requests travel separately from the immutable request: a thread-safe
 :class:`StopToken` asks for a stop at the next safe boundary, and
 :meth:`RunSession.request_snapshot` latches a snapshot for the next eligible accepted

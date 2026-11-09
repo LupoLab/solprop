@@ -37,11 +37,14 @@ from solprop.backends.events import (
     ObservationKind,
     ObservationReady,
     Outcome,
+    Progress,
     ServiceKind,
     ServiceRequired,
     Terminal,
+    join_attempts,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import BackendHistory
 from solprop.backends.protocol import StepStats as BackendRows
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.run import (
@@ -261,7 +264,65 @@ class _Exports:
         return self._phase
 
 
-def _plane(event: ObservationReady, exports: _Exports, *, keep: bool) -> SavedPlane:
+Chunk = tuple[BackendHistory | None, BackendRows | None]
+"""One event's attempts and periodic rows, as it delivered them."""
+
+
+class _Chunks:
+    """The attempts and rows delivered since the last saved plane, in order.
+
+    A session delivers each attempt once, with the event after it
+    (:mod:`solprop.backends.events`); this is where they are assembled. An observation
+    takes them all as its plane's history and starts afresh; a running checkpoint
+    includes them without consuming them; a terminal checkpoint includes them.
+    """
+
+    def __init__(self) -> None:
+        """Start with nothing held."""
+        self._chunks: list[Chunk] = []
+
+    def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
+        """Hold one event's chunk.
+
+        Parameters
+        ----------
+        history : solprop.backends.protocol.BackendHistory or None
+            Its attempts.
+        rows : solprop.backends.protocol.StepStats or None
+            Its periodic rows, without a batch axis.
+        """
+        self._chunks.append((history, rows))
+
+    def joined(self) -> tuple[BackendHistory, BackendRows]:
+        """Return every chunk held, assembled, without consuming them.
+
+        Returns
+        -------
+        tuple
+            The attempts and rows since the last saved plane.
+        """
+        return join_attempts(self._chunks)
+
+    def take(self) -> tuple[BackendHistory, BackendRows]:
+        """Return every chunk held, assembled, and start afresh.
+
+        Returns
+        -------
+        tuple
+            The attempts and rows since the last saved plane.
+        """
+        joined = self.joined()
+        self._chunks = []
+        return joined
+
+
+def _plane(
+    event: ObservationReady,
+    exports: _Exports,
+    attempts: tuple[BackendHistory, BackendRows],
+    *,
+    keep: bool,
+) -> SavedPlane:
     """Build the plane an output stores from an observation.
 
     Parameters
@@ -270,6 +331,8 @@ def _plane(event: ObservationReady, exports: _Exports, *, keep: bool) -> SavedPl
         The observation.
     exports : _Exports
         Its field, when kept.
+    attempts : tuple
+        Its history and rows, assembled from the chunks since the previous plane.
     keep : bool
         Whether the plane keeps its field.
 
@@ -284,8 +347,8 @@ def _plane(event: ObservationReady, exports: _Exports, *, keep: bool) -> SavedPl
         z=event.z,
         field=None if field is None else _adopted(field),
         stats=dict(event.stats),
-        step_history=_history_of(event.history),
-        step_stats=_rows(event.step_stats),
+        step_history=_history_of(attempts[0]),
+        step_stats=_rows(attempts[1]),
         noise_phase=None if phase is None else _adopted(phase),
     )
 
@@ -379,6 +442,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     snapshots = context.snapshots
     snapshots_started = False
     terminal_rows: tuple[object, object] = (None, None)
+    chunks = _Chunks()
     failure: BaseException | None = None
     adams = isinstance(context.request.integration.method, Multistep)
     try:
@@ -414,7 +478,11 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             terminal_rows = (None, None)
             batch = session.advance()
             for event in batch.events:
-                if isinstance(event, ObservationReady):
+                if isinstance(event, Progress):
+                    chunks.add(event.history, event.step_stats)
+                elif isinstance(event, ObservationReady):
+                    chunks.add(event.history, event.step_stats)
+                    attempts = chunks.take()
                     if event.kind is ObservationKind.LAUNCH and not (
                         output.n_saved == 0 or missing_current_save
                     ):
@@ -423,11 +491,11 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     current[0] = event
                     pending_ticket = event.ticket
                     # Its attempts, should the plane fail before it holds them.
-                    terminal_rows = (event.history, event.step_stats)
+                    terminal_rows = attempts
                     if event.kind is not ObservationKind.LAUNCH:
                         _warn_coarse(event, planes)
                     keep = context.retention.keeps(output.n_saved)
-                    pending = _plane(event, exports, keep=keep)
+                    pending = _plane(event, exports, attempts, keep=keep)
                     pending_save_count = output.n_saved
                     with committing():
                         output.save(pending)
@@ -446,6 +514,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     if event.kind is not ObservationKind.LAUNCH:
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
+                    chunks.add(event.history, event.step_stats)
                     if event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
                         assert isinstance(output, HDF5Output)
                         _service_snapshot(
@@ -456,11 +525,13 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             keeper,
                             exports,
                             context,
+                            chunks.joined(),
                             clock=clock,
                             adams=adams,
                             base=base,
                         )
                 elif isinstance(event, Terminal):
+                    chunks.add(event.history, event.step_stats)
                     if event.outcome is Outcome.COMPLETED:
                         with committing():
                             _record_execution(
@@ -474,7 +545,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     else:
                         assert event.error is not None
                         pending_ticket = event.ticket
-                        terminal_rows = (event.history, event.step_stats)
+                        terminal_rows = chunks.joined()
                         raise event.error
         reporter.finished(time.perf_counter() - started)
         if isinstance(reporter, SummarisingReporter):
@@ -489,6 +560,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             exports,
             pending_ticket,
             terminal_rows,
+            chunks,
             base,
             _FailedObservation(
                 pending,
@@ -559,6 +631,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     keeper: _MarchKeeper,
     exports: _Exports,
     context: ServiceContext,
+    attempts: tuple[BackendHistory, BackendRows],
     *,
     clock: RunClock,
     adams: bool,
@@ -586,6 +659,9 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
         The endpoint's field.
     context : ServiceContext
         The run's context.
+    attempts : tuple
+        The attempts and rows since the last plane, the snapshot's own chunk included:
+        the running checkpoint's, which does not consume them.
     clock : solprop._host.RunClock
         When the run started.
     adams : bool
@@ -600,18 +676,15 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     checkpoint = None
     if not at_plane:
         assert event.ticket is not None
-        history = event.history
-        rows = event.step_stats
+        history, rows = attempts
         phase = exports.phase(event.ticket)
         checkpoint = TerminalCheckpoint(
             plane=SavedPlane(
                 z=z,
                 field=_adopted(exports.field(event.ticket)),
                 stats={},
-                step_history=StepHistory.empty()
-                if history is None
-                else _history_of(history),
-                step_stats=StepStats.empty() if rows is None else _rows(rows),
+                step_history=_history_of(history),
+                step_stats=_rows(rows),
                 noise_phase=None if phase is None else _adopted(phase),
             ),
             next_save_index=int(
@@ -653,6 +726,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     exports: _Exports,
     ticket: ExportTicket | None,
     rows: tuple[object, object],
+    chunks: _Chunks,
     base: Mapping[str, object],
     failure: _FailedObservation,
 ) -> float | None:
@@ -674,8 +748,11 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
         The committed field to checkpoint, or ``None`` when the state is poisoned or
         the failure arose outside the session.
     rows : tuple
-        The terminal event's attempts and periodic rows since the last observation,
-        or ``None`` for each.
+        The attempts and periodic rows since the last saved plane, assembled for the
+        terminal event or the failed plane, or ``None`` for each.
+    chunks : _Chunks
+        The chunks delivered since the last saved plane, for a failure outside the
+        session, whose own undelivered attempts are joined to them.
     base : collections.abc.Mapping
         What the execution restored, for its restart record.
     failure : solprop.driver.run._FailedObservation
@@ -714,9 +791,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
         if pending is None or pending.z != ticket.z:
             history, step_rows = rows
             if history is None and step_rows is None:
-                # A failure outside the session: the attempts since the last plane,
-                # a running checkpoint's included, are still the session's.
-                history, step_rows = session.held_attempts(ticket)
+                # A failure outside the session: the chunks since the last plane, a
+                # running checkpoint's included, and what no event delivered.
+                chunks.add(*session.undelivered(ticket))
+                history, step_rows = chunks.joined()
             pending = SavedPlane(
                 z=ticket.z,
                 field=field,
