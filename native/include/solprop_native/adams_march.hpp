@@ -307,6 +307,11 @@ struct Bounds {
   bool watch = false;
   watch::Policy watch_policy;
   std::size_t watch_capacity = 256;
+  /** The owning monitor of a native session (SEP 47 section 6.4), or none. With one,
+   *  `watch` is set and the march's checks are the monitor's own: it decides and
+   *  records each, its cap is the split collar's, no reading is buffered and the
+   *  policy above is not read. */
+  watch::Monitor* owner = nullptr;
   /** A stop request any thread may set (SEP 47 section 5.5), or none. The march reads
    *  it before its first attempt and after each attempt's commit and accounting, where
    *  no host event returns first, and returns `stopped` with the committed state. */
@@ -316,6 +321,15 @@ struct Bounds {
    *  accounting and where no other host event returns first, and returns `halted`. */
   const std::atomic<bool>* halt = nullptr;
 };
+
+/** The split collar's cap on an adaptive step: the owning monitor's, the march's own
+    checks', or the host's last check's; infinite without one. */
+[[nodiscard]] inline double split_cap(const Bounds& bounds,
+                                      const watch::State& watched) noexcept {
+  if (bounds.owner != nullptr)
+    return bounds.owner->cap();
+  return bounds.watch ? watched.cap : bounds.step_cap;
+}
 
 /** Whether a halt is requested on `bounds` (SEP 47 section 5.5). */
 [[nodiscard]] inline bool halt_requested(const Bounds& bounds) noexcept {

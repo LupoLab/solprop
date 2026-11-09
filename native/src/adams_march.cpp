@@ -420,11 +420,16 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
   };
   if (bounds.replay && schedule.edges.size() != n_steps + 1)
     throw std::invalid_argument("a replayed schedule has one more edge than steps");
-  if (bounds.watch)
+  if (bounds.watch && bounds.owner == nullptr)
     watch::validate(bounds.watch_policy);
   // The boundary check of the step just committed (SEP 45 section 4.8): `due`, then the
-  // reading, buffered for solprop's monitor, and the prediction of what it will do.
+  // reading, buffered for solprop's monitor, and the prediction of what it will do; or,
+  // under a session's owning monitor (SEP 47 section 6.4), the monitor's own check.
   const auto take_check = [&]() -> watch::Verdict {
+    if (bounds.owner != nullptr)
+      return watch::owned_check(
+          *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
+          bounds.replay, schedule.steps, state.cursor);
     const auto& rules = bounds.watch_policy;
     if (!watch::due(rules, state.watch, state.z)) {
       watch::skip(state.watch);
@@ -494,7 +499,7 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
       proposed = quiet_capped(policy, proposed, bounds.quiet);
       proposed = read_capped(bounds, proposed);
       // Under the march's own checks the split collar's cap is the last check's.
-      proposed = py_min(proposed, bounds.watch ? state.watch.cap : bounds.step_cap);
+      proposed = py_min(proposed, split_cap(bounds, state.watch));
       proposed = collar_reentry(policy, proposed, state.order, state.collar_was_quiet,
                                 bounds.quiet);
       state.collar_was_quiet = bounds.quiet;

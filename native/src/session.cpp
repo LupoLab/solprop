@@ -128,6 +128,22 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
     throw std::invalid_argument("a session needs the state it leases");
   elements_ = resident_->elements();
   adams_ = std::holds_alternative<AdamsMethod>(method_);
+  if (plan_.monitor) {
+    monitor_ = std::make_unique<watch::Monitor>(plan_.monitor->config);
+    // A resting collar caps the steps at the monitor's interval, as the march's policy
+    // takes it from solprop's monitor (`quiet_interval`).
+    std::visit(
+        [this](auto& marching) {
+          march::Policy* landings = nullptr;
+          if constexpr (std::is_same_v<std::decay_t<decltype(marching)>, AdamsMethod>)
+            landings = &marching.policy;
+          else
+            landings = &marching.policy.landings;
+          landings->has_quiet_interval = true;
+          landings->quiet_interval = monitor_->interval();
+        },
+        method_);
+  }
   if (adams_) {
     auto& adams = std::get<AdamsMethod>(method_);
     if (!adams.engine)
@@ -228,9 +244,15 @@ march::Result Session::call(const double target, const double slack,
   march::Bounds bounds;
   bounds.target = target;
   bounds.host_step = host_step();
-  // No monitor, transverse edge or split collar (refused at preparation): the caps
-  // are infinite and nothing is read.
+  // The session's own monitor takes each committed step's check in the march, its cap
+  // the split collar's; no transverse edge (refused at preparation), whose spacing is
+  // infinite.
   bounds.read_spacing = std::numeric_limits<double>::infinity();
+  if (monitor_) {
+    bounds.watch = true;
+    bounds.owner = monitor_.get();
+    bounds.quiet = collar_quiet_;
+  }
   bounds.max_attempts = attempts;
   bounds.max_seconds = seconds;
   bounds.replay = plan_.replay;
@@ -383,6 +405,167 @@ Batch Session::issue(Batch batch, const Outcome outcome) {
   return batch;
 }
 
+const march::Schedule& Session::schedule() const noexcept {
+  if (const auto* adams = std::get_if<AdamsMethod>(&method_))
+    return adams->schedule;
+  return std::get_if<RungeKuttaMethod>(&method_)->schedule;
+}
+
+void Session::sync_collar() {
+  // `_set_collar_quiet`: the stages rest the collar where the monitor finds it quiet
+  // and the route can rest it; the monitor is told what the stages do.
+  const bool rest = monitor_->rests();
+  monitor_->note_collar(rest);
+  if (rest != collar_quiet_) {
+    collar_quiet_ = rest;
+    resident_->set_collar_quiet(rest);
+  }
+}
+
+void Session::warning(Batch& batch, const Notice& notice) {
+  // A service barrier at the committed endpoint: its field can be exported for a
+  // checkpoint while the caller emits the warning, which its filters may raise.
+  Event event;
+  event.kind = EventKind::warning;
+  event.z = position();
+  event.ticket = true;
+  event.generation = generation_;
+  event.notice = notice;
+  drain(batch);
+  batch.event = event;
+}
+
+void Session::monitor_stop(Batch& batch, const Notice& notice) {
+  Failure failure;
+  failure.reason = march::Reason::error;
+  failure.category = notice.kind == Notice::Kind::reading ? march::Category::backend
+                                                          : march::Category::refused;
+  failure.notice = notice;
+  failure.cursor = cursor();
+  terminal(batch, Outcome::failed, std::move(failure));
+}
+
+bool Session::judged(Batch& batch, const watch::Judgement& judgement) {
+  // A check's verdict: a stop or an unreadable split ends the run here; a first
+  // warning is a barrier, the caller's continuation set beforehand.
+  Notice notice;
+  notice.z = judgement.z;
+  notice.launch = judgement.launch;
+  notice.value = judgement.worst;
+  switch (judgement.verdict) {
+  case watch::Verdict::stop:
+    notice.kind = Notice::Kind::guard;
+    monitor_stop(batch, notice);
+    return true;
+  case watch::Verdict::error:
+    notice.kind = Notice::Kind::reading;
+    monitor_stop(batch, notice);
+    return true;
+  case watch::Verdict::warn:
+    notice.kind = Notice::Kind::guard;
+    warning(batch, notice);
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool Session::refused_crossing(Batch& batch) {
+  // `_refuse_scheduled_crossing`: a replay's longest step before the next check
+  // against the cap the check just read.
+  if (!plan_.replay || !monitor_->config().policy.crossing)
+    return false;
+  const auto& steps = schedule().steps;
+  const std::size_t first = static_cast<std::size_t>(cursor());
+  if (first >= steps.size())
+    return false;
+  const double longest = watch::longest_ahead(steps, first, monitor_->steps_to_check());
+  if (!(longest > monitor_->cap()))
+    return false;
+  Notice notice;
+  notice.kind = Notice::Kind::crossing;
+  notice.z = position();
+  notice.cap = monitor_->cap();
+  notice.step = longest;
+  monitor_stop(batch, notice);
+  return true;
+}
+
+bool Session::attach(Batch& batch) {
+  // `DriverSession._attach_monitor` after the launch plane's commit: restore a resumed
+  // record, then record and judge the launch (`attach_monitor`).
+  attached_ = true;
+  const auto& plan = *plan_.monitor;
+  if (plan.resume)
+    monitor_->resume(plan.record, plan.plane, plan.unwatched);
+  const std::vector<double> reading = resident_->boundary_reading();
+  // The input noise's floor is refused at preparation: none is read.
+  const watch::Judgement judgement =
+      monitor_->launch(reading.data(), reading.size(), position(), 0.0, nullptr);
+  if (judgement.verdict == watch::Verdict::warn)
+    continuation_ = Continuation::attach;
+  if (judged(batch, judgement))
+    return true;
+  sync_collar();
+  return refused_crossing(batch);
+}
+
+bool Session::endpoint(Batch& batch, const double target) {
+  // The event step after its monitor check: its statistics row, then the natural stop
+  // (`_take_step_stats`, `_natural_stop`).
+  if (plan_.period > 0) {
+    ++accepted_steps_;
+    if (accepted_steps_ % plan_.period == 0)
+      take_row();
+  }
+  ++natural_count_;
+  const bool step_plane =
+      plan_.step_planes > 0 && natural_count_ % plan_.step_planes == 0;
+  const double z = position();
+  if (step_plane) {
+    if (!march::reached(z, target, landing_ulps_))
+      return observe_plane(batch, Observation::step,
+                           static_cast<std::int64_t>(next_plane_), false);
+  } else if (!march::reached(z, target, landing_ulps_) && snapshot_latched()) {
+    // `_halted_short`: the latch halts the march at this endpoint.
+    snapshot(batch);
+    return true;
+  }
+  return false;
+}
+
+bool Session::observe_plane(Batch& batch, const Observation kind,
+                            const std::int64_t plane, const bool next) {
+  // `_monitor_plane` before the observation: a plane's state is checked even when its
+  // last step was not (SEP 47 section 5.3, the requested plane).
+  continued_kind_ = kind;
+  continued_plane_ = plane;
+  continued_next_ = next;
+  if (monitor_ && monitor_->stale()) {
+    const std::vector<double> reading = resident_->boundary_reading();
+    const watch::Judgement judgement =
+        monitor_->step(reading.data(), reading.size(), position(), true);
+    sync_collar();
+    if (judgement.verdict == watch::Verdict::warn)
+      continuation_ = Continuation::plane;
+    if (judged(batch, judgement))
+      return true;
+    if (refused_crossing(batch))
+      return true;
+  }
+  return plane_rest(batch);
+}
+
+bool Session::plane_rest(Batch& batch) {
+  // The plane's monitor row, then its statistics and the observation.
+  if (monitor_)
+    monitor_->plane(position());
+  if (continued_next_)
+    ++next_plane_;
+  batch.event = observe(batch, continued_kind_, continued_plane_);
+  return true;
+}
+
 Batch Session::advance(const std::size_t work_limit, const double deadline) {
   const std::scoped_lock lock(mutex_);
   require_open();
@@ -399,6 +582,12 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
   const std::uint64_t before = attempts_;
   Batch batch;
   const auto made = [&]() { return static_cast<std::size_t>(attempts_ - before); };
+  // Issue a filled batch, terminal or not.
+  const auto ready = [&]() {
+    const Outcome outcome =
+        batch.event.kind == EventKind::terminal ? batch.event.outcome : Outcome::none;
+    return issue(std::move(batch), outcome);
+  };
   try {
     // `DriverSession.advance`'s order: the owed launch plane, a latched snapshot at
     // an endpoint, completion, then the march to the next plane.
@@ -407,22 +596,62 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       batch.event = observe(batch, Observation::launch, -1);
       return issue(std::move(batch));
     }
-    if (snapshot_latched() && at_endpoint()) {
-      snapshot(batch);
-      return issue(std::move(batch));
-    }
-    if (next_plane_ >= plan_.planes.size()) {
+    // A warning the caller allowed: the rest of its point's work, once (SEP 47 5.3).
+    const Continuation continued = continuation_;
+    continuation_ = Continuation::none;
+    switch (continued) {
+    case Continuation::attach:
+      sync_collar();
+      if (refused_crossing(batch))
+        return ready();
+      break;
+    case Continuation::endpoint:
+      // The step's check warned: its crossing, then its row and natural stop.
+      if (refused_crossing(batch) || endpoint(batch, plan_.planes[next_plane_]))
+        return ready();
+      break;
+    case Continuation::plane:
+      if (refused_crossing(batch))
+        return ready();
+      plane_rest(batch);
+      return ready();
+    case Continuation::finish:
       terminal(batch, Outcome::completed, Failure{});
-      return issue(std::move(batch), Outcome::completed);
+      return ready();
+    case Continuation::none:
+      break;
+    }
+    if (continued != Continuation::endpoint) {
+      if (monitor_ && !attached_ && attach(batch))
+        return ready();
+      if (snapshot_latched() && at_endpoint()) {
+        snapshot(batch);
+        return issue(std::move(batch));
+      }
+      if (next_plane_ >= plan_.planes.size()) {
+        // The final check before completion (`BoundaryMonitor.finish`).
+        if (monitor_) {
+          const watch::Finish finish = monitor_->finish();
+          if (finish.warns) {
+            Notice notice;
+            notice.kind = Notice::Kind::removal;
+            notice.z = position();
+            notice.value = finish.removed;
+            continuation_ = Continuation::finish;
+            warning(batch, notice);
+            return ready();
+          }
+        }
+        terminal(batch, Outcome::completed, Failure{});
+        return issue(std::move(batch), Outcome::completed);
+      }
     }
     const double target = plan_.planes[next_plane_];
     const double slack = plan_.replay
                              ? replay_tolerance(plan_.replay_steps, plan_.replay_length,
                                                 target, landing_ulps_)
                              : 0.0;
-    const std::size_t n_steps =
-        adams_ ? std::get<AdamsMethod>(method_).schedule.steps.size()
-               : std::get<RungeKuttaMethod>(method_).schedule.steps.size();
+    const std::size_t n_steps = schedule().steps.size();
     const auto running = [&]() {
       // `replay_to`'s and `march_to`'s loops: to the edge within the slack, or
       // reached.
@@ -467,30 +696,29 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
           ++natural_count_;
         }
       }
-      if (event && n_rows > 0 && last_accepted_) {
-        // The event step: its statistics row, then the natural stop
-        // (`_take_step_stats`, `_natural_stop`).
-        if (plan_.period > 0) {
-          ++accepted_steps_;
-          if (accepted_steps_ % plan_.period == 0)
-            take_row();
-        }
-        ++natural_count_;
-        const bool step_plane =
-            plan_.step_planes > 0 && natural_count_ % plan_.step_planes == 0;
-        const double z = position();
-        if (step_plane) {
-          if (!march::reached(z, target, landing_ulps_)) {
-            batch.event = observe(batch, Observation::step,
-                                  static_cast<std::int64_t>(next_plane_));
-            return issue(std::move(batch));
+      if (monitor_) {
+        // The monitor checked each committed step in the march: the stages follow its
+        // quiet verdict, and its stop or first warning acts at the step it checked,
+        // before that step's statistics row (SEP 47 section 5.3, the committed
+        // endpoint).
+        sync_collar();
+        if (reason == march::Reason::watch) {
+          if (result.verdict == watch::Verdict::refuse) {
+            if (refused_crossing(batch))
+              return ready();
+            throw std::logic_error("a native march refused a crossing the session "
+                                   "does not find");
           }
-        } else if (!march::reached(z, target, landing_ulps_) && snapshot_latched()) {
-          // `_halted_short`: the latch halts the march at this endpoint.
-          snapshot(batch);
-          return issue(std::move(batch));
+          // The check's own judgement, with the amplitude its message names.
+          const watch::Judgement& judgement = monitor_->last_judgement();
+          if (judgement.verdict == watch::Verdict::warn)
+            continuation_ = Continuation::endpoint;
+          if (judged(batch, judgement))
+            return ready();
         }
       }
+      if (event && n_rows > 0 && last_accepted_ && endpoint(batch, target))
+        return ready();
       switch (reason) {
       case march::Reason::stopped:
         terminal(batch, Outcome::stopped, Failure{});
@@ -501,7 +729,6 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       case march::Reason::diverged:
         terminal(batch, Outcome::failed, failure_of(result, cursor()));
         return issue(std::move(batch), Outcome::failed);
-      case march::Reason::watch:
       case march::Reason::capacity:
       case march::Reason::dense:
       case march::Reason::monitor:
@@ -523,15 +750,14 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       return issue(std::move(batch), Outcome::failed);
     }
     if (plan_.replay || plane_reached(z, target)) {
-      const std::size_t plane = next_plane_++;
-      batch.event =
-          observe(batch, Observation::plane, static_cast<std::int64_t>(plane));
-      return issue(std::move(batch));
+      observe_plane(batch, Observation::plane, static_cast<std::int64_t>(next_plane_),
+                    true);
+      return ready();
     }
-    batch.event =
-        observe(batch, plan_.step_planes > 0 ? Observation::step : Observation::natural,
-                static_cast<std::int64_t>(next_plane_));
-    return issue(std::move(batch));
+    observe_plane(batch,
+                  plan_.step_planes > 0 ? Observation::step : Observation::natural,
+                  static_cast<std::int64_t>(next_plane_), false);
+    return ready();
   } catch (const std::exception& error) {
     // A failure outside the march's own error returns (a statistics evaluation, a
     // refused return): the committed state stands, eligible.
@@ -539,6 +765,13 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     terminal(failed, Outcome::failed, failure_of(error));
     return issue(std::move(failed), Outcome::failed);
   }
+}
+
+std::optional<watch::Record> Session::monitor_record() const {
+  const std::scoped_lock lock(mutex_);
+  if (!monitor_)
+    return std::nullopt;
+  return monitor_->record();
 }
 
 void Session::acknowledge(const std::uint64_t sequence) {

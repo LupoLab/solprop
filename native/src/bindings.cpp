@@ -1137,6 +1137,147 @@ nb::dict watch_state_to(const native::watch::State& state) {
   return out;
 }
 
+// solprop SEP 47 section 6.4: the owning boundary monitor's configuration, the record
+// a resume continues and the record it keeps, from and to solprop's dictionaries.
+native::watch::Config watch_config_from(const nb::dict values) {
+  native::watch::Config config;
+  config.policy = watch_policy_from(nb::cast<nb::dict>(values["policy"]));
+  try {
+    config.floor_share = nb::cast<double>(values["floor_share"]);
+    config.floor_margin = nb::cast<double>(values["floor_margin"]);
+    config.budget = nb::cast<double>(values["budget"]);
+    config.rate = real_vector(exact_array<RealInput>(values["rate"]));
+    config.can_rest = nb::cast<bool>(values["can_rest"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("the boundary monitor's configuration has the wrong "
+                                "types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("the boundary monitor's configuration lacks a field");
+  }
+  return config;
+}
+
+std::vector<std::array<double, 2>> watch_stretches_from(const nb::handle values) {
+  std::vector<std::array<double, 2>> stretches;
+  for (const auto& pair : nb::cast<std::vector<std::vector<double>>>(values)) {
+    if (pair.size() != 2)
+      throw std::invalid_argument("an unwatched stretch is a start and an end");
+    stretches.push_back({pair[0], pair[1]});
+  }
+  return stretches;
+}
+
+native::watch::Resumption watch_resumption_from(const nb::dict values) {
+  native::watch::Resumption record;
+  const auto number = [&values](const char* name) -> std::optional<double> {
+    if (!values.contains(name))
+      return std::nullopt;
+    return nb::cast<double>(values[name]);
+  };
+  try {
+    record.record = nb::cast<bool>(values["record"]);
+    record.launch_energy = number("launch_energy");
+    record.launch_guard_low = number("launch_guard_low");
+    record.launch_guard_high = number("launch_guard_high");
+    record.launch_collar = number("launch_collar");
+    record.guard_low_max = number("guard_low_max");
+    record.guard_high_max = number("guard_high_max");
+    record.guard_low_at = number("guard_low_at");
+    record.guard_high_at = number("guard_high_at");
+    record.collar_max = number("collar_max");
+    record.raw_removed_fraction = number("raw_removed_fraction");
+    record.removed_signed = number("removed_signed");
+    record.removed_fraction = number("removed_fraction");
+    record.floor_removed_fraction = number("floor_removed_fraction");
+    record.quiet_checks = number("quiet_checks");
+    record.collar_quiet = nb::cast<bool>(values["collar_quiet"]);
+    record.raw_guard_max = number("raw_guard_max");
+    record.steps = number("steps");
+    record.skipped = number("skipped");
+    record.collar_left_out_checks = number("collar_left_out_checks");
+    if (values.contains("unwatched"))
+      record.unwatched = watch_stretches_from(values["unwatched"]);
+    if (values.contains("resumed_at"))
+      record.resumed_at = nb::cast<std::vector<double>>(values["resumed_at"]);
+    if (values.contains("planes")) {
+      const auto rows = nb::cast<std::vector<std::vector<double>>>(values["planes"]);
+      if (rows.size() != native::watch::plane_columns)
+        throw std::invalid_argument("a monitor record's plane rows have five columns");
+      record.has_planes = true;
+      for (std::size_t column = 0; column < native::watch::plane_columns; ++column)
+        record.planes[column] = rows[column];
+    }
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a resumed boundary record has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("a resumed boundary record lacks a field");
+  }
+  return record;
+}
+
+nb::dict watch_record_to(const native::watch::Record& record) {
+  nb::dict out;
+  out["launch_energy"] = record.launch_energy;
+  out["resumed_at"] = record.resumed_at;
+  out["launch_guard_low"] = record.launch_occupancy[0];
+  out["launch_guard_high"] = record.launch_occupancy[1];
+  out["launch_collar"] = record.launch_occupancy[2];
+  out["guard_low_max"] = record.guard_max[0];
+  out["guard_high_max"] = record.guard_max[1];
+  out["guard_low_at"] = record.guard_at[0];
+  out["guard_high_at"] = record.guard_at[1];
+  out["collar_max"] = record.collar_max;
+  out["removed_fraction"] = record.removed_fraction;
+  out["removed_signed"] = record.removed_signed;
+  out["floor_removed_fraction"] = record.floor_removed_fraction;
+  out["quiet_checks"] = record.quiet_checks;
+  out["collar_quiet"] = record.collar_quiet;
+  nb::list unwatched;
+  for (const auto& stretch : record.unwatched)
+    unwatched.append(nb::make_tuple(stretch[0], stretch[1]));
+  out["unwatched"] = unwatched;
+  out["steps"] = record.steps;
+  out["skipped"] = record.skipped;
+  out["noise_floor"] = record.noise_floor;
+  out["raw_guard_max"] = record.raw_guard_max;
+  out["raw_removed_fraction"] = record.raw_removed_fraction;
+  out["collar_left_out_checks"] = record.collar_left_out_checks;
+  static constexpr std::array<const char*, native::watch::plane_columns> names{
+      "z", "collar_occupancy", "guard_low", "guard_high", "removed_fraction"};
+  nb::dict planes;
+  for (std::size_t column = 0; column < native::watch::plane_columns; ++column)
+    planes[names[column]] = record.planes[column];
+  out["planes"] = planes;
+  return out;
+}
+
+nb::dict watch_judgement_to(const native::watch::Judgement& judgement) {
+  nb::dict out;
+  out["verdict"] = static_cast<int>(judgement.verdict);
+  out["worst"] = judgement.worst;
+  out["z"] = judgement.z;
+  out["launch"] = judgement.launch;
+  return out;
+}
+
+native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
+  native::session::MonitorPlan plan;
+  plan.config = watch_config_from(nb::cast<nb::dict>(values["config"]));
+  try {
+    plan.resume = nb::cast<bool>(values["resume"]);
+    if (plan.resume) {
+      plan.record = watch_resumption_from(nb::cast<nb::dict>(values["record"]));
+      plan.plane = nb::cast<bool>(values["plane"]);
+      plan.unwatched = watch_stretches_from(values["unwatched"]);
+    }
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a session's boundary monitor has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("a session's boundary monitor lacks a field");
+  }
+  return plan;
+}
+
 /** Python's `format(value, f".{precision}g")`, which follows C's `%g`. */
 std::string py_g(const double value, const int precision) {
   std::array<char, 64> buffer{};
@@ -2236,6 +2377,17 @@ public:
   }
   native::session::Status status() const noexcept { return session_->status(); }
   std::size_t elements() const { return session_->elements(); }
+  // The boundary monitor's record, or None; takes the session's lock.
+  nb::object monitor_record() {
+    std::optional<native::watch::Record> record;
+    {
+      const nb::gil_scoped_release release;
+      record = session_->monitor_record();
+    }
+    if (!record)
+      return nb::none();
+    return watch_record_to(*record);
+  }
   // Takes the session's lock (waiting for an advance in hand): bound with the
   // interpreter lock released. The lease is released only once the session closed.
   void close() noexcept {
@@ -2306,6 +2458,8 @@ native::session::Plan session_plan_from(const nb::dict values) {
     plan.replay_length = nb::cast<double>(values["replay_length"]);
     plan.call_attempts = nb::cast<std::size_t>(values["call_attempts"]);
     plan.call_seconds = nb::cast<double>(values["call_seconds"]);
+    if (values.contains("monitor") && !values["monitor"].is_none())
+      plan.monitor = monitor_plan_from(nb::cast<nb::dict>(values["monitor"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's plan has the wrong types");
   } catch (const nb::python_error&) {
@@ -3847,8 +4001,22 @@ NB_MODULE(_core, module_) {
                    [](const native::session::Event& event) {
                      return event.failure.schedule_exhausted;
                    })
-      .def_prop_ro("target", [](const native::session::Event& event) {
-        return event.failure.target;
+      .def_prop_ro(
+          "target",
+          [](const native::session::Event& event) { return event.failure.target; })
+      // A boundary monitor's warning, or the stop a failure carries (SEP 47 6.4).
+      .def_prop_ro("notice", [](const native::session::Event& event) {
+        const auto& notice = event.kind == native::session::EventKind::warning
+                                 ? event.notice
+                                 : event.failure.notice;
+        nb::dict out;
+        out["kind"] = static_cast<int>(notice.kind);
+        out["launch"] = notice.launch;
+        out["z"] = notice.z;
+        out["value"] = notice.value;
+        out["cap"] = notice.cap;
+        out["step"] = notice.step;
+        return out;
       });
   nb::class_<BatchRecord>(module_, "SessionBatch")
       .def_ro("sequence", &BatchRecord::sequence)
@@ -3889,7 +4057,77 @@ NB_MODULE(_core, module_) {
       .def("request_snapshot", &BoundSession::request_snapshot)
       .def("status", &BoundSession::status)
       .def_prop_ro("elements", &BoundSession::elements)
+      .def("monitor_record", &BoundSession::monitor_record)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
+  // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
+  // to feed recorded readings through it and its own monitor alike.
+  nb::class_<native::watch::Monitor>(module_, "Monitor")
+      .def(
+          "__init__",
+          [](native::watch::Monitor* self, const nb::dict config) {
+            new (self) native::watch::Monitor(watch_config_from(config));
+          },
+          "config"_a)
+      .def(
+          "resume",
+          [](native::watch::Monitor& self, const nb::dict record, const bool plane,
+             const nb::handle unwatched) {
+            self.resume(watch_resumption_from(record), plane,
+                        watch_stretches_from(unwatched));
+          },
+          "record"_a, "plane"_a, "unwatched"_a)
+      .def(
+          "launch",
+          [](native::watch::Monitor& self, const RealInput reading, const double z,
+             const double floor, const std::optional<RealInput>& floor_regions) {
+            const auto values = real_vector(reading);
+            std::vector<double> regions;
+            if (floor_regions) {
+              regions = real_vector(*floor_regions);
+              if (regions.size() != 4)
+                throw std::invalid_argument("the floor's regions are four");
+            }
+            return watch_judgement_to(
+                self.launch(values.data(), values.size(), z, floor,
+                            floor_regions ? regions.data() : nullptr));
+          },
+          "reading"_a, "z"_a, "floor"_a = 0.0, "floor_regions"_a.none() = nb::none())
+      .def("due", &native::watch::Monitor::due, "z"_a)
+      .def("skip", &native::watch::Monitor::skip, "z"_a)
+      .def(
+          "step",
+          [](native::watch::Monitor& self, const RealInput reading, const double z,
+             const bool plane) {
+            const auto values = real_vector(reading);
+            return watch_judgement_to(
+                self.step(values.data(), values.size(), z, plane));
+          },
+          "reading"_a, "z"_a, "plane"_a = false)
+      .def("plane", &native::watch::Monitor::plane, "z"_a)
+      .def("note_collar", &native::watch::Monitor::note_collar, "left_out"_a)
+      .def("finish",
+           [](const native::watch::Monitor& self) {
+             const auto finish = self.finish();
+             nb::dict out;
+             out["removed"] = finish.removed;
+             out["guard_low_max"] = finish.guard_max[0];
+             out["guard_high_max"] = finish.guard_max[1];
+             out["warns"] = finish.warns;
+             return out;
+           })
+      .def("record",
+           [](const native::watch::Monitor& self) {
+             return watch_record_to(self.record());
+           })
+      .def("watch_state",
+           [](const native::watch::Monitor& self) {
+             return watch_state_to(self.state());
+           })
+      .def_prop_ro("stale", &native::watch::Monitor::stale)
+      .def_prop_ro("collar_quiet", &native::watch::Monitor::quiet)
+      .def_prop_ro("step_cap", &native::watch::Monitor::cap)
+      .def_prop_ro("rests", &native::watch::Monitor::rests)
+      .def("steps_to_check", &native::watch::Monitor::steps_to_check);
   nb::class_<BoundBatch>(module_, "BatchState")
       .def(nb::init<const nb::list&>())
       .def(
