@@ -22,10 +22,9 @@ import dataclasses
 import time
 from collections.abc import Callable, Mapping
 from types import TracebackType
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from jaxtyping import Complex
 
 from solprop.backends.driver import StepDriver
 from solprop.backends.events import (
@@ -45,7 +44,6 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.protocol import (
-    Backend,
     BackendHistory,
     Observation,
     StepStats,
@@ -68,6 +66,14 @@ from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import RunRequest
+
+if TYPE_CHECKING:
+    # Under TYPE_CHECKING, so that the runtime type checks of the test suite do not
+    # hold the scripted drivers to the full protocol or check a refused export
+    # destination's shape before the session refuses it.
+    from jaxtyping import Complex
+
+    from solprop.backends.protocol import Backend
 
 __all__ = ["AttemptListener", "DriverSession"]
 

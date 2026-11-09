@@ -23,15 +23,19 @@ SEP 47 restructures this session into the reference's own.
 from __future__ import annotations
 
 from collections.abc import Callable
+from typing import TYPE_CHECKING
 
 from solprop.backends.driver_session import AttemptListener, DriverSession
 from solprop.backends.host.driver import HostDriver
-from solprop.backends.protocol import Backend
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.log import StopFlag
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import RunRequest
+
+if TYPE_CHECKING:
+    # The scripted drivers of the test suite stand in for a backend.
+    from solprop.backends.protocol import Backend
 
 __all__ = ["HostSession"]
 
