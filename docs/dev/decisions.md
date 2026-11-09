@@ -2125,7 +2125,7 @@ Withdrawn (development-process record, not a design decision).
 
 ## ADR-075 — Transforms thread by shape; a host packs a stage's forward rows
 
-- **Status:** proposed with PR #598 (issues #584, #587, #595), for the maintainer.
+- **Status:** accepted (maintainer), 2026-11-09 (PR #598; issues #584, #587, #595).
 - **Context:** a batch of native CPU transforms took its width from its element count
   (serial below 16384, four threads below 131072, the full pool above), but FFTW divides a
   batch's rows among its threads, so transforms of one count want opposite widths by
