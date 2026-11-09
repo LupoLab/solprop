@@ -90,9 +90,13 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   accounting and export preparation, while Python owns the scientific description and
   external services. Replace native driver inheritance and mirrored state with typed
   descriptors and a session protocol; native exposes its complete session, while the
-  independent NumPy oracle and MLX use a host session. Backend lowering owns packing,
-  chunks and workspace lifetimes. Include independent snapshot requests, cooperative
-  stopping and explicit restart reporting. Phased merges have a recorded SEP 0
+  independent NumPy oracle uses a host session in both retained precisions. Retire MLX
+  early, without porting it. Backend lowering owns packing, chunks and workspace
+  lifetimes; include #346 saved-plane copies, #361 device chunks and the measured #584
+  CPU transform experiment. Include independent snapshot requests, cooperative
+  stopping and explicit restart reporting. Phase 1 checks design readiness; conceptual
+  simplification is sufficient motivation without a minimum speedup. Land the reference
+  contract early and do difficult ports later. Phased merges have a recorded SEP 0
   exception; completion requires removing temporary adapters and qualifying exact
   control/lifecycle contracts, numerical accuracy, field traffic and performance.
   The architectural decisions are agreed: APIs may be freely broken for a cleaner
