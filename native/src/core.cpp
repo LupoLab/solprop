@@ -73,10 +73,11 @@ void require_cpu_execution(const CpuExecution& execution) {
           "as large for every operation (solprop_native's _execution table)");
   if (execution.response_full_samples == 0 || execution.response_full_columns == 0 ||
       execution.medium_threads < 1 || execution.compact_threads < 1 ||
-      execution.compact_max_fine_samples == 0)
+      execution.compact_max_fine_samples == 0 || execution.fft_thread_elements == 0 ||
+      execution.fft_long_row == 0)
     throw std::invalid_argument(
-        "a CPU execution record needs positive response bounds, widths and compact "
-        "bound (solprop_native's _execution table)");
+        "a CPU execution record needs positive response bounds, widths, compact "
+        "bound and transform shape bounds (solprop_native's _execution table)");
 }
 
 int operation_threads(const ThreadPolicy& policy, const CpuExecution& execution,
@@ -93,6 +94,19 @@ int operation_threads(const ThreadPolicy& policy, const CpuExecution& execution,
   const OperationGrain& grain = execution[operation];
   if (elements < grain.threshold)
     return 1;
+  // A transform batch of known shape (`fine_samples` is its row length): a thread per
+  // `fft_thread_elements` samples, at most a thread a row, or the medium width when
+  // the rows are long enough to split.
+  if (operation == CpuOperation::fft && fine_samples != 0 && elements < grain.full) {
+    const std::size_t rows = elements / fine_samples;
+    const std::size_t split =
+        fine_samples < execution.fft_long_row
+            ? rows
+            : std::max(rows, static_cast<std::size_t>(execution.medium_threads));
+    const std::size_t width = std::min(elements / execution.fft_thread_elements, split);
+    return static_cast<int>(
+        std::clamp<std::size_t>(width, 1, static_cast<std::size_t>(capacity)));
+  }
   if (operation == CpuOperation::response &&
       (fine_samples >= execution.response_full_samples ||
        (fine_samples != 0 &&

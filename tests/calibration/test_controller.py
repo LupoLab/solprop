@@ -827,7 +827,7 @@ def test_an_admitted_effort_is_validated_and_its_wisdom_kept(
     assert set(generation["wisdom"]) == set(script.plans)
 
 
-def test_patient_serial_plans_are_tried_at_thorough(
+def test_thorough_tries_no_patient_plans_and_records_plans_alone(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:
     script, environ = scripted
@@ -837,10 +837,51 @@ def test_patient_serial_plans_are_tried_at_thorough(
         )
     )
     report = calibrate("thorough", environ=environ, cpus=range(8))
-    assert "rows patient" in report.reason
-    generation = json.loads(cast(Path, report.path).read_text(encoding="utf-8"))
-    key = "r2c:4096:1:4096:2049:out:0:0:t1"
-    assert generation["wisdom"][key] == f"(patient {key})"
+    assert "patient" not in report.reason
+    (row,) = _rows(environ)
+    evidence = cast(dict[str, Any], row["evidence"])["planning"]
+    assert all("patient" not in name for name in evidence["candidates"])
+    # Each candidate's plans timed alone against the policy's (issue #595).
+    assert set(evidence["alone"]) == set(evidence["candidates"])
+
+
+def test_a_candidate_no_faster_alone_is_not_timed_in_the_step(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #595: estimate's serial rows slower alone than measure's are pruned, and
+    # the step times the threaded rows' measured plans alone.
+    script, environ = scripted
+    original = script.receive
+    timed: list[dict[str, str]] = []
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        reply = original(self, timeout)
+        if self.pending.get("op") == "capture":
+            assert isinstance(reply, dict)
+            reply["alone"] = {
+                "r2c:4096:1:4096:2049:out:0:0:t1": {"plan": 1.0, "estimate": 2.0},
+                "c2c-forward:4096:4:4096:4096:out:0:0:t8": {
+                    "plan": 0.8,
+                    "estimate": 1.0,
+                },
+            }
+        elif self.pending.get("op") == "time" and self.pending.get("planning"):
+            timed.append(
+                dict(_efforts(cast(Mapping[str, object], self.pending["planning"])))
+            )
+        return reply
+
+    monkeypatch.setattr(script, "receive", receive)
+    calibrate("standard", environ=environ, cpus=range(8))
+    (row,) = _rows(environ)
+    evidence = cast(dict[str, Any], row["evidence"])["planning"]
+    assert evidence["candidates"] == ["threaded_rows measure"]
+    assert evidence["pruned"] == {"rows estimate": 2.0}
+    assert evidence["alone"]["threaded_rows measure"] == {
+        "c2c-forward:4096:4:4096:4096:out:0:0:t8": 0.8
+    }
+    assert timed
+    assert all(efforts.get("rows") != "estimate" for efforts in timed)
 
 
 def test_quick_leaves_the_plan_policy_and_a_failed_capture_keeps_it(
@@ -943,7 +984,7 @@ def test_the_grain_stage_leaves_fft_planning_its_share(
     assert controller.LEVELS["quick"].planning == 0.0
 
 
-def test_captures_take_a_share_of_the_stage_and_an_incomplete_one_is_dropped(
+def test_a_capture_takes_a_share_of_the_stage_and_an_incomplete_one_is_dropped(
     scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     # On 16 cores of an AMD EPYC 9B45 the thorough captures outran the deadline.
@@ -957,21 +998,13 @@ def test_captures_take_a_share_of_the_stage_and_an_incomplete_one_is_dropped(
             budgets.append(float(cast(float, self.pending["budget"])))
             assert timeout <= budgets[-1] + 30.0
             assert isinstance(reply, dict)
-            if self.pending["effort"] == "patient":
-                reply["skipped"] = ["radial"]
         return reply
 
     monkeypatch.setattr(script, "receive", receive)
-    script.by_planning = staticmethod(
-        lambda planning, call: (
-            0.8 if _efforts(planning).get("rows") == "patient" else 1.0
-        )
-    )
-    report = calibrate("thorough", environ=environ, cpus=range(8))
-    assert len(budgets) == 2
+    calibrate("thorough", environ=environ, cpus=range(8))
+    # One capture, at measure: the thorough level plans nothing at patient.
+    assert len(budgets) == 1
     assert 0.0 < budgets[0] < controller.LEVELS["thorough"].budget
-    # The incomplete patient capture is no candidate, however fast it would be.
-    assert "rows patient" not in report.reason
     # An incomplete measure capture keeps the plan policy.
     budgets.clear()
 

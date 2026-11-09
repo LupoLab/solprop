@@ -1586,11 +1586,14 @@ at most:
   lengths below, at and past one block, partial tiles, both `beta` and row subviews, so
   the kernel's blocking and order are free. Vendor-BLAS and device builds use
   `KokkosBlas::gemm`.
-- **Small transforms on one FFTW thread.** A modal or spatial plan whose real side holds
-  fewer than **16 384** samples per execution (32 768 on macOS; `default_threaded_fft_min_samples`;
-  `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` overrides it) is made on a one-thread
-  execution instance, because below that a threaded FFTW plan only costs time: the
-  threshold is a speed threshold. FFTW's planner may choose a transform's factorisation by
+- **Small transforms on one FFTW thread; larger ones by shape.** A modal or spatial plan
+  whose real side holds fewer than **8 192** samples per execution (32 768 on macOS; the
+  execution record's `fft_threshold`; `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`
+  overrides it) is made on a one-thread execution instance, because below that a
+  threaded FFTW plan only costs time: the threshold is a speed threshold. Above it a
+  batch takes a thread per `fft_thread_elements` samples, at most one a row unless its
+  rows are `fft_long_row` long, when it may take the medium width
+  ([transforms by shape](benchmarks.md#transforms-by-shape-and-one-forward-pack)). FFTW's planner may choose a transform's factorisation by
   the thread count (a two-column 256-point inverse took radix 4 with 64-point leaves at
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains

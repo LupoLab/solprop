@@ -28,8 +28,8 @@ from solprop_native.backend import (
 )
 
 # The constants of core.hpp before SEP 46 moved them here (solprop PR #576), Linux and
-# Windows: every value of the table, frozen so that a machine without a profile runs
-# exactly as before.
+# Windows, with the transforms' shape rule of solprop issue #587: every value of the
+# table, frozen so that a change to one is deliberate.
 LINUX = {
     "stage_threshold": 4096,
     "stage_full": 4096,
@@ -37,8 +37,8 @@ LINUX = {
     "response_full": 196608,
     "dense_threshold": 1048576,
     "dense_full": 1048576,
-    "fft_threshold": 16384,
-    "fft_full": 131072,
+    "fft_threshold": 8192,
+    "fft_full": 4194304,
     "raman_threshold": 65536,
     "raman_full": 262144,
     "copy_threshold": 65536,
@@ -55,6 +55,8 @@ LINUX = {
     "compact_threads": 8,
     "compact_max_fine_samples": 65536,
     "stable_kernel_team": True,
+    "fft_thread_elements": 4096,
+    "fft_long_row": 16384,
 }
 # macOS: its own stage and FFT starts and no stable kernel team.
 APPLE = LINUX | {
@@ -62,6 +64,8 @@ APPLE = LINUX | {
     "stage_full": 8192,
     "fft_threshold": 32768,
     "stable_kernel_team": False,
+    "fft_thread_elements": 32768,
+    "fft_long_row": 65536,
 }
 # macOS on a spinning team of at most eight: every threshold and full size divided by
 # 16 (ADR-073), each full size kept at least its threshold.
@@ -73,7 +77,7 @@ APPLE_SPINNING = APPLE | {
     "dense_threshold": 65536,
     "dense_full": 65536,
     "fft_threshold": 2048,
-    "fft_full": 8192,
+    "fft_full": 262144,
     "raman_threshold": 4096,
     "raman_full": 16384,
     "copy_threshold": 4096,
@@ -84,6 +88,8 @@ APPLE_SPINNING = APPLE | {
     "modal_full": 4096,
     "adams_threshold": 512,
     "adams_full": 4096,
+    "fft_thread_elements": 2048,
+    "fft_long_row": 4096,
 }
 
 
@@ -112,10 +118,10 @@ def test_a_users_fft_start_replaces_the_tables_undivided() -> None:
     # SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES: the start as given, never divided, its
     # full size the table's undivided one or the start where that is larger.
     spinning = builtin("Darwin", spin_milliseconds=1, width=6, fft_threshold=1000)
-    assert (spinning.fft_threshold, spinning.fft_full) == (1000, 131072)
+    assert (spinning.fft_threshold, spinning.fft_full) == (1000, 4194304)
     assert spinning.stage_threshold == APPLE_SPINNING["stage_threshold"]
     large = builtin("Linux", fft_threshold=1 << 20)
-    assert (large.fft_threshold, large.fft_full) == (1 << 20, 1 << 20)
+    assert (large.fft_threshold, large.fft_full) == (1 << 20, 1 << 22)
 
 
 def test_the_process_record_is_its_platforms_table() -> None:
@@ -141,6 +147,8 @@ def test_the_process_record_is_its_platforms_table() -> None:
         ("compact_threads", True),
         ("response_full_columns", 1.5),
         ("stable_kernel_team", 1),
+        ("fft_thread_elements", 0),
+        ("fft_long_row", -4),
     ],
 )
 def test_a_record_refuses_a_value_out_of_range(field: str, value: object) -> None:
@@ -207,7 +215,7 @@ def test_a_state_reads_back_the_record_it_was_built_with(
     ("change", "message"),
     [
         ({"cpu_execution": None}, "must be a dict"),
-        ({"cpu_execution": {"stage_threshold": 1}}, "has 24 fields, got 1"),
+        ({"cpu_execution": {"stage_threshold": 1}}, "has 26 fields, got 1"),
         ("missing", "needs its CPU execution record"),
     ],
 )
