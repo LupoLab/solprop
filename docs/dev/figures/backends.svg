@@ -115,7 +115,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <path d="M600.0,473.0 L596.4,464.0 L603.6,464.0 Z" class="head" />
 <text x="600.0" y="449.0" font-size="12" class="mid dim">backends.registry.select(name, problem, grid=, modes=, profiles=)</text>
 <rect x="32" y="479.0" width="560.0" height="165.0" rx="7" ry="7" class="fill-d" />
-<text x="42.0" y="501.0" font-size="15" class="bold ink-d">backends/driver.py  ·  StepDriver, and no backend reimplements it</text>
+<text x="42.0" y="501.0" font-size="15" class="bold ink-d">HostDriver (reference)  ·  StepDriver (native bridge)</text>
 <text x="42.0" y="522.5" font-size="12" class="bold ink-d">the march and the landing</text>
 <text x="210.0" y="522.5" font-size="12" class="dim">_march_to</text>
 <text x="42.0" y="538.0" font-size="12" class="bold ink-d">the replay</text>
