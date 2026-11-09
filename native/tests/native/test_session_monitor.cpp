@@ -26,9 +26,9 @@ namespace session = solprop_native::session;
 namespace rk = solprop_native::rk;
 namespace watch = solprop_native::watch;
 
-// A toy field whose boundary readings are scripted by the accepted step: the guard
-// share of step `k` is `guard[k]` (zero past the script), and the collar's removal
-// rate is `rate` throughout.
+// A toy field whose boundary readings are scripted: the guard share after `k` accepted
+// steps is `guard[k]` (zero past the script), or `from_share` from the position
+// `from_z` on, and the collar's removal rate is `rate` throughout.
 class Scripted final : public session::Resident {
 public:
   [[nodiscard]] std::size_t elements() const override { return 2; }
@@ -47,12 +47,17 @@ public:
     std::vector<double> reading(watch::reading_head, 0.0);
     reading[0] = 1.0;
     reading[1] = accepted < guard.size() ? guard[accepted] : 0.0;
+    if (position >= from_z)
+      reading[1] = from_share;
     reading[4] = rate;
     return reading;
   }
   std::vector<double> field_{1.0, 0.0, 0.5, 0.0};
   std::vector<double> guard;
   double rate = 0.0;
+  double from_z = 1.0;
+  double from_share = 0.0;
+  double position = 0.0;
   std::size_t accepted = 0;
   int readings = 0;
 };
@@ -61,7 +66,10 @@ class Engine final : public rk::Engine {
 public:
   explicit Engine(Scripted& field) : field_(field) {}
   double trial(double /*z*/, double /*dz*/) override { return 0.25; }
-  void accept(double /*dz*/) override { ++field_.accepted; }
+  void accept(const double dz) override {
+    ++field_.accepted;
+    field_.position += dz;
+  }
   std::vector<double> reading() override { return field_.boundary_reading(); }
 
 private:
@@ -174,12 +182,19 @@ TEST(SessionMonitor, AWarningIsABarrierBeforeItsStepsRow) {
   EXPECT_EQ(warned.attempts.size() / session::attempt_columns, 3U);
   EXPECT_DOUBLE_EQ(warned.event.notice.z, warned.event.z);
   const auto plane = next(run, session::EventKind::observation);
-  EXPECT_EQ(rows_of(plane), (std::vector<double>{3.0, 4.0, 5.0}));
+  const auto rows = rows_of(plane);
+  ASSERT_FALSE(rows.empty());
+  for (std::size_t index = 0; index < rows.size(); ++index)
+    EXPECT_EQ(rows[index], 3.0 + static_cast<double>(index));
+  EXPECT_EQ(rows.back(),
+            static_cast<double>(3 + plane.attempts.size() / session::attempt_columns));
   next(run, session::EventKind::observation);
   next(run, session::EventKind::terminal);
   const auto record = run.monitor_record();
   ASSERT_TRUE(record.has_value());
-  EXPECT_EQ(record->steps, 10U);
+  // Every committed step was checked (a cadence of one), once.
+  EXPECT_EQ(record->steps, built.field->accepted);
+  EXPECT_EQ(record->skipped, 0U);
   EXPECT_DOUBLE_EQ(record->guard_max[0], 4e-6);
 }
 
@@ -197,20 +212,27 @@ TEST(SessionMonitor, AStopFailsAtItsEndpointWithoutItsRow) {
 }
 
 TEST(SessionMonitor, APlaneChecksTheStepItsCadenceSkipped) {
-  // Checked every eighth step only: the plane after five steps checks the fifth, and
-  // its warning is a barrier before the plane is observed.
-  auto built = build({0.0, 0.0, 0.0, 0.0, 0.0, 4e-6}, 0.0, 8);
+  // Checked every eighth step only, and light reaches the guard at the first plane,
+  // fewer than eight steps in: the plane checks the step its cadence skipped, and the
+  // warning is a barrier before the plane is observed.
+  auto built = build({}, 0.0, 8);
+  built.field->from_z = 0.005 * (1.0 - 1e-12);
+  built.field->from_share = 4e-6;
   auto& run = *built.session;
   next(run, session::EventKind::observation);
   const auto warned = next(run, session::EventKind::warning);
   EXPECT_DOUBLE_EQ(warned.event.z, 0.005);
-  EXPECT_EQ(rows_of(warned), (std::vector<double>{1.0, 2.0, 3.0, 4.0, 5.0}));
+  const std::size_t steps = built.field->accepted;
+  ASSERT_LT(steps, 8U);
+  EXPECT_EQ(rows_of(warned).size(), steps);
   const auto plane = next(run, session::EventKind::observation);
   EXPECT_EQ(plane.event.observation, session::Observation::plane);
   EXPECT_TRUE(plane.attempts.empty());
   const auto record = run.monitor_record();
   ASSERT_TRUE(record.has_value());
-  EXPECT_EQ(record->steps + record->skipped, 5U);
+  // The plane's check leaves the step among the skipped ones.
+  EXPECT_EQ(record->steps, 0U);
+  EXPECT_EQ(record->skipped, steps);
   EXPECT_EQ(record->planes[0], (std::vector<double>{0.0, 0.005}));
   EXPECT_DOUBLE_EQ(record->planes[2][1], 4e-6);
 }
