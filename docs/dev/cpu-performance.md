@@ -217,7 +217,11 @@ measured while it existed.
     estimate's serial plans 1.06–2.8 of measure's. Those timings ran outside the native
     wait scope, so LLVM's runtime woke its idle threads at each loop; the timing alone
     now runs inside it, as a step's transforms do (on the M5 Max a 4 × 10240 plan took
-    11 µs there against 22 µs outside).
+    11 µs there against 22 µs outside). Inside it, on the EPYC 7763: measured threaded
+    plans 0.72–0.92 of estimate's time (medians by level and allocation), estimate's
+    serial rows 2.1–3.0 of measure's and its planes 1.05–1.34, so both are pruned. In
+    the step `threaded_rows measure` won every round on an 8-core allocation (0.915)
+    and lost one on 16 cores (1.039).
   - The thorough level no longer plans at patient; a candidate whose plans are no
     faster alone (median ratio 0.98 or more) is not timed in the step; and the levels
     take 30 s, 2 min and 7 min (from 20 s, 90 s and 5 min). On the EPYC 7763 the stage
