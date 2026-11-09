@@ -42,8 +42,13 @@ def auto(
     return asked
 
 
-def _publish(level: str, cpus: tuple[int, ...]) -> None:
-    """Publish a row of `level` for the class of `cpus` on this machine and build."""
+def _publish(
+    level: str, cpus: tuple[int, ...], *, before: tuple[object, ...] = ()
+) -> None:
+    """Publish a row of `level` for the class of `cpus` on this machine and build.
+
+    Rows in `before` come first in the generation.
+    """
     found = calibration.choice()
     assert found.fingerprint is not None
     machine = _native.topology.read_topology()
@@ -58,7 +63,7 @@ def _publish(level: str, cpus: tuple[int, ...]) -> None:
             fingerprint=found.fingerprint.digest,
             name=store.generation_name(),
             created="2026-11-08",
-            rows=(store.Row(allocation=allocation.record(), level=level),),
+            rows=(*before, store.Row(allocation=allocation.record(), level=level)),  # type: ignore[arg-type]
         )
     )
 
@@ -138,6 +143,17 @@ def test_an_existing_row_is_used_and_a_scan_wants_a_standard_one(
     _publish("standard", cpus)
     first_use._DONE.clear()  # pyright: ignore[reportPrivateUsage]
     assert first_use.for_workers(cpus) is None
+
+
+def test_a_malformed_row_is_passed_over(
+    auto: list[tuple[str, tuple[int, ...]]],
+) -> None:
+    cpus = tuple(first_use._process.allowed_cpus())  # pyright: ignore[reportPrivateUsage]
+    broken = _native.store.Row(allocation={"cores": "four"}, level="standard")
+    _publish("standard", cpus, before=(broken,))
+    with pytest.warns(_native.store.StoreWarning, match="ignoring a calibration row"):
+        assert first_use.for_workers(cpus) is None
+    assert auto == []
 
 
 def test_a_recent_inconclusive_attempt_waits_a_day(

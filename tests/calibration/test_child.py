@@ -215,6 +215,14 @@ def test_a_child_captures_each_plans_wisdom_and_times_under_a_planning() -> None
     assert isinstance(short, dict)
     assert short["skipped"] == ["gnlse", "line"]
     assert short["wisdom"] == {}
+    # A budget with room for the problem's plans keeps the per-plan limit.
+    roomy = _serve(
+        {"op": "prepare", "problems": {"gnlse": 1.0}},
+        {"op": "capture", "effort": "measure", "limit": 0.5, "budget": 60.0},
+    )[1]["ok"]
+    assert isinstance(roomy, dict)
+    assert roomy["skipped"] == []
+    assert roomy["wisdom"]
     planning = {
         "mode": "profile",
         "efforts": {"rows": "measure", "threaded_rows": "measure", "planes": "measure"},

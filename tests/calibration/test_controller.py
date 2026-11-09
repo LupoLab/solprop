@@ -882,6 +882,17 @@ def test_an_effort_that_fails_its_validation_keeps_the_policy(
     assert evidence["validation"]["passed"] is False  # pyright: ignore[reportIndexIssue, reportUnknownMemberType]
 
 
+def test_a_capture_that_plans_nothing_leaves_the_plan_policy(
+    scripted: tuple[type[_Scripted], dict[str, str]],
+) -> None:
+    script, environ = scripted
+    script.plans = {}
+    report = calibrate("standard", environ=environ, cpus=range(8))
+    assert (
+        "FFT planning: no transform planned within the stage's share" in report.reason
+    )
+
+
 def test_planes_and_a_group_in_no_problem_are_handled(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:
