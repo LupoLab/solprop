@@ -386,18 +386,15 @@ def _shape_moves(record: Record) -> list[Candidate]:
     Returns
     -------
     list of Candidate
-        Up to four; none when the record has no shape settings.
+        Two at most, smallest first: a grain of one thread per sample is not halved.
     """
-    moves: list[Candidate] = []
-    for name in SHAPE_MOVES:
-        if name not in record:
-            continue
-        value = int(record[name])
-        for moved in (value // 2, value * 2):
-            if moved >= 1 and moved != value:
-                short = name.removeprefix("fft_").replace("_", " ")
-                moves.append(Candidate("fft", f"fft {short} {moved}", {name: moved}))
-    return moves
+    (name,) = SHAPE_MOVES
+    value = int(record[name])
+    short = name.removeprefix("fft_").replace("_", " ")
+    return [
+        Candidate("fft", f"fft {short} {moved}", {name: moved})
+        for moved in sorted({max(1, value // 2), 2 * value} - {value})
+    ]
 
 
 def best(

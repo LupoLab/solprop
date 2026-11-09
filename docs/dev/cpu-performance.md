@@ -213,7 +213,10 @@ measured while it existed.
     patient plans: the stage needs more of the levels' time than it gets.
     Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
     (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
-    estimate's serial plans 1.06–2.8 of measure's.
+    estimate's serial plans 1.06–2.8 of measure's. Those timings ran outside the native
+    wait scope, so LLVM's runtime woke its idle threads at each loop; the timing alone
+    now runs inside it, as a step's transforms do (on the M5 Max a 4 × 10240 plan took
+    11 µs there against 22 µs outside).
   - The thorough level no longer plans at patient; a candidate whose plans are no
     faster alone (median ratio 0.98 or more) is not timed in the step; and the levels
     take 30 s, 2 min and 7 min (from 20 s, 90 s and 5 min). On the EPYC 7763 the stage

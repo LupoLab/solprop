@@ -289,7 +289,6 @@ class _Session:
         wisdom: dict[str, str] = {}
         groups: dict[str, str] = {}
         contains: dict[str, list[str]] = {}
-        alone: dict[str, dict[str, float]] = {}
         skipped: list[str] = []
         begun = time.perf_counter()
         names = list(self.problems)
@@ -321,18 +320,16 @@ class _Session:
                 found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
             finally:
                 backend.close()
-            captured = cast(dict[str, str], found["captured"])
-            wisdom |= captured
+            wisdom |= cast(dict[str, str], found["captured"])
             for key, group in cast(dict[str, str], found["groups"]).items():
                 groups[key] = group
                 contains.setdefault(name, []).append(key)
-            # Each plan alone, as its capture chose it and at estimate, to tell a plan
-            # that loses in the step from one that is slower alone (issue #595).
-            for key, text in captured.items():
-                if key not in alone and text:
-                    alone[key] = cast(
-                        dict[str, float], _core.time_fft_plan(key, text, effort)
-                    )
+        # Each plan alone, as its capture chose it and at estimate, to tell a plan that
+        # loses in the step from one that is slower alone (issue #595).
+        alone = {
+            key: cast(dict[str, float], _core.time_fft_plan(key, text, effort))
+            for key, text in wisdom.items()
+        }
         return {
             "wisdom": wisdom,
             "groups": groups,
