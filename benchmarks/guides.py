@@ -21,6 +21,7 @@ from jaxtyping import Complex
 from numpy.typing import ArrayLike
 
 from benchmarks.records import SuiteError
+from benchmarks.registry import CASES
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.coupling import CouplingModel
@@ -42,7 +43,15 @@ from solprop.physdata import fused_silica
 from solprop.profiles import PiecewiseLinear
 from solprop.pulses import GaussianPulse, SpatialPulse
 
-__all__ = ["ScaledPermittivity", "advanced", "coupled", "grin", "moving", "step_index"]
+__all__ = [
+    "ScaledPermittivity",
+    "advanced",
+    "coupled",
+    "grin",
+    "moving",
+    "step_index",
+    "taper_flow",
+]
 
 
 @dataclass(frozen=True)
@@ -114,6 +123,41 @@ def coupled(name: str) -> Simulation:
         wall=None
         if name == "taper"
         else CoherentWall(impedance="te_tm" if name == "vector_wall" else "mean"),
+        taper_coupling=True,
+        dz_max=length / 10,
+        dz_init=length / 10,
+        plasma=False,
+        raman=False,
+        backend="numpy_ref",
+        seed=20261027,
+    )
+
+
+def taper_flow(modes: int) -> Simulation:
+    """Build SEP 47's coupled-flow windows: a short He taper with `modes` channels.
+
+    A 40 um capillary whose radius falls linearly from 50 to 48 um, with taper
+    coupling and no wall, on a narrow field grid (600 nm to 1.1 um, 150 fs), so that
+    a wide flow's host march still finishes in seconds. Up to 16 channels the flow
+    runs on the native Adams march where its eigenbasis route covers every bin; 17
+    are past ``solprop_native.backend.ADAMS_MAX_CHANNELS``, and solprop's host march
+    steps them with a ``HostMarchWarning``. The walk-off absorber is the wall
+    tutorials' (``coupled``).
+    """
+    length = CASES[f"taper_flow_{modes}"].length
+    grid = FieldGrid.from_limits(length, 800e-9, (600e-9, 1.1e-6), 150e-15)
+    return Simulation.from_capillary(
+        PiecewiseLinear.from_stages((0.0, length), [50e-6, 48e-6]),
+        length,
+        "He",
+        1.0,
+        wavelength=800e-9,
+        grid=grid,
+        absorber=absorber(grid, boundary_length=1e3),
+        fwhm=30e-15,
+        energy=1e-9,
+        modes=modes,
+        wall=None,
         taper_coupling=True,
         dz_max=length / 10,
         dz_init=length / 10,
@@ -354,4 +398,6 @@ def advanced(
         )
     if name == "moving_solid_guide":
         return moving()
+    if name in ("taper_flow_4", "taper_flow_17"):
+        return taper_flow(int(name.rsplit("_", 1)[1]))
     raise SuiteError(f"advanced guide builder not implemented for {name}")

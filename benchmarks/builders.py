@@ -535,6 +535,24 @@ def smoke() -> Simulation:
     )
 
 
+def _fibre_or_capillary(
+    name: str, stop: float, itinerary: list[float], options: Record
+) -> Simulation:
+    """Build a capillary, fibre, session or smoke case before its observations."""
+    builder = CASES[name].builder
+    if builder == "capillary":
+        return capillary(name, options)
+    if builder == "gnlse":
+        return gnlse(name, options)
+    if builder == "session":
+        from benchmarks.sessions import fibre  # noqa: PLC0415
+
+        return fibre(name, stop, itinerary, options)
+    if builder == "smoke":
+        return smoke()
+    raise SuiteError(f"unknown builder {builder}")
+
+
 def build(configuration: Record) -> Simulation:
     """Build a case for the configured backend, stepper and observations.
 
@@ -558,6 +576,9 @@ def build(configuration: Record) -> Simulation:
         "fields": fields,
         "field_planes": (len(itinerary),) if fields == "planes" else (),
     }
+    if case.workload in ("scan", "group"):
+        # A scan keeps the fields run_scan asks for; its points keep the default.
+        del observed["fields"], observed["field_planes"]
     chosen = integrator(configuration["stepper"])
     options = variant(configuration)
     if case.builder in ("kerr", "spatial"):
@@ -606,14 +627,8 @@ def build(configuration: Record) -> Simulation:
                 field_planes=observed["field_planes"],
             )
             return simulation
-    elif case.builder == "capillary":
-        simulation = capillary(case.name, options)
-    elif case.builder == "gnlse":
-        simulation = gnlse(case.name, options)
-    elif case.builder == "smoke":
-        simulation = smoke()
     else:
-        raise SuiteError(f"unknown builder {case.builder}")
+        simulation = _fibre_or_capillary(case.name, stop, itinerary, options)
     if chosen is not None:
         observed["integrator"] = chosen
     observed["node_budget"] = _node_budget()  # None: the translation's default

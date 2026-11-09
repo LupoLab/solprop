@@ -146,8 +146,11 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
         failures = [item for item in mine if item["status"] != "ok"]
         medians: dict[str, dict[int, float]] = {arm: {} for arm in ARMS}
         work: dict[str, set[tuple[int, int]]] = {arm: set() for arm in ARMS}
+        counters: dict[str, Record | None] = dict.fromkeys(ARMS)
         for item in mine:
             if item["status"] == "ok":
+                if counters[item["arm"]] is None and item.get("counted"):
+                    counters[item["arm"]] = item["counted"].get("counters")
                 times = [rep["seconds"] for rep in item["repetitions"]]
                 medians[item["arm"]][item["round"]] = statistics.median(times)
                 work[item["arm"]].update(
@@ -180,6 +183,9 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
                     fields / "candidate" / f"{row['id']}.npy",
                 ),
                 "failures": [item.get("error") for item in failures],
+                # Each arm's structural counters, from its first counted run
+                # (--counters): what each build returned to Python for.
+                "counters": counters,
             }
         )
     return result
@@ -214,6 +220,13 @@ def show_summary(summary: list[Record]) -> None:
         )
         for error in row["failures"]:
             print(f"  failed: {error}")
+        for arm in ARMS:
+            found = (row.get("counters") or {}).get(arm)
+            if found:
+                returns = ", ".join(
+                    f"{name} {count}" for name, count in found["native_returns"].items()
+                )
+                print(f"  {arm} returns to Python: {returns or 'none'}")
     ratios = [row["ratio"] for row in summary if row["ratio"] is not None]
     if ratios:
         mean = math.exp(statistics.fmean(math.log(value) for value in ratios))
@@ -299,6 +312,7 @@ def ab(args: argparse.Namespace) -> int:
                             row["configuration"], backends[arm]
                         ),
                         "repeats": args.repeats,
+                        "counters": args.counters,
                         "fields": str(
                             (output / "fields" / arm / f"{row['id']}.npy").resolve()
                         )

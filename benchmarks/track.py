@@ -103,6 +103,12 @@ def selection_options(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument("--repeats", type=int, default=3, help="timed runs per case")
     parser.add_argument(
+        "--counters",
+        action="store_true",
+        help="one more, separately reported run per worker with the native "
+        "adapter's structural counters on (SEP 47 section 7.3)",
+    )
+    parser.add_argument(
         "--threading",
         choices=tuple(THREADING),
         default="backend",
@@ -208,6 +214,7 @@ def summarise(
         "noise": result["noise"],
         "finite": result["finite"],
         "solprop_path": (result.get("provenance") or {}).get("solprop_path"),
+        "counted": result.get("counted"),
     }
 
 
@@ -226,7 +233,7 @@ def show_results(rows: list[Record]) -> None:
         spread = 100 * (row["max_s"] - row["min_s"]) / row["median_s"]
         print(
             f"{row['case']:26} {row['integrator']:28} {row['threads']!s:>3} "
-            f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted']:7d} "
+            f"{row['median_s']:9.2f} {spread:8.1f} {row['accepted'] or '-':>7} "
             f"{row['device_gib'] or row['peak_rss_gib']:6.2f}"
             + ("" if row["consistent"] else "  (repeats or threads inconsistent)")
             + ("  (busy)" if row["busy"] else "")
@@ -405,7 +412,11 @@ def track(args: argparse.Namespace) -> int:
         width = row["configuration"]["threads"]
         events, elapsed = launch_worker(
             sys.executable,
-            {"configuration": row["configuration"], "repeats": args.repeats},
+            {
+                "configuration": row["configuration"],
+                "repeats": args.repeats,
+                "counters": args.counters,
+            },
             thread_environment(width, dict(os.environ), args.threading)
             | worker_calibration(dict(os.environ)),
             output / "raw" / row["id"],

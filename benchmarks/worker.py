@@ -6,11 +6,14 @@
 
 The controller sets the thread pools in the environment and passes a JSON request:
 one configuration, the number of timed repeats and, optionally, where to save the
-final field. The worker builds and translates the case and constructs its backend,
-runs an untimed warm-up over the first part of the guide, then times complete runs
-through the driver's own loop, each restarted from the translated launch with the
-boundary monitor ``Simulation.run`` attaches. It prints one JSON event per line; the
-last is the receipt.
+final field and whether to count. The worker builds and translates the case and
+constructs its backend, runs an untimed warm-up over the first part of the guide, then
+times complete runs through the driver's own loop, each restarted from the translated
+launch with the boundary monitor ``Simulation.run`` attaches, or the case's workload of
+repeated inputs, a scan or a group (``benchmarks.registry.Case``). Asked to count, it
+then makes one more repetition with the native adapter's structural counters on
+(SEP 47 section 7.3), reported apart so that counting costs no timed repetition
+anything. It prints one JSON event per line; the last is the receipt.
 """
 
 from __future__ import annotations
@@ -19,7 +22,9 @@ import dataclasses
 import importlib
 import importlib.metadata
 import logging
+import shutil
 import sys
+import tempfile
 import time
 import traceback
 import warnings
@@ -39,7 +44,9 @@ from benchmarks.records import (
 
 __all__ = [
     "HOST_SPACES",
+    "SNAPSHOT_CAPACITY",
     "Diagnostics",
+    "count",
     "emit",
     "integrator_label",
     "main",
@@ -182,52 +189,118 @@ def integrator_label(integrator: object) -> str:
     return name
 
 
-def timed_run(
+SNAPSHOT_CAPACITY = 100_000
+"""Snapshot generations a repetition's store holds: every one a case asks for."""
+
+
+def timed_run(  # noqa: PLR0913 - the run and how it is observed
     simulation: Simulation,
     problem: KernelProblem,
     engine: Backend,
     retention: FieldRetention,
     monitor: BoundaryMonitor | None = None,
-) -> tuple[Record, np.ndarray]:
+    *,
+    output: str = "memory",
+    scratch: Path | None = None,
+    snapshots: int | None = None,
+) -> tuple[Record, np.ndarray | None]:
     """Time one complete run from the launch; return its counts and final field.
 
     `monitor` is a fresh boundary monitor, attached as ``Simulation.run`` attaches
-    one; ``None`` runs without the boundary checks.
+    one; ``None`` runs without the boundary checks. `output` is ``"memory"`` or
+    ``"hdf5"``, a file in `scratch`, read back after the timed window; `snapshots`
+    attaches a ``SnapshotController`` with its store in `scratch`, asked after every
+    `snapshots`-th accepted step (``0``: never). The final field is ``None`` when the
+    last plane keeps none.
     """
     import numpy as np  # noqa: PLC0415
 
     from solprop.driver.run import run_problem  # noqa: PLC0415
-    from solprop.output import MemoryOutput  # noqa: PLC0415
+    from solprop.output import MemoryOutput, SnapshotController  # noqa: PLC0415
+    from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
+    from solprop.output.schema import Output  # noqa: PLC0415
 
+    if (output == "hdf5" or snapshots is not None) and scratch is None:
+        raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
     engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-    output = MemoryOutput()
+    path = None if scratch is None else scratch / "run.h5"
+    handler: Output = (
+        HDF5Output(path) if output == "hdf5" and path is not None else MemoryOutput()
+    )
+    controller = progress = None
+    if snapshots is not None and scratch is not None:
+        from benchmarks.sessions import Requests  # noqa: PLC0415
+
+        controller = SnapshotController(
+            scratch / "snapshots", max_snapshots=SNAPSHOT_CAPACITY
+        )
+        progress = Requests(controller, snapshots)
     before = source_calls(engine)
     started = time.perf_counter_ns()
     run_problem(
         problem,
         engine,
-        output,
+        handler,
         metadata=simulation.metadata(),
         stats_spec=problem.stats_spec,
-        progress="none",
+        progress="none" if progress is None else progress,
         resume_history=simulation.settings.resume_history,
         fields=retention.fields,
         field_planes=retention.field_planes,
+        snapshots=controller,
         boundary_monitor=monitor,
     )
     seconds = (time.perf_counter_ns() - started) * 1e-9
     after = source_calls(engine)
-    accepted = np.asarray(output["step_history/accepted"], dtype=bool)
-    record = {
-        "seconds": seconds,
-        "accepted": int(accepted.sum()),
-        "rejected": int((~accepted).sum()),
-        "source_evaluations": None
-        if before is None or after is None
-        else after - before,
-        "z": float(output["z"][-1]),
-    }
-    return record, output.plane_field(output.n_saved - 1, "fft")
+    if isinstance(handler, HDF5Output) and path is not None:
+        handler = open_file(path)
+    try:
+        accepted = np.asarray(handler["step_history/accepted"], dtype=bool)
+        record: Record = {
+            "seconds": seconds,
+            "accepted": int(accepted.sum()),
+            "rejected": int((~accepted).sum()),
+            "source_evaluations": None
+            if before is None or after is None
+            else after - before,
+            "z": float(handler["z"][-1]),
+            "planes": handler.n_saved,
+        }
+        if controller is not None and scratch is not None:
+            record["snapshots"] = sum(
+                1 for _ in (scratch / "snapshots").glob("snapshot-*")
+            )
+        final = (
+            None
+            if retention.fields == "none"
+            else handler.plane_field(handler.n_saved - 1, "fft")
+        )
+    finally:
+        handler.close()
+    return record, final
+
+
+def count(backend: str) -> object | None:
+    """Turn on the native adapter's structural counters, if this build has them.
+
+    Returns the counters to pass to :func:`counted`, or ``None`` on another backend
+    or a build without them (one from before SEP 47's counters).
+    """
+    if backend != "native":
+        return None
+    try:
+        counters = importlib.import_module("solprop_native._counters")
+    except ImportError:
+        return None
+    return counters.enable()
+
+
+def counted(active: object | None) -> Record | None:
+    """Turn the counters off and return their record, or ``None`` if none ran."""
+    if active is None:
+        return None
+    importlib.import_module("solprop_native._counters").disable()
+    return active.record()  # pyright: ignore[reportAttributeAccessIssue] - the build's own counters
 
 
 def _device_free(configuration: Record) -> int | None:
@@ -239,13 +312,83 @@ def _device_free(configuration: Record) -> int | None:
     return solprop_native.available_device_memory()
 
 
-def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
+def _repetition(
+    configuration: Record,
+    simulation: Simulation,
+    problem: KernelProblem,
+    engine: Backend,
+    retention: FieldRetention,
+    scratch: Path,
+) -> tuple[Record, np.ndarray | None]:
+    """Time one repetition of the case's workload in a fresh `scratch` directory."""
+    from benchmarks.registry import CASES  # noqa: PLC0415
+
+    case = CASES[configuration["case"]]
+    scratch.mkdir(parents=True, exist_ok=False)
+    try:
+        if case.workload == "run":
+            # A user's run checks the boundaries as it goes, so each repeat does too,
+            # with a monitor of its own: Simulation.run builds one per run, and a
+            # monitor's record accumulates over the run it watches.
+            return timed_run(
+                simulation,
+                problem,
+                engine,
+                retention,
+                simulation._boundary_monitor(),
+                output=case.output,
+                scratch=scratch,
+                snapshots=case.snapshots,
+            )
+        from benchmarks.sessions import repetition  # noqa: PLC0415
+
+        started = time.perf_counter_ns()
+        record, final = repetition(
+            case.workload, simulation, scratch, configuration["fields"]
+        )
+        seconds = (time.perf_counter_ns() - started) * 1e-9
+        return {"seconds": seconds, "source_evaluations": None, **record}, final
+    finally:
+        shutil.rmtree(scratch, ignore_errors=True)
+
+
+def _counted(
+    configuration: Record,
+    simulation: Simulation,
+    problem: KernelProblem,
+    engine: Backend,
+    retention: FieldRetention,
+    root: Path,
+) -> Record:
+    """Make one more repetition with the structural counters on; return its record."""
+    active = count(configuration["backend"])
+    try:
+        record, _ = _repetition(
+            configuration, simulation, problem, engine, retention, root / "counted"
+        )
+    finally:
+        found = counted(active)
+    return {**record, "counters": found}
+
+
+def measure(
+    configuration: Record,
+    repeats: int,
+    fields: Path | None,
+    *,
+    count_events: bool = False,
+    scratch: Path | None = None,
+) -> Record:
     """Build once, warm up once, then time ``repeats`` complete runs.
 
     Each run restarts the backend from the translated launch and goes through
     :func:`solprop.driver.run.run_problem`, the loop of ``Simulation.run``, so it
-    includes the plane observations and statistics. Construction, translation and
-    backend construction are timed separately.
+    includes the plane observations and statistics; a case with another workload
+    times that instead (``benchmarks.sessions.repetition``). Construction,
+    translation and backend construction are timed separately. With `count_events`,
+    one more repetition runs with the structural counters on and is reported as
+    ``counted``. Files go to a fresh directory under `scratch` per repetition, the
+    system's temporary directory by default.
     """
     import numpy as np  # noqa: PLC0415
 
@@ -286,29 +429,37 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
         repetitions = []
         first = final = None
         difference = 0.0
-        for _ in range(repeats):
-            # A user's run checks the boundaries as it goes, so each repeat does too,
-            # with a monitor of its own: Simulation.run builds one per run, and a
-            # monitor's record accumulates over the run it watches.
-            monitor = simulation._boundary_monitor()
-            repetition, final = timed_run(
-                simulation, problem, engine, retention, monitor
+        if scratch is not None:
+            scratch.mkdir(parents=True, exist_ok=True)
+        root = Path(tempfile.mkdtemp(prefix="solprop-bench-", dir=scratch))
+        for index in range(repeats):
+            repetition, final = _repetition(
+                configuration,
+                simulation,
+                problem,
+                engine,
+                retention,
+                root / f"r{index}",
             )
             repetitions.append(repetition)
             # Every repeat restarts from the same launch and seed, so its final
             # field may differ from the first repeat's by rounding only.
             if first is None:
                 first = final
-            else:
+            elif final is not None:
                 scale = float(np.linalg.norm(first)) or 1.0
                 difference = max(
                     difference, float(np.linalg.norm(final - first)) / scale
                 )
-        assert first is not None
-        final = first if final is None else final
-        if fields is not None:
+        counters = (
+            _counted(configuration, simulation, problem, engine, retention, root)
+            if count_events
+            else None
+        )
+        shutil.rmtree(root, ignore_errors=True)
+        if fields is not None and first is not None:
             fields.parent.mkdir(parents=True, exist_ok=True)
-            np.save(fields, final, allow_pickle=False)
+            np.save(fields, first, allow_pickle=False)
         return {
             "calibration": calibration_label(engine.metadata()),
             "construction_seconds": construction,
@@ -321,7 +472,8 @@ def measure(configuration: Record, repeats: int, fields: Path | None) -> Record:
             "device_bytes": None
             if free_before is None or free_warm is None
             else free_before - free_warm,
-            "finite": bool(np.all(np.isfinite(final))),
+            "finite": first is None or bool(np.all(np.isfinite(first))),
+            "counted": counters,
             "repeat_difference": difference,
             "integrator": integrator_label(problem.stepper.integrator),
             "precision": configuration.get("precision", "double"),
@@ -377,6 +529,9 @@ def main() -> int:
                 configuration,
                 int(request["repeats"]),
                 None if fields is None else Path(fields),
+                count_events=bool(request.get("counters")),
+                # Beside the request, in the run's bundle: one disk for both builds.
+                scratch=Path(sys.argv[1]).resolve().parent,
             )
         emit("result", status="ok", diagnostics=diagnostics.records(), **result)
     except Exception as error:  # worker boundary: the controller records the failure

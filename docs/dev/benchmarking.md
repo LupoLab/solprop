@@ -43,8 +43,9 @@ selection it is the tracking set:
 
 The definitions are in `benchmarks/registry.py` and `benchmarks/builders.py`. Every
 other registered case (the remaining modal, free-space and advanced-guide cases, and
-the backend exercises) runs when named with `--case`, `--set` or `--all`; none is in
-the default selection. A case whose definition changes keeps its name and raises its
+the backend exercises, and the `sep47` set of short windows for
+[SEP 47's matrix](#sep-47s-matrix-and-the-structural-counters)) runs when named with `--case`, `--set` or `--all`;
+none is in the default selection. A case whose definition changes keeps its name and raises its
 revision, and the history compares rows only within one revision.
 
 ## What is timed
@@ -274,3 +275,67 @@ difference of their final fields. Passing the same interpreter twice is an A/A
 control: its ratio range shows the noise to expect on that machine. A one-second
 reading before each worker labels a busy machine but never waits. `ab` gives no
 adoption verdict; the [rules](benchmarks.md#rules) say how a claim is judged.
+
+## SEP 47's matrix and the structural counters
+
+[SEP 47](seps/sep-0047-run-ownership.md) section 7.2 compares builds on a predeclared
+matrix of short windows, each holding the events it measures, with structural counters
+beside the timings (section 7.3). `--set sep47` selects the windows added for it; each
+finishes in seconds at its full declared length, so run it without `--length`:
+
+```sh
+uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
+    --baseline-python /path/to/baseline/bin/python
+```
+
+| Case | What one repetition is | Events it holds |
+|---|---|---|
+| `stats_period1_adams`, `stats_period1_rk` | 16 mm of `gnlse_soliton`'s fibre under `Multistep()` or `RungeKutta()`, energy and peak power as periodic statistics with period 1 | a row at every accepted step (about 190 and 40) |
+| `snapshots_idle`, `snapshots_sparse`, `snapshots_every` | the same fibre to HDF5 with `step_planes=1` and a `SnapshotController` never asked, asked after every eighth accepted step, or asked at every accepted endpoint | a plane at every step; 0, 5 and 42 snapshots published |
+| `with_input_repeat` | three runs of the fibre with other peak powers through `Simulation.with_input` | three preparations from one translation |
+| `scan_local` | `run_scan` of four peak powers on `Local`, built with `with_input`, field-free | four points, no field copied to the host |
+| `group_batch` | the same four points on `Batch(4)`, replaying ten 1.6 mm steps with the split-step collar | ten lockstep steps of four members |
+| `radial_filament_256_{saved,free}_{memory,hdf5}` | the radial filament's first 3 mm, four planes, every field kept or none, to memory or to HDF5 | four planes, transverse-edge reads and collar checks |
+| `cartesian_filament_128_{saved,free}_{memory,hdf5}` | the Cartesian filament's first 1 mm, likewise | the same on a 128² grid |
+| `taper_flow_4`, `taper_flow_17` | 40 µm of a He capillary tapering from 50 to 48 µm with taper coupling, 4 or 17 modes | a coupled flow on the native Adams march, and one wider than 16 channels on solprop's host march (`HostMarchWarning`) |
+
+Today a snapshot controller needs `step_planes=1` and HDF5 output, so the snapshot cases
+save a plane at every step; their variant without step planes becomes possible with SEP
+47's independent snapshot scheduling, and the cases will be extended then. Every case uses
+only public interfaces of the current code; one whose interface changes is updated with
+it, and the harness copied into each A/B run keeps both arms on one definition.
+
+The rest of the matrix is existing cases, run by name with a short `--length` window
+where they are long: the cheap envelope and field steps (`gnlse_soliton`,
+`he_rdw_averaged`), the temporal and transverse collar edges (`absorber_schemes`,
+`spatial_absorber`), low-storage replay (`kerr_beam_192`), general z tables and varying
+guides (`mixture_gradient`, `taper`, `taper_wall`, `moving_solid_guide`) and the large
+fields at production sizes (`radial_filament_512`, `cartesian_filament_256`).
+
+**Counters.** `--counters` (for `track` and `ab`) has each worker make one more
+repetition after the timed ones with the native backend's counters on, reported as the
+receipt's `counted` and, in `ab`'s summary, per arm; counting therefore costs no timed
+repetition anything, and with it off each hook in the backend is one attribute test. The
+record (`solprop_native._counters`, private to the harness) holds:
+
+- `native_returns`: every return to Python, by cause. A native march call's reason
+  (`reached`, `monitor` for a boundary-monitor check by distance, `bound` for its
+  attempt or time limit, `watch`, `capacity` and the errors), with `host_step` split
+  by the driver's work due on its last step: `statistics`, `step_planes`, `monitor`
+  (the check by steps), `transverse` (a collar's per-step current) or
+  `transverse_read`, joined with `+` when several fall due together. Then
+  `host_attempt` for each attempt solprop's own loop steps, `low_storage_step` for the
+  low-storage march and `group_step` for a native group's lockstep step;
+- `march_calls`, `attempts` and `accepted` (native march and host attempts together),
+  `host_attempts`, `low_storage_steps` and `group_steps`;
+- `planes` (calls of `propagate_to`), `statistics_rows` and `statistics_evaluations`,
+  `transverse_reads` (native reads of the edge's faces or a collar's current), and
+  `field_crossings` with `field_bytes`: fields copied to the host at a plane, at every
+  accepted step of a host Adams engine (`step`) or at its load.
+
+The run's own record adds the planes saved and, for a snapshot case, the snapshots
+published; the peak resident memory is the worker's, as for every row. A host attempt
+makes several native calls, which are not counted one by one, and a device's launches,
+transfers and allocations are not counted: they need a profiler. Counts explain a
+timing and do not replace it; check that both arms hold the same events before
+comparing their times (SEP 47 section 7.2).
