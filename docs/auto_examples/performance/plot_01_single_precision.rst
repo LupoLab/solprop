@@ -25,8 +25,9 @@ A run can hold its field and evaluate its nonlinear response in binary32 with
 ``precision="single"``, which halves the memory of every field-sized buffer. Whether a
 problem keeps its accuracy in binary32 is a property of the problem, so this example
 runs two of them both ways and compares: the photoionisation blue shift of
-:doc:`/auto_examples/processes/plot_06_ionisation_blue_shift`, here on an envelope grid
-with the envelope-grid plasma, and a short radial argon filament on a field grid. Each
+:doc:`/auto_examples/processes/plot_06_ionisation_blue_shift`, here over its first
+0.2 m, and a short radial argon filament, both on field grids with the field-grid
+plasma. Each
 runs in binary64 on the default backend, ``native``, and in binary32 on the reference
 backend, ``numpy_ref``, which is named explicitly: it is the backend that runs single
 precision.
@@ -46,12 +47,12 @@ noise-free comb-to-continuum, reaches its accuracy over a shorter length, as the
 :doc:`survival record </guide/performance/single-precision>` states. Timings depend on
 the machine and its load.
 
-.. GENERATED FROM PYTHON SOURCE LINES 36-38
+.. GENERATED FROM PYTHON SOURCE LINES 37-39
 
 The capillary, in both precisions
 ---------------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 38-101
+.. GENERATED FROM PYTHON SOURCE LINES 39-100
 
 .. code-block:: Python
 
@@ -72,28 +73,26 @@ The capillary, in both precisions
     from solprop.spatial import SpatialMedium, critical_power
     from solprop.stepper import PIController
 
-
     # Binary64 on the default backend, binary32 on the reference, the backend that runs it.
     BACKENDS = {"double": "auto", "single": "numpy_ref"}
 
 
     def capillary(precision):
-        """Run the blue-shift capillary on an envelope grid; return it and its time."""
+        """Run the blue-shift capillary's first 0.2 m; return it and its time."""
         started = time.perf_counter()
         run = prop_capillary(
             13e-6,
-            0.4,
+            0.2,
             "Ar",
             1.7,
             wavelength=800e-9,
             fwhm=30e-15,
             energy=3e-6,
             loss=False,
-            trange=400e-15,
+            trange=600e-15,
             wavelength_limits=(300e-9, 4e-6),
-            envelope=True,
             plasma=True,
-            n_save=101,
+            n_save=51,
             precision=precision,
             backend=BACKENDS[precision],
             progress="none",
@@ -126,19 +125,19 @@ The capillary, in both precisions
 
  .. code-block:: none
 
-    double: 275.6 s on native
-    single: 4600.4 s on numpy_ref
-    field difference at the end 1.0e-05
+    double: 12.7 s on native
+    single: 99.6 s on numpy_ref
+    field difference at the end 8.9e-06
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 102-104
+.. GENERATED FROM PYTHON SOURCE LINES 101-103
 
 The spectra and the plasma
 --------------------------
 
-.. GENERATED FROM PYTHON SOURCE LINES 104-137
+.. GENERATED FROM PYTHON SOURCE LINES 103-136
 
 .. code-block:: Python
 
@@ -168,7 +167,7 @@ The spectra and the plasma
     left.set_xlim(300, 1600)
     left.set_ylim(-40, 2)
     left.set_xlabel("wavelength (nm)")
-    left.set_ylabel("spectral density at 0.4 m (dB)")
+    left.set_ylabel("spectral density at 0.2 m (dB)")
     left.legend()
     right.set_xlabel("z (m)")
     right.set_ylabel("peak electron density (cm$^{-3}$)")
@@ -188,13 +187,13 @@ The spectra and the plasma
 
  .. code-block:: none
 
-    double: centroid 670.44 nm, energy 1.15942 uJ, peak electron density 3.3058e+17 cm^-3
-    single: centroid 670.44 nm, energy 1.15942 uJ, peak electron density 3.3058e+17 cm^-3
+    double: centroid 669.01 nm, energy 1.33141 uJ, peak electron density 4.3531e+17 cm^-3
+    single: centroid 669.01 nm, energy 1.33141 uJ, peak electron density 4.3531e+17 cm^-3
 
 
 
 
-.. GENERATED FROM PYTHON SOURCE LINES 138-144
+.. GENERATED FROM PYTHON SOURCE LINES 137-143
 
 A radial filament, in both precisions
 -------------------------------------
@@ -203,7 +202,7 @@ A 30 fs pulse at three times the critical power for self-focusing, 3 cm in argon
 one bar, on 256 radial nodes in 2 mm and a field grid: Kerr self-focusing and the
 field-grid plasma on every node.
 
-.. GENERATED FROM PYTHON SOURCE LINES 144-207
+.. GENERATED FROM PYTHON SOURCE LINES 143-206
 
 .. code-block:: Python
 
@@ -286,7 +285,7 @@ field-grid plasma on every node.
     BoundaryWarning: the safety ramp has removed 1.47e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
     double: 1.9 s on native
     BoundaryWarning: the safety ramp has removed 1.47e-06 of the launch energy above the input noise's share: content reached the grid's outer wavenumbers; refine the transverse grid (SEP 40 section 5.3)
-    single: 42.2 s on numpy_ref
+    single: 61.6 s on numpy_ref
     field difference at 3 cm 7.5e-07
     double: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
     single: peak intensity 1.7445e+14 W/cm^2, final FWHM radius 167.043 um
@@ -297,7 +296,7 @@ field-grid plasma on every node.
 
 .. rst-class:: sphx-glr-timing
 
-   **Total running time of the script:** (82 minutes 0.639 seconds)
+   **Total running time of the script:** (2 minutes 56.462 seconds)
 
 
 .. _sphx_glr_download_auto_examples_performance_plot_01_single_precision.py:

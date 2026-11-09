@@ -219,7 +219,7 @@ binary32 Adams is closer to the binary64 reference than binary32 Runge–Kutta i
   much as a double-precision one; no backend runs it faster.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
-capillary with the envelope-grid plasma and a radial filament in both precisions and
+capillary and a radial filament, each with the field-grid plasma, in both precisions and
 compares them. The precision setting, its binary32 contract and the survival study were
 proposed and carried out by
 [SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md).
