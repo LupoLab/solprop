@@ -5,13 +5,13 @@
 | **SEP** | 47 |
 | **Title** | Backend-owned execution sessions |
 | **Author** | John Travers |
-| **Drafting agent** | GPT-6 (2026-11-08) |
-| **Status** | Draft |
-| **Review status** | In review |
-| **Reviewers** | Opus 5.5 (AI) |
+| **Drafting agent** | GPT-6 (2026-11-08); Opus 5.5 (acceptance revisions, 2026-11-09) |
+| **Status** | Accepted |
+| **Review status** | Reviewed |
+| **Reviewers** | Opus 5.5 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
-| **Resolution** | — |
+| **Resolution** | Accepted 2026-11-09 by John Travers, after two AI reviews, the drafting agent's responses and the maintainer's decisions recorded in Part III ([LupoLab/solprop#589](https://github.com/LupoLab/solprop/pull/589)). |
 | **Requires** | SEPs 21, 22, 24, 25, 29, 33, 39, 44, 45 and 46 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
@@ -37,9 +37,10 @@ scientific and output behaviour, and measured reductions in avoidable crossings 
 field traffic without material performance regressions. A universal speedup is not
 assumed: conceptual simplification is a sufficient primary reason for the change.
 Retire the unused experimental MLX backend instead of migrating it, while retaining
-NumPy's single-precision reference. Include saved-plane copy reduction (#346),
-backend-owned device chunks (#361) and the measured CPU transform experiment (#584)
-as workstreams of this implementation.
+NumPy's single-precision reference. Include saved-plane copy reduction (#346) and
+backend-owned device chunks (#361) as workstreams of this implementation. The CPU
+transform work of #584 is delivered separately by PR #598; this SEP moves its policy
+into backend lowering unchanged.
 
 ### 2. Motivation and scope
 
@@ -92,8 +93,8 @@ In scope:
   host-owned session, with no host-over-native kernel executor;
 - retire MLX before restructuring its inherited driver, with no migration or new
   qualification effort for that backend;
-- complete #346 and #361 within the export/lowering work, and resolve #584 through
-  a measured probe and an implementation if it pays;
+- complete #346 and #361 within the export/lowering work, and move the CPU transform
+  policy that PR #598 delivers for #584 into backend lowering unchanged;
 - remove replaced interfaces and loops, and qualify the replacement across existing
   supported execution modes.
 
@@ -109,8 +110,8 @@ expression compiler, distributed propagation and a new output file format. Movin
 optmat, mode solvers, recipe parsing, HDF5 or the graphical front end into native is not
 proposed. Full RK checkpoint continuation is also outside scope (§5.5). A future Julia
 backend can implement the new contract, but replacing MLX with Julia is neither a
-deliverable nor a prerequisite. The #584 CPU transform work is included without
-making a successful optimization a prerequisite for the architectural change.
+deliverable nor a prerequisite. The #584 CPU transform work is delivered independently
+by PR #598 (§3.3).
 
 ### 3. Context
 
@@ -223,7 +224,7 @@ The intended disposition is explicit:
 | [#351](https://github.com/LupoLab/solprop/issues/351), padded Chebyshev degrees | Related optimization enabled by explicit representations; not a prerequisite or an automatic closure. |
 | [#356](https://github.com/LupoLab/solprop/issues/356), actual fused batching | The group contract is decided here. A general fused batch implementation and its performance claim remain separate work. |
 | [#357](https://github.com/LupoLab/solprop/issues/357), GPU launches and copies; [#560](https://github.com/LupoLab/solprop/issues/560), lessons from Julia | Related evidence. Reprofile current code; this SEP does not promise to remove every device launch or copy. |
-| [#584](https://github.com/LupoLab/solprop/issues/584), batched CPU forward transforms | Included experiment and conditional implementation: probe early, then integrate a beneficial CPU batch with SEP 46's operation-width policy in phase 3. A documented negative result resolves the experiment without blocking the new architecture. |
+| [#584](https://github.com/LupoLab/solprop/issues/584), batched CPU forward transforms; [#595](https://github.com/LupoLab/solprop/issues/595), plans chosen in isolation | Delivered independently by [PR #598](https://github.com/LupoLab/solprop/pull/598), with #587 (maintainer's decision at acceptance). If it merges before the phase 1 baseline it is part of baseline A and earns no SEP 47 credit; phase 3 moves its forward-pack and width policy into backend lowering unchanged, as for #361. Any private switch it adds joins the §6.3 forcing-switch row. If it has not merged when phase 1 starts, the maintainer decides its sequencing. |
 | [#587](https://github.com/LupoLab/solprop/issues/587), FFT shape-dependent width | Related policy work; preserve or coordinate its improvements without expanding the transform experiment beyond its measured scope. |
 | [#300](https://github.com/LupoLab/solprop/issues/300), expensive per-step plasma statistics; [#301](https://github.com/LupoLab/solprop/issues/301), reference reuse | Statistics planning must preserve exact requested sampling. Moving scheduling does not make an additional accepted-state calculation free. |
 | [#104](https://github.com/LupoLab/solprop/issues/104), reference allocations; [#107](https://github.com/LupoLab/solprop/issues/107), statistics ownership | Related, but the reference need not mimic native's allocation strategy and native reductions must remain resident. |
@@ -332,6 +333,11 @@ That numerical freedom does **not** apply to bookkeeping given identical inputs.
 On one build, the reference and native control implementations must make exactly the
 same proposals, accept/reject decisions, landings, cap decisions, monitor verdicts,
 cadence and event transitions when fed identical tables, norms and boundary readings.
+Exact identity covers the scalar decision logic. Array reductions and transcendental
+evaluations that produce a reading, such as a monitor's floor-removal sum over channels
+or a transverse judgement's ordered sums, belong to that backend's reading and are
+compared under SEP 25; the identical-input tests feed both implementations the same
+recorded readings.
 Keep the strict scalar arithmetic and operation order of SEPs 39 and 45, and extend
 their strict-file/FMA witnesses to the moved control and scheduler code. The current
 RK march comparison uses host and native marches over the **same native numerical
@@ -572,7 +578,11 @@ copying a snapshot file, persist a valid checkpoint and any required method hist
 plus the next observation cursor, even when no ordinary plane is due. Running
 checkpoints reuse the existing checkpoint record/datasets and output transaction,
 with optional restart metadata and a matching running execution record; no new
-checkpoint dataset or field representation is added. Do not create a false terminal
+checkpoint dataset or field representation is added. A running checkpoint includes,
+without consuming, the attempt history and periodic statistics rows accumulated since
+the last saved plane, so the next saved plane still receives them. A later failure that
+cannot checkpoint, such as an abandoned low-storage step, falls back to the latest
+running checkpoint rather than to the last saved plane. Do not create a false terminal
 outcome or mark an uncommitted field resumable.
 Before that checkpoint, drain and commit every earlier owed dense observation crossed
 by the accepted step. The baseline does not persist a checkpoint that would require
@@ -598,9 +608,11 @@ unconditional backup field.
 
 Restart exports portable numerical state and, when requested and supported, method
 history. It does not serialize pointers, FFT plans, execution-space layouts or thread
-pools. Monitor restoration includes its qualified cumulative/cadence/ceiling state,
-or its explicit reconstruction from persisted records; it cannot start as an
-unrelated fresh monitor. Reconstruct observation and replay cursors from committed
+pools. Monitor restoration keeps today's reconstruction from persisted records:
+cumulative totals, quiet state and the transverse record are restored, while the check
+cadence and transverse cap restart from that restored state as they do now. The resumed
+execution record states this; persisting cadence and cap is not claimed. A restored
+monitor cannot start as an unrelated fresh monitor. Reconstruct observation and replay cursors from committed
 records, preserving every owed dense or step plane and the existing compatibility
 rules. Query snapshot size and eligibility before allocating or transferring its
 payload. Keep the Adams automatic 256 MiB retention limit and the explicit policies,
@@ -751,14 +763,23 @@ methods are explicitly separated from that promise.
 | Carrier-frame general z table (#255) | Probe descriptor/history requirements in phase 1; port the native CPU gap in phase 4 without changing the carrier approximation. Test varying tables, history and restart. | All carrier-frame runs remain refused by name on both CUDA and HIP, as today. This CPU port does not admit device carrier frames or general z tables. |
 | Native members forced to host replay by lockstep/nominal batching | Native group session in phase 3, with actual member parameters and cursors. Preserve existing coupled-batch refusals; this does not newly admit every coupled flow as a group. | Port the existing fibre/general-guide groups and qualify on both CUDA and HIP in phase 4, including per-member events and partially advanced group failures. Coupled-flow groups remain refused. |
 | Low-storage replay's Python loop around resident native registers | Native session in phase 3 on the existing diagonal-flow routes; qualify replay, event bounds, stop and in-flight failure semantics. | Port admitted device-ready diagonal-flow cases to the session and qualify on both CUDA and HIP in phase 4. HIP is already qualified; CUDA is admitted but not yet qualified, so its session needs actual-device evidence before Final. |
-| Private host-engine or host-march forcing switches | Retire from production; replace their diagnostic purpose with independent reference and identical-input control tests. | Retire on both CUDA and HIP as well; retain explicit test probes, not a production host executor. |
+| Private host-engine or host-march forcing switches (`SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_ROWS`, `SOLPROP_RK_MARCH`, the `adams_march="host"` keyword, and any added by concurrent work) | Retire from production; update `benchmarks/adams_host.py`; replace their diagnostic purpose with independent reference and identical-input control tests. | Retire on both CUDA and HIP as well; retain explicit test probes, not a production host executor. |
 
 This table is a deliberate native admission change for custom Python controllers and
 benchmark-only comparison methods. It does not authorize dropping built-in production
 coupled flows or silently selecting a different tolerance, method or carrier model.
 Porting includes native ownership of control around device kernels; it does not
 require a device-resident controller. No new production device refusal is selected
-by this table. Temporary internal adapters may preserve existing device paths between
+by this table.
+
+"Qualify on both CUDA and HIP" in this table means: each device capability keeps at
+least its current per-vendor status in the backend capability table. What is qualified
+on a vendor today is requalified through the session on that vendor; a combination
+that is admitted but not yet qualified on a vendor stays admitted and is listed as
+such. The only new device qualification this SEP requires is CUDA low-storage replay.
+The device witness is the existing `-m gpu` suite plus the session-lifecycle witnesses,
+run as one campaign per vendor at the end of phase 4, after the representative device
+path of phase 3 (maintainer's decision at acceptance). Temporary internal adapters may preserve existing device paths between
 phased merges, but Final requires the listed CUDA/HIP session witnesses on actual
 devices. Host compilation is not qualification. If a port cannot meet this gate,
 keep the SEP In progress or seek an explicit revised capability decision; do not
@@ -788,13 +809,38 @@ number times the period. Keep native rows in bounded resident storage and transf
 them in bulk at delivery; a period of one is not a reason to return to Python or copy
 a scalar row after every step. Device buffers are included in the ledger.
 
+Today several periodic-capable statistics are finished in Python on the native
+backend, and each row forces a return. The native session computes every one of them
+resident, with no Python finishing (maintainer's decision at acceptance):
+
+| Statistic family | Current host work on native | Native session |
+|---|---|---|
+| Species ionisation, species and multi-channel electron density, peak ionisation rate | Native packs per-node arrays; Python reduces them with species densities, effective area and taper evaluated at z | Resident reduction, with its z-dependent inputs evaluated from the representations carried in the descriptor (phase 3) |
+| `density`, `pressure`, `core_radius` | Evaluated from Python profile objects at z | Evaluated natively from the same z representations the propagation uses (phase 3) |
+| Plasma ratios, the on-axis row and other per-row scalar inputs (plasma density, preionisation, taper, power weight, on-axis synthesis) | Evaluated in Python before each native call | Lowered once at preparation and evaluated natively per row (phase 3) |
+| General-modal statistics (functionals of the physical flux `a.H W a`) | Whole field copied to the host and Python `collect` run for each row | Native resident reductions with the basis metric (phase 3) |
+
+Where a statistic is evaluated from a z representation rather than from the Python
+profile object, any difference is bounded by that representation's recorded error,
+measured and recorded in the phase report; it is not a new approximation of the
+propagation, which already uses those representations. Python names the rows and
+assembles the schema; it computes no statistic for a native run.
+
 The boundary monitor is controller input, not merely passive observation. Its quiet
 interval, transverse ceiling and split-collar cap constrain proposals in the exact
 order in §5.3. Its cadence, cumulative removed energy, warnings, stops and reconstructed
 restart state have the same owner as the integrator. Replace `_verify_watch_of` and
 runtime Python replay with a test harness feeding identical recorded readings through
 the independent monitor implementations, comparing caps, verdicts and following
-proposals exactly, including resume and warning barriers. The Python service loop
+proposals exactly, including resume and warning barriers.
+
+Moving this ownership is a port of its own: today `watch.cpp` only predicts, and
+Python owns the launch judgement, the per-step floor removal, the plane rows, finishing,
+resuming and the transverse judgement with its records. The native session owns every
+decision state and builds every record (plane rows, summary maxima, the finish verdict
+and the resume record); Python only formats and emits them (maintainer's decision at
+acceptance). The temporal monitor moves in phase 3 and the transverse judgement in
+phase 3 under a timebox, reported at its checkpoint as in §11. The Python service loop
 consumes records; it does not feed those
 records back through a second numerical state machine. Per-step plasma diagnostics
 retain their exact requested cadence and may remain expensive. Omitting, approximating
@@ -859,7 +905,18 @@ backend; the common descriptors and conformance suite should permit it to implem
 the session contract without special accommodation in this SEP.
 
 Extract retained NumPy algorithms into private components used by the host session;
-replace `StepDriver` and its inheritance hierarchy by Final. Readable host numerical
+replace `StepDriver` and its inheritance hierarchy by Final. Phase 2 builds the host
+session independently (maintainer's decision at acceptance): `numpy_ref` stops
+inheriting `StepDriver`, and shares only stateless numerical modules (coefficients,
+tableaux, exponential and stage evaluation) with the legacy driver. Until the native
+session replaces them, `StepDriver` and its march helpers remain solely as the temporary
+native bridge, named in each phase report with their removal milestone.
+
+SEP 46 calibration and `Simulation.estimate` time single trials today through private
+driver members (`timed_step`, `_trial_step`, `_observed_field`). Prepared execution keeps
+an explicit timing probe: one trial from the loaded state that commits nothing, with a
+field readback for the plan comparison. It is a supported internal operation for those
+callers, not a propagation executor. Readable host numerical
 modules may remain, including useful multistep code, but not a second native
 integration contract. Do not retain MLX or an old driver hierarchy as a frozen
 compatibility branch inside the production package.
@@ -881,6 +938,9 @@ norms, observations and stop outcomes. The existing shared fixed schedule is an 
 group execution request. Its maximum error norm remains a diagnostic and cannot adapt
 the common schedule.
 
+A group request is a sequence of independently translated member problems plus the
+existing compatibility predicate that groups scan points today; no production caller
+builds a multi-member problem. The batched-scan loop becomes the group service loop.
 A group owns its member sessions through their protocol, with no access to private
 driver attributes. A native group can execute an entire common schedule window and
 return per-member events; a reference group can iterate members in Python. Preserve
@@ -921,6 +981,9 @@ Completion requires removal, not just bypassing, of the replaced production mach
 | Python low-storage loop around native registers | Native session for built-in execution; reference host implementation remains for the oracle. |
 | Native-specific nested save/statistics/step scheduling across adapters | One native event scheduler; the Python driver becomes a service loop. |
 | Lockstep access to member private fields and marches | Explicit group/session operations. |
+| Batched-scan outer loop with its member monitor and record plumbing | The group service loop over explicit group/session operations. |
+| Python boundary-monitor state, records and transverse judgement for native runs | The native session's monitor (§6.4); Python formats records only. |
+| Python finishing of periodic statistics for native runs | Native resident statistics (§6.4). |
 | Translation-owned execution packing and chunk policy | Backend lowering, with numerical representations retained in translation. |
 | MLX implementation and its inherited driver/packaging/test hooks | Retired in phase 2; retain the independent NumPy single-precision capability, not an MLX adapter. |
 
@@ -1008,14 +1071,15 @@ workflows must work with the new API before completion.
 
 #### 7.2 Performance experiments
 
-Freeze an initial baseline after SEP 46, before this SEP's optimization work. Keep
-three attributable variants: **A**, that baseline; **B**, the focused copy, chunk and
-kernel improvements that can run on the old ownership model; and **C**, sessions with
-the same applicable improvements. Compare B to A, C to B and C to A on matched cases.
-If a change cannot be separated cleanly, use an explicit ablation and record the
-limitation rather than attributing all gains to sessions. A successful #584 transform
-change must not hide a session regression. Concurrent changes already present in A
-receive no credit as SEP 47 improvements.
+Freeze an initial baseline at phase 1, after SEP 46 and after PR #598 if it has merged,
+before this SEP's optimization work. Keep three attributable variants: **A**, that
+baseline; **B**, main just before the first native-session merge, which contains the
+early copy elisions on the old ownership model; and **C**, the candidate. Compare B to
+A, C to B and C to A on matched cases. Use in-tree ablation switches only where they are
+cheap; otherwise record a change as inseparable rather than maintaining a backport
+branch or attributing all gains to sessions (maintainer's decision at acceptance). A
+transform improvement must not hide a session regression. Concurrent changes already
+present in A receive no credit as SEP 47 improvements.
 
 Measure interleaved baseline/candidate pairs with the same compiler, precision, machine
 allocation, calibration, input realization and observation policy. Use about ten steps
@@ -1034,7 +1098,7 @@ The matrix must include:
 | Independent snapshots at every accepted endpoint and sparse snapshot requests, with/without ordinary saved-step planes | Does independent scheduling preserve valid checkpoints while eliminating returns caused solely by enabling snapshots? Every-endpoint snapshots still require real service. |
 | General z tables, coupled flow and a varying guide | Does the new contract preserve the general path as well as the common one? |
 | Repeated `with_input` runs and short scans | Is preparation reused without stale state or hidden shared mutable resources? |
-| CPU nonlinear forward transforms with small and large mode/node counts, at one thread and the production allocation (#584) | Does batched FFTW or host parallel submission improve source and whole-run time under SEP 46's `CpuExecution`, including planning/storage cost? |
+| CPU nonlinear forward transforms with small and large mode/node counts, at one thread and the production allocation | Does moving PR #598's transform policy into lowering preserve its measured behaviour? |
 | Device spatial routes under automatic and explicit workspace budgets (#361) | Does the chunk policy improve CUDA/HIP execution at an acceptable measured memory cost, while respecting explicit limits and safe initialization? |
 
 Measure construction, lowering/planning, march, observation, export and file I/O
@@ -1084,7 +1148,8 @@ explicit. A session wrapper around the old drivers does not meet the structural 
 
 Also require aggregate non-regression beyond measurement uncertainty: report the
 geometric mean of paired candidate/baseline total-time ratios over the predeclared
-matrix, with uncertainty from repeated pairs and baseline-versus-baseline noise.
+matrix, one per platform at its production allocation (one-thread runs only for the
+cheap-step family), with uncertainty from repeated pairs and baseline-versus-baseline noise.
 A uniform 3% slowdown must trigger investigation and an explicit maintainer exception
 if retained, even though no case crosses 5%. The aggregate cannot excuse a per-case
 regression. State the matrix and weighting before seeing results.
@@ -1126,7 +1191,7 @@ on conceptual simplification.
 
 This is readiness evidence from representative prototypes, not a claim of complete
 production qualification or a requirement to finish every native port in phase 1.
-State remaining risks and their later witnesses. Focused #346/#584 experiments can
+State remaining risks and their later witnesses. Focused #346 copy elisions can
 proceed alongside it; broad session migration follows the recorded readiness outcome.
 
 ### 8. Documentation
@@ -1217,7 +1282,7 @@ reason to introduce it silently.
 ### 10. Alternatives considered
 
 **Keep the present seam and add fast paths.** Lowest immediate disruption; focused
-kernel work such as #584 (included here) and #587 can still pay. Alone, it leaves the
+kernel work such as #584 and #587 (delivered by PR #598) can still pay. Alone, it leaves the
 ownership duplication and increases the number of adapters as more loops become native.
 Keep that work separately measurable without making the present seam the long-term
 execution architecture.
@@ -1291,7 +1356,7 @@ old-seam additions to accumulate. SEP 46 is already Final, so its policy is cons
 as current main rather than treated as an indefinitely moving dependency.
 
 The focused optimizations are workstreams of SEP 47, not prerequisite projects or
-three extra PRs. They can land in an early coherent milestone when ready, without
+extra PRs. They can land in an early coherent milestone when ready, without
 waiting for the full native migration. Preserve separate commits and the §7.2
 attribution measurements so their value and the session's value remain distinguishable.
 
@@ -1299,7 +1364,7 @@ attribution measurements so their value and the session's value remain distingui
 |---|---|
 | #346 saved-plane copies | Trace file and in-memory output, unit/non-unit weights and checkpoint sharing in phase 1; take straightforward copy elisions early and complete destination export in phase 3. Qualify retained-array safety, exact copies/storage, rounding-bounded fused conversion, saved-plane time and peak live storage, including the reported Linux large-field case. Reconcile historical estimator assumptions with the current allocation ledger, not renewed memory admission. |
 | #361 device chunks | Include resource-aware chunk planning in phase 3's backend lowering. Qualify the default candidate, explicit budgets, memory cost and actual CUDA/HIP timing in phase 4 before adopting a changed production device rule. Preserve any independently qualified rule that has already landed. |
-| #584 CPU forward transforms | Probe batched FFTW/host parallel submission early, including one and sixteen threads on the reported Xeon Gold 6240 case and representative smaller work. Adopt a measured winner in phase 3 under SEP 46's execution policy, with numerical and planning/storage checks. A documented negative result resolves the experiment without requiring a new FFT design or blocking this SEP. |
+| #584 CPU forward transforms | Delivered independently by PR #598 (§3.3). Phase 3 moves its policy into backend lowering unchanged and checks that its measured behaviour is preserved; no probe or adoption decision is part of this SEP. |
 
 1. **Contract, baseline and design readiness.** Inventory capabilities, extension
    cases, mutable owners, event ordering, snapshots and group semantics. Freeze the
@@ -1315,7 +1380,8 @@ attribution measurements so their value and the session's value remain distingui
    spend no effort porting its inherited hierarchy. Retain NumPy double/single precision,
    reference experiments and TDSE transactions. Split method/tolerance/observation
    inputs, introduce route variants and implement the reference lifecycle with
-   independent numerical algorithms. Replace the outer numerical driver with the
+   independent numerical algorithms, so that `numpy_ref` no longer inherits
+   `StepDriver` (§6.6). Replace the outer numerical driver with the
    service loop and update interfaces, callers and documentation directly. Verify
    event ordering, failure and resume. Land phases 1–2 early as the usable extension
    contract for feature SEPs; do not wait for expensive native ports. Temporary
@@ -1325,9 +1391,11 @@ attribution measurements so their value and the session's value remain distingui
    native Adams/RK engines and move diagonal-flow low-storage replay into the session.
    Keep controller, history, boundary state and actual work native across advances.
    Prepare statistics/monitor work, bounded delivery and destination export; implement
-   coarse native fixed-schedule groups through explicit member ownership. Complete
-   #346's export work, implement #361's chunk policy and incorporate #584 only where
-   its experiment supports it. Qualify common native CPU paths against the reference,
+   coarse native fixed-schedule groups through explicit member ownership. Port the
+   boundary monitor's decision state and records and every periodic-capable statistic
+   to the native session (§6.4), the transverse judgement under a timebox. Complete
+   #346's export work, implement #361's chunk policy and move PR #598's transform
+   policy into lowering unchanged. Qualify common native CPU paths against the reference,
    including dense output, retained arrays, failed consumers, partially advanced
    groups, token stopping and independent snapshots. Exercise a representative device
    path early enough to detect contract defects; the complete device matrix is phase 4.
@@ -1349,8 +1417,8 @@ attribution measurements so their value and the session's value remain distingui
    Confirm all retained production paths use the new contract and every phase 4
    CPU/device obligation has evidence. Complete paired performance and structural
    reports, obtain explicit decisions for retained regressions, and update rules/manuals.
-   Record the disposition of #346, #361 and #584, closing issues only on their delivered
-   criteria or, for #584, the documented experimental conclusion. Archive at `Final`
+   Record the disposition of #346 and #361, closing issues only on their delivered
+   criteria. Archive at `Final`
    only when the replacement is the production architecture and no required path
    depends on the old native driver. Outstanding scope changes require an explicit
    amendment; reaching a timebox does not itself satisfy Final.
@@ -1358,8 +1426,7 @@ attribution measurements so their value and the session's value remain distingui
 ### 12. Open questions
 
 John Travers resolved the seven architectural decisions on 2026-11-09. These are the
-agreed design direction; full proposal review under SEP 0 still precedes formal
-acceptance.
+agreed design direction, confirmed at acceptance.
 
 1. **Ownership:** the backend owns the complete numerical session, including
    observations, boundaries, accounting and export preparation. Python retains science
@@ -1402,14 +1469,32 @@ John Travers further resolved implementation scope and sequencing on 2026-11-09:
 11. **MLX:** retire it early, with no adapter or numerical migration/qualification
     effort. Preserve NumPy single precision. Julia replacement is separate future work
     (§6.6); this supersedes the earlier choice to retain an MLX host session.
-12. **Included work:** fold #346, #361 and #584 into SEP 47, without separate prerequisite
-    PRs. Adopt #584 only on measured benefit; a negative experimental conclusion does
-    not block the architecture. Separate kernel/copy gains from session gains (§7.2).
+12. **Included work:** fold #346 and #361 into SEP 47, without separate prerequisite
+    PRs, and separate kernel/copy gains from session gains (§7.2). Revised at
+    acceptance: #584 is delivered independently by PR #598, whose policy phase 3
+    moves into lowering unchanged (§3.3).
 13. **Readiness and sequencing:** conceptual simplification is sufficient motivation.
     Phase 1 checks the concrete contract's readiness, not a minimum speedup (§7.4).
     Land the reference/descriptors/service loop early; probe hard cases early but do
     their bulk ports later, with timeboxes that prompt explicit decisions rather than
     silently dropping scope (§11).
+
+John Travers made five further decisions at acceptance on 2026-11-09:
+
+14. **Device scope:** preserve each capability's current per-vendor status; the only
+    new device qualification is CUDA low-storage replay (§6.3).
+15. **Statistics:** every periodic-capable statistic is computed resident in the native
+    session, with no Python finishing (§6.4).
+16. **Monitor:** the native session owns every monitor decision state and record;
+    Python only formats them. Exact identity covers scalar decision logic on recorded
+    readings (§§4.3, 6.4).
+17. **Transition:** build the independent reference session in phase 2, sharing only
+    stateless numerical modules with the legacy driver, which remains solely as the
+    temporary native bridge (§6.6).
+18. **Clarifications:** running checkpoints carry pending history and rows (§5.5),
+    monitor restoration keeps today's reconstruction (§5.5), calibration keeps an
+    explicit timing probe (§6.6), groups are sequences of member problems served by
+    the group service loop (§6.7), and attribution uses A/B/C as redefined in §7.2.
 
 No maintainer arbitration requested by this review remains open. Phase 1 determines
 the exact public configuration API, descriptor fields, packet capacities and
@@ -1486,6 +1571,11 @@ another decision.
 - 2026-11-09: Recorded the maintainer's MLX retirement, included optimization
   workstreams and revised sequencing. Clarified phase 1 as design readiness with no
   minimum speedup; the full decision record below supersedes earlier scope choices.
+- 2026-11-09: Implementation-readiness check by Opus 5.5 against main at `0901bf6f`,
+  before implementation. John Travers decided the device scope, statistics, monitor
+  and transition questions it raised; Part I revised for those decisions and for the
+  clarifications listed in the record below. #584 is now delivered by PR #598.
+- 2026-11-09: Accepted by John Travers (human review) in #589.
 
 ### AI review — 2026-11-09 — Opus 5.5
 
@@ -2203,3 +2293,42 @@ The existing per-case and aggregate regression policies remain explicit safeguar
 This direction supersedes the earlier MLX-host-session and separate-optimization
 planning choices in the review responses above. Those reviews and responses are
 preserved as history; Part I states the current proposal.
+
+### Maintainer decisions at acceptance — 2026-11-09
+
+Before implementation began, Opus 5.5 checked Part I against main at `0901bf6f`
+(the native adapter, the shared driver, the run loop, the monitor and transverse
+judgement, the statistics paths, the output and checkpoint code, the batched-scan loop,
+calibration, and the backend capability table) and against current issues and PRs.
+John Travers decided the questions it raised and accepted the proposal:
+
+1. **#584 moved out.** PR #598 delivers #584, #587 and #595 independently. If it merges
+   before the phase 1 baseline, it belongs to baseline A; phase 3 moves its policy into
+   lowering unchanged (§§3.3, 7.2, 11, 12).
+2. **Device scope.** The capability table is per vendor: free space is qualified on
+   CUDA, the planar kind and low-storage on HIP, and device `MarchSnapshot` and
+   field-free observation compile but are not qualified. Each capability keeps at least
+   its current per-vendor status through the session; the only new qualification is
+   CUDA low-storage. One campaign per vendor at the end of phase 4 (§6.3).
+3. **Statistics.** Species/population reductions, the profile statistics, per-row
+   scalar inputs and general-modal statistics are finished in Python today, and each
+   periodic row forces a return. All move into the native session, with no Python
+   finishing; z-dependent inputs come from the representations carried in the
+   descriptor (§6.4).
+4. **Monitor.** `watch.cpp` only predicts today; Python owns the launch judgement, floor
+   removal, plane rows, finish, resume and the transverse judgement. The native session
+   owns all decision state and builds every record; Python formats them. Bit-identical
+   decisions apply to scalar decision logic on recorded readings; array reductions and
+   transcendentals belong to each backend's reading under SEP 25 (§§4.3, 6.4).
+5. **Transition.** The reference session is built independently in phase 2, sharing
+   only stateless numerical modules; the legacy driver remains solely as the native
+   bridge until the native session replaces it (§6.6).
+6. **Clarifications without a design change:** running checkpoints include pending
+   attempt history and periodic rows, and an abandoned low-storage step falls back to
+   the latest running checkpoint (§5.5); monitor restoration keeps today's
+   reconstruction (§5.5); calibration and `Simulation.estimate` keep an explicit timing
+   probe (§6.6); a group is a sequence of member problems and the batched-scan loop
+   becomes the group service loop (§§6.7, 6.8); A/B/C attribution uses the phase 1
+   baseline, main before the first native-session merge and the candidate, with one
+   geometric mean per platform (§§7.2, 7.3); the forcing switches to retire are named
+   (§6.3).

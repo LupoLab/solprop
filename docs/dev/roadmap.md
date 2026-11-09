@@ -35,6 +35,20 @@ being implemented.
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
 
+- [SEP 47 — Backend-owned execution sessions](seps/sep-0047-run-ownership.md):
+  make each backend own its numerical run, including stepping, observations, boundaries,
+  statistics, accounting and export preparation, while Python owns the scientific
+  description and external services. Replace native driver inheritance and mirrored
+  state with typed descriptors and a session protocol; native exposes its complete
+  session, while the independent NumPy oracle uses a host session in both retained
+  precisions. Retire MLX early, without porting it. Backend lowering owns packing, chunks
+  and workspace lifetimes; include #346 saved-plane copies and #361 device chunks, and
+  move PR #598's CPU transform policy (#584) into lowering. Include independent snapshot
+  requests, cooperative stopping and explicit restart reporting. Device capabilities keep
+  their per-vendor status. Delivered through a few phase PRs under a recorded SEP 0
+  exception; APIs may be freely broken for a cleaner design, with callers, tests and
+  documentation updated together and a changelog listing.
+
 ## Draft enhancement proposals
 
 SEPs under discussion; their scope may change and implementation has not been accepted.
@@ -85,20 +99,3 @@ The [SEP index](seps/index.md) lists every proposal and its current status.
   subtraction, a weak-response limit and local temporal integration. Its ensemble,
   data and integration questions must be settled before acceptance; shared-level
   ladders, vector saturation and repeated-window histories remain future work.
-- [SEP 47 — Backend-owned execution sessions](seps/sep-0047-run-ownership.md):
-  make each backend own its numerical run, including stepping, observations, boundaries,
-  accounting and export preparation, while Python owns the scientific description and
-  external services. Replace native driver inheritance and mirrored state with typed
-  descriptors and a session protocol; native exposes its complete session, while the
-  independent NumPy oracle uses a host session in both retained precisions. Retire MLX
-  early, without porting it. Backend lowering owns packing, chunks and workspace
-  lifetimes; include #346 saved-plane copies, #361 device chunks and the measured #584
-  CPU transform experiment. Include independent snapshot requests, cooperative
-  stopping and explicit restart reporting. Phase 1 checks design readiness; conceptual
-  simplification is sufficient motivation without a minimum speedup. Land the reference
-  contract early and do difficult ports later. Phased merges have a recorded SEP 0
-  exception; completion requires removing temporary adapters and qualifying exact
-  control/lifecycle contracts, numerical accuracy, field traffic and performance.
-  The architectural decisions are agreed: APIs may be freely broken for a cleaner
-  design, with callers, tests and documentation updated together and a changelog
-  listing; compatibility layers and migration guides are unnecessary.
