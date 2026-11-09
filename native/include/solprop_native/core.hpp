@@ -296,7 +296,16 @@ void require_cpu_execution(const CpuExecution& execution);
 
     A transform's group is `rows` (one thread), `threaded_rows` or `planes`; its key
     names its kind, sizes, strides, placement, alignment and threads
-    (`fft_plan_key`). Efforts are "estimate", "measure" or "patient". */
+    (`fft_plan_key`). Efforts are "estimate", "measure" or "patient".
+
+    Plans runs measured before (solprop ADR-076), in the legacy and profile modes:
+    `stored` holds each transform's own wisdom by key, below the profile's `wisdom`,
+    which is consulted first. A transform seeded above estimate that `stored` holds, or
+    any when `keep` is set, is planned alone: the workspace's wisdom is set aside, the
+    transform's stored wisdom alone imported, and after the seed the workspace's wisdom
+    comes back over the transform's. A plan the stored wisdom built is listed in
+    `reused`, as is one left at estimate whose stored wisdom was imported for its
+    estimate plan; one that measured is kept in `measured` when `keep` is set. */
 struct FftPlanning {
   enum class Mode { legacy, profile, capture };
   Mode mode{Mode::legacy};
@@ -304,10 +313,16 @@ struct FftPlanning {
   std::map<std::string, std::string> wisdom;
   std::string capture_effort{"measure"};
   double time_limit{-1.0};
+  std::map<std::string, std::string> stored;
+  bool keep{false};
   // What planning found: each transform's group, the wisdom captured, and the
-  // profile's plans that no longer build.
-  std::map<std::string, std::string> groups, captured;
-  std::vector<std::string> missing;
+  // profile's plans that no longer build; the stored plans reused and the transforms
+  // measured, each with its own wisdom.
+  std::map<std::string, std::string> groups, captured, measured;
+  std::vector<std::string> missing, reused;
+  // While one transform plans alone: the workspace's wisdom, set aside.
+  bool alone{false};
+  std::string held;
 };
 
 /** Choose a width without changing the runtime or a vendor library's pool. */

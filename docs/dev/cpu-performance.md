@@ -188,7 +188,8 @@ measured while it existed.
     happens before the first plan is made; the plasma streams' plans were made earlier
     and stayed at estimate.
 
-- **Measured plans kept across processes** (`SOLPROP_FFTW_WISDOM`, opt-in;
+- **Measured plans kept across processes** (by default since ADR-076, opt-in through
+  `SOLPROP_FFTW_WISDOM` before;
   [measurements](benchmarks.md#persistent-fftw-wisdom)). A scan of one-thread jobs
   measured the same plans in every job: 0.5–4 s of construction against windows of 0.1–8
   s on a Xeon Gold 6240. With the wisdom file in place a job constructs its backend in

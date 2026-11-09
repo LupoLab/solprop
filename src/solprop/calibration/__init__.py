@@ -269,9 +269,12 @@ def import_profile(path: Path, environ: Mapping[str, str] | None = None) -> bool
 
 
 def clear(environ: Mapping[str, str] | None = None) -> int:
-    """Forget this machine and build's profiles in the user's store.
+    """Forget this machine and build's profiles and stored FFT plans.
 
-    A calibration in progress keeps its claim. Read-only directories are not touched.
+    The user's store loses the profiles, their refinements and the plans runs measured
+    (``wisdom.json``, solprop ADR-076), and the file ``SOLPROP_FFTW_WISDOM`` keeps for
+    this build, when the variable is set, goes too. A calibration in progress keeps
+    its claim. Read-only directories are not touched.
 
     Parameters
     ----------
@@ -286,4 +289,14 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
     found = choice(environ)
     if found.fingerprint is None:
         return 0
-    return _native.store.Store(store_directory(environ)).clear(found.fingerprint.digest)
+    digest = found.fingerprint.digest
+    removed = _native.store.Store(store_directory(environ)).clear(digest)
+    named = (os.environ if environ is None else environ).get("SOLPROP_FFTW_WISDOM", "")
+    if named.strip():
+        base = Path(named.strip()).expanduser()
+        try:
+            base.with_name(f"{base.name}.native-{digest}").unlink()
+            removed += 1
+        except OSError, ValueError, RuntimeError:
+            pass
+    return removed

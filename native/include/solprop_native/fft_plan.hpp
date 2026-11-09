@@ -70,6 +70,31 @@ inline unsigned fftw_effort_flag(const std::string_view effort) {
                               std::string(effort) + "'");
 }
 
+// FFTW's process-wide wisdom as text, for the stored plans (solprop ADR-076) and a
+// workspace's planning: the Python adapter owns the file, its key and its lock, and
+// calls these with the GIL held, as planning does, so they never race the planner.
+// Empty when the provider implements FFTW's API without its wisdom (MKL). Both first
+// register the threaded solvers, as every seed does: they are part of the planner's
+// configuration, whose signature heads exported wisdom and must match for an import.
+inline std::string export_fftw_wisdom() {
+  fftw_init_threads();
+  // FFTW allocates the text with plain malloc and documents free() for it: fftw_free
+  // pairs with fftw_malloc's aligned allocator, which on Windows is another heap.
+  const auto release = [](char* pointer) { std::free(pointer); };
+  const std::unique_ptr<char, decltype(release)> text(fftw_export_wisdom_to_string(),
+                                                      release);
+  return text ? std::string(text.get()) : std::string();
+}
+
+// Merge `text` into the process's wisdom. FFTW refuses, leaving its wisdom as it was,
+// text that is not wisdom or that another FFTW version or configuration wrote (its
+// preamble carries the planner's signature). Wisdom only chooses among FFTW's exact
+// algorithms, so a plan taken from it computes the same transform.
+inline bool import_fftw_wisdom(const std::string& text) {
+  fftw_init_threads();
+  return fftw_import_wisdom_from_string(text.c_str()) != 0;
+}
+
 namespace detail {
 // The planning of the workspace this thread is building (`FftPlanningScope`).
 inline thread_local FftPlanning* planning = nullptr;
@@ -105,58 +130,143 @@ private:
   bool forgets_;
 };
 
+// Whether `planned` holds a wisdom entry `stored` lacks: a seed that measured. FFTW
+// writes one entry a line, under a preamble line that both share.
+inline bool adds_wisdom(const std::string& planned, const std::string& stored) {
+  const auto lines = [](const std::string& text) {
+    std::vector<std::string_view> found;
+    for (std::size_t first = 0; first < text.size();) {
+      const std::size_t last = std::min(text.find('\n', first), text.size());
+      found.emplace_back(text.data() + first, last - first);
+      first = last + 1;
+    }
+    std::sort(found.begin(), found.end());
+    return found;
+  };
+  const auto had = lines(stored);
+  for (const auto line : lines(planned))
+    if (!std::binary_search(had.begin(), had.end(), line))
+      return true;
+  return false;
+}
+
+// Merge `text` beneath the process's wisdom: where both hold an entry, the process's
+// stays, so that a profile's plans keep theirs.
+inline void import_beneath(const std::string& text) {
+  const std::string held = export_fftw_wisdom();
+  fftw_forget_wisdom();
+  static_cast<void>(fftw_import_wisdom_from_string(text.c_str()));
+  if (!held.empty())
+    static_cast<void>(fftw_import_wisdom_from_string(held.c_str()));
+}
+
+// Begin planning a transform alone (`FftPlanning::stored`): set the workspace's wisdom
+// aside and import only the transform's own stored wisdom, if any.
+inline void plan_alone(FftPlanning& planning, const std::string& key) {
+  planning.held = export_fftw_wisdom();
+  fftw_forget_wisdom();
+  if (const auto found = planning.stored.find(key); found != planning.stored.end())
+    static_cast<void>(fftw_import_wisdom_from_string(found->second.c_str()));
+  planning.alone = true;
+}
+
+// End a transform planned alone: keep its own wisdom if it measured, note a reuse if
+// not, then give the workspace back its wisdom, imported over the transform's so that
+// a profile's plans keep their entries. Every seed begun alone ends here, planned or
+// not.
+inline void release_seed(const std::string& key, const bool planned) {
+  FftPlanning* planning = detail::planning;
+  if (planning == nullptr || !planning->alone)
+    return;
+  planning->alone = false;
+  std::string own;
+  if (planned) {
+    own = export_fftw_wisdom();
+    const auto found = planning->stored.find(key);
+    if (found != planning->stored.end() && !adds_wisdom(own, found->second))
+      planning->reused.push_back(key);
+    else if (planning->keep)
+      planning->measured[key] = own;
+  }
+  fftw_forget_wisdom();
+  if (!own.empty())
+    static_cast<void>(fftw_import_wisdom_from_string(own.c_str()));
+  if (!planning->held.empty())
+    static_cast<void>(fftw_import_wisdom_from_string(planning->held.c_str()));
+  planning->held.clear();
+}
+
 // The flags a transform of `key` and `shape` on `threads` threads is seeded with, or
 // none to leave it to Kokkos-FFT's estimate plan: the policy, or the workspace's
 // planning (`FftPlanning`), which this records the transform in. Capture forgets the
 // wisdom before the seed and sets the planner's time limit; profile imports the
-// transform's own wisdom.
+// transform's own wisdom. A seed above estimate that the stored plans hold, or any
+// that are kept, plans alone (`plan_alone`); a transform left at estimate that they
+// hold is not seeded, its stored plan imported for Kokkos-FFT's estimate plan to take,
+// as FFTW takes wisdom of any effort for an estimate plan.
 inline std::optional<unsigned> begin_seed(const std::string& key, const FftShape shape,
                                           const int threads) {
   FftPlanning* planning = detail::planning;
-  if (planning == nullptr || planning->mode == FftPlanning::Mode::legacy) {
+  if (planning == nullptr) {
     const unsigned effort = fftw_seed_effort(shape, threads);
     if (effort == FFTW_ESTIMATE)
       return std::nullopt;
     return effort;
   }
-  const char* group = shape == FftShape::planes ? "planes"
-                      : threads > 1             ? "threaded_rows"
-                                                : "rows";
-  planning->groups[key] = group;
-  if (planning->mode == FftPlanning::Mode::capture) {
-    const unsigned effort = fftw_effort_flag(planning->capture_effort);
-    if (effort == FFTW_ESTIMATE)
-      return std::nullopt;
-    fftw_forget_wisdom();
-    fftw_set_timelimit(planning->time_limit > 0.0 ? planning->time_limit
-                                                  : FFTW_NO_TIMELIMIT);
-    return effort;
-  }
-  const std::string& chosen = shape == FftShape::planes ? planning->planes
-                              : threads > 1             ? planning->threaded_rows
-                                                        : planning->rows;
-  const unsigned effort = fftw_effort_flag(chosen);
-  if (const auto found = planning->wisdom.find(key); found != planning->wisdom.end()) {
-    if (fftw_import_wisdom_from_string(found->second.c_str()) == 0) {
-      planning->missing.push_back(key);
-      return std::nullopt;
+  unsigned effort = FFTW_ESTIMATE;
+  if (planning->mode == FftPlanning::Mode::legacy) {
+    effort = fftw_seed_effort(shape, threads);
+  } else {
+    const char* group = shape == FftShape::planes ? "planes"
+                        : threads > 1             ? "threaded_rows"
+                                                  : "rows";
+    planning->groups[key] = group;
+    if (planning->mode == FftPlanning::Mode::capture) {
+      const unsigned captured = fftw_effort_flag(planning->capture_effort);
+      if (captured == FFTW_ESTIMATE)
+        return std::nullopt;
+      fftw_forget_wisdom();
+      fftw_set_timelimit(planning->time_limit > 0.0 ? planning->time_limit
+                                                    : FFTW_NO_TIMELIMIT);
+      return captured;
     }
-    return effort | FFTW_WISDOM_ONLY;
+    const std::string& chosen = shape == FftShape::planes ? planning->planes
+                                : threads > 1             ? planning->threaded_rows
+                                                          : planning->rows;
+    effort = fftw_effort_flag(chosen);
+    if (const auto found = planning->wisdom.find(key);
+        found != planning->wisdom.end()) {
+      if (fftw_import_wisdom_from_string(found->second.c_str()) == 0) {
+        planning->missing.push_back(key);
+        return std::nullopt;
+      }
+      return effort | FFTW_WISDOM_ONLY;
+    }
   }
-  if (effort == FFTW_ESTIMATE)
+  const auto stored = planning->stored.find(key);
+  if (effort == FFTW_ESTIMATE) {
+    if (stored != planning->stored.end()) {
+      import_beneath(stored->second);
+      planning->reused.push_back(key);
+    }
     return std::nullopt;
+  }
+  if (planning->keep || stored != planning->stored.end())
+    plan_alone(*planning, key);
   return effort;
 }
 
-// Finish a seed begun with `flags`: a capture keeps the transform's wisdom and lifts
-// the time limit; a profile's plan that no longer builds from its wisdom is recorded,
-// and left to the estimate plan. Any other failure to plan is an error.
+// Finish a seed begun with `flags`: a seed planned alone gives the workspace its
+// wisdom back (`release_seed`); a capture keeps the transform's wisdom and lifts the
+// time limit; a profile's plan that no longer builds from its wisdom is recorded, and
+// left to the estimate plan. Any other failure to plan is an error.
 inline void end_seed(const std::string& key, const unsigned flags, const bool planned) {
   FftPlanning* planning = detail::planning;
   const bool capture =
       planning != nullptr && planning->mode == FftPlanning::Mode::capture;
   if (capture)
     fftw_set_timelimit(FFTW_NO_TIMELIMIT);
+  release_seed(key, planned);
   if (!planned) {
     if ((flags & FFTW_WISDOM_ONLY) != 0U && planning != nullptr) {
       planning->missing.push_back(key);
@@ -363,31 +473,6 @@ inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom
   result.plan = timed(fftw_effort_flag(effort) | FFTW_WISDOM_ONLY);
   result.estimate = timed(FFTW_ESTIMATE);
   return result;
-}
-
-// FFTW's process-wide wisdom as text, for solprop's opt-in SOLPROP_FFTW_WISDOM: the
-// Python adapter owns the file, its key and its lock, and calls these with the GIL
-// held, so they never race the planner. Empty when the provider implements FFTW's API
-// without its wisdom (MKL). Both first register the threaded solvers, as every seed
-// does: they are part of the planner's configuration, whose signature heads exported
-// wisdom and must match for an import.
-inline std::string export_fftw_wisdom() {
-  fftw_init_threads();
-  // FFTW allocates the text with plain malloc and documents free() for it: fftw_free
-  // pairs with fftw_malloc's aligned allocator, which on Windows is another heap.
-  const auto release = [](char* pointer) { std::free(pointer); };
-  const std::unique_ptr<char, decltype(release)> text(fftw_export_wisdom_to_string(),
-                                                      release);
-  return text ? std::string(text.get()) : std::string();
-}
-
-// Merge `text` into the process's wisdom. FFTW refuses, leaving its wisdom as it was,
-// text that is not wisdom or that another FFTW version or configuration wrote (its
-// preamble carries the planner's signature). Wisdom only chooses among FFTW's exact
-// algorithms, so a plan taken from it computes the same transform.
-inline bool import_fftw_wisdom(const std::string& text) {
-  fftw_init_threads();
-  return fftw_import_wisdom_from_string(text.c_str()) != 0;
 }
 
 } // namespace solprop_native
