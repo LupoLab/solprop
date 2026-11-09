@@ -64,11 +64,12 @@ class HostAdamsMarch:
         How a varying operator's linear compensation is integrated (SEP 16 Q8):
         ``"transported"``, the delivered treatment, or ``"untransported"``, kept as a
         test witness only.
-    engine : solprop.backends.multistep.AdamsEngine or None, optional
-        The engine of the fused and exponential paths; ``None``, the default, takes
-        the host engine (:class:`~solprop.backends.multistep.HostHistory`) over the
-        backend's hooks. A scripted engine drives the controller alone, for the
-        decision traces of SEP 39 section 7.1.
+    engine : object, optional
+        An :class:`~solprop.backends.multistep.AdamsEngine` for the fused and
+        exponential paths; ``None``, the default, takes the host engine
+        (:class:`~solprop.backends.multistep.HostHistory`) over the backend's hooks. A
+        scripted engine drives the controller alone, for the decision traces of SEP 39
+        section 7.1. Typed ``object`` because the engine protocol is structural.
     """
 
     def __init__(
@@ -77,7 +78,7 @@ class HostAdamsMarch:
         method: Multistep,
         *,
         compensation: Literal["transported", "untransported"] = "transported",
-        engine: AdamsEngine | None = None,
+        engine: object = None,
     ) -> None:
         """Hold the backend and start with no history."""
         self._backend = backend
@@ -108,7 +109,7 @@ class HostAdamsMarch:
         self._engine: AdamsEngine = (
             HostHistory(backend, method, self._kernels, self._exponential, compensation)
             if engine is None
-            else engine
+            else cast("AdamsEngine", engine)
         )
         # The comparison variants' general path keeps its arithmetic in a class of its
         # own (SEP 39 Q7); the selected method's paths never reach it.
