@@ -319,9 +319,11 @@ Roughly in order of what they would tell.
    Tried and reverted, each with its numbers in the ledger: a whole-trial graph (an
    order-dependent key), an order-independent one (phi functions to the largest width
    cost more), fused device reductions (`ctc_reduced` 10 to 20 % slower in binary32).
-   What is left to try: a plane's observations in one Julia call (each call now waits
-   on the device separately, about 0.5 ms of idle a plane beyond native's), and graphs
-   on ROCm (AMDGPU.jl's stream capture, untried; the MI300X runs without them).
+   What is left to try: a plane's observations in one Julia call (a plane's window on
+   `rdw` holds about 1.1 ms of host time with no CUDA call, between the adapter's
+   separate Python-to-Julia calls; the ledger has the sequence), the GEMMs' scalars
+   uploaded once rather than per call, and graphs on ROCm (AMDGPU.jl's stream capture,
+   untried; the MI300X runs without them).
 3. **The A40's remaining kernels:** the Adams predictor (0.1 to 0.28 ms a trial, its
    phi functions spilling, latency-bound on a mode-averaged state's few thousand
    elements) and radial's CUTLASS binary64 GEMMs (the A40 has no binary64 tensor

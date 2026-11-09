@@ -3432,3 +3432,13 @@ graphs, shows no slower kernel on `ctc_reduced` (0.149 against 0.144 s), so the 
 how the reductions sit beside the replayed graphs, not found. Neither version measures
 better over whole windows, so AK's reductions (with kept workspaces) stay; the per-trial
 host staging kept from `1b17fc75` is unchanged.
+
+**A saved plane on the A40** (`rdw`, binary64, one plane's window from the Nsight trace,
+`scripts/plane_calls.py` on DMOG): a 3.7 ms window, of which the step itself is about
+0.65 ms and the observation's device work a few microseconds a kernel. The rest is the
+host: about 1.1 ms in stretches with no CUDA call at all (170, 360, 470 and 140 us)
+between the adapter's Python-to-Julia calls (the state copy, the Poynting set, the
+weight's rebinding, the populations, the boundary energies), and the calls' own small
+copies and waits; CUDA.jl uploads each GEMM's two scalars separately (an allocation
+from the pool and an 8-byte copy each). One Julia call a plane, returning everything the
+plane's statistics need, is the change this points at.
