@@ -431,6 +431,13 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     current: list[ObservationReady | None] = [None]
 
     def fetch() -> np.ndarray:
+        """Return the pending observation's field, for the plane observer.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field of the observation the observer is shown.
+        """
         event = current[0]
         assert event is not None  # the observer is shown a pending plane only
         return exports.field(event.ticket)
@@ -694,6 +701,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
         )
 
     def persist() -> None:
+        """Keep the method history and record the execution beside the snapshot."""
         keeper.keep(z, required=adams)
         _record_execution(
             checkpoint_output,

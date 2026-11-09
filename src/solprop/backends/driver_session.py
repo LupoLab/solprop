@@ -320,6 +320,17 @@ class DriverSession:
         self._lent = False
 
         def counted(z: float, dz: float, accepted: bool) -> None:
+            """Count an attempt and pass it on to the listener.
+
+            Parameters
+            ----------
+            z : float
+                The position the attempt started from, m.
+            dz : float
+                The attempted step, m.
+            accepted : bool
+                Whether the step was accepted.
+            """
             self._listened += 1
             if listener is not None:
                 listener(z, dz, accepted)
@@ -432,6 +443,13 @@ class DriverSession:
         limit = self._listened + max(int(work_limit), 1)
 
         def due() -> bool:
+            """Return whether the attempt bound or the deadline has been reached.
+
+            Returns
+            -------
+            bool
+                True once the march should halt at its next accepted endpoint.
+            """
             return self._listened >= limit or time.perf_counter() - started >= deadline
 
         _hook(self._driver, "set_halt_check", due)

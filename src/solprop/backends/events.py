@@ -401,6 +401,20 @@ def join_attempts(
             wall += float(history.wall_time[-1])
 
     def column(name: str, dtype: type = np.float64) -> np.ndarray:
+        """Return one column of the chunks' histories, joined in order.
+
+        Parameters
+        ----------
+        name : str
+            The column's attribute on a history.
+        dtype : type, optional
+            The column's dtype, which an empty join keeps.
+
+        Returns
+        -------
+        numpy.ndarray
+            The column over every chunk.
+        """
         return np.concatenate(
             [
                 np.empty(0, dtype=dtype),
