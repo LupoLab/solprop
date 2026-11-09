@@ -1016,23 +1016,25 @@ def test_the_backend_group_survives_both_handlers(tmp_path, grid, schedule):
         assert file.attrs["backend"] == "numba_cpu"
 
 
+@pytest.mark.parametrize(
+    ("name", "settings"),
+    [
+        ("numba_cpu", {"numba_threads": 4, "fftw_threads": 2}),
+        ("mlx", {"device": "gpu", "fused": True}),
+    ],
+)
 def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
-    tmp_path, grid, schedule
+    tmp_path, grid, schedule, name, settings
 ):
     """A recorded name is not a request: old output keeps the name it was written with.
 
-    Hand-built, as a file ``numba_cpu`` wrote before SEP 43 removed it; the name is
-    refused where a run asks for it (``tests/backends/test_registry.py``), never where
-    a file is read.
+    Hand-built, as a file ``numba_cpu`` wrote before SEP 43 removed it, or ``mlx``
+    before SEP 47 retired it; the name is refused where a run asks for it
+    (``tests/backends/test_registry.py``), never where a file is read.
     """
-    assert "numba_cpu" in REMOVED_BACKENDS
+    assert name in REMOVED_BACKENDS
     record = BackendRecord.from_metadata(
-        {
-            "backend": "numba_cpu",
-            "propagator_mode": "recompute",
-            "numba_threads": 4,
-            "fftw_threads": 2,
-        }
+        {"backend": name, "propagator_mode": "recompute", **settings}
     )
     metadata = dataclasses.replace(make_metadata(grid, schedule), backend=record)
     path = tmp_path / "old.h5"
@@ -1040,16 +1042,16 @@ def test_a_file_recording_a_removed_backend_still_opens_and_resumes(
         handler.open(metadata)
         handler.save(make_plane(grid, 0))
     with h5py.File(path, "r") as file:
-        assert file.attrs["backend"] == "numba_cpu"
+        assert file.attrs["backend"] == name
     with open_file(path) as read:
         stored = read.metadata
         assert stored is not None
         written = stored.backend
         assert written == record
         assert written is not None
-        assert written.name == "numba_cpu"
-        assert written.settings["numba_threads"] == 4
-        assert "numba_cpu" in repr(stored)
+        assert written.name == name
+        assert dict(written.settings) == settings
+        assert name in repr(stored)
     # The resume key holds the problem and the state: the old file is the same run.
     assert check_cache(path, metadata)
     assert check_cache(path, make_metadata(grid, schedule))

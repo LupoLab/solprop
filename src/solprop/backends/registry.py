@@ -132,7 +132,8 @@ def statistics_refusal(name: str, names: Sequence[str]) -> str | None:
     True
     """
     asked = [one for one in names if one in FAR_FIELD_STATISTICS]
-    # Single precision refuses the far-field statistics in validation (SEP 33).
+    # numpy_ref forms every far-field statistic, in binary64; single precision
+    # refuses them in validation (SEP 33).
     if not asked or name == "numpy_ref":
         return None
     formed = _plugin_far_field(name)

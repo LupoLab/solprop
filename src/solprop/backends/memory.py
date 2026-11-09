@@ -487,33 +487,3 @@ def _distinct_fractions(problem: KernelProblem) -> int:
         The count, positive.
     """
     return int(np.unique(np.append(problem.stepper.tableau.nodes, 1.0)).size)
-
-
-def _radial_absorber_bytes(problem: KernelProblem) -> int:
-    """Return the bytes of the radial absorber matrix the reference composes.
-
-    :func:`solprop.backends.spatial.radial_absorber_matrix`'s shape and type, without
-    forming the product.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-
-    Returns
-    -------
-    int
-        Bytes, zero where the problem has no radial absorber.
-    """
-    transform = problem.transform
-    geometry = transform.geometry
-    if (
-        geometry is None
-        or geometry.kind != "radial"
-        or not np.any(geometry.absorber_rate)
-    ):
-        return 0
-    item = np.result_type(
-        transform.projection.dtype, transform.synthesis.dtype, np.float64
-    ).itemsize
-    return int(transform.projection.shape[0] * transform.synthesis.shape[-1] * item)

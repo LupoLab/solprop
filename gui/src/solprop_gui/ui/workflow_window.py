@@ -766,16 +766,30 @@ class WorkflowWindow(QMainWindow):
         return True
 
     def _backend_chosen(self, name: str) -> None:
-        """Write the backend picked into the recipe.
+        """Write the backend picked into the recipe, with a precision it computes in.
+
+        A single-precision recipe, such as one written for the retired ``mlx``
+        backend, returns to double precision on a backend that computes in binary64
+        only, so that choosing a backend makes it runnable.
 
         Parameters
         ----------
         name : str
             The backend.
         """
-        if self.document.model is None:
+        model = self.document.model
+        if model is None:
             return
-        self.document.edit_values([("backend", name)])
+        values: list[tuple[str, object]] = [("backend", name)]
+        single = model.get("precision") == "single"
+        if single and name not in self.sheet.run_options.single:
+            values.append(("precision", "double"))
+        self.document.edit_values(values)
+        if len(values) > 1:
+            self.notify(
+                f"{name} computes in double precision, so the run does too. "
+                "Undo puts single precision back."
+            )
 
     def _threads_chosen(self, threads: object) -> None:
         """Keep the thread count picked, for this run and the next session's.
