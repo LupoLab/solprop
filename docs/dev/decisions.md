@@ -2122,3 +2122,41 @@ Withdrawn (development-process record, not a design decision).
   Every run records the profile and the settings it applied (`calibration`). The test
   suites and the documentation build run with `SOLPROP_CALIBRATION=off`; benchmark series
   calibrate each build thorough first and record the profile per row.
+
+## ADR-075 — Transforms thread by shape; a host packs a stage's forward rows
+
+- **Status:** proposed with PR #598 (issues #584, #587, #595), for the maintainer.
+- **Context:** a batch of native CPU transforms took its width from its element count
+  (serial below 16384, four threads below 131072, the full pool above), but FFTW divides a
+  batch's rows among its threads, so transforms of one count want opposite widths by
+  shape: SEP 46's grain saw a full width from 98304 elements win 0.56 on many short rows
+  and lose 8–10 % on few long ones, and froze the transforms' grain. Timed alone on an
+  Intel Xeon Gold 6240, 16 cores of an AMD EPYC 7763 and an Apple M5 Max, batches of 1–7
+  rows ran fastest at about a thread a row and many short rows at 8–18 threads. A modal
+  stage also ran each forward transform as its own call over the modes' rows: four modes
+  left most of 16 threads idle, as Julia's batched form had shown (#560). And SEP 46's
+  thorough calibration never reached a verdict on FFT planning: its patient capture never
+  finished in time, and the timing in the step then ran out of rounds.
+- **Decision:**
+  - *Width by shape.* From `fft_threshold` a batch takes a thread per
+    `fft_thread_elements` samples, at most one a row, or up to the medium width when its
+    rows are at least `fft_long_row` long; `fft_full` is a backstop. Linux and Windows
+    8192, 4096 and 16384; macOS 32768, 32768 and 65536, a sixteenth on a spinning top tier
+    (ADR-073). The calibration's grain moves the threshold and halves and doubles the two
+    shape settings.
+  - *One forward pack.* On a host, as on a device, a modal stage's forward rows (the
+    projection's fine and coarse, the in-stage absorber's, the held currents') are one
+    batch and one plan, the coarse rows after the fine so that a deferred quadrature's
+    stages transform the fine block alone. Compact problems keep their separate transforms.
+    `SOLPROP_NATIVE_FORWARD_PACK=0` turns the pack off.
+  - *Planning.* Threaded rows stay at estimate by default; the thorough calibration no
+    longer plans at patient, and records each candidate's plans timed alone beside its
+    verdict in the step.
+- **Consequences:** against the previous build, the tracking set ran 0.977 (Xeon Gold
+  6240) and 0.981 (EPYC 7763) on geometric mean: `argon_blueshift` 0.80–0.87, `ctc`
+  0.89–0.92, `rdw` 0.91–0.95, `line` 0.87–0.93, the rest within their spread; fields agree
+  to rounding (plan choice and width move results by rounding only, as before). Measured
+  threaded plans win in the step (0.94–0.97) but cost up to 12 s of construction, so they
+  reach a run through a calibration's stored wisdom, not the default. Stored profiles keyed
+  on the old widths miss and replan (each plan key holds its threads); the calibration's
+  version is bumped with this change.
