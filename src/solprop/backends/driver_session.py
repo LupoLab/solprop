@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import dataclasses
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
@@ -38,7 +38,12 @@ from solprop.backends.events import (
     Terminal,
 )
 from solprop.backends.export import apply_recipe
-from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
+from solprop.backends.protocol import (
+    BackendHistory,
+    Observation,
+    StepStats,
+    StepSummary,
+)
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
@@ -57,9 +62,10 @@ if TYPE_CHECKING:
 
     from jaxtyping import Complex
 
+    from solprop.backends.driver import StepDriver
     from solprop.backends.events import Event
     from solprop.backends.export import ExportRecipe
-    from solprop.backends.protocol import Backend, Observation
+    from solprop.backends.protocol import Backend
     from solprop.backends.session import Start
     from solprop.log import PlaneSummary, StopFlag
     from solprop.monitor import BoundaryMonitor
@@ -225,6 +231,47 @@ def _joined(first: Observation | None, second: Observation) -> Observation:
     )
 
 
+def _recorded(driver: Backend, z: float) -> Observation:
+    """Return the attempts a driver recorded since its last observation, field-free.
+
+    For a driver whose state was left in flight, which refuses
+    :meth:`~solprop.backends.protocol.Backend.observe`. The record is the step driver's
+    own history and periodic rows (:class:`solprop.backends.driver.StepDriver`),
+    drained as an observation drains them.
+
+    Parameters
+    ----------
+    driver : solprop.backends.protocol.Backend
+        The driver.
+    z : float
+        The last committed position, m.
+
+    Returns
+    -------
+    solprop.backends.protocol.Observation
+        The attempts and rows, with no field.
+    """
+    stepping = cast("StepDriver[object]", driver)
+    entries, stepping._history = stepping._history, []  # pyright: ignore[reportPrivateUsage]
+    history = BackendHistory(
+        z=np.array([entry[0] for entry in entries], dtype=np.float64),
+        dz=np.array([entry[1] for entry in entries], dtype=np.float64),
+        error_norm=np.array([entry[2] for entry in entries], dtype=np.float64),
+        accepted=np.array([entry[3] for entry in entries], dtype=np.bool_),
+        wall_time=np.array([entry[4] for entry in entries], dtype=np.float64),
+    )
+    rows = stepping._drain_step_stats()  # pyright: ignore[reportPrivateUsage]
+    return Observation(
+        z=z,
+        field=None,
+        noise_phase=None,
+        step_history=history,
+        n_steps=history.n_steps,
+        n_rejected=history.n_rejected,
+        step_stats=rows,
+    )
+
+
 _EMPTY_SUMMARY = StepSummary(
     z=0.0,
     n_steps=0,
@@ -301,6 +348,8 @@ class DriverSession:
         self._observed: Observation | None = None
         self._observed_generation = -1
         self._converted: ExportRecipe | None = None
+        # Whether the observation's own array was handed out unconverted (export).
+        self._lent = False
         driver.set_progress(_Attempts(listener, started))
         driver.set_stop(stop)
         if start is None:
@@ -416,7 +465,11 @@ class DriverSession:
             plane = self._index
             self._index += 1
             return self._observation(ObservationKind.PLANE, plane, summary)
-        if self._snapshot_pending is not None and self._driver_halted():
+        if (
+            self._snapshot_pending is not None
+            and self._driver_halted()
+            and not self._step_plane_here()
+        ):
             return self._snapshot(summary)
         return self._observation(
             ObservationKind.STEP
@@ -438,6 +491,7 @@ class DriverSession:
         # One observation lives at a time: a consumer that kept it holds its own.
         self._observed = None
         self._converted = None
+        self._lent = False
 
     def export(
         self,
@@ -462,35 +516,38 @@ class DriverSession:
             The converted field.
         """
         self._ledger.check_ticket(ticket)
-        state = self._field(ticket)
         spatial = self._problem.transform.geometry is not None
         if recipe.power and spatial:
             # A spatial route's field measure is already the stored quantity.
             recipe = dataclasses.replace(recipe, power=False)
         weight = power_weight_at(self._problem, ticket.z) if recipe.power else None
         observed = self._fielded(ticket)
+        converted = self._converted
+        if converted is not None and (converted != recipe or out is not None):
+            # Converted in place for another recipe, and handed out so: observe the raw
+            # field again rather than write to an array a consumer holds.
+            self._observed = None
+            self._converted = None
+            observed = self._fielded(ticket)
+        state = self._field(ticket)
+        if self._converted is not None:
+            # Converted in place for this recipe already: the same detached result.
+            return state
         identity = not recipe.optics and (weight is None or bool(np.all(weight == 1.0)))
         if identity and out is None and (observed.field_owned or spatial):
             # An observation's arrays are read-only and nothing writes to them again
             # (Backend.observe), so an export with nothing to convert is that array.
             # A modal field the backend may still hold is detached by a copy, as the
-            # true-power conversion always detached it.
+            # true-power conversion always detached it. Once lent, the array is never
+            # converted in place.
+            self._lent = True
             return state
-        if self._converted is not None:
-            if self._converted == recipe and out is None:
-                return state
-            # Converted in place for another recipe: observe the raw field again.
-            self._observed = None
-            self._converted = None
-            state = self._field(ticket)
-            observed = self._fielded(ticket)
-        if out is None and observed.field_owned:
+        if out is None and observed.field_owned and not self._lent:
             # The driver made this array for this session alone, which hands out only
             # the export: convert it where it is (SEP 47 section 5.4).
             self._converted = recipe
             # The flag is the observation's own array's; `state` is its member view.
-            whole = observed.field
-            assert whole is not None
+            whole = observed.require_field()
             whole.setflags(write=True)
             try:
                 member = whole[0]
@@ -732,6 +789,23 @@ class DriverSession:
         """
         return bool(getattr(self._driver, "_halt_requested", False))
 
+    def _step_plane_here(self) -> bool:
+        """Return whether the driver stopped at a step plane, latch or not.
+
+        A halt requested for a snapshot and the ``step_planes``-th accepted step can
+        end at the same endpoint. The step plane is observed first and the latch, still
+        set, is serviced at the next advance (SEP 47 section 5.3: a coincident plane's
+        transaction precedes the snapshot).
+
+        Returns
+        -------
+        bool
+            True when the endpoint ends a ``step_planes``-th accepted step.
+        """
+        every = self._request.observation.step_planes
+        count = int(getattr(self._driver, "_natural_count", 0))
+        return bool(every) and count % every == 0
+
     def _issue(
         self, events: list[Event], *, outcome: Outcome | None = None
     ) -> EventBatch:
@@ -878,9 +952,17 @@ class DriverSession:
             The terminal event, with a ticket when the state is valid.
         """
         poisoned = self._driver.in_flight is not None
-        held = self._held
-        if not poisoned:
-            held = _joined(held, self._driver.observe(field=False))
+        # The attempts of the propagation that failed or stopped, accounted here since
+        # no summary of it was returned. A state left in flight cannot be observed, but
+        # the attempts recorded before the abandoned step were made all the same.
+        fresh = (
+            _recorded(self._driver, self._z)
+            if poisoned
+            else self._driver.observe(field=False)
+        )
+        self._attempts += fresh.n_steps
+        self._rejected += fresh.n_rejected
+        held = _joined(self._held, fresh)
         self._held = None
         self._generation += 1
         self._z = float(getattr(self._driver, "_z", self._z))
@@ -890,8 +972,8 @@ class DriverSession:
             Eligibility.POISONED if poisoned else Eligibility.ELIGIBLE,
             error,
             None if poisoned else self._ticket(),
-            None if held is None else held.step_history,
-            None if held is None else _rows(held.step_stats),
+            held.step_history,
+            _rows(held.step_stats),
         )
         return self._issue([event], outcome=outcome)
 
@@ -918,6 +1000,7 @@ class DriverSession:
             self._observed = observed
             self._observed_generation = ticket.generation
             self._converted = None
+            self._lent = False
         return self._observed
 
     def _field(self, ticket: ExportTicket) -> np.ndarray:
