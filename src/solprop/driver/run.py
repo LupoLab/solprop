@@ -526,6 +526,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
                 tdse_archive=tdse_archive,
                 recipe=recipe,
                 start_plane=start_plane,
+                stop=stop,
             ),
         )
     finally:

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from solprop._host import RunClock, usage
-from solprop._interrupts import committing
+from solprop._interrupts import committing, poll
 from solprop.backends.events import (
     ObservationKind,
     ObservationReady,
@@ -70,8 +70,8 @@ from solprop.stepper.multistep import Multistep
 
 if TYPE_CHECKING:
     from solprop.backends.driver_session import DriverSession
-    from solprop.backends.events import ExportTicket
-    from solprop.log import ProgressReporter
+    from solprop.backends.events import EventBatch, ExportTicket
+    from solprop.log import ProgressReporter, StopFlag
     from solprop.output.schema import (
         CheckpointOutput,
         FieldRetention,
@@ -123,6 +123,8 @@ class ServiceContext:
         The recipe the run was built from.
     start_plane : int
         The first save plane beyond the starting state.
+    stop : solprop.log.StopFlag or None
+        The run's stop flag, polled between batches as well as inside the session.
     """
 
     problem: KernelProblem
@@ -136,6 +138,7 @@ class ServiceContext:
     tdse_archive: TDSEArchiveWriter | None
     recipe: RecipeRecord | None
     start_plane: int
+    stop: StopFlag | None = None
 
 
 def _rows(rows: BackendRows) -> StepStats:
@@ -324,7 +327,19 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             _Status("running", reached),
             clock=clock,
         )
-        while not session.finished:
+        batch: EventBatch | None = None
+        while True:
+            if batch is not None:
+                # Between batches, before the next propagation: a stop set during the
+                # service is honoured here, while the batch's field can still be
+                # exported for the checkpoint (SEP 41, S17).
+                poll(context.stop)
+                session.acknowledge(batch.receipt)
+                exports.release()
+                current[0] = None
+                batch = None
+            if session.finished:
+                break
             if snapshots is not None and snapshots._due():
                 session.request_snapshot()
             pending = None
@@ -389,10 +404,6 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         pending_ticket = event.ticket
                         terminal_rows = (event.history, event.step_stats)
                         raise event.error
-            session.acknowledge(batch.receipt)
-            exports.release()
-            current[0] = None
-            pending = None
         reporter.finished(time.perf_counter() - started)
         if isinstance(reporter, SummarisingReporter):
             reporter.summary(resources(usage(clock)))

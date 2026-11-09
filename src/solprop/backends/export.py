@@ -88,7 +88,9 @@ def apply_recipe(
         of `state`; required when ``recipe.power`` and ignored otherwise.
     out : numpy.ndarray or None, optional
         The destination, complex128, C-contiguous, the shape of `state`, not
-        overlapping it; a new array by default.
+        overlapping it; a new array by default. `state` itself converts in place, for a
+        session that owns the only reference to it; each step is elementwise, so the
+        result is the same bits.
 
     Returns
     -------
@@ -113,7 +115,7 @@ def apply_recipe(
     """
     if out is None:
         out = np.empty_like(state, dtype=np.complex128, order="C")
-    else:
+    elif out is not state:
         _check_destination(state, out)
     if recipe.power:
         if weight is None:
@@ -122,11 +124,11 @@ def apply_recipe(
         if not np.all(np.isfinite(weight) & (weight > 0)):
             msg = "power weights must be positive and finite"
             raise GridError(msg)
-        if np.all(weight == 1.0):
-            np.copyto(out, state)
-        else:
+        if not np.all(weight == 1.0):
             np.multiply(state, np.sqrt(weight), out=out)
-    else:
+        elif out is not state:
+            np.copyto(out, state)
+    elif out is not state:
         np.copyto(out, state)
     if recipe.optics:
         shift = np.ones(state.shape[-1])

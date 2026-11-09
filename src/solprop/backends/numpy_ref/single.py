@@ -46,6 +46,7 @@ What is binary32 and what is not:
 import dataclasses
 import math
 from collections.abc import Mapping, Sequence
+from typing import ClassVar
 
 import numpy as np
 from jaxtyping import Complex, Float, Inexact, Num
@@ -138,6 +139,9 @@ class NumpySingleBackend(NumpyRefBackend):
         integrator outside the survival study, an adaptive `rtol` below the floor), or
         a table cannot be narrowed without losing range that its pass does not carry.
     """
+
+    # The observed field is the state widened into a new array (`_observed_field`).
+    observes_fresh_field: ClassVar[bool] = True
 
     def __init__(
         self,
@@ -346,7 +350,9 @@ class NumpySingleBackend(NumpyRefBackend):
         numpy.ndarray
             An owned complex128 array.
         """
-        return state.astype(np.complex128) * self._scale
+        widened = state.astype(np.complex128)
+        # Scaled where it is: the same product as `widened * scale`, one array fewer.
+        return np.multiply(widened, self._scale, out=widened)
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect statistics from the physical state widened to binary64.

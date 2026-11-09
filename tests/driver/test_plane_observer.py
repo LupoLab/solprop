@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
+from solprop.backends.driver import StepDriver
 from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
@@ -149,6 +150,35 @@ def test_field_free_planes_are_fetched_on_request_and_counted(
     assert isinstance(resources, dict)
     assert resources["observer_transfers"] == N_SAVE
     assert resources["observer_time_s"] > 0
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
+    build_simulation, tmp_path, backend, monkeypatch
+):
+    """The observer and the failure checkpoint share one fetch (SEP 47 section 5.4)."""
+    fetched = []
+    observe = StepDriver.observe
+
+    def counted(self, *, field=True):
+        observation = observe(self, field=field)
+        if field:
+            fetched.append(observation.z)
+        return observation
+
+    monkeypatch.setattr(StepDriver, "observe", counted)
+    simulation = _scheduled(build_simulation, backend)
+    simulation.settings = dataclasses.replace(simulation.settings, fields="none")
+    flag = threading.Event()
+    path = tmp_path / "stopped.h5"
+    watcher = Watcher(flag=flag, stop_after=2)
+    simulation.run(path, progress=watcher, stop=flag)
+    # The entrance and the plane the run stopped at, each fetched once.
+    assert fetched == watcher.z
+    with open_file(path) as handler:
+        checkpoint = handler.terminal_checkpoint
+        assert checkpoint is not None and checkpoint.plane.field is not None
+        assert checkpoint.plane.z == watcher.z[-1]
 
 
 def test_a_failing_observer_is_detached_and_the_run_completes(

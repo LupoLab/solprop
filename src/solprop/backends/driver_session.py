@@ -300,6 +300,7 @@ class DriverSession:
         self._snapshot_pending: int | None = None
         self._observed: Observation | None = None
         self._observed_generation = -1
+        self._converted: ExportRecipe | None = None
         driver.set_progress(_Attempts(listener, started))
         driver.set_stop(stop)
         if start is None:
@@ -436,6 +437,7 @@ class DriverSession:
         self._ledger.acknowledge(receipt)
         # One observation lives at a time: a consumer that kept it holds its own.
         self._observed = None
+        self._converted = None
 
     def export(
         self,
@@ -461,15 +463,42 @@ class DriverSession:
         """
         self._ledger.check_ticket(ticket)
         state = self._field(ticket)
-        if recipe.power and self._problem.transform.geometry is not None:
+        spatial = self._problem.transform.geometry is not None
+        if recipe.power and spatial:
             # A spatial route's field measure is already the stored quantity.
             recipe = dataclasses.replace(recipe, power=False)
         weight = power_weight_at(self._problem, ticket.z) if recipe.power else None
+        observed = self._fielded(ticket)
         identity = not recipe.optics and (weight is None or bool(np.all(weight == 1.0)))
-        if identity and out is None:
+        if identity and out is None and (observed.field_owned or spatial):
             # An observation's arrays are read-only and nothing writes to them again
             # (Backend.observe), so an export with nothing to convert is that array.
+            # A modal field the backend may still hold is detached by a copy, as the
+            # true-power conversion always detached it.
             return state
+        if self._converted is not None:
+            if self._converted == recipe and out is None:
+                return state
+            # Converted in place for another recipe: observe the raw field again.
+            self._observed = None
+            self._converted = None
+            state = self._field(ticket)
+            observed = self._fielded(ticket)
+        if out is None and observed.field_owned:
+            # The driver made this array for this session alone, which hands out only
+            # the export: convert it where it is (SEP 47 section 5.4).
+            self._converted = recipe
+            # The flag is the observation's own array's; `state` is its member view.
+            whole = observed.field
+            assert whole is not None
+            whole.setflags(write=True)
+            try:
+                member = whole[0]
+                apply_recipe(member, recipe, weight=weight, out=member)
+            finally:
+                whole.setflags(write=False)
+            member.setflags(write=False)
+            return member
         return apply_recipe(state, recipe, weight=weight, out=out)
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
@@ -888,6 +917,7 @@ class DriverSession:
                 self._held = _joined(self._held, observed)
             self._observed = observed
             self._observed_generation = ticket.generation
+            self._converted = None
         return self._observed
 
     def _field(self, ticket: ExportTicket) -> np.ndarray:
