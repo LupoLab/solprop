@@ -5,6 +5,8 @@
 """Preserve terminal states and accounting independently of regular observations."""
 
 import dataclasses
+import json
+import logging
 from typing import Any, cast
 
 import h5py
@@ -24,7 +26,7 @@ from solprop.output import (
     open_file,
     resume,
 )
-from solprop.output.hdf5 import _dataset
+from solprop.output.hdf5 import _dataset, _write_checkpoint
 from solprop.output.schema import (
     StepStats,
     _example_metadata,
@@ -532,8 +534,9 @@ def test_a_resume_from_a_running_checkpoint_neither_repeats_nor_loses_attempts(
         assert_array_equal(stored["step_history/counts"], [0, 3])
 
 
+@pytest.mark.parametrize("copy", [False, True], ids=["held", "copy"])
 def test_a_failure_without_a_checkpoint_falls_back_to_the_running_one(
-    metadata, tmp_path
+    metadata, tmp_path, copy
 ):
     # An abandoned low-storage step records the held running checkpoint as its own,
     # neither cleared nor preceded a second time by what a resume carried.
@@ -547,6 +550,12 @@ def test_a_failure_without_a_checkpoint_falls_back_to_the_running_one(
         handler.record_outcome(RunOutcome("running", 0.125))
         handler.record_outcome(*_running(metadata, 0.25, [0.125]))
         held = handler.terminal_checkpoint
+        assert held is not None
+        if copy:
+            # An equal copy is recognised by its history, not its identity.
+            held = TerminalCheckpoint(
+                dataclasses.replace(held.plane), held.next_save_index, held.landed
+            )
         handler.record_outcome(RunOutcome("failed", 0.25, "abandoned"), held)
     state = resume(path)
     assert state.outcome is not None and state.outcome.status == "failed"
@@ -564,3 +573,77 @@ def test_a_closing_outcome_without_a_checkpoint_still_clears_the_running_one(
         handler.record_outcome(*_running(metadata, 0.125, [0.0]))
         handler.record_outcome(RunOutcome("failed", 0.0, "no state"))
     assert resume(path).checkpoint is None
+
+
+def _stale_running_file(metadata, path, *, window):
+    """Write a file a process killed inside a running-checkpoint transaction leaves.
+
+    ``"append"``: the plane beyond the running checkpoint was appended and the
+    checkpoint not yet removed. ``"move"``: a new checkpoint was moved into place and
+    the running outcome naming the old one not yet rewritten.
+    """
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(*_running(metadata, 0.125, [0.0]))
+        if window == "append":
+            handler.save(_attempts(metadata, 0.25, [0.0, 0.125]))
+            handler.record_outcome(RunOutcome("running", 0.25))
+    with h5py.File(path, "r+") as file:
+        if window == "append":
+            # The checkpoint and the outcome as they stood before the plane.
+            group = file.create_group("terminal_checkpoint")
+            _write_checkpoint(
+                group,
+                TerminalCheckpoint(_attempts(metadata, 0.125, [0.0]), 0),
+                metadata,
+            )
+            outcome = json.loads(str(_dataset(file, "meta/outcome").asstr()[()]))
+            outcome["z"] = 0.125
+            del file["meta/outcome"]
+            file.create_dataset(
+                "meta/outcome", data=json.dumps(outcome), dtype=h5py.string_dtype()
+            )
+        else:
+            file["terminal_checkpoint"].attrs["z"] = 0.1875
+
+
+@pytest.mark.parametrize("window", ["append", "move"])
+def test_a_stale_running_checkpoint_is_ignored_rather_than_refused(
+    metadata, tmp_path, caplog, window
+):
+    path = tmp_path / "stale.h5"
+    _stale_running_file(metadata, path, window=window)
+    with caplog.at_level(logging.INFO, logger="solprop.output.hdf5"):
+        state = resume(path)
+    assert "ignoring the checkpoint" in caplog.text
+    assert state.checkpoint is None
+    last = 0.25 if window == "append" else 0.0
+    assert state.plane.z == last
+    # Continuing it carries nothing from the stale checkpoint: no attempt twice.
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        assert handler.terminal_checkpoint is None
+        handler.record_outcome(RunOutcome("running", last))
+        starts = [0.0, 0.125] if window == "move" else []
+        handler.save(_attempts(metadata, 0.375, [*starts, 0.25]))
+        handler.record_outcome(RunOutcome("complete", 0.375))
+    with open_file(path) as stored:
+        assert stored.terminal_checkpoint is None
+        assert_array_equal(stored["step_history/z"], [0.0, 0.125, 0.25])
+
+
+def test_a_closing_record_disagreeing_with_its_checkpoint_is_still_refused(
+    metadata, tmp_path
+):
+    path = tmp_path / "closing.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(
+            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
+        )
+    with h5py.File(path, "r+") as file:
+        file["terminal_checkpoint"].attrs["z"] = 0.375
+    with pytest.raises(OutputError, match="no matching execution outcome"):
+        resume(path)

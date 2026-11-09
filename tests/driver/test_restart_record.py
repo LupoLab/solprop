@@ -13,6 +13,7 @@ request. A file written before the record says nothing, and is read as unknown.
 """
 
 import json
+import math
 import warnings
 from typing import Any, cast
 
@@ -24,8 +25,16 @@ from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
 from solprop.backends.driver import StepDriver
+from solprop.backends.driver_session import DriverSession
+from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
-from solprop.output import SnapshotController, open_file, read_snapshot, resume
+from solprop.output import (
+    HDF5Output,
+    SnapshotController,
+    open_file,
+    read_snapshot,
+    resume,
+)
 from solprop.output.hdf5 import _dataset
 from solprop.stepper import Multistep, RungeKutta
 
@@ -275,3 +284,53 @@ def test_a_required_snapshot_records_its_retention(tmp_path, monkeypatch):
         "snapshot_required",
     )
     assert retention["z"] == info.z
+
+
+def test_a_history_write_cut_short_warns_once_on_resume(
+    build_simulation, tmp_path, monkeypatch
+):
+    # The second write of the history fails part-way, leaving the torn group a reader
+    # takes for none; the run stops there, and its resume warns that the history it
+    # expected is lost.
+    save = HDF5Output.save_march
+    calls = []
+
+    def torn(self, snapshot):
+        calls.append(snapshot.z)
+        if len(calls) == 1:
+            return save(self, snapshot)
+        self._file.require_group("march_snapshot").attrs["z"] = math.nan
+        raise OSError("the disk filled")
+
+    build = soliton(build_simulation, "numpy_ref")
+    path = tmp_path / "run.h5"
+    with monkeypatch.context() as patch:
+        patch.setattr(HDF5Output, "save_march", torn)
+        with pytest.raises(OSError, match="the disk filled"):
+            build().run(path, progress="none")
+    retention = restart(path)["retention"]
+    assert (retention["state"], retention["reason"]) == ("omitted", "write_failed")
+    assert resume(path).march is None
+    caught = resumed(build, path)
+    assert len(caught) == 1
+    assert "write failed" in str(caught[0].message)
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == (
+        "reset",
+        "unavailable_history",
+    )
+
+
+def test_a_monitor_continuation_is_given_once_and_before_it_watches():
+    session = object.__new__(DriverSession)
+    session._attached = False
+    given = {"record": None, "plane": True, "unwatched": ()}
+    session._monitor_resume = given
+    session.continue_monitor({"record": {"other": 1}, "plane": False, "unwatched": ()})
+    assert session._monitor_resume is given  # a Start's continuation is kept
+    session._monitor_resume = None
+    session.continue_monitor(given)
+    assert session._monitor_resume is given
+    session._attached = True
+    with pytest.raises(SessionError, match="before it watches"):
+        session.continue_monitor(given)

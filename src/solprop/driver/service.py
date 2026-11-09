@@ -397,6 +397,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             pending = None
             pending_save_count = output.n_saved
             pending_ticket = None
+            terminal_rows = (None, None)
             batch = session.advance()
             for event in batch.events:
                 if isinstance(event, ObservationReady):
@@ -407,6 +408,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         continue
                     current[0] = event
                     pending_ticket = event.ticket
+                    # Its attempts, should the plane fail before it holds them.
+                    terminal_rows = (event.history, event.step_stats)
                     if event.kind is not ObservationKind.LAUNCH:
                         _warn_coarse(event, planes)
                     keep = context.retention.keeps(output.n_saved)
@@ -589,6 +592,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
         assert event.ticket is not None
         history = event.history
         rows = event.step_stats
+        phase = exports.phase(event.ticket)
         checkpoint = TerminalCheckpoint(
             plane=SavedPlane(
                 z=z,
@@ -598,7 +602,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
                 if history is None
                 else _history_of(history),
                 step_stats=StepStats.empty() if rows is None else _rows(rows),
-                noise_phase=None,
+                noise_phase=None if phase is None else _adopted(phase),
             ),
             next_save_index=int(
                 np.searchsorted(context.request.observation.save_planes, z, "right")
@@ -699,6 +703,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
         phase = exports.phase(ticket)
         if pending is None or pending.z != ticket.z:
             history, step_rows = rows
+            if history is None and step_rows is None:
+                # A failure outside the session: the attempts since the last plane,
+                # a running checkpoint's included, are still the session's.
+                history, step_rows = session.held_attempts(ticket)
             pending = SavedPlane(
                 z=ticket.z,
                 field=field,

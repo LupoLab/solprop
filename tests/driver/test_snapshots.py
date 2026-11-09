@@ -656,3 +656,66 @@ def test_a_resume_from_a_running_checkpoint_keeps_the_history_once(tmp_path):
     assert_array_equal(starts[:before], _history(working)[0][:before])
     assert_contiguous(working, 0.001)
     assert_contiguous(files.output, 0.001)
+
+
+def _assert_checkpoint_holds_every_attempt(path):
+    """Assert a file's terminal checkpoint carries every attempt since the launch."""
+    state = resume(path)
+    assert state.checkpoint is not None
+    assert state.outcome is not None and state.outcome.status == "failed"
+    history = state.history
+    starts, ends = (
+        history.z[history.accepted],
+        (history.z + history.h)[history.accepted],
+    )
+    assert starts.size >= 1 and starts[0] == 0.0
+    np.testing.assert_allclose(starts[1:], ends[:-1], rtol=1e-12, atol=0.0)
+    np.testing.assert_allclose(ends[-1], state.plane.z, rtol=1e-12, atol=0.0)
+
+
+def test_a_failure_after_a_running_checkpoint_keeps_its_attempts(tmp_path, monkeypatch):
+    # The running checkpoint is written, then the snapshot transaction fails outside
+    # the session: the terminal checkpoint replacing it still holds the attempts
+    # since the last plane, which a resume continues once each.
+    from solprop.exceptions import OutputError  # noqa: PLC0415 - fault injection
+
+    annotate = HDF5Output.annotate
+
+    def failing(self, name, value):
+        if name == module._ANNOTATION:
+            raise OutputError("annotation failure")
+        return annotate(self, name, value)
+
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    path = tmp_path / "working.h5"
+    with monkeypatch.context() as patch:
+        patch.setattr(HDF5Output, "annotate", failing)
+        with pytest.raises(OutputError, match="annotation failure"):
+            ordinary(step_planes=0).run(path, snapshots=controller, progress="none")
+    _assert_checkpoint_holds_every_attempt(path)
+    _run(ordinary(step_planes=0), path, resume=True)
+    assert_contiguous(path, 0.001)
+
+
+def test_an_interrupt_out_of_a_propagation_keeps_the_running_attempts(tmp_path):
+    # A KeyboardInterrupt escapes the propagation (the session catches exceptions
+    # only) three accepted steps in, after a running checkpoint at the first.
+    class Interrupt(NullReporter):
+        accepted = 0
+
+        def step(self, z, dz, accepted):
+            self.accepted += accepted
+            if self.accepted == 3:
+                raise KeyboardInterrupt
+
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    path = tmp_path / "working.h5"
+    with pytest.raises(KeyboardInterrupt):
+        ordinary(step_planes=0).run(path, snapshots=controller, progress=Interrupt())
+    assert len(list(controller._directory.glob("snapshot-*"))) == 1
+    _assert_checkpoint_holds_every_attempt(path)
+    assert resume(path).history.accepted.sum() >= 2
+    _run(ordinary(step_planes=0), path, resume=True)
+    assert_contiguous(path, 0.001)

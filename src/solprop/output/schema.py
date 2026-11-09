@@ -2616,6 +2616,37 @@ class MarchSnapshot:  # numpydoc ignore=PR02
         return int(self.state.nbytes + sum(row.nbytes for row in self.rows.values()))
 
 
+def _holds_carried(plane: SavedPlane, carried: SavedPlane) -> bool:
+    """Return whether a checkpoint already begins with the attempts a resume carried.
+
+    The checkpoint a store holds after a resume, or a copy of it, starts with the
+    carried attempts, every column equal; a new one from the resumed march starts
+    where the resume did, with attempts of its own and its own wall clock.
+
+    Parameters
+    ----------
+    plane : SavedPlane
+        The checkpoint's plane.
+    carried : SavedPlane
+        The resumed checkpoint's plane, whose attempts no regular plane holds yet.
+
+    Returns
+    -------
+    bool
+        True when `plane`'s history and rows start with `carried`'s, or `carried`
+        holds nothing to add.
+    """
+    before, history = carried.step_history, plane.step_history
+    if before.n_steps == 0:
+        return carried.step_stats.n_rows == 0
+    if history.n_steps < before.n_steps:
+        return False
+    return all(
+        np.array_equal(getattr(history, name)[: before.n_steps], getattr(before, name))
+        for name in HISTORY_FIELDS
+    )
+
+
 def _prepend_checkpoint_history(
     previous: SavedPlane, current: SavedPlane
 ) -> SavedPlane:
@@ -4587,8 +4618,8 @@ class PlaneStore(Displayed, ABC):
             are not consumed: the next regular plane still carries them, and saving
             that plane supersedes the checkpoint. ``None`` keeps a pending checkpoint
             during progress and clears it otherwise; passing back the checkpoint
-            held (:attr:`~PlaneStore.terminal_checkpoint`) with a closing outcome
-            keeps it as the state to resume from.
+            held (:attr:`~PlaneStore.terminal_checkpoint`), or a copy, with a closing
+            outcome keeps it as the state to resume from.
 
         Raises
         ------
@@ -4625,13 +4656,13 @@ class PlaneStore(Displayed, ABC):
                 raise OutputError("checkpoint field shape differs from saved planes")
             if self._n_saved and checkpoint.plane.z < self._last_saved_z():
                 raise OutputError("checkpoint precedes the last regular saved plane")
-            if (
-                checkpoint is not self._terminal_checkpoint
-                and self._carried is not None
+            if self._carried is not None and not _holds_carried(
+                checkpoint.plane, self._carried
             ):
-                # The held checkpoint already holds what a resume carried; a new one
-                # is preceded by it. Nothing is consumed: a running checkpoint is
-                # superseded, and the next plane is preceded by the same attempts.
+                # A new checkpoint is preceded by what a resume carried; the held one,
+                # or a copy of it, holds it already. Nothing is consumed: a running
+                # checkpoint is superseded, and the next plane is preceded by the
+                # same attempts.
                 checkpoint = dataclasses.replace(
                     checkpoint,
                     plane=_prepend_checkpoint_history(self._carried, checkpoint.plane),

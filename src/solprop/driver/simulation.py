@@ -4265,24 +4265,23 @@ class Simulation(Displayed):
                 stacklevel=3,
             )
             return reset("automatic_size_limit")
-        if kept == "retained" or (
-            kept == "omitted" and why == "incompatible_representation"
-        ):
+        lost: tuple[str, str] | None = None
+        if kept == "retained":
+            lost = ("kept it here, but it cannot be read back", "unavailable_history")
+        elif kept == "omitted" and why == "write_failed":
+            lost = ("was keeping it here when the write failed", "unavailable_history")
+        elif kept == "omitted" and why == "incompatible_representation":
+            lost = (
+                "could not keep it: the run's engine does not export it",
+                "incompatible_representation",
+            )
+        if lost is not None:
             warnings.warn(
-                "the Adams history starts afresh: the file "
-                + (
-                    "kept it here, but it cannot be read back"
-                    if kept == "retained"
-                    else "could not keep it: the run's engine does not export it"
-                ),
+                f"the Adams history starts afresh: the file {lost[0]}",
                 SolpropWarning,
                 stacklevel=3,
             )
-            return reset(
-                "unavailable_history"
-                if kept == "retained"
-                else "incompatible_representation"
-            )
+            return reset(lost[1])
         if kept == "omitted" and why == "explicit_policy":
             return reset("explicit_policy")
         # Nothing to continue (a position the march held no history at), or a file

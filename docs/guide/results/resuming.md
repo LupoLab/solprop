@@ -273,7 +273,10 @@ Each execution record states what a resume can rely on, under
   `automatic_policy` or `explicit_policy` (`resume_history=None` or `True`),
   `snapshot_required`, `explicit_policy` (`resume_history=False`),
   `automatic_size_limit` (over the 256 MiB kept by default, with the size),
-  `unavailable_history`, `incompatible_representation`, `unsupported_method` (the
+  `unavailable_history` (the march held nothing to continue there),
+  `output_cannot_store` (a handler without `save_march`, such as `MemoryOutput`),
+  `write_failed` (the write was cut short), `incompatible_representation` (the engine
+  does not export its history), `unsupported_method` (the
   Runge–Kutta proposal and norm memory are not persisted) or `no_method_history`
   (the low-storage march has none).
 - `restoration`, in a resumed execution: `restored` (the Adams history continued),
@@ -295,8 +298,8 @@ with open_file("run.h5") as stored:
 
 A resume warns once, with a `SolpropWarning` beginning "the Adams history starts
 afresh", when the Adams history it expected was omitted by the automatic size limit or
-cannot be restored (the backend cannot install it, or the file kept it and it cannot be
-read back). Setting it aside with `resume_history=False` is recorded without a warning.
+cannot be restored (the backend cannot install it, the file kept it and it cannot be
+read back, or the write that kept it failed part-way). Setting it aside with `resume_history=False` is recorded without a warning.
 A file written before this record has none: its retention reads as
 `{"state": "unknown", "reason": "legacy"}`, never as an invented reason, and it resumes
 as it always did.

@@ -46,7 +46,6 @@ from solprop.exceptions import (
     BackendError,
     DriverError,
     OutputError,
-    ResponseBudgetError,
 )
 from solprop.fourier import power_amplitude
 from solprop.log import (
@@ -82,7 +81,6 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
-    _adopted,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -237,39 +235,6 @@ def plane_from_observation(
         noise_phase=None
         if observation.noise_phase is None or not field
         else observation.noise_phase[member],
-    )
-
-
-def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlane:
-    """Turn an observation of an unbatched run into a plane without copying its arrays.
-
-    An observation's arrays are read-only and nothing writes to them again
-    (:meth:`solprop.backends.protocol.Backend.observe`), so the plane can hold them as
-    they are: this is what lets a handler reduce a plane and drop it for no more than
-    the backend's own observation, and keep it if it wants to. A batch member is not
-    adopted, since its view would pin the whole batch: that route takes
-    :func:`plane_from_observation`, which copies.
-
-    Parameters
-    ----------
-    observation : solprop.backends.protocol.Observation
-        The observation of an unbatched run.
-    field : bool, optional
-        Whether the plane keeps the field and its noise phase.
-
-    Returns
-    -------
-    solprop.output.schema.SavedPlane
-        The plane, with its statistics still to add.
-    """
-    plane = plane_from_observation(observation, field=False)
-    if not field or observation.field is None:
-        return plane
-    phase = observation.noise_phase
-    return dataclasses.replace(
-        plane,
-        field=_adopted(observation.field[0]),
-        noise_phase=None if phase is None else _adopted(phase[0]),
     )
 
 
@@ -645,50 +610,6 @@ def check_snapshot_request(
         raise DriverError(
             "snapshots require Adams history; resume_history=False is incompatible"
         )
-
-
-def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observation:
-    """Observe the backend at a save plane, in output units where the field is kept.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    backend : solprop.backends.protocol.Backend
-        The backend at the plane.
-    keep : bool
-        Whether the plane keeps its field. A field-free plane asks the backend for no
-        field at all (SEP 22 section 5.1), so nothing crosses to the host.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        The observation, its field in true-power units when it is kept and ``None``
-        otherwise.
-    """
-    return _power_observation(problem, backend.observe(field=keep))
-
-
-def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
-    """Return the field at the backend's current plane, in output units.
-
-    For a plane observer shown a plane whose field the output does not keep.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    backend : solprop.backends.protocol.Backend
-        The backend, at the plane.
-
-    Returns
-    -------
-    numpy.ndarray
-        The field, as a saved plane holds it.
-    """
-    plane = _adopted_plane(_observed(problem, backend, keep=True))
-    assert plane.field is not None  # observed with its field
-    return plane.field
 
 
 def field_retention(
@@ -1213,8 +1134,8 @@ class _MarchKeeper:
         try:
             self._save(snapshot)
         except BaseException:
-            # A torn write reads as no snapshot (`_write_march`).
-            self._decide(z, "omitted", "unavailable_history")
+            # A torn write reads as no snapshot (`_write_march`): expected, and lost.
+            self._decide(z, "omitted", "write_failed")
             raise
         self._kept_z = z
         self._decide(
@@ -1242,103 +1163,6 @@ class _MarchKeeper:
             "omitted",
             "incompatible_representation" if refused else "unavailable_history",
         )
-
-
-def _persist_failure(
-    problem: KernelProblem,
-    backend: Backend,
-    output: CheckpointOutput | None,
-    binding: TDSEBinding | None,
-    keeper: _MarchKeeper,
-    failure: _FailedObservation,
-) -> float | None:
-    """Checkpoint the accepted state without replacing the original exception.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        Translated problem, including absolute save positions in m.
-    backend : Backend
-        Backend retaining its last accepted field.
-    output : CheckpointOutput or None
-        Handler supporting separate terminal state persistence, when available.
-    binding : TDSEBinding or None
-        Optional live atomic service providing accounting snapshots.
-    keeper : _MarchKeeper
-        Keeps the Adams march's state beside the checkpoint.
-    failure : _FailedObservation
-        Original exception and any observation already drained before failure.
-
-    Returns
-    -------
-    float or None
-        Last accepted position in m, if it could be observed.
-    """
-    if output is None:
-        return None
-    pending = failure.pending
-    in_flight = backend.in_flight
-    if pending is None and in_flight is not None:
-        _record_abandoned_step(backend, output, binding, failure, in_flight)
-        return None
-    reached = None
-    try:
-        if pending is None:
-            pending = _adopted_plane(_power_observation(problem, backend.observe()))
-        elif pending.field is None:
-            # A field-free plane keeps no field, and a checkpoint always does (SEP
-            # 22, Q1): the state still stands where the plane was observed, so it is
-            # observed again for its field alone, the history being the plane's.
-            again = _adopted_plane(_power_observation(problem, backend.observe()))
-            pending = dataclasses.replace(
-                pending, field=again.field, noise_phase=again.noise_phase
-            )
-        history = pending.step_history
-        ends = (history.z + history.h)[history.accepted]
-        landed = (
-            not problem.stepper.interpolate_planes
-            or pending.z == problem.initial.z
-            or bool(np.any(np.isclose(ends, pending.z, rtol=1e-12, atol=0.0)))
-        )
-        if failure.already_saved:
-            # Appending may succeed before flushing fails. The regular plane then
-            # already owns this history; replay must not append it twice.
-            pending = dataclasses.replace(
-                pending,
-                step_history=StepHistory.empty(),
-                step_stats=StepStats.empty(),
-            )
-        reached = pending.z
-        checkpoint = TerminalCheckpoint(
-            plane=pending,
-            next_save_index=int(
-                np.searchsorted(problem.stepper.save_planes, pending.z, side="right")
-            ),
-            landed=landed,
-        )
-        # Written while the run is already stopping: a second signal is dropped.
-        with committing(deliver=False):
-            _record_execution(
-                output,
-                backend,
-                binding,
-                _Status(
-                    "budget_exhausted"
-                    if isinstance(failure.error, ResponseBudgetError)
-                    else "failed",
-                    reached,
-                    f"{type(failure.error).__name__}: {failure.error}",
-                ),
-                clock=failure.clock,
-                checkpoint=checkpoint,
-            )
-            keeper.keep(reached)
-    except Exception as checkpoint_error:
-        failure.error.add_note(
-            f"terminal checkpoint could not be persisted: {checkpoint_error}"
-        )
-        logger.exception("could not persist the terminal checkpoint")
-    return reached
 
 
 def _record_abandoned_step(
@@ -1386,7 +1210,13 @@ def _record_abandoned_step(
     if fallback is not None:
         ending = (
             f"the file falls back to its latest checkpoint, z = "
-            f"{fallback.plane.z:.6g} m, from which resume=True continues"
+            f"{fallback.plane.z:.6g} m, "
+            + (
+                "from which resume=True continues"
+                if fallback.landed
+                else "an interpolated field, from which only "
+                "resume='interpolated' continues"
+            )
         )
     else:
         kept = (
