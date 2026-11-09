@@ -255,8 +255,13 @@ Result run(const Policy& policy, State& state, Engine& engine,
     }
     return false;
   };
-  // The call's own bound, and the readings' buffer; true when the call returns.
+  // A stop, after the attempt's commit and accounting (SEP 47 section 5.5), the
+  // call's own bound, and the readings' buffer; true when the call returns.
   const auto bounded = [&]() {
+    if (march::stop_requested(bounds)) {
+      result.reason = march::Reason::stopped;
+      return true;
+    }
     if (result.rows.size() / march::row_columns >= bounds.max_attempts ||
         elapsed() >= bounds.max_seconds) {
       result.reason = march::Reason::bound;
@@ -280,6 +285,11 @@ Result run(const Policy& policy, State& state, Engine& engine,
     const auto running = [&]() {
       return state.cursor < n_steps && state.z < target - bounds.slack;
     };
+    // A stop already requested ends the call before its first attempt.
+    if (running() && march::stop_requested(bounds)) {
+      result.reason = march::Reason::stopped;
+      return out;
+    }
     while (running()) {
       const double dz = schedule.steps[state.cursor];
       double norm = 0.0;
@@ -326,6 +336,11 @@ Result run(const Policy& policy, State& state, Engine& engine,
   // kinks (`StepDriver._march_to`), and returns the step that crosses the target.
   const bool dense = policy.landings.interpolate;
   const double z_end = dense ? policy.landings.z_end : target;
+  // A stop already requested ends the call before its first attempt.
+  if (!march::reached(state.z, target, ulps) && march::stop_requested(bounds)) {
+    result.reason = march::Reason::stopped;
+    return out;
+  }
   while (!march::reached(state.z, target, ulps)) {
     // The landing candidate: the proposal capped by the quiet collar's interval, the
     // transverse edge's ceiling and the split collar's cap, in that order; the

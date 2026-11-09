@@ -452,6 +452,11 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
     }
     return verdict;
   };
+  // A stop already requested ends the call before its first attempt (SEP 47 5.5).
+  if (running() && stop_requested(bounds)) {
+    result.reason = Reason::stopped;
+    return result;
+  }
   while (running()) {
     // The budget, before any call is made (`_afford`).
     const std::uint64_t cost = (state.history.empty() ? 1 : 0) + 1;
@@ -626,6 +631,11 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::monitor;
         return result;
       }
+    }
+    // A stop, after the attempt's commit and accounting (SEP 47 section 5.5).
+    if (stop_requested(bounds)) {
+      result.reason = Reason::stopped;
+      return result;
     }
     if (result.rows.size() / row_columns >= bounds.max_attempts ||
         elapsed() >= bounds.max_seconds) {

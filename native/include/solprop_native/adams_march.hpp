@@ -5,6 +5,7 @@
 #pragma once
 
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -254,8 +255,10 @@ enum class Reason : int {
   watch = 8,     ///< a check the march took needs solprop: a stop, a first warning,
                  ///< a change of the quiet verdict, a refused crossing (SEP 45 4.8)
   capacity = 9,  ///< the checks' readings fill the call's buffer
-  dense = 10, ///< an accepted Runge-Kutta step crosses an interpolated plane: solprop
-              ///< finishes it, holding its extension (SEP 45 phase 4)
+  dense = 10,   ///< an accepted Runge-Kutta step crosses an interpolated plane: solprop
+                ///< finishes it, holding its extension (SEP 45 phase 4)
+  stopped = 11, ///< a stop was requested (SEP 47 section 5.5): before the first
+                ///< attempt, or after an attempt's commit and accounting
 };
 
 /** Where a native failure happened. */
@@ -302,7 +305,16 @@ struct Bounds {
   bool watch = false;
   watch::Policy watch_policy;
   std::size_t watch_capacity = 256;
+  /** A stop request any thread may set (SEP 47 section 5.5), or none. The march reads
+   *  it before its first attempt and after each attempt's commit and accounting, where
+   *  no host event returns first, and returns `stopped` with the committed state. */
+  const std::atomic<bool>* stop = nullptr;
 };
+
+/** Whether a stop is requested on `bounds` (SEP 47 section 5.5). */
+[[nodiscard]] inline bool stop_requested(const Bounds& bounds) noexcept {
+  return bounds.stop != nullptr && bounds.stop->load(std::memory_order_acquire);
+}
 
 /** Columns of one attempt's row. */
 enum Column : std::size_t {

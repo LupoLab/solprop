@@ -5,12 +5,14 @@
 // The native Adams march's unit (solprop SEP 39 phase 2). Its decisions are held to
 // solprop's on prescribed norms by solprop's decision-trace tests; these check what
 // those cannot see: that the unit rounds every product and sum separately, that a
-// policy is refused by the field at fault, and that a run on a toy engine keeps its
-// ledger and lands on its target.
+// policy is refused by the field at fault, that a run on a toy engine keeps its
+// ledger and lands on its target, and where a stop request ends a call (SEP 47).
 
 #include "solprop_native/adams_march.hpp"
 
+#include <atomic>
 #include <cmath>
+#include <cstdint>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -128,4 +130,117 @@ TEST(AdamsMarch, ARunKeepsItsLedgerAndLandsOnItsTarget) {
   EXPECT_EQ(result.orders.front(), 1U);
   for (const auto order : result.orders)
     EXPECT_LE(order, rules.order);
+}
+
+namespace {
+// Trials that score `norm`, one rejected where `reject` says; a stop requested from
+// inside the `stop_at`-th trial or accept, as another thread's request lands while an
+// attempt is in hand (solprop SEP 47 section 5.5).
+class Stopping final : public march::Engine {
+public:
+  Stopping(std::atomic<bool>& stop, const int stop_at, const bool in_trial,
+           const int reject = 0)
+      : stop_(stop), stop_at_(stop_at), in_trial_(in_trial), reject_(reject) {}
+  void start(double /*z*/) override { ++starts; }
+  void trial(double /*z*/, double /*dz*/, const march::Stencil& stencil,
+             double* norms) override {
+    ++trials;
+    for (std::size_t index = 0; index < stencil.n_orders; ++index)
+      norms[index] = trials == reject_ ? 5.0 : 0.25;
+    if (in_trial_ && trials == stop_at_)
+      stop_.store(true);
+  }
+  void accept(double /*dz*/, std::size_t /*free*/, const march::Stencil& /*stencil*/,
+              const std::vector<march::Entry>& /*kept*/) override {
+    ++accepts;
+    if (!in_trial_ && accepts == stop_at_)
+      stop_.store(true);
+  }
+  double chord_phase(double /*z1*/, double /*z2*/) override { return 0.0; }
+  int starts = 0;
+  int trials = 0;
+  int accepts = 0;
+
+private:
+  std::atomic<bool>& stop_;
+  int stop_at_;
+  bool in_trial_;
+  int reject_;
+};
+
+march::Bounds stopping_bounds(const std::atomic<bool>& stop) {
+  march::Bounds bounds;
+  bounds.target = 0.05;
+  bounds.max_attempts = 1000;
+  bounds.max_seconds = 10.0;
+  bounds.stop = &stop;
+  return bounds;
+}
+} // namespace
+
+TEST(AdamsMarch, AStopAlreadyRequestedTakesNoAttempt) {
+  std::atomic<bool> stop{true};
+  march::State state;
+  state.proposal = 1e-4;
+  Stopping engine(stop, 0, false);
+  const auto result =
+      march::run(policy(), state, engine, stopping_bounds(stop), march::Schedule{});
+  EXPECT_EQ(result.reason, march::Reason::stopped);
+  EXPECT_TRUE(result.rows.empty());
+  // Checked before the startup is charged.
+  EXPECT_EQ(engine.starts, 0);
+  EXPECT_EQ(state.ledger.total(), 0U);
+  EXPECT_EQ(state.z, 0.0);
+}
+
+TEST(AdamsMarch, AStopEndsTheCallAfterTheAttemptsCommitAndAccounting) {
+  std::atomic<bool> stop{false};
+  march::State state;
+  state.proposal = 1e-4;
+  Stopping engine(stop, 3, false);
+  const auto result =
+      march::run(policy(), state, engine, stopping_bounds(stop), march::Schedule{});
+  ASSERT_EQ(result.reason, march::Reason::stopped);
+  // The third accept requested it: that attempt is committed, recorded and counted,
+  // and no fourth trial is made.
+  ASSERT_EQ(result.rows.size(), 3 * march::row_columns);
+  EXPECT_EQ(engine.trials, 3);
+  EXPECT_EQ(state.ledger.accepted_steps, 3U);
+  EXPECT_EQ(state.z, result.rows[2 * march::row_columns + march::end_column]);
+  EXPECT_EQ(result.rows[2 * march::row_columns + march::accepted_column], 1.0);
+}
+
+TEST(AdamsMarch, ARejectedAttemptStopsAtTheCommittedState) {
+  std::atomic<bool> stop{false};
+  march::State state;
+  state.proposal = 1e-4;
+  // The third trial is rejected and asks for the stop.
+  Stopping engine(stop, 3, true, 3);
+  const auto result =
+      march::run(policy(), state, engine, stopping_bounds(stop), march::Schedule{});
+  ASSERT_EQ(result.reason, march::Reason::stopped);
+  ASSERT_EQ(result.rows.size(), 3 * march::row_columns);
+  EXPECT_EQ(result.rows[2 * march::row_columns + march::accepted_column], 0.0);
+  EXPECT_EQ(state.ledger.rejected_steps, 1U);
+  // The position is the second accepted step's end; the rejection's proposal is kept.
+  EXPECT_EQ(state.z, result.rows[1 * march::row_columns + march::end_column]);
+  EXPECT_TRUE(state.last_rejected);
+}
+
+TEST(AdamsMarch, AnEventStepsHostWorkPrecedesAStop) {
+  std::atomic<bool> stop{false};
+  march::State state;
+  state.proposal = 1e-4;
+  Stopping engine(stop, 2, false);
+  auto bounds = stopping_bounds(stop);
+  // The step that asks for the stop is one the host has work on: the call returns for
+  // that work first, and the stop is found at the next call.
+  bounds.host_step = 2;
+  auto result = march::run(policy(), state, engine, bounds, march::Schedule{});
+  ASSERT_EQ(result.reason, march::Reason::host_step);
+  EXPECT_EQ(result.rows.size(), 2 * march::row_columns);
+  result = march::run(policy(), state, engine, bounds, march::Schedule{});
+  EXPECT_EQ(result.reason, march::Reason::stopped);
+  EXPECT_TRUE(result.rows.empty());
+  EXPECT_EQ(engine.trials, 2);
 }

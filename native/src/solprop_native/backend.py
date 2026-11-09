@@ -2843,6 +2843,7 @@ _REASONS = (
     "watch",
     "capacity",
     "dense",
+    "stopped",
 )
 """Why a native march call returned (``march::Reason``), by name, in its order; the
 benchmark counters (:mod:`solprop_native._counters`) report these names."""
@@ -2858,6 +2859,7 @@ benchmark counters (:mod:`solprop_native._counters`) report these names."""
     _WATCH,
     _CAPACITY,
     _DENSE,
+    _STOPPED,
 ) = range(len(_REASONS))
 _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
