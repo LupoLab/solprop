@@ -990,6 +990,13 @@ public:
   [[nodiscard]] std::vector<Complex> field_to_host() const;
   /** The field into `destination`, of the field's size: one copy from the space. */
   void field_to_host(std::span<Complex> destination) const;
+  /** The committed field where the host can read it in place, `columns * n_omega`
+      elements in row-major order, after the state's work is fenced; null where the
+      memory space is not host-accessible. A reader that passes it through the host
+      adds its bytes with `count_to_host` (solprop SEP 47 section 5.4). */
+  [[nodiscard]] const Complex* host_field() const;
+  /** Count `bytes` read out of the state by a host reader of `host_field`. */
+  void count_to_host(std::size_t bytes) const noexcept;
   /** What the transverse edge's reading sums with (solprop SEP 44). */
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,

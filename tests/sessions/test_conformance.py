@@ -25,6 +25,7 @@ from sessions.executors import (
     FACTOR,
     IDENTITY,
     LENGTH,
+    MONITOR,
     PLANES,
     RECIPES,
     STORED,
@@ -313,7 +314,7 @@ def test_an_unfit_export_destination_is_refused(start):
 # -------------------------------------------------------------------- the order
 
 
-def test_events_follow_the_committed_order(start):
+def test_events_follow_the_committed_order(start, executor):
     """SEP 47 section 5.3, the ordering table, start to final endpoint.
 
     The launch plane comes first and is committed before the boundary monitor is
@@ -323,6 +324,7 @@ def test_events_follow_the_committed_order(start):
     rows are taken every second accepted step at an accepted endpoint, and a batch
     holds at most one field-bearing event.
     """
+    executor.require(MONITOR)
     log: list[tuple[str, float]] = []
     problem = soliton(step_planes=3, period=2)
     started = start(problem, describe_run(problem, monitor=spy_monitor(log)))
@@ -343,6 +345,40 @@ def test_events_follow_the_committed_order(start):
     watched = [z for _, z in log[2:]]
     assert watched == sorted(watched) and watched[0] > 0.0 and watched[-1] <= LENGTH
 
+    _assert_committed_order(run)
+
+
+def test_events_follow_the_committed_order_without_a_monitor(start):
+    """SEP 47 section 5.3, the ordering table, start to final endpoint, unwatched.
+
+    The order of :func:`test_events_follow_the_committed_order` for an executor that
+    runs no monitor: the launch plane first, save planes in order with a step plane at
+    every third accepted step, the terminal event last; statistics and periodic rows
+    without a batch axis, rows every second accepted step at an accepted endpoint, and
+    at most one field-bearing event a batch.
+    """
+    problem = soliton(step_planes=3, period=2)
+    started = start(problem)
+    session = started.session
+    launch = session.advance()
+    (first,) = launch.events
+    assert isinstance(first, ObservationReady)
+    assert (first.kind, first.plane_index, first.z) == (ObservationKind.LAUNCH, -1, 0.0)
+    assert first.history.n_steps == first.step_stats.n_rows == 0
+    session.acknowledge(launch.receipt)
+    rest = drive(started)
+    run = Run([launch, *rest.batches], [], rest.status)
+    _assert_committed_order(run)
+
+
+def _assert_committed_order(run: Run) -> None:
+    """Assert a step-plane soliton run's events follow the committed order.
+
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The run of ``soliton(step_planes=3, period=2)``, launch batch included.
+    """
     terminals = [event for event in run.events if isinstance(event, Terminal)]
     assert terminals == [run.batches[-1].events[-1]]
     assert run.terminal.outcome is Outcome.COMPLETED

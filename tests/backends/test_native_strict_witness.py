@@ -4,10 +4,11 @@
 
 """The native marches' strict files stay strict in the installed build (#135).
 
-ADR-060 and SEP 45 compile the Adams march's decisions, the boundary watch's predictions
-and the Runge-Kutta march's positions and norm without contraction, so that they round
-as solprop's Python does. Each file holds a probe, ``p = a * b; return p + c``, which a
-fused multiply-add changes. The witness runs in the build that is installed, with its
+ADR-060, SEP 45 and SEP 47 compile the Adams march's decisions, the boundary watch's
+predictions, the Runge-Kutta march's positions and norm and the native session's
+scheduling and export without contraction, so that they round as solprop's Python
+does. Each file holds a probe, ``p = a * b; return p + c``, which a fused multiply-add
+changes. The witness runs in the build that is installed, with its
 own flags, link-time optimisation and visibility, beside a control from a contracting
 file: where the control fuses, a probe that fused too has lost its file's rule.
 """
@@ -38,7 +39,7 @@ def test_the_strict_files_round_every_operation_where_the_build_fuses():
     control, *probes = native._core.strict_witness(  # pyright: ignore[reportPrivateUsage]
         FACTOR_A, FACTOR_B, ADDEND
     )
-    assert probes == [0.0, 0.0, 0.0], "a strict file's product and sum were fused"
+    assert probes == [0.0, 0.0, 0.0, 0.0], "a strict file's product and sum were fused"
     if control == -(2.0**-60):
         return
     assert control == 0.0, control

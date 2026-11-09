@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
+#include <span>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -178,6 +179,36 @@ void ResidentRungeKutta::accept(const double dz) {
 }
 
 std::vector<double> ResidentRungeKutta::reading() { return state_.monitor_reading(); }
+
+GeneralResident::GeneralResident(GeneralState& state, const std::size_t elements,
+                                 const std::size_t n_omega)
+    : state_(state), elements_(elements), n_omega_(n_omega) {}
+
+const double* GeneralResident::host_field() {
+  // `Complex` is two doubles, real then imaginary (static-asserted by the bindings).
+  return reinterpret_cast<const double*>(state_.host_field());
+}
+
+void GeneralResident::field_to_host(double* out) {
+  state_.field_to_host(std::span<Complex>(reinterpret_cast<Complex*>(out), elements_));
+}
+
+void GeneralResident::count_to_host(const std::size_t bytes) {
+  state_.count_to_host(bytes);
+}
+
+std::vector<double> GeneralResident::statistics(const session::StatisticsRecipe& recipe,
+                                                const double z) {
+  using Kind = session::StatisticsRecipe::Kind;
+  if (recipe.kind == Kind::spatial)
+    return state_.spatial_statistics(recipe.flags, recipe.intensity_factor, z);
+  if (recipe.kind != Kind::temporal)
+    throw std::logic_error("no statistics were prepared");
+  // The admitted statistics read neither the plasma's density, preionisation and
+  // taper nor the on-axis synthesis, which the session refuses by name.
+  return state_.statistics(recipe.flags, recipe.windows, {}, 0.0, 1.0, 0.0,
+                           recipe.intensity_factor, {}, recipe.power_weight);
+}
 
 ScriptedEngine::ScriptedEngine(std::vector<double> norms, const double carrier_rate,
                                std::vector<ScriptedEvent>& log)

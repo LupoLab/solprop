@@ -12,6 +12,7 @@
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
 
 /*
@@ -95,6 +96,25 @@ private:
   double rtol_;
   double atol_;
   const std::vector<double>& weights_;
+};
+
+/** The resident side of a native session (solprop SEP 47): the general state's field
+    and statistics, which the session reads where the state lives. */
+class GeneralResident final : public session::Resident {
+public:
+  GeneralResident(GeneralState& state, std::size_t elements, std::size_t n_omega);
+  [[nodiscard]] std::size_t elements() const override { return elements_; }
+  [[nodiscard]] std::size_t n_omega() const override { return n_omega_; }
+  const double* host_field() override;
+  void field_to_host(double* out) override;
+  void count_to_host(std::size_t bytes) override;
+  std::vector<double> statistics(const session::StatisticsRecipe& recipe,
+                                 double z) override;
+
+private:
+  GeneralState& state_;
+  std::size_t elements_;
+  std::size_t n_omega_;
 };
 
 /** One entry of a scripted Adams march's log: a startup, or a trial and the row its

@@ -17,6 +17,10 @@ the same tests.
   independent host session replaces its factory in :data:`EXECUTORS`, one line.
 - ``native`` is the compiled backend, through the same transitional session until its
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
+- ``native-session`` is the native execution session itself
+  (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
+  native backend owns the run. It lacks the capabilities its prototype refuses (a
+  boundary monitor), and the tests that need one skip it by name.
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
@@ -347,6 +351,51 @@ def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
     return SessionScript(problem, grid=window(), **script)
 
 
+def _native_session(problem, request, start, *, stop=None, listener=None, **script):
+    """Start a native execution session (SEP 47's prototype) for a problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    stop : object or None, optional
+        The stop token.
+    listener : callable or None, optional
+        The attempt listener.
+    **script
+        Refused: the native session's outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        The session, counting the fields it exports natively.
+    """
+    assert not script, "the native session takes no script"
+    from solprop_native.session import NativeSession  # noqa: PLC0415 - optional
+
+    session = NativeSession(
+        problem,
+        request,
+        start,
+        grid=window(),
+        modes=[fibre().mode],
+        stop=stop,
+        listener=listener,
+    )
+    return Started(session, field_reads=lambda: session.native.status().exports)
+
+
+MONITOR = "monitor"
+"""The capability of watching the boundary with a monitor (SEP 21)."""
+
+CAPABILITIES = frozenset({MONITOR})
+"""Every capability a test may need of an executor."""
+
+
 def _one_thread() -> bool:
     """Return whether the native backend runs one thread, as the default lane sets it.
 
@@ -375,12 +424,29 @@ class Executor:
         A module it needs, skipped without it.
     scripted : bool
         Whether its numerical outcomes are scripted (:class:`SessionScript`).
+    capabilities : frozenset of str
+        What it can be asked to run beyond the soliton (:data:`CAPABILITIES`); a test
+        that needs another skips it explicitly (:meth:`require`).
     """
 
     name: str
     start: Factory
     requires: str | None = None
     scripted: bool = False
+    capabilities: frozenset[str] = CAPABILITIES
+
+    def require(self, capability: str) -> None:
+        """Skip the calling test when this executor lacks a capability.
+
+        Parameters
+        ----------
+        capability : str
+            The capability, one of :data:`CAPABILITIES`.
+        """
+        import pytest  # noqa: PLC0415 - only a test calls it
+
+        if capability not in self.capabilities:
+            pytest.skip(f"the {self.name} executor does not run a {capability}")
 
     @property
     def deterministic(self) -> bool:
@@ -394,7 +460,7 @@ class Executor:
         bool
             True for the reference and the script, and for native on one thread.
         """
-        return self.name != "native" or _one_thread()
+        return not self.name.startswith("native") or _one_thread()
 
 
 EXECUTORS: dict[str, Executor] = {
@@ -409,6 +475,12 @@ EXECUTORS: dict[str, Executor] = {
     ),
     "scripted": Executor(
         "scripted", _over_driver(_scripted, host_state=True), scripted=True
+    ),
+    "native-session": Executor(
+        "native-session",
+        _native_session,
+        requires="solprop_native",
+        capabilities=frozenset(),
     ),
 }
 """Every executor of the suite, by name."""

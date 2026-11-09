@@ -2315,6 +2315,19 @@ public:
   [[nodiscard]] CrossedBytes crossed_bytes() const noexcept { return crossed_; }
   std::vector<Complex> field_to_host() const;
   void field_to_host(std::span<Complex> destination) const;
+  const Complex* host_field() const {
+    require_open();
+    if (!initialized_)
+      throw std::logic_error("no initial field has been loaded");
+    if constexpr (!Kokkos::SpaceAccessibility<Kokkos::HostSpace,
+                                              MemorySpace>::accessible)
+      return nullptr;
+    execution_space_.fence("solprop_native host_field");
+    return current_.data();
+  }
+  void count_to_host(const std::size_t bytes) const noexcept {
+    crossed_.to_host += bytes;
+  }
   void cross_to_host(const ComplexView2& source, std::span<Complex> destination) const;
   void set_crossing_workers(const std::size_t workers) noexcept {
     crossing_ring_.set_workers(workers);
@@ -17265,6 +17278,13 @@ void GeneralState::set_crossing_workers(const std::size_t workers) noexcept {
 void GeneralState::field_to_host(const std::span<Complex> destination) const {
   const CpuTeamScope team(workspace_->cpu_team());
   workspace_->field_to_host(destination);
+}
+const Complex* GeneralState::host_field() const {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->host_field();
+}
+void GeneralState::count_to_host(const std::size_t bytes) const noexcept {
+  workspace_->count_to_host(bytes);
 }
 void GeneralState::stage_to_host(const std::size_t stage,
                                  const std::span<Complex> destination) const {

@@ -90,3 +90,14 @@ def test_finding_no_strict_function_fails(tmp_path, monkeypatch, capsys):
     wheel = _wheel(tmp_path, monkeypatch, CONTRACTING)
     assert check_strict_fma.main([wheel]) == 1
     assert "no strict function found" in capsys.readouterr().err
+
+
+def test_the_native_sessions_unit_is_strict(tmp_path, monkeypatch, capsys):
+    # SEP 47: the session's scheduling and export are compiled strict as well.
+    session = (
+        "0000000000001500 <solprop_native::session::apply_recipe(double const*)>:\n"
+        "    1500:\tvfmadd231pd %ymm1,%ymm2,%ymm0\n"
+    )
+    wheel = _wheel(tmp_path, monkeypatch, STRICT + session)
+    assert check_strict_fma.main([wheel]) == 1
+    assert "solprop_native::session::apply_recipe" in capsys.readouterr().err

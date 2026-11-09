@@ -10,6 +10,7 @@
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
 #include "solprop_native/vmath.hpp"
 #include "solprop_native/watch.hpp"
@@ -33,6 +34,7 @@
 #include <nanobind/stl/map.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
+#include <nanobind/stl/unique_ptr.h>
 #include <nanobind/stl/vector.h>
 
 #if defined(_WIN32)
@@ -83,6 +85,7 @@ using RealStorage = std::vector<double>;
 
 class BoundState;
 class BoundBatch;
+class BoundSession;
 
 template <class Array> Array exact_array(const nb::handle value) {
   return nb::cast<Array>(value, false);
@@ -1481,6 +1484,7 @@ public:
 
   void set_initial(const std::span<const native::Complex> field,
                    const std::span<const native::Complex> noise) {
+    require_unleased();
     require_open();
     general_state_->set_initial(field, noise);
   }
@@ -1591,6 +1595,7 @@ public:
     rk_schedule_ = {std::move(steps), std::move(edges)};
   }
   nb::dict rk_march_run(const nb::dict state_values, const nb::dict bounds_values) {
+    require_unleased();
     if (!rk_policy_)
       throw std::logic_error("the native Runge-Kutta march is not configured");
     auto state = rk_state_from(state_values);
@@ -1731,6 +1736,7 @@ public:
     return general_state_->adams_source(input, scalars);
   }
   void adopt(const std::vector<native::Complex>& field, const double dz) {
+    require_unleased();
     require_open();
     general_state_->adopt(field, dz);
   }
@@ -1801,6 +1807,7 @@ public:
     march_interpolate_ = interpolate;
   }
   nb::dict march_run(const nb::dict state_values, const nb::dict bounds_values) {
+    require_unleased();
     if (!march_policy_)
       throw std::logic_error("the native Adams march is not configured");
     auto state = march_state_from(state_values);
@@ -1854,6 +1861,7 @@ public:
                           : std::map<std::string, bool>{};
   }
   void finish(const double dz) {
+    require_unleased();
     require_open();
     general_state_->finish(dz);
   }
@@ -1965,11 +1973,58 @@ public:
   std::size_t raman_terms() const noexcept { return raman_terms_; }
   bool raman() const noexcept { return raman_; }
   bool closed() const noexcept { return !general_state_ || general_state_->closed(); }
-  void close() noexcept {
-    if (general_state_) {
-      general_state_->close();
-      general_state_.reset();
+  // Closes a session that leases this state first (below, after its class).
+  void close() noexcept;
+
+  // solprop SEP 47: the march a native execution session runs, from the policy, the
+  // schedule and the stage tables this state was configured with, its engine over the
+  // state and its tables; `state` is the march's state at the session's start.
+  native::session::Method session_method(const std::string& kind,
+                                         const nb::dict state_values) {
+    require_unleased();
+    auto& general = open_state();
+    if (kind == "adams") {
+      if (!march_policy_ || !stage_tables_)
+        throw std::logic_error("the native Adams march is not configured");
+      native::session::AdamsMethod method;
+      method.policy = *march_policy_;
+      method.state = march_state_from(state_values);
+      method.schedule = march_schedule_;
+      method.engine = std::make_unique<native::engines::ResidentEngine>(
+          general, *stage_tables_, stage_anchor_, march_fused_, march_compensated_,
+          march_interpolate_, march_fault_);
+      return method;
     }
+    if (kind == "runge_kutta") {
+      if (!rk_policy_)
+        throw std::logic_error("the native Runge-Kutta march is not configured");
+      native::session::RungeKuttaMethod method;
+      method.policy = *rk_policy_;
+      method.state = rk_state_from(state_values);
+      method.schedule = rk_schedule_;
+      method.engine = std::make_unique<native::engines::ResidentRungeKutta>(
+          general,
+          [this](const double z, const double dz) {
+            return rk_trial(z, dz, rk_nodes_, false);
+          },
+          rk_rtol_, rk_atol_, rk_weights_);
+      return method;
+    }
+    throw std::invalid_argument("a session's march is \"adams\" or \"runge_kutta\"");
+  }
+  // The state's field and statistics, as a session reads them.
+  std::unique_ptr<native::session::Resident> session_resident() {
+    return std::make_unique<native::engines::GeneralResident>(open_state(), elements_,
+                                                              elements_ / columns_);
+  }
+  // A session leases the state exclusively: the host's own march and loads refuse.
+  void lease(BoundSession* session) {
+    require_unleased();
+    session_ = session;
+  }
+  void release(const BoundSession* session) noexcept {
+    if (session_ == session)
+      session_ = nullptr;
   }
 
 private:
@@ -1977,6 +2032,11 @@ private:
     if (closed())
       throw std::logic_error("native state is closed");
   }
+  void require_unleased() const {
+    if (session_ != nullptr)
+      throw std::logic_error("native state is leased by an execution session");
+  }
+  BoundSession* session_ = nullptr;
   std::size_t columns_{};
   std::size_t elements_{};
   std::size_t stages_{};
@@ -2053,6 +2113,158 @@ private:
   std::size_t count_{};
   std::unique_ptr<native::GeneralBatch> batch_;
 };
+
+// solprop SEP 47: a native execution session over a leased state. It keeps that state
+// alive (the binding's keep-alive) and releases the lease when it closes; the state
+// closes the session first when it closes itself.
+class BoundSession {
+public:
+  BoundSession(BoundState& owner, std::unique_ptr<native::session::Session> session)
+      : owner_(&owner), session_(std::move(session)) {
+    owner.lease(this);
+  }
+  ~BoundSession() { close(); }
+  BoundSession(const BoundSession&) = delete;
+  BoundSession& operator=(const BoundSession&) = delete;
+
+  native::session::Batch advance(const std::size_t work_limit, const double deadline) {
+    const nb::gil_scoped_release release;
+    return session_->advance(work_limit, deadline);
+  }
+  void acknowledge(const std::uint64_t sequence) { session_->acknowledge(sequence); }
+  void
+  export_field(const std::uint64_t sequence, const std::uint64_t generation,
+               const bool power, const bool optics,
+               const std::optional<RealInput>& weight,
+               nb::ndarray<std::complex<double>, nb::c_contig, nb::device::cpu> out) {
+    const std::size_t n = session_->elements();
+    if (out.size() != n)
+      throw std::invalid_argument("an export destination has " +
+                                  std::to_string(out.size()) + " elements, expected " +
+                                  std::to_string(n));
+    if (weight && weight->size() != n)
+      throw std::invalid_argument("an export's power weight has " +
+                                  std::to_string(weight->size()) +
+                                  " elements, expected " + std::to_string(n));
+    const double* values = weight ? weight->data() : nullptr;
+    auto* destination = reinterpret_cast<double*>(out.data());
+    const nb::gil_scoped_release release;
+    session_->export_field(sequence, generation, power, optics, values, destination);
+  }
+  void request_stop() noexcept { session_->request_stop(); }
+  nb::tuple request_snapshot() {
+    const auto receipt = session_->request_snapshot();
+    return nb::make_tuple(receipt.request, receipt.coalesced);
+  }
+  native::session::Status status() const { return session_->status(); }
+  std::size_t elements() const { return session_->elements(); }
+  void close() noexcept {
+    session_->close();
+    if (owner_ != nullptr) {
+      owner_->release(this);
+      owner_ = nullptr;
+    }
+  }
+  // The owner's own close: the session closes, the owner forgets it.
+  void close_native() noexcept {
+    session_->close();
+    owner_ = nullptr;
+  }
+
+private:
+  BoundState* owner_;
+  std::unique_ptr<native::session::Session> session_;
+};
+
+void BoundState::close() noexcept {
+  if (session_ != nullptr) {
+    session_->close_native();
+    session_ = nullptr;
+  }
+  if (general_state_) {
+    general_state_->close();
+    general_state_.reset();
+  }
+}
+
+native::session::StatisticsRecipe statistics_recipe_from(const nb::dict values) {
+  native::session::StatisticsRecipe recipe;
+  try {
+    const auto kind = nb::cast<int>(values["kind"]);
+    if (kind < 0 || kind > 2)
+      throw std::invalid_argument("a statistics recipe's kind is 0, 1 or 2");
+    recipe.kind = static_cast<native::session::StatisticsRecipe::Kind>(kind);
+    recipe.flags = nb::cast<std::uint64_t>(values["flags"]);
+    recipe.windows = real_vector(exact_array<RealInput>(values["windows"]));
+    recipe.power_weight = real_vector(exact_array<RealInput>(values["power_weight"]));
+    recipe.intensity_factor = nb::cast<double>(values["intensity_factor"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a session's statistics recipe has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("a session's statistics recipe lacks a field");
+  }
+  return recipe;
+}
+
+native::session::Plan session_plan_from(const nb::dict values) {
+  native::session::Plan plan;
+  try {
+    plan.planes = real_vector(exact_array<RealInput>(values["planes"]));
+    plan.next_plane = nb::cast<std::size_t>(values["next_plane"]);
+    plan.launch_pending = nb::cast<bool>(values["launch_pending"]);
+    plan.step_planes = nb::cast<std::uint64_t>(values["step_planes"]);
+    plan.plane_statistics = statistics_recipe_from(values["plane_statistics"]);
+    plan.row_statistics = statistics_recipe_from(values["row_statistics"]);
+    plan.period = nb::cast<std::uint64_t>(values["period"]);
+    plan.row_capacity = nb::cast<std::size_t>(values["row_capacity"]);
+    plan.replay = nb::cast<bool>(values["replay"]);
+    plan.replay_steps = nb::cast<std::size_t>(values["replay_steps"]);
+    plan.replay_length = nb::cast<double>(values["replay_length"]);
+    plan.call_attempts = nb::cast<std::size_t>(values["call_attempts"]);
+    plan.call_seconds = nb::cast<double>(values["call_seconds"]);
+  } catch (const nb::cast_error&) {
+    throw std::invalid_argument("a session's plan has the wrong types");
+  } catch (const nb::python_error&) {
+    throw std::invalid_argument("a session's plan lacks a field");
+  }
+  return plan;
+}
+
+std::unique_ptr<BoundSession> start_session(BoundState& state, const std::string& kind,
+                                            const nb::dict march_state,
+                                            const nb::dict plan, const double z) {
+  auto method = state.session_method(kind, march_state);
+  auto session = std::make_unique<native::session::Session>(
+      state.session_resident(), std::move(method), session_plan_from(plan), z);
+  return std::make_unique<BoundSession>(state, std::move(session));
+}
+
+// A batch's packed arrays as owning NumPy arrays.
+RealOutput real_rows(const std::vector<double>& values, const std::size_t rows,
+                     const std::size_t columns) {
+  auto storage = std::make_unique<RealStorage>(
+      values.begin(), values.begin() + static_cast<std::ptrdiff_t>(rows * columns));
+  auto* pointer = storage.get();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<RealStorage> held(static_cast<RealStorage*>(value));
+  });
+  storage.release();
+  const std::array<std::size_t, 2> shape{rows, columns};
+  return RealOutput(pointer->data(), shape.size(), shape.data(), owner);
+}
+
+nb::ndarray<nb::numpy, std::uint64_t, nb::c_contig, nb::device::cpu>
+index_output(const std::vector<std::uint64_t>& values) {
+  auto storage = std::make_unique<std::vector<std::uint64_t>>(values);
+  auto* pointer = storage.get();
+  nb::capsule owner(pointer, [](void* value) noexcept {
+    const std::unique_ptr<std::vector<std::uint64_t>> held(
+        static_cast<std::vector<std::uint64_t>*>(value));
+  });
+  storage.release();
+  const std::array<std::size_t, 1> shape{pointer->size()};
+  return {pointer->data(), shape.size(), shape.data(), owner};
+}
 
 void shutdown_kokkos() {
   const std::scoped_lock lock(runtime_state.mutex);
@@ -2437,7 +2649,8 @@ NB_MODULE(_core, module_) {
         const double control = product + c;
         return nb::make_tuple(control, native::march::strict_probe(a, b, c),
                               native::watch::strict_probe(a, b, c),
-                              native::rk::strict_probe(a, b, c));
+                              native::rk::strict_probe(a, b, c),
+                              native::session::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(
@@ -3035,6 +3248,8 @@ NB_MODULE(_core, module_) {
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
           "edges"_a.noconvert())
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("start_session", &start_session, "kind"_a, "state"_a, "plan"_a, "z"_a,
+           nb::keep_alive<0, 1>())
       .def("rk_weights_configure", &BoundState::rk_weights_configure, "weights"_a)
       .def(
           "rk_weighted_score",
@@ -3520,6 +3735,130 @@ NB_MODULE(_core, module_) {
                    [](BoundState& self) { return self.response_team_size(); })
       .def_prop_ro("closed", &BoundState::closed)
       .def("close", &BoundState::close);
+  // solprop SEP 47: the native execution session and its compact event records.
+  nb::exception<native::session::LifecycleError>(module_, "SessionLifecycleError");
+  nb::class_<native::session::Event>(module_, "SessionEvent")
+      .def_prop_ro("kind",
+                   [](const native::session::Event& event) {
+                     return static_cast<int>(event.kind);
+                   })
+      .def_prop_ro("observation",
+                   [](const native::session::Event& event) {
+                     return static_cast<int>(event.observation);
+                   })
+      .def_ro("z", &native::session::Event::z)
+      .def_ro("plane_index", &native::session::Event::plane_index)
+      .def_ro("attempts_begin", &native::session::Event::attempts_begin)
+      .def_ro("attempts_end", &native::session::Event::attempts_end)
+      .def_ro("rows_begin", &native::session::Event::rows_begin)
+      .def_ro("rows_end", &native::session::Event::rows_end)
+      .def_ro("has_rows", &native::session::Event::has_rows)
+      .def_ro("has_stats", &native::session::Event::has_stats)
+      .def_ro("ticket", &native::session::Event::ticket)
+      .def_ro("generation", &native::session::Event::generation)
+      .def_prop_ro("outcome",
+                   [](const native::session::Event& event) {
+                     return static_cast<int>(event.outcome);
+                   })
+      .def_prop_ro("reason",
+                   [](const native::session::Event& event) {
+                     return static_cast<int>(event.failure.reason);
+                   })
+      .def_prop_ro("category",
+                   [](const native::session::Event& event) {
+                     return static_cast<int>(event.failure.category);
+                   })
+      .def_prop_ro(
+          "message",
+          [](const native::session::Event& event) { return event.failure.message; })
+      .def_prop_ro("floor_proposal",
+                   [](const native::session::Event& event) {
+                     return event.failure.floor_proposal;
+                   })
+      .def_prop_ro(
+          "cost",
+          [](const native::session::Event& event) { return event.failure.cost; })
+      .def_prop_ro(
+          "replay_dz",
+          [](const native::session::Event& event) { return event.failure.replay_dz; })
+      .def_prop_ro(
+          "replay_end",
+          [](const native::session::Event& event) { return event.failure.replay_end; })
+      .def_prop_ro(
+          "replay_norm",
+          [](const native::session::Event& event) { return event.failure.replay_norm; })
+      .def_prop_ro(
+          "cursor",
+          [](const native::session::Event& event) { return event.failure.cursor; })
+      .def_prop_ro("schedule_exhausted",
+                   [](const native::session::Event& event) {
+                     return event.failure.schedule_exhausted;
+                   })
+      .def_prop_ro("target", [](const native::session::Event& event) {
+        return event.failure.target;
+      });
+  nb::class_<native::session::Batch>(module_, "SessionBatch")
+      .def_ro("sequence", &native::session::Batch::sequence)
+      .def_ro("new_attempts", &native::session::Batch::new_attempts)
+      .def_prop_ro("events",
+                   [](const native::session::Batch& batch) {
+                     return nb::cast(std::vector<native::session::Event>(batch.events),
+                                     nb::rv_policy::move);
+                   })
+      .def_prop_ro("attempts",
+                   [](const native::session::Batch& batch) {
+                     return nb::cast(real_rows(batch.attempts,
+                                               batch.attempts.size() /
+                                                   native::session::attempt_columns,
+                                               native::session::attempt_columns));
+                   })
+      .def_prop_ro("row_z",
+                   [](const native::session::Batch& batch) {
+                     return nb::cast(real_rows(batch.row_z, batch.row_z.size(), 1));
+                   })
+      .def_prop_ro("row_step",
+                   [](const native::session::Batch& batch) {
+                     return nb::cast(index_output(batch.row_step));
+                   })
+      .def_prop_ro("row_values",
+                   [](const native::session::Batch& batch) {
+                     return nb::cast(real_rows(batch.row_values, batch.row_z.size(),
+                                               batch.row_width));
+                   })
+      .def_prop_ro("plane_stats", [](const native::session::Batch& batch) {
+        return nb::cast(real_rows(batch.plane_stats, 1, batch.plane_stats.size()));
+      });
+  nb::class_<native::session::Status>(module_, "SessionStatus")
+      .def_ro("z", &native::session::Status::z)
+      .def_ro("plane_index", &native::session::Status::plane_index)
+      .def_ro("attempts", &native::session::Status::attempts)
+      .def_ro("rejected", &native::session::Status::rejected)
+      .def_prop_ro("state",
+                   [](const native::session::Status& status) {
+                     return static_cast<int>(status.state);
+                   })
+      .def_prop_ro("outcome",
+                   [](const native::session::Status& status) {
+                     return static_cast<int>(status.outcome);
+                   })
+      .def_ro("generation", &native::session::Status::generation)
+      .def_ro("march_calls", &native::session::Status::march_calls)
+      .def_ro("rows_taken", &native::session::Status::rows_taken)
+      .def_ro("batches", &native::session::Status::batches)
+      .def_ro("exports", &native::session::Status::exports)
+      .def_ro("export_bytes", &native::session::Status::export_bytes)
+      .def_ro("buffer_bytes", &native::session::Status::buffer_bytes);
+  nb::class_<BoundSession>(module_, "Session")
+      .def("advance", &BoundSession::advance, "work_limit"_a, "deadline"_a)
+      .def("acknowledge", &BoundSession::acknowledge, "sequence"_a)
+      .def("export", &BoundSession::export_field, "sequence"_a, "generation"_a,
+           "power"_a, "optics"_a, "weight"_a.none(), "out"_a)
+      .def("request_stop", &BoundSession::request_stop,
+           nb::call_guard<nb::gil_scoped_release>())
+      .def("request_snapshot", &BoundSession::request_snapshot)
+      .def("status", &BoundSession::status)
+      .def_prop_ro("elements", &BoundSession::elements)
+      .def("close", &BoundSession::close);
   nb::class_<BoundBatch>(module_, "BatchState")
       .def(nb::init<const nb::list&>())
       .def(
