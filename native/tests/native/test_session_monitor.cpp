@@ -126,8 +126,9 @@ Built build(std::vector<double> guard, const double rate = 0.0,
   method.engine = std::make_unique<Engine>(*field);
   session::Plan plan;
   plan.planes = {0.005, 0.01};
-  plan.row_statistics.kind = session::StatisticsRecipe::Kind::temporal;
-  plan.row_statistics.flags = 1;
+  auto statistics = std::make_shared<solprop_native::statistics::Plan>();
+  statistics->outputs = {solprop_native::statistics::Stat::energy};
+  plan.row_statistics.plan = std::move(statistics);
   plan.period = 1;
   plan.monitor = monitor(cadence);
   built.session = std::make_unique<session::Session>(

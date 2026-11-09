@@ -2283,6 +2283,10 @@ public:
                                  double intensity_factor,
                                  const std::vector<double>& channel_preionisation,
                                  const std::vector<double>& power_weight);
+  std::vector<double> whitened_statistics(const std::vector<Complex>& root,
+                                          std::uint64_t flags,
+                                          const std::vector<double>& windows,
+                                          double intensity_factor, bool spectral);
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();
@@ -2920,6 +2924,12 @@ public:
   RealView2 spatial_statistics_partials_;
   RealView statistics_total_power_;
   RealView statistics_on_axis_, statistics_packed_;
+  // solprop SEP 47: a general modal basis's whitened columns, the metric's square
+  // root at one position and their sums, allocated by the first statistics call that
+  // needs them (outside any trial step).
+  ComplexView2 statistics_whitened_;
+  ComplexView statistics_root_;
+  RealView statistics_whitened_sums_;
   RealView tableau_, omega_, omega_window_, time_window_, absorber_fine_,
       absorber_coarse_;
   RealView stage_phi_delta_, stage_phi_at_, stage_prefactor_;
@@ -4450,6 +4460,18 @@ void GeneralWorkspace::allocate() {
     }
   }
   if (problem_.general_modal) {
+    // solprop SEP 47: a general modal basis's statistics whiten the columns by the
+    // metric's root (`whitened_statistics`), into scratch held from the start.
+    statistics_whitened_ = ComplexView2("solprop_native.statistics.whitened",
+                                        problem_.n_columns(), problem_.n_omega);
+    statistics_root_ =
+        ComplexView("solprop_native.statistics.metric_root",
+                    checked_product(problem_.n_omega,
+                                    checked_product(problem_.n_modes, problem_.n_modes,
+                                                    "metric root"),
+                                    "metric root"));
+    statistics_whitened_sums_ = RealView("solprop_native.statistics.whitened_sums",
+                                         problem_.n_columns() + problem_.n_omega);
     general_ = std::make_unique<GeneralModalSource>(problem_);
     // The source owns execution-space copies; the host maps are the largest arrays a
     // general guide carries and nothing reads them again.
@@ -14195,6 +14217,109 @@ std::vector<double> GeneralWorkspace::statistics(
   return result;
 }
 
+std::vector<double> GeneralWorkspace::whitened_statistics(
+    const std::vector<Complex>& root, const std::uint64_t flags,
+    const std::vector<double>& windows, const double intensity_factor,
+    const bool spectral) {
+  require_open();
+  if (!initialized_)
+    throw std::logic_error("no initial field has been loaded");
+  constexpr std::uint64_t admitted = statistics_omega0 | statistics_energy |
+                                     statistics_peak_power_total | statistics_fwhm;
+  if ((flags & ~admitted) != 0U)
+    throw std::invalid_argument("a general modal basis's statistics are omega0, the "
+                                "energy, the peak total power and the widths");
+  const auto columns = problem_.n_columns();
+  const auto n = problem_.n_omega;
+  const auto modes = problem_.n_modes;
+  const auto n_pol = problem_.n_pol_state;
+  const bool whiten = !root.empty();
+  if (whiten) {
+    require_extent(
+        root.size(),
+        checked_product(n, checked_product(modes, modes, "metric root"), "metric root"),
+        "metric root");
+    if (statistics_whitened_.extent(0) != columns ||
+        statistics_whitened_.extent(1) != n)
+      throw std::logic_error("whitened statistics are a general modal basis's");
+    copy_vector(execution_space_, statistics_root_, root);
+    const auto field = current_;
+    const auto whitened = statistics_whitened_;
+    const auto matrix = statistics_root_;
+    // `c_mp(w) = sum_n R_mn(w) a_np(w)`, `numpy.einsum("kmn,npk->mpk", ...)`'s terms.
+    launch::parallel_for(
+        "solprop_native.statistics.whiten",
+        Range2(execution_space_, {0, 0}, {columns, n}),
+        KOKKOS_LAMBDA(const std::size_t column, const std::size_t index) {
+          const auto mode = column / n_pol;
+          const auto pol = column % n_pol;
+          Complex sum{};
+          for (std::size_t other = 0; other < modes; ++other)
+            sum += matrix((index * modes + mode) * modes + other) *
+                   field(other * n_pol + pol, index);
+          whitened(column, index) = sum;
+        });
+  }
+  const auto sums_size = columns + (spectral ? n : 0);
+  if (statistics_whitened_sums_.size() < sums_size)
+    throw std::logic_error("whitened statistics are a general modal basis's");
+  std::vector<double> result;
+  {
+    // The statistics passes read `current_`: they read the whitened columns while
+    // this scope holds them there, and the state's own afterwards, even on a throw.
+    struct Swap {
+      ComplexView2& first;
+      ComplexView2& second;
+      bool active;
+      Swap(ComplexView2& a, ComplexView2& b, const bool on)
+          : first(a), second(b), active(on) {
+        if (active)
+          std::swap(first, second);
+      }
+      ~Swap() {
+        if (active)
+          std::swap(first, second);
+      }
+      Swap(const Swap&) = delete;
+      Swap& operator=(const Swap&) = delete;
+      Swap(Swap&&) = delete;
+      Swap& operator=(Swap&&) = delete;
+    } swap(current_, statistics_whitened_, whiten);
+    if (flags != 0U)
+      result = statistics(flags, windows, {}, 0.0, 1.0, 0.0, intensity_factor, {}, {});
+    const auto field = current_;
+    const auto sums = statistics_whitened_sums_;
+    launch::parallel_for(
+        "solprop_native.statistics.whitened_column_sums",
+        Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, columns),
+        KOKKOS_LAMBDA(const std::size_t column) {
+          double sum = 0.0;
+          for (std::size_t index = 0; index < n; ++index)
+            sum += squared_abs(field(column, index));
+          sums(column) = sum;
+        });
+    if (spectral)
+      launch::parallel_for(
+          "solprop_native.statistics.whitened_bin_sums",
+          Kokkos::RangePolicy<ExecutionSpace>(execution_space_, 0, n),
+          KOKKOS_LAMBDA(const std::size_t index) {
+            double sum = 0.0;
+            for (std::size_t column = 0; column < columns; ++column)
+              sum += squared_abs(field(column, index));
+            sums(columns + index) = sum;
+          });
+  }
+  const auto active = Kokkos::subview(statistics_whitened_sums_,
+                                      std::make_pair<std::size_t>(0, sums_size));
+  auto host = Kokkos::create_mirror_view(active);
+  graph::deep_copy(execution_space_, host, active);
+  execution_space_.fence("solprop_native whitened statistics boundary");
+  result.reserve(result.size() + sums_size);
+  for (std::size_t index = 0; index < sums_size; ++index)
+    result.push_back(host(index));
+  return result;
+}
+
 // solprop SEP 34: the buffers of the magnetic closure's synthesis, allocated at
 // construction when the problem's own request has a local flux statistic and here,
 // outside any trial step, when a later request first needs them.
@@ -16538,6 +16663,9 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"fixed_phi_terms", phi_terms_.size() * complex_bytes},
       {"fixed_prefactor_terms", prefactor_terms_.size() * complex_bytes},
       {"z_tables", phi_table_.bytes() + prefactor_table_.bytes() + rate_table_.bytes()},
+      {"statistics_metric", statistics_whitened_.size() * complex_bytes +
+                                statistics_root_.size() * complex_bytes +
+                                statistics_whitened_sums_.size() * real_bytes},
       // solprop SEP 34: a radial run's plane-measure squares and its material table
       // (a separable run's alias its operator's), and the magnetic closure's
       // transverse volume of a separable run's local flux statistics.
@@ -17165,6 +17293,15 @@ GeneralState::statistics(const std::uint64_t flags, const std::vector<double>& w
   const CpuTeamScope team(workspace_->cpu_team());
   return workspace_->statistics(flags, windows, on_axis, density, taper, preionisation,
                                 intensity_factor, channel_preionisation, power_weight);
+}
+std::vector<double>
+GeneralState::whitened_statistics(const std::vector<Complex>& root,
+                                  const std::uint64_t flags,
+                                  const std::vector<double>& windows,
+                                  const double intensity_factor, const bool spectral) {
+  const CpuTeamScope team(workspace_->cpu_team());
+  return workspace_->whitened_statistics(root, flags, windows, intensity_factor,
+                                         spectral);
 }
 std::vector<double> GeneralState::spatial_statistics(const std::uint64_t flags,
                                                      const double intensity_factor,

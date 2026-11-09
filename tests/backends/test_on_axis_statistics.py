@@ -174,6 +174,38 @@ def test_a_radau_axis_node_supplies_the_row_when_the_nodes_were_scanned(
     assert counted == scans
 
 
+@pytest.mark.parametrize("radial_rule", ["field_scale", "field_scale_radau"])
+def test_an_axis_statistic_leaves_the_node_statistics_the_plan_s(
+    grid, table, radial_rule
+):
+    """SEP 47 section 6.4: one native implementation of each statistic, on a plane.
+
+    Asking for an on-axis plasma statistic beside the node statistics moves only the
+    axis statistic to the host: every other value is the native plan's, bit for bit
+    the same with or without it, and a Radau rule's axis node still reuses the scan.
+    """
+    pytest.importorskip("solprop_native")
+    mode = argon()
+    rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
+    problem = problem_on(grid, table, [mode], rule)
+    nodes = (
+        "energy",
+        "peak_intensity",
+        "electron_density",
+        "peak_ionisation_rate",
+        "species_ionisation",
+        "species_electron_density",
+        "species_ionisation_energy",
+    )
+    alone, _ = backend_stats("native", grid, problem, [mode], StatsSpec(names=nodes))
+    spec = StatsSpec(names=(*nodes, *ON_AXIS_PLASMA_STATISTICS))
+    both, counted = backend_stats("native", grid, problem, [mode], spec)
+    assert counted == (0 if radial_rule == "field_scale_radau" else 1)
+    assert set(both) == set(spec.names)
+    for name in nodes:
+        np.testing.assert_array_equal(both[name], alone[name], name)
+
+
 def test_consecutive_planes_scan_their_own_field(grid, table):
     """No row is reused across observations: each plane scans the field it has."""
     mode = argon()

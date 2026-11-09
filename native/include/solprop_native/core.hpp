@@ -955,6 +955,20 @@ public:
              double preionisation, double intensity_factor,
              const std::vector<double>& channel_preionisation = {},
              const std::vector<double>& power_weight = {});
+  /**
+   * solprop SEP 47: a general modal basis's statistics, functionals of the physical
+   * flux `a.H W a` (`solprop.stats._whitened`). The state's columns are whitened by
+   * `root`, `W^(1/2)` at each frequency, `(n_omega, n_modes, n_modes)` row-major
+   * (empty for the identity), into a statistics scratch, and the temporal `flags`
+   * (omega0, energy, peak power total and the width's trace) are evaluated on
+   * `c = W^(1/2) a`. Returns their packed values, then each column's `sum |c|^2`,
+   * then, with `spectral`, each bin's `sum |c|^2` over the columns. The state is
+   * unchanged.
+   */
+  [[nodiscard]] std::vector<double>
+  whitened_statistics(const std::vector<Complex>& root, std::uint64_t flags,
+                      const std::vector<double>& windows, double intensity_factor,
+                      bool spectral);
   void finish(double dz);
   void promote_fsal();
   void clear_fsal();

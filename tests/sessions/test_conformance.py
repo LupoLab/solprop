@@ -13,6 +13,7 @@ exact because they are identities of the protocol -- event order, cursor account
 lossless copies and yields that must be transport no-ops (sections 5.1 and 7.1).
 """
 
+import dataclasses
 import threading
 import time
 import warnings
@@ -28,6 +29,7 @@ from sessions.executors import (
     MONITOR,
     PLANES,
     RECIPES,
+    STATISTICS,
     STORED,
     Executor,
     Run,
@@ -37,6 +39,7 @@ from sessions.executors import (
     drive,
     soliton,
     spy_monitor,
+    window,
 )
 from solprop.backends.events import (
     Eligibility,
@@ -58,6 +61,7 @@ from solprop.backends.session import (
     StopToken,
 )
 from solprop.exceptions import BackendError, StopRequested
+from solprop.stats import StatsSpec
 from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
@@ -392,6 +396,54 @@ def test_events_follow_the_committed_order_without_a_monitor(start):
     rest = drive(started)
     run = Run([launch, *rest.batches], [], rest.status)
     _assert_committed_order(run)
+
+
+PERIODIC = (
+    "omega0",
+    "energy",
+    "energy_window",
+    "peak_power",
+    "peak_power_window",
+    "peak_power_total",
+    "fwhm_t",
+    "fwhm_t_outer",
+)
+"""Every periodic-capable statistic of the soliton's route."""
+
+
+def test_every_periodic_statistic_s_row_is_its_plane_s(start, executor):
+    """SEP 47 section 6.4: rows and planes use one implementation of each statistic.
+
+    With a row and a step plane at every accepted step, each row is taken at its
+    observation's committed state, and equals that plane's statistics: bitwise where
+    repeated runs are, and every periodic-capable statistic of the route is a row.
+    """
+    executor.require(STATISTICS)
+    grid = window()
+    spec = StatsSpec(
+        names=PERIODIC,
+        periodic=PERIODIC,
+        period=1,
+        energy_windows=np.array([[0.99 * grid.omega0, 1.01 * grid.omega0]]),
+    )
+    problem = dataclasses.replace(soliton(step_planes=1), stats_spec=spec)
+    run = drive(start(problem, describe_run(problem)))
+    coincident = 0
+    for event in run.observations[1:]:
+        rows = event.step_stats
+        if rows.n_rows == 0 or rows.z[-1] != event.z:
+            # A plane at a position already observed carries no new row.
+            continue
+        assert rows.values.keys() == set(PERIODIC)
+        coincident += 1
+        for name in PERIODIC:
+            row, plane = rows.values[name][-1], event.stats[name]
+            assert row.shape == plane.shape, name
+            if executor.deterministic:
+                np.testing.assert_array_equal(row, plane, name)
+            else:
+                np.testing.assert_allclose(row, plane, rtol=1e-12, err_msg=name)
+    assert coincident > len(PLANES)
 
 
 def _assert_committed_order(run: Run) -> None:
@@ -839,11 +891,9 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
     # The attempts up to the endpoint, that one included, less every chunk an earlier
     # event delivered (bounded yields deliver theirs too: exactly once).
     reached = [z for z, _, _ in heard].index(end) + 1
-    before = run.events[: run.events.index(snapshot)]
+    chunks = run.chunks
     delivered = sum(
-        event.history.n_steps
-        for event in before
-        if getattr(event, "history", None) is not None
+        history.n_steps for history, _ in chunks[: run.events.index(snapshot)]
     )
     assert snapshot.history.n_steps == reached - delivered
     rows = snapshot.step_stats
@@ -857,14 +907,10 @@ def test_a_snapshot_between_planes_carries_the_attempts_since_the_last_plane(sta
 
     def delivered_through(event: object) -> tuple[int, int]:
         """Attempts and rows every event up to and including `event` delivered."""
-        upto = run.events[: run.events.index(event) + 1]
+        upto = chunks[: run.events.index(event) + 1]
         return (
-            sum(e.history.n_steps for e in upto if getattr(e, "history", None)),
-            sum(
-                e.step_stats.n_rows
-                for e in upto
-                if getattr(e, "step_stats", None) is not None
-            ),
+            sum(history.n_steps for history, _ in upto),
+            sum(rows.n_rows for _, rows in upto),
         )
 
     first_end, first_rows = delivered_through(first)

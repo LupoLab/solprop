@@ -199,15 +199,10 @@ void GeneralResident::count_to_host(const std::size_t bytes) {
 
 std::vector<double> GeneralResident::statistics(const session::StatisticsRecipe& recipe,
                                                 const double z) {
-  using Kind = session::StatisticsRecipe::Kind;
-  if (recipe.kind == Kind::spatial)
-    return state_.spatial_statistics(recipe.flags, recipe.intensity_factor, z);
-  if (recipe.kind != Kind::temporal)
+  if (recipe.empty())
     throw std::logic_error("no statistics were prepared");
-  // The admitted statistics read neither the plasma's density, preionisation and
-  // taper nor the on-axis synthesis, which the session refuses by name.
-  return state_.statistics(recipe.flags, recipe.windows, {}, 0.0, 1.0, 0.0,
-                           recipe.intensity_factor, {}, recipe.power_weight);
+  // The one native implementation of each statistic, plane and periodic alike.
+  return statistics::evaluate(state_, *recipe.plan, z);
 }
 
 std::vector<double> GeneralResident::boundary_reading() {

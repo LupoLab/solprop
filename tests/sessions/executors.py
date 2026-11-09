@@ -19,7 +19,8 @@ the same tests.
 - ``native-session`` is the native execution session itself
   (:class:`solprop_native.session.NativeSession`, SEP 47's phase 1 prototype): the
   native backend owns the run, its boundary monitor included, whose decisions and
-  record are native (:attr:`Executor.native_monitor`).
+  record are native (:attr:`Executor.native_monitor`); it evaluates every
+  periodic-capable statistic natively.
 - ``scripted-host`` is the same script on the reference's own driver, in the
   reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
@@ -431,7 +432,12 @@ def _native_session(problem, request, start, *, stop=None, listener=None, **scri
 MONITOR = "monitor"
 """The capability of watching the boundary with a monitor (SEP 21)."""
 
-CAPABILITIES = frozenset({MONITOR})
+STATISTICS = "statistics"
+"""The capability of evaluating the catalogue's statistics of the soliton's route,
+every periodic-capable one as a periodic row (SEP 47 section 6.4); a scripted driver
+reports positions in their place."""
+
+CAPABILITIES = frozenset({MONITOR, STATISTICS})
 """Every capability a test may need of an executor."""
 
 
@@ -519,7 +525,10 @@ EXECUTORS: dict[str, Executor] = {
         requires="solprop_native",
     ),
     "scripted": Executor(
-        "scripted", _over_driver(_scripted, host_state=True), scripted=True
+        "scripted",
+        _over_driver(_scripted, host_state=True),
+        scripted=True,
+        capabilities=frozenset({MONITOR}),
     ),
     "native-session": Executor(
         "native-session",

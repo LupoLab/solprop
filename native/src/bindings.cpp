@@ -57,6 +57,7 @@
 #include <span>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 #include <utility>
 #include <vector>
 
@@ -1858,6 +1859,12 @@ public:
     return general_state_->aperture_statistics(flags, apertures, exponent, regions,
                                                intensity_factor);
   }
+  std::vector<double>
+  planned_statistics(const std::shared_ptr<const native::statistics::Plan>& plan,
+                     const double z) {
+    require_open();
+    return native::statistics::evaluate(*general_state_, *plan, z);
+  }
   void bind_edge(const std::vector<double>& faces, const std::vector<double>& clip,
                  const std::vector<double>& totals,
                  const std::vector<double>& synthesis, const std::size_t first_row) {
@@ -2430,21 +2437,130 @@ void BoundState::close() noexcept {
   }
 }
 
-native::session::StatisticsRecipe statistics_recipe_from(const nb::dict values) {
+// solprop SEP 47 section 6.4: a statistics evaluation lowered once from the problem,
+// the one native implementation of each statistic (statistics_plan.hpp).
+template <class Value>
+native::statistics::Table<Value> table_from(const nb::handle value) {
+  native::statistics::Table<Value> table;
+  if (value.is_none())
+    return table;
+  const auto values = nb::cast<nb::dict>(value);
+  table.edges = real_vector(exact_array<RealInput>(values["edges"]));
+  if constexpr (std::is_same_v<Value, double>) {
+    table.coefficients = real_vector(exact_array<RealInput>(values["coefficients"]));
+  } else {
+    const auto coefficients = exact_array<ComplexInput>(values["coefficients"]);
+    table.coefficients.assign(coefficients.data(),
+                              coefficients.data() + element_count(coefficients));
+  }
+  table.n_terms = nb::cast<std::size_t>(values["n_terms"]);
+  table.n_values = nb::cast<std::size_t>(values["n_values"]);
+  table.lower = nb::cast<double>(values["lower"]);
+  table.upper = nb::cast<double>(values["upper"]);
+  return table;
+}
+
+std::vector<native::statistics::Table<double>> tables_from(const nb::handle value) {
+  std::vector<native::statistics::Table<double>> tables;
+  for (const auto item : nb::cast<nb::list>(value))
+    tables.push_back(table_from<double>(item));
+  return tables;
+}
+
+class BoundStatisticsPlan {
+public:
+  explicit BoundStatisticsPlan(const nb::dict values) {
+    auto plan = std::make_shared<native::statistics::Plan>();
+    namespace statistics = native::statistics;
+    try {
+      const auto route = nb::cast<int>(values["route"]);
+      if (route < 0 || route > 2)
+        throw std::invalid_argument("a statistics plan's route is 0, 1 or 2");
+      plan->route = static_cast<statistics::Route>(route);
+      for (const auto item : nb::cast<nb::list>(values["outputs"])) {
+        const auto id = nb::cast<int>(item);
+        if (id < 0 || id >= statistics::stat_count)
+          throw std::invalid_argument("a statistics plan names an unknown statistic");
+        plan->outputs.push_back(static_cast<statistics::Stat>(id));
+      }
+      plan->n_modes = nb::cast<std::size_t>(values["n_modes"]);
+      plan->n_pol = nb::cast<std::size_t>(values["n_pol"]);
+      plan->n_t = nb::cast<std::size_t>(values["n_t"]);
+      plan->n_omega = nb::cast<std::size_t>(values["n_omega"]);
+      plan->n_nodes = nb::cast<std::size_t>(values["n_nodes"]);
+      plan->n_channels = nb::cast<std::size_t>(values["n_channels"]);
+      plan->n_species = nb::cast<std::size_t>(values["n_species"]);
+      plan->windows = real_vector(exact_array<RealInput>(values["windows"]));
+      plan->intensity_factor = nb::cast<double>(values["intensity_factor"]);
+      plan->t = real_vector(exact_array<RealInput>(values["t"]));
+      const auto weight = nb::cast<int>(values["weight_kind"]);
+      if (weight < 0 || weight > 3)
+        throw std::invalid_argument("a statistics plan's weight kind is 0 to 3");
+      plan->weight_kind = static_cast<statistics::Weight>(weight);
+      plan->weight = real_vector(exact_array<RealInput>(values["weight"]));
+      plan->weight_table = table_from<double>(values["weight_table"]);
+      plan->on_axis = real_vector(exact_array<RealInput>(values["on_axis"]));
+      plan->taper = table_from<double>(values["taper"]);
+      plan->plasma_density = table_from<double>(values["plasma_density"]);
+      plan->plasma_preionisation = table_from<double>(values["plasma_preionisation"]);
+      plan->channel_preionisation = tables_from(values["channel_preionisation"]);
+      plan->envelope_plasma = nb::cast<bool>(values["envelope_plasma"]);
+      plan->species_density = tables_from(values["species_density"]);
+      for (const auto item : nb::cast<nb::list>(values["channel_species"]))
+        plan->channel_species.push_back(nb::cast<std::size_t>(item));
+      plan->potentials = real_vector(exact_array<RealInput>(values["potentials"]));
+      const auto transverse = nb::cast<int>(values["transverse"]);
+      if (transverse < 0 || transverse > 3)
+        throw std::invalid_argument("a statistics plan's transverse kind is 0 to 3");
+      plan->transverse = static_cast<statistics::Transverse>(transverse);
+      plan->node_weights = real_vector(exact_array<RealInput>(values["node_weights"]));
+      plan->aeff = table_from<double>(values["aeff"]);
+      const auto profiles = nb::cast<nb::list>(values["profiles"]);
+      if (profiles.size() != plan->profiles.size())
+        throw std::invalid_argument("a statistics plan has three profile slots");
+      for (std::size_t index = 0; index < plan->profiles.size(); ++index)
+        plan->profiles[index] = table_from<double>(profiles[index]);
+      plan->far_field_axis = nb::cast<bool>(values["far_field_axis"]);
+      const auto apertures = exact_array<RealInput>(values["apertures"]);
+      if (apertures.ndim() != 2)
+        throw std::invalid_argument(
+            "a statistics plan's apertures are two-dimensional");
+      plan->n_apertures = apertures.shape(0);
+      plan->apertures = real_vector(apertures);
+      plan->exponent = nb::cast<int>(values["exponent"]);
+      const auto regions = exact_array<RealInput>(values["regions"]);
+      if (regions.ndim() != 2)
+        throw std::invalid_argument("a statistics plan's regions are two-dimensional");
+      plan->n_regions = regions.shape(0);
+      plan->regions = real_vector(regions);
+      plan->n_absorbed = nb::cast<std::size_t>(values["n_absorbed"]);
+      plan->root = table_from<std::complex<double>>(values["root"]);
+      plan->spectral_prefactor = nb::cast<double>(values["spectral_prefactor"]);
+    } catch (const nb::cast_error&) {
+      throw std::invalid_argument("a statistics plan has the wrong types");
+    } catch (const nb::python_error&) {
+      throw std::invalid_argument("a statistics plan lacks a field");
+    }
+    plan->validate();
+    plan_ = std::move(plan);
+  }
+  [[nodiscard]] const std::shared_ptr<const native::statistics::Plan>& plan() const {
+    return plan_;
+  }
+  [[nodiscard]] std::size_t packed_size() const { return plan_->packed_size(); }
+
+private:
+  std::shared_ptr<const native::statistics::Plan> plan_;
+};
+
+native::session::StatisticsRecipe statistics_recipe_from(const nb::handle value) {
   native::session::StatisticsRecipe recipe;
+  if (value.is_none())
+    return recipe;
   try {
-    const auto kind = nb::cast<int>(values["kind"]);
-    if (kind < 0 || kind > 2)
-      throw std::invalid_argument("a statistics recipe's kind is 0, 1 or 2");
-    recipe.kind = static_cast<native::session::StatisticsRecipe::Kind>(kind);
-    recipe.flags = nb::cast<std::uint64_t>(values["flags"]);
-    recipe.windows = real_vector(exact_array<RealInput>(values["windows"]));
-    recipe.power_weight = real_vector(exact_array<RealInput>(values["power_weight"]));
-    recipe.intensity_factor = nb::cast<double>(values["intensity_factor"]);
+    recipe.plan = nb::cast<const BoundStatisticsPlan&>(value).plan();
   } catch (const nb::cast_error&) {
-    throw std::invalid_argument("a session's statistics recipe has the wrong types");
-  } catch (const nb::python_error&) {
-    throw std::invalid_argument("a session's statistics recipe lacks a field");
+    throw std::invalid_argument("a session's statistics recipe is a StatisticsPlan");
   }
   return recipe;
 }
@@ -2858,6 +2974,17 @@ NB_MODULE(_core, module_) {
         return native::rk::score(partials.data(), partials.shape(1), rtol, atol);
       },
       "partials"_a, "rtol"_a, "atol"_a);
+  // solprop SEP 47: the native half-maximum width the statistics plan finishes with.
+  module_.def(
+      "half_width",
+      [](const RealInput t, const RealInput power, const bool outer) {
+        if (t.ndim() != 1 || power.ndim() != 1 || t.shape(0) != power.shape(0))
+          throw std::invalid_argument("a width's axis and trace are one-dimensional "
+                                      "and of one length");
+        return native::statistics::half_width(t.data(), power.data(), t.shape(0),
+                                              outer);
+      },
+      "t"_a.noconvert(), "power"_a.noconvert(), "outer"_a);
   // solprop #135: the strict files' probes as the built library holds them, beside a
   // control compiled with this file's contraction. Where the control fuses, a probe
   // that also fused has lost its file's rule, through inlining or the build's flags.
@@ -2869,7 +2996,8 @@ NB_MODULE(_core, module_) {
         return nb::make_tuple(control, native::march::strict_probe(a, b, c),
                               native::watch::strict_probe(a, b, c),
                               native::rk::strict_probe(a, b, c),
-                              native::session::strict_probe(a, b, c));
+                              native::session::strict_probe(a, b, c),
+                              native::statistics::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(
@@ -3731,6 +3859,18 @@ NB_MODULE(_core, module_) {
           "flags"_a, "apertures"_a.noconvert(), "exponent"_a, "regions"_a.noconvert(),
           "intensity_factor"_a)
       .def(
+          "planned_statistics",
+          [](BoundState& self, const BoundStatisticsPlan& plan, const double z) {
+            const auto held = plan.plan();
+            std::vector<double> values;
+            {
+              const nb::gil_scoped_release release;
+              values = self.planned_statistics(held, z);
+            }
+            return real_output(std::move(values), 1);
+          },
+          "plan"_a, "z"_a)
+      .def(
           "statistics",
           [](BoundState& self, const std::uint64_t flags, const RealInput windows,
              const RealInput on_axis, const double density, const double taper,
@@ -4026,6 +4166,9 @@ NB_MODULE(_core, module_) {
         out["step"] = notice.step;
         return out;
       });
+  nb::class_<BoundStatisticsPlan>(module_, "StatisticsPlan")
+      .def(nb::init<const nb::dict>(), "values"_a)
+      .def_prop_ro("packed_size", &BoundStatisticsPlan::packed_size);
   nb::class_<BatchRecord>(module_, "SessionBatch")
       .def_ro("sequence", &BatchRecord::sequence)
       .def_ro("event", &BatchRecord::event)

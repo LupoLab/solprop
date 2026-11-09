@@ -148,6 +148,27 @@ def test_a_temperature_path_runs_ten_steps_on_every_backend(backend):
 
 
 @pytest.mark.medium
+def test_the_native_profile_statistics_record_their_tables_error():
+    """SEP 47 section 6.4: a native profile statistic reads a table, never the
+    profile, and the execution record carries the table's measured error, which
+    bounds the statistic's difference from the profile at every saved plane."""
+    pytest.importorskip("solprop_native")
+    output = run("pair", "warm", "native")
+    simulation = build(PAIR, WARM)
+    outcome = output.outcome
+    assert outcome is not None
+    tables = outcome.execution["statistics_tables"]
+    z = np.asarray(output["z"])
+    for name in ("density", "pressure"):
+        record = tables[name]
+        assert record["relative_error"] <= 1e-13, (name, record)
+        assert record["check_points"] > 4000
+        exact = simulation.profiles[name](z)
+        stored = np.asarray(output[f"stats/{name}"])
+        assert np.max(np.abs(stored - exact)) <= record["max_error"], name
+
+
+@pytest.mark.medium
 @pytest.mark.parametrize("backend", ["numpy_ref", "native"])
 def test_a_constant_temperature_path_runs_like_the_number(backend):
     # The same problem either way, so the two runs are one march, within its rounding

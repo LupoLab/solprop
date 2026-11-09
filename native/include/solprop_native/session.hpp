@@ -19,6 +19,7 @@
 
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/rk_march.hpp"
+#include "solprop_native/statistics_plan.hpp"
 #include "solprop_native/watch.hpp"
 
 /*
@@ -76,18 +77,12 @@ enum class Observation : int { launch = 0, plane = 1, step = 2, natural = 3 };
 /** How a session ended (`solprop.backends.events.Outcome`). */
 enum class Outcome : int { none = 0, completed = 1, stopped = 2, failed = 3 };
 
-/** A statistics evaluation the resident state makes (`GeneralState::statistics` or
-    `spatial_statistics`), with every argument fixed at preparation. */
+/** A statistics evaluation the resident state makes, with every argument fixed at
+    preparation (`statistics::Plan`, solprop SEP 47 section 6.4); none without a
+    plan. */
 struct StatisticsRecipe {
-  enum class Kind : int { none = 0, temporal = 1, spatial = 2 };
-  Kind kind = Kind::none;
-  std::uint64_t flags = 0;
-  /** The energy windows' lower and upper edges, pairs. */
-  std::vector<double> windows;
-  /** The route's modal power weight, constant over the run; empty for a spatial run. */
-  std::vector<double> power_weight;
-  double intensity_factor = 0.0;
-  [[nodiscard]] bool empty() const noexcept { return kind == Kind::none || flags == 0; }
+  std::shared_ptr<const statistics::Plan> plan;
+  [[nodiscard]] bool empty() const noexcept { return !plan || plan->empty(); }
 };
 
 /** What a session reads from and writes through the state it leases: the field and

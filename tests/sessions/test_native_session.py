@@ -225,12 +225,25 @@ CASES = {
     "adams": {"integrator": Multistep()},
     "adams-period-3": {"integrator": Multistep(), "period": 3, "step_planes": 5},
     "rk-replay": {"schedule": FixedSchedule(np.full(40, LENGTH / 40))},
+    "rk-temporal": {
+        "names": (
+            "omega0",
+            "energy",
+            "energy_window",
+            "peak_power",
+            "peak_power_window",
+            "peak_power_total",
+            "fwhm_t",
+            "fwhm_t_outer",
+        )
+    },
     "adams-replay": {
         "integrator": Multistep(),
         "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
     },
 }
-"""Adams and Runge-Kutta, adaptive and replayed, with periodic rows and step planes."""
+"""Adams and Runge-Kutta, adaptive and replayed, with periodic rows and step planes;
+and every temporal statistic, whose native plan the driver's backend also reads."""
 
 
 @pytest.mark.parametrize("recipe", [CONSUMER, STORED], ids=["consumer", "stored"])
@@ -395,8 +408,8 @@ class _OwnAccept(PIController):
             "a controller with its own accepts",
         ),
         (
-            lambda: (_case(names=("energy", "peak_power", "fwhm_t")), {}),
-            "'fwhm_t'",
+            lambda: (_case(names=("energy", "peak_power", "zdw")), {}),
+            "'zdw'",
         ),
     ],
     ids=[

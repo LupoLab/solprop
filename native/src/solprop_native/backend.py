@@ -61,12 +61,10 @@ from solprop.backends.numpy_ref.general_modal import (
     node_kerr_form,
     node_kerr_tensor,
 )
-from solprop.backends.numpy_ref.passes import plasma_integration_statistics
 from solprop.backends.populations import (
     axis_refusal,
     axis_row_matrix,
     axis_row_populations,
-    population_statistics,
 )
 from solprop.backends.spatial import (
     FarFieldTables,
@@ -171,6 +169,13 @@ from . import (
 )
 from ._execution import ExecutionRecord
 from ._helpers import NATIVE
+from ._statistics import (
+    NODE_POPULATIONS,
+    StatisticsLowering,
+    lower,
+    translated,
+    uncovered,
+)
 
 type ComplexArray = npt.NDArray[np.complex128]
 type RealArray = npt.NDArray[np.float64]
@@ -275,18 +280,8 @@ _STAT_FLAGS = {
     "quadrature_error": 1 << 10,
 }
 
-_POPULATIONS_FLAG = 1 << 11
-"""The native per-node, per-channel population rows, packed after the named values."""
-
-_PLASMA_INTEGRATION_FLAG = 1 << 12
-"""solprop SEP 18's run diagnostics: the native six maxima over every node, packed last.
-
-The parts of :func:`solprop.backends.numpy_ref.passes.plasma_integration_diagnostics`,
-from which :func:`solprop.backends.numpy_ref.passes.plasma_integration_statistics` forms
-``plasma_undershoot``, ``plasma_work_defect`` and ``plasma_boundary_level``.
-"""
-
-_PLASMA_INTEGRATION_PARTS = 6
+_STATISTICS_PLANS = 16
+"""The most native statistics plans a backend keeps, one per spec and names."""
 
 
 class NativeBackend(StepDriver[_core.State]):
@@ -299,11 +294,14 @@ class NativeBackend(StepDriver[_core.State]):
         modal or spatial scalar or two-component propagation (radial, Cartesian, or
         the hybrid planar kind of slab modes in x times an FFT in y), instantaneous
         Kerr, plasma, scalar time-domain Raman, weighted control, both absorber
-        schemes, and device-owned statistics; and solprop's general modal route, whose
-        statistics are solprop's own, on a constant guide or a moving one whose maps
-        are combined per stage.
+        schemes, and device-owned statistics; and solprop's general modal route, on a
+        constant guide or a moving one whose maps are combined per stage. Statistics
+        are evaluated and finished natively (solprop SEP 47 section 6.4).
     grid, modes, profiles
         Host context used only for plane statistics.
+    far_field
+        The far-field tables already formed for this problem (a native session's),
+        formed here by default.
 
     Raises
     ------
@@ -341,6 +339,7 @@ class NativeBackend(StepDriver[_core.State]):
         adams_march: Literal["native", "host"] = "native",
         cpu_execution: ExecutionRecord | None = None,
         fft_planning: Mapping[str, object] | None = None,
+        far_field: FarFieldTables | None = None,
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -370,7 +369,12 @@ class NativeBackend(StepDriver[_core.State]):
         )
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
-        self._far_field = FarFieldTables(problem)
+        self._far_field = FarFieldTables(problem) if far_field is None else far_field
+        # solprop SEP 47: the native statistics plans lowered for the specs asked.
+        self._statistics_plans: dict[
+            tuple[int, tuple[str, ...]], tuple[StatsSpec, StatisticsLowering]
+        ] = {}
+        self._statistics_tables: dict[str, dict[str, object]] = {}
         # solprop ADR-076: the plans runs of this machine and build measured before
         # are offered to the workspace, and those it measures are kept after it.
         wisdom = _wisdom.wisdom_file() if fft_planning is None else None
@@ -1549,7 +1553,23 @@ class NativeBackend(StepDriver[_core.State]):
         if refusal is not None:
             raise BackendError(refusal)
         if general_modal:
-            return self._general_statistics(spec, grid_value)
+            # solprop SEP 47: the route's statistics are the native plan's, the one
+            # implementation a native session's rows and planes also read; only a
+            # name it leaves (``zdw``) is collected on the host.
+            weight_refusal = weight_refusal_for(
+                spec.names, power_weight_at(self._problem, self._z)
+            )
+            if weight_refusal is not None:
+                raise BackendError(weight_refusal)
+            left = uncovered(self._problem, spec.names)
+            values = self._planned_statistics(spec, left)
+            if left:
+                values.update(
+                    self._general_statistics(
+                        dataclasses.replace(spec, names=left, periodic=()), grid_value
+                    )
+                )
+            return values
         integration_names = set(PLASMA_INTEGRATION_STATISTICS) & set(spec.names)
         if integration_names and (
             not self._problem.responses.population_channels
@@ -1568,7 +1588,6 @@ class NativeBackend(StepDriver[_core.State]):
         if refusal is not None:
             raise BackendError(refusal)
         axis_names = set(spec.names) & set(ON_AXIS_PLASMA_STATISTICS)
-        scan: tuple[RealArray, RealArray] | None = None
         population_names = {name for name in spec.names if name.startswith("species_")}
         if (
             len(self._problem.responses.population_channels) > 1
@@ -1607,102 +1626,147 @@ class NativeBackend(StepDriver[_core.State]):
                 "the electron density and the peak ionisation rate need a compiled "
                 "plasma response, and this problem declares none"
             )
-        on_axis = np.empty(0, dtype=np.float64)
-        if "peak_intensity" in native_names:
-            if self._modes is None:
-                raise BackendError(
-                    "the peak on-axis intensity needs the mode set at construction"
-                )
-            on_axis = np.ascontiguousarray(self._on_axis_synthesis(self._modes))
-        plasma = self._problem.responses.plasma_coefficients
-        density = 0.0 if plasma is None else float(plasma.density(self._z))
-        preionisation = 0.0 if plasma is None else float(plasma.preionisation(self._z))
-        taper_profile = self._problem.transform.taper_scale
-        taper = 1.0 if taper_profile is None else float(taper_profile(self._z))
-        flags = 0
-        for name in native_names:
-            flags |= _STAT_FLAGS[name]
-        channels = self._problem.responses.population_channels
-        if population_names and channels:
-            flags |= _POPULATIONS_FLAG
-        if integration_names:
-            flags |= _PLASMA_INTEGRATION_FLAG
-        with _envelope_errors():
-            packed = (
-                np.empty(0, dtype=np.float64)
-                if flags == 0
-                else np.asarray(
-                    self._native_state.statistics(
-                        flags,
-                        np.ascontiguousarray(spec.energy_windows),
-                        on_axis,
-                        density,
-                        taper,
-                        preionisation,
-                        0.5 * EPS0 * C,
-                        np.asarray(
-                            [
-                                float(channel.preionisation(self._z))
-                                for channel in channels
-                            ]
-                        ),
-                        power_weight=(
-                            np.empty(0)
-                            if self._problem.transform.geometry is not None
-                            else np.ascontiguousarray(
-                                power_weight_at(self._problem, self._z)
-                            )
-                        ),
-                    )
-                ).ravel()
-            )
-        # Packed last: the six maxima the reference's three ratios are formed from.
-        parts = packed[-_PLASMA_INTEGRATION_PARTS:] if integration_names else packed[:0]
-        if integration_names:
-            packed = packed[:-_PLASMA_INTEGRATION_PARTS]
-        count = (
-            2 * len(channels) * self._problem.transform.n_nodes
-            if population_names and channels
-            else 0
+        # solprop SEP 47: the native plan, the one implementation of each statistic a
+        # native session's rows and planes also read; only the plane-only statistics
+        # (the axis row's, the widths, zdw) take the host.
+        return self._planned_with_host(
+            spec, spatial_names, axis_names, population_names
         )
-        values = self._unpack_statistics(
-            native_names, spec, packed[:-count] if count else packed, grid_value
-        )
-        if population_names:
-            populations = (
-                packed[-count:].reshape(
-                    self._problem.transform.n_nodes, len(channels), 2
+
+    def _planned_statistics(
+        self, spec: StatsSpec, left: Sequence[str] = (), *, scanned: bool = False
+    ) -> dict[str, np.ndarray]:
+        """Evaluate a spec's statistics with the native plan (solprop SEP 47 6.4).
+
+        The plan is lowered once for the spec and its names and kept: every
+        statistic is evaluated and finished natively, from the problem's own z
+        tables, as a native session's rows and planes are.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            The statistics.
+        left : sequence of str, optional
+            Names the plan does not evaluate, left to the caller.
+        scanned : bool, optional
+            Whether to hand over the node populations too
+            (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
+
+        Returns
+        -------
+        dict
+            The statistics, each with a leading batch axis.
+
+        Raises
+        ------
+        solprop.exceptions.SolpropError
+            The reference's exception for a native refusal of the same condition.
+        """
+        names = tuple(name for name in spec.names if name not in left)
+        if scanned:
+            names = (*names, NODE_POPULATIONS)
+        if not names:
+            return {}
+        key = (id(spec), names)
+        held = self._statistics_plans.get(key)
+        if held is None or held[0] is not spec:
+            apertures = None
+            if self._problem.transform.geometry is not None:
+                apertures = _aperture_payload(
+                    self._far_field.for_spec(spec), self._problem.shape[-1]
                 )
-                if count
-                else np.empty((self._problem.transform.n_nodes, 0, 2))
+            on_axis = None
+            if (
+                "peak_intensity" in names
+                and self._modes
+                and self._problem.transform.geometry is None
+            ):
+                # The driver's matrix, built once and kept (`_on_axis_synthesis`).
+                self._on_axis_synthesis(self._modes)
+                on_axis = self._on_axis
+            lowering = lower(
+                self._problem,
+                spec,
+                names,
+                grid=self._grid,
+                modes=self._modes,
+                profiles=self._profiles,
+                apertures=apertures,
+                on_axis=on_axis,
             )
-            reduced = population_statistics(
-                self._problem, self._z, populations[:, :, 0].T, populations[:, :, 1].T
-            )
-            values.update({name: reduced[name][None] for name in population_names})
-            if count:
-                scan = (populations[:, :, 0].T, populations[:, :, 1].T)
+            if len(self._statistics_plans) >= _STATISTICS_PLANS:
+                self._statistics_plans.clear()
+            held = (spec, lowering)
+            self._statistics_plans[key] = held
+            self._statistics_tables.update(lowering.tables)
+        lowering: StatisticsLowering = held[1]
+        assert lowering.plan is not None
+        try:
+            with _envelope_errors():
+                packed = self._native_state.planned_statistics(lowering.plan, self._z)
+        except (ValueError, IndexError, RuntimeError) as error:
+            raised = translated(error)
+            if raised is error:
+                raise
+            raise raised from error
+        return {name: value[None] for name, value in lowering.unpack(packed).items()}
+
+    def _planned_with_host(
+        self,
+        spec: StatsSpec,
+        spatial_names: set[str],
+        axis_names: set[str],
+        population_names: set[str],
+    ) -> dict[str, np.ndarray]:
+        """Evaluate a modal or spatial spec: the plan, then the names it leaves.
+
+        Every statistic the plan covers is the plan's. An on-axis plasma statistic is
+        the host's (SEP 19); on a Radau rule it reuses the node scan of this call's
+        species statistics, which the plan hands over with them
+        (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            The statistics.
+        spatial_names : set of str
+            Its spatial statistics.
+        axis_names : set of str
+            Its on-axis plasma statistics.
+        population_names : set of str
+            Its statistics that scan the node populations.
+
+        Returns
+        -------
+        dict
+            The statistics, each with a leading batch axis.
+        """
+        left = uncovered(self._problem, spec.names)
+        scanned = bool(
+            axis_names
+            and population_names
+            and self._problem.responses.population_channels
+        )
+        values = self._planned_statistics(spec, left, scanned=scanned)
         if axis_names:
-            # SEP 19: the axis row is one host scan per saved plane, shared with the
-            # other backends; a Radau rule's axis node comes from the device's own
-            # node scan of this call when the species statistics asked for it. Only
-            # the row's spectrum crosses, never the state (`_axis_row_populations`).
+            scan = None
+            rows = values.pop(NODE_POPULATIONS, None)
+            if rows is not None:
+                scan = (rows[0, :, :, 0].T, rows[0, :, :, 1].T)
             axis = self._axis_statistics(None, scan)
             values.update({name: axis[name][None] for name in axis_names})
-        if integration_names:
-            ratios = dict(
-                zip(
-                    PLASMA_INTEGRATION_STATISTICS,
-                    plasma_integration_statistics(parts),
-                    strict=True,
+        widths = set(left) & spatial_names & {"beam_radius", "fwhm_r"}
+        if widths:
+            values.update(self._spatial_statistics(widths, spec))
+        rest = tuple(
+            name for name in left if name not in widths and name not in axis_names
+        )
+        if rest:
+            values.update(
+                self._profile_statistics(
+                    dataclasses.replace(spec, names=rest, periodic=())
                 )
             )
-            values.update(
-                {name: np.asarray([ratios[name]]) for name in integration_names}
-            )
-        if spatial_names:
-            values.update(self._spatial_statistics(spatial_names, spec))
-        values.update(self._profile_statistics(spec))
         return values
 
     def _axis_row_populations(
@@ -1923,67 +1987,6 @@ class NativeBackend(StepDriver[_core.State]):
             )
         return values
 
-    def _unpack_statistics(
-        self,
-        names: tuple[str, ...],
-        spec: StatsSpec,
-        packed: RealArray,
-        grid: TimeGrid,
-    ) -> dict[str, np.ndarray]:
-        """Unpack the native fixed-order scalar transfer into catalogue shapes."""
-        requested = set(names)
-        modes = self._problem.shape[1]
-        polarisations = self._problem.shape[2]
-        columns = modes * polarisations
-        offset = 0
-        values: dict[str, np.ndarray] = {}
-
-        def take(size: int) -> RealArray:
-            nonlocal offset
-            result = packed[offset : offset + size]
-            offset += size
-            return result
-
-        if "omega0" in requested:
-            values["omega0"] = take(columns).reshape(1, modes, polarisations)
-        if "energy" in requested:
-            values["energy"] = take(columns).reshape(1, modes, polarisations)
-        if "energy_window" in requested:
-            values["energy_window"] = take(spec.n_windows * columns).reshape(
-                1, spec.n_windows, modes, polarisations
-            )
-        if "peak_power" in requested:
-            values["peak_power"] = take(modes).reshape(1, modes)
-        if "peak_power_window" in requested:
-            values["peak_power_window"] = take(spec.n_windows * modes).reshape(
-                1, spec.n_windows, modes
-            )
-        if "peak_power_total" in requested:
-            values["peak_power_total"] = take(1)
-        for name in (
-            "electron_density",
-            "peak_ionisation_rate",
-            "peak_intensity",
-            "quadrature_error",
-        ):
-            if name in requested:
-                values[name] = take(1)
-        if {"fwhm_t", "fwhm_t_outer"} & requested:
-            power = take(grid.n_t)
-            if "fwhm_t" in requested:
-                values["fwhm_t"] = np.array(
-                    [_half_width(grid.t, power, outermost=False)]
-                )
-            if "fwhm_t_outer" in requested:
-                values["fwhm_t_outer"] = np.array(
-                    [_half_width(grid.t, power, outermost=True)]
-                )
-        if offset != packed.size:
-            raise BackendError(
-                f"native statistics returned {packed.size} values; consumed {offset}"
-            )
-        return values
-
     def _profile_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Evaluate profile-only and ZDW statistics on their owning host objects."""
         values: dict[str, np.ndarray] = {}
@@ -2044,6 +2047,9 @@ class NativeBackend(StepDriver[_core.State]):
             work["rk_march"] = (
                 "native" if self._rk_march_state else f"host: {self._rk_refusal}"
             )
+        if self._statistics_tables:
+            # The profile statistics' tables and their measured errors (SEP 47 6.4).
+            work["statistics_tables"] = dict(self._statistics_tables)
         return {
             **work,
             **facts.info,
@@ -2177,35 +2183,6 @@ def _required(values: RealArray | None, name: str) -> RealArray:
     if values is None:
         raise BackendError(f"device-ready problem has no {name}")
     return values
-
-
-def _half_width(t: RealArray, power: RealArray, *, outermost: bool) -> float:
-    """Return the reference central or outer half-maximum width of a power trace."""
-    peak = float(np.max(power))
-    if peak <= 0.0:
-        return math.nan
-    level = 0.5 * peak
-    apex = int(np.argmax(power))
-    if outermost:
-        above = np.flatnonzero(power > level)
-        left, right = int(above[0]), int(above[-1])
-        pairs = ((left - 1, left), (right + 1, right))
-    else:
-        low = np.flatnonzero(power[:apex] < level)
-        high = np.flatnonzero(power[apex:] < level)
-        if low.size == 0 or high.size == 0:
-            return math.nan
-        left, right = int(low[-1]), apex + int(high[0])
-        pairs = ((left, left + 1), (right, right - 1))
-    if pairs[0][0] < 0 or pairs[1][0] >= power.size:
-        return math.nan
-
-    def crossing(pair: tuple[int, int]) -> float:
-        low, high = pair
-        span = power[high] - power[low]
-        return float(t[low] + (level - power[low]) * (t[high] - t[low]) / span)
-
-    return crossing(pairs[1]) - crossing(pairs[0])
 
 
 def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
