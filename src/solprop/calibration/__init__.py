@@ -288,14 +288,14 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
     """
     found = choice(environ)
     removed = 0
-    if found.fingerprint is not None:
-        digest = found.fingerprint.digest
+    digest = None if found.fingerprint is None else found.fingerprint.digest
+    if digest is not None:
         removed = _native.store.Store(store_directory(environ)).clear(digest)
     named = (os.environ if environ is None else environ).get("SOLPROP_FFTW_WISDOM", "")
     if not named.strip():
         return removed
     try:
-        if found.fingerprint is None:
+        if digest is None:
             # SOLPROP_CALIBRATION=off reads no profile, but runs still keep the named
             # file, under the same fingerprint (solprop_native._wisdom.machine_key).
             build = _native.fingerprint.build_identity(
