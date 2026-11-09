@@ -12,6 +12,7 @@ what the file holds. On a device a plane whose field the output does not keep is
 fetched only when asked for, and the fetch is counted in the run's resources.
 """
 
+import functools
 import logging
 import time
 import warnings
@@ -270,7 +271,8 @@ class PlaneWatch:
     metadata : solprop.output.schema.RunMetadata
         The run's record.
     fetch : callable
-        Returns the field at the current plane, for a plane the output keeps none of.
+        Returns the field at the plane it is given, the current one, for a plane the
+        output keeps none of.
     spend : solprop._host.ObserverSpend
         The run's observer ledger.
     """
@@ -279,7 +281,7 @@ class PlaneWatch:
         self,
         reporter: ProgressReporter,
         metadata: RunMetadata,
-        fetch: Callable[[], np.ndarray],
+        fetch: Callable[[SavedPlane], np.ndarray],
         spend: ObserverSpend,
     ) -> None:
         """Hold the observer, or nothing for a reporter that is not one."""
@@ -310,7 +312,7 @@ class PlaneWatch:
             plane,
             index,
             self._metadata,
-            self._fetch if plane.field is None else None,
+            functools.partial(self._fetch, plane) if plane.field is None else None,
             self._spend,
         )
         started = time.perf_counter()

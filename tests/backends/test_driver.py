@@ -1048,6 +1048,7 @@ DRIVER_ATTRIBUTES = (
     "helpers",
     "in_flight",
     "name",
+    "observes_fresh_field",
     "reads_transverse_edge",
 )
 """The attributes a subclass reads or sets, present from construction.

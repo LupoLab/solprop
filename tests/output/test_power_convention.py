@@ -49,3 +49,23 @@ def test_power_amplitude_roundtrip_and_exact_unit_override():
 def test_power_amplitude_refuses_invalid_weights(weight):
     with pytest.raises(GridError, match="positive and finite"):
         power_amplitude(np.ones((1, 1, 2), complex), np.full((1, 1, 2), weight))
+
+
+@pytest.mark.parametrize("inverse", [False, True])
+@pytest.mark.parametrize("unit", [False, True])
+def test_power_amplitude_written_in_place_has_the_bits_of_a_new_array(inverse, unit):
+    """SEP 47 section 5.4: an owned field is converted where it is, bit for bit."""
+    rng = np.random.default_rng(7)
+    field = rng.normal(size=(1, 3, 1, 33)) + 1j * rng.normal(size=(1, 3, 1, 33))
+    # Signed zeros too, which a complex product can flip.
+    field[0, 0, 0, :4] = [0.0, -0.0, complex(0.0, -0.0), complex(-0.0, 0.0)]
+    weight = np.ones((3, 1, 33)) if unit else rng.uniform(1, 2, size=(3, 1, 33))
+    expected = power_amplitude(field, weight, inverse=inverse)
+    room = field.copy()
+    written = power_amplitude(room, weight, inverse=inverse, out=room)
+    assert written is room
+    assert expected.tobytes() == written.tobytes()
+    elsewhere = np.empty_like(field)
+    assert power_amplitude(field, weight, inverse=inverse, out=elsewhere) is elsewhere
+    assert expected.tobytes() == elsewhere.tobytes()
+    assert not np.shares_memory(expected, field)

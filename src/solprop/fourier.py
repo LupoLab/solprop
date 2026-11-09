@@ -361,6 +361,7 @@ def power_amplitude(
     weight: Float[np.ndarray, "n_modes n_pol n_omega"],
     *,
     inverse: bool = False,
+    out: Complex[np.ndarray, "... n_modes n_pol n_omega"] | None = None,
 ) -> Complex[np.ndarray, "... n_modes n_pol n_omega"]:
     """Convert the internal modal amplitude to true-power units, or back on resume.
 
@@ -379,24 +380,44 @@ def power_amplitude(
         ``(n_modes, n_pol, n_omega)``; one for an index-one route.
     inverse : bool, optional
         Divide by the square root to recover internal units when resuming.
+    out : numpy.ndarray or None, optional
+        Where to write the result, complex and the shape of `spectrum`, which may be
+        `spectrum` itself; a new array by default. Unit weights then write nothing
+        when `out` is `spectrum`. The values are the same bits either way: the same
+        product or quotient, written elsewhere.
 
     Returns
     -------
     numpy.ndarray
-        Converted spectrum in sqrt(W), with unchanged shape and phase convention.
+        Converted spectrum in sqrt(W), with unchanged shape and phase convention;
+        `out` when given.
 
     Raises
     ------
     GridError
         If a weight is not positive and finite.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.fourier import power_amplitude
+    >>> spectrum = np.array([[[1 + 1j, 2 - 1j]]])
+    >>> power_amplitude(spectrum, np.full((1, 1, 2), 4.0)).tolist()
+    [[[(2+2j), (4-2j)]]]
+    >>> power_amplitude(spectrum, np.ones((1, 1, 2)), out=spectrum) is spectrum
+    True
     """
     if not np.all(np.isfinite(weight) & (weight > 0)):
         msg = "power weights must be positive and finite"
         raise GridError(msg)
     if np.all(weight == 1.0):
-        return spectrum.copy()
+        if out is None:
+            return spectrum.copy()
+        if out is not spectrum:
+            np.copyto(out, spectrum)
+        return out
     root = np.sqrt(weight)
-    return spectrum / root if inverse else spectrum * root
+    return (np.divide if inverse else np.multiply)(spectrum, root, out=out)
 
 
 def to_optics(x: Num[np.ndarray, "*shape"]) -> Num[np.ndarray, "*shape"]:

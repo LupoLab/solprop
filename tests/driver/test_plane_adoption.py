@@ -13,21 +13,28 @@ contract, with a copy taken as the plane arrived.
 
 import dataclasses
 from collections.abc import Callable
+from typing import cast
 
 import numpy as np
 import pytest
 
-from driver.test_field_free_planes import cartesian
+from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
-from solprop.backends.protocol import BackendHistory, Observation
-from solprop.backends.registry import available
+from solprop import fourier
+from solprop.backends.driver import StepDriver
+from solprop.backends.numpy_ref.single import NumpySingleBackend
+from solprop.backends.protocol import Backend, BackendHistory, Observation
+from solprop.backends.registry import available, select
 from solprop.driver import Simulation
-from solprop.driver.run import plane_from_observation
+from solprop.driver.run import _power_observation, plane_from_observation
 from solprop.exceptions import OutputError
-from solprop.output import MemoryOutput
-from solprop.output.schema import SavedPlane, _adopted
+from solprop.fourier import power_amplitude
+from solprop.output import HDF5Output, MemoryOutput, open_file
+from solprop.output.schema import PlaneStore, SavedPlane, _adopted
 from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
+from solprop.translate.linop import power_weight_at
+from solprop.translate.problem import KernelProblem
 
 # These cases run coarse grids for speed; their windows are not what is tested here.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -55,6 +62,18 @@ def _integrated(simulation: Simulation, integrator: object) -> Simulation:
     return simulation
 
 
+def _single_mode(backend: str) -> Simulation:
+    """Return a short soliton, whose single mode has unit power weights."""
+    simulation = _integrated(low_storage(), RungeKutta())
+    simulation.settings = dataclasses.replace(simulation.settings, backend=backend)
+    return simulation
+
+
+def _single(simulation: Simulation) -> Simulation:
+    simulation.settings = dataclasses.replace(simulation.settings, precision="single")
+    return simulation
+
+
 CASES: dict[str, Callable[[str], Simulation]] = {
     "runge-kutta replayed": cartesian,
     "runge-kutta adaptive": lambda name: cartesian(name, replay=False),
@@ -70,6 +89,7 @@ CASES: dict[str, Callable[[str], Simulation]] = {
     "adams modal": capillary,
     "adams modal interpolated": lambda name: capillary(name, dense=True),
     "runge-kutta modal": lambda name: _integrated(capillary(name), RungeKutta()),
+    "runge-kutta single-mode": _single_mode,
 }
 
 
@@ -81,6 +101,19 @@ def test_a_kept_plane_never_changes(backend, case):
     simulation.run(output=handler, progress="none")
     assert handler.n_saved > 1
     assert len(handler.kept) >= handler.n_saved
+    for held, as_it_arrived in handler.kept:
+        assert np.array_equal(held, as_it_arrived)
+
+
+@pytest.mark.parametrize(
+    "case", ["runge-kutta replayed", "runge-kutta modal", "runge-kutta single-mode"]
+)
+def test_a_kept_single_precision_plane_never_changes(case):
+    """The widened state is the observation's own (SEP 47 section 5.4)."""
+    simulation = _single(CASES[case]("numpy_ref"))
+    handler = _Keeping()
+    simulation.run(output=handler, progress="none")
+    assert handler.n_saved > 1
     for held, as_it_arrived in handler.kept:
         assert np.array_equal(held, as_it_arrived)
 
@@ -166,3 +199,156 @@ def _observation(field: np.ndarray) -> Observation:
         0,
         0,
     )
+
+
+# SEP 47 section 5.4: the copies a saved plane no longer makes. Every stored field keeps
+# the bits of the conversion in two steps, the true-power weight into a new array and
+# then the optics convention.
+
+STORED: dict[str, Callable[[str], Simulation]] = {
+    "spatial": cartesian,
+    "modal": lambda name: _integrated(capillary(name), RungeKutta()),
+    "single-mode": _single_mode,
+}
+
+
+def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
+    """Copy each observed field as its backend returned it, before any conversion."""
+    copies: list[np.ndarray] = []
+    observe = StepDriver.observe
+
+    def copying(self: StepDriver, *, field: bool = True) -> Observation:
+        observation = observe(self, field=field)
+        if observation.field is not None:
+            copies.append(np.array(observation.field))
+        return observation
+
+    monkeypatch.setattr(StepDriver, "observe", copying)
+    return copies
+
+
+@pytest.mark.parametrize("handler", ["memory", "hdf5"])
+@pytest.mark.parametrize(
+    ("backend", "case", "precision"),
+    [
+        *((backend, case, "double") for backend in available() for case in STORED),
+        *(("numpy_ref", case, "single") for case in STORED),
+    ],
+)
+def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
+    backend, case, precision, handler, tmp_path, monkeypatch
+):
+    simulation = STORED[case](backend)
+    if precision == "single":
+        simulation = _single(simulation)
+    problem = simulation.translate()
+    copies = _copied_observations(monkeypatch)
+    path = tmp_path / "run.h5"
+    output = MemoryOutput() if handler == "memory" else HDF5Output(path)
+    simulation.run(output=output, progress="none")
+    reader = output if isinstance(output, MemoryOutput) else open_file(path)
+    assert isinstance(reader, PlaneStore)
+    stored = reader.fields("optics")
+    positions = np.asarray(reader["z"])
+    assert reader.metadata is not None
+    kind = reader.metadata.grid.kind
+    assert len(copies) == stored.shape[0] > 1
+    for index, observed in enumerate(copies):
+        field = observed
+        if problem.transform.geometry is None:
+            weight = power_weight_at(problem, float(positions[index]))
+            # Both of the run's modal routes are exercised: weights of one and others.
+            assert bool(np.all(weight == 1.0)) is (case == "single-mode")
+            field = power_amplitude(observed, weight)
+        expected = fourier.spectrum_to_optics(field[0], kind=kind)
+        assert expected.tobytes() == stored[index].tobytes()
+
+
+def _observed_at_its_first_plane(
+    name: str, simulation: Simulation
+) -> tuple[KernelProblem, Backend, Observation]:
+    """Return a loaded backend stepped to the first save plane, and its observation."""
+    problem = simulation.translate()
+    backend = select(name, problem, grid=simulation.grid)
+    backend.set_initial(problem.initial.field0, None)
+    backend.propagate_to(float(problem.stepper.save_planes[0]))
+    return problem, backend, backend.observe()
+
+
+@pytest.mark.parametrize("backend", available())
+@pytest.mark.parametrize("case", ["modal", "single-mode"])
+def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend, case):
+    """The reference's own frozen state is detached by its conversion, as before."""
+    problem, stepping, observation = _observed_at_its_first_plane(
+        backend, STORED[case](backend)
+    )
+    try:
+        owned = backend == "native"
+        assert observation.field_owned is owned
+        field = observation.require_field()
+        raw = field.copy()
+        if not owned:
+            # The reference observes its state as it is (kernel contract section 9).
+            assert field is cast("StepDriver[np.ndarray]", stepping)._state
+        expected = power_amplitude(raw, power_weight_at(problem, observation.z))
+        converted = _power_observation(problem, observation)
+        held = converted.require_field()
+        assert held.tobytes() == expected.tobytes()
+        assert not held.flags.writeable
+        # Converted where it is when owned, so the observation itself then changes.
+        assert np.shares_memory(held, field) is owned
+        if owned and case == "single-mode":
+            assert converted is observation
+        if not owned:
+            state = cast("StepDriver[np.ndarray]", stepping)._state
+            assert not np.shares_memory(held, state)
+            assert raw.tobytes() == field.tobytes()
+        stepping.propagate_to(float(problem.stepper.save_planes[-1]))
+        assert held.tobytes() == expected.tobytes()
+        assert not np.shares_memory(held, stepping.observe().require_field())
+    finally:
+        stepping.close()
+
+
+def test_the_widened_single_precision_state_is_owned_and_has_the_same_bits():
+    problem, stepping, observation = _observed_at_its_first_plane(
+        "numpy_ref", _single(cartesian("numpy_ref"))
+    )
+    try:
+        assert isinstance(stepping, NumpySingleBackend)
+        state, scale = stepping._state, stepping._scale
+        assert isinstance(state, np.ndarray) and state.dtype == np.complex64
+        assert observation.field_owned
+        field = observation.require_field()
+        assert field.tobytes() == (state.astype(np.complex128) * scale).tobytes()
+        assert not np.shares_memory(field, state)
+        assert _power_observation(problem, observation) is observation  # spatial
+    finally:
+        stepping.close()
+
+
+def test_an_owned_field_over_read_only_memory_is_converted_into_a_new_array():
+    problem = _integrated(capillary("numpy_ref"), RungeKutta()).translate()
+    rng = np.random.default_rng(3)
+    values = rng.normal(size=problem.shape) + 1j * rng.normal(size=problem.shape)
+    # A buffer's read-only memory, which no flag makes writable.
+    field = np.frombuffer(values.tobytes(), np.complex128).reshape(problem.shape)
+    observation = dataclasses.replace(_observation(field), field_owned=True)
+    converted = _power_observation(problem, observation)
+    expected = power_amplitude(values, power_weight_at(problem, 0.0))
+    assert converted.require_field().tobytes() == expected.tobytes()
+    assert not np.shares_memory(converted.require_field(), field)
+
+
+def test_an_observation_without_a_field_owns_none():
+    empty = np.empty(0)
+    observation = Observation(
+        0.0,
+        None,
+        None,
+        BackendHistory(empty, empty, empty, np.empty(0, bool), empty),
+        0,
+        0,
+        field_owned=True,
+    )
+    assert not observation.field_owned

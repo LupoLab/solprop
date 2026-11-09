@@ -281,6 +281,13 @@ def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlan
 def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
     """Convert modal output units once, before the handler changes Fourier sign.
 
+    The run's one conversion of an observation, applied once to each. A field the
+    backend made for the observation alone
+    (:attr:`~solprop.backends.protocol.Observation.field_owned`) is converted where it
+    is: unit weights then cost nothing and others no new array. Any other field may be
+    the backend's own frozen state, and the conversion's new array is what detaches
+    the plane from it (SEP 47 section 5.4). The bits are the same either way.
+
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
@@ -293,14 +300,26 @@ def _power_observation(problem: KernelProblem, observation: Observation) -> Obse
     solprop.backends.protocol.Observation
         Observation carrying true-power amplitudes and unchanged diagnostics.
     """
-    if problem.transform.geometry is not None or observation.field is None:
+    field = observation.field
+    if problem.transform.geometry is not None or field is None:
         return observation
-    return dataclasses.replace(
-        observation,
-        field=power_amplitude(
-            observation.field, power_weight_at(problem, observation.z)
-        ),
-    )
+    weight = power_weight_at(problem, observation.z)
+    if observation.field_owned and np.all(weight == 1.0):
+        return observation
+    if observation.field_owned:
+        try:
+            # Writable again only while it is converted: nothing else holds it yet.
+            field.setflags(write=True)
+        except ValueError:
+            pass  # its memory is read-only, as a buffer it was made over may be
+        else:
+            try:
+                power_amplitude(field, weight, out=field)
+            finally:
+                field.setflags(write=False)
+            # Checked again as any observation is: a product can overflow.
+            return dataclasses.replace(observation, field=field)
+    return dataclasses.replace(observation, field=power_amplitude(field, weight))
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
@@ -517,13 +536,10 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     )
     keeper = _MarchKeeper(output, backend, resume_history)
     # A plane observer is shown each committed plane (SEP 41, S3); a field the output
-    # does not keep is fetched from the backend only when the observer asks.
-    watch = PlaneWatch(
-        reporter,
-        metadata,
-        lambda: _fetched(problem, backend),
-        clock.observer,
-    )
+    # does not keep is fetched from the backend only when the observer asks, and once
+    # for the observer and a failure checkpoint together.
+    fetch = _PlaneFetch(problem, backend)
+    watch = PlaneWatch(reporter, metadata, fetch.field, clock.observer)
     pending: SavedPlane | None = None
     pending_save_count = output.n_saved
     snapshots_started = False
@@ -579,6 +595,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             poll(stop)
             target = float(planes[index])
             pending = None
+            fetch.forget()
             pending_save_count = output.n_saved
             summary = backend.propagate_to(target)
             if not summary.met_tolerance:
@@ -664,6 +681,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             checkpoint_output,
             tdse_binding,
             keeper,
+            fetch,
             _FailedObservation(
                 pending,
                 output.n_saved > pending_save_count,
@@ -693,6 +711,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
             reporter.interrupted(reached, error)
         raise
     finally:
+        fetch.forget()
         backend.set_stop(None)
         try:
             output.close()
@@ -829,26 +848,73 @@ def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observ
     return _power_observation(problem, backend.observe(field=keep))
 
 
-def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
-    """Return the field at the backend's current plane, in output units.
+class _PlaneFetch:
+    """The field of a plane that kept none, observed once for all who ask for it.
 
-    For a plane observer shown a plane whose field the output does not keep.
+    A plane observer may ask for the field of a field-free plane, and a failure
+    checkpoint always needs it (SEP 22, Q1). Both read the one detached observation,
+    converted once, while the backend still stands at the plane (SEP 47 section 5.4).
+    The run forgets it before it steps on, so that no field is held across a march.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
     backend : solprop.backends.protocol.Backend
-        The backend, at the plane.
-
-    Returns
-    -------
-    numpy.ndarray
-        The field, as a saved plane holds it.
+        The run's backend.
     """
-    plane = _adopted_plane(_observed(problem, backend, keep=True))
-    assert plane.field is not None  # observed with its field
-    return plane.field
+
+    def __init__(self, problem: KernelProblem, backend: Backend) -> None:
+        """Hold what observing needs, and no field yet."""
+        self._problem = problem
+        self._backend = backend
+        self._plane: SavedPlane | None = None
+        self._fetched: SavedPlane | None = None
+
+    def plane(self, plane: SavedPlane) -> SavedPlane:
+        """Return the observation at `plane`, the plane the backend stands at.
+
+        Parameters
+        ----------
+        plane : solprop.output.schema.SavedPlane
+            The committed plane, whose field the output did not keep.
+
+        Returns
+        -------
+        solprop.output.schema.SavedPlane
+            The backend's observation there, with its field and noise phase in output
+            units and the history of whatever was observed with it (none, after the
+            plane's own).
+        """
+        if self._plane is not plane or self._fetched is None:
+            self._fetched = _adopted_plane(
+                _observed(self._problem, self._backend, keep=True)
+            )
+            self._plane = plane
+        return self._fetched
+
+    def field(self, plane: SavedPlane) -> np.ndarray:
+        """Return the field at `plane`, as a saved plane holds it.
+
+        For a plane observer shown a plane whose field the output does not keep.
+
+        Parameters
+        ----------
+        plane : solprop.output.schema.SavedPlane
+            The committed plane, whose field the output did not keep.
+
+        Returns
+        -------
+        numpy.ndarray
+            The field, in output units.
+        """
+        field = self.plane(plane).field
+        assert field is not None  # observed with its field
+        return field
+
+    def forget(self) -> None:
+        """Let the field go, before the backend steps on from its plane."""
+        self._plane = self._fetched = None
 
 
 def field_retention(
@@ -1231,12 +1297,13 @@ class _MarchKeeper:
         self._kept_z = z
 
 
-def _persist_failure(
+def _persist_failure(  # noqa: PLR0913, PLR0917 - the run's parts, each a distinct object
     problem: KernelProblem,
     backend: Backend,
     output: CheckpointOutput | None,
     binding: TDSEBinding | None,
     keeper: _MarchKeeper,
+    fetch: _PlaneFetch,
     failure: _FailedObservation,
 ) -> float | None:
     """Checkpoint the accepted state without replacing the original exception.
@@ -1253,6 +1320,9 @@ def _persist_failure(
         Optional live atomic service providing accounting snapshots.
     keeper : _MarchKeeper
         Keeps the Adams march's state beside the checkpoint.
+    fetch : _PlaneFetch
+        The field of a field-free plane, which a plane observer may already have
+        fetched.
     failure : _FailedObservation
         Original exception and any observation already drained before failure.
 
@@ -1275,8 +1345,9 @@ def _persist_failure(
         elif pending.field is None:
             # A field-free plane keeps no field, and a checkpoint always does (SEP
             # 22, Q1): the state still stands where the plane was observed, so it is
-            # observed again for its field alone, the history being the plane's.
-            again = _adopted_plane(_power_observation(problem, backend.observe()))
+            # observed again for its field alone, the history being the plane's --
+            # unless a plane observer has already fetched it.
+            again = fetch.plane(pending)
             pending = dataclasses.replace(
                 pending, field=again.field, noise_phase=again.noise_phase
             )

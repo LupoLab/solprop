@@ -317,6 +317,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         the registry reads for the native backend alone
         (:func:`solprop.backends.registry.statistics_refusal`): ``numpy_ref`` forms them
         all and ``mlx`` refuses them in validation.
+    observes_fresh_field : bool
+        Whether ``_observed_field`` makes a new array at every call and keeps no
+        reference to it, so that :meth:`observe` can say its field is owned
+        (:attr:`solprop.backends.protocol.Observation.field_owned`). ``False`` by
+        default: the array-backed state is observed as it is, frozen, and left
+        behind by the next step.
     """
 
     name: str = "driver"
@@ -324,6 +330,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
     far_field_statistics: ClassVar[frozenset[str]] = frozenset()
+    observes_fresh_field: ClassVar[bool] = False
 
     def __init__(
         self,
@@ -745,7 +752,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         Array-backed CPU implementations use the identity. A device backend overrides
         this hook to synchronize and copy without teaching the shared march its state
-        representation.
+        representation, and sets :attr:`observes_fresh_field` when every call makes a
+        new array.
 
         Parameters
         ----------
@@ -1471,6 +1479,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             n_steps=history.n_steps,
             n_rejected=history.n_rejected,
             step_stats=self._drain_step_stats(),
+            field_owned=field and self.observes_fresh_field,
         )
         self._history = []
         self._clock = time.perf_counter()

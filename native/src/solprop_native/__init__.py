@@ -338,6 +338,7 @@ _DRIVER_CLASS_MEMBERS: tuple[str, ...] = (
     "far_field_statistics",
     "helpers",
     "name",
+    "observes_fresh_field",
     "reads_transverse_edge",
 )
 """The ``StepDriver`` attributes and properties of the class this backend sets or reads,

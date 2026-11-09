@@ -319,6 +319,12 @@ class NativeBackend(StepDriver[_core.State]):
     solprop's registry admits them on this backend by this attribute and refuses
     them, by name, on a build without it.
     """
+    observes_fresh_field: ClassVar[bool] = True
+    """Each observation is a new host array (``field_to_host``) that nothing here keeps.
+
+    So solprop converts an observed field to output units where it is (solprop SEP 47
+    section 5.4).
+    """
     reads_transverse_edge = True
     """The transverse edge is read on the host from the native state (solprop SEP 40
     section 5.3); the Adams march stops at each read."""
