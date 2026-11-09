@@ -272,8 +272,13 @@ class _Session:
         dict
             ``wisdom`` by plan key, each key's ``groups`` and the problems
             containing it (``problems``), the problems skipped for want of time
-            (``skipped``), and the seconds spent (``seconds``).
+            (``skipped``), the seconds spent (``seconds``), and each plan's execution
+            alone (``alone``: the seconds of the captured plan and of the same
+            transform at estimate, ``_core.time_fft_plan``; solprop issue #595).
         """
+        from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+            _core,  # pyright: ignore[reportUnknownVariableType]
+        )
         from solprop_native._execution import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
             ExecutionRecord,
         )
@@ -284,6 +289,7 @@ class _Session:
         wisdom: dict[str, str] = {}
         groups: dict[str, str] = {}
         contains: dict[str, list[str]] = {}
+        alone: dict[str, dict[str, float]] = {}
         skipped: list[str] = []
         begun = time.perf_counter()
         names = list(self.problems)
@@ -315,16 +321,25 @@ class _Session:
                 found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
             finally:
                 backend.close()
-            wisdom |= cast(dict[str, str], found["captured"])
+            captured = cast(dict[str, str], found["captured"])
+            wisdom |= captured
             for key, group in cast(dict[str, str], found["groups"]).items():
                 groups[key] = group
                 contains.setdefault(name, []).append(key)
+            # Each plan alone, as its capture chose it and at estimate, to tell a plan
+            # that loses in the step from one that is slower alone (issue #595).
+            for key, text in captured.items():
+                if key not in alone and text:
+                    alone[key] = cast(
+                        dict[str, float], _core.time_fft_plan(key, text, effort)
+                    )
         return {
             "wisdom": wisdom,
             "groups": groups,
             "problems": contains,
             "skipped": skipped,
             "seconds": time.perf_counter() - begun,
+            "alone": alone,
         }
 
     def sizing(self, record: Mapping[str, object] | None) -> dict[str, object]:

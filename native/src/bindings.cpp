@@ -2718,6 +2718,24 @@ NB_MODULE(_core, module_) {
     return nb::none();
 #endif
   });
+  // solprop issue #595: a captured plan's execution alone, against estimate's.
+  module_.def(
+      "time_fft_plan",
+      [](const std::string& key, const std::string& wisdom, const std::string& effort) {
+        nb::dict result;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        // With the GIL held, as every planning: it serialises FFTW's planner.
+        const auto timed = native::time_fft_plan(key, wisdom, effort);
+        result["plan"] = timed.plan;
+        result["estimate"] = timed.estimate;
+#else
+        static_cast<void>(key);
+        static_cast<void>(wisdom);
+        static_cast<void>(effort);
+#endif
+        return result;
+      },
+      nb::arg("key"), nb::arg("wisdom"), nb::arg("effort"));
   // solprop SEP 28 section 4.2's reference parts, for its benchmarks only.
   module_.def(
       "reference_fft3_pairs",

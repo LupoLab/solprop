@@ -1405,6 +1405,72 @@ def _planning_candidates(
     return found
 
 
+def _alone_ratios(
+    candidates: Sequence[tuple[str, str, Mapping[str, object]]],
+    groups: Mapping[str, str],
+    measured: Mapping[str, object],
+    patient: Mapping[str, object] | None,
+) -> dict[str, dict[str, float]]:
+    """Return each candidate's plans' execution alone over the policy's (issue #595).
+
+    Parameters
+    ----------
+    candidates : sequence of tuple
+        Each candidate's name, group and planning (:func:`_planning_candidates`).
+    groups : Mapping[str, str]
+        Each plan key's group.
+    measured, patient : Mapping[str, object] or None
+        The captures, whose ``alone`` holds each plan's seconds as captured
+        (``plan``) and at estimate (``estimate``).
+
+    Returns
+    -------
+    dict
+        By candidate, by plan key of its group: the candidate effort's seconds alone
+        over the policy effort's; a key timed at neither is left out. Set beside the
+        candidate's verdict in the step, it tells a plan slower alone from one that
+        loses only in the step.
+    """
+    timed = {
+        "measure": cast(dict[str, dict[str, float]], measured.get("alone", {})),
+        "patient": cast(dict[str, dict[str, float]], (patient or {}).get("alone", {})),
+    }
+
+    def seconds(key: str, effort: str) -> float | None:
+        """Return a plan's seconds alone at `effort`, or ``None``.
+
+        Parameters
+        ----------
+        key : str
+            The plan key.
+        effort : str
+            ``"estimate"``, ``"measure"`` or ``"patient"``.
+
+        Returns
+        -------
+        float or None
+            The seconds, when timed and finite.
+        """
+        if effort == "estimate":
+            value = timed["measure"].get(key, {}).get("estimate")
+        else:
+            value = timed[effort].get(key, {}).get("plan")
+        return value if value is not None and math.isfinite(value) else None
+
+    ratios: dict[str, dict[str, float]] = {}
+    for name, group, planning in candidates:
+        effort = cast(dict[str, str], planning["efforts"])[group]
+        found: dict[str, float] = {}
+        for key, of in groups.items():
+            if of != group:
+                continue
+            mine, base = seconds(key, effort), seconds(key, POLICY[group])
+            if mine is not None and base:
+                found[key] = mine / base
+        ratios[name] = found
+    return ratios
+
+
 _CAPTURE_SHARE = 0.5
 """The share of the FFT stage's time left that each capture may take."""
 
@@ -1501,6 +1567,7 @@ def _planning(
         "skipped": list(cast(list[str], measured.get("skipped", []))),
         "planning_seconds": measured["seconds"],
         "candidates": [name for name, _, _ in candidates],
+        "alone": _alone_ratios(candidates, groups, measured, patient),
     }
     timed = [
         (
