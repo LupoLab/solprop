@@ -203,4 +203,4 @@ fitted under spinning threads give way to the built-in table when you make the t
 sleep.
 
 The design and its measurements are in
-[SEP 46](../../dev/seps/sep-0046-machine-calibration.md).
+[SEP 46](../../dev/seps/archive/sep-0046-machine-calibration.md).

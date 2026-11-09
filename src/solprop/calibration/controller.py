@@ -194,7 +194,7 @@ class Candidate:
         `base` without the user's thread, wait and wisdom settings, with this
         candidate's, and with FFT plans at estimate, so that no stage outside the
         FFT stage spends its time planning (SEP 46 section 6.3). NumPy's and SciPy's
-        BLAS threads go idle at once (:func:`solprop._process.child_environment`),
+        BLAS threads go idle at once (``solprop._process.child_environment``),
         so that they do not spin on the CPUs being timed.
 
         Parameters

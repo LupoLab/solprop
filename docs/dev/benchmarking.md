@@ -127,7 +127,7 @@ uv run python -m benchmarks track --append-history
 ```
 
 A series measures a user's default run, so it runs calibrated
-([SEP 46](seps/sep-0046-machine-calibration.md) section 6.13): before the first
+([SEP 46](seps/archive/sep-0046-machine-calibration.md) section 6.13): before the first
 configuration, `track` runs `solprop calibrate --thorough` (`--calibrate` chooses another
 level, or `none` to keep the profiles there are), and its workers apply the profile
 (`SOLPROP_CALIBRATION=use`) without measuring inside a timed window. Each history row

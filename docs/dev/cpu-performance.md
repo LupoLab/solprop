@@ -108,7 +108,7 @@ measured while it existed.
   threshold runs serially; a medium one runs on four threads; a large one runs at full
   width. The thresholds are a per-workspace record (`CpuExecution`), filled from the
   built-in table in `native/src/solprop_native/_execution.py`, which holds their reasons,
-  or from a machine calibration ([SEP 46](seps/sep-0046-machine-calibration.md)). The
+  or from a machine calibration ([SEP 46](seps/archive/sep-0046-machine-calibration.md)). The
   global thread setting is a cap, and explicitly set pools force their (clamped) widths.
   The small cases became 2.0 times faster than one thread (geometric mean) on an
   18-core arm64 laptop and on a two-socket, 36-core AVX-512 server.

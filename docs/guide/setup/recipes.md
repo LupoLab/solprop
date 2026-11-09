@@ -402,7 +402,7 @@ included), 1 when it does not, and 2 when the file cannot be read. `run` and `re
 cleanly on Ctrl-C, writing the state, and `solprop resume` continues it
 ([resuming from the file alone](../results/resuming.md#resuming-from-the-file-alone)).
 `solprop calibrate` reads and manages the native backend's machine calibration
-([SEP 46](../../dev/seps/sep-0046-machine-calibration.md)): `--show` prints the profile
+([SEP 46](../../dev/seps/archive/sep-0046-machine-calibration.md)): `--show` prints the profile
 this allocation would use, with each setting beside the built-in value it replaces, or
 says that the built-in table applies; `--export FILE` and `--import FILE` move a profile
 between stores, for example to share one per node type of a cluster; and `--clear`

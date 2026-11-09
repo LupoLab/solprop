@@ -6,17 +6,17 @@
 | **Title** | Calibrating the native backend to its machine |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-08) |
-| **Status** | In progress |
+| **Status** | Final |
 | **Review status** | Reviewed |
 | **Reviewers** | GPT-6 (AI); John Travers (human) |
 | **Type** | Change |
 | **Created** | 2026-11-08 |
 | **Resolution** | Accepted 2026-11-08 by John Travers, after the AI review, the drafting agent's response and the maintainer's decisions on §12 items 1–7 ([LupoLab/solprop#580](https://github.com/LupoLab/solprop/pull/580)). |
 | **Requires** | — |
-| **Supersedes** | [SEP 4](archive/sep-0004-execution-autotuning.md) |
+| **Supersedes** | [SEP 4](sep-0004-execution-autotuning.md) |
 | **Superseded-by** | — |
-| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phases 0–5 implemented (2026-11-08), their cross-machine verification and phase 6 to follow |
-| **Manual pages** | — |
+| **Implementation** | Opus 5.5 (AI) for John Travers, branch `feature/sep-0046-machine-calibration` ([#582](https://github.com/LupoLab/solprop/pull/582)): started 2026-11-08; phases 0–6 complete and verified (2026-11-09; on a Google Axion, AMD EPYC 7763 and 9B45 under Linux and Windows, Intel Xeon Gold 6240 and Platinum 8581C, an Apple M5 Max and an NVIDIA H200) |
+| **Manual pages** | [Calibrating solprop to your machine](../../../guide/performance/calibration.md) |
 
 ## Part I — Proposal
 
@@ -145,7 +145,7 @@ one more machine. This SEP stops treating them as constants.
   source's node chunk from `node_budget`, whatever the device (#361). The device
   bootstrap scripts build from source on every rental.
 - Every choice can be overridden by an environment variable
-  ([tuning guide](../../guide/performance/tuning.md)). A run records its pools,
+  ([tuning guide](../../../guide/performance/tuning.md)). A run records its pools,
   budget and waiting in its metadata (`execution_sizing`, `thread_budget`,
   `openmp_wait_policy`).
 
@@ -1085,7 +1085,7 @@ index entry and tracking issue change then.
 - **Scope:** section 7 items 1–4 and 16 on the machines of item 1, 2026-11-08, Opus 5.5
   (AI) for John Travers; the maintainer ran the Apple M5 Max. Commits `27fb0131` to
   `0aaf84f0` of #582. The rows, commands and spend are in the benchmark ledger
-  ([Machine calibration against the built-in table](../benchmarks.md#machine-calibration-against-the-built-in-table-sep-46)).
+  ([Machine calibration against the built-in table](../../benchmarks.md#machine-calibration-against-the-built-in-table-sep-46)).
 - **Method:** a thorough calibration on 16 cores (18 on the Xeon, 6 top-tier on the
   M5 Max), then the tracking set calibrated against built-in (`benchmarks ab`, a fifth
   of each case, three rounds), an A/A control and a second calibration. Both arms run
@@ -1173,7 +1173,7 @@ index entry and tracking issue change then.
 - **Scope:** a scan's workers, 2026-11-09, Opus 5.5 (AI) for John Travers, on a whole
   node of two AMD EPYC 7763 (128 cores), commit `ad1df42e`; the rows are in the
   benchmark ledger
-  ([Scan workers calibrated on an AMD EPYC 7763 node](../benchmarks.md#scan-workers-calibrated-on-an-amd-epyc-7763-node-sep-46)).
+  ([Scan workers calibrated on an AMD EPYC 7763 node](../../benchmarks.md#scan-workers-calibrated-on-an-amd-epyc-7763-node-sep-46)).
 - **Method:** the maintainers' common scan, an RDW tuning scan of a four-mode helium
   capillary over pressure and energy, on `Pool`: 128 single-threaded workers over
   20 × 20 points, 4 workers of 4 threads on one NUMA domain, and 8 workers of 16 threads.
@@ -1212,6 +1212,36 @@ index entry and tracking issue change then.
   by that: no device-calibrated setting, so nothing to verify beyond the measurements.
 - **Delivered:** `SOLPROP_BENCH_NODE_BUDGET` in the benchmark builders (one arm of an
   A/B at another node budget), and the measurements on #361.
+
+### Final report — completion
+
+- **Scope:** completion under SEP 0 §6, 2026-11-09, Opus 5.5 (AI) for John Travers.
+- **Phases:** 0–6 are implemented and reported above; the verification and scan-worker
+  reports cover section 7 items 1–4, 14 and 16, and phase 6 answers item 15. The CI
+  gate passes on the branch.
+- **Backends:** the calibration fits the native backend's CPU execution and leaves its
+  results unchanged beyond rounding (section 7 item 6). `numpy_ref`, `mlx` and Julia
+  have no execution settings to fit and are out of scope (section 2).
+- **Manual:** [Calibrating solprop to your machine](../../../guide/performance/calibration.md)
+  is new and ends with a link here. The installation, tuning, recipes and native build
+  pages, the README, ADR-074 and the release notes say what changed.
+- **Open questions moved to issues:**
+  - §12 item 1, a quick profile upgrading itself to standard: #591.
+  - The few-mode cases' narrower-team gain (verification report): #592, beside #584.
+  - The grain the Axion and the Emerald Rapids agreed on, as the table's: #593.
+  - §12 item 11, hybrid-core Linux and Windows machines: #594.
+  - §12 item 10, why plans chosen alone lose in the step: #595.
+  - §12 item 8 stays on #229, the transforms' thresholds on #587, the node chunk on
+    #361 and the scan split on #314.
+  - §12 item 3, answered: the waiting and team agreed in every pair of conclusive
+    calibrations and the grain did in the last pairs (item 3). A benchmark row records
+    the profile it ran on (`calibration`: its level and generation), so a step in a
+    series can be traced to a changed profile; series are not split by it.
+- **Issues answered:** #328 (thresholds measured on Windows, aarch64 and macOS, and fitted
+  per machine), #332 (FFTW effort per shape and processor: measured, and the policy kept
+  where nothing won) and #115 (SEP 4, superseded). #81 and #329 stay open: the
+  calibration gained `gnlse_raman_shock` 6–15 % on the untuned machines without
+  explaining its scaling, and did not requalify the scalar wall.
 
 ## Part III — History
 
@@ -1570,3 +1600,4 @@ are left to the maintainer as §12 items 4–7.
   an NVIDIA H200; no device setting kept as calibrated, the chunk to #361.
 - 2026-11-09: Scan workers measured on an AMD EPYC 7763 node: the table kept, workers'
   waiting immaterial; one-CPU allocations are no longer calibrated.
+- 2026-11-09: Final. Open questions moved to #591–#595; archived.

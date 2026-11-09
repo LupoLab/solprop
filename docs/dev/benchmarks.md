@@ -2648,7 +2648,7 @@ on the device and the operator built once, whole runs take 1.05 s on `mlx` again
 
 ### Machine calibration against the built-in table (SEP 46)
 
-[SEP 46](seps/sep-0046-machine-calibration.md) section 7 items 1–4. On each machine a
+[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 items 1–4. On each machine a
 thorough calibration, then the tracking set calibrated against the built-in table
 (`benchmarks ab`, a fifth of each case, three rounds of one run, both arms as default
 runs: no thread count of their own, `SOLPROP_CALIBRATION=off` against `use`), an A/A
@@ -2714,7 +2714,7 @@ this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
 
 ### Scan workers calibrated on an AMD EPYC 7763 node (SEP 46)
 
-[SEP 46](seps/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
+[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
 whole node of two AMD EPYC 7763 (128 cores, 8 NUMA domains), exclusive, GCC 16, commit
 `ad1df42e` of #582. The workload is an RDW tuning scan: a four-mode helium capillary
 (125 µm core radius, 5 cm, 7.5 fs at 800 nm, plasma) over pressure (0.6–1.2 bar) and

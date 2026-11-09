@@ -14,7 +14,7 @@
 | **Resolution** | — |
 | **Requires** | — |
 | **Supersedes** | — |
-| **Superseded-by** | [SEP 46](../sep-0046-machine-calibration.md) |
+| **Superseded-by** | [SEP 46](sep-0046-machine-calibration.md) |
 | **Implementation** | — |
 | **Manual pages** | — |
 
@@ -878,7 +878,7 @@ GPU experiments or prototype tuning study were performed for this proposal.
   proposal was written before that, and its search over Numba's regimes and pools, with the
   settings it names (`SOLPROP_NUMBA_*`, `SOLPROP_FFTW_THREADS`), no longer has anything to act
   on: it needs reworking on the native backend's pools before it can be accepted.
-- 2026-11-08: Superseded by [SEP 46](../sep-0046-machine-calibration.md), accepted the same day: its
+- 2026-11-08: Superseded by [SEP 46](sep-0046-machine-calibration.md), accepted the same day: its
   per-simulation search, plan, selection rules and pilot contract are replaced there; worker
   counts (#314), GEMM providers, CPU node chunks and propagator policy (#303) stay on their
   issues. Never implemented.
