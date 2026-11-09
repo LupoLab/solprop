@@ -266,7 +266,7 @@ class SnapshotController:
             self._pending = True
         return self._pending and (explicit or now >= self._retry_at)
 
-    def _service(  # noqa: PLR0913 - the snapshot transaction's whole context
+    def _service(  # noqa: PLR0913 - the snapshot transaction's context
         self,
         output: HDF5Output,
         archive: TDSEArchiveWriter | None,
@@ -708,11 +708,14 @@ def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object
     optical = directory / records[0].path
     state = resume(optical)
     outcome = state.outcome
+    # The endpoint is the last saved plane, or a running checkpoint beyond it at the
+    # running outcome's position (SEP 47 section 5.5), which `resume` prefers; it is
+    # an accepted endpoint, never a dense observation.
     if (
         outcome is None
         or outcome.status != "running"
         or outcome.z != state.plane.z
-        or state.checkpoint is not None
+        or (state.checkpoint is not None and not state.checkpoint.landed)
         or state.plane.field is None
         or not np.all(np.isfinite(state.plane.field))
     ):
