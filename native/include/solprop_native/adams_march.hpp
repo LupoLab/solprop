@@ -259,6 +259,8 @@ enum class Reason : int {
                 ///< finishes it, holding its extension (SEP 45 phase 4)
   stopped = 11, ///< a stop was requested (SEP 47 section 5.5): before the first
                 ///< attempt, or after an attempt's commit and accounting
+  halted = 12,  ///< a halt was requested (a snapshot latch, SEP 47 section 5.5): at
+                ///< an accepted endpoint, after its commit and accounting
 };
 
 /** Where a native failure happened. */
@@ -309,7 +311,16 @@ struct Bounds {
    *  it before its first attempt and after each attempt's commit and accounting, where
    *  no host event returns first, and returns `stopped` with the committed state. */
   const std::atomic<bool>* stop = nullptr;
+  /** A halt request any thread may set (a snapshot latch, SEP 47 section 5.5), or
+   *  none. The march reads it at each accepted endpoint, after the step's commit and
+   *  accounting and where no other host event returns first, and returns `halted`. */
+  const std::atomic<bool>* halt = nullptr;
 };
+
+/** Whether a halt is requested on `bounds` (SEP 47 section 5.5). */
+[[nodiscard]] inline bool halt_requested(const Bounds& bounds) noexcept {
+  return bounds.halt != nullptr && bounds.halt->load(std::memory_order_acquire);
+}
 
 /** Whether a stop is requested on `bounds` (SEP 47 section 5.5). */
 [[nodiscard]] inline bool stop_requested(const Bounds& bounds) noexcept {

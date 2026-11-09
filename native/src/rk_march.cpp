@@ -253,6 +253,11 @@ Result run(const Policy& policy, State& state, Engine& engine,
       result.reason = march::Reason::monitor;
       return true;
     }
+    // A halt, at this accepted endpoint (SEP 47 section 5.5).
+    if (march::halt_requested(bounds)) {
+      result.reason = march::Reason::halted;
+      return true;
+    }
     return false;
   };
   // A stop, after the attempt's commit and accounting (SEP 47 section 5.5), the

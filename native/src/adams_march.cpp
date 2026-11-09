@@ -631,6 +631,11 @@ Result run(const Policy& policy, State& state, Engine& engine, const Bounds& bou
         result.reason = Reason::monitor;
         return result;
       }
+      // A halt, at this accepted endpoint (SEP 47 section 5.5).
+      if (halt_requested(bounds)) {
+        result.reason = Reason::halted;
+        return result;
+      }
     }
     // A stop, after the attempt's commit and accounting (SEP 47 section 5.5).
     if (stop_requested(bounds)) {

@@ -244,3 +244,30 @@ TEST(AdamsMarch, AnEventStepsHostWorkPrecedesAStop) {
   EXPECT_TRUE(result.rows.empty());
   EXPECT_EQ(engine.trials, 2);
 }
+
+TEST(AdamsMarch, AHaltEndsTheCallAtTheNextAcceptedEndpoint) {
+  // solprop SEP 47 section 5.5: a snapshot latch set from another thread, here from
+  // inside the third trial, which is rejected: the call goes on to the next accepted
+  // endpoint and returns there, committed and accounted.
+  std::atomic<bool> halt{false};
+  march::State state;
+  state.proposal = 1e-4;
+  Stopping engine(halt, 3, true, 3);
+  march::Bounds bounds;
+  bounds.target = 0.05;
+  bounds.max_attempts = 1000;
+  bounds.max_seconds = 10.0;
+  bounds.halt = &halt;
+  const auto result = march::run(policy(), state, engine, bounds, march::Schedule{});
+  ASSERT_EQ(result.reason, march::Reason::halted);
+  ASSERT_EQ(result.rows.size(), 4 * march::row_columns);
+  EXPECT_EQ(result.rows[2 * march::row_columns + march::accepted_column], 0.0);
+  EXPECT_EQ(result.rows[3 * march::row_columns + march::accepted_column], 1.0);
+  EXPECT_EQ(state.z, result.rows[3 * march::row_columns + march::end_column]);
+  // A host event on the same step returns first.
+  halt.store(false);
+  Stopping again(halt, 1, false);
+  bounds.host_step = 1;
+  const auto event = march::run(policy(), state, again, bounds, march::Schedule{});
+  EXPECT_EQ(event.reason, march::Reason::host_step);
+}

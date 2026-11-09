@@ -201,3 +201,19 @@ TEST(RungeKuttaMarch, AnEventStepsHostWorkPrecedesAStop) {
   EXPECT_EQ(result.march.reason, march::Reason::stopped);
   EXPECT_EQ(engine.trials, 2);
 }
+
+TEST(RungeKuttaMarch, AHaltEndsTheCallAtTheNextAcceptedEndpoint) {
+  std::atomic<bool> halt{false};
+  rk::State state;
+  state.proposal = 1e-3;
+  // The third trial is rejected and sets the halt: the fourth, accepted, ends the call.
+  Stopping engine(halt, 3, 3);
+  auto bounds = stopping_bounds(halt);
+  bounds.stop = nullptr;
+  bounds.halt = &halt;
+  const auto result = rk::run(landing_controller(), state, engine, bounds);
+  ASSERT_EQ(result.march.reason, march::Reason::halted);
+  ASSERT_EQ(result.march.rows.size(), 4 * march::row_columns);
+  EXPECT_EQ(engine.accepts, 3);
+  EXPECT_EQ(state.z, result.march.rows[3 * march::row_columns + march::end_column]);
+}
