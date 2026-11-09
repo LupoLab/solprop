@@ -37,11 +37,15 @@ from solprop.backends.events import (
     ServiceKind,
     ServiceRequired,
     Terminal,
+    emit_warning,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import Backend
 from solprop.backends.protocol import StepStats as BackendRows
+from solprop.backends.session import RunSession
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.run import (
+    SessionFacts,
     _announce,
     _earlier_execution,
     _FailedObservation,
@@ -74,7 +78,6 @@ from solprop.stepper.multistep import Multistep
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from solprop.backends.driver_session import DriverSession
     from solprop.backends.events import EventBatch, ExportTicket
     from solprop.log import ProgressReporter, StopFlag
     from solprop.output.schema import (
@@ -208,11 +211,11 @@ class _Exports:
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session whose tickets are exported.
     """
 
-    def __init__(self, session: DriverSession) -> None:
+    def __init__(self, session: RunSession) -> None:
         """Start with nothing exported."""
         self._session = session
         self._ticket: ExportTicket | None = None
@@ -292,15 +295,20 @@ def _plane(event: ObservationReady, exports: _Exports, *, keep: bool) -> SavedPl
 
 
 def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
-    session: DriverSession,
+    session: RunSession,
     output: Output,
     context: ServiceContext,
 ) -> None:
     """Advance a session to its end, servicing every event it reports.
 
+    Any :class:`~solprop.backends.session.RunSession` is served: the transitional
+    :class:`~solprop.backends.driver_session.DriverSession`, whose driver gives the
+    execution facts and method history, or a backend's own session, through its
+    protocol alone (:class:`~solprop.driver.run.SessionFacts`).
+
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The started session.
     output : solprop.output.schema.Output
         Where the planes go; closed when the loop ends, whether or not it succeeded.
@@ -314,7 +322,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         record and any checkpoint are written.
     """
     problem, reporter = context.problem, context.reporter
-    backend = session.driver
+    backend = _facts(session)
     planes = context.request.observation.save_planes
     started = time.perf_counter()
     clock = RunClock.start()
@@ -330,7 +338,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     _retain(output, context.retention, problem.shape[1:])
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     _refuse_unread_collar(problem, backend)
-    monitor = session.monitor
+    # The request's own monitor: its thresholds; the session owns its state.
+    monitor = context.request.boundary.monitor
     # Read before this execution's first record replaces the earlier one's.
     earlier = None if checkpoint_output is None else checkpoint_output.outcome
     resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
@@ -447,7 +456,14 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                     if event.kind is not ObservationKind.LAUNCH:
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
-                    if event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
+                    if event.kind is ServiceKind.WARNING:
+                        # A warning barrier (SEP 47 section 5.5): the filters may
+                        # raise it, which fails the run at this committed endpoint,
+                        # its field and attempts there for the checkpoint.
+                        pending_ticket = event.ticket
+                        terminal_rows = (event.history, event.step_stats)
+                        emit_warning(event)
+                    elif event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
                         assert isinstance(output, HDF5Output)
                         _service_snapshot(
                             event,
@@ -647,7 +663,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
 
 
 def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
-    session: DriverSession,
+    session: RunSession,
     output: CheckpointOutput | None,
     context: ServiceContext,
     keeper: _MarchKeeper,
@@ -661,7 +677,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session, its last batch still pending.
     output : solprop.output.schema.CheckpointOutput or None
         Handler supporting terminal checkpoints, when available.
@@ -689,9 +705,11 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     """
     if output is None:
         return None
-    backend = session.driver
+    backend = _facts(session)
     in_flight = backend.in_flight
     if failure.pending is None and in_flight is not None:
+        # Only a driver leaves a step in flight; a session's facts never do.
+        assert not isinstance(backend, SessionFacts)
         # The latest running checkpoint, when one follows the last plane, is the
         # state to resume from (SEP 47 section 5.5).
         return _record_abandoned_step(
@@ -789,7 +807,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     return reached
 
 
-def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
+def _fallback_ticket(session: RunSession) -> ExportTicket | None:
     """Return a ticket for the committed state after a failure outside the session.
 
     A service failure -- an output error, a signal during a commit -- leaves the
@@ -798,7 +816,7 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
 
     Parameters
     ----------
-    session : solprop.backends.driver_session.DriverSession
+    session : solprop.backends.session.RunSession
         The session.
 
     Returns
@@ -807,3 +825,27 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
         A ticket for the pending state, or ``None``.
     """
     return session.pending_ticket()
+
+
+def _facts(session: RunSession) -> Backend | SessionFacts:
+    """Return what the service loop's records read as the session's backend.
+
+    The transitional session's driver, or a session's own facts
+    (:class:`~solprop.driver.run.SessionFacts`).
+
+    Parameters
+    ----------
+    session : solprop.backends.session.RunSession
+        The session.
+
+    Returns
+    -------
+    Any
+        The driver, or the facts.
+    """
+    # The transitional session's own module imports this loop's helpers.
+    from solprop.backends.driver_session import DriverSession  # noqa: PLC0415
+
+    if isinstance(session, DriverSession):
+        return session.driver
+    return SessionFacts(session)

@@ -197,7 +197,17 @@ Result run(const Policy& policy, State& state, Engine& engine,
       return false;
     const auto& rules = bounds.watch_policy;
     watch::Verdict verdict = watch::Verdict::none;
-    if (!watch::due(rules, state.watch, state.z)) {
+    if (bounds.owner != nullptr) {
+      // A session's owning monitor checks the step itself (SEP 47 section 6.4).
+      try {
+        verdict = watch::owned_check(
+            *bounds.owner, [&engine]() { return engine.reading(); }, state.z,
+            bounds.replay, schedule.steps, state.cursor);
+      } catch (const std::exception& error) {
+        fail(result, march::Stage::accept, error);
+        return true;
+      }
+    } else if (!watch::due(rules, state.watch, state.z)) {
       watch::skip(state.watch);
     } else {
       std::vector<double> reading;
@@ -214,19 +224,13 @@ Result run(const Policy& policy, State& state, Engine& engine,
       result.readings.insert(result.readings.end(), reading.begin(), reading.end());
       result.reading_rows.push_back(result.rows.size() / march::row_columns - 1);
       verdict = watch::check(rules, state.watch, reading.data(), state.z);
-      const std::size_t n_steps = schedule.steps.size();
-      if (verdict == watch::Verdict::none && bounds.replay && rules.crossing &&
-          state.cursor < n_steps) {
-        // `_refuse_scheduled_crossing`: the longest scheduled step before the next
-        // check against the cap this check read, as the Adams march holds it.
-        const auto ahead = static_cast<std::size_t>(std::min<std::uint64_t>(
-            watch::steps_to_check(rules, state.watch), n_steps - state.cursor));
-        double longest = schedule.steps[state.cursor];
-        for (std::size_t index = 1; index < ahead; ++index)
-          longest = std::max(longest, schedule.steps[state.cursor + index]);
-        if (longest > state.watch.cap)
-          verdict = watch::Verdict::refuse;
-      }
+      // `_refuse_scheduled_crossing`: the longest scheduled step before the next check
+      // against the cap this check read.
+      if (verdict == watch::Verdict::none &&
+          watch::refused_crossing(
+              rules.crossing, bounds.replay, schedule.steps, state.cursor,
+              watch::steps_to_check(rules, state.watch), state.watch.cap) > 0.0)
+        verdict = watch::Verdict::refuse;
     }
     if (verdict == watch::Verdict::none)
       return false;
@@ -278,7 +282,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     }
     return false;
   };
-  if (bounds.watch)
+  if (bounds.watch && bounds.owner == nullptr)
     watch::validate(bounds.watch_policy);
   if (bounds.replay) {
     // `StepDriver._replay_to` (SEP 45 phase 4): the schedule's steps as given, never
@@ -354,7 +358,7 @@ Result run(const Policy& policy, State& state, Engine& engine,
     double candidate = march::quiet_capped(policy.landings, proposal, bounds.quiet);
     // The transverse edge's ceiling (`TransverseEdge.ceiling`): infinite without one.
     candidate = py_min(candidate, bounds.read_spacing);
-    candidate = py_min(candidate, bounds.watch ? state.watch.cap : bounds.step_cap);
+    candidate = py_min(candidate, march::split_cap(bounds, state.watch));
     march::Landing stop;
     double norm = 0.0;
     try {

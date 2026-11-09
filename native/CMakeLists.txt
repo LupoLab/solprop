@@ -1000,6 +1000,7 @@ if(BUILD_TESTING)
     tests/native/test_watch.cpp
     tests/native/test_rk_march.cpp
     tests/native/test_session.cpp
+    tests/native/test_session_monitor.cpp
     tests/native/test_adams_phi.cpp
     tests/native/test_core.cpp
     tests/native/test_crossing.cpp

@@ -28,6 +28,7 @@ or acknowledging an older one, is refused, so no barrier is crossed twice.
 from __future__ import annotations
 
 import enum
+import warnings
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
@@ -51,6 +52,7 @@ __all__ = [
     "ServiceKind",
     "ServiceRequired",
     "Terminal",
+    "emit_warning",
 ]
 
 
@@ -218,12 +220,18 @@ class ServiceRequired:
     category : type[Warning] or None
         For a warning, its category; ``None`` otherwise.
     ticket : ExportTicket or None
-        For a snapshot, the committed field to persist; ``None`` otherwise.
+        For a snapshot, the committed field to persist; for a warning, the committed
+        field a failure checkpoint persists should the warning be raised; ``None``
+        otherwise.
     history : solprop.backends.protocol.BackendHistory or None
-        For a snapshot, the attempts since the previous observation, included in the
-        running checkpoint without being consumed (SEP 47 section 5.5).
+        For a snapshot or a warning, the attempts since the previous observation,
+        included in a checkpoint there without being consumed (SEP 47 section 5.5).
     step_stats : solprop.backends.protocol.StepStats or None
-        For a snapshot, the periodic rows since the previous observation, likewise.
+        For a snapshot or a warning, the periodic rows since the previous
+        observation, likewise.
+    warning : Warning or None
+        For a warning, the instance to emit, with every attribute its issuer gives it
+        (:func:`emit_warning`); ``None`` to emit `category` with `message`.
     """
 
     kind: ServiceKind
@@ -233,6 +241,49 @@ class ServiceRequired:
     ticket: ExportTicket | None = None
     history: BackendHistory | None = None
     step_stats: StepStats | None = None
+    warning: Warning | None = None
+
+
+def emit_warning(event: ServiceRequired, *, stacklevel: int = 2) -> None:
+    """Emit a warning barrier's warning through Python's warning machinery.
+
+    The caller's filters apply: one that raises it raises it here, at the barrier, and
+    the run ends at that committed endpoint (SEP 47 section 5.5). The warning is the
+    event's own instance where it carries one, so that it reaches the filters and the
+    caller exactly as its issuer would have warned.
+
+    Parameters
+    ----------
+    event : ServiceRequired
+        A :attr:`ServiceKind.WARNING` request.
+    stacklevel : int, optional
+        As for :func:`warnings.warn`, counted from the caller of this function.
+
+    Raises
+    ------
+    ValueError
+        If `event` is not a warning.
+
+    Examples
+    --------
+    >>> import warnings
+    >>> from solprop.backends.events import ServiceKind, ServiceRequired, emit_warning
+    >>> event = ServiceRequired(ServiceKind.WARNING, 0.0, "edge", UserWarning)
+    >>> with warnings.catch_warnings(record=True) as caught:
+    ...     warnings.simplefilter("always")
+    ...     emit_warning(event)
+    >>> str(caught[0].message)
+    'edge'
+    """
+    if event.kind is not ServiceKind.WARNING:
+        msg = f"a {event.kind.value} request is not a warning"
+        raise ValueError(msg)
+    if event.warning is not None:
+        warnings.warn(event.warning, stacklevel=stacklevel + 1)
+        return
+    warnings.warn(
+        event.message, event.category or UserWarning, stacklevel=stacklevel + 1
+    )
 
 
 @dataclass(frozen=True, eq=False)

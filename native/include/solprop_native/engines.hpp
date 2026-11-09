@@ -110,6 +110,8 @@ public:
   void count_to_host(std::size_t bytes) override;
   std::vector<double> statistics(const session::StatisticsRecipe& recipe,
                                  double z) override;
+  std::vector<double> boundary_reading() override;
+  void set_collar_quiet(bool quiet) override;
 
 private:
   GeneralState& state_;

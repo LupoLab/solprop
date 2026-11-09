@@ -195,7 +195,8 @@ struct Held {
         attempts.push_back(batch.attempts[row * session::attempt_columns + column]);
     row_z.insert(row_z.end(), batch.row_z.begin(), batch.row_z.end());
     for (const auto step : batch.row_step)
-      row_step.push_back(offset + step);
+      row_step.push_back(
+          static_cast<std::uint64_t>(static_cast<std::int64_t>(offset) + step));
     rows.insert(rows.end(), batch.row_values.begin(), batch.row_values.end());
   }
 };

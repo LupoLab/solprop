@@ -17,8 +17,10 @@ structural counter of section 7.3 -- no return to Python caused by periodic rows
 a stop from another thread reaching a march in progress.
 """
 
+import dataclasses
 import threading
 import time
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -360,6 +362,17 @@ def _refused(problem, request, name, monkeypatch) -> None:
         )
 
 
+def _edged() -> Any:
+    """Return a spy monitor carrying a transverse edge, which the session refuses.
+
+    Returns
+    -------
+    sessions.executors.SpyMonitor
+        The monitor; its edge is a placeholder, read only for its presence.
+    """
+    return dataclasses.replace(spy_monitor([]), transverse=cast("Any", object()))
+
+
 class _OwnAccept(PIController):
     """A controller that overrides a decision: a reference-only experiment."""
 
@@ -371,7 +384,7 @@ class _OwnAccept(PIController):
 @pytest.mark.parametrize(
     ("build", "name"),
     [
-        (lambda: (soliton(), {"monitor": spy_monitor([])}), "a boundary monitor"),
+        (lambda: (soliton(), {"monitor": _edged()}), "transverse edge"),
         (lambda: (_case(interpolate=True), {}), "dense output"),
         (
             lambda: (
@@ -399,7 +412,14 @@ class _OwnAccept(PIController):
             "'zdw'",
         ),
     ],
-    ids=["monitor", "dense", "low-storage", "comparison", "controller", "statistic"],
+    ids=[
+        "transverse-edge",
+        "dense",
+        "low-storage",
+        "comparison",
+        "controller",
+        "statistic",
+    ],
 )
 def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatch):
     """SEP 47 section 6.3: every refused feature names itself, before allocation."""

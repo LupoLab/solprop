@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from jaxtyping import Complex
 
     from solprop.backends.export import ExportRecipe
+    from solprop.backends.protocol import BackendHistory, StepStats
     from solprop.noise import NoiseRealisation
     from solprop.output.schema import MarchSnapshot
     from solprop.translate.problem import KernelProblem
@@ -371,6 +372,32 @@ class RunSession(Protocol):
 
     def monitor_record(self) -> Mapping[str, object] | None:
         """Return the boundary monitor's record, or ``None`` without a monitor."""
+        ...
+
+    def continue_monitor(self, continuation: Mapping[str, object]) -> None:
+        """Continue a resumed run's boundary-monitor record, before it watches the run.
+
+        As :attr:`Start.monitor`, for a service loop that reads the earlier
+        execution's record from its output after the session started.
+        """
+        ...
+
+    def held_attempts(
+        self, ticket: ExportTicket
+    ) -> tuple[BackendHistory | None, StepStats | None]:
+        """Return the attempts and rows since the last observation, unconsumed.
+
+        For a terminal checkpoint after a failure outside the session; ``None`` for
+        each when there are none.
+        """
+        ...
+
+    def pending_ticket(self) -> ExportTicket | None:
+        """Return a ticket for the committed state after a failure outside the session.
+
+        ``None`` when nothing can be exported: the session is closed or poisoned, or
+        no batch is pending to bind the ticket to.
+        """
         ...
 
     def close(self) -> None:

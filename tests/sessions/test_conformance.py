@@ -322,11 +322,13 @@ def test_events_follow_the_committed_order(start, executor):
     """SEP 47 section 5.3, the ordering table, start to final endpoint.
 
     The launch plane comes first and is committed before the boundary monitor is
-    attached (a spy monitor logs its launch against the test's acknowledgment); save
-    planes follow in order, with a step plane at every third accepted step; the
-    terminal event comes last. Plane statistics and periodic rows carry no batch axis,
-    rows are taken every second accepted step at an accepted endpoint, and a batch
-    holds at most one field-bearing event.
+    attached (a spy monitor logs its launch against the test's acknowledgment, or a
+    native monitor's record holds no launch yet); save planes follow in order, with a
+    step plane at every third accepted step; the terminal event comes last. Every
+    committed step is checked or skipped by the monitor once, in order, and each
+    observation closes a monitor row. Plane statistics and periodic rows carry no batch
+    axis, rows are taken every second accepted step at an accepted endpoint, and a
+    batch holds at most one field-bearing event.
     """
     executor.require(MONITOR)
     log: list[tuple[str, float]] = []
@@ -339,15 +341,34 @@ def test_events_follow_the_committed_order(start, executor):
     assert (first.kind, first.plane_index, first.z) == (ObservationKind.LAUNCH, -1, 0.0)
     assert first.history.n_steps == first.step_stats.n_rows == 0
     assert not log, "the monitor was attached before the launch plane was committed"
+    if executor.native_monitor:
+        record = session.monitor_record()
+        assert record is not None
+        assert record["launch_energy"] is None and record["planes"]["z"] == [], (
+            "the monitor was attached before the launch plane was committed"
+        )
     log.append(("acknowledged", first.z))
     session.acknowledge(launch.receipt)
     rest = drive(started)
     run = Run([launch, *rest.batches], [], rest.status)
 
-    assert log[:2] == [("acknowledged", 0.0), ("launch", 0.0)]
-    assert {kind for kind, _ in log[2:]} == {"step"}
-    watched = [z for _, z in log[2:]]
-    assert watched == sorted(watched) and watched[0] > 0.0 and watched[-1] <= LENGTH
+    record = session.monitor_record()
+    assert record is not None
+    ends = run.accepted_ends()
+    if executor.native_monitor:
+        # The native monitor owns the record; the request's solprop monitor is unused.
+        assert not log[1:]
+        assert record["launch_energy"] is not None
+        assert record["steps"] + record["skipped"] == ends.size
+    else:
+        assert log[:2] == [("acknowledged", 0.0), ("launch", 0.0)]
+        assert {kind for kind, _ in log[2:]} == {"step"}
+        watched = [z for _, z in log[2:]]
+        assert watched == ends.tolist()
+        assert watched[0] > 0.0 and watched[-1] <= LENGTH
+    # The launch's row, then one row per observation, each at its position.
+    observed = [event.z for event in run.observations]
+    assert record["planes"]["z"] == observed
 
     _assert_committed_order(run)
 

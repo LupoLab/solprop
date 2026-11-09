@@ -205,6 +205,17 @@ std::vector<double> GeneralResident::statistics(const session::StatisticsRecipe&
   return statistics::evaluate(state_, *recipe.plan, z);
 }
 
+std::vector<double> GeneralResident::boundary_reading() {
+  return state_.monitor_reading();
+}
+
+void GeneralResident::set_collar_quiet(const bool quiet) {
+  // `NativeBackend._collar_changed`: the reused stage was evaluated under the other
+  // setting, so it is dropped.
+  state_.set_absorber_quiet(quiet);
+  state_.clear_fsal();
+}
+
 ScriptedEngine::ScriptedEngine(std::vector<double> norms, const double carrier_rate,
                                std::vector<ScriptedEvent>& log)
     : norms_(std::move(norms)), carrier_rate_(carrier_rate), log_(log) {}
