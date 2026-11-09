@@ -163,7 +163,8 @@ imported:
 | `SOLPROP_NATIVE_FFT_THREADS` | FFTW threads for the modal and spatial transforms | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_FFT_THREADS` | threads for the Raman convolution transforms of complete node chunks | sized per plan, up to the cap |
 | `SOLPROP_NATIVE_RAMAN_TAIL_FFT_THREADS` | threads for the Raman transforms of the last, partial node chunk | sized from active rows, up to the cap |
-| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 16,384 (32,768 on macOS) |
+| `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` | the real-side samples per execution from which a modal or spatial FFT plan is threaded | 8,192 (32,768 on macOS) |
+| `SOLPROP_NATIVE_FORWARD_PACK` | `0` transforms a modal stage's forward rows (projection, absorber, plasma currents) one transform at a time instead of in one batch | unset (one batch, except for one-column problems) |
 | `SOLPROP_NATIVE_BAND_TILES` | the field plasma column's band form: unset for the build's own (tiled on a GPU, a team per node on a CPU), `0` for the team column, a positive `N` for the tiled column with host teams of `N` threads | unset |
 
 The four pool variables are optional positive integers, clamped to the cap; an invalid
@@ -192,6 +193,13 @@ one and starts them again for the next wide one, which cost a four-thread kernel
 full-width ones about half a millisecond each time. FFT plans keep their four threads,
 since FFTW's threaded loops run on the runtime's whole team.
 
+Modal and spatial FFT plans thread by their shape instead: from the start below, a
+thread per 4,096 samples (32,768 on macOS, a sixteenth of that on a spinning top tier)
+and at most one per row, since FFTW divides a batch's rows among its threads; rows of at
+least 16,384 samples (65,536 on macOS) are split, up to `min(4, C)` threads. A batch of
+a few long rows therefore takes about one thread a row, many short rows the full pool.
+The calibration moves the samples per thread.
+
 | operation | work used for sizing | threading starts | full pool starts |
 |---|---|---:|---:|
 | stage, update and reduction | elements in the field or fused batch | 4,096 (8,192 on macOS) | as threading |
@@ -201,7 +209,7 @@ since FFTW's threaded loops run on the runtime's whole team.
 | general modal synthesis/projection | active nodes × components × spectral samples × modes | 65,536 | 65,536 |
 | coupled matrix functions | active spectral bins × modes³ | 32,768 | 32,768 |
 | exponential Adams trial | elements in the field × history rows | 8,192 | 65,536 |
-| modal/spatial FFT | real-side samples in the actual batch | 16,384, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 131,072 |
+| modal/spatial FFT | real-side samples in the actual batch, by rows and row length (above) | 8,192, 32,768 on macOS (`SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`) | 4,194,304 |
 | Raman FFT | real-side samples in the actual batch | 65,536 | 262,144 |
 
 A response column is one active node and one component; its column-length and

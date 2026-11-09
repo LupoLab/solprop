@@ -485,6 +485,40 @@ def test_every_stage_of_a_trial_matches_the_reference(
         assert_regression_guard(got, want, f"{kind} {integration} stage {stage}")
 
 
+@pytest.mark.skipif(
+    not solprop_native.build_info().cpu_size_policy_enabled
+    or os.environ.get("SOLPROP_NATIVE_FORWARD_PACK") == "0",
+    reason="the host's forward pack and its sizing record (solprop issue #584)",
+)
+def test_a_modal_stage_transforms_its_forward_rows_as_one_batch() -> None:
+    """Pack the projection's and both held currents' rows, fine then coarse.
+
+    Two columns with held currents and a coarse projection: one batch of twelve rows
+    (fine, both currents' fine, coarse, both currents' coarse) and its six-row fine
+    block for a deferred quadrature's stages; the one-column problem is compact and
+    keeps a transform a row (the quadrature test above checks both against the
+    reference).
+    """
+
+    def rows(kind: str) -> set[int]:
+        grid, problem = modal(kind)
+        backend = NativeBackend(problem, grid=grid)
+        try:
+            sizing = cast(
+                dict[str, dict[str, int]], backend.metadata()["execution_sizing"]
+            )
+        finally:
+            backend.close()
+        return {
+            entry["columns"]
+            for key, entry in sizing.items()
+            if key.startswith("fft.fft.") and "columns" in entry
+        }
+
+    assert {12, 6} <= rows("multimode")
+    assert max(rows("analytic")) == 1
+
+
 @pytest.mark.parametrize("kind", ["multimode", "analytic", "mixture"])
 @pytest.mark.parametrize("chunk", [1, 4])
 def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(

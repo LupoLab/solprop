@@ -27,6 +27,7 @@ import math
 import os
 import queue
 import random
+import statistics
 import subprocess
 import sys
 import threading
@@ -124,12 +125,18 @@ LEVELS: dict[str, Level] = {
     # Quick: the wait, the team and the coarse grain (medium width, compact team).
     # Quick has no production-sized problem, so it tries no narrower team.
     "quick": Level(
-        "quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 0, 4, planning=0.0
+        "quick", 30.0, 3, 0.08, ("gnlse", "averaged", "line"), 0, 4, planning=0.0
     ),
-    "standard": Level("standard", 90.0, 5, 0.08, _ALL + _LARGE, 2, 10, reserve=0.15),
-    "thorough": Level("thorough", 300.0, 7, 0.3, _ALL + _LARGE, 2, 40, fulls=True),
+    "standard": Level("standard", 120.0, 5, 0.08, _ALL + _LARGE, 2, 10, reserve=0.15),
+    "thorough": Level("thorough", 420.0, 7, 0.3, _ALL + _LARGE, 2, 40, fulls=True),
 }
-"""The levels: about 20 s, a minute and a half and five minutes (SEP 46 section 6.9)."""
+"""The levels: about 30 s, two minutes and seven minutes.
+
+SEP 46 section 6.9 set 20 s, 90 s and 5 min. With those, the FFT stage's timing in the
+step ran out of rounds at the standard and thorough levels on an Intel Xeon Gold 6240,
+16 cores of an AMD EPYC 7763 and an Apple M5 Max, and the standard level's capture ran
+out of its share (solprop issue #595); the levels now give it the time.
+"""
 
 ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2}
 """Levels by depth: a higher level replaces a lower one for the same allocation."""
@@ -1321,17 +1328,19 @@ POLICY: dict[str, str] = {
 
 
 def _planning_candidates(
-    level: Level, measured: Mapping[str, object], patient: Mapping[str, object] | None
+    measured: Mapping[str, object],
 ) -> list[tuple[str, str, dict[str, object]]]:
     """Return each group's candidate plannings.
 
+    No group tries ``patient``: on an Intel Xeon Gold 6240, 16 cores of an AMD EPYC
+    7763 and an Apple M5 Max its capture never finished within the thorough level's
+    share of the stage, so it was never timed and only took the time the timing in
+    the step needed (solprop issue #595).
+
     Parameters
     ----------
-    level : Level
-        The level: patient plans only at thorough, and only for serial rows.
-    measured, patient : Mapping[str, object]
-        Captures at measure and at patient effort (``patient`` ``None`` below
-        thorough): ``wisdom`` and ``groups`` by plan key.
+    measured : Mapping[str, object]
+        The capture at measure: ``wisdom`` and ``groups`` by plan key.
 
     Returns
     -------
@@ -1375,17 +1384,6 @@ def _planning_candidates(
         found.append(
             ("rows estimate", "rows", planning(POLICY | {"rows": "estimate"}, wisdom))
         )
-        if patient is not None and level.fulls:
-            found.append(
-                (
-                    "rows patient",
-                    "rows",
-                    planning(
-                        POLICY | {"rows": "patient"},
-                        wisdom | cast(dict[str, str], patient["wisdom"]),
-                    ),
-                )
-            )
     if "threaded_rows" in present:
         found.append(
             (
@@ -1405,6 +1403,69 @@ def _planning_candidates(
     return found
 
 
+def _alone_ratios(
+    candidates: Sequence[tuple[str, str, Mapping[str, object]]],
+    groups: Mapping[str, str],
+    measured: Mapping[str, object],
+) -> dict[str, dict[str, float]]:
+    """Return each candidate's plans' execution alone over the policy's (issue #595).
+
+    Parameters
+    ----------
+    candidates : sequence of tuple
+        Each candidate's name, group and planning (:func:`_planning_candidates`).
+    groups : Mapping[str, str]
+        Each plan key's group.
+    measured : Mapping[str, object]
+        The capture at measure, whose ``alone`` holds each plan's seconds as
+        captured (``plan``) and at estimate (``estimate``).
+
+    Returns
+    -------
+    dict
+        By candidate, by plan key of its group: the candidate effort's seconds alone
+        over the policy effort's; a key timed at neither is left out. Set beside the
+        candidate's verdict in the step, it tells a plan slower alone from one that
+        loses only in the step.
+    """
+    timed = cast(dict[str, dict[str, float]], measured.get("alone", {}))
+
+    def seconds(key: str, effort: str) -> float | None:
+        """Return a plan's seconds alone at `effort`, or ``None``.
+
+        Parameters
+        ----------
+        key : str
+            The plan key.
+        effort : str
+            ``"estimate"`` or ``"measure"``.
+
+        Returns
+        -------
+        float or None
+            The seconds, when timed and finite.
+        """
+        value = timed.get(key, {}).get("estimate" if effort == "estimate" else "plan")
+        return value if value is not None and math.isfinite(value) else None
+
+    ratios: dict[str, dict[str, float]] = {}
+    for name, group, planning in candidates:
+        effort = cast(dict[str, str], planning["efforts"])[group]
+        found: dict[str, float] = {}
+        for key, of in groups.items():
+            if of != group:
+                continue
+            mine, base = seconds(key, effort), seconds(key, POLICY[group])
+            if mine is not None and base:
+                found[key] = mine / base
+        ratios[name] = found
+    return ratios
+
+
+_ALONE_BAR = 0.98
+"""The median ratio, alone, of a candidate's plans to the policy's at or above which
+the candidate is not timed in the step."""
+
 _CAPTURE_SHARE = 0.5
 """The share of the FFT stage's time left that each capture may take."""
 
@@ -1418,8 +1479,8 @@ def _planning(
 ) -> tuple[dict[str, object], dict[str, str], dict[str, object]]:
     """Choose each FFT plan group's effort in the chosen setup (SEP 46 phase 3).
 
-    The child plans every transform alone at measure (and at patient, thorough),
-    from no wisdom within the level's time limit; the policy's efforts with that
+    The child plans every transform alone at measure, from no wisdom within the
+    level's time limit; the policy's efforts with that
     wisdom are the base, and each group's other effort a candidate, timed in the
     step on the problems holding that group's transforms and admitted by §6.5's rule;
     the winners are validated together. Quick leaves the plan policy.
@@ -1485,22 +1546,28 @@ def _planning(
         # timed, and plan as a run without a profile does.
         if not measured["groups"]:
             return {}, {}, {"reason": "no transform planned within the stage's share"}
-        patient = None
-        if plan.level.fulls:
-            plan.say("planning the serial transforms at patient")
-            patient = capture("patient", _CAPTURE_SHARE)
-            if patient.get("skipped"):
-                patient = None  # incomplete: patient is not a candidate
     except _ChildError as error:
         return {}, {}, {"reason": str(error)}
-    candidates = _planning_candidates(plan.level, measured, patient)
+    candidates = _planning_candidates(measured)
     groups = cast(dict[str, str], measured["groups"])
     contains = cast(dict[str, list[str]], measured["problems"])
+    alone = _alone_ratios(candidates, groups, measured)
+    # A candidate whose plans are no faster alone is not timed in the step: the step's
+    # timing is what the stage runs short of (issue #595), and estimate's serial rows
+    # and transverse planes were 1.06-3.8 times slower alone on every machine timed.
+    pruned = {
+        name: statistics.median(ratios.values())
+        for name, ratios in alone.items()
+        if ratios and statistics.median(ratios.values()) >= _ALONE_BAR
+    }
+    candidates = [item for item in candidates if item[0] not in pruned]
     evidence: dict[str, object] = {
         "plans": len(groups),
         "skipped": list(cast(list[str], measured.get("skipped", []))),
         "planning_seconds": measured["seconds"],
         "candidates": [name for name, _, _ in candidates],
+        "alone": alone,
+        "pruned": pruned,
     }
     timed = [
         (
@@ -1549,12 +1616,8 @@ def _planning(
                 "efforts": chosen,
                 "wisdom": {
                     key: text
-                    for key, text in (
-                        cast(dict[str, str], measured["wisdom"])
-                        | (cast(dict[str, str], patient["wisdom"]) if patient else {})
-                    ).items()
+                    for key, text in cast(dict[str, str], measured["wisdom"]).items()
                     if chosen[groups.get(key, "rows")] != "estimate"
-                    and (chosen[groups.get(key, "rows")] != "patient" or patient)
                 },
             }
             validation = _validate_setups(
@@ -1770,8 +1833,8 @@ def calibrate(
     Parameters
     ----------
     level : str, optional
-        ``"quick"`` (about 20 s), ``"standard"`` (about 90 s) or ``"thorough"``
-        (about five minutes).
+        ``"quick"`` (about 30 s), ``"standard"`` (about two minutes) or
+        ``"thorough"`` (about seven minutes).
     budget : float or None, optional
         The deadline in seconds, the level's when ``None``.
     environ : Mapping[str, str] or None, optional

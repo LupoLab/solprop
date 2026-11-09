@@ -10,14 +10,20 @@
 #include "solprop_native/core.hpp"
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+#include <algorithm>
+#include <array>
+#include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <fftw3.h>
+#include <limits>
 #include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <vector>
 
 namespace solprop_native {
 
@@ -239,6 +245,129 @@ void seed_row_fft_wisdom(const Execution& execution, const Input& input,
   end_seed(key, effort, seeded != nullptr);
   if (seeded != nullptr)
     fftw_destroy_plan(seeded);
+}
+
+/** A plan's execution time alone (solprop issue #595): the seconds of one execution
+    of the transform a plan key names (`fft_plan_key`), planned from `wisdom` at
+    `effort` with `FFTW_WISDOM_ONLY` (`plan`; NaN when the wisdom no longer builds
+    it), and of the same transform at FFTW_ESTIMATE (`estimate`), each the median of
+    five batches after a warm execution, on the key's threads and on arrays of its
+    alignment, inside a native scope (`CpuTeamScope`) as a step's transforms run, so
+    that idle threads wait as they do there. FFTW's wisdom is forgotten before each
+    plan and after. */
+struct PlanAlone {
+  double plan{}, estimate{};
+};
+
+namespace detail {
+inline std::vector<std::string> split_key(const std::string& text, const char by) {
+  std::vector<std::string> parts;
+  std::size_t start = 0;
+  for (std::size_t at = text.find(by); at != std::string::npos;
+       start = at + 1, at = text.find(by, start))
+    parts.push_back(text.substr(start, at - start));
+  parts.push_back(text.substr(start));
+  return parts;
+}
+
+inline double median_execution(const fftw_plan plan) {
+  using Clock = std::chrono::steady_clock;
+  fftw_execute(plan);
+  const auto first = Clock::now();
+  fftw_execute(plan);
+  const double once = std::chrono::duration<double>(Clock::now() - first).count();
+  const int repeats = std::max(2, static_cast<int>(0.005 / std::max(once, 1e-7)));
+  std::array<double, 5> batches{};
+  for (double& batch : batches) {
+    const auto start = Clock::now();
+    for (int repeat = 0; repeat < repeats; ++repeat)
+      fftw_execute(plan);
+    batch = std::chrono::duration<double>(Clock::now() - start).count() / repeats;
+  }
+  std::sort(batches.begin(), batches.end());
+  return batches[2];
+}
+} // namespace detail
+
+inline PlanAlone time_fft_plan(const std::string& key, const std::string& wisdom,
+                               const std::string& effort) {
+  const auto parts = detail::split_key(key, ':');
+  if (parts.size() != 9 || parts[8].empty() || parts[8][0] != 't')
+    throw std::invalid_argument("not an FFT plan key: " + key);
+  const std::string& kind = parts[0];
+  std::vector<int> extents;
+  for (const auto& extent : detail::split_key(parts[1], 'x'))
+    extents.push_back(std::stoi(extent));
+  const int howmany = std::stoi(parts[2]);
+  const int input_distance = std::stoi(parts[3]);
+  const int output_distance = std::stoi(parts[4]);
+  const bool in_place = parts[5] == "in";
+  const auto input_offset = static_cast<std::size_t>(std::stoi(parts[6]));
+  const auto output_offset = static_cast<std::size_t>(std::stoi(parts[7]));
+  const int threads = std::stoi(parts[8].substr(1));
+  // The step's waiting policy and FFTW team: without the scope LLVM's runtime sleeps
+  // its idle threads at once (`KMP_BLOCKTIME=0`) and each loop pays their wake-up.
+  const CpuTeamScope scope(threads);
+  const bool r2c = kind == "r2c", c2r = kind == "c2r";
+  const bool planes = kind.starts_with("planes-");
+  const int sign = kind.ends_with("backward") ? FFTW_BACKWARD : FFTW_FORWARD;
+  if (!r2c && !c2r && !planes && !kind.starts_with("c2c-"))
+    throw std::invalid_argument("not an FFT plan key: " + key);
+  const auto rank = static_cast<int>(extents.size());
+  // Real input or output counts doubles, complex counts double pairs.
+  const std::size_t input_bytes = static_cast<std::size_t>(howmany) *
+                                  static_cast<std::size_t>(input_distance) *
+                                  (r2c ? sizeof(double) : sizeof(fftw_complex));
+  const std::size_t output_bytes = static_cast<std::size_t>(howmany) *
+                                   static_cast<std::size_t>(output_distance) *
+                                   (c2r ? sizeof(double) : sizeof(fftw_complex));
+  fftw_init_threads();
+  const auto release = [](void* pointer) { fftw_free(pointer); };
+  const std::unique_ptr<void, decltype(release)> input_memory(
+      fftw_malloc(std::max(input_bytes, output_bytes) + 64), release);
+  const std::unique_ptr<void, decltype(release)> output_memory(
+      in_place ? nullptr : fftw_malloc(output_bytes + 64), release);
+  char* input_base = static_cast<char*>(input_memory.get()) + input_offset;
+  char* output_base =
+      in_place ? input_base : static_cast<char*>(output_memory.get()) + output_offset;
+  const auto make = [&](const unsigned flags) -> fftw_plan {
+    fftw_plan_with_nthreads(threads);
+    if (r2c)
+      return fftw_plan_many_dft_r2c(
+          rank, extents.data(), howmany, reinterpret_cast<double*>(input_base), nullptr,
+          1, input_distance, reinterpret_cast<fftw_complex*>(output_base), nullptr, 1,
+          output_distance, flags);
+    if (c2r)
+      return fftw_plan_many_dft_c2r(
+          rank, extents.data(), howmany, reinterpret_cast<fftw_complex*>(input_base),
+          nullptr, 1, input_distance, reinterpret_cast<double*>(output_base), nullptr,
+          1, output_distance, flags);
+    return fftw_plan_many_dft(
+        rank, extents.data(), howmany, reinterpret_cast<fftw_complex*>(input_base),
+        nullptr, 1, input_distance, reinterpret_cast<fftw_complex*>(output_base),
+        nullptr, 1, output_distance, sign, flags);
+  };
+  const auto timed = [&](const unsigned flags) {
+    fftw_forget_wisdom();
+    if ((flags & FFTW_WISDOM_ONLY) != 0U &&
+        fftw_import_wisdom_from_string(wisdom.c_str()) == 0)
+      return std::numeric_limits<double>::quiet_NaN();
+    const fftw_plan plan = make(flags);
+    if (plan == nullptr) {
+      fftw_forget_wisdom();
+      return std::numeric_limits<double>::quiet_NaN();
+    }
+    // Real input is overwritten by complex-to-real plans and harmless otherwise.
+    std::memset(input_base, 0, input_bytes);
+    const double seconds = detail::median_execution(plan);
+    fftw_destroy_plan(plan);
+    fftw_forget_wisdom();
+    return seconds;
+  };
+  PlanAlone result;
+  result.plan = timed(fftw_effort_flag(effort) | FFTW_WISDOM_ONLY);
+  result.estimate = timed(FFTW_ESTIMATE);
+  return result;
 }
 
 // FFTW's process-wide wisdom as text, for solprop's opt-in SOLPROP_FFTW_WISDOM: the

@@ -6,7 +6,7 @@
 
 Under ``SOLPROP_CALIBRATION=auto``, the default, the first native workspace built in
 an allocation with no row in its machine's profile first runs the quick calibration,
-about 20 s, after a :class:`~solprop.exceptions.CalibrationNotice`. A process that
+about 30 s, after a :class:`~solprop.exceptions.CalibrationNotice`. A process that
 had not loaded the native extension yet then takes the whole new profile when it does;
 one that had applies the new workspace settings that hold under the process settings
 it started with, and the rest from its next process. Importing the native backend

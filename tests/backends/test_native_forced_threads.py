@@ -385,7 +385,8 @@ def test_the_transverse_pool_threads_its_transform_and_agrees(tmp_path, threads)
     """
     problem, _ = wide_transverse_problem()
     samples = math.prod(problem.shape)
-    key = f"fft.fft.{samples}"
+    # The transverse planes' batch: each plane of n_y x n_x is one row of the sizing.
+    key = f"fft.fft.{samples}.samples.{problem.shape[-1] * problem.shape[-2]}"
     bound = parity_bound(problem, transverse=problem.transform.n_nodes)
     one = forced_run("wide_transverse", 1, tmp_path, pools={})
     several = forced_run("wide_transverse", threads, tmp_path, pools={})
@@ -404,7 +405,9 @@ def test_the_transverse_pool_varied_alone_agrees(tmp_path, march):
     #322 recommends beside it, the default one, on its own rounding budget.
     """
     problem, _ = wide_transverse_problem(march)
-    key = f"fft.fft.{math.prod(problem.shape)}"
+    # The transverse planes' batch: each plane of n_y x n_x is one row of the sizing.
+    plane = problem.shape[-1] * problem.shape[-2]
+    key = f"fft.fft.{math.prod(problem.shape)}.samples.{plane}"
     bound = (
         parity_bound(problem, transverse=problem.transform.n_nodes)
         if march == "march"

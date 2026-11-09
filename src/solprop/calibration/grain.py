@@ -29,6 +29,7 @@ if TYPE_CHECKING:
     from solprop.calibration.selection import Verdict
 
 __all__ = [
+    "SHAPE_MOVES",
     "TIMED",
     "Candidate",
     "Operation",
@@ -43,17 +44,25 @@ __all__ = [
 type Record = Mapping[str, int | bool]
 """A native execution record (``ExecutionRecord.native()``)."""
 
-TIMED = ("stage", "response", "raman", "copy", "dense", "modal")
+TIMED = ("stage", "response", "raman", "copy", "dense", "modal", "fft")
 """The classes whose thresholds the grain moves, in the order their candidates go.
 
 The exponential Adams trial's passes and a coupled flow's matrix functions run in
-no calibration window: their thresholds keep the built-in table's. Nor are the
-transforms' moved: their thresholds count elements, and transforms of the same count
-thread oppositely by shape. On AMD EPYC 7763 and 9B45 cores, a full width from 98304
-elements won 0.56 on a line's many short rows and ran ``grin_nonlinear``'s few long
-rows 8-10 % slower (SEP 46 Part II), so they keep the table until threading keys on
-rows and row length.
+no calibration window: their thresholds keep the built-in table's. The transforms
+thread by shape (rows and row length, solprop issue #587), so beside their threshold
+the grain moves their thread grain (:data:`SHAPE_MOVES`) rather than their full size:
+by element count alone, a full width from 98304 elements won 0.56 on a line's many
+short rows and ran ``grin_nonlinear``'s few long rows 8-10 % slower on AMD EPYC cores
+(SEP 46 Part II). They go last: a move of theirs changes nearly every problem's width,
+so each costs a round's worth of windows, and a level's limit drops them first.
 """
+
+SHAPE_MOVES = ("fft_thread_elements",)
+"""The transforms' shape settings the grain halves and doubles.
+
+Not the long row: with its moves too, a thorough calibration of 16 cores of an AMD
+EPYC 7763 timed 21 grain candidates and ran out of rounds before any verdict, where 17
+had concluded."""
 
 
 @dataclass(frozen=True)
@@ -70,7 +79,8 @@ class Operation:
     elements : int
         Its work.
     samples : int
-        A response's fine samples per column; zero otherwise.
+        A response's fine samples per column, a transform batch's row length; zero
+        otherwise.
     """
 
     pool: str
@@ -113,7 +123,10 @@ def width(record: Record, operation: Operation, capacity: int) -> int:
 
     The native rule (``operation_threads``), without the compact cap, the stable team
     or an explicit pool: one below the threshold, the full pool for a long or wide
-    response, the medium width below the full size, the full pool from it.
+    response, a thread per ``fft_thread_elements`` samples (at most one a row, or the
+    medium width for rows ``fft_long_row`` long) for a transform batch of known row
+    length,
+    the medium width below the full size, the full pool from it.
 
     Parameters
     ----------
@@ -139,6 +152,20 @@ def width(record: Record, operation: Operation, capacity: int) -> int:
     full = int(record[f"{operation.kind}_full"])
     if operation.elements < threshold:
         return 1
+    if (
+        operation.kind == "fft"
+        and operation.samples
+        and operation.elements < full
+        and "fft_thread_elements" in record
+    ):
+        rows = operation.elements // operation.samples
+        split = (
+            rows
+            if operation.samples < int(record["fft_long_row"])
+            else max(rows, int(record["medium_threads"]))
+        )
+        threads = min(operation.elements // int(record["fft_thread_elements"]), split)
+        return max(1, min(capacity, threads))
     if (
         operation.kind == "response"
         and operation.samples
@@ -332,8 +359,42 @@ def proposals(
                 )
     for kind in TIMED:
         if kind in sizes and f"{kind}_threshold" in record:
-            candidates += _class_moves(kind, sorted(sizes[kind]), record, fulls=fulls)
+            # A transform's full size is a backstop; its shape settings move instead.
+            candidates += _class_moves(
+                kind, sorted(sizes[kind]), record, fulls=fulls and kind != "fft"
+            )
+            if kind == "fft":
+                candidates += [
+                    candidate
+                    for candidate in _shape_moves(record)
+                    if any(
+                        affected(candidate.record(record), record, found, capacity)
+                        for found in problems.values()
+                    )
+                ]
     return candidates if limit is None else candidates[:limit]
+
+
+def _shape_moves(record: Record) -> list[Candidate]:
+    """Return the transforms' shape settings halved and doubled.
+
+    Parameters
+    ----------
+    record : Mapping[str, int or bool]
+        The base record.
+
+    Returns
+    -------
+    list of Candidate
+        Two at most, smallest first: a grain of one thread per sample is not halved.
+    """
+    (name,) = SHAPE_MOVES
+    value = int(record[name])
+    short = name.removeprefix("fft_").replace("_", " ")
+    return [
+        Candidate("fft", f"fft {short} {moved}", {name: moved})
+        for moved in sorted({max(1, value // 2), 2 * value} - {value})
+    ]
 
 
 def best(

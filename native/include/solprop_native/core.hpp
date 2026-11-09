@@ -257,13 +257,20 @@ struct OperationGrain {
       `compact_max_fine_samples` fine samples) runs its kernels on a team of at most
       `compact_threads` and its threaded transforms on that whole team.
     - `stable_kernel_team`: once a kernel pool holds a full-width instance, a
-      medium-width kernel takes it too (`CpuExecutionPool::get`). */
+      medium-width kernel takes it too (`CpuExecutionPool::get`).
+    - A batch of transforms whose row length is known threads by its shape (solprop
+      issue #587): from the FFT class's threshold, one thread per
+      `fft_thread_elements` samples and at most one a row -- or `medium_threads`, if
+      more, when its rows are at least `fft_long_row` samples long -- and its pool's
+      capacity from the class's full size. FFTW's threaded plans divide the rows
+      among the threads, and split a row only where it is long. */
 struct CpuExecution {
   std::array<OperationGrain, cpu_operation_count> grain{};
   std::size_t response_full_samples{}, response_full_columns{};
   int medium_threads{}, compact_threads{};
   std::size_t compact_max_fine_samples{};
   bool stable_kernel_team{};
+  std::size_t fft_thread_elements{}, fft_long_row{};
   bool operator==(const CpuExecution&) const = default;
   [[nodiscard]] const OperationGrain&
   operator[](CpuOperation operation) const noexcept {
@@ -344,6 +351,15 @@ private:
   std::map<int, ExecutionSpace> instances_;
   CpuSizing sizing_;
 };
+
+/** A transform batch's row length, as its CPU width and sizing record count it
+    (`CpuExecutionPool::get`'s `fine_samples` for the FFT and Raman classes): extent 0
+    counts the rows and the remaining extents make one row, so a transverse plane is
+    one row; a rank-1 view is one row. */
+template <class View> [[nodiscard]] std::size_t row_length(const View& rows) noexcept {
+  const std::size_t count = View::rank() == 1 ? 1 : rows.extent(0);
+  return count == 0 ? 0 : rows.size() / count;
+}
 
 /** Whether the host FFTW's threaded loops take a scoped team (`CpuTeamScope`): the
     OpenMP FFTW with its loop callback (FFTW 3.3.9 and later). Without it a compact

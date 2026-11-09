@@ -18,10 +18,14 @@ inline CpuExecution make_table() {
 #if defined(__APPLE__)
   constexpr std::size_t stage = 8192;
   constexpr std::size_t fft = 32768;
+  constexpr std::size_t fft_thread = 32768;
+  constexpr std::size_t fft_long_row = 65536;
   constexpr bool stable = false;
 #else
   constexpr std::size_t stage = 4096;
-  constexpr std::size_t fft = 16384;
+  constexpr std::size_t fft = 8192;
+  constexpr std::size_t fft_thread = 4096;
+  constexpr std::size_t fft_long_row = 16384;
   constexpr bool stable = true;
 #endif
   const auto set = [&](CpuOperation operation, std::size_t threshold,
@@ -31,7 +35,7 @@ inline CpuExecution make_table() {
   set(CpuOperation::stage, stage, stage);
   set(CpuOperation::response, 32768, 196608);
   set(CpuOperation::dense, 1048576, 1048576);
-  set(CpuOperation::fft, fft, 131072);
+  set(CpuOperation::fft, fft, 4194304);
   set(CpuOperation::raman, 65536, 262144);
   set(CpuOperation::copy, 65536, 65536);
   set(CpuOperation::flow, 32768, 32768);
@@ -43,6 +47,8 @@ inline CpuExecution make_table() {
   table.compact_threads = 8;
   table.compact_max_fine_samples = 65536;
   table.stable_kernel_team = stable;
+  table.fft_thread_elements = fft_thread;
+  table.fft_long_row = fft_long_row;
   return table;
 }
 

@@ -365,8 +365,10 @@ GeneralModalSource::GeneralModalSource(const Problem& problem)
 GeneralModalSource::~GeneralModalSource() { close(); }
 
 void GeneralModalSource::plan() {
-  transforms_ = fft_pool_.get(CpuOperation::fft, node_field_.size());
-  delayed_transforms_ = raman_pool_.get(CpuOperation::raman, node_drive_.size());
+  transforms_ =
+      fft_pool_.get(CpuOperation::fft, node_field_.size(), row_length(node_field_));
+  delayed_transforms_ =
+      raman_pool_.get(CpuOperation::raman, node_drive_.size(), row_length(node_drive_));
   constexpr int axis = -1;
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
   if (real_signal_)
@@ -390,7 +392,7 @@ void GeneralModalSource::plan() {
   const auto tail = nodes_ % chunk_;
   if (tail != 0) {
     const auto& tail_transforms =
-        fft_pool_.get(CpuOperation::fft, tail * components_ * n_to_);
+        fft_pool_.get(CpuOperation::fft, tail * components_ * n_to_, n_to_);
     const auto rows = std::make_pair(std::size_t{0}, tail * components_);
     tail_spectrum_ = Kokkos::subview(node_spectrum_, rows, Kokkos::ALL());
     tail_field_ = Kokkos::subview(node_field_, rows, Kokkos::ALL());
@@ -439,8 +441,8 @@ void GeneralModalSource::plan() {
       tail_histories_ = Kokkos::subview(node_histories_, rows, Kokkos::ALL());
       tail_drive_spectrum_ = Kokkos::subview(node_drive_spectrum_, rows, Kokkos::ALL());
       tail_product_ = Kokkos::subview(node_product_, rows, Kokkos::ALL());
-      const auto& tail_delayed =
-          raman_tail_pool_.get(CpuOperation::raman, tail_drive_.size());
+      const auto& tail_delayed = raman_tail_pool_.get(
+          CpuOperation::raman, tail_drive_.size(), row_length(tail_drive_));
       tail_drive_plan_ = std::make_unique<DelayedForwardPlan>(
           tail_delayed, tail_drive_, tail_drive_spectrum_,
           KokkosFFT::Direction::forward, axis);
