@@ -21,7 +21,6 @@ from pathlib import Path
 import numpy as np
 
 from solprop.backends import ThreadBudget, available, thread_budget
-from solprop.backends.registry import metal_available
 from solprop.constants import C
 from solprop.exceptions import SolpropError
 from solprop.grid import EnvelopeGrid
@@ -993,8 +992,7 @@ def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
     -------
     dict
         ``threads`` (the budget a run gets by default), ``limit`` (what sets it),
-        ``double`` and ``single`` (the backends installed for each precision) and
-        ``metal`` (whether the MLX backend has a Metal GPU here).
+        and ``double`` and ``single`` (the backends installed for each precision).
     """
     budget = _run_budget()
     return {
@@ -1002,7 +1000,6 @@ def run_options(payload: Payload) -> dict[str, object]:  # noqa: ARG001 - none
         "limit": budget.source,
         "double": list(available("double")),
         "single": list(available("single")),
-        "metal": metal_available(),
     }
 
 

@@ -106,12 +106,8 @@ def arm_environment(settings: list[str]) -> dict[str, str]:
 
 
 def arm_configuration(configuration: Record, backend: str) -> Record:
-    """Return one arm's configuration: its backend and that backend's precision."""
-    return {
-        **configuration,
-        "backend": backend,
-        "precision": "single" if backend == "mlx" else "double",
-    }
+    """Return one arm's configuration: its backend, in double precision."""
+    return {**configuration, "backend": backend, "precision": "double"}
 
 
 def arm_order(round_index: int) -> tuple[str, ...]:
@@ -267,8 +263,7 @@ def ab(args: argparse.Namespace) -> int:
         steppers(args.stepper),
         args.threads,
         args.production or physical_cores(),
-        # A configuration either arm cannot run is left out for both.
-        backend="mlx" if "mlx" in backends.values() else args.backend,
+        backend=args.backend,
         fraction=args.length,
         device=args.device,
         noise=args.noise,

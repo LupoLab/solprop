@@ -733,10 +733,6 @@ MODULES = {
                 "tdse",
             ),
         ),
-        Module(
-            "backends/mlx_gpu/",
-            ("backend", "batch", "passes", "arithmetic", "envelope", "adams"),
-        ),
     ),
     "D": (
         Module("log.py"),

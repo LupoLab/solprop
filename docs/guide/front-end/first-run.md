@@ -37,7 +37,6 @@ As you type, the right side follows:
 - **Runs on** chooses the backend and the number of threads. *Automatic* is solprop's
   own choice ([which backend](../performance/tuning.md#which-backend)); the threads
   default to the process's [thread budget](../performance/tuning.md#the-thread-budget).
-  Choosing MLX, the Apple GPU backend, sets single precision, which is all MLX runs.
 
 ## Ask for a number instead of an input
 

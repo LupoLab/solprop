@@ -2204,7 +2204,7 @@ def apply_temporal_rate(
     ``y + F[F^-1[y] (f - 1)]``, with ``f - 1 = expm1(-alpha(t) h / 2)`` formed in
     binary64 and rounded once: the factor is exactly one outside the collar, so the
     round trip's binary32 rounding falls on the collar's correction alone, not on the
-    whole state, as on the ``mlx`` backend. The two forms are the same step in exact
+    whole state. The two forms are the same step in exact
     arithmetic only when ``F[F^-1[y]] = y``. On a field grid that needs the DC bin,
     and the Nyquist bin of an even ``n_t``, to be real: the real inverse transform
     drops their imaginary parts, which the product form loses and the correction

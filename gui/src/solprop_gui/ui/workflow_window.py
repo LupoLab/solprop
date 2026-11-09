@@ -45,7 +45,7 @@ from solprop_gui.classes.catalog import (
 )
 from solprop_gui.classes.problem import ProblemClass
 from solprop_gui.classes.workflow import Progress, Stage, primary_action, stage_open
-from solprop_gui.model.recipe import MISSING, RecipeModel
+from solprop_gui.model.recipe import RecipeModel
 from solprop_gui.model.scans import profile_points
 from solprop_gui.model.workspace import DEFAULT_WORKSPACE, list_runs, slug
 from solprop_gui.registry.pages import label
@@ -766,36 +766,29 @@ class WorkflowWindow(QMainWindow):
         return True
 
     def _backend_chosen(self, name: str) -> None:
-        """Write the backend picked into the recipe, with the precision it needs.
+        """Write the backend picked into the recipe, with a precision it computes in.
+
+        A single-precision recipe, such as one written for the retired ``mlx``
+        backend, returns to double precision on a backend that computes in binary64
+        only, so that choosing a backend makes it runnable.
 
         Parameters
         ----------
         name : str
-            The backend; MLX runs in single precision only.
+            The backend.
         """
         model = self.document.model
         if model is None:
             return
         values: list[tuple[str, object]] = [("backend", name)]
-        said: list[str] = []
-        if name == "mlx":
-            values.append(("precision", "single"))
-            # solprop refuses in single precision what binary32 cannot hold: a noise
-            # seed (rounding swamps a one-photon seed) and a tolerance below 1e-6.
-            if model.get("seed") is not MISSING and model.get("noise") is MISSING:
-                values.append(("seed", MISSING))
-                said.append("the noise seed was dropped")
-            rtol = model.get("rtol")
-            if isinstance(rtol, int | float) and rtol < _SINGLE_RTOL:
-                values.append(("rtol", _SINGLE_RTOL))
-                said.append(f"rtol was raised from {rtol:g} to {_SINGLE_RTOL:g}")
-        elif model.get("precision") == "single" and model.get("backend") == "mlx":
+        single = model.get("precision") == "single"
+        if single and name not in self.sheet.run_options.single:
             values.append(("precision", "double"))
         self.document.edit_values(values)
-        if said:
-            changed = " and ".join(said)
+        if len(values) > 1:
             self.notify(
-                f"MLX runs in single precision: {changed}. Undo puts them back."
+                f"{name} computes in double precision, so the run does too. "
+                "Undo puts single precision back."
             )
 
     def _threads_chosen(self, threads: object) -> None:
@@ -1558,9 +1551,6 @@ kernel's, not the first click's."""
 
 _CLOSING = "Closing with a run going"
 """The title of the question a window asks when closed over a run that goes on."""
-
-_SINGLE_RTOL = 1e-6
-"""The smallest ``rtol`` solprop accepts in single precision."""
 
 _NOTICE_MS = 20_000
 """How long a passing notice stays, in milliseconds."""

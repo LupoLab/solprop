@@ -103,7 +103,7 @@ def runtime(backend: str, device: bool = False) -> Record:
     import solprop  # noqa: PLC0415
 
     packages = {}
-    for name in ("solprop", "numpy", "scipy", "optmat", "mlx"):
+    for name in ("solprop", "numpy", "scipy", "optmat"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:

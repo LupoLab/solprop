@@ -49,7 +49,7 @@ from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
-from solprop.backends.registry import metal_available, resolve_name, select
+from solprop.backends.registry import resolve_name, select
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -144,7 +144,6 @@ from solprop.grid import (
     LineGrid,
     RadialGrid,
     TimeGrid,
-    TransformLibrary,
 )
 from solprop.linear import Frame, frame_origin, frame_quantities
 from solprop.log import (
@@ -698,8 +697,8 @@ class SimulationSettings(Displayed):
     backend : str
         Registry name of the backend to execute the run. The default ``"auto"``
         resolves to ``"native"`` at settings construction, and refuses if it isn't
-        installed or this processor is below its baseline; under single precision, to
-        ``"mlx"`` (`precision`).
+        installed or this processor is below its baseline; under single precision it
+        is refused (`precision`).
         The stored name is concrete, including in scan workers. A backend's import or
         construction errors never trigger a fallback.
     precision : {'double', 'single'}
@@ -708,12 +707,11 @@ class SimulationSettings(Displayed):
         binary64 throughout and changes nothing.
         ``"single"`` holds the state, the stages, the transforms and the responses in
         binary32, with the controller and every host scalar in binary64. It admits
-        ``backend="numpy_ref"`` (the single-precision oracle) and the experimental
-        ``backend="mlx"``; refuses an adaptive ``rtol`` below
+        ``backend="numpy_ref"`` (the single-precision oracle) only; refuses an
+        adaptive ``rtol`` below
         :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR`, the Adams integrator
         and an explicit noise model (a default noise resolves to none); and is
-        refused by ``native``. ``backend="auto"`` resolves to
-        ``"mlx"`` when MLX and a Metal GPU are present and is otherwise refused.
+        refused by ``native``. ``backend="auto"`` is refused: name ``"numpy_ref"``.
         Part of the hashed configuration; outputs are binary64 either way.
     resume_history : bool or None
         Whether the output keeps the Adams march's state at every save plane and
@@ -1250,12 +1248,12 @@ def _precision(name: PrecisionName) -> Precision:
 
 
 def _single_backend(backend: str) -> str:
-    """Resolve ``"auto"`` for a single-precision run (SEP 33, Q8).
+    """Refuse ``"auto"`` for a single-precision run (SEP 33, Q8; SEP 47).
 
-    ``"auto"`` resolves to ``"mlx"`` when MLX and a Metal device are present, and
-    otherwise is refused: it never resolves to a binary64 backend, and
-    never to ``numpy_ref``, which runs single precision when it is named. An explicit
-    name passes through to :func:`~solprop.translate.precision.admit_precision`.
+    No installed backend runs single precision quickly, so ``"auto"`` is refused: it
+    never resolves to a binary64 backend, and never to ``numpy_ref``, which runs single
+    precision when it is named. An explicit name passes through to
+    :func:`~solprop.translate.precision.admit_precision`.
 
     Parameters
     ----------
@@ -1270,17 +1268,14 @@ def _single_backend(backend: str) -> str:
     Raises
     ------
     DriverError
-        If `backend` is ``"auto"`` and no single-precision GPU backend is installed.
+        If `backend` is ``"auto"``.
     """
     if backend != "auto":
         return backend
-    if metal_available():
-        return "mlx"
     msg = (
-        "precision='single' with backend='auto' resolves to the mlx backend, which "
-        "needs the mlx extra (pip install solprop[mlx]) on an Apple-silicon Mac with a "
-        "Metal GPU; elsewhere pass backend='numpy_ref', the reference, which runs "
-        "single precision unthreaded and far slower, or use precision='double'"
+        "precision='single' runs on the reference only, and backend='auto' does not "
+        "choose it: pass backend='numpy_ref', which runs single precision unthreaded "
+        "and far slower, or use precision='double'"
     )
     raise DriverError(msg, parameter=("precision", "backend"))
 
@@ -1398,10 +1393,10 @@ def _admit_integrator(integrator: Multistep, backend: str) -> None:
     DriverError
         Naming the conflict and the Runge-Kutta march every backend executes.
     """
-    if backend not in ("auto", "numpy_ref", "native", "mlx"):
+    if backend not in ("auto", "numpy_ref", "native"):
         msg = (
-            f"the {integrator.name} integrator is implemented on numpy_ref, native "
-            f"and mlx only, and backend {backend!r} would step the problem with its "
+            f"the {integrator.name} integrator is implemented on numpy_ref and native "
+            f"only, and backend {backend!r} would step the problem with its "
             "Runge-Kutta march; pass one of those or 'auto', or "
             "integrator=RungeKutta()"
         )
@@ -4960,9 +4955,9 @@ class Simulation(Displayed):
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
             :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
-            ``RungeKutta()``, carries no noise, and resolves ``backend="auto"`` to the
-            experimental ``mlx`` where MLX and a Metal GPU are present, with
-            ``numpy_ref`` as the reference (:attr:`SimulationSettings.precision`).
+            ``RungeKutta()``, carries no noise, and runs on ``numpy_ref``, the
+            reference, with ``backend="auto"`` refused
+            (:attr:`SimulationSettings.precision`).
         materials : solprop.physdata.selection.MaterialSelection or None, optional
             Take fused silica's nonlinear response from optmat's silica bundle
             (:class:`~solprop.physdata.glasses.SilicaBundle`): with `raman` on, an
@@ -5002,7 +4997,6 @@ class Simulation(Displayed):
             wavelength,
             wavelength_limits,
             trange,
-            transforms=_transform_library(precision, backend),
         )
         _check_selection_carrier(materials, working.reference_wavelength, wavelength)
         mapping = _gnlse_fibre(
@@ -5443,9 +5437,9 @@ class Simulation(Displayed):
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
             ``"single"``, which takes ``rtol`` at the floor
             :data:`~solprop.translate.precision.SINGLE_RTOL_FLOOR` by default and
-            ``RungeKutta()``, carries no noise, and resolves ``backend="auto"`` to the
-            experimental ``mlx`` where MLX and a Metal GPU are present, with
-            ``numpy_ref`` as the reference (:attr:`SimulationSettings.precision`).
+            ``RungeKutta()``, carries no noise, and runs on ``numpy_ref``, the
+            reference, with ``backend="auto"`` refused
+            (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         materials : solprop.physdata.selection.MaterialSelection or None, optional
@@ -5971,9 +5965,8 @@ class Simulation(Displayed):
             ``"single"``, which keeps ``rtol`` at
             :data:`~solprop.driver.defaults.WAVEGUIDE_RTOL` by default
             (``docs/guide/performance/single-precision.md``), takes ``RungeKutta()``,
-            carries no noise, and resolves ``backend="auto"`` to the experimental
-            ``mlx`` where MLX and a Metal GPU are present, with ``numpy_ref`` as the
-            reference (:attr:`SimulationSettings.precision`).
+            carries no noise, and runs on ``numpy_ref``, the reference, with
+            ``backend="auto"`` refused (:attr:`SimulationSettings.precision`).
         polarisation : str, float or None, optional
             Refused; this path is scalar.
         taper_coupling : bool, optional
@@ -6813,9 +6806,8 @@ class Simulation(Displayed):
             fallback, and import or construction errors stay visible.
         precision : {'double', 'single'}, optional
             The arithmetic the run is held in (SEP 33): ``"double"``, the default, or
-            ``"single"``, which takes ``RungeKutta()``, carries no noise, and
-            resolves ``backend="auto"`` to the experimental ``mlx`` where MLX and a
-            Metal GPU are present, with ``numpy_ref`` as the reference
+            ``"single"``, which takes ``RungeKutta()``, carries no noise, and runs on
+            ``numpy_ref``, the reference, with ``backend="auto"`` refused
             (:attr:`SimulationSettings.precision`); `rtol` comes resolved.
         polarisation : str, float or None, optional
             Refused; this path is scalar.
@@ -6921,7 +6913,6 @@ class Simulation(Displayed):
             trange,
             envelope=envelope,
             thg=thg,
-            transforms=_transform_library(precision, backend),
         )
         materials = MaterialSelection() if materials is None else materials
         _check_selection_carrier(materials, working.reference_wavelength, wavelength)
@@ -9255,43 +9246,12 @@ def _continues(
     return True
 
 
-def _transform_library(precision: PrecisionName, backend: str) -> TransformLibrary:
-    """Return the transform library whose cost a run's ``"auto"`` grid minimises.
-
-    A single-precision run executes on ``mlx`` unless it names ``numpy_ref``
-    (``backend="auto"`` resolves to ``mlx`` under single precision, or is refused), and
-    MLX's GPU transforms past 4096 samples are fast at powers of two only
-    (:func:`solprop.grid.fft_cost`). Every other run transforms with FFTW.
-
-    Parameters
-    ----------
-    precision : {'double', 'single'}
-        The run's precision.
-    backend : str
-        The backend the run names.
-
-    Returns
-    -------
-    {'fftw', 'mlx'}
-        The library.
-
-    Examples
-    --------
-    >>> from solprop.driver.simulation import _transform_library
-    >>> _transform_library("single", "auto"), _transform_library("double", "auto")
-    ('mlx', 'fftw')
-    """
-    return "mlx" if precision == "single" and backend in ("auto", "mlx") else "fftw"
-
-
 def _gnlse_grid(
     grid: TimeGrid | None,
     length: float,
     wavelength: float,
     wavelength_limits: tuple[float, float] | None,
     trange: float | None,
-    *,
-    transforms: TransformLibrary = "fftw",
 ) -> TimeGrid:
     """Return the envelope grid a GNLSE run propagates on.
 
@@ -9307,9 +9267,6 @@ def _gnlse_grid(
         Window limits, m.
     trange : float or None
         Time window, s.
-    transforms : {'fftw', 'mlx'}, optional
-        The library whose cost the built grid's 'auto' size minimises
-        (:func:`_transform_library`).
 
     Returns
     -------
@@ -9343,9 +9300,7 @@ def _gnlse_grid(
             rule="grid-or-limits",
         )
     with _about(renamed=_GRID_KEYWORDS):
-        return EnvelopeGrid.from_limits(
-            length, wavelength, wavelength_limits, trange, transforms=transforms
-        )
+        return EnvelopeGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _gnlse_fibre(  # noqa: PLR0913 - the coefficients of the mapping
@@ -10339,7 +10294,6 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     *,
     envelope: bool,
     thg: bool,
-    transforms: TransformLibrary = "fftw",
 ) -> TimeGrid:
     """Return the grid a capillary run propagates on.
 
@@ -10360,9 +10314,6 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
     thg : bool
         Whether the responses reach the third harmonic, which sets an envelope grid's
         oversampling.
-    transforms : {'fftw', 'mlx'}, optional
-        The library whose cost the built grid's ``'auto'`` size minimises
-        (:func:`_transform_library`).
 
     Returns
     -------
@@ -10408,11 +10359,8 @@ def _capillary_grid(  # noqa: PLR0913 - the three grid keywords and the two swit
                 wavelength_limits,
                 trange,
                 thg=thg,
-                transforms=transforms,
             )
-        return FieldGrid.from_limits(
-            length, wavelength, wavelength_limits, trange, transforms=transforms
-        )
+        return FieldGrid.from_limits(length, wavelength, wavelength_limits, trange)
 
 
 def _capillary_modes(  # noqa: PLR0913 - capillary geometry and material keywords

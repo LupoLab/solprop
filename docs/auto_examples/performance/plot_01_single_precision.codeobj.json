@@ -1,4 +1,13 @@
 {
+ "BACKENDS": [
+  {
+   "is_class": false,
+   "is_explicit": false,
+   "module": "builtins",
+   "module_short": "builtins",
+   "name": "dict"
+  }
+ ],
  "C": [
   {
    "is_class": false,

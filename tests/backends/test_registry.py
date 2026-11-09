@@ -32,7 +32,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import BACKENDS, REMOVED_BACKENDS, _construct
 from solprop.driver import SimulationSettings
 from solprop.exceptions import BackendError
-from solprop.stepper import PIController
+from solprop.stepper import PIController, RungeKutta
 
 pytestmark = pytest.mark.real_auto
 
@@ -186,36 +186,47 @@ def test_an_unknown_name_lists_what_is_usable(linear_problem, narrow_grid):
 
 
 def test_the_table_holds_the_backends_that_exist():
-    """The in-tree CUDA backend is gone; mlx is SEP 33's single-precision GPU."""
-    assert sorted(BACKENDS) == ["mlx", "native", "numpy_ref"]
+    """The in-tree CUDA backend is gone, and mlx was retired in SEP 47."""
+    assert sorted(BACKENDS) == ["native", "numpy_ref"]
 
 
-# The tombstone: a removed backend's name is refused wherever a request is validated.
+# The tombstones: a removed backend's name is refused wherever a request is validated,
+# and never resolves to another backend.
+
+REMOVED = {
+    "numba_cpu": "numba_cpu backend was removed in SEP 43",
+    "mlx": "mlx backend was retired in SEP 47",
+}
+"""Each removed backend, and what its refusal says happened to it."""
 
 
-def assert_names_the_replacements(refused):
+def assert_names_the_replacements(refused, name):
     """The refusal says the backend is gone and names both backends to use instead."""
     message = str(refused.value)
-    assert "numba_cpu backend was removed" in message
+    assert REMOVED[name] in message
     assert "backend='native'" in message
     assert "backend='numpy_ref'" in message
 
 
-def test_the_removed_backend_is_only_a_tombstone():
-    assert "numba_cpu" in REMOVED_BACKENDS
-    assert "numba_cpu" not in BACKENDS
-    assert "numba_cpu" not in available()
+@pytest.mark.parametrize("name", sorted(REMOVED))
+def test_the_removed_backend_is_only_a_tombstone(name):
+    assert name in REMOVED_BACKENDS
+    assert name not in BACKENDS
+    assert name not in available()
+    assert name not in available("single")
     assert not set(REMOVED_BACKENDS) & set(BACKENDS)
 
 
-def test_resolving_the_removed_backend_names_the_replacements():
+@pytest.mark.parametrize("name", sorted(REMOVED))
+def test_resolving_the_removed_backend_names_the_replacements(name):
     with pytest.raises(BackendError) as refused:
-        resolve_name("numba_cpu")
-    assert_names_the_replacements(refused)
+        resolve_name(name)
+    assert_names_the_replacements(refused, name)
 
 
+@pytest.mark.parametrize("name", sorted(REMOVED))
 def test_selecting_the_removed_backend_names_the_replacements(
-    linear_problem, narrow_grid, monkeypatch
+    linear_problem, narrow_grid, monkeypatch, name
 ):
     def forbidden(*args, **kwargs):
         raise AssertionError("no backend is constructed for a removed name")
@@ -223,20 +234,24 @@ def test_selecting_the_removed_backend_names_the_replacements(
     monkeypatch.setattr(registry, "_construct", forbidden)
     problem = linear_problem(narrow_grid, save_planes=[LENGTH])
     with pytest.raises(BackendError) as refused:
-        select("numba_cpu", problem, grid=narrow_grid)
-    assert_names_the_replacements(refused)
+        select(name, problem, grid=narrow_grid)
+    assert_names_the_replacements(refused, name)
 
 
-def test_settings_naming_the_removed_backend_name_the_replacements():
+@pytest.mark.parametrize("precision", ["double", "single"])
+@pytest.mark.parametrize("name", sorted(REMOVED))
+def test_settings_naming_the_removed_backend_name_the_replacements(name, precision):
     with pytest.raises(BackendError) as refused:
         SimulationSettings(
-            controller=PIController(rtol=1e-8, atol=1e-14),
+            controller=PIController(rtol=1e-5, atol=1e-14),
             save_planes=[1e-3],
             dz_max=1e-3,
             dz_init=1e-3,
-            backend="numba_cpu",
+            backend=name,
+            precision=precision,
+            integrator=RungeKutta(),
         )
-    assert_names_the_replacements(refused)
+    assert_names_the_replacements(refused, name)
 
 
 def test_a_known_name_without_its_extra_names_the_extra(
@@ -510,7 +525,7 @@ def test_a_required_device_passes_what_meets_it(monkeypatch, value, backend):
     registry._check_required_device("native")
 
 
-@pytest.mark.parametrize("name", ["numpy_ref", "mlx"])
+@pytest.mark.parametrize("name", ["numpy_ref"])
 def test_a_required_device_refuses_the_other_backends_by_name(monkeypatch, name):
     monkeypatch.setenv(registry.REQUIRE_DEVICE_SETTING, "any")
     with pytest.raises(BackendError, match=f"this run is on {name}"):

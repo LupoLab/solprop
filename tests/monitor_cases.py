@@ -8,8 +8,7 @@ Each probe is a route's tiny case (``tests/capability_routes.py``) launched with
 of its pulse near the window's edge, so that every region the monitor weighs holds
 light, under an absorber scheme and, with a march, on a fixed schedule. The reference's
 reading of it is the oracle the compiled backends are held to in
-``tests/backends/test_monitor_reduction.py``, and the single-precision oracle's the one
-``mlx`` is held to in ``tests/backends/test_mlx.py``.
+``tests/backends/test_monitor_reduction.py``.
 """
 
 from __future__ import annotations

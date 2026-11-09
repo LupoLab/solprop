@@ -185,8 +185,8 @@ class Case:
         """Resolve one measurement without constructing a scientific object.
 
         On a device build, `width` is the host's thread count and `device` says the
-        native backend must run on the accelerator. ``mlx`` runs in single precision,
-        every other backend in double; ``noise="none"`` drops the case's noise and
+        native backend must run on the accelerator. Every backend runs in double
+        precision; ``noise="none"`` drops the case's noise and
         ``fft_size="pow2"`` rebuilds its time grid at a power of two
         (``benchmarks.builders.variant``).
         """
@@ -201,7 +201,7 @@ class Case:
             "stepper": stepper,
             "threads": width,
             "backend": backend,
-            "precision": "single" if backend == "mlx" else "double",
+            "precision": "double",
             "noise": noise,
             "fft_size": fft_size,
             "device": device,
