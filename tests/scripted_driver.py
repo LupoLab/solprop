@@ -11,17 +11,25 @@ session lifecycle and the service loop can be tested without any physics being
 evaluated correctly. ``tests/backends/test_driver.py`` tests the step loop with it and
 ``tests/sessions`` the execution-session lifecycle (SEP 47 section 7.1: "Script the
 same numerical outcomes to test this exact lifecycle property on every executor").
+
+Since SEP 47 phase 2 the step loop has two copies: the native bridge's
+:class:`~solprop.backends.driver.StepDriver` and the reference's own
+:class:`~solprop.backends.host.driver.HostDriver`. The script is a mixin over either:
+:class:`ScriptedDriver` on the bridge's, :class:`HostScriptedDriver` on the reference's.
 """
+
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 
 SCALE = 0.02 / 8
 """The step length, m, whose default scripted norm is one: an eighth of a 2 cm run."""
 
 
-class ScriptedDriver(StepDriver):
+class _Scripted:
     """A driver whose stage evaluation multiplies by a constant and scores from a list.
 
     The state advances by a factor per step so that a rejected step can be seen not to
@@ -41,13 +49,23 @@ class ScriptedDriver(StepDriver):
     scale : float, optional
         The step length, m, whose default norm is one.
     **kwargs
-        Passed to :class:`~solprop.backends.driver.StepDriver`.
+        Passed to the step driver.
     """
 
     name = "scripted"
 
+    if TYPE_CHECKING:
+        # What the mixin reads of the driver it is mixed into.
+        _proposal: float
+        _problem: Any
+        _z: float
+        _state: Any
+        _closed: bool
+
+        def _require_state(self) -> Any: ...
+
     def __init__(self, problem, *, norms=(), factor=1.0, scale=SCALE, **kwargs):
-        super().__init__(problem, **kwargs)
+        super().__init__(problem, **kwargs)  # pyright: ignore[reportCallIssue]
         self._norms = list(norms)
         self._factor = factor
         self._scale = scale
@@ -85,3 +103,11 @@ class ScriptedDriver(StepDriver):
         """Release the state, as the seam requires."""
         self._state = None
         self._closed = True
+
+
+class ScriptedDriver(_Scripted, StepDriver):
+    """The script on the native bridge's inherited driver."""
+
+
+class HostScriptedDriver(_Scripted, HostDriver):
+    """The script on the reference's own driver (SEP 47 phase 2)."""

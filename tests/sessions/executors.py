@@ -16,6 +16,8 @@ the same tests.
   (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
 - ``native`` is the compiled backend, through the same transitional session until its
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
+- ``scripted-host`` is the same script on the reference's own driver, in the
+  reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
@@ -32,7 +34,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from scripted_driver import SCALE, ScriptedDriver
+from scripted_driver import SCALE, HostScriptedDriver, ScriptedDriver
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
@@ -171,7 +173,7 @@ class ScriptedWarning(UserWarning):
     """What a scripted committed endpoint warns with."""
 
 
-class SessionScript(ScriptedDriver):
+class _Outcomes:
     """A scripted driver with the outcomes the lifecycle tests choose.
 
     Trials and accepted steps are counted from 1 since the load.
@@ -204,7 +206,7 @@ class SessionScript(ScriptedDriver):
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)
+        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
@@ -219,11 +221,11 @@ class SessionScript(ScriptedDriver):
                 self._in_flight = (z, dz)
             msg = f"scripted failure at trial {self.trials}"
             raise ScriptedError(msg)
-        norm, state = super()._trial_step(z, dz)
+        norm, state = super()._trial_step(z, dz)  # pyright: ignore[reportAttributeAccessIssue]
         return (REJECTED if self.trials in self._reject_at else norm), state
 
     def _take_step_stats(self):
-        super()._take_step_stats()
+        super()._take_step_stats()  # pyright: ignore[reportAttributeAccessIssue]
         self.accepted += 1
         if self.accepted == self._warn_at:
             warnings.warn(
@@ -231,6 +233,14 @@ class SessionScript(ScriptedDriver):
                 ScriptedWarning,
                 stacklevel=2,
             )
+
+
+class SessionScript(_Outcomes, ScriptedDriver):
+    """The scripted outcomes on the native bridge's inherited driver."""
+
+
+class HostSessionScript(_Outcomes, HostScriptedDriver):
+    """The scripted outcomes on the reference's own driver (SEP 47 phase 2)."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -331,6 +341,24 @@ def _selected(name: str) -> Callable[..., Any]:
     return make
 
 
+def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
+    """Return a scripted driver on the reference's own driver for a problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    **script
+        The outcomes, as :class:`SessionScript` takes them.
+
+    Returns
+    -------
+    HostSessionScript
+        The driver.
+    """
+    return HostSessionScript(problem, grid=window(), **script)
+
+
 def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
     """Return a scripted driver for a problem.
 
@@ -411,6 +439,11 @@ EXECUTORS: dict[str, Executor] = {
     ),
     "scripted": Executor(
         "scripted", _over_driver(_scripted, host_state=True), scripted=True
+    ),
+    "scripted-host": Executor(
+        "scripted-host",
+        _over_driver(_host_scripted, host_state=True, session=HostSession),
+        scripted=True,
     ),
 }
 """Every executor of the suite, by name."""
