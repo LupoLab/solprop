@@ -123,6 +123,8 @@ class _Session:
                 NativeBackend,
             )
 
+            from solprop.backends.session import Start  # noqa: PLC0415
+
             simulation, problem = self.problems[name]
             execution: ExecutionRecord | None = (
                 None if record is None else ExecutionRecord.from_native(record)
@@ -135,8 +137,7 @@ class _Session:
                 cpu_execution=execution,
                 fft_planning=planning,
             )
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-            step = backend.timed_step()
+            step = backend.timing_probe(Start.entrance(problem)).trial
             step()
             self.backends[key] = (backend, step)
         return self.backends[key][1]

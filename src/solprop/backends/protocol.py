@@ -27,9 +27,9 @@ never conjugate.
 
 import dataclasses
 import logging
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, runtime_checkable
 
 import numpy as np
 from jaxtyping import Bool, Complex, Float, Int
@@ -42,6 +42,10 @@ from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.stats import StatsSpec
 
+if TYPE_CHECKING:
+    # The session module builds on this one's records, so its start is a forward name.
+    from solprop.backends.session import Start
+
 __all__ = [
     "Backend",
     "BackendHistory",
@@ -49,6 +53,7 @@ __all__ = [
     "Observation",
     "StepStats",
     "StepSummary",
+    "TimingProbe",
 ]
 
 logger = logging.getLogger(__name__)
@@ -600,6 +605,57 @@ class StepSummary:
 
 
 @runtime_checkable
+class TimingProbe(Protocol):
+    """Single trials of a loaded run, for an estimate or a calibration to time.
+
+    Returned by :meth:`Backend.timing_probe` (SEP 47 section 6.6). A trial is one
+    step's arithmetic from the loaded state, and commits nothing: the backend's
+    state, position and step history stay those of the load, though a work counter
+    may count the trial's evaluations. It is a supported internal operation for
+    :meth:`solprop.driver.simulation.Simulation.estimate` and the SEP 46 calibration,
+    not a propagation executor: a run is driven through a session
+    (:mod:`solprop.backends.session`).
+
+    The low-storage march (SEP 24) has no separate trial: its step accepts in place, so
+    a probe's trial advances the discarded registers the load put there, and it has no
+    trial field to read back. A backend probed so is closed afterwards.
+    """
+
+    def trial(self, z: float | None = None, dz: float | None = None) -> None:
+        """Take one trial step and keep its end state for :meth:`field`.
+
+        Parameters
+        ----------
+        z : float or None, optional
+            Where the trial starts, m; the loaded position by default.
+        dz : float or None, optional
+            Its length, m, positive; the problem's ``dz_init`` by default, or the
+            scheduled step at `z` for the low-storage march.
+        """
+        ...
+
+    def field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the last trial's end state on the host, as a kept step would be.
+
+        The state after the accepted-step boundary treatments, read once per trial. A
+        backend that can read it back only by finishing the step in its own state
+        loads the loaded state again afterwards, so the probe still commits nothing.
+
+        Returns
+        -------
+        numpy.ndarray
+            An owning copy in internal units and the FFT convention.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            With no trial since the last readback, or for the low-storage march, which
+            has no trial state.
+        """
+        ...
+
+
+@runtime_checkable
 class Backend(Protocol):
     """What every execution backend provides, and nothing more.
 
@@ -632,7 +688,7 @@ class Backend(Protocol):
     >>> names[12:16]
     ['propagate_to', 'restore_call_ledgers', 'restore_march', 'set_initial']
     >>> names[16:]
-    ['set_progress', 'set_stop', 'stats', 'timed_step']
+    ['set_progress', 'set_stop', 'stats', 'timing_probe']
     """
 
     name: str
@@ -872,14 +928,24 @@ class Backend(Protocol):
         """
         ...
 
-    def timed_step(self) -> Callable[[], object]:
-        """Return one step of this run's march, for an estimate to time.
+    def timing_probe(
+        self,
+        start: "Start",  # noqa: UP037 - the session module imports this one
+    ) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
+
+        The start's field, noise, position and resume flag are loaded as a session
+        loads them; its method history, ledgers and monitor continuation are not read.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
 
         Returns
         -------
-        collections.abc.Callable
-            Takes one step from the loaded state. It may advance that state, so the
-            caller closes the backend afterwards.
+        TimingProbe
+            The probe (SEP 47 section 6.6).
         """
         ...
 

@@ -34,7 +34,6 @@ import time
 from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
-from functools import partial
 from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
 
 import numpy as np
@@ -48,8 +47,10 @@ from solprop.backends.protocol import (
     Observation,
     StepStats,
     StepSummary,
+    TimingProbe,
 )
 from solprop.backends.rk_core import rk_policy
+from solprop.backends.session import Start
 from solprop.exceptions import BackendError, BoundaryError, ConvergenceError
 from solprop.grid import TimeGrid
 from solprop.log import NOT_ESTIMATED, NullReporter, ProgressReporter, StopFlag
@@ -270,6 +271,103 @@ class _StepStatsBuffer:
             name: np.concatenate([value, np.zeros_like(value)])
             for name, value in self._values.items()
         }
+
+
+class _TrialProbe:
+    """Single trials of a loaded :class:`StepDriver`, committing nothing (SEP 47 6.6).
+
+    The :class:`solprop.backends.protocol.TimingProbe` this driver returns. A
+    Runge-Kutta trial (:meth:`StepDriver._trial_step`) leaves the loaded state, the
+    position and the history alone. The low-storage march has no separate trial: its
+    step advances the discarded registers in place and leaves no trial field.
+
+    Parameters
+    ----------
+    driver : StepDriver
+        The driver, loaded from the probe's start.
+    start : tuple
+        The loaded position, m, the noise realisation it was loaded with, and the
+        replayed itinerary's index there, for reloading the loaded state after a
+        readback that had to commit the trial (:meth:`field`).
+    """
+
+    def __init__(
+        self,
+        driver: "StepDriver[object]",  # noqa: UP037 - the driver class follows
+        start: tuple[float, NoiseRealisation | None, int],
+    ) -> None:
+        """Hold the loaded driver; no trial is taken yet."""
+        self._driver = driver
+        self._z, self._noise, self._index = start
+        self._trial: tuple[object, float] | None = None
+
+    def trial(self, z: float | None = None, dz: float | None = None) -> None:
+        """Take one trial step and keep its end state for :meth:`field`.
+
+        Parameters
+        ----------
+        z : float or None, optional
+            Where the trial starts, m; the loaded position by default.
+        dz : float or None, optional
+            Its length, m, positive; the problem's ``dz_init`` by default, or the
+            scheduled step at the loaded position for the low-storage march.
+        """
+        driver = self._driver
+        start = self._z if z is None else float(z)
+        march = driver._low_storage
+        if march is not None:
+            schedule = driver._problem.stepper.schedule
+            assert schedule is not None  # the translation refuses the march without one
+            index = min(self._index, schedule.n_steps - 1)
+            length = float(schedule.steps[index]) if dz is None else float(dz)
+            march.engine.step(start, length)
+            return
+        length = float(driver._problem.stepper.dz_init) if dz is None else float(dz)
+        _, state = driver._trial_step(start, length)
+        self._trial = (state, length)
+
+    def field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+        """Return the last trial's end state on the host, as a kept step would be.
+
+        The trial's state after the accepted-step boundary treatments (the band mask,
+        and the split-step absorber where it runs). A backend whose trial lives in its
+        own state, as the native state's does, can read it back only by finishing the
+        step there; the loaded state is then loaded again, exactly, so that the probe
+        still commits nothing.
+
+        Returns
+        -------
+        numpy.ndarray
+            An owning copy, internal units and the FFT convention, shape
+            ``(n_modes, n_pol, n_omega)``.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            With no trial since the last readback, or for the low-storage march, which
+            has no trial state.
+        """
+        driver = self._driver
+        if driver._low_storage is not None:
+            msg = (
+                "the low-storage march accepts its step in place and has no trial "
+                "field to read back"
+            )
+            raise BackendError(msg)
+        if self._trial is None:
+            raise BackendError("take a trial before reading its field")
+        state, length = self._trial
+        loaded = driver._require_state()
+        shared = state is loaded
+        # The loaded state, kept only when finishing the trial overwrites it.
+        kept = np.array(driver._observed_field(loaded)) if shared else None
+        finished = driver._finish(state, length)
+        field = np.array(driver._observed_field(finished)[0])
+        if kept is not None:
+            # The kept array already carries any `input` draw: a resume adds none.
+            driver.set_initial(kept, self._noise, z=self._z, resume=True)
+        self._trial = None
+        return field
 
 
 class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is private
@@ -1517,26 +1615,35 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """
         return self._in_flight
 
-    def timed_step(self) -> Callable[[], object]:
-        """Return one step of this run's march, for an estimate to time.
+    def timing_probe(self, start: Start) -> TimingProbe:
+        """Load a start and return single trials of this run's march from it.
 
-        A low-storage march times its own step, which accepts in place, so repeating it
-        advances the discarded state: the caller closes the backend afterwards. Every
-        other run times the Runge-Kutta trial step, which leaves the state alone. The
-        native low-storage state holds none of that trial's views.
+        The start's field, noise, position and resume flag are loaded as by
+        :meth:`set_initial`; its method history, ledgers and monitor continuation are
+        not read. A Runge-Kutta trial leaves the loaded state alone; a low-storage
+        march's step advances the discarded registers in place, so a backend probed so
+        is closed afterwards (SEP 47 section 6.6).
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the trials start; its field is taken.
 
         Returns
         -------
-        collections.abc.Callable
-            Takes one step, from the loaded state.
+        solprop.backends.protocol.TimingProbe
+            The probe.
         """
-        if self._low_storage is None:
-            z, dz = float(self._problem.initial.z), float(self._problem.stepper.dz_init)
-            return partial(self._trial_step, z, dz)
-        schedule = self._problem.stepper.schedule
-        assert schedule is not None  # the translation refuses the march without one
-        z, dz = float(schedule.edges[0]), float(schedule.steps[0])
-        return partial(self._low_storage.engine.step, z, dz)
+        self.set_initial(
+            np.asarray(start.take_field())[np.newaxis],
+            start.noise,
+            z=float(start.z),
+            resume=start.resume,
+        )
+        return _TrialProbe(
+            cast("StepDriver[object]", self),
+            (float(start.z), start.noise, self._schedule_index),
+        )
 
     # --- the step loop -------------------------------------------------------------
 

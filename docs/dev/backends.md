@@ -69,7 +69,7 @@ class Backend(Protocol):
     def march_snapshot_nbytes(self, z: float) -> int | None: ...  # copying nothing
     def march_export_refusal(self) -> str | None: ...
     def restore_march(self, snapshot: MarchSnapshot) -> str | None: ...
-    def timed_step(self) -> Callable[[], object]: ...  # one step, for an estimate
+    def timing_probe(self, start: Start) -> TimingProbe: ...  # trials, committing nothing
     @property
     def closed(self) -> bool: ...  # a failure can close a backend
 ```

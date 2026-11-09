@@ -20,6 +20,7 @@ from typing import TYPE_CHECKING, Final
 
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
+from solprop.backends.session import Start
 from solprop.driver.run import field_retention
 from solprop.exceptions import DriverError
 from solprop.grid import FreeGrid, RadialGrid
@@ -102,12 +103,16 @@ class RunEstimate:
 def _timed_step(
     backend: Backend, problem: KernelProblem
 ) -> tuple[Callable[[], object], int]:
-    """Return the step to time for a run, and the evaluations it makes.
+    """Load a run's entrance and return the step to time, and its evaluations.
+
+    The step is the backend's timing probe (SEP 47 section 6.6): one trial from the
+    entrance that commits nothing, or for the low-storage march its own step, which
+    advances the discarded registers in place.
 
     Parameters
     ----------
     backend : solprop.backends.protocol.Backend
-        The constructed backend, with its initial state loaded.
+        The constructed backend, holding no state yet; closed by the caller.
     problem : solprop.translate.problem.KernelProblem
         The translated problem.
 
@@ -122,7 +127,7 @@ def _timed_step(
         if isinstance(integrator, LowStorageRungeKutta)
         else len(problem.stepper.tableau.nodes)
     )
-    return backend.timed_step(), evaluations
+    return backend.timing_probe(Start.entrance(problem)).trial, evaluations
 
 
 def _calls_per_step(integrator: object) -> int:
@@ -189,7 +194,6 @@ def estimate(
             and isinstance(simulation.spatial_grid, RadialGrid | FreeGrid | PlanarGrid)
         ):
             memory += backend.edge_memory(simulation.spatial_grid)
-        backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         step, evaluations = _timed_step(backend, problem)
         step()
         setup = time.perf_counter() - started

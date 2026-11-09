@@ -354,8 +354,8 @@ class Stub:
     def restore_march(self, snapshot):
         return None
 
-    def timed_step(self):
-        return lambda: None
+    def timing_probe(self, start):
+        raise NotImplementedError
 
     def propagate_to(self, z):
         return StepSummary(z, 1, 0, 0.5, 0.5, 0.0, True)
