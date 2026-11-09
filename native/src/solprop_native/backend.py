@@ -151,6 +151,10 @@ from solprop.transverse_monitor import (
     _transverse_edge_bytes,  # pyright: ignore[reportPrivateUsage] - released together
 )
 
+# The profile's state is read from the package at each use: a first-use calibration in
+# this process refreshes it (solprop SEP 46 section 5).
+import solprop_native as _package
+
 from . import (
     PROC_BIND,
     THREAD_BUDGET,
@@ -163,6 +167,7 @@ from . import (
     build_info,
     check_build,
 )
+from ._execution import ExecutionRecord
 from ._helpers import NATIVE
 
 type ComplexArray = npt.NDArray[np.complex128]
@@ -326,6 +331,8 @@ class NativeBackend(StepDriver[_core.State]):
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         adams_march: Literal["native", "host"] = "native",
+        cpu_execution: ExecutionRecord | None = None,
+        fft_planning: Mapping[str, object] | None = None,
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -361,10 +368,37 @@ class NativeBackend(StepDriver[_core.State]):
         wisdom = _wisdom.wisdom_file()
         self._wisdom_loaded = _wisdom.load(wisdom)
         self._bound_buckets: np.ndarray | None = None
+        # solprop SEP 46: the workspace's CPU execution record, the process's (the
+        # calibration's where it holds, else the built-in table) unless one is given,
+        # as a stage-2 refinement gives one; read back from the state it built.
+        self._execution_source = (
+            _package.EXECUTION_SOURCE if cpu_execution is None else "given"
+        )
         self._native_state = _core.State(
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
+            | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
+            | _planning_payload(fft_planning)
         )
+        self._applied_execution = ExecutionRecord.from_native(
+            self._native_state.cpu_execution
+        )
+        if cpu_execution is None:
+            # A stage-2 refinement of this very execution (solprop SEP 46 section
+            # 6.6): the workspace is built again with its record.
+            refined = _refined_record(problem, self._native_state)
+            if refined is not None:
+                self._native_state.close()
+                self._native_state = _core.State(
+                    _native_problem(problem, self._terms, self._flow, self._z_tables)
+                    | _low_storage_payload(problem, device=_on_device())
+                    | {"cpu_execution": refined[0].native()}
+                    | _planning_payload(fft_planning)
+                )
+                self._execution_source = refined[1]
+                self._applied_execution = ExecutionRecord.from_native(
+                    self._native_state.cpu_execution
+                )
         self._native_state.set_crossing_workers(thread_budget().threads)
         _wisdom.store(wisdom)
         self._wisdom_digest: str | None = None
@@ -1968,6 +2002,13 @@ class NativeBackend(StepDriver[_core.State]):
             "thread_budget_source": THREAD_BUDGET.source,
             "openmp_wait_policy": WAIT_POLICY,
             "openmp_proc_bind": PROC_BIND,
+            "calibration": _package.PROFILE.record(
+                _package.PROCESS,
+                self._applied_execution,
+                _package.BUILTIN_EXECUTION,
+                self._execution_source,
+            )
+            | _planning_record(self._native_state),
             "host_blas": self._host_blas,
             "planning_seconds": self._native_state.planning_seconds,
             "wisdom_loaded": self._wisdom_loaded,
@@ -4407,6 +4448,69 @@ def _aperture_payload(
     )
 
 
+def _refined_record(
+    problem: KernelProblem, state: _core.State
+) -> tuple[ExecutionRecord, str] | None:
+    """Return a stored stage-2 refinement of this execution, or ``None``.
+
+    Its record applies only while the machine record it refined is still the
+    process's: a refinement adds to the machine profile and never outlives it.
+    """
+    if _package.PROFILE.fingerprint is None:
+        return None
+    from ._profile import descriptor
+    from ._store import refinement, stores
+
+    key = descriptor(
+        shape=problem.shape,
+        grid_kind=problem.grid_kind,
+        integrator=type(problem.stepper.integrator).__name__,
+        sizing=state.execution_sizing,
+        process=_package.PROCESS,
+        fingerprint=_package.PROFILE.fingerprint.digest,
+    )
+    found = refinement(_package.PROFILE.fingerprint.digest, key, stores())
+    if found is None or found.get("base") != _package.EXECUTION.native():
+        return None
+    changes = found.get("workspace")
+    if not isinstance(changes, dict):
+        return None
+    try:
+        return _package.EXECUTION.updated(
+            cast(dict[str, object], changes)
+        ), f"refinement {key}"
+    except ValueError:
+        return None
+
+
+def _planning_payload(given: Mapping[str, object] | None) -> dict[str, object]:
+    """Return the problem's ``fft_planning``: the one given, the profile's, or none."""
+    chosen = given if given is not None else _package.PLANNING
+    if chosen is None or _on_device():
+        return {}
+    return {"fft_planning": dict(chosen)}
+
+
+def _planning_record(state: _core.State) -> dict[str, object]:
+    """Return what a workspace's FFT planning applied, for its run's metadata.
+
+    The plans keyed in its profile that no longer build from their wisdom are listed:
+    they ran at estimate (solprop SEP 46 section 6.7).
+    """
+    if _on_device():
+        return {}
+    found = state.fft_planning
+    groups = cast(dict[str, str], found["groups"])
+    if not groups:
+        return {"fft_planning": "policy"}
+    return {
+        "fft_planning": {
+            "plans": len(groups),
+            "missing": list(cast(list[str], found["missing"])),
+        }
+    }
+
+
 def _native_problem(
     problem: KernelProblem,
     fixed: StageTerms,
@@ -4552,6 +4656,9 @@ def _native_problem(
         )
     )
     return {
+        # solprop SEP 46: how the workspace's CPU operations thread, the process's
+        # record unless the backend was given one.
+        "cpu_execution": _package.EXECUTION.native(),
         **spatial_data,
         **_channel_payload(problem),
         **_envelope_payload(problem),

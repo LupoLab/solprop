@@ -24,19 +24,13 @@ ThreadPolicy configured_threads;
 // The runtime's width, which every unscoped OpenMP region on any thread takes
 // (`CpuTeamScope`): Kokkos sets the default only on the thread that initialised it.
 std::atomic<int> runtime_width{0};
-#if defined(KOKKOS_ENABLE_OPENMP) && !defined(KOKKOS_ENABLE_CUDA) &&                   \
-    !defined(KOKKOS_ENABLE_HIP)
-// What the operation thresholds are divided by (`spinning_threshold_divisor` while
-// LLVM's runtime spins within native calls, `configure_native_spin`; else one).
-std::atomic<std::size_t> threshold_divisor{1};
-#endif
 } // namespace
 
 ThreadPolicy thread_policy() {
   if (configured_threads.kernels != 0)
     return configured_threads;
   const int count = Kokkos::DefaultHostExecutionSpace().concurrency();
-  return {count, count, count, count, default_threaded_fft_min_samples, -1};
+  return {count, count, count, count, -1};
 }
 
 void configure_thread_policy(ThreadPolicy requested) {
@@ -54,8 +48,6 @@ void configure_thread_policy(ThreadPolicy requested) {
   }
   if (requested.band_tiles < -1)
     throw std::invalid_argument("the band column request must be -1, 0 or positive");
-  if (requested.threaded_fft_min_samples == 0)
-    requested.threaded_fft_min_samples = default_threaded_fft_min_samples;
   if (configured_threads.kernels != 0 && configured_threads != requested)
     throw std::runtime_error("native CPU thread policy was already initialized");
   configured_threads = requested;
@@ -73,9 +65,23 @@ ExecutionSpace execution_instance(const int threads) {
   return ExecutionSpace();
 }
 
-int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
-                      const CpuOperation operation, const std::size_t elements,
-                      const std::size_t fine_samples) {
+void require_cpu_execution(const CpuExecution& execution) {
+  for (const OperationGrain& grain : execution.grain)
+    if (grain.threshold == 0 || grain.full < grain.threshold)
+      throw std::invalid_argument(
+          "a CPU execution record needs a positive threshold and a full size at least "
+          "as large for every operation (solprop_native's _execution table)");
+  if (execution.response_full_samples == 0 || execution.response_full_columns == 0 ||
+      execution.medium_threads < 1 || execution.compact_threads < 1 ||
+      execution.compact_max_fine_samples == 0)
+    throw std::invalid_argument(
+        "a CPU execution record needs positive response bounds, widths and compact "
+        "bound (solprop_native's _execution table)");
+}
+
+int operation_threads(const ThreadPolicy& policy, const CpuExecution& execution,
+                      const CpuPool pool, const CpuOperation operation,
+                      const std::size_t elements, const std::size_t fine_samples) {
   const int capacities[] = {policy.kernels, policy.fft, policy.raman_fft,
                             policy.raman_tail_fft};
   const auto index = static_cast<unsigned>(pool);
@@ -84,58 +90,18 @@ int operation_threads(const ThreadPolicy& policy, const CpuPool pool,
     !defined(KOKKOS_ENABLE_HIP)
   if ((policy.explicit_pools & (1U << index)) != 0)
     return capacity;
-  std::size_t threshold = stage_thread_min_elements;
-  std::size_t full = stage_full_thread_elements;
-  switch (operation) {
-  case CpuOperation::stage:
-    break;
-  case CpuOperation::copy:
-    threshold = copy_thread_min_elements;
-    full = copy_thread_min_elements;
-    break;
-  case CpuOperation::response:
-    threshold = response_thread_min_elements;
-    full = response_full_thread_elements;
-    break;
-  case CpuOperation::modal:
-    threshold = modal_thread_min_elements;
-    full = modal_thread_min_elements;
-    break;
-  case CpuOperation::flow:
-    threshold = flow_thread_min_elements;
-    full = flow_thread_min_elements;
-    break;
-  case CpuOperation::dense:
-    threshold = dense_thread_min_elements;
-    full = dense_full_thread_elements;
-    break;
-  case CpuOperation::fft:
-    threshold = policy.threaded_fft_min_samples;
-    full = fft_full_thread_elements;
-    break;
-  case CpuOperation::raman:
-    threshold = raman_thread_min_elements;
-    full = raman_full_thread_elements;
-    break;
-  case CpuOperation::adams:
-    threshold = adams_thread_min_elements;
-    full = adams_full_thread_elements;
-    break;
-  }
-  if (const std::size_t divisor = threshold_divisor.load(std::memory_order_relaxed);
-      divisor > 1 && (operation != CpuOperation::fft ||
-                      threshold == default_threaded_fft_min_samples)) {
-    threshold = std::max<std::size_t>(1, threshold / divisor);
-    full = std::max(threshold, full / divisor);
-  }
-  if (elements < threshold)
+  const OperationGrain& grain = execution[operation];
+  if (elements < grain.threshold)
     return 1;
   if (operation == CpuOperation::response &&
-      (fine_samples >= response_full_thread_samples ||
-       (fine_samples != 0 && elements / fine_samples >= response_full_thread_columns)))
+      (fine_samples >= execution.response_full_samples ||
+       (fine_samples != 0 &&
+        elements / fine_samples >= execution.response_full_columns)))
     return capacity;
-  return elements < full ? std::min(capacity, cpu_medium_threads) : capacity;
+  return elements < grain.full ? std::min(capacity, execution.medium_threads)
+                               : capacity;
 #else
+  static_cast<void>(execution);
   static_cast<void>(operation);
   static_cast<void>(elements);
   static_cast<void>(fine_samples);
@@ -317,13 +283,6 @@ void configure_native_spin(const int milliseconds) {
   if (milliseconds < 0)
     throw std::invalid_argument("a spin time cannot be negative");
   native_spin_milliseconds = milliseconds;
-#if defined(KOKKOS_ENABLE_OPENMP) && defined(KMP_VERSION_MAJOR) &&                     \
-    defined(__APPLE__) && !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-  threshold_divisor =
-      milliseconds > 0 && runtime_width.load() <= spinning_threshold_max_team
-          ? spinning_threshold_divisor
-          : 1;
-#endif
 }
 
 int scoped_block_time() noexcept {
@@ -348,18 +307,19 @@ bool compact_problem(const Problem& problem) noexcept {
   return problem.n_columns() == 1 && problem.n_nodes == 1 &&
          problem.n_pol_transform == 1 && !problem.general_modal &&
          !problem.coupled_flow && !problem.separable_geometry() &&
-         problem.n_to < compact_max_fine_samples;
+         problem.n_to < problem.cpu_execution.compact_max_fine_samples;
 }
 
 const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
                                             const std::size_t elements,
                                             const std::size_t fine_samples) {
   const ThreadPolicy policy = thread_policy();
-  int width = operation_threads(policy, pool_, operation, elements, fine_samples);
+  int width =
+      operation_threads(policy, execution_, pool_, operation, elements, fine_samples);
   int capacity = policy.kernels;
   if (compact_ && policy.explicit_pools == 0) {
     capacity = pool_ == CpuPool::kernels || fftw_team_loops()
-                   ? std::min(capacity, cpu_compact_threads)
+                   ? std::min(capacity, execution_.compact_threads)
                    : 1;
     // On the compact team a threaded transform takes the whole team: its loops run on
     // that team anyway. The Raman transforms keep their own start: threading the
@@ -375,8 +335,8 @@ const ExecutionSpace& CpuExecutionPool::get(const CpuOperation operation,
   // pool has a full-width kernel, a medium one takes the full width too. FFTW's
   // threaded loops keep the runtime's team and only distribute fewer iterations, so the
   // FFT pools keep their medium widths. Workspaces ask for their stage instance first.
-  // Not on macOS (`stable_kernel_team`).
-  if (stable_kernel_team && pool_ == CpuPool::kernels && width > 1 &&
+  // Not on macOS (`CpuExecution::stable_kernel_team`).
+  if (execution_.stable_kernel_team && pool_ == CpuPool::kernels && width > 1 &&
       width < capacity && instances_.contains(capacity))
     width = capacity;
   auto found = instances_.find(width);

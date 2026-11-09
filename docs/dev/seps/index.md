@@ -33,7 +33,6 @@ Proposals that are active, in draft, accepted, in progress or deferred.
 | [11](sep-0011-finite-density-gas-index.md) | Finite-density gas index and mixture optics | Draft | Change |
 | [17](sep-0017-gas-two-photon-ionisation.md) | Broadband two-photon continuum response beside strong-field ionisation | Accepted | Feature |
 | [32](sep-0032-raman-maxwell-bloch.md) | Raman Maxwell–Bloch dynamics | Draft | Feature |
-| [46](sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Accepted | Change |
 | [47](sep-0047-run-ownership.md) | Backend-owned execution sessions | Draft | Change |
 
 SEP 13, the standalone numerical prerequisite for SEP 12, SEP 14, which carried it to
@@ -83,6 +82,7 @@ Proposals that are final, rejected, withdrawn or superseded; the
 | [43](archive/sep-0043-retire-numba-cpu.md) | Retire `numba_cpu` | Final | Change |
 | [44](archive/sep-0044-native-edge-read.md) | Reading the transverse edge where the state lives | Final | Change |
 | [45](archive/sep-0045-native-rk-march.md) | A native Runge–Kutta march, and boundary checks inside the compiled marches | Final | Change |
+| [46](archive/sep-0046-machine-calibration.md) | Calibrating the native backend to its machine | Final | Change |
 
 ```{toctree}
 :hidden:
@@ -99,7 +99,6 @@ sep-0010-low-rank-raman
 sep-0011-finite-density-gas-index
 sep-0017-gas-two-photon-ionisation
 sep-0032-raman-maxwell-bloch
-sep-0046-machine-calibration
 sep-0047-run-ownership
 template
 archive/index

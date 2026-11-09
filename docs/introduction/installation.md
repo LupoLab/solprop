@@ -208,6 +208,22 @@ An approximately 1 nJ input and exit confirm this check. Continue with
 For package import or backend errors, check that the interpreter is the one in
 which you installed solprop and inspect [backend selection](../guide/performance/backends.md).
 
+## Calibrate to your machine
+
+The last step of every installation, wheel or source build, laptop or cluster node:
+
+```sh
+solprop calibrate
+```
+
+In about a minute and a half it measures how the native backend should thread, wait and plan its
+transforms on this machine, and keeps the result in your cache directory; every later
+run uses it ([Calibrating solprop to your machine](../guide/performance/calibration.md)).
+`--quick` takes about 20 s, `--thorough` about five minutes. If you skip it, the first
+native run calibrates quickly by itself, with a notice saying so, and the run above may
+have done just that. On a cluster, calibrate inside a job on each kind of compute node,
+not on a login node.
+
 ## Platforms
 
 solprop is developed and tested on macOS (Apple silicon), Linux (x86-64) and Windows

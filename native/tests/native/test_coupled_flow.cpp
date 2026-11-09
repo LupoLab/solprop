@@ -5,6 +5,8 @@
 #include "solprop_native/core.hpp"
 #include "solprop_native/coupled_flow.hpp"
 
+#include "execution.hpp"
+
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -47,6 +49,7 @@ std::size_t block(const std::size_t count) { return count * kActive * kModes * k
 
 native::Problem flow_problem(const bool residual) {
   native::Problem problem;
+  problem.cpu_execution = native::test::table();
   problem.n_t = 4;
   problem.n_to = 8;
   problem.n_omega = kOmega;

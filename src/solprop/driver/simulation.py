@@ -532,6 +532,7 @@ class _AutoBackend(str):
 
 
 if TYPE_CHECKING:
+    from solprop.calibration.refine import RefinementReport
     from solprop.driver.estimate import RunEstimate
 
 
@@ -3769,6 +3770,31 @@ class Simulation(Displayed):
         from solprop.driver.estimate import estimate  # noqa: PLC0415 - imports this
 
         return estimate(self)
+
+    def calibrate(self, budget: float = 60.0) -> "RefinementReport":  # noqa: UP037 - later
+        """Refine the native backend's settings for this simulation (SEP 46 stage 2).
+
+        Fresh native workspaces of this simulation's translated problem are built in
+        this process under candidate settings and timed by trial steps along its
+        length; the settings that win, stay accurate and validate together are stored
+        under its execution descriptor, and every later run or scan point of the same
+        execution applies them. The simulation itself is not changed. Running
+        ``solprop calibrate`` first gives the machine profile this refines
+        (:mod:`solprop.calibration`).
+
+        Parameters
+        ----------
+        budget : float, optional
+            The deadline, in seconds.
+
+        Returns
+        -------
+        solprop.calibration.refine.RefinementReport
+            What was kept and whether it was stored.
+        """
+        from solprop.calibration.refine import refine  # noqa: PLC0415 - imports native
+
+        return refine(self, budget)
 
     def output_bytes(self) -> int:
         """Return the size of the run's output, without constructing a backend.

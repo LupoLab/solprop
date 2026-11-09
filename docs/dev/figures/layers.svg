@@ -214,26 +214,31 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="753.5" y="1068.0" font-size="12" class="dim">callback · hdf5 · tdse_archive</text>
 <text x="753.5" y="1083.5" font-size="12" class="dim">snapshots · scan · scan_artifacts</text>
 <text x="753.5" y="1099.0" font-size="12" class="dim">resumable</text>
-<rect x="307.0" y="1122.0" width="77.75" height="112.5" rx="7" ry="7" class="fill-d" />
+<rect x="307.0" y="1122.0" width="77.75" height="81.5" rx="7" ry="7" class="fill-d" />
 <text x="317.0" y="1144.0" font-size="15" class="bold ink-d">scan.py</text>
-<rect x="394.75" y="1122.0" width="204.8" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="404.75" y="1144.0" font-size="15" class="bold ink-d">driver/executors/</text>
-<text x="404.75" y="1159.5" font-size="12" class="dim">local · pool · queue · slurm</text>
-<text x="404.75" y="1175.0" font-size="12" class="dim">batch</text>
-<rect x="609.55" y="1122.0" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
-<text x="619.55" y="1144.0" font-size="15" class="bold ink-d">driver/</text>
-<text x="619.55" y="1159.5" font-size="12" class="dim">simulation · run · summary</text>
-<text x="619.55" y="1175.0" font-size="12" class="dim">interface · scaffold · mixtures</text>
-<text x="619.55" y="1190.5" font-size="12" class="dim">material_output · tdse</text>
-<text x="619.55" y="1206.0" font-size="12" class="dim">tdse_consistency · scan · batch</text>
-<text x="619.55" y="1221.5" font-size="12" class="dim">defaults · estimate · plane_view</text>
-<rect x="307.0" y="1244.5" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="317.0" y="1266.5" font-size="15" class="bold ink-d">recipe/</text>
-<text x="317.0" y="1282.0" font-size="12" class="dim">core · document · errors · export</text>
-<text x="317.0" y="1297.5" font-size="12" class="dim">metadata · paths · pins · preview</text>
-<text x="317.0" y="1313.0" font-size="12" class="dim">provenance · quantity · registry</text>
-<rect x="554.8" y="1244.5" width="69.5" height="81.5" rx="7" ry="7" class="fill-d" />
-<text x="564.8" y="1266.5" font-size="15" class="bold ink-d">cli.py</text>
+<rect x="394.75" y="1122.0" width="237.8" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="404.75" y="1144.0" font-size="15" class="bold ink-d">calibration/</text>
+<text x="404.75" y="1159.5" font-size="12" class="dim">command · controller · first_use</text>
+<text x="404.75" y="1175.0" font-size="12" class="dim">child · grain · problems · refine</text>
+<text x="404.75" y="1190.5" font-size="12" class="dim">selection</text>
+<rect x="642.55" y="1122.0" width="204.8" height="81.5" rx="7" ry="7" class="fill-d" />
+<text x="652.55" y="1144.0" font-size="15" class="bold ink-d">driver/executors/</text>
+<text x="652.55" y="1159.5" font-size="12" class="dim">local · pool · queue · slurm</text>
+<text x="652.55" y="1175.0" font-size="12" class="dim">batch</text>
+<rect x="307.0" y="1213.5" width="231.20000000000002" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="317.0" y="1235.5" font-size="15" class="bold ink-d">driver/</text>
+<text x="317.0" y="1251.0" font-size="12" class="dim">simulation · run · summary</text>
+<text x="317.0" y="1266.5" font-size="12" class="dim">interface · scaffold · mixtures</text>
+<text x="317.0" y="1282.0" font-size="12" class="dim">material_output · tdse</text>
+<text x="317.0" y="1297.5" font-size="12" class="dim">tdse_consistency · scan · batch</text>
+<text x="317.0" y="1313.0" font-size="12" class="dim">defaults · estimate · plane_view</text>
+<rect x="548.2" y="1213.5" width="237.8" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="558.2" y="1235.5" font-size="15" class="bold ink-d">recipe/</text>
+<text x="558.2" y="1251.0" font-size="12" class="dim">core · document · errors · export</text>
+<text x="558.2" y="1266.5" font-size="12" class="dim">metadata · paths · pins · preview</text>
+<text x="558.2" y="1282.0" font-size="12" class="dim">provenance · quantity · registry</text>
+<rect x="796.0" y="1213.5" width="69.5" height="112.5" rx="7" ry="7" class="fill-d" />
+<text x="806.0" y="1235.5" font-size="15" class="bold ink-d">cli.py</text>
 <rect x="32" y="1385.0" width="1010.0" height="292.0" rx="7" ry="7" class="plain" />
 <rect x="46" y="1514.0" width="34" height="34" rx="7" ry="7" class="fill-x" />
 <text x="63" y="1537.0" font-size="19" class="bold mid ink-x">X</text>

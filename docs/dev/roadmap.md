@@ -34,12 +34,6 @@ being implemented.
   identifies a new material contract. Ne/Xe, mixtures, mode-averaged and multimode
   routes, bound response and other geometries remain follow-up work; the first route is
   a single-mode capillary with node quadrature.
-- [SEP 46 — Calibrating the native backend to its machine](seps/sep-0046-machine-calibration.md):
-  a bounded one-off measurement that fits the native CPU backend's waiting policy, team,
-  operation thresholds and FFTW planning to the machine: quick and automatic on first
-  use, thorough for the benchmarks, kept in the user's cache directory and read by every
-  later run. An optional refinement for one simulation covers SEP 4's use case, which it
-  supersedes; a last phase fits GPU builds' settings when a device is set up.
 
 ## Draft enhancement proposals
 

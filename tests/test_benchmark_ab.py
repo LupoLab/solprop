@@ -222,3 +222,94 @@ def test_each_arm_runs_its_own_backend_at_that_backends_precision():
         "precision": "single",
     }
     assert ab.arm_configuration(values, "native")["precision"] == "double"
+
+
+def test_each_arm_takes_its_own_environment(tmp_path, monkeypatch):
+    """A calibrated arm against the built-in table (SEP 46): only the arm's own
+    variables differ, over the threading preset, and the plan records them."""
+    seen = []
+
+    def launch(python, request, environment, *_args):
+        seen.append(environment.get("SOLPROP_CALIBRATION"))
+        return [], 0.0
+
+    monkeypatch.setattr(ab, "launch_worker", launch)
+    monkeypatch.setattr(ab, "guard", lambda *_args: {"quiet": True})
+    out = tmp_path / "run"
+    cli.main(
+        [
+            "ab",
+            "--case",
+            "smoke",
+            "--threads",
+            "1",
+            "--rounds",
+            "1",
+            "--baseline-python",
+            sys.executable,
+            "--baseline-env",
+            "SOLPROP_CALIBRATION=off",
+            "--candidate-env",
+            "SOLPROP_CALIBRATION=use",
+            "--calibrate",
+            "none",
+            "--out",
+            str(out),
+        ]
+    )
+    assert sorted(seen) == ["off", "use"]
+    plan = read_record(out / "plan.json")
+    assert plan["environments"] == {
+        "baseline": {"SOLPROP_CALIBRATION": "off"},
+        "candidate": {"SOLPROP_CALIBRATION": "use"},
+    }
+
+
+def test_an_arms_environment_takes_name_value_pairs():
+    assert ab.arm_environment(["A=1", "B="]) == {"A": "1", "B": ""}
+    with pytest.raises(ab.SuiteError, match="NAME=VALUE"):
+        ab.arm_environment(["broken"])
+
+
+def test_each_build_is_calibrated_once_unless_off(tmp_path, monkeypatch):
+    """SEP 46 section 6.13: a series calibrates each build first, once per
+    interpreter, with its arm's variables; an arm held off calibrates nothing."""
+    from benchmarks import runner  # noqa: PLC0415
+
+    ran = []
+
+    class Completed:
+        returncode = 0
+        stdout = "calibration (quick): published in 1.0 s\n"
+        stderr = ""
+
+    def run(command, **kwargs):
+        ran.append((command, kwargs["env"].get("A")))
+        return Completed()
+
+    monkeypatch.setattr(runner.subprocess, "run", run)
+    monkeypatch.delenv("SOLPROP_CALIBRATION", raising=False)
+    found = runner.calibrate_builds(
+        {"baseline": "/py/a", "candidate": "/py/a"},
+        "quick",
+        tmp_path,
+        {"baseline": {"A": "1"}},
+    )
+    assert [command for command, _ in ran] == [
+        ["/py/a", "-m", "solprop", "calibrate", "--quick"]
+    ]
+    assert found["candidate"] == found["baseline"]
+    assert (tmp_path / "calibration" / "baseline.txt").exists()
+    held = runner.calibrate_builds(
+        {"baseline": "/py/b"},
+        "quick",
+        tmp_path,
+        {"baseline": {"SOLPROP_CALIBRATION": "off"}},
+    )
+    assert held == {"baseline": {"level": "off"}}
+    assert runner.calibrate_builds({"baseline": "/py/c"}, "none", tmp_path) == {}
+    assert len(ran) == 1
+    assert runner.worker_calibration({"SOLPROP_CALIBRATION": "OFF"}) == {
+        "SOLPROP_CALIBRATION": "off"
+    }
+    assert runner.worker_calibration({}) == {"SOLPROP_CALIBRATION": "use"}

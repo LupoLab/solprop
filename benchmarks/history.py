@@ -40,6 +40,7 @@ COLUMNS = (
     "numa_domains",
     "threads",
     "threading",
+    "calibration",
     "case",
     "revision",
     "case_hash",

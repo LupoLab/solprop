@@ -2646,6 +2646,137 @@ bin underflows harmlessly, so binary32 now holds it to growth alone; with the ed
 on the device and the operator built once, whole runs take 1.05 s on `mlx` against
 2.64 s on `native` (192²) and 7.72 against 9.43 s (384²), the fields 2e-7 apart.
 
+### Machine calibration against the built-in table (SEP 46)
+
+[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 items 1–4. On each machine a
+thorough calibration, then the tracking set calibrated against the built-in table
+(`benchmarks ab`, a fifth of each case, three rounds of one run, both arms as default
+runs: no thread count of their own, `SOLPROP_CALIBRATION=off` against `use`), an A/A
+control of the same command, and a second calibration. Sixteen cores of each machine
+unless stated; fields equal to rounding in every row.
+
+The first rules failed. A candidate was scored by the geometric mean of five small
+problems, and the FFT stage's fallback published stored wisdom untested:
+- **Google Axion (C4A):** a team of 8 won the small problems by 16 % and ran the large
+  cases slower (`kerr_beam_384` 1.82, `kerr_beam_192` 1.73, `radial_filament_256`
+  1.35, `grin_nonlinear` 1.28, `ctc` 1.07); geometric mean 1.094.
+- **AMD EPYC 9B45 (C4D):** the stored FFT wisdom ran `h2_raman_averaged` 1.18 times
+  slower (1.17 with the wisdom alone, 0.99 with the efforts alone): a 4608-point plan
+  chosen alone in the capture ran slower in the step than one measured in place. A full
+  width from 98304 elements (`fft_full`) ran `grin_nonlinear` 1.08–1.10 slower, and on
+  an AMD EPYC 7763 1.087.
+
+Revised rules: no problem may be slower than its noise plus 5 % (the run below used
+2 %), four production-sized problems join the standard and thorough levels, FFT
+planning is compared with the plan policy and published only when an effort wins, and
+the transforms' thresholds stay at the table (#587). With them:
+
+| machine | calibration chose | geometric mean | A/A | slower than A/A + 2 % |
+|---|---|---:|---:|---|
+| Google Axion (C4A), three runs | medium width 8, Raman and copy thresholds | 0.965, 0.964, 0.968 | 1.000 | none |
+| AMD EPYC 7763, exclusive node, one NUMA domain | the table (no grain move won) | 1.003 | 0.991 | none |
+| AMD EPYC 9B45 (C4D), Windows Server 2025, the CI wheel | the table, twice | — | — | — |
+| AMD EPYC 9B45 (C4D), Linux (5 % bar) | the table; a copy threshold in the second | — | — | — |
+| Intel Xeon Gold 6240, one socket (18 cores) | the table, twice | — | — | — |
+| Intel Xeon Platinum 8581C (Emerald Rapids, C4), 12 cores (5 % bar) | medium width 8, Raman and copy thresholds, twice | 0.989 | 0.996 | none |
+| the same, at the quick level (first use) | medium width 8 | 0.999 | 0.996 | none |
+| Apple M5 Max, six top-tier threads (5 % bar) | a Raman threshold of 8193, twice | 1.012 | 1.000 | none that the profile changes |
+
+On the Axion the gains are on the few-mode and Raman cases: `gnlse_raman_shock`
+0.85–0.86, `he_rdw_averaged` 0.90–0.91, `argon_blueshift_envelope` 0.91–0.92, `ctc`
+0.93–0.94, `argon_blueshift_averaged` 0.94–0.95; the large cases stay within
+0.99–1.01. The team of 8 was refused on the production-sized radial problem
+(1.17–1.18). The last run's two calibrations chose the same settings; earlier second
+calibrations found the grain inconclusive and kept the table.
+
+Where the calibration chose the table, the A/B would compare the table with itself and
+was not run (or, on the Xeon, measured only the shared machine's noise).
+
+The two machines the table was never tuned on, the Axion and the Emerald Rapids, chose
+the same grain; on the Emerald Rapids `ctc` ran 0.87 and `gnlse_raman_shock` 0.94 (the
+quick level, the medium width alone: `ctc` 0.90). Its second calibration also admitted
+`threaded_rows measure`, under the FFT stage's earlier base (every plan at estimate),
+since corrected; it was not A/B'd.
+
+Every machine refused passive waiting: 1.94 (Emerald Rapids), 1.10–1.11 (Axion), 1.16–1.23 (EPYC 7763),
+1.25–1.27 (EPYC 9B45 Linux), 1.18 (Windows), 1.25 (Xeon), 1.74–1.78 (Apple M5 Max). On
+the Apple M5 Max, under the first rules, two calibrations kept six top-tier threads and
+admitted a Raman threshold of 8193; the A/B was 1.002 and 1.008 (`h2_raman_averaged`
+1.04, the stored wisdom). Under the revised rules it chose the Raman threshold again,
+twice, and no planning. The Raman cases did not move (`gnlse_raman_shock` 1.011,
+`h2_raman_averaged` 1.001); `argon_blueshift_averaged` 1.155 and
+`argon_blueshift_envelope` 1.088 ran the same computation in both arms (fields equal),
+within the M5 Max's A/A range on those cases (0.89–1.12). ADR-073's table already fits
+this chip. Inconclusive sessions published nothing: the EPYC 9B45 at
+16 cores on two earlier VMs (A/A 35 % and 15 %; a third VM's session was conclusive at
+2 %, and its table-against-table A/B spread 0.60–1.52 per case), the shared Xeon (23 %), the EPYC 7763's second session
+(31 %).
+
+### Scan workers calibrated on an AMD EPYC 7763 node (SEP 46)
+
+[SEP 46](seps/archive/sep-0046-machine-calibration.md) section 7 item 14, a scan's workers. One
+whole node of two AMD EPYC 7763 (128 cores, 8 NUMA domains), exclusive, GCC 16, commit
+`ad1df42e` of #582. The workload is an RDW tuning scan: a four-mode helium capillary
+(125 µm core radius, 5 cm, 7.5 fs at 800 nm, plasma) over pressure (0.6–1.2 bar) and
+energy (150–275 µJ), run by `run_scan` on `Pool`. Each arm is one scan, in three rounds
+of shuffled order: `table` (`SOLPROP_CALIBRATION=off`: workers wait passively), `spin`
+(the table with `GOMP_SPINCOUNT=10000`, so workers spin) and `calibrated` (`auto`, after
+one warm-up scan that calibrated the workers' allocation). Wall seconds:
+
+| config | table | spin | calibrated | warm-up (calibrating) |
+|---|---|---|---|---:|
+| A: 128 workers × 1 thread, 20 × 20 points | 464, 690, 415 | — | 505, 496, 459 | 577 |
+| B: 4 workers × 4 threads on one NUMA domain, 4 × 4 points | 21.6, 25.9, 20.3 | 22.1, 20.4, 21.9 | 24.9, 23.0, 20.6 | 111.8 |
+| C: 8 workers × 16 threads, 4 × 4 points | 25.9, 27.9, 26.2 | 25.8, 37.5, 25.9 | 29.0, 29.2, 30.6 | 114.6 |
+
+- **What the calibration chose.** The 4- and 16-core rows kept the table's waiting and
+  team (passive 1.13 and 1.18 times slower in the calibration's children, half the team
+  1.46 and 1.08), found the grain inconclusive and planned nothing. A calibrated worker
+  therefore differs from the table's only in spinning, which is the `spin` arm.
+- **Config C's calibrated arm** ran 1.05–1.17 times the table's in its rounds, but a
+  second job on the same node, nine shuffled scans, did not repeat it: `off` 27.4, 26.6,
+  24.9, 24.9, 31.1; `use` (the same profile, no first-use check) 25.7, 25.9, 26.5, 27.6,
+  31.0; `auto` 25.8, 25.4, 25.8. Scans of every arm land near 31 s at times. The
+  first-use check costs the scan's parent 0.4 s (0.2 s the second time).
+- **Workers spinning or passive** (B and C): the same within the node's spread. The
+  calibration's lone-process verdict against passive waiting does not carry to
+  concurrent workers here, and does not cost them either.
+- **Single-threaded workers** (A): the one-core class's standard calibration ran out of
+  its 90 s before three rounds of its problems in series and published nothing, to try
+  again a day later. One CPU has no team, waiting or grain to choose, so a one-CPU
+  allocation is now never measured. No setting differed between A's arms; the first
+  scan of each round ran slowest whichever arm it was (505, 690, 459 against 464, 496,
+  415).
+- **The one-off cost** is the warm-up's extra time: about 90 s a worker class, once per
+  machine, allocation class and release.
+
+### Device settings and the node chunk on an NVIDIA H200 (SEP 46 phase 6)
+
+SEP 46 phase 6 measures which device settings move a run beyond its noise (section
+6.14). Builds of one commit, each changing one compiled setting, against the default
+build (`benchmarks ab --device`, a fifth of each case, three rounds, CUDA 13.1); the
+node chunk with one build and `SOLPROP_BENCH_NODE_BUDGET` in the candidate arm (#361).
+A/A: geometric mean 0.996, each case within about ±3 % (`kerr_beam_192` to 1.05).
+
+| setting | geometric mean | beyond the noise |
+|---|---:|---|
+| graph replay off | 1.012 | `ctc` 1.08, `h2_raman_averaged` 1.07 slower |
+| team 128, reduction 256 (from 256, 512) | 0.994 | `he_rdw_averaged` 0.94 (one round 0.996), `argon_blueshift` 0.965 |
+| team 512, reduction 1024 | 1.009 | `ctc` 1.09 slower |
+
+The node chunk, against the 1 GiB default (Runge-Kutta, Multistep):
+
+| case | one chunk (64 GiB) | 8 GiB |
+|---|---|---|
+| `radial_filament_512` | 0.748, 0.924 | 0.749, 0.880 |
+| `cartesian_filament_256` | 0.862, 0.888 | 0.877, 0.908 |
+| `cartesian_filament_128` | 0.904, 0.935 | 0.911, 0.944 |
+| `kerr_beam_384`, `kerr_beam_768` (fixed-step RK4IP) | 0.974, 0.996 | |
+
+Graph replay pays and stays on; neither width pays. The chunk pays 6–25 % on the
+spatial routes, and 8 GiB takes nearly all of it. The device tests passed on the same
+build (211 targeted, 31 native, 253 `-m gpu`, 92 radial).
+
 ### A run's fixed host cost and a fresh process's BLAS
 
 [#347](https://github.com/LupoLab/solprop/issues/347) asked what a complete run costs
