@@ -22,13 +22,14 @@ from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
 from solprop import fourier
 from solprop.backends.driver import StepDriver
-from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import available, select
 from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.driver import Simulation
 from solprop.driver.run import plane_from_observation
 from solprop.exceptions import OutputError
@@ -220,15 +221,21 @@ STORED: dict[str, Callable[[str], Simulation]] = {
 def _copied_observations(monkeypatch: pytest.MonkeyPatch) -> list[np.ndarray]:
     """Copy each observed field as its backend returned it, before any conversion."""
     copies: list[np.ndarray] = []
-    observe = StepDriver.observe
+    # The reference's driver and the native bridge's each observe for themselves.
+    for driver in (StepDriver, HostDriver):
 
-    def copying(self: StepDriver, *, field: bool = True) -> Observation:
-        observation = observe(self, field=field)
-        if observation.field is not None:
-            copies.append(np.array(observation.field))
-        return observation
+        def copying(
+            self: StepDriver | HostDriver,
+            *,
+            field: bool = True,
+            observe: Callable[..., Observation] = driver.observe,
+        ) -> Observation:
+            observation = observe(self, field=field)
+            if observation.field is not None:
+                copies.append(np.array(observation.field))
+            return observation
 
-    monkeypatch.setattr(StepDriver, "observe", copying)
+        monkeypatch.setattr(driver, "observe", copying)
     return copies
 
 
@@ -305,7 +312,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend,
         return observation
 
     stepping.observe = recorded  # pyright: ignore[reportAttributeAccessIssue]
-    session = DriverSession(
+    session = start_session(
         stepping,
         problem,
         describe_run(problem),
@@ -329,7 +336,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend,
         # Converted where it is when owned: the observation's own array then holds it.
         assert np.shares_memory(held, seen[-1].field) is owned
         if not owned:
-            state = cast("StepDriver[np.ndarray]", stepping)._state
+            state = cast("HostDriver[np.ndarray]", stepping)._state
             assert not np.shares_memory(held, state)
     finally:
         session.close()

@@ -25,8 +25,8 @@ from scipy.linalg import expm
 
 import flow_parity
 from solprop.backends import available
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.multistep import (
-    AdamsMarch,
     CoupledBlock,
     CoupledExponentialKernels,
     coupled_moments,
@@ -241,7 +241,7 @@ def test_the_untransported_witness_is_for_diagonal_operators_only():
     backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
     try:
         with pytest.raises(BackendError, match="diagonal operators"):
-            AdamsMarch(backend, EXPONENTIAL, compensation="untransported")
+            HostAdamsMarch(backend, EXPONENTIAL, compensation="untransported")
     finally:
         backend.close()
 

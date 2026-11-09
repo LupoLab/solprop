@@ -14,6 +14,7 @@ import pytest
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_in_envelope, assert_matched, march_bound
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import select
 from solprop.exceptions import BackendError, DriverError, OutputError
 from solprop.grid import EnvelopeGrid
@@ -346,7 +347,7 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
-    assert isinstance(engine, StepDriver)
+    assert isinstance(engine, (StepDriver, HostDriver))
     try:
         engine.set_initial(problem.initial.field0, None)
         launched = engine.observe().require_field().copy()
@@ -474,7 +475,8 @@ def test_a_run_interrupted_before_its_first_plane_resumes_without_a_second_entra
     # Fail the actual march so its terminal checkpoint and regular observations
     # agree; truncating an advanced file leaves its later checkpoint in place.
     with monkeypatch.context() as patch:
-        patch.setattr(StepDriver, "propagate_to", fail_before_first_step)
+        for driver in (StepDriver, HostDriver):
+            patch.setattr(driver, "propagate_to", fail_before_first_step)
         with pytest.raises(CrashError, match="before the first step"):
             scheduled(build_simulation).run(path, progress="none")
     stopped = resume(path)

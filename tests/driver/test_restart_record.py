@@ -24,8 +24,8 @@ import solprop.driver.run as run_module
 from driver.test_abandoned_step import built as low_storage
 from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
-from solprop.backends.driver import StepDriver
 from solprop.backends.driver_session import DriverSession
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (
@@ -172,7 +172,7 @@ def test_a_history_this_backend_cannot_install_is_recorded_as_incompatible(
     path = tmp_path / "run.h5"
     interrupted(build, path)
     monkeypatch.setattr(
-        StepDriver, "restore_march", lambda self, snapshot: "refused by the test"
+        HostDriver, "restore_march", lambda self, snapshot: "refused by the test"
     )
     caught = resumed(build, path)
     assert len(caught) == 1

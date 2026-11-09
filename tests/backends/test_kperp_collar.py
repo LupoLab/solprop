@@ -22,6 +22,7 @@ from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -121,7 +122,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
         )
         problem = simulation.translate()
         selected = select(backend, problem, grid=grid)
-        owner = cast("StepDriver", selected)
+        owner = cast("StepDriver | HostDriver", selected)
         try:
             owner.set_initial(problem.initial.field0, None)
             phases.append(owner._unitary_phase(owner._stage_scalars(0.0, 7e-4)).copy())

@@ -21,6 +21,7 @@ import numpy as np
 
 from capability_routes import LENGTH, ROUTES
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
 from solprop.driver import Simulation
@@ -99,10 +100,14 @@ def with_copy(field: np.ndarray, n_t: int) -> np.ndarray:
     return field * (1.0 + COPY_SHARE * phase)
 
 
-def as_driver(backend: Backend) -> StepDriver[Any]:
-    """Return a backend as the step driver every registered backend is."""
-    assert isinstance(backend, StepDriver)
-    return cast("StepDriver[Any]", backend)
+def as_driver(backend: Backend) -> StepDriver[Any] | HostDriver[Any]:
+    """Return a backend as the step driver every registered backend is.
+
+    The reference's own (:class:`~solprop.backends.host.driver.HostDriver`) or the
+    native bridge's inherited one (SEP 47 phase 2).
+    """
+    assert isinstance(backend, (StepDriver, HostDriver))
+    return cast("StepDriver[Any] | HostDriver[Any]", backend)
 
 
 def watched(

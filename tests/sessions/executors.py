@@ -12,9 +12,8 @@ its run request and a start, it returns a started :class:`~solprop.backends.sess
 RunSession` with whatever probes the implementation can offer. Every executor answers
 the same tests.
 
-- ``reference`` is the NumPy reference. Today it is the transitional
-  :class:`~solprop.backends.driver_session.DriverSession` over ``numpy_ref``; the
-  independent host session replaces its factory in :data:`EXECUTORS`, one line.
+- ``reference`` is the NumPy reference, in its own session
+  (:class:`~solprop.backends.host.session.HostSession`, SEP 47 phase 2).
 - ``native`` is the compiled backend, through the same transitional session until its
   own session replaces it; it is skipped where ``solprop_native`` is not installed.
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
@@ -41,6 +40,7 @@ from solprop.backends.events import (
     Terminal,
 )
 from solprop.backends.export import ExportRecipe
+from solprop.backends.host.session import HostSession
 from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.backends.registry import select
 from solprop.backends.session import (
@@ -271,8 +271,10 @@ class Factory(Protocol):
         ...
 
 
-def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
-    """Return a factory of transitional sessions over a step driver.
+def _over_driver(
+    make: Callable[..., Any], *, host_state: bool, session: type = DriverSession
+) -> Factory:
+    """Return a factory of sessions over a step driver.
 
     Parameters
     ----------
@@ -280,6 +282,8 @@ def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
         ``(problem, **script) -> driver``.
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
+    session : type, optional
+        The session class: the transitional session by default.
 
     Returns
     -------
@@ -297,11 +301,9 @@ def _over_driver(make: Callable[..., Any], *, host_state: bool) -> Factory:
             return observe(field=field)
 
         driver.observe = counted
-        session = DriverSession(
-            driver, problem, request, start, listener=listener, stop=stop
-        )
+        started = session(driver, problem, request, start, listener=listener, stop=stop)
         return Started(
-            session,
+            started,
             field_reads=lambda: reads[0],
             live_state=(lambda: driver._state) if host_state else None,
         )
@@ -398,9 +400,9 @@ class Executor:
 
 
 EXECUTORS: dict[str, Executor] = {
-    # The independent host session (SEP 47 phase 2) replaces this factory.
     "reference": Executor(
-        "reference", _over_driver(_selected("numpy_ref"), host_state=True)
+        "reference",
+        _over_driver(_selected("numpy_ref"), host_state=True, session=HostSession),
     ),
     "native": Executor(
         "native",

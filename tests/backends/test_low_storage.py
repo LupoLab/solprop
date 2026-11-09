@@ -43,7 +43,7 @@ from bounds import (
     step_budget,
 )
 from legacy_geometry import with_collar_rate
-from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
@@ -1066,17 +1066,22 @@ def test_an_atomic_engine_commits_its_step_whole(lifecycle, narrow_grid, atomic)
     finish and the move committed together, so a Ctrl-C raised while it steps lands
     after the step: the backend is not in flight and stands at the step's end. The
     host engine runs Python between its passes, so there the signal abandons the step
-    at once, in flight.
+    at once, in flight. The reference marches on the host engine alone (SEP 47 phase
+    2); the atomic engine is the native backend's, through the bridge's march.
     """
     from solprop._interrupts import handled  # noqa: PLC0415
 
     problem, length = lifecycle()
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    if atomic:
+        native = pytest.importorskip("solprop_native")
+        backend = native.NativeBackend(problem, grid=narrow_grid)
+    else:
+        backend = NumpyRefBackend(problem, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
-    assert isinstance(engine, HostLowStorage) and not engine.atomic
-    engine.atomic = atomic
+    assert engine.atomic is atomic
+    assert isinstance(engine, HostLowStorage) is not atomic
     original = engine.step
 
     def interrupted(z, dz):
@@ -1583,7 +1588,7 @@ def test_a_run_s_key_is_its_mean_step_and_far_runs_keep_one_key():
     assert len(set(keys.tolist())) == 2
 
 
-class LinearSource(StepDriver):
+class LinearSource(HostDriver):
     """A stand-in backend whose source is ``lambda u`` and whose flow is one.
 
     Built without the driver's initialiser, which needs a translated problem: the host
@@ -1667,7 +1672,7 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
         return squared
 
     engine.step = stiff
-    with caplog.at_level(logging.WARNING, logger="solprop.backends.low_storage"):
+    with caplog.at_level(logging.WARNING, logger="solprop.backends.host.low_storage"):
         backend.propagate_to(length / 2)
     history = backend.observe().step_history
     backend.close()

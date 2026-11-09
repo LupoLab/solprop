@@ -25,7 +25,7 @@ from bounds import EPS, assert_within, gamma
 from legacy_geometry import bare_absorber
 from solprop.backends import registry, select
 from solprop.backends import spatial as backend_spatial
-from solprop.backends.batch import LockstepRunner
+from solprop.backends.host.group import HostGroup
 from solprop.backends.registry import statistics_refusal
 from solprop.backends.spatial import (
     FarFieldLayout,
@@ -829,7 +829,7 @@ def test_lockstep_members_must_carry_equal_tables(table):
             problem, stats_spec=dataclasses.replace(problem.stats_spec, **change)
         )
         with pytest.raises(BackendError, match="same statistics request"):
-            LockstepRunner([first, second])
+            HostGroup([first, second])
 
 
 def test_a_run_records_every_far_field_statistic_at_every_plane(grid):

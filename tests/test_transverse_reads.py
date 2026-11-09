@@ -404,9 +404,9 @@ def _driver_class(backend: str) -> type:
         )
 
         return NativeBackend
-    from solprop.backends.driver import StepDriver  # noqa: PLC0415
+    from solprop.backends.host.driver import HostDriver  # noqa: PLC0415
 
-    return StepDriver
+    return HostDriver
 
 
 @pytest.mark.parametrize("backend", BACKENDS)

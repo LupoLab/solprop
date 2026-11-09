@@ -12,6 +12,7 @@ import pytest
 
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import available
 from solprop.exceptions import DriverError, SolpropWarning
 from solprop.grid import EnvelopeGrid
@@ -158,15 +159,16 @@ def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
 ):
     """The observer and the failure checkpoint share one fetch (SEP 47 section 5.4)."""
     fetched = []
-    observe = StepDriver.observe
+    # The reference's driver and the native bridge's each observe for themselves.
+    for driver in (StepDriver, HostDriver):
 
-    def counted(self, *, field=True):
-        observation = observe(self, field=field)
-        if field:
-            fetched.append(observation.z)
-        return observation
+        def counted(self, *, field=True, observe=driver.observe):
+            observation = observe(self, field=field)
+            if field:
+                fetched.append(observation.z)
+            return observation
 
-    monkeypatch.setattr(StepDriver, "observe", counted)
+        monkeypatch.setattr(driver, "observe", counted)
     simulation = _scheduled(build_simulation, backend)
     simulation.settings = dataclasses.replace(simulation.settings, fields="none")
     flag = threading.Event()

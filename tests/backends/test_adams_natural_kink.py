@@ -12,6 +12,7 @@ from numpy.testing import assert_allclose
 
 from solprop.backends import available
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import select
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
@@ -51,7 +52,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     )
     backend = select(backend_name, problem, grid=narrow_grid)
     try:
-        assert isinstance(backend, StepDriver)
+        assert isinstance(backend, (StepDriver, HostDriver))
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(end)
         at_kink = backend.observe()

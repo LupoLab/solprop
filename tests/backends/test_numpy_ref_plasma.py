@@ -679,6 +679,7 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     many rows builds it exactly once, and the row at the plane is the plane's own.
     """
     import solprop.backends.driver as driver_module  # noqa: PLC0415 - patched here
+    import solprop.backends.host.driver as host_module  # noqa: PLC0415 - patched here
 
     names = ("peak_intensity",)
     problem, _, _ = ionising_capillary()
@@ -690,11 +691,13 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     )
     builds = []
     real = driver_module.mode_matrix
-    monkeypatch.setattr(
-        driver_module,
-        "mode_matrix",
-        lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
-    )
+    # The reference's driver and the native bridge's each build it in their own module.
+    for module in (driver_module, host_module):
+        monkeypatch.setattr(
+            module,
+            "mode_matrix",
+            lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
+        )
     backend = backend_class(problem, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)

@@ -26,6 +26,7 @@ from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sen
 from rate_oracles import adk_oracle
 from solprop.backends import select
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
 from solprop.driver import Simulation
@@ -94,7 +95,7 @@ def entrance_stats(grid, problem, modes, spec):
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
         # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("StepDriver", backend).axis_scans
+        return values, cast("HostDriver", backend).axis_scans
 
 
 RULES: list[tuple[RadialRule, int]] = [
@@ -284,8 +285,8 @@ def backend_stats(name, grid, problem, modes, spec):
     with closing(select(name, problem, grid=grid, modes=modes)) as backend:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
-        # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("StepDriver", backend).axis_scans
+        # select() returns the seam's protocol; the counter is the driver's.
+        return values, cast("StepDriver | HostDriver", backend).axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)

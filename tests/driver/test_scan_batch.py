@@ -16,6 +16,7 @@ import pytest
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
 from solprop.backends.batch import LockstepRunner
+from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.registry import resolve_name
@@ -225,13 +226,14 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
         scan, builder, output=tmp_path / "local.h5", executor=Local(), **keywords
     )
     fields = []
-    original = LockstepRunner.observe_members
+    # The reference's group and the native bridge's lockstep runner.
+    for runner in (HostGroup, LockstepRunner):
 
-    def spy(self, *, field=True):
-        fields.append(field)
-        return original(self, field=field)
+        def spy(self, *, field=True, original=runner.observe_members):
+            fields.append(field)
+            return original(self, field=field)
 
-    monkeypatch.setattr(LockstepRunner, "observe_members", spy)
+        monkeypatch.setattr(runner, "observe_members", spy)
     result = run_scan(
         scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
     )

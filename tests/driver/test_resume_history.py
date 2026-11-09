@@ -34,6 +34,7 @@ from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
 from solprop.exceptions import OutputError, SolpropWarning
@@ -298,7 +299,8 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
     def refuse(self):
         pytest.fail("a snapshot over the limit was taken")
 
-    monkeypatch.setattr(StepDriver, "march_snapshot", refuse)
+    for driver in (StepDriver, HostDriver):
+        monkeypatch.setattr(driver, "march_snapshot", refuse)
     path = tmp_path / "run.h5"
     soliton(build_simulation, backend)().run(path, progress="none")
     assert resume(path).march is None

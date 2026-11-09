@@ -23,6 +23,7 @@ import pytest
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
@@ -441,7 +442,7 @@ def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     for field in (True, False):
         owner = select(backend, problem, grid=simulation.grid)
         copies = []
-        original = cast("type[StepDriver]", type(owner))._observed_field
+        original = cast("type[StepDriver | HostDriver]", type(owner))._observed_field
 
         def counted(self, state, copies=copies, original=original):
             copies.append(1)
@@ -528,7 +529,10 @@ def test_an_observation_refuses_a_noise_phase_without_its_field():
 
 def test_a_lockstep_batch_still_refuses_a_shared_observation():
     from solprop.backends.batch import LockstepRunner  # noqa: PLC0415
+    from solprop.backends.host.group import HostGroup  # noqa: PLC0415
 
+    with pytest.raises(BackendError, match="observe_members"):
+        HostGroup.observe(object.__new__(HostGroup), field=False)
     with pytest.raises(BackendError, match="observe_members"):
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
 

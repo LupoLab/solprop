@@ -26,8 +26,8 @@ from bounds import EPS_32, UNIT_ROUNDOFF_32, assert_within, higham_gamma, prefix
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop import fourier
 from solprop.backends import registry
-from solprop.backends.batch import LockstepRunner
-from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.group import HostGroup
 from solprop.backends.memory import (
     MLX_GRAPH_BUDGET,
     mlx_bounded,
@@ -1094,7 +1094,7 @@ def test_a_single_precision_batch_takes_each_member_s_own_trial():
     members = tuple(loaded(gnlse("single")) for _ in range(2))
     runner = select_batch(cast(Sequence[Backend], members))
     try:
-        assert type(runner) is LockstepRunner
+        assert type(runner) is HostGroup
     finally:
         runner.close()
 
@@ -1107,7 +1107,7 @@ def test_a_batch_of_mixed_precisions_is_refused(order):
             select_batch(cast(Sequence[Backend], mixed))
         # The shared member validation, whichever runner is built.
         with pytest.raises(BackendError, match="mixed precisions"):
-            LockstepRunner(cast(Sequence[StepDriver[object]], mixed))
+            HostGroup(cast(Sequence[HostDriver[object]], mixed))
 
 
 def test_the_reference_s_binary64_batch_refuses_a_single_member():
