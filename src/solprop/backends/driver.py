@@ -316,7 +316,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         The far-field statistics a compiled backend declares it forms (SEP 23), which
         the registry reads for the native backend alone
         (:func:`solprop.backends.registry.statistics_refusal`): ``numpy_ref`` forms them
-        all and ``mlx`` refuses them in validation.
+        all.
     """
 
     name: str = "driver"

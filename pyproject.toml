@@ -39,9 +39,8 @@ Source = "https://github.com/LupoLab/solprop"
 Issues = "https://github.com/LupoLab/solprop/issues"
 Changelog = "https://github.com/LupoLab/solprop/blob/main/CHANGELOG.md"
 
-# The `mlx` extra, pinned by hatch_build.py, is the Apple-GPU backend, on macOS on Apple
-# silicon (SEP 33): `pip install solprop[mlx]`. The `gui` extra installs the desktop front
-# end, the distribution solprop-gui built from gui/, at solprop's own version:
+# The `gui` extra, pinned by hatch_build.py, installs the desktop front end, the
+# distribution solprop-gui built from gui/, at solprop's own version:
 # `pip install solprop[gui]`, then `solprop-gui`. Until it is published, the TDSE provider
 # Pyroraptor is installed separately (docs/guide/media/tdse.md).
 
@@ -255,9 +254,7 @@ testpaths = ["tests", "src"]      # src so --doctest-modules sees Examples
 pythonpath = ["."]               # the tests import the benchmark suite as `benchmarks`
 # Numerical record_property fixtures require the legacy JUnit property format.
 junit_family = "legacy"
-# The mlx backend's modules (SEP 33) import MLX, which installs on macOS on Apple
-# silicon only, and hold no doctests: they are not collected; tests/ imports them.
-addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark' --ignore=src/solprop/backends/mlx_gpu"
+addopts = "-ra --strict-markers --strict-config --doctest-modules -m 'not slow and not gpu and not benchmark'"
 filterwarnings = [
     "error",                       # add targeted `ignore::...` entries as needed
     # SEP 40 section 5.3: a fixed schedule sparser than the transverse edge's read

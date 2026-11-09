@@ -1297,13 +1297,12 @@ def test_a_run_s_backend_and_threads_are_chosen_on_the_sheet(
     options.backend.setCurrentIndex(native)
     options.backend.activated.emit(native)
     assert model.get("backend") == "native"
-    # MLX writes single precision, and leaving it writes double again.
-    window._backend_chosen("mlx")
-    assert (model.get("backend"), model.get("precision")) == ("mlx", "single")
-    assert model.get("seed") is MISSING
-    assert "noise seed was dropped" in window.statusBar().currentMessage()
+    # The retired mlx backend is not offered (SEP 47).
+    assert options.backend.findData("mlx") == -1
+    offered = {options.backend.itemData(i) for i in range(options.backend.count())}
+    assert offered <= {"auto", "native", "numpy_ref"}
     window._backend_chosen("auto")
-    assert (model.get("backend"), model.get("precision")) == ("auto", "double")
+    assert model.get("backend") == "auto"
     # Threads are the window's, kept for the next session and given to each run.
     fewest = options.threads.count() - 1
     count = options.threads.itemData(fewest)
@@ -1383,21 +1382,6 @@ def test_a_line_beam_draws_its_fluence_along_z(
     qtbot.waitUntil(lambda: "z = 0 m" in across.note.text(), timeout=WAIT_MS)
     across.forget()
     assert across.data() is None
-
-
-def test_mlx_raises_a_tolerance_single_precision_cannot_meet(
-    window: WorkflowWindow, qtbot: QtBot
-) -> None:
-    window.begin_class("gnlse")
-    qtbot.waitUntil(lambda: window.document.model is not None, timeout=WAIT_MS)
-    model = window.document.model
-    assert model is not None
-    assert model.get("rtol") == 1e-9
-    window._backend_chosen("mlx")
-    assert model.get("rtol") == 1e-6
-    assert "rtol was raised" in window.statusBar().currentMessage()
-    window.document.undo.undo()
-    assert model.get("rtol") == 1e-9
 
 
 def test_a_step_index_fibre_solves_its_mode_for_its_numbers(

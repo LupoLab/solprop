@@ -12,7 +12,6 @@ from collections.abc import Mapping, Sequence
 from typing import Final
 
 from PySide6.QtCore import Signal
-from PySide6.QtGui import QStandardItemModel
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QToolButton, QWidget
 from solprop.service.machines import LOCAL, Machine
 
@@ -36,7 +35,6 @@ _NAMES: Final = {
     "auto": "Automatic",
     "native": "Native (CPU)",
     "numpy_ref": "NumPy reference (slow)",
-    "mlx": "MLX GPU, single precision",
 }
 """What a backend is called here."""
 
@@ -148,21 +146,9 @@ class RunOptions(QWidget):
             The count chosen before, or ``None`` for the default.
         """
         installed: Sequence[str] = options["double"]  # pyright: ignore[reportAssignmentType]
-        single: Sequence[str] = options["single"]  # pyright: ignore[reportAssignmentType]
         self.backend.clear()
         for name in ("auto", *installed):
             self.backend.addItem(_NAMES.get(name, name), name)
-        self.backend.addItem(_NAMES["mlx"], "mlx")
-        if "mlx" not in single or not options.get("metal"):
-            # Shown, and why it cannot be picked: it needs MLX and a Metal GPU.
-            model = self.backend.model()
-            assert isinstance(model, QStandardItemModel)  # a combo box's own
-            item = model.item(self.backend.count() - 1)
-            item.setEnabled(False)
-            item.setToolTip(
-                "Needs an Apple-silicon Mac and solprop's mlx extra "
-                "(pip install solprop[mlx])."
-            )
         self._budget = int(options["threads"])  # pyright: ignore[reportArgumentType]
         self.threads.clear()
         for count in thread_choices(self._budget):

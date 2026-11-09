@@ -175,35 +175,7 @@ def test_auto_sizes_cost_no_more_than_the_power_of_two():
         assert auto.n_to % auto.n_t == 0
 
 
-def test_mlx_costs_choose_a_power_of_two_past_the_direct_length():
-    # MLX's GPU FFT is direct at any smooth length up to 4096 and at powers of two,
-    # and takes Bluestein's algorithm at every other length (grid._MLX_DIRECT_MAX).
-    assert fft_cost(16384, "mlx") < fft_cost(10240, "mlx")
-    assert fft_cost(3072, "mlx") < fft_cost(4096, "mlx")
-    assert fft_cost(3072, "fftw") == fft_cost(3072)
-    for trange in (137e-15, 400e-15, 550e-15, 923e-15):
-        mlx = FieldGrid.from_limits(**{**RDW, "trange": trange}, transforms="mlx")
-        pow2 = FieldGrid.from_limits(**{**RDW, "trange": trange}, fft_size="pow2")
-        direct = mlx.n_to <= 4096 or mlx.n_to & (mlx.n_to - 1) == 0
-        assert direct
-        assert mlx.n_to <= pow2.n_to
-        if pow2.n_to > 4096:
-            assert (mlx.n_t, mlx.n_to) == (pow2.n_t, pow2.n_to)
-    envelope = EnvelopeGrid.from_limits(
-        1.0, 835e-9, (500e-9, 2e-6), 12.5e-12, transforms="mlx"
-    )
-    assert envelope.n_to & (envelope.n_to - 1) == 0
-    small = FieldGrid.from_limits(0.03, 800e-9, (500e-9, 1.6e-6), 250e-15)
-    assert small.n_to <= 4096
-    assert (
-        FieldGrid.from_limits(
-            0.03, 800e-9, (500e-9, 1.6e-6), 250e-15, transforms="mlx"
-        ).n_to
-        == small.n_to
-    )
-
-
-def test_a_single_precision_interface_grid_is_sized_for_mlx():
+def test_a_single_precision_interface_grid_is_the_double_one():
     from solprop.driver import Simulation  # noqa: PLC0415
     from solprop.translate.precision import PrecisionName  # noqa: PLC0415
 
@@ -211,7 +183,6 @@ def test_a_single_precision_interface_grid_is_sized_for_mlx():
     runs: tuple[tuple[PrecisionName, str], ...] = (
         ("double", "auto"),
         ("single", "numpy_ref"),
-        ("single", "mlx"),
     )
     for precision, backend in runs:
         simulation = Simulation.from_capillary(
@@ -230,7 +201,6 @@ def test_a_single_precision_interface_grid_is_sized_for_mlx():
         )
         sizes[precision, backend] = simulation.grid.n_to
     assert sizes["double", "auto"] == sizes["single", "numpy_ref"] == 10240
-    assert sizes["single", "mlx"] == 16384
 
 
 @pytest.mark.parametrize("grid_name", ["field_grid", "envelope_grid"])

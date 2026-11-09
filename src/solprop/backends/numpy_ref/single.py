@@ -8,8 +8,8 @@
 :class:`~solprop.backends.numpy_ref.backend.NumpyRefBackend` with the propagated state,
 the stage values, every transform and the responses held in IEEE binary32, under the
 contract of ``docs/dev/seps/archive/sep-0033-single-precision-mlx.md`` section
-4.2. It is the target the ``mlx`` backend is compared against, so it keeps the
-reference's one-function-per-pass shape and states every order it sums in.
+4.2. It is that contract's oracle, so it keeps the reference's one-function-per-pass
+shape and states every order it sums in.
 
 What is binary32 and what is not:
 
