@@ -6,6 +6,7 @@
 
 #include "solprop_native/chebyshev.hpp"
 #include "solprop_native/core.hpp"
+#include "solprop_native/far_field.hpp"
 
 #include <algorithm>
 #include <array>
@@ -301,10 +302,11 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     if (wanted(Stat::peak_ionisation_rate))
       flags |= temporal_rate;
   }
-  const bool populations = reduce && plan.n_channels > 0;
+  const bool rows_wanted = wanted(Stat::node_populations);
+  const bool populations = (reduce || rows_wanted) && plan.n_channels > 0;
   if (populations)
     flags |= temporal_populations;
-  if (flags == 0 && !reduce)
+  if (flags == 0 && !reduce && !rows_wanted)
     return;
   std::vector<double> packed;
   if (flags != 0) {
@@ -378,6 +380,8 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     put(results, Stat::plasma_boundary_level, {ratio(parts[4], parts[5])});
   }
   cursor.finish();
+  if (rows_wanted)
+    put(results, Stat::node_populations, rows);
   if (reduce)
     species(plan, z, taper, rows, wanted, results);
 }
@@ -587,8 +591,6 @@ void Plan::validate() const {
     table.validate("channel preionisation");
   for (const auto& table : species_density)
     table.validate("species density");
-  for (const auto& table : profiles)
-    table.validate("profile");
   check(channel_preionisation.empty() || channel_preionisation.size() == n_channels,
         "has one preionisation a channel");
   check(species_density.size() == n_species, "has one density a species");
@@ -604,19 +606,12 @@ void Plan::validate() const {
   root.validate("metric root");
   check(!root.present() || root.n_values == n_omega * n_modes * n_modes,
         "metric root has the wrong extent");
-  check(apertures.size() == n_apertures * (11 + n_omega),
+  check(apertures.size() == n_apertures * (far_field_aperture_constants + n_omega),
         "apertures have the wrong extent");
   check(regions.size() == n_regions * 4, "regions have the wrong extent");
   const Wanted wanted(outputs);
   if (wanted.any({Stat::fwhm_t, Stat::fwhm_t_outer}))
     check(t.size() == n_t, "lacks the time axis its widths read");
-  for (const auto [stat, index] :
-       {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
-        std::pair{Stat::core_radius, 2}})
-    if (wanted(stat))
-      check(profiles[static_cast<std::size_t>(index)].present() &&
-                profiles[static_cast<std::size_t>(index)].n_values == 1,
-            "lacks a profile statistic's table");
 }
 
 std::size_t Plan::width(const Stat stat) const {
@@ -651,6 +646,8 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::aperture_spectrum:
   case Stat::aperture_on_axis_spectrum:
     return n_apertures * n_omega;
+  case Stat::node_populations:
+    return 2 * n_nodes * n_channels;
   default:
     return 1;
   }
@@ -674,11 +671,6 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
     if (plan.route == Route::spatial)
       spatial(state, plan, z, wanted, results);
   }
-  for (const auto [stat, index] :
-       {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
-        std::pair{Stat::core_radius, 2}})
-    if (wanted(stat))
-      put(results, stat, {plan.profiles[static_cast<std::size_t>(index)].scalar(z)});
   std::vector<double> packed;
   packed.reserve(plan.packed_size());
   for (const Stat stat : plan.outputs) {
@@ -756,6 +748,11 @@ double half_width(const double* t, const double* power, const std::size_t n,
   const double start = crossing(low_pair[0], low_pair[1]);
   const double end = crossing(high_pair[0], high_pair[1]);
   return end - start;
+}
+
+double strict_probe(const double a, const double b, const double c) {
+  const double product = a * b;
+  return product + c;
 }
 
 } // namespace solprop_native::statistics

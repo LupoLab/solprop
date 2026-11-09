@@ -31,6 +31,7 @@ from sessions.executors import PLANES, entrance, fibre, window
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
+from solprop.exceptions import BackendError, SolpropError, TranslationError
 from solprop.stats import (
     CATALOGUE,
     PLASMA_INTEGRATION_STATISTICS,
@@ -328,7 +329,7 @@ def test_the_native_width_is_solprop_s_crossing_to_the_bit(outer):
             assert got == expected
 
 
-# --- a varying power weight, the plasma, the profiles and the on-axis intensity -----
+# --- a varying power weight, the plasma and the on-axis intensity -----------------
 
 CAPILLARY = (
     "energy",
@@ -346,12 +347,9 @@ CAPILLARY = (
     "plasma_undershoot",
     "plasma_work_defect",
     "plasma_boundary_level",
-    "density",
-    "pressure",
-    "core_radius",
 )
 """Every statistic of a gradient capillary of argon: the weight, the plasma tables, the
-taper-free axis synthesis and the three profiles, which the plan lowers to tables."""
+taper-free axis synthesis, each read from the problem's own tables."""
 
 PLASMA = frozenset(
     {
@@ -411,11 +409,11 @@ def _capillary():
 
 
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
-def test_the_plasma_weight_and_profile_statistics_are_native():
-    """Tables read natively at each row: the weight, the plasma, the profiles."""
+def test_the_plasma_and_weight_statistics_are_native():
+    """Tables read natively at each row: the weight and the plasma."""
     grid, problem, modes, profiles = _capillary()
     assert problem.linear.power_weight_constant is None
-    seen, status, counters, lowering, spec = _run(
+    seen, status, counters, _, spec = _run(
         problem, CAPILLARY, grid=grid, modes=modes, profiles=profiles
     )
     _check_rows(seen, CAPILLARY)
@@ -430,19 +428,70 @@ def test_the_plasma_weight_and_profile_statistics_are_native():
                 bound = INTEGRATION_AGREEMENT
             elif name in PLASMA:
                 bound = PLASMA_RTOL * float(np.max(np.abs(want[name]), initial=0.0))
-            elif name in lowering.fit_errors:
-                # The recorded error of the profile's lowered table.
-                bound = lowering.fit_errors[name]
             else:
                 bound = _scalar_bound(problem, want[name])
             _within(record.stats[name], want[name], bound, f"{name} at {record.z}")
     assert max(float(record.stats["electron_density"]) for record in seen) > 0.0
-    for name in ("density", "pressure", "core_radius"):
-        assert (
-            0.0
-            <= lowering.fit_errors[name]
-            < 1e-11 * float(np.max(np.abs([want[name] for want in reference])))
-        ), name
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.parametrize("name", ["density", "pressure", "core_radius"])
+def test_a_profile_statistic_is_refused_by_name_and_exact_on_a_plane(name):
+    """A profile statistic reads a Python profile the propagation does not tabulate:
+    the session refuses it by name rather than approximate it, and the backend's
+    plane statistic is the profile's own value, past the profile's span included (a
+    piecewise-linear core radius shorter than the run, which clamps)."""
+    from solprop.profiles import PiecewiseLinear  # noqa: PLC0415
+    from solprop.stats import profile_value  # noqa: PLC0415
+
+    grid, problem, modes, profiles = _capillary()
+    profiles["core_radius"] = PiecewiseLinear(
+        np.array([0.0, 1e-3]), np.array([125e-6, 120e-6])
+    )
+    spec = StatsSpec(names=("energy", name), periodic=("energy",), period=1)
+    request = describe_run(problem, stats=spec)
+    reason = native_session.refusal(problem, request)
+    assert reason is not None and repr(name) in reason
+    with pytest.raises(BackendError, match=name):
+        native_session.NativeSession(
+            problem,
+            request,
+            entrance(problem),
+            grid=grid,
+            modes=modes,
+            profiles=profiles,
+        )
+    backend = select("native", problem, grid=grid, modes=modes, profiles=profiles)
+    try:
+        field = problem.initial.field0
+        for z in (0.0, 2e-3, 4e-3):
+            backend.set_initial(field, None, z=z, resume=z > 0.0)
+            value = backend.stats(StatsSpec(names=(name,)))[name]
+            assert value[0] == profile_value(profiles[name], z), z
+    finally:
+        backend.close()
+
+
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_native_plan_refusal_is_the_reference_s_exception():
+    """A position outside the plasma tables: native refuses as the reference's table
+    does, with the solprop exception the reference raises. A state cannot be loaded
+    there, so the backend's position is moved past the tables directly."""
+    grid, problem, modes, _ = _capillary()
+    far = 100.0 * float(problem.stepper.z_end)
+    channel = problem.responses.population_channels[0]
+    with pytest.raises(SolpropError) as reference:
+        channel.density(far)
+    backend = select("native", problem, grid=grid, modes=modes)
+    try:
+        backend.set_initial(problem.initial.field0, None)
+        backend._z = far  # pyright: ignore[reportAttributeAccessIssue]
+        with pytest.raises(SolpropError) as caught:
+            backend.stats(StatsSpec(names=("electron_density",)))
+    finally:
+        backend.close()
+    assert type(caught.value) is type(reference.value) is TranslationError
+    assert "outside a statistics table's span" in str(caught.value)
 
 
 # --- two populations: the species reduction ----------------------------------------
@@ -523,7 +572,8 @@ def test_a_general_modal_basis_s_flux_statistics_are_native():
     metric = problem.linear.modal_metric
     assert metric is not None and metric.kind == "dense"
     seen, status, counters, lowering, spec = _run(problem, GENERAL, grid=grid)
-    assert lowering.fit_errors == {"metric_root": 0.0}
+    # The root is formed exactly, interval by interval, from the metric's own values.
+    assert lowering.values["root"]["n_terms"] == 1
     _check_rows(seen, GENERAL)
     _check_structure(seen, status, counters)
     for record, want in zip(

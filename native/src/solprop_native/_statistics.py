@@ -9,26 +9,23 @@
 statistics_plan.hpp``): which statistics, in which order, and every z-dependent input
 as the representation the propagation itself carries -- solprop's piecewise Chebyshev
 tables of the plasma density, each channel's preionisation, the species densities, the
-taper, the effective area and the modal power weight, read by the native Clenshaw
-recursion bit for bit as solprop evaluates them. Two inputs carry no table, and are
-lowered here into one with a recorded error:
+taper, the effective area and the modal power weight (:meth:`~solprop.translate.
+chebyshev.PiecewiseChebyshev.packed`), read by the native Clenshaw recursion bit for bit
+as solprop evaluates them. A general modal basis's statistics read the square root of
+its flux metric (:func:`solprop.stats._whitened`), formed here from the metric's own
+values by the same ``eigh`` on each interval where the metric is constant.
 
-- a profile a profile statistic reads (``density``, ``pressure``, ``core_radius``), a
-  Python :class:`~solprop.profiles.ZProfile`, is fitted by solprop's own adaptive
-  Chebyshev builder (:func:`solprop.translate.chebyshev.build`) at its declared
-  breakpoints over the run's span;
-- a general modal basis's flux metric ``W`` is a table, but the statistics read its
-  square root (:func:`solprop.stats._whitened`): on a metric constant over each of its
-  intervals (every route today) the root is formed from the same values by the same
-  ``eigh`` and is exact; a metric that varies inside an interval is fitted like a
-  profile.
+Nothing is fitted, so no statistic carries an approximation the reference does not.
+What would need one is left to the host and refused by the native session by name
+(:func:`uncovered`): the profile statistics (``density``, ``pressure``,
+``core_radius``), which read Python :class:`~solprop.profiles.ZProfile` objects that
+the propagation does not tabulate as such, and the metric statistics of a basis whose
+metric varies inside one of its intervals.
 
-Each fit's error is measured against the Python object on a dense check set and
-recorded in :attr:`StatisticsLowering.fit_errors`, at least the builder's own
-tolerance times the value scale: a native value differs from the Python one by no
-more than it. The native evaluation finishes every statistic (the widths, the species
-reduction, the integration ratios); :meth:`StatisticsLowering.unpack` only names and
-shapes the packed values.
+The native evaluation finishes every statistic (the widths, the species reduction, the
+integration ratios); :meth:`StatisticsLowering.unpack` only names and shapes the packed
+values. A native refusal is translated into the exception the reference raises for the
+same condition (:func:`translated`).
 """
 
 from __future__ import annotations
@@ -36,42 +33,43 @@ from __future__ import annotations
 import dataclasses
 import itertools
 import math
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING
 
 import numpy as np
 from solprop.constants import EPS0, C
-from solprop.exceptions import BackendError
+from solprop.exceptions import BackendError, OutputError, TranslationError
 from solprop.modes.quadrature import mode_matrix, on_axis_rule
 from solprop.spatial import ABSORBED_CHANNELS
-from solprop.stats import (
-    FAR_FIELD_STATISTICS,
-    METRIC_WEIGHTED_STATISTICS,
-    PROFILE_STATISTICS,
-)
-from solprop.translate import chebyshev
+from solprop.stats import FAR_FIELD_STATISTICS
+from solprop.translate.chebyshev import PiecewiseChebyshev
 
 from . import _core
 
 if TYPE_CHECKING:
+    from solprop.exceptions import SolpropError
     from solprop.grid import TimeGrid
     from solprop.modes.protocol import Mode
-    from solprop.profiles import ZProfile
-    from solprop.spatial import ApertureTables
     from solprop.stats import StatsSpec
-    from solprop.translate.chebyshev import PiecewiseChebyshev
     from solprop.translate.problem import KernelProblem
 
 __all__ = [
     "ADMITTED_GENERAL_STATISTICS",
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
+    "NODE_POPULATIONS",
     "PLANE_ONLY",
     "STATISTIC_IDS",
     "StatisticsLowering",
     "lower",
+    "translated",
     "uncovered",
 ]
+
+NODE_POPULATIONS = "_node_populations"
+"""The plan's per-node channel populations, ``(n_nodes, n_channels, 2)``: each node's
+final fraction and peak rate, which a host on-axis statistic reuses on a Radau rule
+(SEP 19). Not a catalogue statistic."""
 
 STATISTIC_IDS: Mapping[str, int] = {
     name: index
@@ -97,9 +95,6 @@ STATISTIC_IDS: Mapping[str, int] = {
             "plasma_undershoot",
             "plasma_work_defect",
             "plasma_boundary_level",
-            "density",
-            "pressure",
-            "core_radius",
             "physical_energy",
             "spectral_flux",
             "analytic_flux",
@@ -110,10 +105,11 @@ STATISTIC_IDS: Mapping[str, int] = {
             "region_spectrum",
             "aperture_spectrum",
             "aperture_on_axis_spectrum",
+            NODE_POPULATIONS,
         )
     )
 }
-"""Each statistic the native plan evaluates, by its id (``statistics::Stat``)."""
+"""Each output the native plan evaluates, by its id (``statistics::Stat``)."""
 
 PLANE_ONLY = (
     "zdw",
@@ -124,15 +120,15 @@ PLANE_ONLY = (
     "on_axis_species_electron_density",
     "on_axis_species_peak_ionisation_rate",
 )
-"""The statistics the plan does not evaluate, none periodic-capable.
+"""The plane-only statistics the plan does not evaluate.
 
 ``zdw`` is a root search over the Python mode objects; ``beam_radius`` and ``fwhm_r``
 finish a fluence profile's widths on the host
 (:func:`solprop.backends.spatial.signed_fluence_widths`,
 :func:`~solprop.backends.spatial.plane_fluence_widths`); the four on-axis plasma
 statistics scan the axis row in time on the host
-(:func:`solprop.backends.populations.axis_row_populations`). Each is a plane
-statistic only (``StatDefinition.between_planes`` false).
+(:func:`solprop.backends.populations.axis_row_populations`). None is
+periodic-capable (``StatDefinition.between_planes`` false).
 """
 
 _RESPONSE = (
@@ -147,9 +143,6 @@ _RESPONSE = (
     "plasma_undershoot",
     "plasma_work_defect",
     "plasma_boundary_level",
-    "density",
-    "pressure",
-    "core_radius",
 )
 
 ADMITTED_STATISTICS = (
@@ -189,7 +182,8 @@ ADMITTED_GENERAL_STATISTICS = (
     "fwhm_t",
     "fwhm_t_outer",
 )
-"""The statistics it evaluates on a general modal basis: functionals of ``a.H W a``."""
+"""The statistics it evaluates on a general modal basis: functionals of ``a.H W a``,
+where the metric is constant on each of its intervals."""
 
 _ROUTES = {"modal": 0, "spatial": 1, "general": 2}
 _ADMITTED = {
@@ -228,11 +222,36 @@ _SPECIES = frozenset(
         "species_ionisation_energy",
     }
 )
-_EDGE_SLACK = 1e-10
-"""solprop's edge slack (``chebyshev._EDGE_SLACK_FRACTION``), of a table's span."""
 
-_CHECK_POINTS = 4097
-"""Uniform positions of the dense check set a fit's error is measured on."""
+_TRANSLATED: tuple[tuple[str, type[SolpropError]], ...] = (
+    ("species statistics require", OutputError),
+    ("is outside a statistics table's span", TranslationError),
+    ("a metric-weighted statistic needs", OutputError),
+)
+"""Native refusals and the exceptions the reference raises for the same condition:
+the species reduction's domain (``species_statistics``), a position outside a table
+(``PiecewiseChebyshev.interval_containing``) and a metric with no root."""
+
+
+def translated(error: BaseException) -> BaseException:
+    """Return the reference's exception for a native statistics refusal.
+
+    Parameters
+    ----------
+    error : BaseException
+        What the native evaluation raised, or a failure's message as an exception.
+
+    Returns
+    -------
+    BaseException
+        The :class:`~solprop.exceptions.SolpropError` the reference raises for the
+        same condition, or `error` itself when the refusal is not one of them.
+    """
+    message = str(error)
+    for marker, kind in _TRANSLATED:
+        if marker in message:
+            return kind(message)
+    return error
 
 
 def _route(problem: KernelProblem) -> str:
@@ -255,6 +274,25 @@ def _route(problem: KernelProblem) -> str:
     return "modal"
 
 
+def _metric_varies(problem: KernelProblem) -> bool:
+    """Return whether a basis's metric varies inside one of its intervals.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+
+    Returns
+    -------
+    bool
+        True when the dense metric has terms beyond degree zero.
+    """
+    metric = problem.linear.modal_metric
+    if metric is None or metric.kind == "identity" or metric.dense is None:
+        return False
+    return metric.dense.shape[1] > 1
+
+
 def uncovered(problem: KernelProblem, names: Sequence[str]) -> tuple[str, ...]:
     """Return the names the native plan does not evaluate on this problem's route.
 
@@ -268,9 +306,14 @@ def uncovered(problem: KernelProblem, names: Sequence[str]) -> tuple[str, ...]:
     Returns
     -------
     tuple of str
-        The names a plan leaves to the host, in request order.
+        The names left to the host, in request order: the plane-only ones, the
+        profile statistics and, on a basis whose metric varies inside an interval,
+        its metric statistics.
     """
-    admitted = _ADMITTED[_route(problem)]
+    route = _route(problem)
+    admitted = _ADMITTED[route]
+    if route == "general" and _metric_varies(problem):
+        admitted = frozenset()
     return tuple(name for name in names if name not in admitted)
 
 
@@ -281,21 +324,41 @@ class StatisticsLowering:
     Attributes
     ----------
     names : tuple of str
-        The statistics, in packed order.
+        The outputs, in packed order.
     plan : solprop_native._core.StatisticsPlan or None
         The native plan; ``None`` for no names.
     shapes : dict
-        Each statistic's shape, without a batch axis.
-    fit_errors : dict
-        The recorded error of each input lowered to a fitted table rather than read
-        from one the problem carries: by profile statistic, and ``"metric_root"``, in
-        the input's own units; a native value differs from the Python one by no more.
+        Each output's shape, without a batch axis.
+    values : dict
+        The plan's lowered inputs, from which :meth:`subset` forms another plan.
     """
 
     names: tuple[str, ...]
     plan: _core.StatisticsPlan | None
     shapes: dict[str, tuple[int, ...]]
-    fit_errors: dict[str, float]
+    values: dict[str, object]
+
+    def subset(self, names: Sequence[str]) -> StatisticsLowering:
+        """Return the plan of some of the names, from the same lowered inputs.
+
+        Parameters
+        ----------
+        names : sequence of str
+            Outputs of this lowering.
+
+        Returns
+        -------
+        StatisticsLowering
+            Their plan, reading the same tables.
+        """
+        names = tuple(names)
+        values = dict(self.values, outputs=[STATISTIC_IDS[name] for name in names])
+        return StatisticsLowering(
+            names,
+            _core.StatisticsPlan(values) if names else None,
+            {name: self.shapes[name] for name in names},
+            values,
+        )
 
     def unpack(self, packed: np.ndarray) -> dict[str, np.ndarray]:
         """Name the packed values and give each its catalogue shape.
@@ -308,7 +371,7 @@ class StatisticsLowering:
         Returns
         -------
         dict
-            The statistics by name, without a batch axis; arithmetic-free.
+            The outputs by name, without a batch axis; arithmetic-free.
 
         Raises
         ------
@@ -329,123 +392,62 @@ class StatisticsLowering:
         return out
 
 
-def _table(table: PiecewiseChebyshev | None, *, real: bool = True) -> dict | None:
-    """Return a problem's table as the native plan reads it.
+def _packed(
+    edges: np.ndarray, lower: float, upper: float, coefficients: np.ndarray, dtype: type
+) -> dict[str, object]:
+    """Return a :meth:`PiecewiseChebyshev.packed` table as the native plan reads it.
+
+    Parameters
+    ----------
+    edges : numpy.ndarray
+        The breakpoints, m.
+    lower, upper : float
+        The span widened by its slack, m.
+    coefficients : numpy.ndarray
+        ``(n_intervals, n_terms, n_values)``.
+    dtype : type
+        The slot's type, float64 or complex128.
+
+    Returns
+    -------
+    dict
+        The plan's table.
+    """
+    return {
+        "edges": np.ascontiguousarray(edges, dtype=np.float64),
+        "coefficients": np.ascontiguousarray(coefficients, dtype=dtype).reshape(-1),
+        "n_terms": int(coefficients.shape[1]),
+        "n_values": int(coefficients.shape[2]),
+        "lower": float(lower),
+        "upper": float(upper),
+    }
+
+
+def _table(table: PiecewiseChebyshev | None) -> dict[str, object] | None:
+    """Return a problem's real table as the native plan reads it.
 
     Parameters
     ----------
     table : solprop.translate.chebyshev.PiecewiseChebyshev or None
         The table.
-    real : bool, optional
-        Whether the slot is real.
 
     Returns
     -------
     dict or None
-        The breakpoints, the flattened coefficients and the span with its slack.
+        Its :meth:`~solprop.translate.chebyshev.PiecewiseChebyshev.packed` form.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        If a real slot holds a complex table.
+        If it is complex.
     """
     if table is None:
         return None
-    coefficients = np.asarray(table.coefficients)
-    if real and np.iscomplexobj(coefficients):
+    edges, lower, upper, coefficients = table.packed()
+    if np.iscomplexobj(coefficients):
         msg = "a real statistics input is a complex table"
         raise BackendError(msg)
-    dtype = np.float64 if real else np.complex128
-    lo, hi = (float(value) for value in table.z_span)
-    slack = _EDGE_SLACK * (hi - lo)
-    return {
-        "edges": np.ascontiguousarray(table.breakpoints, dtype=np.float64),
-        "coefficients": np.ascontiguousarray(coefficients, dtype=dtype).reshape(-1),
-        "n_terms": int(coefficients.shape[1]),
-        "n_values": math.prod(coefficients.shape[2:]),
-        "lower": lo - slack,
-        "upper": hi + slack,
-    }
-
-
-def _fit(
-    values: Callable[[np.ndarray], np.ndarray],
-    start: float,
-    end: float,
-    breakpoints: Sequence[float],
-    jumps: Sequence[float] = (),
-) -> tuple[PiecewiseChebyshev, float]:
-    """Fit a function of z with solprop's builder and measure the fit's error.
-
-    Parameters
-    ----------
-    values : callable
-        Positions ``(n_z,)`` to values ``(n_z, *value)``.
-    start, end : float
-        The span, m.
-    breakpoints : sequence of float
-        Declared kinks and jumps inside the span, m: mandatory edges.
-    jumps : sequence of float, optional
-        Declared jumps, m, where the table takes the value of the interval starting
-        there; excluded from the check set.
-
-    Returns
-    -------
-    tuple
-        The table, and the recorded error: the largest difference on the check set
-        (uniform positions, every edge and every interval's midpoint), at least the
-        builder's tolerance times the value scale.
-    """
-    inner = sorted({float(b) for b in breakpoints if start < float(b) < end})
-    table = chebyshev.build(values, start, end, mandatory_breakpoints=inner)
-    edges = np.asarray(table.breakpoints)
-    check = np.unique(
-        np.concatenate(
-            (
-                np.linspace(start, end, _CHECK_POINTS),
-                edges,
-                0.5 * (edges[1:] + edges[:-1]),
-            )
-        )
-    )
-    check = check[~np.isin(check, np.asarray(jumps, dtype=np.float64))]
-    exact = np.asarray(values(check)).reshape(check.size, -1)
-    fitted = np.stack([np.asarray(table(float(z))).reshape(-1) for z in check])
-    scale = float(np.max(np.abs(exact), initial=0.0))
-    error = float(np.max(np.abs(fitted - exact), initial=0.0))
-    return table, max(error, chebyshev.DEFAULT_TOL * scale)
-
-
-def _profile_table(
-    profile: ZProfile, start: float, end: float
-) -> tuple[PiecewiseChebyshev, float]:
-    """Lower a profile a profile statistic reads into a table, with its error.
-
-    Parameters
-    ----------
-    profile : solprop.profiles.ZProfile
-        The path.
-    start, end : float
-        The run's span, m.
-
-    Returns
-    -------
-    tuple
-        The table and its recorded error, in the profile's units.
-    """
-    low, high = (float(value) for value in profile.z_span)
-    lo, hi = max(start, low), min(end, high)
-    if not hi > lo:
-        lo, hi = start, end
-    return _fit(
-        lambda z: np.asarray(
-            profile(np.asarray(z, dtype=np.float64)), dtype=np.float64
-        ),
-        lo,
-        hi,
-        np.asarray(profile.breakpoints, dtype=np.float64).tolist(),
-        np.asarray(profile.jumps, dtype=np.float64).tolist(),
-    )
+    return _packed(edges, lower, upper, coefficients, np.float64)
 
 
 def _root(metric: np.ndarray) -> np.ndarray:
@@ -463,8 +465,8 @@ def _root(metric: np.ndarray) -> np.ndarray:
 
     Raises
     ------
-    solprop.exceptions.BackendError
-        If the metric is not positive definite at some frequency.
+    solprop.exceptions.OutputError
+        If the metric is not positive definite at some frequency, as the reference.
     """
     values, vectors = np.linalg.eigh(np.moveaxis(metric, (0, 1), (-2, -1)))
     if np.any(values <= 0.0):
@@ -472,81 +474,71 @@ def _root(metric: np.ndarray) -> np.ndarray:
             "a metric-weighted statistic needs a positive-definite flux metric; the "
             f"smallest eigenvalue is {float(np.min(values)):.6g}"
         )
-        raise BackendError(msg)
+        raise OutputError(msg)
     return (vectors * np.sqrt(values)[..., None, :]) @ np.conj(
         np.swapaxes(vectors, -1, -2)
     )
 
 
-def _root_table(
-    problem: KernelProblem, start: float, end: float
-) -> tuple[dict | None, float | None]:
+def _root_table(problem: KernelProblem) -> dict[str, object] | None:
     """Lower a general modal basis's metric root, or ``None`` for the identity.
+
+    The metric is constant on each interval (:func:`uncovered` leaves any other to
+    the host), so its root there is the root of the very values the reference reads
+    at every position of the interval: exact, as a table of degree zero over the
+    reference's own breakpoints and slack.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The general modal problem.
-    start, end : float
-        The run's span, m.
 
     Returns
     -------
-    tuple
-        The table as the native plan reads it, and its recorded error (zero when the
-        root is formed exactly, interval by interval).
+    dict or None
+        The table as the native plan reads it.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        For a metric that is not dense and constant on each interval.
     """
     from solprop.translate.coupled import metric_at
 
     metric = problem.linear.modal_metric
     if metric is None or metric.kind == "identity":
-        return None, None
+        return None
     block = metric.dense
-    if block is None:
-        msg = "a diagonal modal metric has no executed statistics path"
+    if block is None or block.shape[1] != 1:
+        msg = "the native plan reads a dense metric constant on each interval"
         raise BackendError(msg)
-    edges = np.ascontiguousarray(metric.z_edges, dtype=np.float64)
-    lo, hi = float(edges[0]), float(edges[-1])
-    slack = _EDGE_SLACK * (hi - lo)
-    if block.shape[1] == 1:
-        # Constant on each interval: the root of the very values the reference reads.
-        roots = np.stack(
-            [
-                _root(np.asarray(metric_at(metric, float(0.5 * (a + b)))))
-                for a, b in itertools.pairwise(edges)
-            ]
-        )
-        n_values = math.prod(roots.shape[1:])
-        return {
-            "edges": edges,
-            "coefficients": np.ascontiguousarray(roots, dtype=np.complex128).reshape(
-                -1
-            ),
-            "n_terms": 1,
-            "n_values": n_values,
-            "lower": lo - slack,
-            "upper": hi + slack,
-        }, 0.0
-    table, error = _fit(
-        lambda z: np.stack(
-            [_root(np.asarray(metric_at(metric, float(p)))).reshape(-1) for p in z]
-        ),
-        max(start, lo),
-        min(end, hi),
-        edges[1:-1].tolist(),
+    # The table `metric_at` evaluates, for its breakpoints and slack.
+    edges, lower, upper, _ = PiecewiseChebyshev(
+        block,
+        metric.z_edges,
+        np.zeros(block.shape[0], dtype=np.int64),
+        np.empty(0),
+    ).packed()
+    roots = np.stack(
+        [
+            _root(np.asarray(metric_at(metric, float(0.5 * (a + b)))))
+            for a, b in itertools.pairwise(edges)
+        ]
     )
-    return _table(table, real=False), error
+    return _packed(
+        edges, lower, upper, roots.reshape(roots.shape[0], 1, -1), np.complex128
+    )
 
 
 def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tuple:
-    """Return a statistic's catalogue shape on this problem, without a batch axis.
+    """Return an output's shape on this problem, without a batch axis.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The problem.
     name : str
-        The statistic.
+        The output.
     n_windows : int
         Its spec's energy windows.
     plan : dict
@@ -559,6 +551,7 @@ def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tup
     """
     modes, pol = problem.shape[1], problem.shape[2]
     n_omega = problem.shape[-1]
+    apertures = np.asarray(plan["apertures"]).shape[0]
     shapes = {
         "omega0": (modes, pol),
         "energy": () if plan["route"] == _ROUTES["spatial"] else (modes, pol),
@@ -574,9 +567,10 @@ def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tup
         "on_axis_spectrum": (n_omega,),
         "beam_spectrum": (n_omega,),
         "absorbed_power": (plan["n_absorbed"],),
-        "region_spectrum": (plan["regions"].shape[0], n_omega),
-        "aperture_spectrum": (plan["apertures"].shape[0], n_omega),
-        "aperture_on_axis_spectrum": (plan["apertures"].shape[0], n_omega),
+        "region_spectrum": (np.asarray(plan["regions"]).shape[0], n_omega),
+        "aperture_spectrum": (apertures, n_omega),
+        "aperture_on_axis_spectrum": (apertures, n_omega),
+        NODE_POPULATIONS: (plan["n_nodes"], plan["n_channels"], 2),
     }
     return shapes.get(name, ())
 
@@ -588,9 +582,7 @@ def lower(
     *,
     grid: TimeGrid | None,
     modes: Sequence[Mode] | None = None,
-    profiles: Mapping[str, ZProfile] | None = None,
     apertures: tuple[np.ndarray, np.ndarray, int] | None = None,
-    tables: ApertureTables | None = None,
     on_axis: np.ndarray | None = None,
 ) -> StatisticsLowering:
     """Lower statistics for native evaluation, once.
@@ -602,18 +594,15 @@ def lower(
     spec : solprop.stats.StatsSpec
         The windows the names read.
     names : sequence of str
-        The statistics, each one the plan evaluates on this route (:func:`uncovered`).
+        The outputs, each one the plan evaluates on this route (:func:`uncovered`),
+        and :data:`NODE_POPULATIONS`.
     grid : solprop.grid.TimeGrid or None
         The time grid; the widths and the general spectral flux read it.
     modes : sequence of Mode or None, optional
         The mode set; ``peak_intensity`` on a modal route reads its axis synthesis.
-    profiles : mapping or None, optional
-        The z profiles the profile statistics read.
     apertures : tuple or None, optional
-        The far-field tables packed for the native pass (the adapter's
+        A spatial route's far-field tables packed for the native pass (the adapter's
         ``_aperture_payload``): the apertures, the regions and the exponent.
-    tables : solprop.spatial.ApertureTables or None, optional
-        Unused beside `apertures`; kept for the caller's record.
     on_axis : numpy.ndarray or None, optional
         The mode set's synthesis on the axis at the reference position, when the
         caller already built it (``StepDriver._on_axis``); built here otherwise.
@@ -621,16 +610,15 @@ def lower(
     Returns
     -------
     StatisticsLowering
-        The plan, the shapes and the recorded errors.
+        The plan and the shapes.
 
     Raises
     ------
     solprop.exceptions.BackendError
         Naming a statistic the plan does not evaluate here, or an input it lacks.
     """
-    del tables
     names = tuple(names)
-    left = uncovered(problem, names)
+    left = uncovered(problem, [name for name in names if name != NODE_POPULATIONS])
     if left:
         msg = f"the native statistics plan does not evaluate {left!r} on this route"
         raise BackendError(msg)
@@ -638,18 +626,13 @@ def lower(
     route = _route(problem)
     transform, responses, linear = problem.transform, problem.responses, problem.linear
     channels = responses.population_channels
-    n_omega = int(problem.shape[-1])
-    planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)
-    start = min(0.0, float(np.min(planes)))
-    end = float(problem.stepper.z_end)
-    fit_errors: dict[str, float] = {}
     plan: dict[str, object] = {
         "route": _ROUTES[route],
         "outputs": [STATISTIC_IDS[name] for name in names],
         "n_modes": int(problem.shape[1]),
         "n_pol": int(problem.shape[2]),
         "n_t": int(problem.grids.n_t),
-        "n_omega": n_omega,
+        "n_omega": int(problem.shape[-1]),
         "n_nodes": int(transform.n_nodes),
         "n_channels": len(channels),
         "n_species": int(responses.n_species),
@@ -675,9 +658,8 @@ def lower(
         "transverse": 0,
         "node_weights": np.empty(0),
         "aeff": None,
-        "profiles": [None, None, None],
         "far_field_axis": False,
-        "apertures": np.empty((0, 11 + n_omega)),
+        "apertures": np.empty((0, 0)),
         "exponent": 2,
         "regions": np.empty((0, 4)),
         "n_absorbed": len(ABSORBED_CHANNELS),
@@ -714,9 +696,8 @@ def lower(
         if on_axis is None:
             rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
             on_axis = mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
-        matrix = on_axis
-        plan["on_axis"] = np.ascontiguousarray(matrix, dtype=np.float64).reshape(-1)
-    if asked & (_PLASMA | _SPECIES):
+        plan["on_axis"] = np.ascontiguousarray(on_axis, dtype=np.float64).reshape(-1)
+    if asked & (_PLASMA | _SPECIES | {NODE_POPULATIONS}):
         if len(channels) == 1:
             plan["plasma_density"] = _table(channels[0].density)
             plan["plasma_preionisation"] = _table(channels[0].preionisation)
@@ -738,17 +719,6 @@ def lower(
             plan["node_weights"] = np.ascontiguousarray(
                 transform.node_weights, dtype=np.float64
             )
-    for index, name in enumerate(PROFILE_STATISTICS):
-        if name not in asked:
-            continue
-        if profiles is None or name not in profiles:
-            msg = f"the {name} statistic needs the {name!r} profile"
-            raise BackendError(msg)
-        table, error = _profile_table(profiles[name], start, end)
-        profile_slots = plan["profiles"]
-        assert isinstance(profile_slots, list)
-        profile_slots[index] = _table(table)
-        fit_errors[name] = error
     if route == "spatial":
         geometry = transform.geometry
         assert geometry is not None
@@ -756,14 +726,12 @@ def lower(
         if asked & set(FAR_FIELD_STATISTICS) or (
             "on_axis_spectrum" in asked and geometry.kind == "free"
         ):
-            if apertures is not None:
-                plan["apertures"], plan["regions"], plan["exponent"] = apertures
+            if apertures is None:
+                msg = "the far-field statistics need the tables formed at construction"
+                raise BackendError(msg)
+            plan["apertures"], plan["regions"], plan["exponent"] = apertures
     if route == "general":
-        if asked & METRIC_WEIGHTED_STATISTICS:
-            root, error = _root_table(problem, start, end)
-            plan["root"] = root
-            if error is not None:
-                fit_errors["metric_root"] = error
+        plan["root"] = _root_table(problem)
         if "spectral_flux" in asked:
             if grid is None:
                 msg = "the spectral flux needs the time grid at construction"
@@ -778,4 +746,4 @@ def lower(
         plan[key] = np.ascontiguousarray(plan[key], dtype=np.float64)
     shapes = {name: _shape(problem, name, spec.n_windows, plan) for name in names}
     native = _core.StatisticsPlan(plan) if names else None
-    return StatisticsLowering(names, native, shapes, fit_errors)
+    return StatisticsLowering(names, native, shapes, plan)

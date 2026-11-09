@@ -4460,6 +4460,18 @@ void GeneralWorkspace::allocate() {
     }
   }
   if (problem_.general_modal) {
+    // solprop SEP 47: a general modal basis's statistics whiten the columns by the
+    // metric's root (`whitened_statistics`), into scratch held from the start.
+    statistics_whitened_ = ComplexView2("solprop_native.statistics.whitened",
+                                        problem_.n_columns(), problem_.n_omega);
+    statistics_root_ =
+        ComplexView("solprop_native.statistics.metric_root",
+                    checked_product(problem_.n_omega,
+                                    checked_product(problem_.n_modes, problem_.n_modes,
+                                                    "metric root"),
+                                    "metric root"));
+    statistics_whitened_sums_ = RealView("solprop_native.statistics.whitened_sums",
+                                         problem_.n_columns() + problem_.n_omega);
     general_ = std::make_unique<GeneralModalSource>(problem_);
     // The source owns execution-space copies; the host maps are the largest arrays a
     // general guide carries and nothing reads them again.
@@ -14228,13 +14240,8 @@ std::vector<double> GeneralWorkspace::whitened_statistics(
         checked_product(n, checked_product(modes, modes, "metric root"), "metric root"),
         "metric root");
     if (statistics_whitened_.extent(0) != columns ||
-        statistics_whitened_.extent(1) != n) {
-      execution_space_.fence("solprop_native whitened statistics allocation");
-      statistics_whitened_ =
-          ComplexView2("solprop_native.statistics.whitened", columns, n);
-      statistics_root_ = ComplexView("solprop_native.statistics.metric_root",
-                                     checked_product(n, modes * modes, "metric root"));
-    }
+        statistics_whitened_.extent(1) != n)
+      throw std::logic_error("whitened statistics are a general modal basis's");
     copy_vector(execution_space_, statistics_root_, root);
     const auto field = current_;
     const auto whitened = statistics_whitened_;
@@ -14254,11 +14261,8 @@ std::vector<double> GeneralWorkspace::whitened_statistics(
         });
   }
   const auto sums_size = columns + (spectral ? n : 0);
-  if (statistics_whitened_sums_.size() < sums_size) {
-    execution_space_.fence("solprop_native whitened sums allocation");
-    statistics_whitened_sums_ =
-        RealView("solprop_native.statistics.whitened_sums", sums_size);
-  }
+  if (statistics_whitened_sums_.size() < sums_size)
+    throw std::logic_error("whitened statistics are a general modal basis's");
   std::vector<double> result;
   {
     // The statistics passes read `current_`: they read the whitened columns while

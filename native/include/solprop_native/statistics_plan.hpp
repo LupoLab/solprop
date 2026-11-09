@@ -4,7 +4,6 @@
 
 #pragma once
 
-#include <array>
 #include <complex>
 #include <cstddef>
 #include <cstdint>
@@ -16,11 +15,11 @@
  * the propagation itself carries -- solprop's piecewise Chebyshev tables of z
  * (`solprop.translate.chebyshev.PiecewiseChebyshev`) for the plasma density, the
  * preionisation of each channel, the species densities, the taper, the effective
- * area, the modal power weight and the basis metric's square root, and a table
- * lowered from each profile a profile statistic reads. `evaluate` reads the resident
- * state through the native statistics passes and finishes every statistic natively:
- * the half-maximum widths, the species reduction, the plasma integration ratios and
- * the profile values are formed here, with no Python finishing. Python names the
+ * area and the modal power weight, and the basis metric's square root formed from
+ * the metric's own values on each interval. Nothing is fitted. `evaluate` reads the
+ * resident state through the native statistics passes and finishes every statistic
+ * natively: the half-maximum widths, the species reduction and the plasma
+ * integration ratios are formed here, with no Python finishing. Python names the
  * packed values and assembles the schema.
  *
  * The one native implementation of each statistic: a native session takes its plane
@@ -39,8 +38,10 @@ namespace statistics {
     general modal basis, whose statistics are functionals of `a.H W a`. */
 enum class Route : int { modal = 0, spatial = 1, general = 2 };
 
-/** Each statistic a plan can emit, by its solprop catalogue name. The values are
-    the Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
+/** Each statistic a plan can emit, by its solprop catalogue name, and the per-node
+    channel populations (`node_populations`, final fraction and peak rate at each
+    node and channel), which a host axis statistic reuses (SEP 19). The values are the
+    Python adapter's (`solprop_native._statistics.STATISTIC_IDS`). */
 enum class Stat : int {
   omega0 = 0,
   energy = 1,
@@ -62,23 +63,21 @@ enum class Stat : int {
   plasma_undershoot = 17,
   plasma_work_defect = 18,
   plasma_boundary_level = 19,
-  density = 20,
-  pressure = 21,
-  core_radius = 22,
-  physical_energy = 23,
-  spectral_flux = 24,
-  analytic_flux = 25,
-  on_axis_intensity = 26,
-  on_axis_spectrum = 27,
-  absorbed_power = 28,
-  beam_spectrum = 29,
-  region_spectrum = 30,
-  aperture_spectrum = 31,
-  aperture_on_axis_spectrum = 32,
+  physical_energy = 20,
+  spectral_flux = 21,
+  analytic_flux = 22,
+  on_axis_intensity = 23,
+  on_axis_spectrum = 24,
+  absorbed_power = 25,
+  beam_spectrum = 26,
+  region_spectrum = 27,
+  aperture_spectrum = 28,
+  aperture_on_axis_spectrum = 29,
+  node_populations = 30,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 33;
+inline constexpr int stat_count = 31;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -153,10 +152,9 @@ struct Plan {
   Transverse transverse = Transverse::none;
   std::vector<double> node_weights;
   RealTable aeff;
-  /** The profiles of `density`, `pressure` and `core_radius`, lowered to tables. */
-  std::array<RealTable, 3> profiles;
   // A spatial route: whether `on_axis_spectrum` comes from the far-field pass (a
-  // Cartesian or line grid), and the far-field tables, `(n_apertures, 11 + n_omega)`
+  // Cartesian or line grid), and the far-field tables, `(n_apertures,
+  // far_field_aperture_constants + n_omega)`
   // and `(n_regions, 4)`, with their exponent; `n_absorbed` channels of absorbed
   // power.
   bool far_field_axis = false;
@@ -191,6 +189,10 @@ struct Plan {
     NaN when undefined. Strict, as solprop's NumPy rounds it. */
 [[nodiscard]] double half_width(const double* t, const double* power, std::size_t n,
                                 bool outer);
+
+/** `a b + c` as session_statistics.cpp rounds it (solprop #135's witness); never
+    inlined, as `session::strict_probe`. */
+[[nodiscard, gnu::noinline]] double strict_probe(double a, double b, double c);
 
 } // namespace statistics
 } // namespace solprop_native

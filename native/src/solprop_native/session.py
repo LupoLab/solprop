@@ -26,7 +26,8 @@ every other feature by name before allocating anything (:func:`refusal`):
   fallback;
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
-  (:mod:`solprop_native._statistics`); the plane-only statistics the host finishes
+  (:mod:`solprop_native._statistics`), except the profile statistics, which read
+  Python profiles; those and the plane-only statistics the host finishes
   (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
 - no boundary monitor, dense output, low-storage replay, comparison method, custom
   controller, group, noise model, TDSE, resumed run or method-history snapshot.
@@ -64,6 +65,7 @@ from solprop.backends.session import (
     SessionStatus,
     SnapshotReceipt,
 )
+from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import BackendError, GridError, StopRequested
 from solprop.output.capability import (
     declared_capability,
@@ -83,6 +85,7 @@ from ._statistics import (
     ADMITTED_STATISTICS,
     StatisticsLowering,
     lower,
+    translated,
     uncovered,
 )
 from .backend import (
@@ -261,8 +264,10 @@ def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
     left = uncovered(problem, names)
     if left:
         return (
-            f"the statistics {left!r}, plane-only statistics the host finishes or "
-            "not statistics of this route"
+            f"the statistics {left!r}, which the host finishes: a plane-only "
+            "statistic, a profile statistic (a Python profile the propagation does "
+            "not tabulate), a metric that varies inside an interval, or not a "
+            "statistic of this route"
         )
     responses = problem.responses
     if set(names) & set(PLASMA_INTEGRATION_STATISTICS) and (
@@ -343,12 +348,24 @@ class NativeSession:
         self._row_shapes: dict[str, tuple[int, ...]] = {}
         # The statistics are lowered once, before anything is allocated: plane and
         # periodic rows read the same native implementation of each.
-        self._plane_lowering = self._lower(tuple(spec.names), grid, modes, profiles)
-        self._row_lowering = self._lower(self._row_names, grid, modes, profiles)
+        # The union of the plane and row statistics is lowered once; the rows' plan
+        # reads the same lowered inputs.
+        union = tuple(dict.fromkeys((*spec.names, *self._row_names)))
+        # One set of far-field tables, read by the plan and handed to the backend.
+        self._far_field = FarFieldTables(problem)
+        lowering = self._lower(union, grid, modes)
+        self._plane_lowering = lowering.subset(spec.names)
+        self._row_lowering = lowering.subset(self._row_names)
         # The chunks since the previous observation (the transitional shim).
         self._held: list[BackendHistory] = []
         self._held_rows: list[StepStats] = []
-        backend = NativeBackend(problem, grid=grid, modes=modes, profiles=profiles)
+        backend = NativeBackend(
+            problem,
+            grid=grid,
+            modes=modes,
+            profiles=profiles,
+            far_field=self._far_field,
+        )
         self._backend: NativeBackend | None = backend
         try:
             kind, state = self._prepare(backend, start)
@@ -370,7 +387,6 @@ class NativeSession:
         names: tuple[str, ...],
         grid: TimeGrid | None,
         modes: Sequence[Mode] | None,
-        profiles: Mapping[str, ZProfile] | None,
     ) -> StatisticsLowering:
         """Lower statistics for the native plan, with their far-field tables.
 
@@ -382,8 +398,6 @@ class NativeSession:
             The time grid.
         modes : sequence of Mode or None
             The mode set.
-        profiles : mapping or None
-            The z profiles.
 
         Returns
         -------
@@ -397,9 +411,7 @@ class NativeSession:
         """
         apertures = None
         if self._spatial and names:
-            from solprop.backends.spatial import FarFieldTables
-
-            tables = FarFieldTables(self._problem).for_spec(self._spec)
+            tables = self._far_field.for_spec(self._spec)
             apertures = _aperture_payload(tables, int(self._problem.shape[-1]))
         try:
             return lower(
@@ -408,7 +420,6 @@ class NativeSession:
                 names,
                 grid=grid,
                 modes=modes,
-                profiles=profiles,
                 apertures=apertures,
             )
         except BackendError as error:
@@ -1146,6 +1157,10 @@ class NativeSession:
                 f"the replayed schedule ends at {end:.6g} m and cannot reach "
                 f"z = {event.target:.6g} m"
             )
+        # A statistics evaluation the native plan refused: the reference's exception.
+        refused = translated(BackendError(event.message))
+        if not isinstance(refused, BackendError):
+            return refused
         result = {
             "reason": event.reason,
             "cost": event.cost,
