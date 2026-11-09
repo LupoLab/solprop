@@ -15,11 +15,11 @@ engine. The method, the register form and the in-flight contract are those of
 
 import logging
 import math
-from typing import Any, cast
+from typing import Any
 
 from solprop._interrupts import committing
 from solprop.backends.host.driver import HostDriver, replay_tolerance
-from solprop.backends.low_storage import HostLowStorage, LowStorageEngine
+from solprop.backends.low_storage import HostLowStorage
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
@@ -69,22 +69,18 @@ class HostLowStorageMarch:
         self._backend = backend
         self._method = method
         self._warned = False
-        resident = backend._low_storage_engine(method)
-        self._engine: LowStorageEngine = (
-            HostLowStorage(backend, method)
-            if resident is None
-            else cast("LowStorageEngine", resident)
-        )
+        # The host engine is the oracle (SEP 24 section 6.5).
+        self._engine = HostLowStorage(backend, method)
         self.source_evaluations = 0
 
     @property
-    def engine(self) -> LowStorageEngine:
+    def engine(self) -> HostLowStorage:
         """Return the engine that holds the registers.
 
         Returns
         -------
-        LowStorageEngine
-            The host engine, or the backend's own.
+        solprop.backends.low_storage.HostLowStorage
+            The host engine.
         """
         return self._engine
 
@@ -178,16 +174,12 @@ class HostLowStorageMarch:
         backend._refuse_in_flight()
         z = backend._z
         backend._in_flight = (z, dz)
-        if self._engine.atomic:
-            # One native call: a signal waits for its return anyway, so the step,
-            # the finish and the move commit together (SEP 24 section 6.7).
-            with committing():
-                self._move(self._accept(z, dz, self._engine.step(z, dz)), end)
-        else:
-            squared = self._engine.step(z, dz)
-            finished = self._accept(z, dz, squared)
-            with committing():
-                self._move(finished, end)
+        # The host passes are Python calls a signal may interrupt (the engine is not
+        # atomic): an interrupted step stays in flight, and only the move commits.
+        squared = self._engine.step(z, dz)
+        finished = self._accept(z, dz, squared)
+        with committing():
+            self._move(finished, end)
         self._check_stiffness(z, dz)
         return 0.0
 

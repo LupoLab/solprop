@@ -60,25 +60,24 @@ class HostAdamsMarch:
         history and the call ledger.
     method : solprop.stepper.multistep.Multistep
         The method.
-    kernels : AdamsKernels or None, optional
-        The field arithmetic of the fused path; ``None`` takes the NumPy reference.
-    exponential : ExponentialKernels or None, optional
-        The exponential formulation's field arithmetic; ``None`` takes the NumPy
-        reference. Used only when the method's formulation is ``"exponential"``.
     compensation : {'transported', 'untransported'}, optional
         How a varying operator's linear compensation is integrated (SEP 16 Q8):
         ``"transported"``, the delivered treatment, or ``"untransported"``, kept as a
         test witness only.
+    engine : solprop.backends.multistep.AdamsEngine or None, optional
+        The engine of the fused and exponential paths; ``None``, the default, takes
+        the host engine (:class:`~solprop.backends.multistep.HostHistory`) over the
+        backend's hooks. A scripted engine drives the controller alone, for the
+        decision traces of SEP 39 section 7.1.
     """
 
     def __init__(
         self,
         backend: HostDriver[Any],
         method: Multistep,
-        kernels: AdamsKernels | None = None,
-        exponential: ExponentialKernels | None = None,
         *,
         compensation: Literal["transported", "untransported"] = "transported",
+        engine: AdamsEngine | None = None,
     ) -> None:
         """Hold the backend and start with no history."""
         self._backend = backend
@@ -86,18 +85,12 @@ class HostAdamsMarch:
         # Whether the run interpolates its planes, and with what (ADR-036, ADR-039).
         self._interpolate = backend._problem.stepper.interpolate_planes
         self._interpolant = getattr(method, "interpolant", "adams")
-        self._kernels = (
-            AdamsKernels(helpers=backend.helpers) if kernels is None else kernels
-        )
+        self._kernels = AdamsKernels(helpers=backend.helpers)
         # SEP 16's exponential formulation keeps untransported samples in the same
         # store and shares everything else: the lifecycle, the controller, the ledger.
         self._exponential: ExponentialKernels | None = None
         if method.formulation == "exponential":
-            self._exponential = (
-                ExponentialKernels(helpers=backend.helpers)
-                if exponential is None
-                else exponential
-            )
+            self._exponential = ExponentialKernels(helpers=backend.helpers)
         # The selected method's family, one-order-higher PEC, takes the fused path:
         # three passes a step over a store of history rows instead of a list of arrays
         # combined one product at a time.
@@ -109,18 +102,13 @@ class HostAdamsMarch:
                 for order in range(1, method.order + 1)
             )
         )
-        # Every state-sized operation goes to an engine (SEP 16 phase 3b): the host
-        # one here, or one the backend keeps resident for the fused and exponential
-        # paths. The general path's arithmetic stays in this class.
-        resident = (
-            backend._adams_engine(method, compensation)
-            if self._fused or self._exponential is not None
-            else None
-        )
+        # Every state-sized operation goes to an engine (SEP 16 phase 3b), the host
+        # one unless a scripted engine is given. The general path's arithmetic stays
+        # in its own class.
         self._engine: AdamsEngine = (
             HostHistory(backend, method, self._kernels, self._exponential, compensation)
-            if resident is None
-            else cast("AdamsEngine", resident)
+            if engine is None
+            else engine
         )
         # The comparison variants' general path keeps its arithmetic in a class of its
         # own (SEP 39 Q7); the selected method's paths never reach it.
@@ -570,7 +558,7 @@ class HostAdamsMarch:
         -------
         object
             The masked lab-frame field at `position`, as the backend holds a state:
-            a host array, or Kokkos's native state loaded with it.
+            a host array.
         """
         return self._engine.observe(position)
 

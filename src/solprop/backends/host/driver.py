@@ -31,7 +31,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
-from typing import TYPE_CHECKING, ClassVar, Literal, TypeVar, cast
+from typing import TYPE_CHECKING, ClassVar, TypeVar, cast
 
 import numpy as np
 from jaxtyping import Complex, Float
@@ -58,7 +58,6 @@ from solprop.profiles import ZProfile
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
-from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule, StepTargets, landing
 from solprop.stepper.tableau import extension_coefficients, extension_value
 from solprop.translate.linop import delta_phi, unitary_phase
@@ -309,15 +308,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         that takes both signs from a single ``exp`` and ``sincos`` overrides it.
     helpers : solprop._helpers.Helpers
         The implementation of the per-stage and per-step scalar evaluations -- the
-        stage tables' Clenshaw rows and the Adams basis -- which the shared driver,
-        march and engines pass down rather than choosing one (SEP 29 section 6.6).
-        Each backend sets its own: ``PLAIN`` (the default) for the NumPy reference,
-        the C++ bindings for the native backend.
-    far_field_statistics : frozenset of str
-        The far-field statistics a compiled backend declares it forms (SEP 23), which
-        the registry reads for the native backend alone
-        (:func:`solprop.backends.registry.statistics_refusal`): ``numpy_ref`` forms them
-        all and ``mlx`` refuses them in validation.
+        stage tables' Clenshaw rows and the Adams basis -- which the driver, march and
+        engines pass down rather than choosing one (SEP 29 section 6.6): ``PLAIN``, the
+        uncompiled forms, for the NumPy reference.
     observes_fresh_field : bool
         Whether ``_observed_field`` makes a new array at every call and keeps no
         reference to it, so that :meth:`observe` can say its field is owned
@@ -330,7 +323,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     max_batch: int = 1
     propagator_default: PropagatorMode = "tabulate"
     helpers: Helpers = PLAIN
-    far_field_statistics: ClassVar[frozenset[str]] = frozenset()
     observes_fresh_field: ClassVar[bool] = False
 
     def __init__(
@@ -611,58 +603,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The step's ``CoupledBlock``, or ``None``.
         """
         del z, dz
-        return None
-
-    def _adams_engine(
-        self,
-        method: Multistep,
-        compensation: Literal["transported", "untransported"],
-    ) -> object:
-        """Return an engine that keeps the Adams history where this backend's state is.
-
-        SEP 16 phase 3b: :class:`solprop.backends.multistep.AdamsMarch` keeps the
-        controller and hands every state-sized operation of its fused and exponential
-        paths to an engine. ``None``, the default, takes the host engine
-        (:class:`solprop.backends.multistep.HostHistory`) over this backend's other
-        Adams hooks; Kokkos returns one resident in its native state.
-
-        Parameters
-        ----------
-        method : solprop.stepper.multistep.Multistep
-            The method.
-        compensation : {'transported', 'untransported'}
-            A varying operator's compensation treatment.
-
-        Returns
-        -------
-        object
-            The backend's own :class:`~solprop.backends.multistep.AdamsEngine`, or
-            ``None`` for the host one.
-        """
-        del method, compensation
-        return None
-
-    def _low_storage_engine(self, method: LowStorageRungeKutta) -> object:
-        """Return an engine that keeps the low-storage registers where the state is.
-
-        SEP 24 section 6.4: :class:`solprop.backends.low_storage.LowStorageMarch`
-        replays the schedule and commits each step; an engine
-        (:class:`~solprop.backends.low_storage.LowStorageEngine`) holds the registers
-        and makes the step's four passes. ``None``, the default, takes the host engine
-        (:class:`~solprop.backends.low_storage.HostLowStorage`) over this backend's
-        :meth:`_adams_lab_source` and :meth:`_adams_propagator`.
-
-        Parameters
-        ----------
-        method : solprop.stepper.low_storage.LowStorageRungeKutta
-            The march.
-
-        Returns
-        -------
-        object
-            The backend's own engine, or ``None`` for the host one.
-        """
-        del method
         return None
 
     def _adams_propagator(
@@ -1319,8 +1259,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         A run polls its own flag before each trial (SEP 41, S17), where the state is
         the last accepted one, so a stop abandons nothing but the trial not yet taken.
-        A march that runs its trials in a native call polls before each call. Polling
-        changes nothing the propagation computes.
+        Polling changes nothing the propagation computes.
 
         Parameters
         ----------
@@ -1515,8 +1454,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         A low-storage march times its own step, which accepts in place, so repeating it
         advances the discarded state: the caller closes the backend afterwards. Every
-        other run times the Runge-Kutta trial step, which leaves the state alone. The
-        native low-storage state holds none of that trial's views.
+        other run times the Runge-Kutta trial step, which leaves the state alone.
 
         Returns
         -------
@@ -1839,8 +1777,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         returns at the end of the next accepted step, as at a natural stop, without
         counting it as one, so the session can service a snapshot there. An endpoint on
         the target itself is observed as the plane, and the latch stays set for the
-        session to find. A native march returns after every accepted step while it is
-        set (``host_step`` of one).
+        session to find.
         """
         self._halt_requested = True
 
@@ -1853,8 +1790,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
         The execution session's bounded yield (SEP 47 section 5.1): when `check`
         returns True the halt latch of :meth:`request_halt` is set, so the march
-        returns at that endpoint (a native march at the end of its next step). It is
-        asked only at safe boundaries and changes nothing the march computes.
+        returns at that endpoint. It is asked only at safe boundaries and changes
+        nothing the march computes.
 
         Parameters
         ----------
@@ -1864,7 +1801,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._halt_check = check
 
     def poll_halt(self) -> None:
-        """Latch a halt when the yield check says one is due, between native calls."""
+        """Latch a halt when the yield check says one is due."""
         check = self._halt_check
         if check is not None and not self._halt_requested and check():
             self._halt_requested = True
@@ -2286,10 +2223,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
     ) -> None:
         """Book a reading of the step committed at `z` with the monitor (SEP 45 4.10).
 
-        A native march that took the reading itself hands it back with the step's
-        position and replay cursor, which are not the driver's own once the call has
-        moved past the step; the host loops pass their current ones.
-
         Parameters
         ----------
         monitor : solprop.monitor.BoundaryMonitor
@@ -2488,54 +2421,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 monitor.skip(self._z)
             self._read_transverse(monitor, plane=False)
 
-    def _watched_step(
-        self, z: float, cursor: int, energies: BoundaryEnergies | None
-    ) -> None:
-        """Book a step whose check a native march decided (SEP 45 section 4.10).
-
-        Parameters
-        ----------
-        z : float
-            The step's end, m.
-        cursor : int
-            The replay cursor after the step.
-        energies : solprop.monitor.BoundaryEnergies or None
-            The reading the march took of the step, or ``None`` for a step it left
-            unchecked.
-        """
-        monitor = self._monitor
-        if monitor is None:
-            return
-        if energies is None:
-            monitor.skip(z)
-        else:
-            self._check_at(monitor, energies, z, cursor)
-
-    def _account_step(
-        self, z: float, cursor: int, energies: BoundaryEnergies | None = None
-    ) -> None:
-        """Account an accepted step on which no other host work falls (SEP 45 4.10).
-
-        What :meth:`_take_step_stats` and :meth:`_natural_stop` do for such a step:
-        the boundary monitor checks it on the march's reading or skips it, and the
-        statistics rows and natural stops count it, each once. A native march returns
-        to its host before any step on which a row or a stop would act.
-
-        Parameters
-        ----------
-        z : float
-            The step's end, m.
-        cursor : int
-            The replay cursor after the step.
-        energies : solprop.monitor.BoundaryEnergies or None, optional
-            The reading the march took of the step, or ``None`` for a step it left
-            unchecked.
-        """
-        self._watched_step(z, cursor, energies)
-        if self._row_spec is not None:
-            self._accepted_steps += 1
-        self._natural_count += 1
-
     def _statistics_step(self) -> None:
         """Take the statistics row of the step just committed when it is due.
 
@@ -2549,31 +2434,6 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         # The attempt this row belongs to is the one `_record` has just appended, and
         # the history counts rejections, so the index is not `row * period`.
         self._record_step_stats(self._row_spec, self._z, len(self._history) - 1)
-
-    def _record_attempt(
-        self, z: float, dz: float, norm: float, accepted: bool, wall: float
-    ) -> None:
-        """Append one attempt a native Adams march made to the step history (SEP 39).
-
-        :meth:`_record`'s row, with the wall time the march measured. The progress
-        callback is made after the march's commit, and the accepted-step hook's work
-        the native march does itself, so neither is called here.
-
-        Parameters
-        ----------
-        z : float
-            Position at the end of the step, m.
-        dz : float
-            Length of the step, m.
-        norm : float
-            The scaled error norm; the native march records a non-finite one as
-            infinity, as :meth:`_record` does.
-        accepted : bool
-            Whether the step was kept.
-        wall : float
-            Seconds since the last observation, as :meth:`_record` measures it.
-        """
-        self._history.append((z, dz, norm, accepted, wall))
 
     def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
         """Append one step to the history since the last observation.
