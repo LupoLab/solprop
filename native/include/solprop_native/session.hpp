@@ -265,8 +265,9 @@ public:
   SnapshotReceipt request_snapshot();
   [[nodiscard]] Status status() const;
   [[nodiscard]] std::size_t elements() const;
-  /** Release the lease and every buffer; idempotent. */
-  void close() noexcept;
+  /** Release the lease and every buffer; idempotent. It waits for an advance in
+      hand, and throws only where its lock does (`std::system_error`). */
+  void close();
   [[nodiscard]] bool closed() const noexcept {
     return closed_.load(std::memory_order_acquire);
   }

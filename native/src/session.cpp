@@ -624,7 +624,7 @@ std::size_t Session::elements() const {
   return resident_->elements();
 }
 
-void Session::close() noexcept {
+void Session::close() {
   const std::scoped_lock lock(mutex_);
   if (state_ == State::closed)
     return;

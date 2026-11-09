@@ -2159,15 +2159,20 @@ public:
   native::session::Status status() const { return session_->status(); }
   std::size_t elements() const { return session_->elements(); }
   void close() noexcept {
-    session_->close();
-    if (owner_ != nullptr) {
-      owner_->release(this);
-      owner_ = nullptr;
-    }
+    BoundState* owner = owner_;
+    close_native();
+    if (owner != nullptr)
+      owner->release(this);
   }
-  // The owner's own close: the session closes, the owner forgets it.
+  // The owner's own close: the session closes, the owner forgets it. A lock that
+  // cannot be taken leaves the session to its destructor (no exception escapes a
+  // close or a teardown).
   void close_native() noexcept {
-    session_->close();
+    try {
+      session_->close();
+    } catch (const std::exception&) {
+      // Nothing to release that the session's own destructor does not.
+    }
     owner_ = nullptr;
   }
 
