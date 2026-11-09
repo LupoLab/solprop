@@ -43,9 +43,11 @@ from solprop.backends.protocol import StepStats as BackendRows
 from solprop.driver.plane_view import PlaneWatch
 from solprop.driver.run import (
     _announce,
+    _earlier_execution,
     _FailedObservation,
     _history_of,
     _MarchKeeper,
+    _method_history,
     _open_run,
     _record_abandoned_step,
     _record_execution,
@@ -53,6 +55,7 @@ from solprop.driver.run import (
     _resume_position,
     _retain,
     _Status,
+    retention_at,
 )
 from solprop.driver.summary import resources
 from solprop.exceptions import ResponseBudgetError, RunTerminated, StopRequested
@@ -69,6 +72,8 @@ from solprop.output.schema import (
 from solprop.stepper.multistep import Multistep
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from solprop.backends.driver_session import DriverSession
     from solprop.backends.events import EventBatch, ExportTicket
     from solprop.log import ProgressReporter, StopFlag
@@ -125,6 +130,10 @@ class ServiceContext:
         The first save plane beyond the starting state.
     stop : solprop.log.StopFlag or None
         The run's stop flag, polled between batches as well as inside the session.
+    restoration : collections.abc.Mapping or None, optional
+        What a resumed execution restored of the method history
+        (``Simulation._continue_march``), for its
+        execution record; ``None`` for a fresh run or a caller that says nothing.
     """
 
     problem: KernelProblem
@@ -139,6 +148,7 @@ class ServiceContext:
     recipe: RecipeRecord | None
     start_plane: int
     stop: StopFlag | None = None
+    restoration: Mapping[str, object] | None = None
 
 
 def _rows(rows: BackendRows) -> StepStats:
@@ -155,6 +165,38 @@ def _rows(rows: BackendRows) -> StepStats:
         The same rows.
     """
     return StepStats(z=rows.z, step=rows.step, values=dict(rows.values))
+
+
+MONITOR_RECONSTRUCTED = {
+    "state": "reconstructed",
+    "reason": "persisted_records",
+    "restored": ["cumulative_totals", "quiet_state", "transverse_record"],
+    "restarted": ["check_cadence", "transverse_cap"],
+}
+"""How a resumed execution's boundary monitor was restored (SEP 47 section 5.5).
+
+Today's reconstruction from the persisted records: the cumulative totals, the quiet
+state and the transverse record are restored, and the check cadence and the transverse
+cap restart from that restored state; persisting them is not claimed."""
+
+
+def _restart(base: Mapping[str, object], keeper: _MarchKeeper) -> dict[str, object]:
+    """Return an execution's restart record with the latest retention decision.
+
+    Parameters
+    ----------
+    base : collections.abc.Mapping
+        What the execution restored, fixed when it started.
+    keeper : solprop.driver.run._MarchKeeper
+        The method-history keeper, holding the latest retention decision.
+
+    Returns
+    -------
+    dict
+        The record (:data:`solprop.driver.run.RESTART_RECORD`).
+    """
+    retention = keeper.record()
+    return dict(base) if retention is None else {"retention": retention, **base}
 
 
 class _Exports:
@@ -289,6 +331,24 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     _refuse_unread_collar(problem, backend)
     monitor = session.monitor
+    # Read before this execution's first record replaces the earlier one's.
+    earlier = None if checkpoint_output is None else checkpoint_output.outcome
+    resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
+    base: dict[str, object] = {}
+    if context.restoration is not None:
+        base["restoration"] = dict(context.restoration)
+    if resumed and monitor is not None:
+        # The record continues across the resume (SEP 21, ADR-057).
+        session.continue_monitor(
+            {
+                "record": monitored,
+                "plane": missing_current_save
+                or output.n_saved == 0
+                or float(output["z"][-1]) == reached,
+                "unwatched": unwatched,
+            }
+        )
+        base["monitor"] = dict(MONITOR_RECONSTRUCTED)
     _announce(
         problem,
         context.metadata,
@@ -298,7 +358,13 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         (context.start_plane, reached),
         boundary_check=None if monitor is None else monitor.check,
     )
-    keeper = _MarchKeeper(output, backend, context.resume_history)
+    keeper = _MarchKeeper(
+        output,
+        backend,
+        context.resume_history,
+        method=_method_history(problem),
+        retention=None if earlier is None else retention_at(earlier.execution, reached),
+    )
     exports = _Exports(session)
     current: list[ObservationReady | None] = [None]
 
@@ -326,6 +392,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             context.tdse_binding,
             _Status("running", reached),
             clock=clock,
+            restart=_restart(base, keeper),
         )
         batch: EventBatch | None = None
         while True:
@@ -345,6 +412,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             pending = None
             pending_save_count = output.n_saved
             pending_ticket = None
+            terminal_rows = (None, None)
             batch = session.advance()
             for event in batch.events:
                 if isinstance(event, ObservationReady):
@@ -355,6 +423,8 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         continue
                     current[0] = event
                     pending_ticket = event.ticket
+                    # Its attempts, should the plane fail before it holds them.
+                    terminal_rows = (event.history, event.step_stats)
                     if event.kind is not ObservationKind.LAUNCH:
                         _warn_coarse(event, planes)
                     keep = context.retention.keeps(output.n_saved)
@@ -371,6 +441,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             context.tdse_binding,
                             _Status("running", reached),
                             clock=clock,
+                            restart=_restart(base, keeper),
                         )
                     watch.show(pending, output.n_saved - 1)
                     if event.kind is not ObservationKind.LAUNCH:
@@ -388,6 +459,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                             context,
                             clock=clock,
                             adams=adams,
+                            base=base,
                         )
                 elif isinstance(event, Terminal):
                     if event.outcome is Outcome.COMPLETED:
@@ -398,6 +470,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                                 context.tdse_binding,
                                 _Status("complete", reached),
                                 clock=clock,
+                                restart=_restart(base, keeper),
                             )
                     else:
                         assert event.error is not None
@@ -417,6 +490,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
             exports,
             pending_ticket,
             terminal_rows,
+            base,
             _FailedObservation(
                 pending,
                 output.n_saved > pending_save_count,
@@ -489,6 +563,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     *,
     clock: RunClock,
     adams: bool,
+    base: Mapping[str, object],
 ) -> None:
     """Persist a running checkpoint at an accepted endpoint and copy the snapshot.
 
@@ -516,6 +591,8 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
         When the run started.
     adams : bool
         Whether the run's method keeps an Adams history, which a snapshot requires.
+    base : collections.abc.Mapping
+        What the execution restored, for its restart record.
     """
     snapshots = context.snapshots
     assert snapshots is not None
@@ -526,6 +603,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
         assert event.ticket is not None
         history = event.history
         rows = event.step_stats
+        phase = exports.phase(event.ticket)
         checkpoint = TerminalCheckpoint(
             plane=SavedPlane(
                 z=z,
@@ -535,7 +613,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
                 if history is None
                 else _history_of(history),
                 step_stats=StepStats.empty() if rows is None else _rows(rows),
-                noise_phase=None,
+                noise_phase=None if phase is None else _adopted(phase),
             ),
             next_save_index=int(
                 np.searchsorted(context.request.observation.save_planes, z, "right")
@@ -552,6 +630,7 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
             _Status("running", z),
             clock=clock,
             checkpoint=checkpoint,
+            restart=_restart(base, keeper),
         )
 
     snapshots._service(
@@ -575,6 +654,7 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     exports: _Exports,
     ticket: ExportTicket | None,
     rows: tuple[object, object],
+    base: Mapping[str, object],
     failure: _FailedObservation,
 ) -> float | None:
     """Checkpoint the accepted state without replacing the original exception.
@@ -597,6 +677,8 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     rows : tuple
         The terminal event's attempts and periodic rows since the last observation,
         or ``None`` for each.
+    base : collections.abc.Mapping
+        What the execution restored, for its restart record.
     failure : solprop.driver.run._FailedObservation
         The primary failure and the plane in hand.
 
@@ -610,10 +692,16 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     backend = session.driver
     in_flight = backend.in_flight
     if failure.pending is None and in_flight is not None:
-        _record_abandoned_step(
-            backend, output, context.tdse_binding, failure, in_flight
+        # The latest running checkpoint, when one follows the last plane, is the
+        # state to resume from (SEP 47 section 5.5).
+        return _record_abandoned_step(
+            backend,
+            output,
+            context.tdse_binding,
+            failure,
+            in_flight,
+            restart=_restart(base, keeper),
         )
-        return None
     if ticket is None:
         ticket = _fallback_ticket(session)
         if ticket is None:
@@ -626,6 +714,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
         phase = exports.phase(ticket)
         if pending is None or pending.z != ticket.z:
             history, step_rows = rows
+            if history is None and step_rows is None:
+                # A failure outside the session: the attempts since the last plane,
+                # a running checkpoint's included, are still the session's.
+                history, step_rows = session.held_attempts(ticket)
             pending = SavedPlane(
                 z=ticket.z,
                 field=field,
@@ -664,6 +756,16 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             landed=landed,
         )
         with committing(deliver=False):
+            # The history first, so that the record states what was kept beside the
+            # checkpoint; a failure to keep it still leaves the checkpoint recorded.
+            try:
+                keeper.keep(reached)
+            except Exception as unkept:
+                failure.error.add_note(
+                    f"the method history could not be kept beside the terminal "
+                    f"checkpoint: {unkept}"
+                )
+                logger.exception("could not keep the method history")
             _record_execution(
                 output,
                 backend,
@@ -677,8 +779,8 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
                 ),
                 clock=failure.clock,
                 checkpoint=checkpoint,
+                restart=_restart(base, keeper),
             )
-            keeper.keep(reached)
     except Exception as checkpoint_error:
         failure.error.add_note(
             f"terminal checkpoint could not be persisted: {checkpoint_error}"

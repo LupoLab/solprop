@@ -43,6 +43,7 @@ from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    SessionError,
     SessionLedger,
     SessionState,
     SessionStatus,
@@ -611,6 +612,58 @@ class DriverSession:
         self._snapshot_pending = self._snapshot_requests
         _hook(self._driver, "request_halt")
         return SnapshotReceipt(self._snapshot_pending, coalesced=False)
+
+    def continue_monitor(self, continuation: Mapping[str, object]) -> None:
+        """Continue a resumed run's boundary-monitor record, before it is attached.
+
+        For a caller that loaded the driver itself (``start=None``) and so could not
+        pass the continuation in :class:`~solprop.backends.session.Start`; one given
+        there is kept.
+
+        Parameters
+        ----------
+        continuation : collections.abc.Mapping
+            As :attr:`solprop.backends.session.Start.monitor`.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the monitor is already watching.
+        """
+        if self._attached:
+            msg = "a boundary monitor is continued before it watches the run"
+            raise SessionError(msg)
+        if self._monitor_resume is None:
+            self._monitor_resume = continuation
+
+    def held_attempts(
+        self, ticket: ExportTicket
+    ) -> tuple[BackendHistory | None, StepStats | None]:
+        """Return every attempt and periodic row since the last observation, unconsumed.
+
+        For a terminal checkpoint written after a failure outside the session (a
+        service failure, or a signal out of a propagation): the attempts a running
+        checkpoint held and any the driver made since, so that the checkpoint carries
+        all of them since the last saved plane (SEP 47 section 5.5).
+
+        Parameters
+        ----------
+        ticket : solprop.backends.events.ExportTicket
+            The pending ticket the checkpoint is written for.
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows (without a batch axis), or ``None`` for each
+            when there are none.
+        """
+        self._ledger.check_ticket(ticket)
+        if self._driver.in_flight is None:
+            self._held = _joined(self._held, self._driver.observe(field=False))
+        held = self._held
+        if held is None:
+            return None, None
+        return held.step_history, _rows(held.step_stats)
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
         """Return the method history at a pending observation, when the march has one.

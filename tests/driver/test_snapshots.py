@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import cast
 
 import h5py
+import numpy as np
 import pytest
 from numpy.testing import assert_array_equal
 from tests.driver.test_tdse_natural_output import _simulation, assert_no_extra_call
@@ -69,7 +70,7 @@ class Requests(NullReporter):
             self.remaining -= 1
 
 
-def ordinary(backend="numpy_ref", integrator=None, **keywords):
+def ordinary(backend="numpy_ref", integrator=None, step_planes=1, **keywords):
     if integrator is None:
         integrator = RungeKutta() if backend == "native" else Multistep()
     return Simulation.from_gnlse(
@@ -85,7 +86,7 @@ def ordinary(backend="numpy_ref", integrator=None, **keywords):
         backend=backend,
         integrator=integrator,
         n_save=2,
-        step_planes=1,
+        step_planes=step_planes,
         dz_init=1e-4,
         dz_max=1e-4,
         **{"noise": None, **keywords},
@@ -275,11 +276,12 @@ def test_snapshot_requires_history_even_above_the_automatic_limit(
     )
 
 
-@pytest.mark.parametrize("policy", ["memory", "step", "dense", "fields", "history"])
+# Step planes are no longer a requirement: a snapshot is serviced at the next accepted
+# endpoint whatever the saved-step sampling (SEP 47 section 5.5).
+@pytest.mark.parametrize("policy", ["memory", "dense", "fields", "history"])
 def test_snapshot_admission_precedes_provider_preparation(fake, tmp_path, policy):
     simulation = _simulation()
     changes = {
-        "step": {"step_planes": 2},
         "fields": {"fields": "none"},
         "history": {"resume_history": False},
     }
@@ -556,3 +558,164 @@ def test_ordinary_legacy_resume_can_start_taking_snapshots(tmp_path):
     assert info.z > 0
     assert files.tdse_archive is None
     _run(ordinary(), files.output, resume=True)
+
+
+def _history(path):
+    """Return a closed file's whole step history: starts, lengths and acceptance."""
+    history = resume(path).history
+    return history.z, history.h, history.accepted
+
+
+def assert_contiguous(path, length):
+    """Assert every accepted step starts where the one before it ended, once each."""
+    starts, lengths, accepted = _history(path)
+    starts, ends = starts[accepted], (starts + lengths)[accepted]
+    assert starts[0] == 0.0
+    assert np.all(np.diff(starts) > 0), "an accepted step is recorded twice"
+    np.testing.assert_allclose(starts[1:], ends[:-1], rtol=1e-12, atol=0.0)
+    np.testing.assert_allclose(ends[-1], length, rtol=1e-12, atol=0.0)
+
+
+def test_snapshots_without_step_planes_resume_from_a_running_checkpoint(tmp_path):
+    # SEP 47 section 5.5: no step planes; a request due before the first step is
+    # serviced at the first accepted endpoint, between saved planes, as a running
+    # checkpoint, and later ones at the endpoint after the plane that noticed them.
+    length = 0.001
+    baseline = _run(ordinary(step_planes=0))
+    rtol = cast("PIController", ordinary().settings.controller).rtol
+    tighter = _run(ordinary(step_planes=0, rtol=rtol / TIGHTER))
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    working = tmp_path / "working.h5"
+    _run(
+        ordinary(step_planes=0),
+        working,
+        snapshots=controller,
+        progress=Requests(controller),
+    )
+    # A snapshot neither lands nor observes: the march is the one without snapshots.
+    for got, expected in zip(
+        _history(working),
+        (
+            baseline["step_history/z"],
+            baseline["step_history/h"],
+            baseline["step_history/accepted"],
+        ),
+        strict=True,
+    ):
+        assert_array_equal(got, expected)
+    with open_file(working) as stored:
+        assert stored.terminal_checkpoint is None  # superseded by the next plane
+        planes = np.asarray(stored["z"]).tolist()
+    generations = sorted(controller._directory.glob("snapshot-*"))
+    assert len(generations) >= 2
+    fields = []
+    running = 0
+    for index, generation in enumerate(generations):
+        files = restore_snapshot(generation, tmp_path / f"restore-{index}")
+        state = resume(files.output)
+        if state.checkpoint is not None:
+            running += 1
+            assert state.checkpoint.landed
+            assert state.plane.z not in planes
+            assert state.outcome is not None and state.outcome.status == "running"
+            assert state.march is not None and state.march.z == state.plane.z
+        final = _run(ordinary(step_planes=0), files.output, resume=True)
+        assert isinstance(final, HDF5Output)
+        assert final.terminal_checkpoint is None
+        assert_contiguous(files.output, length)
+        with open_file(final.path) as stored:
+            assert np.asarray(stored["z"]).tolist() == planes
+            fields.append(stored.fields(convention="fft")[-1])
+    assert running >= 1
+    # Adaptive runs: SEP 25's envelope against the same case at rtol / 100.
+    assert_in_envelope(
+        fields,
+        tighter.fields(convention="fft")[-1],
+        baseline.fields(convention="fft")[-1],
+        what="running-checkpoint resumed endpoint",
+    )
+
+
+def test_a_resume_from_a_running_checkpoint_keeps_the_history_once(tmp_path):
+    # The attempts before the running checkpoint reach the next plane once, in the
+    # live run and across a resume from the checkpoint alike.
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    working = tmp_path / "working.h5"
+    _run(ordinary(step_planes=0), working, snapshots=controller)
+    (generation,) = controller._directory.glob("snapshot-*")
+    files = restore_snapshot(generation, tmp_path / "restored")
+    state = resume(files.output)
+    assert state.checkpoint is not None
+    before = state.history.n_steps
+    assert before >= 1
+    _run(ordinary(step_planes=0), files.output, resume=True)
+    starts, _, _ = _history(files.output)
+    # The checkpoint's attempts are the uninterrupted run's first ones, exactly.
+    assert_array_equal(starts[:before], _history(working)[0][:before])
+    assert_contiguous(working, 0.001)
+    assert_contiguous(files.output, 0.001)
+
+
+def _assert_checkpoint_holds_every_attempt(path):
+    """Assert a file's terminal checkpoint carries every attempt since the launch."""
+    state = resume(path)
+    assert state.checkpoint is not None
+    assert state.outcome is not None and state.outcome.status == "failed"
+    history = state.history
+    starts, ends = (
+        history.z[history.accepted],
+        (history.z + history.h)[history.accepted],
+    )
+    assert starts.size >= 1 and starts[0] == 0.0
+    np.testing.assert_allclose(starts[1:], ends[:-1], rtol=1e-12, atol=0.0)
+    np.testing.assert_allclose(ends[-1], state.plane.z, rtol=1e-12, atol=0.0)
+
+
+def test_a_failure_after_a_running_checkpoint_keeps_its_attempts(tmp_path, monkeypatch):
+    # The running checkpoint is written, then the snapshot transaction fails outside
+    # the session: the terminal checkpoint replacing it still holds the attempts
+    # since the last plane, which a resume continues once each.
+    from solprop.exceptions import OutputError  # noqa: PLC0415 - fault injection
+
+    annotate = HDF5Output.annotate
+
+    def failing(self, name, value):
+        if name == module._ANNOTATION:
+            raise OutputError("annotation failure")
+        return annotate(self, name, value)
+
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    path = tmp_path / "working.h5"
+    with monkeypatch.context() as patch:
+        patch.setattr(HDF5Output, "annotate", failing)
+        with pytest.raises(OutputError, match="annotation failure"):
+            ordinary(step_planes=0).run(path, snapshots=controller, progress="none")
+    _assert_checkpoint_holds_every_attempt(path)
+    _run(ordinary(step_planes=0), path, resume=True)
+    assert_contiguous(path, 0.001)
+
+
+def test_an_interrupt_out_of_a_propagation_keeps_the_running_attempts(tmp_path):
+    # A KeyboardInterrupt escapes the propagation (the session catches exceptions
+    # only) three accepted steps in, after a running checkpoint at the first.
+    class Interrupt(NullReporter):
+        accepted = 0
+
+        def step(self, z, dz, accepted):
+            self.accepted += accepted
+            if self.accepted == 3:
+                raise KeyboardInterrupt
+
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    path = tmp_path / "working.h5"
+    with pytest.raises(KeyboardInterrupt):
+        ordinary(step_planes=0).run(path, snapshots=controller, progress=Interrupt())
+    assert len(list(controller._directory.glob("snapshot-*"))) == 1
+    _assert_checkpoint_holds_every_attempt(path)
+    assert resume(path).history.accepted.sum() >= 2
+    _run(ordinary(step_planes=0), path, resume=True)
+    assert_contiguous(path, 0.001)

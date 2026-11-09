@@ -253,6 +253,57 @@ scheduled plane whose statistics were interrupted is saved there before stepping
 on. Pending step history is attached once to the next regular save, or to the next
 terminal checkpoint if execution stops again.
 
+A *running checkpoint* is the same record written while the run goes on, with a
+`running` outcome at its position: a [snapshot](output.md#periodic-snapshots-while-computing)
+taken between saved planes writes one. Resume continues from it, ahead of the last
+saved plane, and its attempts reach the next regular save once, so the file's step
+history neither repeats nor loses a step. A later saved plane supersedes it. A
+low-storage step abandoned in flight cannot be checkpointed; the file then falls back
+to its latest running checkpoint, or to the checkpoint the run resumed from, and only
+without one to its last saved plane
+([SEP 47](../../dev/seps/sep-0047-run-ownership.md)).
+
+### What a restart keeps and restores
+
+Each execution record states what a resume can rely on, under
+`outcome.execution["restart"]`, outside the configuration hash:
+
+- `retention`, written with every saved plane and checkpoint: whether the method
+  history at that position was `retained`, `omitted` or is `not_applicable`, and why —
+  `automatic_policy` or `explicit_policy` (`resume_history=None` or `True`),
+  `snapshot_required`, `explicit_policy` (`resume_history=False`),
+  `automatic_size_limit` (over the 256 MiB kept by default, with the size),
+  `unavailable_history` (the march held nothing to continue there),
+  `output_cannot_store` (a handler without `save_march`, such as `MemoryOutput`),
+  `write_failed` (the write was cut short), `incompatible_representation` (the engine
+  does not export its history), `unsupported_method` (the
+  Runge–Kutta proposal and norm memory are not persisted) or `no_method_history`
+  (the low-storage march has none).
+- `restoration`, in a resumed execution: `restored` (the Adams history continued),
+  `reset` (a Runge–Kutta resume's controller memory, or an Adams history set aside,
+  omitted or not installable, with the reason) or `not_applicable` (low-storage),
+  together with the retention the file stated at the resume position.
+- `monitor`, in a resumed execution with a boundary monitor: `reconstructed` from the
+  persisted records, as before — the cumulative totals, the quiet state and the
+  transverse record are restored, and the check cadence and the transverse cap restart
+  from that restored state.
+
+```{code-block} python
+from solprop.output import open_file
+
+with open_file("run.h5") as stored:
+    restart = stored.outcome.execution.get("restart", {})
+    restoration = restart.get("restoration")  # None for a run that was not resumed
+```
+
+A resume warns once, with a `SolpropWarning` beginning "the Adams history starts
+afresh", when the Adams history it expected was omitted by the automatic size limit or
+cannot be restored (the backend cannot install it, the file kept it and it cannot be
+read back, or the write that kept it failed part-way). Setting it aside with `resume_history=False` is recorded without a warning.
+A file written before this record has none: its retention reads as
+`{"state": "unknown", "reason": "legacy"}`, never as an invented reason, and it resumes
+as it always did.
+
 Scientific changes still require a new run. Device choice, batch width and execution
 memory limits may change on resume and are recorded in `outcome.execution`; a new
 atomic call limit cannot be smaller than the calls already attempted. The driver
