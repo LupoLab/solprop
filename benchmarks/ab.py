@@ -45,6 +45,7 @@ __all__ = [
     "arm_environment",
     "arm_order",
     "field_difference",
+    "same_work",
     "show_summary",
     "summarise",
 ]
@@ -137,6 +138,20 @@ def field_difference(baseline: Path, candidate: Path) -> float | None:
     return difference / scale if scale else difference
 
 
+def same_work(
+    baseline: set[tuple[int | None, int | None]],
+    candidate: set[tuple[int | None, int | None]],
+) -> bool | None:
+    """Whether both builds took one and the same (accepted, rejected) steps.
+
+    ``None`` when a repetition did not count its steps (a group on ``Batch``, which
+    watches no point's run): nothing was compared, which is not a match.
+    """
+    if any(None in steps for steps in baseline | candidate):
+        return None
+    return baseline == candidate and len(baseline) == 1
+
+
 def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[Record]:
     """Pair each round's medians and summarise the candidate/baseline ratios."""
     result = []
@@ -145,7 +160,9 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
         mine = [item for item in samples if item["id"] == row["id"]]
         failures = [item for item in mine if item["status"] != "ok"]
         medians: dict[str, dict[int, float]] = {arm: {} for arm in ARMS}
-        work: dict[str, set[tuple[int, int]]] = {arm: set() for arm in ARMS}
+        work: dict[str, set[tuple[int | None, int | None]]] = {
+            arm: set() for arm in ARMS
+        }
         counters: dict[str, Record | None] = dict.fromkeys(ARMS)
         for item in mine:
             if item["status"] == "ok":
@@ -175,9 +192,8 @@ def summarise(rows: list[Record], samples: list[Record], fields: Path) -> list[R
                 "ratio_min": min(ratios, default=None),
                 "ratio_max": max(ratios, default=None),
                 "ratios": ratios,
-                "same_work": work["baseline"] == work["candidate"]
-                and len(work["baseline"]) == 1,
-                "work": {arm: sorted(work[arm]) for arm in ARMS},
+                "same_work": same_work(work["baseline"], work["candidate"]),
+                "work": {arm: sorted(work[arm], key=str) for arm in ARMS},
                 "field_difference": field_difference(
                     fields / "baseline" / f"{row['id']}.npy",
                     fields / "candidate" / f"{row['id']}.npy",
@@ -216,7 +232,7 @@ def show_summary(summary: list[Record]) -> None:
             f"{seconds(row['baseline_seconds']):>9} "
             f"{seconds(row['candidate_seconds']):>9} "
             f"{ratio:>7} {spread:>13} {field:>10} "
-            f"{'same' if row['same_work'] else 'differs'}"
+            + {True: "same", False: "differs", None: "unchecked"}[row["same_work"]]
         )
         for error in row["failures"]:
             print(f"  failed: {error}")

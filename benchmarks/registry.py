@@ -46,7 +46,12 @@ SEED = 20261027
 """The noise seed every case fixes, so that its repeats take the same steps."""
 WORKLOADS = ("run", "with_input", "scan", "group")
 OUTPUTS = ("memory", "hdf5")
-_OPTIONAL = {"workload": "run", "output": "memory", "snapshots": None}
+_OPTIONAL = {
+    "workload": "run",
+    "output": "memory",
+    "snapshots": None,
+    "own_integrator": False,
+}
 """Definition fields added after the history began, left out of a digest at their
 defaults so that the cases before them keep theirs."""
 
@@ -105,6 +110,9 @@ class Case:
         ``step_planes=1`` and a ``SnapshotController``, which today needs both:
         ``0`` never requests a snapshot, ``k`` requests one after every ``k``-th
         accepted step.
+    own_integrator : bool
+        The case sets its integrator, and its name says which march it measures, so
+        it admits no stepper override.
     """
 
     name: str
@@ -123,6 +131,7 @@ class Case:
     workload: str = "run"
     output: str = "memory"
     snapshots: int | None = None
+    own_integrator: bool = False
 
     def __post_init__(self) -> None:
         """Refuse a workload, output or snapshot request the worker cannot run."""
@@ -144,8 +153,11 @@ class Case:
 
     @property
     def steppers(self) -> tuple[str, ...]:
-        """Stepper choices the case admits; a fixed schedule admits its own only."""
-        return ("default",) if self.step is not None else STEPPERS
+        """Stepper choices the case admits; a fixed schedule, or a case that sets
+        its integrator, admits its own only."""
+        if self.step is not None or self.own_integrator:
+            return ("default",)
+        return STEPPERS
 
     @property
     def digest(self) -> str:
@@ -625,6 +637,7 @@ _SEP47 = (
             f"stats_period1_{name}",
             1,
             ("sep47",),
+            own_integrator=True,
             source=f"{_FIBRE}, an energy and peak-power row every accepted step, "
             f"{integrator}",
             **_SESSION,

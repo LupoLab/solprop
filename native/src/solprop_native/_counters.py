@@ -9,8 +9,9 @@ why each native call came back to Python, how many attempts it carried, and what
 crossed to the host. Counting is off unless the benchmark worker turns it on: every
 hook reads :data:`active` once and does nothing while it is ``None``. A run that is
 not counted pays one attribute test per native march call, plane, statistics call,
-edge read and field crossing, and one per attempt only where solprop's own loop
-already returns to Python for each; nothing per attempt inside a native march. Its
+edge read, field crossing and low-storage or group step, and nothing per attempt:
+the two per-attempt hooks (solprop's own loop's attempts and periodic rows) are
+installed on ``NativeBackend`` by :func:`enable` and removed by :func:`disable`. Its
 numbers are unchanged either way.
 
 What is counted, and where:
@@ -43,25 +44,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import numpy as np
+from solprop.backends.driver import StepDriver
 
-__all__ = ["REASONS", "Counters", "active", "disable", "enable"]
-
-REASONS = (
-    "reached",
-    "host_step",
-    "monitor",
-    "bound",
-    "budget",
-    "floor",
-    "error",
-    "diverged",
-    "watch",
-    "capacity",
-    "dense",
-)
-"""A native march call's return reasons, in ``march::Reason`` order."""
-
-_HOST_STEP = REASONS.index("host_step")
+__all__ = ["Counters", "active", "disable", "enable"]
 
 
 @dataclass
@@ -121,7 +106,7 @@ class Counters:
     def march(
         self,
         kind: str,
-        reason: int,
+        reason: str,
         rows: np.ndarray[Any, Any],
         due: dict[str, int],
         read_at: float | None,
@@ -132,8 +117,8 @@ class Counters:
         ----------
         kind : str
             The march, ``adams_march`` or ``rk_march``.
-        reason : int
-            The call's ``march::Reason``.
+        reason : str
+            The call's ``march::Reason``, by name.
         rows : numpy.ndarray
             The call's attempt rows, the accepted flag in column 3.
         due : dict
@@ -146,8 +131,8 @@ class Counters:
         self.march_calls[kind] += 1
         self.march_attempts += len(rows)
         self.march_accepted += accepted
-        name = REASONS[reason] if 0 <= reason < len(REASONS) else f"reason_{reason}"
-        if reason == _HOST_STEP:
+        name = reason
+        if reason == "host_step":
             causes = sorted(key for key, steps in due.items() if steps == accepted)
             if not causes and read_at is not None:
                 causes = ["transverse_read"]
@@ -202,15 +187,43 @@ active: Counters | None = None
 """The counters the hooks add to, or ``None`` when counting is off."""
 
 
+def _record(self: Any, z: float, dz: float, norm: float, accepted: bool) -> None:
+    """``StepDriver._record``, counting the attempt: installed while counting."""
+    StepDriver._record(self, z, dz, norm, accepted)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
+    if active is not None:
+        active.host_attempts += 1
+        active.host_accepted += int(accepted)
+
+
+def _record_step_stats(self: Any, spec: Any, z: float, step: int) -> None:
+    """``StepDriver._record_step_stats``, counting the row: installed while counting."""
+    StepDriver._record_step_stats(self, spec, z, step)  # pyright: ignore[reportPrivateUsage, reportUnknownMemberType] - the hook replaces it
+    if active is not None:
+        active.statistics_rows += 1
+
+
+_HOOKS = {"_record": _record, "_record_step_stats": _record_step_stats}
+"""The per-attempt hooks :func:`enable` installs on ``NativeBackend``."""
+
+
 def enable() -> Counters:
     """Start counting into fresh counters and return them."""
     global active
+    from .backend import NativeBackend
+
+    for name, hook in _HOOKS.items():
+        setattr(NativeBackend, name, hook)
     active = Counters()
     return active
 
 
 def disable() -> Counters | None:
-    """Stop counting; return the counters that were active, if any."""
+    """Stop counting and remove the hooks; return the counters that were active."""
     global active
+    from .backend import NativeBackend
+
+    for name, hook in _HOOKS.items():
+        if NativeBackend.__dict__.get(name) is hook:
+            delattr(NativeBackend, name)
     found, active = active, None
     return found

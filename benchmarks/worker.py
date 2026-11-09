@@ -62,7 +62,7 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import Backend
     from solprop.driver import Simulation
     from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import FieldRetention
+    from solprop.output.schema import FieldRetention, Output
     from solprop.translate.problem import KernelProblem
 
 
@@ -218,7 +218,6 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     from solprop.driver.run import run_problem  # noqa: PLC0415
     from solprop.output import MemoryOutput, SnapshotController  # noqa: PLC0415
     from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
-    from solprop.output.schema import Output  # noqa: PLC0415
 
     if (output == "hdf5" or snapshots is not None) and scratch is None:
         raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
@@ -275,9 +274,24 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
             if retention.fields == "none"
             else handler.plane_field(handler.n_saved - 1, "fft")
         )
+        record["finite"] = (
+            bool(np.all(np.isfinite(final)))
+            if final is not None
+            else _finite_statistics(handler)
+        )
     finally:
         handler.close()
     return record, final
+
+
+def _finite_statistics(handler: Output) -> bool | None:
+    """Whether a run's last plane's statistics are finite; ``None`` with none."""
+    import numpy as np  # noqa: PLC0415
+
+    values = [np.asarray(handler[f"stats/{name}"])[-1] for name in handler.stat_names]
+    if not values:
+        return None
+    return all(bool(np.all(np.isfinite(value))) for value in values)
 
 
 def count(backend: str) -> object | None:
@@ -316,8 +330,8 @@ def _repetition(
     configuration: Record,
     simulation: Simulation,
     problem: KernelProblem,
-    engine: Backend,
-    retention: FieldRetention,
+    engine: Backend | None,
+    retention: FieldRetention | None,
     scratch: Path,
 ) -> tuple[Record, np.ndarray | None]:
     """Time one repetition of the case's workload in a fresh `scratch` directory."""
@@ -327,6 +341,8 @@ def _repetition(
     scratch.mkdir(parents=True, exist_ok=False)
     try:
         if case.workload == "run":
+            if engine is None or retention is None:
+                raise SuiteError("a single run needs its backend and retention")
             # A user's run checks the boundaries as it goes, so each repeat does too,
             # with a monitor of its own: Simulation.run builds one per run, and a
             # monitor's record accumulates over the run it watches.
@@ -356,8 +372,8 @@ def _counted(
     configuration: Record,
     simulation: Simulation,
     problem: KernelProblem,
-    engine: Backend,
-    retention: FieldRetention,
+    engine: Backend | None,
+    retention: FieldRetention | None,
     root: Path,
 ) -> Record:
     """Make one more repetition with the structural counters on; return its record."""
@@ -369,6 +385,47 @@ def _counted(
     finally:
         found = counted(active)
     return {**record, "counters": found}
+
+
+def _warm(
+    configuration: Record,
+    simulation: Simulation,
+    problem: KernelProblem,
+    engine: Backend | None,
+    retention: FieldRetention | None,
+    root: Path,
+) -> float:
+    """Warm the case up, untimed, and return how long that took.
+
+    A single run warms its backend over the first part of the guide and observes
+    once; another workload, which builds its own backends, runs one whole repetition.
+    """
+    started = time.perf_counter()
+    if engine is None:
+        _repetition(configuration, simulation, problem, engine, retention, root)
+    else:
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        if configuration["warmup"]:
+            engine.propagate_to(configuration["warmup"] * configuration["stop"])
+        # Observe once, so that the observation path's first use is warm too.
+        engine.observe(field=True)
+        engine.stats(problem.stats_spec)
+    return time.perf_counter() - started
+
+
+def _repeat_difference(finals: list[np.ndarray]) -> float | None:
+    """The largest relative L2 difference of the repeats' final fields from the first.
+
+    Every repeat restarts from the same launch and seed, so its final field may
+    differ from the first repeat's by rounding only. ``None`` when no repeat kept a
+    final field, so that nothing was compared.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    if not finals:
+        return None
+    scale = float(np.linalg.norm(finals[0])) or 1.0
+    return max(float(np.linalg.norm(final - finals[0])) / scale for final in finals)
 
 
 def measure(
@@ -384,15 +441,21 @@ def measure(
     Each run restarts the backend from the translated launch and goes through
     :func:`solprop.driver.run.run_problem`, the loop of ``Simulation.run``, so it
     includes the plane observations and statistics; a case with another workload
-    times that instead (``benchmarks.sessions.repetition``). Construction,
-    translation and backend construction are timed separately. With `count_events`,
-    one more repetition runs with the structural counters on and is reported as
-    ``counted``. Files go to a fresh directory under `scratch` per repetition, the
-    system's temporary directory by default.
+    times that instead (``benchmarks.sessions.repetition``), which constructs its own
+    backends, so none is built here and its warm-up is one whole repetition.
+    Construction, translation and backend construction are timed separately. With
+    `count_events`, one more repetition runs with the structural counters on and is
+    reported as ``counted``. Files go to a fresh directory under `scratch` per
+    repetition, the system's temporary directory by default.
+
+    ``finite`` is the last repetition's: its final field, or where it keeps none, its
+    last plane's statistics; ``None`` when neither was available. ``repeat_difference``
+    is ``None`` when no repetition kept a final field.
     """
     import numpy as np  # noqa: PLC0415
 
     from benchmarks.builders import build  # noqa: PLC0415
+    from benchmarks.registry import CASES  # noqa: PLC0415
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.executors.pool import peak_rss  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
@@ -403,35 +466,39 @@ def measure(
     simulation = build(configuration)
     problem = simulation.translate()
     construction = time.perf_counter() - started
+    single = CASES[configuration["case"]].workload == "run"
     started = time.perf_counter()
-    engine = select(
-        configuration["backend"],
-        problem,
-        grid=simulation.grid,
-        modes=simulation.modes,
-        profiles=simulation.profiles,
+    engine = (
+        select(
+            configuration["backend"],
+            problem,
+            grid=simulation.grid,
+            modes=simulation.modes,
+            profiles=simulation.profiles,
+        )
+        if single
+        else None
     )
     backend_seconds = time.perf_counter() - started
-    retention = field_retention(
-        problem, simulation.settings.fields, simulation.settings.field_planes
+    retention = (
+        field_retention(
+            problem, simulation.settings.fields, simulation.settings.field_planes
+        )
+        if single
+        else None
     )
     controller = problem.stepper.controller
+    if scratch is not None:
+        scratch.mkdir(parents=True, exist_ok=True)
+    root = Path(tempfile.mkdtemp(prefix="solprop-bench-", dir=scratch))
     try:
-        started = time.perf_counter()
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        if configuration["warmup"]:
-            engine.propagate_to(configuration["warmup"] * configuration["stop"])
-        # Observe once, so that the observation path's first use is warm too.
-        engine.observe(field=True)
-        engine.stats(problem.stats_spec)
-        warmup = time.perf_counter() - started
+        warmup = _warm(
+            configuration, simulation, problem, engine, retention, root / "warm"
+        )
         free_warm = _device_free(configuration)
         repetitions = []
-        first = final = None
-        difference = 0.0
-        if scratch is not None:
-            scratch.mkdir(parents=True, exist_ok=True)
-        root = Path(tempfile.mkdtemp(prefix="solprop-bench-", dir=scratch))
+        finals = []
+        final = None
         for index in range(repeats):
             repetition, final = _repetition(
                 configuration,
@@ -442,27 +509,23 @@ def measure(
                 root / f"r{index}",
             )
             repetitions.append(repetition)
-            # Every repeat restarts from the same launch and seed, so its final
-            # field may differ from the first repeat's by rounding only.
-            if first is None:
-                first = final
-            elif final is not None:
-                scale = float(np.linalg.norm(first)) or 1.0
-                difference = max(
-                    difference, float(np.linalg.norm(final - first)) / scale
-                )
+            if final is not None:
+                finals.append(final)
         counters = (
             _counted(configuration, simulation, problem, engine, retention, root)
             if count_events
             else None
         )
-        shutil.rmtree(root, ignore_errors=True)
-        if fields is not None and first is not None:
+        last = repetitions[-1] if repetitions else {}
+        if fields is not None and final is not None:
             fields.parent.mkdir(parents=True, exist_ok=True)
-            np.save(fields, first, allow_pickle=False)
+            np.save(fields, final, allow_pickle=False)
         return {
-            "calibration": calibration_label(engine.metadata()),
+            "calibration": None
+            if engine is None
+            else calibration_label(engine.metadata()),
             "construction_seconds": construction,
+            # Another workload constructs its backends inside each repetition.
             "backend_seconds": backend_seconds,
             "warmup_seconds": warmup,
             "repetitions": repetitions,
@@ -472,9 +535,9 @@ def measure(
             "device_bytes": None
             if free_before is None or free_warm is None
             else free_before - free_warm,
-            "finite": first is None or bool(np.all(np.isfinite(first))),
+            "finite": last.get("finite"),
             "counted": counters,
-            "repeat_difference": difference,
+            "repeat_difference": _repeat_difference(finals),
             "integrator": integrator_label(problem.stepper.integrator),
             "precision": configuration.get("precision", "double"),
             "rtol": controller.rtol,
@@ -491,7 +554,9 @@ def measure(
             ),
         }
     finally:
-        engine.close()
+        shutil.rmtree(root, ignore_errors=True)
+        if engine is not None:
+            engine.close()
 
 
 def calibration_label(metadata: Record) -> str | None:

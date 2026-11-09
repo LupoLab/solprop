@@ -21,7 +21,8 @@ from benchmarks.worker import measure
 
 pytest.importorskip("solprop_native")
 
-from solprop_native import _counters
+from solprop_native import _counters, backend
+from solprop_native.backend import NativeBackend
 
 from solprop.exceptions import HostMarchWarning
 
@@ -136,12 +137,16 @@ def test_snapshot_cases_service_what_they_ask_for(name, every, tmp_path):
 def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     _, run, counts = counted("with_input_repeat", tmp_path)
     assert run["runs"] == 3
+    assert run["finite"] is True
     assert counts["march_calls"]["rk_march"] >= 3
     assert counts["field_crossings"]["plane"] == 3 * (
         CASES["with_input_repeat"].planes + 1
     )
     _, run, counts = counted("scan_local", tmp_path / "scan")
     assert run["runs"] == 4
+    # Field-free: finiteness from the points' statistics; the watched runs' steps.
+    assert run["finite"] is True
+    assert run["accepted"] == counts["accepted"]
     assert counts["accepted"] > 4
     # A field-free scan's members never copy a field to the host.
     assert counts["field_bytes"] == 0
@@ -152,16 +157,20 @@ def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     assert counts["group_steps"] == steps > 1
     assert counts["native_returns"] == {"group_step": steps}
     assert counts["host_attempts"] == counts["accepted"] == 4 * steps
+    # Batch watches no point's run: its steps are uncounted, not zero.
+    assert (run["accepted"], run["rejected"], run["finite"]) == (None, None, True)
 
 
 def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     counters = _counters.Counters()
     rows = np.zeros((3, 6))
     rows[:, 3] = (1, 0, 1)
-    counters.march("rk_march", 1, rows, {"statistics": 2, "step_planes": 5}, None)
-    counters.march("rk_march", 1, rows, {"statistics": 2, "step_planes": 2}, None)
-    counters.march("rk_march", 1, rows, {"statistics": 4}, 0.1)
-    counters.march("adams_march", 0, rows[:1], {}, None)
+    due = {"statistics": 2, "step_planes": 5}
+    counters.march("rk_march", "host_step", rows, due, None)
+    due = {"statistics": 2, "step_planes": 2}
+    counters.march("rk_march", "host_step", rows, due, None)
+    counters.march("rk_march", "host_step", rows, {"statistics": 4}, 0.1)
+    counters.march("adams_march", "reached", rows[:1], {}, None)
     record = counters.record()
     assert record["native_returns"] == {
         "host_step:statistics": 1,
@@ -171,10 +180,40 @@ def test_counters_attribute_a_host_step_to_the_work_due_on_it():
     }
     assert record["march_calls"] == {"adams_march": 1, "rk_march": 3}
     assert (record["attempts"], record["accepted"]) == (10, 7)
+    # The per-attempt hooks live on the backend only while counting.
+    hooks = ("_record", "_record_step_stats")
     assert _counters.disable() is None
+    assert not any(name in NativeBackend.__dict__ for name in hooks)
     assert _counters.enable() is _counters.active
+    assert all(name in NativeBackend.__dict__ for name in hooks)
     assert isinstance(_counters.disable(), _counters.Counters)
     assert _counters.active is None
+    assert not any(name in NativeBackend.__dict__ for name in hooks)
+    # The reason names are the backend's, in march::Reason order.
+    assert backend._REASONS[backend._HOST_STEP] == "host_step"
+    assert backend._reason_name(99) == "reason_99"
+
+
+def test_cases_that_set_their_integrator_refuse_an_override():
+    for name in ("stats_period1_adams", "stats_period1_rk"):
+        case = CASES[name]
+        assert case.steppers == ("default",)
+        with pytest.raises(SuiteError, match="admits only default"):
+            case.configuration("rk", 1)
+    from benchmarks.runner import plan_rows  # noqa: PLC0415
+
+    _, skipped = plan_rows((CASES["stats_period1_rk"],), ("multistep",), "1", 1)
+    assert skipped == [
+        "stats_period1_rk multistep: the case runs its own integrator only"
+    ]
+
+
+def test_unchecked_work_and_fields_are_never_a_match():
+    from benchmarks.ab import same_work  # noqa: PLC0415
+
+    assert same_work({(3, 1)}, {(3, 1)}) is True
+    assert same_work({(3, 1)}, {(3, 0)}) is False
+    assert same_work({(None, None)}, {(None, None)}) is None
 
 
 @pytest.mark.slow

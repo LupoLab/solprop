@@ -25,6 +25,7 @@ __all__ = [
     "gnlse",
     "integrator",
     "kerr",
+    "soliton",
     "spatial",
     "spatial_grids",
 ]
@@ -258,6 +259,42 @@ def capillary(name: str, options: Record | None = None) -> Simulation:
     raise SuiteError(f"capillary builder not implemented for {name}")
 
 
+SOLITON_BETA2, SOLITON_GAMMA, SOLITON_WIDTH = -11.83e-27, 0.11, 100e-15
+"""``gnlse_soliton``'s dispersion (s^2/m), nonlinearity (1/W/m) and sech width (s)."""
+SOLITON_PEAK = 3**2 * abs(SOLITON_BETA2) / (SOLITON_GAMMA * SOLITON_WIDTH**2)
+"""The N = 3 soliton's peak power, W."""
+
+
+def soliton(length: float, options: Record, **keywords: Any) -> Simulation:
+    """Build ``gnlse_soliton``'s noiseless fibre and launch over `length` metres.
+
+    `keywords` go to ``Simulation.from_gnlse`` beside the case's own (the SEP 47
+    windows' statistics, step planes or schedule, ``benchmarks.sessions``); the time
+    grid is the case's whatever the length.
+    """
+    from solprop.driver import Simulation  # noqa: PLC0415
+
+    return Simulation.from_gnlse(
+        SOLITON_GAMMA,
+        length,
+        [0.0, 0.0, SOLITON_BETA2],
+        wavelength=835e-9,
+        width=SOLITON_WIDTH,
+        peak_power=SOLITON_PEAK,
+        shape="sech",
+        raman=False,
+        shock=False,
+        # The one noiseless case: a soliton-recurrence study runs without noise,
+        # and a seed would make it a different workload (SEP 37 measured 65 times
+        # the steps with one).
+        noise=None,
+        precision=options["precision"],
+        backend=options["backend"],
+        **_limits(options, length, 835e-9, (500e-9, 2e-6), 4e-12, envelope=True),
+        **keywords,
+    )
+
+
 def gnlse(name: str, options: Record | None = None) -> Simulation:
     """Extract the ideal soliton and the SEP 13 Raman/shock envelope inputs.
 
@@ -272,32 +309,7 @@ def gnlse(name: str, options: Record | None = None) -> Simulation:
 
     options = options or variant({"backend": "native"})
     if name == "gnlse_soliton":
-        beta2, gamma, width = -11.83e-27, 0.11, 100e-15
-        return Simulation.from_gnlse(
-            gamma,
-            math.pi / 2 * width**2 / abs(beta2),
-            [0.0, 0.0, beta2],
-            wavelength=835e-9,
-            width=width,
-            peak_power=3**2 * abs(beta2) / (gamma * width**2),
-            shape="sech",
-            raman=False,
-            shock=False,
-            # The one noiseless case: a soliton-recurrence study runs without noise,
-            # and a seed would make it a different workload (SEP 37 measured 65 times
-            # the steps with one).
-            noise=None,
-            precision=options["precision"],
-            backend=options["backend"],
-            **_limits(
-                options,
-                math.pi / 2 * width**2 / abs(beta2),
-                835e-9,
-                (500e-9, 2e-6),
-                4e-12,
-                envelope=True,
-            ),
-        )
+        return soliton(math.pi / 2 * SOLITON_WIDTH**2 / abs(SOLITON_BETA2), options)
     if name == "gnlse_raman_shock":
         return Simulation.from_gnlse(
             0.11,

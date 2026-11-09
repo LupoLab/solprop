@@ -290,7 +290,7 @@ uv run python -m benchmarks ab --set sep47 --threads 1 --counters \
 
 | Case | What one repetition is | Events it holds |
 |---|---|---|
-| `stats_period1_adams`, `stats_period1_rk` | 16 mm of `gnlse_soliton`'s fibre under `Multistep()` or `RungeKutta()`, energy and peak power as periodic statistics with period 1 | a row at every accepted step (about 190 and 40) |
+| `stats_period1_adams`, `stats_period1_rk` | 16 mm of `gnlse_soliton`'s fibre under `Multistep()` or `RungeKutta()` (no stepper override), energy and peak power as periodic statistics with period 1 | a row at every accepted step (about 190 and 40) |
 | `snapshots_idle`, `snapshots_sparse`, `snapshots_every` | the same fibre to HDF5 with `step_planes=1` and a `SnapshotController` never asked, asked after every eighth accepted step, or asked at every accepted endpoint | a plane at every step; 0, 5 and 42 snapshots published |
 | `with_input_repeat` | three runs of the fibre with other peak powers through `Simulation.with_input` | three preparations from one translation |
 | `scan_local` | `run_scan` of four peak powers on `Local`, built with `with_input`, field-free | four points, no field copied to the host |
@@ -315,8 +315,12 @@ fields at production sizes (`radial_filament_512`, `cartesian_filament_256`).
 **Counters.** `--counters` (for `track` and `ab`) has each worker make one more
 repetition after the timed ones with the native backend's counters on, reported as the
 receipt's `counted` and, in `ab`'s summary, per arm; counting therefore costs no timed
-repetition anything, and with it off each hook in the backend is one attribute test. The
-record (`solprop_native._counters`, private to the harness) holds:
+repetition anything. With counting off, the backend's path is the one before the
+counters except for a single attribute test per native call (a march call, a plane, a
+statistics call, an edge read, a field crossing, a low-storage or group step): the
+per-attempt hooks are installed only while counting, and nothing else is computed, so
+no ledger entry was taken for them. The record (`solprop_native._counters`, private to
+the harness) holds:
 
 - `native_returns`: every return to Python, by cause. A native march call's reason
   (`reached`, `monitor` for a boundary-monitor check by distance, `bound` for its
@@ -339,3 +343,11 @@ makes several native calls, which are not counted one by one, and a device's lau
 transfers and allocations are not counted: they need a profiler. Counts explain a
 timing and do not replace it; check that both arms hold the same events before
 comparing their times (SEP 47 section 7.2).
+
+A scan or group repetition builds its own backends, so its worker builds none beforehand
+and warms up with one whole untimed repetition. `scan_local` watches each point's run
+to count its steps; `Batch` watches none, so `group_batch`'s steps are counted only by
+`--counters`, and `ab` reports its work as `unchecked` rather than `same`. Where a
+repetition keeps no final field (field-free planes, a scan), finiteness is read from
+its last plane's statistics and the repeat difference is not defined; `track` treats
+either gap as unchecked, never as consistent.

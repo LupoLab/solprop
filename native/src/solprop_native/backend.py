@@ -1446,19 +1446,6 @@ class NativeBackend(StepDriver[_core.State]):
         if (counters := _counters.active) is not None:
             counters.planes += 1
 
-    def _record(self, z: float, dz: float, norm: float, accepted: bool) -> None:
-        # Every attempt solprop's own loop steps (a host march, a replay, the
-        # low-storage march, a group's members) is one return to Python or more.
-        super()._record(z, dz, norm, accepted)
-        if (counters := _counters.active) is not None:
-            counters.host_attempts += 1
-            counters.host_accepted += int(accepted)
-
-    def _record_step_stats(self, spec: StatsSpec, z: float, step: int) -> None:
-        super()._record_step_stats(spec, z, step)
-        if (counters := _counters.active) is not None:
-            counters.statistics_rows += 1
-
     def _on_accepted_step(self) -> None:
         # The step's quadrature score stays on the device; `_check_quadrature` reads
         # its peak once a march, not once a step (a device synchronisation each).
@@ -2825,6 +2812,21 @@ _MARCH_COUNTERS = (
 )
 """The call ledger's counters the native march keeps."""
 
+_REASONS = (
+    "reached",
+    "host_step",
+    "monitor",
+    "bound",
+    "budget",
+    "floor",
+    "error",
+    "diverged",
+    "watch",
+    "capacity",
+    "dense",
+)
+"""Why a native march call returned (``march::Reason``), by name, in its order; the
+benchmark counters (:mod:`solprop_native._counters`) report these names."""
 (
     _REACHED,
     _HOST_STEP,
@@ -2837,10 +2839,9 @@ _MARCH_COUNTERS = (
     _WATCH,
     _CAPACITY,
     _DENSE,
-) = range(11)
+) = range(len(_REASONS))
 _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
-"""Why a native march call returned (``march::Reason``)."""
 
 _CONVERGENCE, _BACKEND, _VALUE, _REFUSED = 1, 2, 3, 4
 """Which error a native failure maps to (``march::Category``)."""
@@ -2854,14 +2855,19 @@ class _MarchRunner(Protocol):
     ) -> dict[str, Any]: ...
 
 
+def _reason_name(reason: int) -> str:
+    """Name a native march call's return reason, for the benchmark counters."""
+    return _REASONS[reason] if 0 <= reason < len(_REASONS) else f"reason_{reason}"
+
+
 def _host_due(backend: Any, watching: bool) -> dict[str, int]:
     """Return the accepted steps to each piece of the driver's work, by its name.
 
     A native march call returns after the first accepted step on which any falls due
-    (its ``host_step`` bound): a periodic statistics row, a natural stop, the boundary
-    monitor's check by steps, and a collar's per-step current beside a transverse
-    edge. The names are those :mod:`solprop_native._counters` attributes a
-    ``host_step`` return to.
+    (the ``host_step`` bound each march's ``_bounds`` forms from the same work):
+    a periodic statistics row, a natural stop, the boundary monitor's check by steps,
+    and a collar's per-step current beside a transverse edge. Formed only while the
+    benchmark counters are on, which attribute a ``host_step`` return to these names.
     """
     due: dict[str, int] = {}
     if backend._row_spec is not None:
@@ -3140,23 +3146,24 @@ class _NativeAdamsMarch(AdamsMarch):
         return _watch_policy_of(self._driver._monitor)
 
     def _bounds(
-        self,
-        target: float,
-        slack: float | None,
-        watching: bool = False,
-        due: dict[str, int] | None = None,
+        self, target: float, slack: float | None, watching: bool = False
     ) -> dict[str, object]:
         """Return a call's bounds: the target, the steps the driver has work on and,
-        for a replay, the edges' slack; under the march's own checks, their policy.
-
-        `due` is :func:`_host_due`'s, when the caller has it already."""
+        for a replay, the edges' slack; under the march's own checks, their policy."""
         backend = self._driver
-        steps = list((_host_due(backend, watching) if due is None else due).values())
+        steps: list[int] = []
+        if backend._row_spec is not None:
+            period = backend._row_period
+            steps.append(period - backend._accepted_steps % period)
+        every = backend._problem.stepper.step_planes
+        if every:
+            steps.append(every - backend._natural_count % every)
         monitor = backend._monitor
         checked = None
         read_at = None
         spacing = 0.0
         if monitor is not None and not watching:
+            steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
             # The transverse edge is read on the host (solprop SEP 40 section 5.3):
             # steps are capped at its spacing, the march returns before a step
@@ -3164,6 +3171,8 @@ class _NativeAdamsMarch(AdamsMarch):
             # every committed step.
             edge = monitor.transverse
             if edge is not None:
+                if edge.every_step:
+                    steps.append(1)
                 if math.isfinite(edge.next_read):
                     read_at = float(edge.next_read)
                     spacing = float(edge.ceiling(backend._z))
@@ -3226,8 +3235,9 @@ class _NativeAdamsMarch(AdamsMarch):
         backend = self._driver
         backend._poll_stop()
         watching = self._watching()
-        due = _host_due(backend, watching)
-        bounds = self._bounds(target, slack, watching, due)
+        counters = _counters.active
+        due = None if counters is None else _host_due(backend, watching)
+        bounds = self._bounds(target, slack, watching)
         started = time.perf_counter() - backend._clock
         cursor = int(backend._schedule_index)
         position = float(backend._z)
@@ -3236,10 +3246,10 @@ class _NativeAdamsMarch(AdamsMarch):
             self._synchronise(result)
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
-            if (counters := _counters.active) is not None:
+            if counters is not None and due is not None:
                 counters.march(
                     "adams_march",
-                    reason,
+                    _reason_name(reason),
                     rows,
                     due,
                     cast("float | None", bounds["read_at"]),
@@ -3571,22 +3581,23 @@ class _NativeRungeKuttaMarch:
             raise BackendError(msg)
 
     def _bounds(
-        self,
-        target: float,
-        watching: bool,
-        slack: float | None = None,
-        due: dict[str, int] | None = None,
+        self, target: float, watching: bool, slack: float | None = None
     ) -> dict[str, object]:
-        """Return a call's bounds: the target and the steps the driver has work on.
-
-        `due` is :func:`_host_due`'s, when the caller has it already."""
+        """Return a call's bounds: the target and the steps the driver has work on."""
         backend = self._driver
-        steps = list((_host_due(backend, watching) if due is None else due).values())
+        steps: list[int] = []
+        if backend._row_spec is not None:
+            period = backend._row_period
+            steps.append(period - backend._accepted_steps % period)
+        every = backend._problem.stepper.step_planes
+        if every:
+            steps.append(every - backend._natural_count % every)
         monitor = backend._monitor
         checked = None
         read_at = None
         ceiling = math.inf
         if monitor is not None and not watching:
+            steps.append(monitor.steps_to_check())
             checked = monitor.checked_at
             # The transverse edge is read on the host (solprop SEP 40 section 5.3):
             # its ceiling caps every step, the march returns before a step would carry
@@ -3594,6 +3605,8 @@ class _NativeRungeKuttaMarch:
             edge = monitor.transverse
             if edge is not None:
                 ceiling = float(edge.ceiling(backend._z))
+                if edge.every_step:
+                    steps.append(1)
                 if math.isfinite(edge.next_read):
                     read_at = float(edge.next_read)
         return {
@@ -3635,8 +3648,9 @@ class _NativeRungeKuttaMarch:
         backend = self._driver
         backend._poll_stop()
         watching = self._watching()
-        due = _host_due(backend, watching)
-        bounds = self._bounds(target, watching, slack, due)
+        counters = _counters.active
+        due = None if counters is None else _host_due(backend, watching)
+        bounds = self._bounds(target, watching, slack)
         started = time.perf_counter() - backend._clock
         cursor = int(backend._schedule_index)
         position = float(backend._z)
@@ -3652,10 +3666,10 @@ class _NativeRungeKuttaMarch:
             backend._accepted_norms.extend(float(norm) for norm in state["norms"])
             rows = np.asarray(result["rows"], dtype=np.float64).reshape(-1, 6)
             reason = int(result["reason"])
-            if (counters := _counters.active) is not None:
+            if counters is not None and due is not None:
                 counters.march(
                     "rk_march",
-                    reason,
+                    _reason_name(reason),
                     rows,
                     due,
                     cast("float | None", bounds["read_at"]),

@@ -19,9 +19,11 @@ measures:
   and HDF5 output, so every case saves a plane at every step; a variant without the
   step planes becomes possible once SEP 47 schedules snapshots independently;
 - ``with_input_repeat``: three runs of other inputs through ``Simulation.with_input``;
-- ``scan_local``: four points derived from the case with ``with_input``, on ``Local``;
+- ``scan_local``: four points derived from the case with ``with_input``, on ``Local``,
+  each run watched to count its steps;
 - ``group_batch``: the same four points on ``Batch(4)``, replaying ten 1.6 mm steps
-  with the split-step collar, which a fixed step this long needs.
+  with the split-step collar, which a fixed step this long needs. ``Batch`` watches no
+  point's run, so its steps are left uncounted except by the structural counters.
 
 Import this module only after the worker has configured its scientific runtimes.
 """
@@ -29,19 +31,21 @@ Import this module only after the worker has configured its scientific runtimes.
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
+from benchmarks.builders import SOLITON_PEAK, SOLITON_WIDTH, soliton
 from benchmarks.records import Record, SuiteError
 from benchmarks.registry import CASES
 from solprop.driver import Simulation
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
-from solprop.grid import EnvelopeGrid
-from solprop.log import NullReporter
+from solprop.log import NullReporter, NullScanReporter, ProgressReporter
 from solprop.output import MemoryOutput
+from solprop.output.scan import read_point
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, RungeKutta
@@ -51,23 +55,24 @@ if TYPE_CHECKING:
 
 __all__ = ["SCALES", "Requests", "fibre", "launch", "repetition"]
 
-_BETA2, _GAMMA, _WIDTH = -11.83e-27, 0.11, 100e-15
-"""gnlse_soliton's dispersion (s^2/m), nonlinearity (1/W/m) and sech width (s)."""
-_PEAK = 3**2 * abs(_BETA2) / (_GAMMA * _WIDTH**2)
-"""The N = 3 soliton's peak power, W."""
 SCALES = (1.0, 0.9, 1.1, 1.2)
 """Peak-power scales of a workload's inputs; the first is the case's own launch."""
 
 
 def launch(scale: float = 1.0) -> SechPulse:
     """Return the soliton's launch with its peak power scaled by `scale`."""
-    return SechPulse(wavelength=835e-9, width=_WIDTH, peak_power=scale * _PEAK)
+    return SechPulse(
+        wavelength=835e-9, width=SOLITON_WIDTH, peak_power=scale * SOLITON_PEAK
+    )
 
 
 def fibre(
     name: str, stop: float, itinerary: list[float], options: Record
 ) -> Simulation:
     """Build a session case's fibre to `stop`, saving at `itinerary`.
+
+    ``gnlse_soliton``'s fibre, launch and grid (``benchmarks.builders.soliton``) over
+    the case's length, with the case's statistics, step planes or schedule.
 
     Parameters
     ----------
@@ -88,16 +93,6 @@ def fibre(
     case = CASES[name]
     if case.builder != "session":
         raise SuiteError(f"session builder not implemented for {name}")
-    limits, trange = (500e-9, 2e-6), 4e-12
-    grid: dict[str, Any] = (
-        {"wavelength_limits": limits, "trange": trange}
-        if options["fft_size"] == "case"
-        else {
-            "grid": EnvelopeGrid.from_limits(
-                case.length, 835e-9, limits, trange, fft_size="pow2"
-            )
-        }
-    )
     extra: dict[str, Any] = {}
     if name.startswith("stats_period1"):
         extra["stats"] = StatsSpec(
@@ -114,23 +109,35 @@ def fibre(
         )
         # The in-stage collar is stable only up to 0.42 mm steps on this window.
         extra["absorber_scheme"] = "split_step"
-    return Simulation.from_gnlse(
-        _GAMMA,
-        case.length,
-        [0.0, 0.0, _BETA2],
-        wavelength=835e-9,
-        width=_WIDTH,
-        peak_power=_PEAK,
-        shape="sech",
-        raman=False,
-        shock=False,
-        noise=None,
-        precision=options["precision"],
-        backend=options["backend"],
-        save_planes=itinerary,
-        **grid,
-        **extra,
-    )
+    return soliton(case.length, options, save_planes=itinerary, **extra)
+
+
+class _Steps(NullReporter):
+    """Count one run's accepted and rejected attempts."""
+
+    def __init__(self) -> None:
+        self.accepted = self.rejected = 0
+
+    def step(self, z: float, dz: float, accepted: bool) -> None:
+        """Count an attempt."""
+        del z, dz
+        if accepted:
+            self.accepted += 1
+        else:
+            self.rejected += 1
+
+
+class _Watch(NullScanReporter):
+    """Watch each point a ``Local`` scan runs, counting its attempts."""
+
+    def __init__(self) -> None:
+        self.runs: list[_Steps] = []
+
+    def point_reporter(self, index: int) -> ProgressReporter | None:
+        """Return a fresh step counter for the point's run."""
+        del index
+        self.runs.append(_Steps())
+        return self.runs[-1]
 
 
 class Requests(NullReporter):
@@ -154,6 +161,18 @@ class Requests(NullReporter):
                 self._controller.request()
 
 
+def _finite_statistics(output: Mapping[str, Any]) -> bool | None:
+    """Whether a run's last plane's statistics are finite; ``None`` with none."""
+    values = [
+        np.asarray(value)[-1]
+        for key, value in output.items()
+        if key.startswith("stats/") and np.asarray(value).size
+    ]
+    if not values:
+        return None
+    return all(bool(np.all(np.isfinite(value))) for value in values)
+
+
 def repetition(
     workload: str, simulation: Simulation, scratch: Path, fields: str
 ) -> tuple[Record, np.ndarray | None]:
@@ -173,8 +192,10 @@ def repetition(
     Returns
     -------
     dict
-        Accepted and rejected steps where the outputs say (``None`` for a scan, whose
-        file keeps no step history), the position reached and the runs made.
+        Accepted and rejected steps summed over the runs, where they are watched
+        (``None`` for a group, whose ``Batch`` watches no point's run); whether the
+        last plane of every run is finite (its field, or for a field-free scan its
+        statistics); the position reached and the runs made.
     numpy.ndarray or None
         The last run's final field, or ``None`` for a scan.
     """
@@ -190,20 +211,38 @@ def repetition(
             rejected += int((~history).sum())
             z = float(output["z"][-1])
             final = output.plane_field(output.n_saved - 1, "fft")
-        runs = len(SCALES) - 1
-        return {"accepted": accepted, "rejected": rejected, "z": z, "runs": runs}, final
+        record: Record = {
+            "accepted": accepted,
+            "rejected": rejected,
+            "z": z,
+            "runs": len(SCALES) - 1,
+            "finite": final is not None and bool(np.all(np.isfinite(final))),
+        }
+        return record, final
     if workload not in ("scan", "group"):
         raise SuiteError(f"unknown workload {workload}")
+    watch = _Watch()
+    path = scratch / f"{workload}.h5"
     result = run_scan(
         Scan(f"sep47_{workload}", scale=list(SCALES)),
         lambda point: simulation.with_input(launch(float(point.values["scale"]))),  # pyright: ignore[reportArgumentType] - a scale variable
-        output=scratch / f"{workload}.h5",
+        output=path,
         executor=Batch(len(SCALES)) if workload == "group" else Local(),
         fields=fields,  # pyright: ignore[reportArgumentType] - a registry field retention
-        progress="none",
+        progress=watch,
     )
     status = result.status.tolist()
     if status != ["done"] * len(SCALES):
         raise SuiteError(f"the {workload}'s points ended {status}")
-    z = float(simulation.settings.save_planes[-1])
-    return {"accepted": None, "rejected": None, "z": z, "runs": len(SCALES)}, None
+    finite = [
+        _finite_statistics(read_point(path, index)) for index in range(len(SCALES))
+    ]
+    watched = len(watch.runs) == len(SCALES)
+    record = {
+        "accepted": sum(run.accepted for run in watch.runs) if watched else None,
+        "rejected": sum(run.rejected for run in watch.runs) if watched else None,
+        "z": float(simulation.settings.save_planes[-1]),
+        "runs": len(SCALES),
+        "finite": None if None in finite else all(finite),
+    }
+    return record, None

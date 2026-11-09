@@ -87,8 +87,12 @@ def plan_rows(  # noqa: PLR0913
             for stepper in steppers:
                 if stepper not in case.steppers:
                     skipped.append(
-                        f"{case.name} {stepper}: a fixed-step case runs its own "
-                        "schedule only"
+                        f"{case.name} {stepper}: "
+                        + (
+                            "a fixed-step case runs its own schedule only"
+                            if case.step is not None
+                            else "the case runs its own integrator only"
+                        )
                     )
                     continue
                 if backend == "mlx" and (refusal := mlx_refusal(case, stepper)):

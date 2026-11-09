@@ -164,8 +164,11 @@ def summarise(
     """Reduce one worker's receipt to the tracked statistics.
 
     A row is consistent when its repeats took the same steps and reached the same
-    final field to rounding, and the native backend ran the threads it was given.
-    A device row's width is ``device``: its host threads do not set its pace.
+    final field to rounding, its last repeat's field (or, field-free, its
+    statistics) is finite, and the native backend ran the threads it was given. A
+    repeat that counted no steps or kept nothing to compare leaves the row unchecked,
+    which is not consistent. A device row's width is ``device``: its host threads do
+    not set its pace.
     """
     values = row["configuration"]
     device = bool(values.get("device"))
@@ -186,7 +189,11 @@ def summarise(
     last = result["repetitions"][-1]
     build = (result.get("provenance") or {}).get("build_info") or {}
     native_threads = build.get("runtime_threads")
-    same_steps = len({(r["accepted"], r["rejected"]) for r in result["repetitions"]})
+    steps = {(r["accepted"], r["rejected"]) for r in result["repetitions"]}
+    # A repetition that counted no steps, or kept no field to compare or check, is
+    # unchecked: no evidence of consistency, never a pass.
+    same_steps = None if any(None in pair for pair in steps) else len(steps) == 1
+    difference = result["repeat_difference"]
     return {
         **base,
         "median_s": statistics.median(times),
@@ -195,11 +202,13 @@ def summarise(
         "repeats": len(times),
         "accepted": last["accepted"],
         "rejected": last["rejected"],
-        "same_steps": same_steps == 1,
+        "same_steps": same_steps,
         "repeat_difference": result["repeat_difference"],
         "native_threads": native_threads,
-        "consistent": same_steps == 1
-        and result["repeat_difference"] <= REPEAT_TOLERANCE
+        "consistent": same_steps is True
+        and difference is not None
+        and difference <= REPEAT_TOLERANCE
+        and result["finite"] is True
         and (device or native_threads in (None, values["threads"])),
         "source_evaluations": last["source_evaluations"],
         "peak_rss_gib": result["peak_rss_bytes"] / 2**30,
