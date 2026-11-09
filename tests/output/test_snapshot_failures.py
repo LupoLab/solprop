@@ -329,6 +329,10 @@ def test_missing_backend_history_stops_clearly(working):
     keeper = object.__new__(_MarchKeeper)
     keeper._kept_z = None
     keeper._policy = None
+    keeper._method = "adams"
+    keeper._over_limit = keeper._within_limit = False
+    keeper._decision = None
+    keeper._refusal = lambda: None
     keeper._save = None
     with pytest.raises(OutputError, match="backend and output"):
         keeper.keep(0.125, required=True)
@@ -337,6 +341,12 @@ def test_missing_backend_history_stops_clearly(working):
     keeper._snapshot_nbytes = lambda z: None
     with pytest.raises(OutputError, match="accepted endpoint"):
         keeper.keep(0.125, required=True)
+    # Each refusal is recorded as what was persisted there.
+    assert keeper.record() == {
+        "state": "omitted",
+        "reason": "unavailable_history",
+        "z": 0.125,
+    }
 
 
 def test_snapshot_admission_rejects_invalid_controller_and_batch(working):

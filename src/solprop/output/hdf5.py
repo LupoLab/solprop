@@ -1256,8 +1256,10 @@ class HDF5Output(PlaneStore):
         self._outcome = _read_outcome(file)
         self._resume_outcome_pending = self._append_mode and self._outcome is not None
         self._terminal_checkpoint = _read_checkpoint(file, metadata)
-        self._checkpoint_pending = (
-            self._append_mode and self._terminal_checkpoint is not None
+        self._carried = (
+            self._terminal_checkpoint.plane
+            if self._append_mode and self._terminal_checkpoint is not None
+            else None
         )
         if "z" not in file:
             return
@@ -2173,8 +2175,10 @@ def resume(path: Path | str | Output) -> ResumeState:
     The last plane comes back in the **internal** FFT convention, through
     :func:`solprop.fourier.spectrum_to_internal`, so a driver can hand it straight to a
     backend without conjugating anything itself.
-    A separate terminal checkpoint contributes no regular observation but supplies
-    its actual position, pending attempt history and cumulative call ledgers.
+    A separate terminal checkpoint, or a running checkpoint written between saved
+    planes beside a ``running`` outcome at its position (SEP 47 section 5.5),
+    contributes no regular observation but supplies its actual position, pending
+    attempt history and cumulative call ledgers.
     Reading preserves its landing classification; the driver requires explicit
     ``resume="interpolated"`` consent before restarting from an interpolated field.
 

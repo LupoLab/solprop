@@ -527,8 +527,10 @@ function. The default, `None`, leaves the run unchanged. This is an execution po
 outside the scientific configuration hash; `SimulationRunner`'s restriction on
 reusing TDSE across inputs still applies.
 
-A snapshot requires an unbatched HDF5 run with `step_planes=1`,
-`fields="all"` and `interpolate_planes=False`. Adams runs must allow retained
+A snapshot requires an unbatched HDF5 run with `fields="all"` and
+`interpolate_planes=False`; it no longer needs `step_planes`
+([SEP 47](../../dev/seps/sep-0047-run-ownership.md)). Interpolated output stays
+refused until a snapshot can first commit the planes its step crossed. Adams runs must allow retained
 history: explicit `resume_history=False` is refused, and a requested snapshot keeps
 history even above the automatic retention-size cutoff. Every backend's Adams history
 is supported, the native backend's resident one included: its engine copies the
@@ -537,9 +539,13 @@ injection and fresh-process resumes on NumPy, on native CPU Adams and
 Runge–Kutta runs and on short native TDSE windows; resuming a haCC snapshot in a fresh
 process has not been qualified.
 
-A request is serviced after an accepted endpoint, its archive trial decision,
-optical observation, march state and cumulative execution record have committed.
-It neither adds a save landing nor performs another observation or atomic evaluation,
+A request is serviced at the next accepted endpoint, after its archive trial
+decision, optical observation, march state and cumulative execution record have
+committed. Where no plane is saved there, the endpoint's field is written as a
+*running checkpoint*: the existing terminal-checkpoint record, beside a `running`
+outcome at the same position, holding the attempts and periodic rows since the last
+plane without taking them from it; the next saved plane still receives them and
+supersedes the checkpoint. A snapshot adds no save landing and no atomic evaluation,
 and it does not change adaptive stepping. A request at the final endpoint still
 records `running`; completion is recorded only when the live run finishes.
 
@@ -562,7 +568,6 @@ simulation = Simulation.from_gnlse(
     width=100e-15,
     peak_power=9.8,
     shape="sech",
-    step_planes=1,
     dz_init=1e-4,
     dz_max=1e-4,
 )

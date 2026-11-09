@@ -529,6 +529,20 @@ class DriverSession:
         self._driver.request_halt()  # pyright: ignore[reportAttributeAccessIssue]
         return SnapshotReceipt(self._snapshot_pending, coalesced=False)
 
+    def continue_monitor(self, continuation: Mapping[str, object]) -> None:
+        """Continue a resumed run's boundary-monitor record, before it is attached.
+
+        For a caller that loaded the driver itself (``start=None``) and so could not
+        pass the continuation in :class:`~solprop.backends.session.Start`.
+
+        Parameters
+        ----------
+        continuation : collections.abc.Mapping
+            As :attr:`solprop.backends.session.Start.monitor`.
+        """
+        assert not self._attached  # the monitor is restored before it watches
+        self._monitor_resume = continuation
+
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
         """Return the method history at a pending observation, when the march has one.
 

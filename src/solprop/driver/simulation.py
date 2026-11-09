@@ -109,9 +109,11 @@ from solprop.driver.mixtures import (
     mixture_profiles,
 )
 from solprop.driver.run import (
+    RESTART_RECORD,
     check_snapshot_request,
     field_retention,
     open_run_record,
+    retention_at,
     run_problem,
 )
 from solprop.exceptions import (
@@ -3525,9 +3527,10 @@ class Simulation(Displayed):
             neither the propagation nor the call ledger.
         snapshots : solprop.output.SnapshotController or None, optional
             Publish immutable local checkpoints without rebuilding the backend or
-            atomic provider. Requires HDF5, ``step_planes=1``, ``fields='all'``
-            and no interpolated output. Adams history cannot be explicitly disabled.
-            A configured archive is copied together with the optical file.
+            atomic provider, each at the next accepted endpoint. Requires HDF5,
+            ``fields='all'`` and no interpolated output. Adams history cannot be
+            explicitly disabled. A configured archive is copied together with the
+            optical file.
         stop : object or None, optional
             This run's own stop flag: any object with an ``is_set()`` method, such as
             a :class:`threading.Event` (SEP 41, S17). It is polled before the first
@@ -3585,7 +3588,7 @@ class Simulation(Displayed):
             stop=stop,
         )
 
-    def _run(  # noqa: PLR0913 - run's controls, and the backend it may be handed
+    def _run(  # noqa: PLR0913, PLR0915 - run's controls, and the backend it may be handed
         self,
         output: Output | Path | str | None = None,
         *,
@@ -3693,8 +3696,13 @@ class Simulation(Displayed):
                     profiles=self.profiles,
                     tdse_binding=binding,
                 )
+                restoration: dict[str, object] = {}
                 start_plane = self._prime(
-                    backend, problem, state, kept=kept is not None
+                    backend,
+                    problem,
+                    state,
+                    kept=kept is not None,
+                    restoration=restoration,
                 )
                 self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
@@ -3715,6 +3723,7 @@ class Simulation(Displayed):
                     boundary_monitor=self._boundary_monitor(),
                     stop=stop,
                     recipe=None if self._recipe is None else self._recipe.record(self),
+                    restoration=restoration or None,
                 )
             except StopRequested as error:
                 failure = error
@@ -4060,6 +4069,7 @@ class Simulation(Displayed):
         state: ResumeState | None,
         *,
         kept: bool = False,
+        restoration: dict[str, object] | None = None,
     ) -> int:
         """Load the backend with the state the run starts from, and say where that is.
 
@@ -4075,6 +4085,9 @@ class Simulation(Displayed):
         kept : bool, optional
             Whether the backend was built for another input, so that the noise of
             this one has to be handed to it.
+        restoration : dict or None, optional
+            Filled, on a resume, with what was restored of the method history
+            (:meth:`_continue_march`), for the resumed execution record.
 
         Returns
         -------
@@ -4107,15 +4120,32 @@ class Simulation(Displayed):
             backend.restore_call_ledgers(
                 state.outcome.logical_calls, state.outcome.atomic_calls
             )
-        self._continue_march(
-            backend, state, adams=isinstance(problem.stepper.integrator, Multistep)
+        integrator = problem.stepper.integrator
+        record = self._continue_march(
+            backend,
+            state,
+            adams=isinstance(integrator, Multistep),
+            low_storage=isinstance(integrator, LowStorageRungeKutta),
         )
+        if restoration is not None:
+            restoration.update(record)
         return next_plane
 
-    def _continue_march(
-        self, backend: Backend, state: ResumeState, *, adams: bool = True
-    ) -> None:
+    def _continue_march(  # noqa: PLR0911 - one return per restoration
+        self,
+        backend: Backend,
+        state: ResumeState,
+        *,
+        adams: bool = True,
+        low_storage: bool = False,
+    ) -> dict[str, object]:
         """Continue the Adams history from the file's snapshot, where one fits.
+
+        Says what was restored, for the resumed execution record (SEP 47 section
+        5.5), and warns once when an Adams history the run expected is not restored:
+        omitted by the automatic size limit, or kept but not installable here. A
+        history set aside on request (``resume_history=False``) is recorded without a
+        warning.
 
         Parameters
         ----------
@@ -4126,15 +4156,48 @@ class Simulation(Displayed):
         adams : bool, optional
             Whether this run steps with an Adams method. Another integrator keeps no
             history, by its own choice, which needs no warning.
+        low_storage : bool, optional
+            Whether this run steps with the low-storage march, which keeps none at
+            all; a Runge-Kutta march resets its proposal and norm memory.
+
+        Returns
+        -------
+        dict
+            ``"state"`` (``"restored"``, ``"reset"`` or ``"not_applicable"``),
+            ``"reason"`` and ``"z"``, m; for an Adams method also ``"retention"``, what
+            the file states it kept there, ``{"state": "unknown"}`` where it states
+            nothing.
         """
+        z = state.plane.z
+        if low_storage:
+            return {"state": "not_applicable", "reason": "no_method_history", "z": z}
+        if not adams:
+            # The proposal and the norm memory start afresh (issue #596).
+            return {"state": "reset", "reason": "unsupported_method", "z": z}
+        execution = None if state.outcome is None else state.outcome.execution
+        recorded = retention_at(execution, z)
+        retention: dict[str, object] = (
+            dict(recorded)
+            if recorded is not None
+            else {
+                "state": "unknown",
+                # A file from before the restart record, or one that states nothing
+                # at this position: never an invented reason.
+                "reason": "legacy"
+                if execution is None or RESTART_RECORD not in execution
+                else "not_recorded",
+            }
+        )
+
+        def reset(reason: str) -> dict[str, object]:
+            return {"state": "reset", "reason": reason, "z": z, "retention": retention}
+
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
-            return
+            return reset("explicit_policy")
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
-        if not adams:
-            return
         refusal = backend.march_export_refusal()
         if refusal is not None:
             warnings.warn(
@@ -4142,9 +4205,9 @@ class Simulation(Displayed):
                 SolpropWarning,
                 stacklevel=2,
             )
-            return
+            return reset("incompatible_representation")
         if state.march is None:
-            return
+            return self._missing_history(retention, reset)
         reason = backend.restore_march(state.march)
         if reason is None:
             logger.info(
@@ -4152,15 +4215,79 @@ class Simulation(Displayed):
                 state.march.order,
                 len(state.march.identities),
             )
-        else:
-            # Asked to continue a history this backend cannot install (another
-            # engine's rows, another build's shapes): the run is still correct to the
-            # integrator's tolerance, but it does less than was asked, so say so.
+            return {
+                "state": "restored",
+                "reason": "retained_history",
+                "z": z,
+                "retention": retention,
+            }
+        # Asked to continue a history this backend cannot install (another
+        # engine's rows, another build's shapes): the run is still correct to the
+        # integrator's tolerance, but it does less than was asked, so say so.
+        warnings.warn(
+            f"the Adams history starts afresh: {reason}",
+            SolpropWarning,
+            stacklevel=2,
+        )
+        return reset("incompatible_representation")
+
+    @staticmethod
+    def _missing_history(
+        retention: Mapping[str, object],
+        reset: Callable[[str], dict[str, object]],
+    ) -> dict[str, object]:
+        """Record, and warn about, an Adams resume whose file holds no history.
+
+        Parameters
+        ----------
+        retention : collections.abc.Mapping
+            What the file states it kept at the resume position.
+        reset : callable
+            Builds the reset record for a reason.
+
+        Returns
+        -------
+        dict
+            The restoration record.
+        """
+        kept, why = retention.get("state"), retention.get("reason")
+        if kept == "omitted" and why == "automatic_size_limit":
+            size = retention.get("nbytes")
+            limit = retention.get("limit")
             warnings.warn(
-                f"the Adams history starts afresh: {reason}",
+                "the Adams history starts afresh: the run did not keep it for a "
+                "resume, "
+                + ("" if size is None else f"{size} bytes being ")
+                + "over the "
+                + ("automatic limit" if limit is None else f"{limit} bytes")
+                + " kept by default (resume_history=True keeps it)",
                 SolpropWarning,
-                stacklevel=2,
+                stacklevel=3,
             )
+            return reset("automatic_size_limit")
+        if kept == "retained" or (
+            kept == "omitted" and why == "incompatible_representation"
+        ):
+            warnings.warn(
+                "the Adams history starts afresh: the file "
+                + (
+                    "kept it here, but it cannot be read back"
+                    if kept == "retained"
+                    else "could not keep it: the run's engine does not export it"
+                ),
+                SolpropWarning,
+                stacklevel=3,
+            )
+            return reset(
+                "unavailable_history"
+                if kept == "retained"
+                else "incompatible_representation"
+            )
+        if kept == "omitted" and why == "explicit_policy":
+            return reset("explicit_policy")
+        # Nothing to continue (a position the march held no history at), or a file
+        # that does not say: as before, the history starts afresh without a warning.
+        return reset("unavailable_history")
 
     @classmethod
     @_one_material_context
