@@ -195,7 +195,8 @@ def _verify_tdse_generation(generation, destination, run_uuid, startup, caplog):
         == info.files.tdse_archive.path.read_bytes()
     )
     caplog.clear()
-    with caplog.at_level("INFO", logger="solprop.driver.simulation"):
+    # The resume decides in the simulation; the run's session installs the history.
+    with caplog.at_level("INFO", logger="solprop.driver"):
         _run(
             _simulation(),
             restored.output,
@@ -489,7 +490,7 @@ def test_native_adams_snapshots_carry_the_resident_history(tmp_path, caplog):
         files = restore_snapshot(generation, tmp_path / f"restore-{index}")
         march = resume(files.output).march
         assert march is not None and march.rows["store"].any()
-        with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+        with caplog.at_level(logging.INFO, logger="solprop.driver"):
             final = _run(adams(), files.output, resume=True)
         assert "the Adams history starts afresh" not in caplog.text
         assert isinstance(final, HDF5Output)

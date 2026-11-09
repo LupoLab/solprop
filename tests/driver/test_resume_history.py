@@ -187,7 +187,7 @@ def test_a_resumed_run_is_the_uninterrupted_one(
     state = resume(part)
     assert state.march is not None
     assert state.march.z == state.plane.z
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     # The snapshot was taken up: the history continued rather than restarting.
     assert AFRESH not in caplog.text
@@ -230,7 +230,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
     with open_file(whole) as first:
         assert state.march.z not in np.asarray(first["z"]).tolist()
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text
     assert_accurate_run(whole, part, reference)
@@ -391,7 +391,7 @@ def test_native_keeps_its_history_resident_and_continues_it(
     run_until(build(), path, after=2)
     march = resume(path).march
     assert march is not None and set(march.rows) == {"store"}
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(path, resume=True, progress="none")
     assert AFRESH not in caplog.text
     with open_file(path) as stored:
@@ -529,7 +529,7 @@ def test_a_kept_history_is_set_aside_on_request(build_simulation, tmp_path, capl
     run_until(soliton(build_simulation, "numpy_ref")(), part, after=2)
     assert resume(part).march is not None
     afresh = soliton(build_simulation, "numpy_ref", resume_history=False)()
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         afresh.run(part, resume=True, progress="none")
     assert "the Adams history starts afresh: resume_history=False" in caplog.text
     found, truth = fields(part)[1], fields(whole)[1]

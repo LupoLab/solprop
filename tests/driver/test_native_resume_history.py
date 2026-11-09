@@ -288,7 +288,8 @@ def test_a_resumed_native_run_is_the_uninterrupted_one(
     state = resume(part)
     assert state.march is not None
     assert set(state.march.rows) == ROWS[case]
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    # The resume decides in the simulation; the run's session installs the history.
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text
     assert "continuing the Adams history" in caplog.text
@@ -335,7 +336,7 @@ def test_a_native_run_stopped_between_planes_continues_from_its_checkpoint(
     state = resume(part)
     assert state.checkpoint is not None
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text
     assert_accurate_run(whole, part, reference)
