@@ -18,7 +18,9 @@ fine samples for responses, rows * inner * samples for dense products, active bi
 modes^3 for matrix functions, elements * history rows for the exponential Adams
 trial's passes, and actual real-side batch samples for FFT and Raman plans (tails
 included). Below an operation's threshold it runs on one thread, below its full size
-on the medium width, and from it on its pool's capacity. solprop's
+on the medium width, and from it on its pool's capacity; a batch of transforms whose
+row length is known threads instead by its rows (``ExecutionRecord.fft_thread_elements``
+and ``fft_long_row``, solprop issue #587). solprop's
 ``docs/dev/benchmarks.md``, section "Kokkos CPU operation-size threading", records the
 windows and sweeps behind each built-in value; ``docs/dev/cpu-performance.md`` gives
 the table's provenance.

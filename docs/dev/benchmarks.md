@@ -2967,7 +2967,7 @@ partial chunk.
 | General-modal synthesis/projection/maps | 65,536 | 65,536 | none |
 | Coupled matrix functions | 32,768 | 32,768 | none |
 | Exponential Adams trial passes | 8,192 | 65,536 | up to four threads |
-| Modal/spatial FFT | 32,768 | 131,072 | up to four threads |
+| Modal/spatial FFT | 8,192 (macOS 32,768) | 4,194,304 | by shape: a thread per 4,096 samples (macOS 32,768), at most one a row; rows of 16,384 samples (macOS 65,536) or more split up to four threads ([transforms by shape](#transforms-by-shape-and-one-forward-pack)) |
 | Raman FFT | 65,536 | 262,144 | up to four threads |
 
 A response column is one active node and one component. Every width is capped by the

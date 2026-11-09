@@ -124,7 +124,10 @@ def test_transforms_thread_by_rows_and_row_length() -> None:
 
 def test_the_transforms_shape_settings_are_moved_where_they_change_a_width() -> None:
     transforms = {
-        "a": [Operation("fft", "fft", 40960, 10240), Operation("fft", "fft", 36992, 128)]
+        "a": [
+            Operation("fft", "fft", 40960, 10240),
+            Operation("fft", "fft", 36992, 128),
+        ]
     }
     names = [c.name for c in proposals(TABLE, transforms, 18) if c.setting == "fft"]
     # The full size is a backstop and is not moved, and neither long row changes a
