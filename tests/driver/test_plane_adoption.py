@@ -313,9 +313,12 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend,
     )
     try:
         session.acknowledge(session.advance().receipt)  # the launch plane
-        batch = session.advance()
-        event = batch.events[-1]
-        assert isinstance(event, ObservationReady)
+        while True:  # past any bounded yield's progress batch
+            batch = session.advance()
+            event = batch.events[-1]
+            if isinstance(event, ObservationReady):
+                break
+            session.acknowledge(batch.receipt)
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
         owned = backend == "native"
         assert seen[-1].field_owned is owned

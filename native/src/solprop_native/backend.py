@@ -3095,6 +3095,8 @@ class _NativeAdamsMarch(AdamsMarch):
             ):
                 if self._call(target, slack):
                     return
+                # A bounded yield due between calls returns after the next step.
+                backend.poll_halt()
             if backend._z < target - slack:
                 msg = (
                     f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "
@@ -3105,6 +3107,8 @@ class _NativeAdamsMarch(AdamsMarch):
         while not reached(backend._z, target):
             if self._call(target):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if self._interpolate and backend._z > target:
             self._ahead = (backend._z, self._engine.hold())
             backend._state = cast("Any", self._observe(target))
@@ -3550,6 +3554,8 @@ class _NativeRungeKuttaMarch:
         while not reached(backend._z, target):
             if self._call(target):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if dense and not reached(target, backend._z):
             backend._observe_inside(target)
 
@@ -3582,6 +3588,8 @@ class _NativeRungeKuttaMarch:
         ):
             if self._call(target, slack):
                 return
+            # A bounded yield due between calls returns after the next step.
+            backend.poll_halt()
         if backend._z < target - slack:
             msg = (
                 f"the replayed schedule ends at {float(schedule.z_end):.6g} m and "

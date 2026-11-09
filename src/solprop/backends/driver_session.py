@@ -19,6 +19,7 @@ milestone; nothing outside the session machinery constructs it directly.
 from __future__ import annotations
 
 import dataclasses
+import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
@@ -139,6 +140,27 @@ class _Attempts(NullReporter):
         del z, summary
 
 
+def _hook(driver: object, name: str, *arguments: object) -> None:
+    """Call a driver's halt hook when it has one.
+
+    The halt latch and the yield check belong to the inherited
+    :class:`~solprop.backends.driver.StepDriver`; a driver written to the bare
+    protocol (a test double) has neither, and then runs whole planes.
+
+    Parameters
+    ----------
+    driver : object
+        The driver.
+    name : str
+        The hook's name.
+    *arguments : object
+        Its arguments.
+    """
+    hook = getattr(driver, name, None)
+    if hook is not None:
+        hook(*arguments)
+
+
 def _strip(values: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Drop the leading batch axis a driver's plane statistics carry.
 
@@ -225,6 +247,10 @@ def _joined(first: Observation | None, second: Observation) -> Observation:
     )
 
 
+_EMPTY_HISTORY = BackendHistory(
+    np.empty(0), np.empty(0), np.empty(0), np.empty(0, dtype=np.bool_), np.empty(0)
+)
+
 _EMPTY_SUMMARY = StepSummary(
     z=0.0,
     n_steps=0,
@@ -295,13 +321,21 @@ class DriverSession:
         self._attempts = 0
         self._rejected = 0
         self._stepped = False
+        self._summary: StepSummary | None = None
         self._held: Observation | None = None
         self._snapshot_requests = 0
         self._snapshot_pending: int | None = None
         self._observed: Observation | None = None
         self._observed_generation = -1
         self._converted: ExportRecipe | None = None
-        driver.set_progress(_Attempts(listener, started))
+        self._listened = 0
+
+        def counted(z: float, dz: float, accepted: bool) -> None:
+            self._listened += 1
+            if listener is not None:
+                listener(z, dz, accepted)
+
+        driver.set_progress(_Attempts(counted, started))
         driver.set_stop(stop)
         if start is None:
             return
@@ -376,23 +410,24 @@ class DriverSession:
     ) -> EventBatch:
         """Run to the next barrier and report it.
 
-        The inherited driver runs whole planes, so a batch ends at the next observation,
-        snapshot or terminal outcome; `work_limit` and `deadline` are accepted for the
-        protocol and the driver's own bounded native calls keep signals deliverable.
+        A batch ends at the next observation, snapshot or terminal outcome, or at a
+        bounded yield: once `work_limit` attempts are made or `deadline` has passed,
+        the march returns at its next accepted endpoint (a native march after its next
+        call and one step), exactly as at a natural stop, and the batch reports only
+        progress. Nothing numerical depends on where a yield falls.
 
         Parameters
         ----------
         work_limit : int, optional
-            Attempts before a yield; not used by the inherited driver.
+            Attempts before a yield.
         deadline : float, optional
-            Host seconds before a yield, s; not used by the inherited driver.
+            Host seconds before a yield, s.
 
         Returns
         -------
         solprop.backends.events.EventBatch
             The events, ending at a barrier.
         """
-        del work_limit, deadline
         self._ledger.check_advance()
         if self._launch_pending:
             self._launch_pending = False
@@ -404,20 +439,39 @@ class DriverSession:
         if self._index >= self._planes.size:
             return self._complete()
         target = float(self._planes[self._index])
+        started = time.perf_counter()
+        limit = self._listened + max(int(work_limit), 1)
+
+        def due() -> bool:
+            return self._listened >= limit or time.perf_counter() - started >= deadline
+
+        _hook(self._driver, "set_halt_check", due)
         try:
-            summary = self._driver.propagate_to(target)
+            step = self._driver.propagate_to(target)
         except StopRequested as error:
             return self._terminal(Outcome.STOPPED, error)
         except Exception as error:
             return self._terminal(Outcome.FAILED, error)
-        self._account(summary)
-        reached_target = bool(np.isclose(summary.z, target, rtol=1e-12, atol=0.0))
+        finally:
+            _hook(self._driver, "set_halt_check", None)
+        self._account(step)
+        summary = self._summary_so_far(step)
+        if self._snapshot_pending is None and not self._driver_halted():
+            # A yield latched between native calls that the target came first.
+            _hook(self._driver, "clear_halt")
+        reached_target = bool(np.isclose(step.z, target, rtol=1e-12, atol=0.0))
         if reached_target:
             plane = self._index
             self._index += 1
+            self._summary = None
             return self._observation(ObservationKind.PLANE, plane, summary)
-        if self._snapshot_pending is not None and self._driver_halted():
-            return self._snapshot(summary)
+        if self._driver_halted():
+            if self._snapshot_pending is not None:
+                return self._snapshot(step)
+            # A bounded yield: no barrier, only progress; the plane goes on next time.
+            _hook(self._driver, "clear_halt")
+            return self._issue([Progress(self._z, _EMPTY_HISTORY)])
+        self._summary = None
         return self._observation(
             ObservationKind.STEP
             if self._request.observation.step_planes
@@ -555,7 +609,7 @@ class DriverSession:
             return SnapshotReceipt(self._snapshot_pending, coalesced=True)
         self._snapshot_requests += 1
         self._snapshot_pending = self._snapshot_requests
-        self._driver.request_halt()  # pyright: ignore[reportAttributeAccessIssue]
+        _hook(self._driver, "request_halt")
         return SnapshotReceipt(self._snapshot_pending, coalesced=False)
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
@@ -710,6 +764,43 @@ class DriverSession:
         self._rejected += summary.n_rejected
         self._generation += 1
 
+    def _summary_so_far(self, step: StepSummary) -> StepSummary:
+        """Merge a propagation's summary with the yields before it on the same plane.
+
+        Parameters
+        ----------
+        step : solprop.backends.protocol.StepSummary
+            The latest propagation.
+
+        Returns
+        -------
+        solprop.backends.protocol.StepSummary
+            The summary of the plane so far.
+        """
+        before = self._summary
+        if before is None:
+            merged = step
+        else:
+            accepted_before = before.n_steps - before.n_rejected
+            accepted_now = step.n_steps - step.n_rejected
+            accepted = accepted_before + accepted_now
+            merged = StepSummary(
+                z=step.z,
+                n_steps=before.n_steps + step.n_steps,
+                n_rejected=before.n_rejected + step.n_rejected,
+                max_norm=max(before.max_norm, step.max_norm),
+                mean_norm=0.0
+                if accepted == 0
+                else (
+                    before.mean_norm * accepted_before + step.mean_norm * accepted_now
+                )
+                / accepted,
+                wall_time=before.wall_time + step.wall_time,
+                met_tolerance=before.met_tolerance and step.met_tolerance,
+            )
+        self._summary = merged
+        return merged
+
     def _at_endpoint(self) -> bool:
         """Return whether the driver stands at an accepted endpoint.
 
@@ -730,7 +821,7 @@ class DriverSession:
         bool
             True while the latch is set and the driver did not reach its target.
         """
-        return bool(getattr(self._driver, "_halt_requested", False))
+        return bool(getattr(self._driver, "_halted", False))
 
     def _issue(
         self, events: list[Event], *, outcome: Outcome | None = None
@@ -827,7 +918,7 @@ class DriverSession:
         """
         drained = self._driver.observe(field=False)
         self._held = _joined(self._held, drained)
-        self._driver.clear_halt()  # pyright: ignore[reportAttributeAccessIssue]
+        _hook(self._driver, "clear_halt")
         self._snapshot_pending = None
         events: list[Event] = []
         if summary is not None:

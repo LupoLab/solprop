@@ -228,6 +228,7 @@ class _Harness(StepDriver):
         self._dense_ahead = None
         self._natural_count = 0
         self._halt_requested = False
+        self._halt_check = None
         self._natural_due = False
         self._schedule_index = 0
         self._state: object = "state"

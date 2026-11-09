@@ -388,6 +388,8 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._natural_count = 0
         self._natural_due = False
         self._halt_requested = False
+        self._halt_check: Callable[[], bool] | None = None
+        self._halted = False
         self._history: list[tuple[float, float, float, bool, float]] = []
         self._clock = time.perf_counter()
         self._progress: ProgressReporter = NullReporter()
@@ -1265,6 +1267,7 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._natural_count = 0
         self._natural_due = False
         self._halt_requested = False
+        self._halt_check = None
         self._clock = time.perf_counter()
         # A resume is a second run for a reporter's purposes: it starts from a different
         # z and its own clock, so the next plane announces itself afresh.
@@ -1380,8 +1383,12 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         first = len(self._history)
         # Beside `_begin_plane` and not inside it: neither backend's override calls
         # `super()`, so a base-class body there would silently do nothing.
-        self._reset_step_stats(release=False)
-        self._begin_plane()
+        if not self._halted:
+            # A call resuming after a halt short of its target continues the same
+            # plane: its rows and per-plane latches carry on (SEP 47 section 5.1).
+            self._reset_step_stats(release=False)
+            self._begin_plane()
+        self._halted = False
         schedule = self._problem.stepper.schedule
         if self._low_storage is not None:
             # The low-storage march replays only (SEP 24); the translation refused
@@ -1422,7 +1429,9 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             if isinstance(self._problem.stepper.integrator, LowStorageRungeKutta)
             else f"{record.tolerance_ratio:.3e}",
         )
-        self._monitor_plane()
+        if not self._halted:
+            # A halt short of the target is no plane (SEP 47): no plane check there.
+            self._monitor_plane()
         return StepSummary(
             z=self._z,
             n_steps=len(taken),
@@ -1837,8 +1846,29 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         """Withdraw a halt requested with :meth:`request_halt`, once it is serviced."""
         self._halt_requested = False
 
+    def set_halt_check(self, check: Callable[[], bool] | None) -> None:
+        """Ask `check` at every accepted endpoint whether to halt there.
+
+        The execution session's bounded yield (SEP 47 section 5.1): when `check`
+        returns True the halt latch of :meth:`request_halt` is set, so the march
+        returns at that endpoint (a native march at the end of its next step). It is
+        asked only at safe boundaries and changes nothing the march computes.
+
+        Parameters
+        ----------
+        check : callable or None
+            Returns whether a yield is due; ``None`` asks nothing.
+        """
+        self._halt_check = check
+
+    def poll_halt(self) -> None:
+        """Latch a halt when the yield check says one is due, between native calls."""
+        check = self._halt_check
+        if check is not None and not self._halt_requested and check():
+            self._halt_requested = True
+
     def _halted_short(self, target: float) -> bool:
-        """Return whether a requested halt stops the march here, short of `target`.
+        """Return whether a halt stops the march here, short of `target`.
 
         Parameters
         ----------
@@ -1848,9 +1878,15 @@ class StepDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         bool
-            True when a halt is requested and the endpoint is short of `target`.
+            True when a halt is requested or the yield check asks for one, and the
+            endpoint is short of `target`.
         """
-        return self._halt_requested and not reached(self._z, target)
+        if reached(self._z, target):
+            return False
+        self.poll_halt()
+        if self._halt_requested:
+            self._halted = True
+        return self._halt_requested
 
     def _natural_stop_due(self, target: float) -> bool:
         """Return whether a step to save ends before `target`, with the march there.
