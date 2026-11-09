@@ -9,7 +9,9 @@ from __future__ import annotations
 import json
 import logging
 import threading
+from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 
 import pytest
 from conftest import PhaseACase
@@ -253,8 +255,24 @@ def measured(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Path:
     return path
 
 
-def _planning(backend: NativeBackend) -> dict[str, object]:
-    return backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+@dataclass(frozen=True)
+class _Planned:
+    """What a workspace's planning did with its plans."""
+
+    measured: dict[str, str]
+    reused: list[str]
+    groups: dict[str, str]
+    missing: list[str]
+
+
+def _planning(backend: NativeBackend) -> _Planned:
+    found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]
+    return _Planned(
+        measured=cast(dict[str, str], found.measured),
+        reused=cast(list[str], found.reused),
+        groups=cast(dict[str, str], found.groups),
+        missing=cast(list[str], found.missing),
+    )
 
 
 def test_a_second_run_of_a_shape_plans_without_measuring(
@@ -267,10 +285,10 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
         found = _planning(first)
         assert metadata["wisdom_loaded"] is False
         assert isinstance(metadata["wisdom_digest"], str)
-        assert found["measured"]
-        assert found["reused"] == []
+        assert found.measured
+        assert found.reused == []
         kept = _plans(measured)
-        assert kept == found["measured"]
+        assert kept == found.measured
     finally:
         first.close()
     # A new process: nothing of this one's plans in memory or in FFTW.
@@ -283,8 +301,8 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
         found = _planning(second)
         assert metadata["wisdom_loaded"] is True
         assert metadata["wisdom_digest"] is not None
-        assert found["measured"] == {}
-        assert set(found["reused"]) == set(kept)
+        assert found.measured == {}
+        assert set(found.reused) == set(kept)
     finally:
         second.close()
     assert _plans(measured) == kept
@@ -298,13 +316,13 @@ def test_off_still_reuses_a_processs_own_plans(
     assert _wisdom.wisdom_file() is None  # the tests run under off
     first = NativeBackend(problem, grid=grid)
     try:
-        assert _planning(first)["measured"]
+        assert _planning(first).measured
     finally:
         first.close()
     second = NativeBackend(problem, grid=grid)
     try:
-        assert _planning(second)["measured"] == {}
-        assert _planning(second)["reused"]
+        assert _planning(second).measured == {}
+        assert _planning(second).reused
         assert second.metadata()["wisdom_loaded"] is False
     finally:
         second.close()
@@ -317,7 +335,7 @@ def test_a_profiles_winner_takes_precedence_over_stored_plans(
     problem, grid = phase_a_case
     first = NativeBackend(problem, grid=grid)
     try:
-        kept = dict(_planning(first)["measured"])  # pyright: ignore[reportArgumentType]
+        kept = dict(_planning(first).measured)
     finally:
         first.close()
     winner, *others = sorted(kept)
@@ -342,11 +360,11 @@ def test_a_profiles_winner_takes_precedence_over_stored_plans(
     second = NativeBackend(problem, grid=grid)
     try:
         found = _planning(second)
-        assert found["missing"] == []
-        assert winner in found["groups"]  # pyright: ignore[reportOperatorIssue]
-        assert winner not in found["reused"]  # pyright: ignore[reportOperatorIssue]
-        assert found["measured"] == {}
-        assert set(found["reused"]) == set(others)  # pyright: ignore[reportArgumentType]
+        assert found.missing == []
+        assert winner in found.groups
+        assert winner not in found.reused
+        assert found.measured == {}
+        assert set(found.reused) == set(others)
     finally:
         second.close()
     assert sorted(_plans(measured)) == others
@@ -359,7 +377,7 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     problem, grid = phase_a_case
     first = NativeBackend(problem, grid=grid)
     try:
-        kept = sorted(_planning(first)["measured"])  # pyright: ignore[reportArgumentType]
+        kept = sorted(_planning(first).measured)
     finally:
         first.close()
     monkeypatch.setenv("SOLPROP_FFTW_PLAN", "estimate")
@@ -369,7 +387,7 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     second = NativeBackend(problem, grid=grid)
     try:
         found = _planning(second)
-        assert found["measured"] == {}
-        assert set(found["reused"]) == set(kept)  # pyright: ignore[reportArgumentType]
+        assert found.measured == {}
+        assert set(found.reused) == set(kept)
     finally:
         second.close()
