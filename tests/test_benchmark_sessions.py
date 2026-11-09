@@ -19,12 +19,12 @@ from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, Case, select
 from benchmarks.worker import measure
 
-pytest.importorskip("solprop_native")
-
-from solprop_native import _counters, backend
-from solprop_native.backend import NativeBackend
-
 from solprop.exceptions import HostMarchWarning
+
+backend = pytest.importorskip("solprop_native.backend")
+_counters = pytest.importorskip("solprop_native._counters")
+NativeBackend = backend.NativeBackend
+
 
 FIBRES = (
     "stats_period1_adams",
