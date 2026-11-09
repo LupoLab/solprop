@@ -18,6 +18,7 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+#include <thread>
 #include <utility>
 #include <vector>
 
@@ -71,7 +72,18 @@ class Doubling final : public rk::Engine {
 public:
   Doubling(Toy& toy, std::vector<int> rejects, const int fail_at = 0)
       : toy_(toy), rejects_(std::move(rejects)), fail_at_(fail_at) {}
+  // Hold the next trial until `gate` opens, saying so in `entered`.
+  void hold(std::atomic<bool>* entered, std::atomic<bool>* gate) {
+    entered_ = entered;
+    gate_ = gate;
+  }
   double trial(double /*z*/, double /*dz*/) override {
+    if (gate_ != nullptr) {
+      entered_->store(true);
+      while (!gate_->load())
+        std::this_thread::yield();
+      gate_ = nullptr;
+    }
     ++trials;
     if (trials == fail_at_)
       throw std::invalid_argument("a scripted trial failure");
@@ -88,6 +100,8 @@ private:
   Toy& toy_;
   std::vector<int> rejects_;
   int fail_at_;
+  std::atomic<bool>* entered_ = nullptr;
+  std::atomic<bool>* gate_ = nullptr;
 };
 
 rk::Policy controller() {
@@ -121,7 +135,9 @@ struct Built {
 };
 
 Built build(std::vector<int> rejects = {}, const int fail_at = 0,
-            const std::uint64_t step_planes = 3, const std::uint64_t period = 2) {
+            const std::uint64_t step_planes = 3, const std::uint64_t period = 2,
+            const std::size_t attempt_capacity = 4096,
+            const std::size_t row_capacity = 1024) {
   auto toy = std::make_unique<Toy>();
   Built built;
   built.toy = toy.get();
@@ -138,12 +154,16 @@ Built build(std::vector<int> rejects = {}, const int fail_at = 0,
   plan.plane_statistics.flags = 2;
   plan.row_statistics = plan.plane_statistics;
   plan.period = period;
+  plan.attempt_capacity = attempt_capacity;
+  plan.row_capacity = row_capacity;
   built.session = std::make_unique<session::Session>(std::move(toy), std::move(method),
                                                      std::move(plan), 0.0);
   return built;
 }
 
-// What one observation reported, without wall times, and its field.
+// What one observation or the terminal event reported -- every chunk since the
+// previous observation, assembled as a service loop does -- without wall times, and
+// its field.
 struct Seen {
   session::EventKind kind;
   session::Observation observation;
@@ -159,49 +179,62 @@ struct Seen {
   bool operator==(const Seen&) const = default;
 };
 
-std::vector<double> controls(const session::Batch& batch, const session::Event& event) {
-  std::vector<double> out;
-  for (std::size_t row = event.attempts_begin; row < event.attempts_end; ++row)
-    for (std::size_t column = 0; column + 1 < session::attempt_columns; ++column)
-      out.push_back(batch.attempts[row * session::attempt_columns + column]);
-  return out;
-}
+// The chunks since the previous observation, assembled.
+struct Held {
+  std::vector<double> attempts;
+  std::vector<double> row_z;
+  std::vector<std::uint64_t> row_step;
+  std::vector<double> rows;
+  void add(const session::Batch& batch) {
+    const std::uint64_t offset = attempts.size() / (session::attempt_columns - 1);
+    for (std::size_t row = 0; row < batch.attempts.size() / session::attempt_columns;
+         ++row)
+      for (std::size_t column = 0; column + 1 < session::attempt_columns; ++column)
+        attempts.push_back(batch.attempts[row * session::attempt_columns + column]);
+    row_z.insert(row_z.end(), batch.row_z.begin(), batch.row_z.end());
+    for (const auto step : batch.row_step)
+      row_step.push_back(offset + step);
+    rows.insert(rows.end(), batch.row_values.begin(), batch.row_values.end());
+  }
+};
 
 // Drive a session to its end, exporting every field-bearing event's identity field.
 std::vector<Seen> drive(session::Session& run, const std::size_t work_limit,
-                        const double deadline, std::size_t* batches = nullptr) {
+                        const double deadline, std::size_t* batches = nullptr,
+                        std::size_t* largest = nullptr) {
   std::vector<Seen> seen;
+  Held held;
   while (run.status().state != session::State::finished) {
     const auto batch = run.advance(work_limit, deadline);
     if (batches != nullptr)
       ++*batches;
-    for (const auto& event : batch.events) {
-      if (event.kind == session::EventKind::progress ||
-          event.kind == session::EventKind::snapshot)
-        continue;
-      Seen entry{event.kind,
-                 event.observation,
-                 event.z,
-                 event.plane_index,
-                 controls(batch, event),
-                 {},
-                 {},
-                 {},
-                 event.has_stats ? batch.plane_stats : std::vector<double>{},
-                 {},
-                 event.outcome};
-      if (event.has_rows) {
-        entry.row_z = batch.row_z;
-        entry.row_step = batch.row_step;
-        entry.rows = batch.row_values;
-      }
-      if (event.ticket) {
-        entry.field.resize(2 * run.elements());
-        run.export_field(batch.sequence, event.generation, false, false, nullptr,
-                         entry.field.data());
-      }
-      seen.push_back(std::move(entry));
+    if (largest != nullptr)
+      *largest = std::max(*largest, batch.attempts.size() / session::attempt_columns);
+    held.add(batch);
+    const auto& event = batch.event;
+    if (event.kind == session::EventKind::progress ||
+        event.kind == session::EventKind::snapshot) {
+      run.acknowledge(batch.sequence);
+      continue;
     }
+    Seen entry{event.kind,
+               event.observation,
+               event.z,
+               event.plane_index,
+               std::move(held.attempts),
+               std::move(held.row_z),
+               std::move(held.row_step),
+               std::move(held.rows),
+               event.has_stats ? batch.plane_stats : std::vector<double>{},
+               {},
+               event.outcome};
+    held = Held{};
+    if (event.ticket) {
+      entry.field.resize(2 * run.elements());
+      run.export_field(batch.sequence, event.generation, false, false, nullptr,
+                       entry.field.data());
+    }
+    seen.push_back(std::move(entry));
     run.acknowledge(batch.sequence);
   }
   return seen;
@@ -257,12 +290,11 @@ TEST(Session, EventsFollowTheCommittedOrder) {
   auto& run = *built.session;
   // The launch plane comes first, with its statistics and no attempts.
   const auto launch = run.advance(256, 10.0);
-  ASSERT_EQ(launch.events.size(), 1U);
-  EXPECT_EQ(launch.events[0].kind, session::EventKind::observation);
-  EXPECT_EQ(launch.events[0].observation, session::Observation::launch);
-  EXPECT_EQ(launch.events[0].plane_index, -1);
-  EXPECT_EQ(launch.events[0].attempts_end, 0U);
-  EXPECT_TRUE(launch.events[0].ticket);
+  EXPECT_EQ(launch.event.kind, session::EventKind::observation);
+  EXPECT_EQ(launch.event.observation, session::Observation::launch);
+  EXPECT_EQ(launch.event.plane_index, -1);
+  EXPECT_TRUE(launch.attempts.empty());
+  EXPECT_TRUE(launch.event.ticket);
   EXPECT_EQ(launch.plane_stats.at(0), 0.0);
   // No barrier is crossed before its batch is acknowledged; a stale receipt is refused.
   EXPECT_THROW((void)run.advance(256, 10.0), session::LifecycleError);
@@ -342,30 +374,30 @@ TEST(Session, AStopBeforeTheFirstStepEndsAtTheEntrance) {
   run.acknowledge(run.advance(256, 10.0).sequence);
   run.request_stop();
   const auto batch = run.advance(256, 10.0);
-  ASSERT_EQ(batch.events.size(), 1U);
-  const auto& terminal = batch.events[0];
+  const auto& terminal = batch.event;
   EXPECT_EQ(terminal.kind, session::EventKind::terminal);
   EXPECT_EQ(terminal.outcome, session::Outcome::stopped);
   EXPECT_EQ(terminal.z, 0.0);
   EXPECT_TRUE(terminal.ticket);
-  EXPECT_EQ(terminal.attempts_end, 0U);
+  EXPECT_TRUE(batch.attempts.empty());
   EXPECT_EQ(built.engine->trials, 0);
   run.acknowledge(batch.sequence);
   EXPECT_EQ(run.status().state, session::State::finished);
   EXPECT_EQ(run.status().outcome, session::Outcome::stopped);
 }
 
-TEST(Session, ASnapshotWaitsForAnAcceptedEndpointAndConsumesNothing) {
+TEST(Session, ASnapshotWaitsForAnAcceptedEndpointAndItsChunkIsDeliveredOnce) {
   auto built = build({1}, 0, 0, 1);
   auto& run = *built.session;
   run.acknowledge(run.advance(256, 10.0).sequence);
   EXPECT_FALSE(run.request_snapshot().coalesced);
   EXPECT_TRUE(run.request_snapshot().coalesced);
   const auto batch = run.advance(256, 10.0);
-  const auto& snapshot = batch.events.back();
+  const auto& snapshot = batch.event;
   ASSERT_EQ(snapshot.kind, session::EventKind::snapshot);
-  // The first trial was rejected; the snapshot is the first accepted endpoint's.
-  ASSERT_EQ(snapshot.attempts_end, 2U);
+  // The first trial was rejected; the snapshot is the first accepted endpoint's, and
+  // carries both attempts.
+  ASSERT_EQ(batch.attempts.size(), 2 * session::attempt_columns);
   EXPECT_EQ(batch.attempts[session::attempt_columns + 3], 1.0);
   EXPECT_EQ(snapshot.z, batch.attempts[session::attempt_columns]);
   EXPECT_EQ(batch.row_z.size(), 1U);
@@ -373,25 +405,70 @@ TEST(Session, ASnapshotWaitsForAnAcceptedEndpointAndConsumesNothing) {
   run.export_field(batch.sequence, snapshot.generation, false, false, nullptr,
                    field.data());
   EXPECT_EQ(field[0], 2.0);
-  const std::vector<double> held(batch.attempts.begin(),
-                                 batch.attempts.begin() + 2 * session::attempt_columns);
   run.acknowledge(batch.sequence);
   // The ticket expired with its batch.
   EXPECT_THROW(run.export_field(batch.sequence, snapshot.generation, false, false,
                                 nullptr, field.data()),
                session::LifecycleError);
   auto plane = run.advance(256, 10.0);
-  while (plane.events.back().kind != session::EventKind::observation) {
+  while (plane.event.kind != session::EventKind::observation) {
     run.acknowledge(plane.sequence);
     plane = run.advance(256, 10.0);
   }
-  EXPECT_EQ(plane.events.back().plane_index, 0);
-  for (std::size_t index = 0; index < held.size(); ++index) {
-    if (index % session::attempt_columns != 4) {
-      EXPECT_EQ(plane.attempts[index], held[index]);
-    }
-  }
-  EXPECT_EQ(plane.row_z.front(), batch.row_z.front());
+  EXPECT_EQ(plane.event.plane_index, 0);
+  // Exactly once: the plane's chunk starts after the snapshot's.
+  ASSERT_FALSE(plane.attempts.empty());
+  EXPECT_GT(plane.attempts[0], snapshot.z);
+  EXPECT_GT(plane.row_z.front(), batch.row_z.back());
+}
+
+TEST(Session, AFullChunkYieldsAndChangesNothing) {
+  // SEP 47 section 5.3: bounded buffers. Capacities of three attempts and two rows
+  // make the session yield progress chunks that never exceed them, and the assembled
+  // trace is the unbounded one's.
+  auto baseline = build({2, 7, 12}, 0, 0, 1);
+  const auto expected = drive(*baseline.session, 1000000, 1e6);
+  auto bounded = build({2, 7, 12}, 0, 0, 1, 3, 2);
+  std::size_t batches = 0;
+  std::size_t largest = 0;
+  EXPECT_EQ(drive(*bounded.session, 1000000, 1e6, &batches, &largest), expected);
+  EXPECT_LE(largest, 3U);
+  EXPECT_GT(batches, expected.size() + 3);
+  EXPECT_EQ(bounded.session->status().buffer_bytes,
+            3 * session::attempt_columns * sizeof(double) +
+                2 * (3 * sizeof(double) + sizeof(std::uint64_t)));
+}
+
+TEST(Session, StatusAndControlsNeedNoLock) {
+  // A status poll, a snapshot request and a stop from another thread while an advance
+  // holds the session's lock inside a trial: none waits for it (a waiting one would
+  // hang this test).
+  auto built = build({}, 0, 0, 0);
+  auto& run = *built.session;
+  run.acknowledge(run.advance(256, 10.0).sequence);
+  std::atomic<bool> entered{false};
+  std::atomic<bool> gate{false};
+  built.engine->hold(&entered, &gate);
+  session::Batch batch;
+  std::thread advancing([&]() { batch = run.advance(256, 10.0); });
+  while (!entered.load())
+    std::this_thread::yield();
+  const auto status = run.status();
+  EXPECT_EQ(status.state, session::State::ready);
+  EXPECT_EQ(status.attempts, 0U);
+  const auto receipt = run.request_snapshot();
+  EXPECT_FALSE(receipt.coalesced);
+  run.request_stop();
+  gate.store(true);
+  advancing.join();
+  // The halt was seen at the attempt's accepted endpoint: the snapshot comes first.
+  EXPECT_EQ(batch.event.kind, session::EventKind::snapshot);
+  EXPECT_EQ(batch.attempts.size(), session::attempt_columns);
+  run.acknowledge(batch.sequence);
+  const auto stopped = run.advance(256, 10.0);
+  EXPECT_EQ(stopped.event.outcome, session::Outcome::stopped);
+  EXPECT_TRUE(run.close());
+  EXPECT_TRUE(run.close());
 }
 
 TEST(Session, AFailedTrialEndsFailedAtTheCommittedState) {
@@ -413,20 +490,20 @@ TEST(Session, AnExportIsValidatedAndCounted) {
   const auto launch = run.advance(256, 10.0);
   std::vector<double> out(2 * run.elements());
   const std::vector<double> bad = {1.0, 0.0, 1.0, 1.0};
-  EXPECT_THROW(run.export_field(launch.sequence, launch.events[0].generation, true,
-                                false, bad.data(), out.data()),
+  EXPECT_THROW(run.export_field(launch.sequence, launch.event.generation, true, false,
+                                bad.data(), out.data()),
                std::domain_error);
   const std::vector<double> ones = {1.0, 1.0, 1.0, 1.0};
-  run.export_field(launch.sequence, launch.events[0].generation, true, true,
-                   ones.data(), out.data());
+  run.export_field(launch.sequence, launch.event.generation, true, true, ones.data(),
+                   out.data());
   std::vector<double> expected(out.size());
   session::apply_recipe(built.toy->field_.data(), 4, 4, nullptr, false, true,
                         expected.data());
   EXPECT_EQ(std::memcmp(out.data(), expected.data(), out.size() * sizeof(double)), 0);
   EXPECT_EQ(run.status().exports, 1U);
   EXPECT_EQ(built.toy->crossed, out.size() * sizeof(double));
-  run.close();
-  run.close();
+  EXPECT_TRUE(run.close());
+  EXPECT_TRUE(run.close());
   EXPECT_THROW((void)run.advance(256, 10.0), session::LifecycleError);
   EXPECT_THROW(run.acknowledge(launch.sequence), session::LifecycleError);
   EXPECT_THROW((void)run.request_snapshot(), session::LifecycleError);

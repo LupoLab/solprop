@@ -29,10 +29,12 @@ namespace {
 double py_max(const double a, const double b) { return b > a ? b : a; }
 
 /** Whether a march call's return is an event on which the driver has work: its last
-    accepted row is then the event step (`_NativeAdamsMarch._call`). */
+    accepted row is then the event step (`_NativeAdamsMarch._call`). A halt is the
+    driver's halt latch, which returns at an accepted endpoint as a host step does. */
 bool event_reason(const march::Reason reason) {
   return reason == march::Reason::reached || reason == march::Reason::host_step ||
-         reason == march::Reason::monitor || reason == march::Reason::watch;
+         reason == march::Reason::monitor || reason == march::Reason::watch ||
+         reason == march::Reason::halted;
 }
 
 /** A failure's record from a march call's error return. */
@@ -124,6 +126,7 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
       plan_(std::move(plan)), clock_(Clock::now()) {
   if (!resident_)
     throw std::invalid_argument("a session needs the state it leases");
+  elements_ = resident_->elements();
   adams_ = std::holds_alternative<AdamsMethod>(method_);
   if (adams_) {
     auto& adams = std::get<AdamsMethod>(method_);
@@ -149,24 +152,30 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
     throw std::invalid_argument("periodic rows need their statistics");
   if (plan_.call_attempts < 1 || !(plan_.call_seconds > 0.0))
     throw std::invalid_argument("a march call needs at least one attempt and time");
+  if (plan_.attempt_capacity < 1 || plan_.row_capacity < 1)
+    throw std::invalid_argument("a session's chunk buffers hold at least one entry");
   if (plan_.replay && plan_.replay_steps == 0)
     throw std::invalid_argument("a replayed schedule has steps");
   next_plane_ = plan_.next_plane;
   launch_pending_ = plan_.launch_pending;
-  history_.reserve(attempt_columns * plan_.call_attempts);
+  history_.reserve(attempt_columns * plan_.attempt_capacity);
   if (plan_.period > 0) {
     row_z_.reserve(plan_.row_capacity);
     row_step_.reserve(plan_.row_capacity);
   }
+  published_z_.store(z, std::memory_order_relaxed);
+  published_plane_.store(next_plane_, std::memory_order_relaxed);
 }
 
 void Session::require_open() const {
-  if (state_ == State::closed)
+  if (closed())
     throw LifecycleError("the session is closed");
 }
 
-double Session::position() const {
-  return std::visit([](const auto& method) { return method.state.z; }, method_);
+double Session::position() const noexcept {
+  if (const auto* adams = std::get_if<AdamsMethod>(&method_))
+    return adams->state.z;
+  return std::get_if<RungeKuttaMethod>(&method_)->state.z;
 }
 
 std::uint64_t Session::cursor() const {
@@ -177,9 +186,14 @@ std::uint64_t Session::cursor() const {
       method_);
 }
 
+bool Session::snapshot_latched() const noexcept {
+  return (latch_.load(std::memory_order_acquire) & 1U) != 0;
+}
+
 std::uint64_t Session::host_step() const {
-  // The accepted steps to the driver's next work, the least of them: a periodic row,
-  // a step plane, and every step while a snapshot is latched (each march's `_bounds`).
+  // The accepted steps to the driver's next work, the least of them: a periodic row
+  // and a step plane (each march's `_bounds`). A latched snapshot is the halt flag,
+  // which the march reads at every accepted endpoint.
   std::uint64_t steps = 0;
   const auto take = [&steps](const std::uint64_t value) {
     steps = steps == 0 ? value : std::min(steps, value);
@@ -188,18 +202,28 @@ std::uint64_t Session::host_step() const {
     take(steps_to_next(plan_.period, accepted_steps_));
   if (plan_.step_planes > 0)
     take(steps_to_next(plan_.step_planes, natural_count_));
-  if (snapshot_latched_.load(std::memory_order_acquire))
-    take(1);
   return steps;
 }
 
 bool Session::at_endpoint() const {
   // An accepted endpoint this session reached, with no attempt made since: the
-  // starting position holds no history to snapshot, and a rejection's trial is past.
+  // starting position holds no history to snapshot, and a rejection's trial is
+  // past.
   return stepped_ && last_accepted_;
 }
 
-Session::Call Session::call(const double target, const double slack,
+std::size_t Session::chunk_attempts() const noexcept {
+  return history_.size() / attempt_columns;
+}
+
+bool Session::chunk_full() const noexcept {
+  // Room for one more call: its attempts are bounded by what is left, and it takes
+  // at most one row, at its event step.
+  return chunk_attempts() >= plan_.attempt_capacity ||
+         (plan_.period > 0 && row_z_.size() >= plan_.row_capacity);
+}
+
+march::Result Session::call(const double target, const double slack,
                             const std::size_t attempts, const double seconds) {
   march::Bounds bounds;
   bounds.target = target;
@@ -212,20 +236,24 @@ Session::Call Session::call(const double target, const double slack,
   bounds.replay = plan_.replay;
   bounds.slack = slack;
   bounds.stop = &stop_;
-  ++march_calls_;
-  Call made;
+  bounds.halt = &halt_;
+  march_calls_.fetch_add(1, std::memory_order_relaxed);
   if (adams_) {
     auto& adams = std::get<AdamsMethod>(method_);
-    made.result =
-        march::run(adams.policy, adams.state, *adams.engine, bounds, adams.schedule);
-  } else {
-    auto& runge_kutta = std::get<RungeKuttaMethod>(method_);
-    made.rk = true;
-    made.result = rk::run(runge_kutta.policy, runge_kutta.state, *runge_kutta.engine,
-                          bounds, runge_kutta.schedule)
-                      .march;
+    return march::run(adams.policy, adams.state, *adams.engine, bounds, adams.schedule);
   }
-  return made;
+  auto& runge_kutta = std::get<RungeKuttaMethod>(method_);
+  return rk::run(runge_kutta.policy, runge_kutta.state, *runge_kutta.engine, bounds,
+                 runge_kutta.schedule)
+      .march;
+}
+
+void Session::publish() noexcept {
+  published_z_.store(position(), std::memory_order_relaxed);
+  published_plane_.store(next_plane_, std::memory_order_relaxed);
+  published_attempts_.store(attempts_, std::memory_order_relaxed);
+  published_rejected_.store(rejected_, std::memory_order_relaxed);
+  published_generation_.store(generation_, std::memory_order_relaxed);
 }
 
 void Session::absorb(const march::Result& result, const Clock::time_point started) {
@@ -248,46 +276,45 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
       ++generation_;
     }
   }
+  publish();
 }
 
 void Session::take_row() {
-  // `_record_step_stats`: the row of the step just committed, its attempt index the one
-  // `_record` has just appended, counted since the previous observation.
+  // `_record_step_stats`: the row of the step just committed, its attempt index the
+  // one
+  // `_record` has just appended, counted in the chunk.
   const double z = position();
   const auto values = resident_->statistics(plan_.row_statistics, z);
-  if (row_z_.empty())
+  if (row_width_ == 0)
     row_width_ = values.size();
   else if (values.size() != row_width_)
     throw std::logic_error("a periodic row changed its width");
+  if (row_values_.capacity() == 0)
+    row_values_.reserve(plan_.row_capacity * row_width_);
   row_z_.push_back(z);
-  row_step_.push_back(history_.size() / attempt_columns - 1);
+  row_step_.push_back(chunk_attempts() - 1);
   row_values_.insert(row_values_.end(), values.begin(), values.end());
-  ++rows_taken_;
+  rows_taken_.fetch_add(1, std::memory_order_relaxed);
+  published_width_.store(row_width_, std::memory_order_relaxed);
 }
 
-void Session::consume() {
-  // An observation drains the attempts and rows since the previous one.
-  history_.clear();
-  progress_mark_ = 0;
-  row_z_.clear();
-  row_step_.clear();
-  row_values_.clear();
-  clock_ = Clock::now();
-}
-
-void Session::fill(Batch& batch, Event& event, const bool rows) {
-  // The attempts since the previous observation, and with `rows` its periodic rows.
-  batch.attempts = history_;
-  event.attempts_begin = 0;
-  event.attempts_end = history_.size() / attempt_columns;
-  if (rows) {
-    batch.row_z = row_z_;
-    batch.row_step = row_step_;
-    batch.row_values = row_values_;
-    batch.row_width = row_width_;
-    event.has_rows = true;
-    event.rows_begin = 0;
-    event.rows_end = row_z_.size();
+void Session::drain(Batch& batch) {
+  // Exactly-once delivery: the chunk moves into the batch, and the buffers start
+  // again at their bounded capacity.
+  batch.attempts = std::move(history_);
+  history_ = {};
+  history_.reserve(attempt_columns * plan_.attempt_capacity);
+  batch.row_width = row_width_;
+  batch.row_z = std::move(row_z_);
+  batch.row_step = std::move(row_step_);
+  batch.row_values = std::move(row_values_);
+  row_z_ = {};
+  row_step_ = {};
+  row_values_ = {};
+  if (plan_.period > 0) {
+    row_z_.reserve(plan_.row_capacity);
+    row_step_.reserve(plan_.row_capacity);
+    row_values_.reserve(plan_.row_capacity * row_width_);
   }
 }
 
@@ -303,52 +330,31 @@ Event Session::observe(Batch& batch, const Observation kind, const std::int64_t 
     batch.plane_stats = resident_->statistics(plan_.plane_statistics, event.z);
     event.has_stats = true;
   }
-  fill(batch, event, true);
-  consume();
+  drain(batch);
+  clock_ = Clock::now();
   return event;
 }
 
 void Session::progress(Batch& batch) {
-  // `_progress`: the attempts since the previous event, the next observation's still.
   Event event;
   event.kind = EventKind::progress;
   event.z = position();
-  const std::size_t total = history_.size() / attempt_columns;
-  if (batch.attempts.empty()) {
-    // A batch of progress alone carries the attempts from the mark.
-    batch.attempts.assign(history_.begin() + static_cast<std::ptrdiff_t>(
-                                                 progress_mark_ * attempt_columns),
-                          history_.end());
-    event.attempts_begin = 0;
-    event.attempts_end = total - progress_mark_;
-  } else {
-    event.attempts_begin = progress_mark_;
-    event.attempts_end = total;
-  }
-  progress_mark_ = total;
-  batch.events.push_back(event);
+  drain(batch);
+  batch.event = event;
 }
 
-void Session::snapshot(Batch& batch, const bool progressed) {
-  // `DriverSession._snapshot`: the attempts and rows since the previous observation,
-  // included without being consumed (SEP 47 section 5.5).
-  snapshot_latched_.store(false, std::memory_order_release);
+void Session::snapshot(Batch& batch) {
+  // The committed endpoint, with the chunk since the previous event; the caller's
+  // running checkpoint includes every chunk since the previous plane (SEP 47 5.5).
+  latch_.fetch_and(~std::uint64_t{1}, std::memory_order_acq_rel);
+  halt_.store(false, std::memory_order_release);
   Event event;
   event.kind = EventKind::snapshot;
   event.z = position();
   event.ticket = true;
   event.generation = generation_;
-  fill(batch, event, true);
-  if (progressed && progress_mark_ < history_.size() / attempt_columns) {
-    Event moved;
-    moved.kind = EventKind::progress;
-    moved.z = event.z;
-    moved.attempts_begin = progress_mark_;
-    moved.attempts_end = history_.size() / attempt_columns;
-    batch.events.push_back(moved);
-  }
-  progress_mark_ = history_.size() / attempt_columns;
-  batch.events.push_back(event);
+  drain(batch);
+  batch.event = event;
 }
 
 void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
@@ -357,35 +363,34 @@ void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   event.z = position();
   event.outcome = outcome;
   event.failure = std::move(failure);
-  if (outcome != Outcome::completed) {
-    // A stop or a failure: the committed state, eligible, with every attempt and row
-    // since the previous observation (`DriverSession._terminal`).
-    event.ticket = true;
-    event.generation = generation_;
-    fill(batch, event, true);
-  }
-  batch.events.push_back(event);
+  // A stop or a failure names the committed state, eligible
+  // (`DriverSession._terminal`).
+  event.ticket = outcome != Outcome::completed;
+  event.generation = generation_;
+  drain(batch);
+  batch.event = event;
 }
 
 Batch Session::issue(Batch batch, const Outcome outcome) {
   batch.sequence = ++sequence_;
   pending_ = true;
   pending_generation_ = generation_;
-  state_ = State::pending;
   if (outcome != Outcome::none)
-    outcome_ = outcome;
-  ++batches_;
+    outcome_.store(outcome, std::memory_order_release);
+  state_.store(State::pending, std::memory_order_release);
+  batches_.fetch_add(1, std::memory_order_relaxed);
+  publish();
   return batch;
 }
 
 Batch Session::advance(const std::size_t work_limit, const double deadline) {
   const std::scoped_lock lock(mutex_);
-  if (state_ == State::pending)
+  require_open();
+  if (state_.load() == State::pending)
     throw LifecycleError(
         "acknowledge the pending batch before advancing the session again");
-  if (state_ == State::finished)
+  if (state_.load() == State::finished)
     throw LifecycleError("the session has ended and cannot advance");
-  require_open();
   const auto started = Clock::now();
   const auto elapsed = [&started]() {
     return std::chrono::duration<double>(Clock::now() - started).count();
@@ -394,25 +399,21 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
   const std::uint64_t before = attempts_;
   Batch batch;
   const auto made = [&]() { return static_cast<std::size_t>(attempts_ - before); };
-  const auto finish = [&](Batch& done, const Outcome outcome = Outcome::none) {
-    done.new_attempts = made();
-    return issue(std::move(done), outcome);
-  };
   try {
     // `DriverSession.advance`'s order: the owed launch plane, a latched snapshot at
     // an endpoint, completion, then the march to the next plane.
     if (launch_pending_) {
       launch_pending_ = false;
-      batch.events.push_back(observe(batch, Observation::launch, -1));
-      return finish(batch);
+      batch.event = observe(batch, Observation::launch, -1);
+      return issue(std::move(batch));
     }
-    if (snapshot_latched_.load(std::memory_order_acquire) && at_endpoint()) {
-      snapshot(batch, false);
-      return finish(batch);
+    if (snapshot_latched() && at_endpoint()) {
+      snapshot(batch);
+      return issue(std::move(batch));
     }
     if (next_plane_ >= plan_.planes.size()) {
       terminal(batch, Outcome::completed, Failure{});
-      return finish(batch, Outcome::completed);
+      return issue(std::move(batch), Outcome::completed);
     }
     const double target = plan_.planes[next_plane_];
     const double slack = plan_.replay
@@ -423,7 +424,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
         adams_ ? std::get<AdamsMethod>(method_).schedule.steps.size()
                : std::get<RungeKuttaMethod>(method_).schedule.steps.size();
     const auto running = [&]() {
-      // `replay_to`'s and `march_to`'s loops: to the edge within the slack, or reached.
+      // `replay_to`'s and `march_to`'s loops: to the edge within the slack, or
+      // reached.
       const double z = position();
       if (plan_.replay)
         return cursor() < n_steps && z < target - slack;
@@ -432,23 +434,27 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     while (running()) {
       if (stop_.load(std::memory_order_acquire)) {
         terminal(batch, Outcome::stopped, Failure{});
-        return finish(batch, Outcome::stopped);
+        return issue(std::move(batch), Outcome::stopped);
       }
-      // A bounded yield, between attempts and after at least one: a transport no-op.
-      if (made() > 0 && (made() >= budget || elapsed() >= deadline)) {
+      // A bounded yield, between attempts and after at least one, or a full chunk
+      // buffer: a transport no-op carrying the chunk.
+      if (chunk_full() || (made() > 0 && (made() >= budget || elapsed() >= deadline))) {
         progress(batch);
-        return finish(batch);
+        return issue(std::move(batch));
       }
-      const std::size_t attempts = std::min(plan_.call_attempts, budget - made());
+      const std::size_t attempts =
+          std::min({plan_.call_attempts, budget - std::min(budget, made()),
+                    plan_.attempt_capacity - chunk_attempts()});
       const double seconds = std::min(plan_.call_seconds, deadline - elapsed());
       const auto call_started = Clock::now();
-      const Call done = call(target, slack, attempts, seconds > 0.0 ? seconds : 0.0);
-      const march::Result& result = done.result;
+      const march::Result result =
+          call(target, slack, std::max<std::size_t>(attempts, 1),
+               seconds > 0.0 ? seconds : 0.0);
       absorb(result, call_started);
       const march::Reason reason = result.reason;
       const bool event = event_reason(reason);
-      // Every accepted step but an event's last is accounted where it falls: rows and
-      // natural stops count it, each once (`_account_step`).
+      // Every accepted step but an event's last is accounted where it falls: rows
+      // and natural stops count it, each once (`_account_step`).
       const std::size_t n_rows = result.rows.size() / march::row_columns;
       for (std::size_t row = 0; row < n_rows; ++row) {
         const bool accepted =
@@ -475,27 +481,26 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
         const double z = position();
         if (step_plane) {
           if (!march::reached(z, target, landing_ulps_)) {
-            batch.events.push_back(observe(batch, Observation::step,
-                                           static_cast<std::int64_t>(next_plane_)));
-            return finish(batch);
+            batch.event = observe(batch, Observation::step,
+                                  static_cast<std::int64_t>(next_plane_));
+            return issue(std::move(batch));
           }
-        } else if (!march::reached(z, target, landing_ulps_) &&
-                   snapshot_latched_.load(std::memory_order_acquire)) {
+        } else if (!march::reached(z, target, landing_ulps_) && snapshot_latched()) {
           // `_halted_short`: the latch halts the march at this endpoint.
-          snapshot(batch, true);
-          return finish(batch);
+          snapshot(batch);
+          return issue(std::move(batch));
         }
       }
       switch (reason) {
       case march::Reason::stopped:
         terminal(batch, Outcome::stopped, Failure{});
-        return finish(batch, Outcome::stopped);
+        return issue(std::move(batch), Outcome::stopped);
       case march::Reason::floor:
       case march::Reason::budget:
       case march::Reason::error:
       case march::Reason::diverged:
         terminal(batch, Outcome::failed, failure_of(result, cursor()));
-        return finish(batch, Outcome::failed);
+        return issue(std::move(batch), Outcome::failed);
       case march::Reason::watch:
       case march::Reason::capacity:
       case march::Reason::dense:
@@ -515,24 +520,24 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
       failure.target = target;
       failure.cursor = cursor();
       terminal(batch, Outcome::failed, std::move(failure));
-      return finish(batch, Outcome::failed);
+      return issue(std::move(batch), Outcome::failed);
     }
     if (plan_.replay || plane_reached(z, target)) {
       const std::size_t plane = next_plane_++;
-      batch.events.push_back(
-          observe(batch, Observation::plane, static_cast<std::int64_t>(plane)));
-      return finish(batch);
+      batch.event =
+          observe(batch, Observation::plane, static_cast<std::int64_t>(plane));
+      return issue(std::move(batch));
     }
-    batch.events.push_back(
+    batch.event =
         observe(batch, plan_.step_planes > 0 ? Observation::step : Observation::natural,
-                static_cast<std::int64_t>(next_plane_)));
-    return finish(batch);
+                static_cast<std::int64_t>(next_plane_));
+    return issue(std::move(batch));
   } catch (const std::exception& error) {
     // A failure outside the march's own error returns (a statistics evaluation, a
     // refused return): the committed state stands, eligible.
     Batch failed;
     terminal(failed, Outcome::failed, failure_of(error));
-    return finish(failed, Outcome::failed);
+    return issue(std::move(failed), Outcome::failed);
   }
 }
 
@@ -544,14 +549,15 @@ void Session::acknowledge(const std::uint64_t sequence) {
                          " is not the pending batch's: a foreign, stale or repeated "
                          "acknowledgment");
   pending_ = false;
-  state_ = outcome_ != Outcome::none ? State::finished : State::ready;
+  state_.store(outcome_.load() != Outcome::none ? State::finished : State::ready,
+               std::memory_order_release);
 }
 
 void Session::export_field(const std::uint64_t sequence, const std::uint64_t generation,
                            const bool power, const bool optics, const double* weight,
                            double* out) {
   const std::scoped_lock lock(mutex_);
-  if (state_ == State::closed || !pending_ || sequence != sequence_ ||
+  if (closed() || !pending_ || sequence != sequence_ ||
       generation != pending_generation_)
     throw LifecycleError("the export ticket has expired: its batch was acknowledged, "
                          "or it belongs to another session");
@@ -581,63 +587,81 @@ void Session::export_field(const std::uint64_t sequence, const std::uint64_t gen
     resident_->count_to_host(2 * n * sizeof(double));
   }
   apply_recipe(state, n, resident_->n_omega(), weight, scale, optics, out);
-  ++exports_;
-  export_bytes_ += 2 * n * sizeof(double);
+  exports_.fetch_add(1, std::memory_order_relaxed);
+  export_bytes_.fetch_add(2 * n * sizeof(double), std::memory_order_relaxed);
 }
 
 SnapshotReceipt Session::request_snapshot() {
-  const std::scoped_lock lock(snapshot_mutex_);
   if (closed())
     throw LifecycleError("the session is closed");
-  if (snapshot_latched_.load(std::memory_order_acquire))
-    return {snapshot_requests_, true};
-  ++snapshot_requests_;
-  snapshot_latched_.store(true, std::memory_order_release);
-  return {snapshot_requests_, false};
+  // The latch holds the request count times two, plus one while a request is
+  // outstanding: one compare-and-swap either joins the outstanding request or makes
+  // a new one, with no lock.
+  std::uint64_t value = latch_.load(std::memory_order_acquire);
+  while (true) {
+    if ((value & 1U) != 0)
+      return {value >> 1U, true};
+    const std::uint64_t next = (((value >> 1U) + 1) << 1U) | 1U;
+    if (latch_.compare_exchange_weak(value, next, std::memory_order_acq_rel)) {
+      halt_.store(true, std::memory_order_release);
+      return {next >> 1U, false};
+    }
+  }
 }
 
-Status Session::status() const {
-  const std::scoped_lock lock(mutex_);
+Status Session::status() const noexcept {
   Status out;
-  out.z = position();
-  out.plane_index = next_plane_;
-  out.attempts = attempts_;
-  out.rejected = rejected_;
-  out.state = state_;
-  out.outcome = outcome_;
-  out.generation = generation_;
-  out.march_calls = march_calls_;
-  out.rows_taken = rows_taken_;
-  out.batches = batches_;
-  out.exports = exports_;
-  out.export_bytes = export_bytes_;
+  out.z = published_z_.load(std::memory_order_relaxed);
+  out.plane_index = published_plane_.load(std::memory_order_relaxed);
+  out.attempts = published_attempts_.load(std::memory_order_relaxed);
+  out.rejected = published_rejected_.load(std::memory_order_relaxed);
+  out.state = state_.load(std::memory_order_acquire);
+  out.outcome = outcome_.load(std::memory_order_acquire);
+  out.generation = published_generation_.load(std::memory_order_relaxed);
+  out.march_calls = march_calls_.load(std::memory_order_relaxed);
+  out.rows_taken = rows_taken_.load(std::memory_order_relaxed);
+  out.batches = batches_.load(std::memory_order_relaxed);
+  out.exports = exports_.load(std::memory_order_relaxed);
+  out.export_bytes = export_bytes_.load(std::memory_order_relaxed);
+  const std::size_t width = published_width_.load(std::memory_order_relaxed);
   out.buffer_bytes =
-      (history_.capacity() + row_z_.capacity() + row_values_.capacity()) *
-          sizeof(double) +
-      row_step_.capacity() * sizeof(std::uint64_t);
+      plan_.attempt_capacity * attempt_columns * sizeof(double) +
+      (plan_.period > 0
+           ? plan_.row_capacity * ((1 + width) * sizeof(double) + sizeof(std::uint64_t))
+           : 0);
   return out;
 }
 
 std::size_t Session::elements() const {
-  if (!resident_)
+  if (closed())
     throw LifecycleError("the session is closed");
-  return resident_->elements();
+  return elements_;
 }
 
-void Session::close() {
-  const std::scoped_lock lock(mutex_);
-  if (state_ == State::closed)
-    return;
-  state_ = State::closed;
+bool Session::close() noexcept {
+  std::unique_lock lock(mutex_, std::defer_lock);
+  try {
+    lock.lock();
+  } catch (const std::exception&) {
+    // The lock failed: nothing is released, and the caller keeps its lease.
+    return false;
+  }
+  if (closed())
+    return true;
+  state_.store(State::closed, std::memory_order_release);
   closed_.store(true, std::memory_order_release);
   pending_ = false;
   // The march's engine refers to the leased state: both go, the engine first.
-  std::visit([](auto& method) { method.engine.reset(); }, method_);
+  if (auto* adams = std::get_if<AdamsMethod>(&method_))
+    adams->engine.reset();
+  if (auto* runge_kutta = std::get_if<RungeKuttaMethod>(&method_))
+    runge_kutta->engine.reset();
   resident_.reset();
   history_ = {};
   row_z_ = {};
   row_step_ = {};
   row_values_ = {};
+  return true;
 }
 
 } // namespace solprop_native::session

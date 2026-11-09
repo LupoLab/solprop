@@ -138,8 +138,11 @@ struct Plan {
   StatisticsRecipe plane_statistics;
   StatisticsRecipe row_statistics;
   std::uint64_t period = 0;
-  /** Rows the resident buffer holds before it first grows. */
-  std::size_t row_capacity = 64;
+  /** The bounded chunk buffers (SEP 47 section 5.3): the most attempts and periodic
+      rows the session holds between two events. A full buffer yields a progress event
+      carrying the chunk; it never grows. */
+  std::size_t attempt_capacity = 4096;
+  std::size_t row_capacity = 1024;
   /** A replayed schedule: its step count and total length, for `replay_tolerance`. */
   bool replay = false;
   std::size_t replay_steps = 0;
@@ -168,19 +171,12 @@ struct Failure {
   double target = 0.0;
 };
 
-/** One event of a batch. Ranges index the batch's arrays. */
+/** One event of a batch: a batch holds exactly one, carrying the chunk. */
 struct Event {
   EventKind kind = EventKind::progress;
   Observation observation = Observation::launch;
   double z = 0.0;
   std::int64_t plane_index = -1;
-  /** Attempt rows `[attempts_begin, attempts_end)` of `Batch::attempts`. */
-  std::size_t attempts_begin = 0;
-  std::size_t attempts_end = 0;
-  /** Periodic rows `[rows_begin, rows_end)`, and whether the event carries rows. */
-  std::size_t rows_begin = 0;
-  std::size_t rows_end = 0;
-  bool has_rows = false;
   /** Whether the event carries plane statistics, `Batch::plane_stats`. */
   bool has_stats = false;
   /** Whether the event's field can be exported while the batch is pending, and the
@@ -195,16 +191,14 @@ struct Event {
     time since the previous observation, s. */
 constexpr std::size_t attempt_columns = 5;
 
-/** What one `advance` reports: its events in committed order and the arrays they
-    index. The attempt rows are those since the previous observation (from the last
-    progress mark for a batch of progress alone); the periodic rows are those since the
-    previous observation. */
+/** What one `advance` reports (SEP 47 section 5.3, exactly-once chunked delivery): one
+    event, and the chunk of attempts and periodic rows made since the previous event,
+    moved out of the session's buffers and delivered once. A row's `step` indexes the
+    chunk's attempts. */
 struct Batch {
   std::uint64_t sequence = 0;
-  std::vector<Event> events;
+  Event event;
   std::vector<double> attempts;
-  /** The attempts this advance made: the last of `attempts`. */
-  std::size_t new_attempts = 0;
   std::vector<double> row_z;
   std::vector<std::uint64_t> row_step;
   std::vector<double> row_values;
@@ -229,7 +223,7 @@ struct Status {
   std::uint64_t batches = 0;
   std::uint64_t exports = 0;
   std::uint64_t export_bytes = 0;
-  /** Bytes the session's own buffers hold: attempt history, rows and plane stats. */
+  /** Bytes the session's chunk buffers reserve: attempts and rows. */
   std::uint64_t buffer_bytes = 0;
 };
 
@@ -239,7 +233,12 @@ struct SnapshotReceipt {
   bool coalesced = false;
 };
 
-/** One trajectory's native execution. */
+/** One trajectory's native execution.
+
+    Thread safety: `advance`, `acknowledge`, `export_field` and `close` serialise on
+    the session's lock (a binding releases its interpreter lock before taking it);
+    `status`, `request_stop` and `request_snapshot` take no lock and may be called from
+    any thread at any time, an advance included. */
 class Session {
 public:
   Session(std::unique_ptr<Resident> resident, Method method, Plan plan, double z);
@@ -249,8 +248,8 @@ public:
   Session& operator=(Session&&) = delete;
   ~Session() = default;
 
-  /** Run until a barrier, `work_limit` attempts (at least one) or `deadline` seconds,
-      checked between attempts; report it as a pending batch. */
+  /** Run until a barrier, `work_limit` attempts (at least one), `deadline` seconds or
+      a full chunk buffer, checked between attempts; report it as a pending batch. */
   Batch advance(std::size_t work_limit, double deadline);
   /** Release the pending batch `sequence` and allow advancing across its barrier. */
   void acknowledge(std::uint64_t sequence);
@@ -261,49 +260,52 @@ public:
                     bool optics, const double* weight, double* out);
   /** Ask for a stop at the next safe boundary; any thread, no lock. */
   void request_stop() noexcept { stop_.store(true, std::memory_order_release); }
-  /** Latch a snapshot for the next eligible accepted endpoint. */
+  /** Latch a snapshot for the next eligible accepted endpoint; any thread, no lock. A
+      request while one is outstanding joins it. */
   SnapshotReceipt request_snapshot();
-  [[nodiscard]] Status status() const;
+  /** The session's position and counters; any thread, no lock. */
+  [[nodiscard]] Status status() const noexcept;
   [[nodiscard]] std::size_t elements() const;
-  /** Release the lease and every buffer; idempotent. It waits for an advance in
-      hand, and throws only where its lock does (`std::system_error`). */
-  void close();
+  /** Release the engine, the leased state and every buffer; idempotent. Returns
+      whether the session is closed: false only when its lock could not be taken, and
+      then nothing was released. Waits for an advance in hand. */
+  [[nodiscard]] bool close() noexcept;
   [[nodiscard]] bool closed() const noexcept {
     return closed_.load(std::memory_order_acquire);
   }
 
 private:
   using Clock = std::chrono::steady_clock;
-  struct Call {
-    march::Result result;
-    bool rk = false;
-  };
 
   void require_open() const;
-  Call call(double target, double slack, std::size_t attempts, double seconds);
+  march::Result call(double target, double slack, std::size_t attempts, double seconds);
   void absorb(const march::Result& result, Clock::time_point started);
-  [[nodiscard]] double position() const;
+  [[nodiscard]] double position() const noexcept;
   [[nodiscard]] std::uint64_t cursor() const;
   [[nodiscard]] std::uint64_t host_step() const;
   [[nodiscard]] bool at_endpoint() const;
+  [[nodiscard]] bool snapshot_latched() const noexcept;
+  [[nodiscard]] std::size_t chunk_attempts() const noexcept;
+  [[nodiscard]] bool chunk_full() const noexcept;
   void take_row();
-  void consume();
+  void drain(Batch& batch);
   Event observe(Batch& batch, Observation kind, std::int64_t plane);
   void progress(Batch& batch);
-  void snapshot(Batch& batch, bool progressed);
+  void snapshot(Batch& batch);
   void terminal(Batch& batch, Outcome outcome, Failure failure);
-  void fill(Batch& batch, Event& event, bool rows);
   Batch issue(Batch batch, Outcome outcome = Outcome::none);
+  void publish() noexcept;
 
   std::unique_ptr<Resident> resident_;
   Method method_;
   Plan plan_;
   bool adams_ = false;
   int landing_ulps_ = 0;
+  std::size_t elements_ = 0;
 
-  // Lifecycle.
-  State state_ = State::ready;
-  Outcome outcome_ = Outcome::none;
+  // Lifecycle, under the lock; `state_` and `outcome_` also published for `status`.
+  std::atomic<State> state_{State::ready};
+  std::atomic<Outcome> outcome_{Outcome::none};
   std::uint64_t sequence_ = 0;
   bool pending_ = false;
   std::uint64_t pending_generation_ = 0;
@@ -312,9 +314,10 @@ private:
   // Controls any thread may set, and whether the session was closed, which they read.
   std::atomic<bool> stop_{false};
   std::atomic<bool> closed_{false};
-  std::atomic<bool> snapshot_latched_{false};
-  std::uint64_t snapshot_requests_ = 0;
-  std::mutex snapshot_mutex_;
+  /** The snapshot latch: request count times two, plus one while one is latched. */
+  std::atomic<std::uint64_t> latch_{0};
+  /** The latch as the marches read it at each accepted endpoint (`Bounds::halt`). */
+  std::atomic<bool> halt_{false};
 
   // The schedule's cursors and the committed state's counters.
   std::size_t next_plane_ = 0;
@@ -325,23 +328,29 @@ private:
   bool stepped_ = false;
   bool last_accepted_ = false;
 
-  // Accounting since the start and the buffers since the previous observation.
-  std::uint64_t attempts_ = 0;
-  std::uint64_t rejected_ = 0;
+  // The chunk since the previous event, bounded by the plan's capacities.
   std::vector<double> history_;
-  std::size_t progress_mark_ = 0;
   Clock::time_point clock_;
   std::vector<double> row_z_;
   std::vector<std::uint64_t> row_step_;
   std::vector<double> row_values_;
   std::size_t row_width_ = 0;
 
-  // Structural counters.
-  std::uint64_t march_calls_ = 0;
-  std::uint64_t rows_taken_ = 0;
-  std::uint64_t batches_ = 0;
-  std::uint64_t exports_ = 0;
-  std::uint64_t export_bytes_ = 0;
+  // Accounting and structural counters, published for `status` (relaxed atomics; the
+  // lock orders the writer).
+  std::uint64_t attempts_ = 0;
+  std::uint64_t rejected_ = 0;
+  std::atomic<double> published_z_{0.0};
+  std::atomic<std::size_t> published_plane_{0};
+  std::atomic<std::uint64_t> published_attempts_{0};
+  std::atomic<std::uint64_t> published_rejected_{0};
+  std::atomic<std::uint64_t> published_generation_{0};
+  std::atomic<std::uint64_t> march_calls_{0};
+  std::atomic<std::uint64_t> rows_taken_{0};
+  std::atomic<std::uint64_t> batches_{0};
+  std::atomic<std::uint64_t> exports_{0};
+  std::atomic<std::uint64_t> export_bytes_{0};
+  std::atomic<std::size_t> published_width_{0};
 };
 
 // The scheduler's decisions, strict (session.cpp).

@@ -76,6 +76,7 @@ from .backend import (
     NativeBackend,
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
+    native_march_refusal,
 )
 
 if TYPE_CHECKING:
@@ -122,8 +123,12 @@ CALL_ATTEMPTS = 256
 CALL_SECONDS = 0.1
 """A march call's most wall time, s."""
 
-ROW_CAPACITY = 64
-"""Rows the resident buffer holds before it first grows, as the driver's buffer."""
+ATTEMPT_CAPACITY = 4096
+"""The most attempts the native session holds between two events; a full buffer yields
+a progress event carrying them (SEP 47 section 5.3)."""
+
+ROW_CAPACITY = 1024
+"""The most periodic rows it holds between two events, likewise."""
 
 _SESSION_IDS = itertools.count(1)
 _KINDS = (
@@ -212,6 +217,9 @@ def refusal(
             return "a resumed run"
         if start.noise is not None:
             return "a noise realisation"
+    march = native_march_refusal(problem)
+    if march is not None:
+        return march
     return _statistics_refusal(problem, request.observation.stats)
 
 
@@ -324,8 +332,7 @@ class NativeSession:
     Raises
     ------
     solprop.exceptions.BackendError
-        Naming the feature the prototype refuses, before anything is allocated, or
-        once the backend is built when its march would run on the host.
+        Naming the feature the prototype refuses, before anything is allocated.
     """
 
     def __init__(
@@ -360,6 +367,9 @@ class NativeSession:
         self._spec = spec
         self._row_spec = dataclasses.replace(spec, names=self._row_names, periodic=())
         self._row_shapes: dict[str, tuple[int, ...]] = {}
+        # The chunks since the previous observation (the transitional shim).
+        self._held: list[BackendHistory] = []
+        self._held_rows: list[StepStats] = []
         backend = NativeBackend(problem, grid=grid, modes=modes, profiles=profiles)
         self._backend: NativeBackend | None = backend
         try:
@@ -397,31 +407,52 @@ class NativeSession:
         Raises
         ------
         solprop.exceptions.BackendError
-            If the backend would step this run's march on the host.
+            If the backend's own admission disagrees with :func:`refusal`'s, which
+            decided before it was built.
         """
-        driver: Any = backend
+        driver = self._driver(backend)
         integrator = self._problem.stepper.integrator
         backend.set_initial(
             np.asarray(start.field)[np.newaxis], None, z=float(start.z), resume=False
         )
         if isinstance(integrator, Multistep):
             march = driver._adams
-            if not march.native:
-                msg = f"the native session does not run {march.refusal}"
-                raise BackendError(msg)
+            refused = march.refusal
         else:
             refused, _ = _NativeRungeKuttaMarch.refusal(backend)
-            if refused is not None:
-                msg = f"the native session does not run {refused}"
-                raise BackendError(msg)
-        if isinstance(integrator, Multistep):
-            march = driver._adams
-            march._configure()
-            return "adams", march._state(False)
-        march = driver._rk_march()
-        assert march is not None  # admitted above
+            march = None if refused is not None else driver._rk_march()
+        if refused is not None:
+            msg = (
+                f"the native backend steps this run's march on the host ({refused}), "
+                "which the native session's admission did not foresee"
+            )
+            raise BackendError(msg)
+        assert march is not None
         march._configure()
-        return "runge_kutta", march._state(False)
+        kind = "adams" if isinstance(integrator, Multistep) else "runge_kutta"
+        return kind, march._state(False)
+
+    @staticmethod
+    def _driver(backend: NativeBackend | None) -> Any:
+        """Return the backend as the untyped protected surface the session lowers from.
+
+        The one place the adapter reaches the backend's protected members (its march
+        adapters, their policy and state records, its statistics unpacking), as the
+        backend's own march adapters reach them (``DRIVER_SURFACE``); confined here and
+        typed ``Any`` because those members are the driver's private surface.
+
+        Parameters
+        ----------
+        backend : solprop_native.backend.NativeBackend or None
+            The backend.
+
+        Returns
+        -------
+        Any
+            The same object.
+        """
+        assert backend is not None
+        return backend
 
     def _plan(self, start: Start) -> dict[str, object]:
         """Return the observation request and itinerary for the native session.
@@ -449,6 +480,7 @@ class NativeSession:
             "plane_statistics": _recipe(self._problem, self._plane_names, self._spec),
             "row_statistics": _recipe(self._problem, self._row_names, self._spec),
             "period": int(self._spec.period) if rows else 0,
+            "attempt_capacity": ATTEMPT_CAPACITY,
             "row_capacity": ROW_CAPACITY,
             "replay": schedule is not None,
             "replay_steps": 0 if schedule is None else int(schedule.n_steps),
@@ -544,16 +576,18 @@ class NativeSession:
         except _core.SessionLifecycleError as error:
             raise SessionError(str(error)) from None
         receipt = Receipt(self._id, batch.sequence)
-        attempts = batch.attempts
-        if self._listener is not None and batch.new_attempts:
-            for end, dz, _, accepted, _ in attempts[-batch.new_attempts :].tolist():
+        # Each batch is one event and the chunk since the previous one, delivered once.
+        chunk = self._history(batch.attempts)
+        if self._listener is not None:
+            for end, dz, accepted in zip(
+                chunk.z.tolist(),
+                chunk.dz.tolist(),
+                chunk.accepted.tolist(),
+                strict=True,
+            ):
                 self._listener(end, dz, bool(accepted))
-        rows = self._rows(batch)
-        stats = self._plane_stats(batch)
-        events = [
-            self._event(event, receipt, attempts, rows, stats) for event in batch.events
-        ]
-        return EventBatch(receipt, tuple(events))
+        rows = self._chunk_rows(batch)
+        return EventBatch(receipt, (self._event(batch, receipt, chunk, rows),))
 
     def acknowledge(self, receipt: Receipt) -> None:
         """Release the pending batch and allow advancing across its barrier.
@@ -824,7 +858,7 @@ class NativeSession:
     def _unpack(
         self, names: tuple[str, ...], spec: StatsSpec, packed: np.ndarray
     ) -> dict[str, np.ndarray]:
-        """Name one packed statistics evaluation, without a batch axis.
+        """Name one packed statistics evaluation with the backend's own unpacking.
 
         Parameters
         ----------
@@ -838,31 +872,26 @@ class NativeSession:
         Returns
         -------
         dict
-            The statistics by catalogue name.
+            The statistics by catalogue name, without a batch axis.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            If the evaluation's size is not what the names take.
         """
+        backend = self._driver(self._backend)
         if self._spatial:
-            values: dict[str, np.ndarray] = {}
-            offset = 0
-            for name in (
-                "energy",
-                "on_axis_intensity",
-                "peak_intensity",
-                "on_axis_spectrum",
-            ):
-                if name in names:
-                    count = self._shape[-1] if name == "on_axis_spectrum" else 1
-                    data = packed[offset : offset + count]
-                    values[name] = (
-                        np.array(data)
-                        if name == "on_axis_spectrum"
-                        else np.array(data[0])
-                    )
-                    offset += count
-            return values
-        backend: Any = self._backend
-        unpacked = backend._unpack_statistics(
-            names, spec, packed, backend._require_grid()
-        )
+            unpacked, used = backend._spatial_scalars(set(names), packed)
+            if used != packed.size:
+                msg = (
+                    f"native spatial statistics returned {packed.size} values; "
+                    f"consumed {used}"
+                )
+                raise BackendError(msg)
+        else:
+            unpacked = backend._unpack_statistics(
+                names, spec, packed, backend._require_grid()
+            )
         return {name: np.asarray(value[0]) for name, value in unpacked.items()}
 
     def _plane_stats(self, batch: _core.SessionBatch) -> dict[str, np.ndarray]:
@@ -878,12 +907,12 @@ class NativeSession:
         dict
             The statistics, empty when the batch carries none.
         """
-        if not any(event.has_stats for event in batch.events):
+        if not batch.event.has_stats:
             return {}
         return self._unpack(self._plane_names, self._spec, batch.plane_stats[0])
 
-    def _rows(self, batch: _core.SessionBatch) -> StepStats:
-        """Return a batch's periodic rows, without a batch axis.
+    def _chunk_rows(self, batch: _core.SessionBatch) -> StepStats:
+        """Return a batch's chunk of periodic rows, its steps indexing the chunk.
 
         Parameters
         ----------
@@ -893,21 +922,12 @@ class NativeSession:
         Returns
         -------
         solprop.backends.protocol.StepStats
-            The rows since the previous observation.
+            The rows taken since the previous event.
         """
         z = batch.row_z.reshape(-1)
-        step = batch.row_step.astype(np.int64)
+        step = batch.row_step.reshape(-1).astype(np.int64)
         if z.size == 0:
-            # As the driver's buffer: no names before the first row, then each row's
-            # shape with no rows.
-            return StepStats(
-                z,
-                step,
-                {
-                    name: np.zeros((0, *shape), dtype=np.float64)
-                    for name, shape in self._row_shapes.items()
-                },
-            )
+            return self._no_rows()
         unpacked = [
             self._unpack(self._row_names, self._row_spec, row)
             for row in batch.row_values
@@ -918,28 +938,99 @@ class NativeSession:
         self._row_shapes = {name: value.shape[1:] for name, value in values.items()}
         return StepStats(z, step, values)
 
-    def _history(self, attempts: np.ndarray, begin: int, end: int) -> BackendHistory:
-        """Return attempt rows as a history.
+    def _no_rows(self) -> StepStats:
+        """Return no rows: no names before the first row, then each row's shape.
+
+        Returns
+        -------
+        solprop.backends.protocol.StepStats
+            Empty rows, as the driver's buffer drains them.
+        """
+        return StepStats(
+            np.empty(0),
+            np.empty(0, dtype=np.int64),
+            {
+                name: np.zeros((0, *shape), dtype=np.float64)
+                for name, shape in self._row_shapes.items()
+            },
+        )
+
+    def _hold(self, chunk: BackendHistory, rows: StepStats) -> None:
+        """Keep a chunk until the next observation (the transitional shim below).
+
+        Parameters
+        ----------
+        chunk : solprop.backends.protocol.BackendHistory
+            The chunk's attempts.
+        rows : solprop.backends.protocol.StepStats
+            Its rows, their steps indexing the chunk.
+        """
+        offset = sum(history.n_steps for history in self._held)
+        self._held.append(chunk)
+        if rows.n_rows:
+            self._held_rows.append(StepStats(rows.z, rows.step + offset, rows.values))
+
+    def _since_observation(self) -> tuple[BackendHistory, StepStats]:
+        """Return every held chunk since the previous observation, assembled.
+
+        TODO(SEP 47 exactly-once chunked delivery): once solprop's service loop
+        assembles a plane's history and rows from the chunks each event carries, this
+        shim and :meth:`_hold` go, and every event hands over its own chunk alone.
+        Until then ``ObservationReady``, ``ServiceRequired(SNAPSHOT)`` and ``Terminal``
+        carry everything since the previous observation, as the protocol has it today.
+
+        Returns
+        -------
+        tuple
+            The attempts and the rows since the previous observation.
+        """
+        held = self._held
+        history = BackendHistory(
+            z=np.concatenate([chunk.z for chunk in held]) if held else np.empty(0),
+            dz=np.concatenate([chunk.dz for chunk in held]) if held else np.empty(0),
+            error_norm=np.concatenate([chunk.error_norm for chunk in held])
+            if held
+            else np.empty(0),
+            accepted=np.concatenate([chunk.accepted for chunk in held])
+            if held
+            else np.empty(0, dtype=np.bool_),
+            wall_time=np.concatenate([chunk.wall_time for chunk in held])
+            if held
+            else np.empty(0),
+        )
+        parts = self._held_rows
+        if not parts:
+            return history, self._no_rows()
+        rows = StepStats(
+            np.concatenate([part.z for part in parts]),
+            np.concatenate([part.step for part in parts]),
+            {
+                name: np.concatenate([part.values[name] for part in parts])
+                for name in parts[0].values
+            },
+        )
+        return history, rows
+
+    @staticmethod
+    def _history(attempts: np.ndarray) -> BackendHistory:
+        """Return a chunk's attempt rows as a history.
 
         Parameters
         ----------
         attempts : numpy.ndarray
-            The batch's attempt rows, ``(n, 5)``.
-        begin, end : int
-            The event's range.
+            The rows, ``(n, 5)``: end, step, norm, acceptance, wall time.
 
         Returns
         -------
         solprop.backends.protocol.BackendHistory
             The attempts.
         """
-        rows = attempts[begin:end]
         return BackendHistory(
-            z=np.ascontiguousarray(rows[:, 0]),
-            dz=np.ascontiguousarray(rows[:, 1]),
-            error_norm=np.ascontiguousarray(rows[:, 2]),
-            accepted=rows[:, 3] != 0.0,
-            wall_time=np.ascontiguousarray(rows[:, 4]),
+            z=np.ascontiguousarray(attempts[:, 0]),
+            dz=np.ascontiguousarray(attempts[:, 1]),
+            error_norm=np.ascontiguousarray(attempts[:, 2]),
+            accepted=attempts[:, 3] != 0.0,
+            wall_time=np.ascontiguousarray(attempts[:, 4]),
         )
 
     def _summary(self, history: BackendHistory, z: float) -> StepSummary:
@@ -974,47 +1065,47 @@ class NativeSession:
 
     def _event(
         self,
-        event: _core.SessionEvent,
+        batch: _core.SessionBatch,
         receipt: Receipt,
-        attempts: np.ndarray,
+        chunk: BackendHistory,
         rows: StepStats,
-        stats: dict[str, np.ndarray],
     ) -> Event:
-        """Translate one native event record.
+        """Translate a batch's native event record and its chunk.
 
         Parameters
         ----------
-        event : solprop_native._core.SessionEvent
-            The record.
+        batch : solprop_native._core.SessionBatch
+            The batch.
         receipt : solprop.backends.events.Receipt
-            Its batch's receipt.
-        attempts : numpy.ndarray
-            The batch's attempt rows.
+            Its receipt.
+        chunk : solprop.backends.protocol.BackendHistory
+            Its attempts, since the previous event.
         rows : solprop.backends.protocol.StepStats
-            The batch's periodic rows.
-        stats : dict
-            The batch's plane statistics.
+            Its periodic rows, likewise.
 
         Returns
         -------
         solprop.backends.events.Event
             The event.
         """
-        history = self._history(attempts, event.attempts_begin, event.attempts_end)
+        event = batch.event
         ticket = (
             ExportTicket(receipt, event.generation, event.z) if event.ticket else None
         )
+        self._hold(chunk, rows)
         if event.kind == _PROGRESS:
-            return Progress(event.z, history)
+            return Progress(event.z, chunk)
+        history, held_rows = self._since_observation()
         if event.kind == _OBSERVATION:
             assert ticket is not None
+            self._held, self._held_rows = [], []
             return ObservationReady(
                 z=event.z,
                 kind=_KINDS[event.observation],
                 plane_index=event.plane_index,
                 history=history,
-                step_stats=rows,
-                stats=dict(stats),
+                step_stats=held_rows,
+                stats=self._plane_stats(batch),
                 summary=self._summary(history, event.z),
                 ticket=ticket,
             )
@@ -1025,10 +1116,11 @@ class NativeSession:
                 message="snapshot at an accepted endpoint",
                 ticket=ticket,
                 history=history,
-                step_stats=rows,
+                step_stats=held_rows,
             )
         outcome = _OUTCOMES[event.outcome]
         assert outcome is not None
+        self._held, self._held_rows = [], []
         if outcome is Outcome.COMPLETED:
             return Terminal(Outcome.COMPLETED, event.z, Eligibility.ELIGIBLE)
         return Terminal(
@@ -1038,7 +1130,7 @@ class NativeSession:
             self._error(event, outcome),
             ticket,
             history,
-            rows,
+            held_rows,
         )
 
     def _error(self, event: _core.SessionEvent, outcome: Outcome) -> BaseException:
@@ -1078,7 +1170,7 @@ class NativeSession:
             "message": event.message,
             "category": event.category,
         }
-        driver: Any = self._backend
+        driver = self._driver(self._backend)
         if self._adams:
             march = driver._adams
         else:

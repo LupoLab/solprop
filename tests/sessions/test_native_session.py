@@ -40,7 +40,7 @@ from sessions.executors import (
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ObservationReady, Outcome, Progress, Terminal
 from solprop.backends.registry import select
-from solprop.backends.session import StopToken
+from solprop.backends.session import SessionError, StopToken
 from solprop.exceptions import BackendError, StopRequested
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
@@ -441,11 +441,12 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
 
     problem = _case()
     rng = np.random.default_rng(47)
-    field = np.array(problem.initial.field0[0], copy=True)
-    field.real[..., ::7] = -0.0
-    field.imag[..., ::5] = -0.0
-    field.imag[..., 1::11] = 0.0
-    field.real[..., 3::13] *= -rng.random(field[..., 3::13].shape)
+    field = np.array(problem.initial.field0[0], dtype=np.complex128, copy=True)
+    parts = field.view(np.float64).reshape(*field.shape, 2)  # real, imaginary
+    parts[..., ::7, 0] = -0.0
+    parts[..., ::5, 1] = -0.0
+    parts[..., 1::11, 1] = 0.0
+    parts[..., 3::13, 0] *= -rng.random(parts[..., 3::13, 0].shape)
     session = native_session.NativeSession(
         problem,
         describe_run(problem),
@@ -471,5 +472,145 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
             out = np.empty_like(expected)
             assert session.export(launch.ticket, recipe, out=out) is out
             assert out.tobytes() == expected.tobytes(), recipe
-    assert np.signbit(field.real).any() and np.signbit(field.imag).any()
+    assert np.signbit(np.real(field)).any() and np.signbit(np.imag(field)).any()
     session.close()
+
+
+LEASED_CALLS = {
+    "set_initial": lambda state, n: state.set_initial(
+        np.zeros(n, np.complex128), np.empty(0, np.complex128)
+    ),
+    "rk_march_run": lambda state, n: state.rk_march_run({}, {}),
+    "adams_march_run": lambda state, n: state.adams_march_run({}, {}),
+    "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
+    "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
+    "flow_guard_configure": lambda state, n: state.flow_guard_configure(
+        [1.0], [1.0], 1.0, 1, 1.0
+    ),
+    "adams_march_fault": lambda state, n: state.adams_march_fault(
+        "trial", 0, "backend"
+    ),
+    "field_to_host": lambda state, n: state.field_to_host(),
+    "statistics": lambda state, n: state.statistics(
+        2, np.empty(0), np.empty(0), 0.0, 1.0, 0.0, 1.0, np.empty(0)
+    ),
+    "finish": lambda state, n: state.finish(1e-6),
+    "promote_fsal": lambda state, n: state.promote_fsal(),
+    "clear_fsal": lambda state, n: state.clear_fsal(),
+    "monitor_reading": lambda state, n: state.monitor_reading(),
+    "quadrature_peak": lambda state, n: state.quadrature_peak(),
+}
+"""Methods of a leased state that mutate it or read its live field or workspace."""
+
+
+@pytest.mark.parametrize("name", sorted(LEASED_CALLS))
+def test_a_leased_state_refuses_every_live_use(name):
+    """SEP 47 section 5.2: one mutable owner. While a session leases the state, every
+    method that mutates it or reads its live field or workspace is refused by name;
+    its fixed facts stay readable, so the execution record can be written.
+    """
+    problem = _case()
+    session = _make_native(problem, describe_run(problem))
+    backend = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert backend is not None
+    state = backend._native_state  # pyright: ignore[reportPrivateUsage]
+    try:
+        with pytest.raises(RuntimeError, match="leased by an execution session"):
+            LEASED_CALLS[name](state, int(np.prod(problem.shape[1:])))
+        assert state.memory_ledger()
+        assert state.cpu_execution
+        assert "native_session" in session.execution_record()
+    finally:
+        session.close()
+    # Closed, the session released its lease.
+    with pytest.raises(Exception) as caught:
+        state.rk_march_run({}, {})
+    assert "leased" not in str(caught.value)
+
+
+def test_closing_the_state_closes_its_session_first():
+    """SEP 47 section 5.2: the state's own close closes the session that leases it,
+    which then refuses to advance; nothing uses the closed state.
+    """
+    problem = _case()
+    session = _make_native(problem, describe_run(problem))
+    batch = session.advance()
+    backend = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert backend is not None
+    backend._native_state.close()  # pyright: ignore[reportPrivateUsage]
+    assert session.closed
+    with pytest.raises(SessionError):
+        session.acknowledge(batch.receipt)
+    with pytest.raises(SessionError):
+        session.advance()
+    session.close()
+
+
+def test_status_polls_from_another_thread_do_not_wait_for_an_advance():
+    """SEP 47 section 5.5: an advance runs without the interpreter lock, and the
+    status, a snapshot request and a stop need no session lock: another thread polls
+    them while a long advance is in hand.
+    """
+    problem = _case(step_planes=0, period=50, dz_init=2e-6, dz_max=2e-6)
+    session = _make_native(problem, describe_run(problem))
+    session.acknowledge(session.advance().receipt)
+    polls: list[int] = []
+    done = threading.Event()
+
+    def poll() -> None:
+        while not done.is_set():
+            polls.append(session.status().attempts)
+            time.sleep(1e-3)
+
+    poller = threading.Thread(target=poll)
+    poller.start()
+    try:
+        batch = session.advance(work_limit=4000, deadline=1e9)
+    finally:
+        done.set()
+        poller.join()
+    attempts = session.status().attempts
+    session.acknowledge(batch.receipt)
+    session.close()
+    during = [count for count in polls if 0 < count < attempts]
+    assert during, f"no poll saw the advance in progress ({len(polls)} polls)"
+
+
+def test_a_full_chunk_buffer_yields_and_changes_nothing(monkeypatch):
+    """SEP 47 section 5.3: bounded buffers, exactly-once chunks. With room for three
+    attempts and two rows the session yields progress chunks no larger, and the run's
+    trace and fields are the unbounded run's.
+    """
+    if not _one_thread():
+        pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
+    problem = _case(rtol=1e-12, step_planes=0, period=1, dz_init=1e-2)
+    request = describe_run(problem)
+    baseline = drive(_native_session(problem, request), export=CONSUMER)
+    monkeypatch.setattr(native_session, "ATTEMPT_CAPACITY", 3)
+    monkeypatch.setattr(native_session, "ROW_CAPACITY", 2)
+    run = drive(_native_session(problem, request), export=CONSUMER)
+    assert_same_run(run, baseline)
+    chunks = [
+        event.history.n_steps for event in run.events if isinstance(event, Progress)
+    ]
+    assert chunks and max(chunks) <= 3
+    assert len(run.batches) > len(baseline.batches)
+
+
+def test_march_admission_is_decided_before_the_backend_is_built(monkeypatch):
+    """SEP 47 section 5.2: a march the backend would step on the host is refused from
+    the problem alone, and the problem-only predicate agrees with the built backend.
+    """
+    from solprop_native import backend as native_backend  # noqa: PLC0415
+
+    problem = _case()
+    request = describe_run(problem)
+    assert native_backend.native_march_refusal(problem) is None
+    session = _make_native(problem, request)
+    built = session._backend  # pyright: ignore[reportPrivateUsage]
+    assert built is not None
+    staged = built._stage_tables() is not None  # pyright: ignore[reportPrivateUsage]
+    assert staged == native_backend.stage_tables_available(problem)
+    session.close()
+    monkeypatch.setattr(native_backend, "_RK_ROWS", "host")
+    _refused(problem, request, "a trial whose stage rows the host forms", monkeypatch)

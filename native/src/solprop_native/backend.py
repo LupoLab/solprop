@@ -640,6 +640,8 @@ class NativeBackend(StepDriver[_core.State]):
         their edges.
         """
         problem = self._problem
+        if not stage_tables_available(problem):
+            return None
         linear, responses = problem.linear, problem.responses
         phi_weights = phi_rate = prefactor_weights = None
         separable = self._terms.separable is not None
@@ -1798,18 +1800,8 @@ class NativeBackend(StepDriver[_core.State]):
         packed = np.asarray(
             self._native_state.spatial_statistics(flags, 0.5 * EPS0 * C, self._z)
         ).ravel()
-        offset = 0
-        for name in (
-            "energy",
-            "on_axis_intensity",
-            "peak_intensity",
-            "on_axis_spectrum",
-        ):
-            if name in names:
-                count = self._problem.shape[-1] if name == "on_axis_spectrum" else 1
-                data = packed[offset : offset + count]
-                values[name] = data[None] if name == "on_axis_spectrum" else data
-                offset += count
+        scalars, offset = self._spatial_scalars(names, packed)
+        values.update(scalars)
         if names & {"beam_radius", "fwhm_r"}:
             n_terms = (
                 self._problem.shape[2] * self._problem.grids.n_t
@@ -1844,6 +1836,29 @@ class NativeBackend(StepDriver[_core.State]):
                 f"consumed {offset}"
             )
         return values
+
+    def _spatial_scalars(
+        self, names: set[str], packed: RealArray
+    ) -> tuple[dict[str, np.ndarray], int]:
+        """Unpack ``spatial_statistics``' scalar flags from the front of `packed`.
+
+        Returns the statistics, each with a leading batch axis, and how many values
+        they took: a plane's widths follow them.
+        """
+        values: dict[str, np.ndarray] = {}
+        offset = 0
+        for name in (
+            "energy",
+            "on_axis_intensity",
+            "peak_intensity",
+            "on_axis_spectrum",
+        ):
+            if name in names:
+                count = self._problem.shape[-1] if name == "on_axis_spectrum" else 1
+                data = packed[offset : offset + count]
+                values[name] = data[None] if name == "on_axis_spectrum" else data
+                offset += count
+        return values, offset
 
     def _far_field_statistics(
         self, names: set[str], spec: StatsSpec | None
@@ -2844,6 +2859,7 @@ _REASONS = (
     "capacity",
     "dense",
     "stopped",
+    "halted",
 )
 """Why a native march call returned (``march::Reason``), by name, in its order; the
 benchmark counters (:mod:`solprop_native._counters`) report these names."""
@@ -2860,12 +2876,93 @@ benchmark counters (:mod:`solprop_native._counters`) report these names."""
     _CAPACITY,
     _DENSE,
     _STOPPED,
+    _HALTED,
 ) = range(len(_REASONS))
 _VERDICTS = ("none", "stop", "warning", "quiet verdict", "refused crossing", "error")
 """A watch return's verdicts, by ``watch::Verdict`` (solprop SEP 45 section 4.8)."""
 
 _CONVERGENCE, _BACKEND, _VALUE, _REFUSED = 1, 2, 3, 4
 """Which error a native failure maps to (``march::Category``)."""
+
+
+def stage_tables_available(problem: KernelProblem) -> bool:
+    """Return whether the native state reads a problem's stage rows from tables.
+
+    ``NativeBackend._stage_tables`` uploads them exactly when this holds: the ``Phi``
+    and the prefactor are each a z table (on a CPU build), a separable operator's, a
+    constant or an expansion (solprop SEP 39 phases 1 and 4). Decided from the problem
+    alone, so that the native session can refuse a host-formed trial before anything
+    is allocated (solprop SEP 47 section 5.2).
+    """
+    linear, responses = problem.linear, problem.responses
+    tables = not problem.device_ready
+    separable = linear.separable is not None
+    phi = (
+        (tables and linear.phi_representation == "table")
+        or separable
+        or linear.phi_constant is not None
+        or linear.phi_expansion is not None
+    )
+    prefactor = (
+        (tables and responses.prefactor_representation == "table")
+        or separable
+        or responses.prefactor_constant is not None
+        or responses.prefactor_expansion is not None
+    )
+    return phi and prefactor
+
+
+def native_march_refusal(problem: KernelProblem) -> str | None:
+    """Return why the backend would step a run's march on the host, or ``None``.
+
+    ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
+    decided from the problem alone (solprop SEP 47 section 5.2): the private host
+    switches; for Adams, a formulation without a resident engine, a coupled flow off
+    the eigenbasis route or wider than :data:`ADAMS_MAX_CHANNELS`, stage rows the host
+    forms, and the carrier frame on a z table; for Runge-Kutta, stage rows the host
+    forms. A controller overriding a decision is refused by its caller.
+    """
+    integrator = problem.stepper.integrator
+    staged = stage_tables_available(problem)
+    if isinstance(integrator, Multistep):
+        if _ADAMS_MARCH == "host":
+            return "the private switch asked for the host Adams march"
+        exponential = integrator.formulation == "exponential"
+        fused = not exponential and (
+            integrator.corrector == "pec"
+            and all(
+                integrator.corrector_nodes(order) == order + 1
+                for order in range(1, integrator.order + 1)
+            )
+        )
+        flow = problem.linear.coupled_flow
+        route_off = flow is not None and (
+            not exponential
+            or not bool(np.all(_host_flow(problem).route))  # pyright: ignore[reportOptionalMemberAccess]
+            or problem.shape[1] > ADAMS_MAX_CHANNELS
+            or problem.shape[0] != 1
+        )
+        if not (exponential or fused):
+            return "the host engine, which steps a formulation with no resident engine"
+        if route_off:
+            return (
+                "the host engine, which steps a coupled flow off the eigenbasis "
+                "route or wider than 16 channels"
+            )
+        if not staged:
+            return (
+                "an operator or prefactor representation the native stage tables do "
+                "not read"
+            )
+        carrier = carrier_reference(problem, integrator)
+        if carrier is not None and carrier.active:
+            chord = carrier.chord
+            if chord is None or chord.table is not None:
+                return "the carrier frame on a z table"
+        return None
+    if _RK_MARCH == "host" or _RK_ROWS == "host" or not staged:
+        return "a trial whose stage rows the host forms"
+    return None
 
 
 class _MarchRunner(Protocol):
