@@ -215,7 +215,7 @@ def test_a_state_reads_back_the_record_it_was_built_with(
     ("change", "message"),
     [
         ({"cpu_execution": None}, "must be a dict"),
-        ({"cpu_execution": {"stage_threshold": 1}}, "has 24 fields, got 1"),
+        ({"cpu_execution": {"stage_threshold": 1}}, "has 26 fields, got 1"),
         ("missing", "needs its CPU execution record"),
     ],
 )
