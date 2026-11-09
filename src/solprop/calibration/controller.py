@@ -27,6 +27,7 @@ import math
 import os
 import queue
 import random
+import statistics
 import subprocess
 import sys
 import threading
@@ -124,12 +125,18 @@ LEVELS: dict[str, Level] = {
     # Quick: the wait, the team and the coarse grain (medium width, compact team).
     # Quick has no production-sized problem, so it tries no narrower team.
     "quick": Level(
-        "quick", 20.0, 3, 0.08, ("gnlse", "averaged", "line"), 0, 4, planning=0.0
+        "quick", 30.0, 3, 0.08, ("gnlse", "averaged", "line"), 0, 4, planning=0.0
     ),
-    "standard": Level("standard", 90.0, 5, 0.08, _ALL + _LARGE, 2, 10, reserve=0.15),
-    "thorough": Level("thorough", 300.0, 7, 0.3, _ALL + _LARGE, 2, 40, fulls=True),
+    "standard": Level("standard", 120.0, 5, 0.08, _ALL + _LARGE, 2, 10, reserve=0.15),
+    "thorough": Level("thorough", 420.0, 7, 0.3, _ALL + _LARGE, 2, 40, fulls=True),
 }
-"""The levels: about 20 s, a minute and a half and five minutes (SEP 46 section 6.9)."""
+"""The levels: about 30 s, two minutes and seven minutes.
+
+SEP 46 section 6.9 set 20 s, 90 s and 5 min. With those, the FFT stage's timing in the
+step ran out of rounds at the standard and thorough levels on an Intel Xeon Gold 6240,
+16 cores of an AMD EPYC 7763 and an Apple M5 Max, and the standard level's capture ran
+out of its share (solprop issue #595); the levels now give it the time.
+"""
 
 ORDER: dict[str, int] = {"quick": 0, "standard": 1, "thorough": 2}
 """Levels by depth: a higher level replaces a lower one for the same allocation."""
@@ -1455,6 +1462,10 @@ def _alone_ratios(
     return ratios
 
 
+_ALONE_BAR = 0.98
+"""The median ratio, alone, of a candidate's plans to the policy's at or above which
+the candidate is not timed in the step."""
+
 _CAPTURE_SHARE = 0.5
 """The share of the FFT stage's time left that each capture may take."""
 
@@ -1540,12 +1551,23 @@ def _planning(
     candidates = _planning_candidates(measured)
     groups = cast(dict[str, str], measured["groups"])
     contains = cast(dict[str, list[str]], measured["problems"])
+    alone = _alone_ratios(candidates, groups, measured)
+    # A candidate whose plans are no faster alone is not timed in the step: the step's
+    # timing is what the stage runs short of (issue #595), and estimate's serial rows
+    # and transverse planes were 1.06-3.8 times slower alone on every machine timed.
+    pruned = {
+        name: statistics.median(ratios.values())
+        for name, ratios in alone.items()
+        if ratios and statistics.median(ratios.values()) >= _ALONE_BAR
+    }
+    candidates = [item for item in candidates if item[0] not in pruned]
     evidence: dict[str, object] = {
         "plans": len(groups),
         "skipped": list(cast(list[str], measured.get("skipped", []))),
         "planning_seconds": measured["seconds"],
         "candidates": [name for name, _, _ in candidates],
-        "alone": _alone_ratios(candidates, groups, measured),
+        "alone": alone,
+        "pruned": pruned,
     }
     timed = [
         (
@@ -1811,8 +1833,8 @@ def calibrate(
     Parameters
     ----------
     level : str, optional
-        ``"quick"`` (about 20 s), ``"standard"`` (about 90 s) or ``"thorough"``
-        (about five minutes).
+        ``"quick"`` (about 30 s), ``"standard"`` (about two minutes) or
+        ``"thorough"`` (about seven minutes).
     budget : float or None, optional
         The deadline in seconds, the level's when ``None``.
     environ : Mapping[str, str] or None, optional

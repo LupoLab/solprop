@@ -845,6 +845,45 @@ def test_thorough_tries_no_patient_plans_and_records_plans_alone(
     assert set(evidence["alone"]) == set(evidence["candidates"])
 
 
+def test_a_candidate_no_faster_alone_is_not_timed_in_the_step(
+    scripted: tuple[type[_Scripted], dict[str, str]], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Issue #595: estimate's serial rows slower alone than measure's are pruned, and
+    # the step times the threaded rows' measured plans alone.
+    script, environ = scripted
+    original = script.receive
+    timed: list[dict[str, str]] = []
+
+    def receive(self: _Scripted, timeout: float) -> object:
+        reply = original(self, timeout)
+        if self.pending.get("op") == "capture":
+            assert isinstance(reply, dict)
+            reply["alone"] = {
+                "r2c:4096:1:4096:2049:out:0:0:t1": {"plan": 1.0, "estimate": 2.0},
+                "c2c-forward:4096:4:4096:4096:out:0:0:t8": {
+                    "plan": 0.8,
+                    "estimate": 1.0,
+                },
+            }
+        elif self.pending.get("op") == "time" and self.pending.get("planning"):
+            timed.append(
+                dict(_efforts(cast(Mapping[str, object], self.pending["planning"])))
+            )
+        return reply
+
+    monkeypatch.setattr(script, "receive", receive)
+    calibrate("standard", environ=environ, cpus=range(8))
+    (row,) = _rows(environ)
+    evidence = cast(dict[str, Any], row["evidence"])["planning"]
+    assert evidence["candidates"] == ["threaded_rows measure"]
+    assert evidence["pruned"] == {"rows estimate": 2.0}
+    assert evidence["alone"]["threaded_rows measure"] == {
+        "c2c-forward:4096:4:4096:4096:out:0:0:t8": 0.8
+    }
+    assert timed
+    assert all(efforts.get("rows") != "estimate" for efforts in timed)
+
+
 def test_quick_leaves_the_plan_policy_and_a_failed_capture_keeps_it(
     scripted: tuple[type[_Scripted], dict[str, str]],
 ) -> None:

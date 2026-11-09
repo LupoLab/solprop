@@ -10,9 +10,9 @@ changes a result beyond rounding: it chooses among exact algorithms and thread c
 as the built-in defaults do.
 
 ```sh
-solprop calibrate                # standard: about a minute and a half
-solprop calibrate --quick        # about 20 s
-solprop calibrate --thorough     # about five minutes
+solprop calibrate                # standard: about two minutes
+solprop calibrate --quick        # about 30 s
+solprop calibrate --thorough     # about seven minutes
 solprop calibrate --show         # the profile this job would use, and its evidence
 ```
 
@@ -62,9 +62,9 @@ the calibration says so and publishes nothing.
 
 | level | time | waiting and team | grain | FFT planning | rounds |
 |---|---|---|---|---|---|
-| `--quick` | about 20 s | the wait only | medium width and compact team | plan policy | 3 |
-| standard | about 90 s | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
-| `--thorough` | about 5 min | yes | thresholds and full sizes of every operation | `measure`, 20 s a plan | 7 |
+| `--quick` | about 30 s | the wait only | medium width and compact team | plan policy | 3 |
+| standard | about 2 min | yes, two narrower teams | thresholds of the main operations | `measure`, 0.25 s a plan | 5 |
+| `--thorough` | about 7 min | yes | thresholds and full sizes of every operation | `measure`, 20 s a plan | 7 |
 
 The standard and thorough levels also calibrate the smaller allocations they can pin
 children to inside the job, such as one socket, one NUMA node or one L3 cache group,
@@ -100,7 +100,7 @@ run prints a notice like
 
 ```text
 CalibrationNotice: solprop is calibrating the native backend to this machine (quick,
-about 20 s on 18 cores; once per machine, allocation and release). The profile is kept
+about 30 s on 18 cores; once per machine, allocation and release). The profile is kept
 in /home/me/.cache/solprop. Run `solprop calibrate` for a fuller calibration, or set
 SOLPROP_CALIBRATION=use to never measure, or =off to ignore profiles.
 ```

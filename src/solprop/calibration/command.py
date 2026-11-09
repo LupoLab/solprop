@@ -38,14 +38,14 @@ def add_arguments(parser: argparse.ArgumentParser) -> None:
         dest="level",
         action="store_const",
         const="quick",
-        help="about 20 s: the waiting policy and the team at reduced depth",
+        help="about 30 s: the waiting policy and the team at reduced depth",
     )
     action.add_argument(
         "--thorough",
         dest="level",
         action="store_const",
         const="thorough",
-        help="about five minutes: more rounds and longer windows",
+        help="about seven minutes: more rounds and longer windows",
     )
     action.add_argument(
         "--recipe",
