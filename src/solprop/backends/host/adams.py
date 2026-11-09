@@ -252,9 +252,10 @@ class HostAdamsMarch:
         """Return why this march cannot carry its history across a resume, or ``None``.
 
         The fused and exponential paths keep their history in an engine, and every
-        engine exports and installs its rows (:class:`AdamsEngine`, SEP 29 section
-        6.6). The general path combines a list of host arrays one product at a time
-        and keeps no store a snapshot could hold.
+        engine exports and installs its rows
+        (:class:`~solprop.backends.multistep.AdamsEngine`, SEP 29 section 6.6). The
+        general path combines a list of host arrays one product at a time and keeps no
+        store a snapshot could hold.
 
         Returns
         -------

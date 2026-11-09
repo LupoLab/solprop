@@ -20,13 +20,16 @@ from __future__ import annotations
 
 import dataclasses
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import TracebackType
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
+from solprop.backends.driver import StepDriver
 from solprop.backends.events import (
     Eligibility,
+    Event,
     EventBatch,
     ExportTicket,
     ObservationKind,
@@ -39,7 +42,7 @@ from solprop.backends.events import (
     Terminal,
     join_attempts,
 )
-from solprop.backends.export import apply_recipe
+from solprop.backends.export import ExportRecipe, apply_recipe
 from solprop.backends.protocol import (
     BackendHistory,
     Observation,
@@ -54,27 +57,23 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    Start,
 )
 from solprop.exceptions import StopRequested
-from solprop.log import NullReporter
+from solprop.log import NullReporter, PlaneSummary, StopFlag
+from solprop.monitor import BoundaryMonitor
+from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
+from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-    from types import TracebackType
-
+    # Under TYPE_CHECKING, so that the runtime type checks of the test suite do not
+    # hold the scripted drivers to the full protocol or check a refused export
+    # destination's shape before the session refuses it.
     from jaxtyping import Complex
 
-    from solprop.backends.driver import StepDriver
-    from solprop.backends.events import Event
-    from solprop.backends.export import ExportRecipe
     from solprop.backends.protocol import Backend
-    from solprop.backends.session import Start
-    from solprop.log import PlaneSummary, StopFlag
-    from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import MarchSnapshot
-    from solprop.translate.problem import KernelProblem
-    from solprop.translate.run_request import RunRequest
 
 __all__ = ["AttemptListener", "DriverSession"]
 
@@ -327,6 +326,17 @@ class DriverSession:
         self._lent = False
 
         def counted(z: float, dz: float, accepted: bool) -> None:
+            """Count an attempt and pass it on to the listener.
+
+            Parameters
+            ----------
+            z : float
+                The position the attempt started from, m.
+            dz : float
+                The attempted step, m.
+            accepted : bool
+                Whether the step was accepted.
+            """
             self._listened += 1
             if listener is not None:
                 listener(z, dz, accepted)
@@ -439,6 +449,13 @@ class DriverSession:
         limit = self._listened + max(int(work_limit), 1)
 
         def due() -> bool:
+            """Return whether the attempt bound or the deadline has been reached.
+
+            Returns
+            -------
+            bool
+                True once the march should halt at its next accepted endpoint.
+            """
             return self._listened >= limit or time.perf_counter() - started >= deadline
 
         _hook(self._driver, "set_halt_check", due)
