@@ -1768,6 +1768,11 @@ class NativeBackend(StepDriver[_core.State]):
                 apertures = _aperture_payload(
                     self._far_field.for_spec(spec), self._problem.shape[-1]
                 )
+            on_axis = None
+            if "peak_intensity" in names and self._modes is not None:
+                # The driver's matrix, built once and kept (`_on_axis_synthesis`).
+                self._on_axis_synthesis(self._modes)
+                on_axis = self._on_axis
             lowering = lower(
                 self._problem,
                 spec,
@@ -1776,6 +1781,7 @@ class NativeBackend(StepDriver[_core.State]):
                 modes=self._modes,
                 profiles=self._profiles,
                 apertures=apertures,
+                on_axis=on_axis,
             )
             if len(self._statistics_plans) >= _STATISTICS_PLANS:
                 self._statistics_plans.clear()

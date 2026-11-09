@@ -591,6 +591,7 @@ def lower(
     profiles: Mapping[str, ZProfile] | None = None,
     apertures: tuple[np.ndarray, np.ndarray, int] | None = None,
     tables: ApertureTables | None = None,
+    on_axis: np.ndarray | None = None,
 ) -> StatisticsLowering:
     """Lower statistics for native evaluation, once.
 
@@ -613,6 +614,9 @@ def lower(
         ``_aperture_payload``): the apertures, the regions and the exponent.
     tables : solprop.spatial.ApertureTables or None, optional
         Unused beside `apertures`; kept for the caller's record.
+    on_axis : numpy.ndarray or None, optional
+        The mode set's synthesis on the axis at the reference position, when the
+        caller already built it (``StepDriver._on_axis``); built here otherwise.
 
     Returns
     -------
@@ -707,8 +711,10 @@ def lower(
         if modes is None:
             msg = "the peak on-axis intensity needs the mode set at construction"
             raise BackendError(msg)
-        rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
-        matrix = mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
+        if on_axis is None:
+            rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
+            on_axis = mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
+        matrix = on_axis
         plan["on_axis"] = np.ascontiguousarray(matrix, dtype=np.float64).reshape(-1)
     if asked & (_PLASMA | _SPECIES):
         if len(channels) == 1:
