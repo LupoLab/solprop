@@ -98,13 +98,43 @@ def test_the_medium_width_and_the_compact_team_have_short_ladders() -> None:
     adams = {"a": [Operation("kernels", "adams", 4096)]}
     assert proposals(TABLE, adams, 18) == []
     assert "adams" not in TIMED
-    # Nor are the transforms' thresholds moved: counted in elements, transforms of one
-    # count thread oppositely by shape (SEP 46 Part II).
+    assert "fft" in TIMED
+
+
+def test_transforms_thread_by_rows_and_row_length() -> None:
+    # Linux: from 8192 samples a thread per 4096, at most one a row; rows of 16384
+    # samples or more may be split up to the medium width; the full pool from fft_full.
+    def threads(rows: int, length: int, capacity: int = 18) -> int:
+        return width(TABLE, Operation("fft", "fft", rows * length, length), capacity)
+
+    assert threads(1, 4096) == 1  # below the start
+    assert threads(4, 3072) == 3  # 12288 samples, three threads' worth
+    assert threads(4, 10240) == 4  # a thread a row
+    assert threads(1, 10240) == 1  # one short row is not split
+    assert threads(1, 32768) == 4  # a long row, split up to the medium width
+    assert threads(3, 20480) == 4
+    assert threads(12, 10240) == 12
+    assert threads(128, 1152) == 18  # many short rows take the pool
+    assert threads(289, 128) == 9  # 36992 samples
+    assert threads(128, 1152, capacity=8) == 8
+    # A batch of unknown row length keeps the element rule.
+    assert width(TABLE, Operation("fft", "fft", 40960), 18) == 4
+    assert width(TABLE, Operation("fft", "fft", 1 << 22, 1024), 36) == 36
+
+
+def test_the_transforms_shape_settings_are_moved_where_they_change_a_width() -> None:
     transforms = {
-        "a": [Operation("fft", "fft", 98304, 768), Operation("fft", "fft", 131072, 512)]
+        "a": [Operation("fft", "fft", 40960, 10240), Operation("fft", "fft", 36992, 128)]
     }
-    assert [c for c in proposals(TABLE, transforms, 18) if "fft" in c.name] == []
-    assert "fft" not in TIMED
+    names = [c.name for c in proposals(TABLE, transforms, 18) if c.setting == "fft"]
+    # The full size is a backstop and is not moved, and neither long row changes a
+    # width here: four rows take four threads split or not, and 128 samples is short
+    # either way.
+    assert names == [
+        "fft threshold 36993",
+        "fft thread elements 2048",
+        "fft thread elements 8192",
+    ]
 
 
 def test_the_best_admitted_candidate_of_each_setting_is_kept() -> None:

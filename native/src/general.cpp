@@ -2607,13 +2607,19 @@ public:
   // microseconds on 16 of its 84 multiprocessors, whatever the rows. Batched, the
   // stage's rows share them. A device never defers the coarse quadrature
   // (`deferred_quadrature_eligible`), so the coarse rows are projected at every stage.
-  // A host packs them too unless SOLPROP_NATIVE_FORWARD_PACK=0 (a probe switch,
-  // solprop issue #584): one threaded transform of every row in place of one a
-  // transform, each over only the modes' rows. A host keeps the coarse rows after the
+  // A host packs them too, unless the problem is compact or SOLPROP_NATIVE_FORWARD_PACK
+  // is 0 (solprop issue #584): one transform of every row, threaded by its shape, in
+  // place of one a transform over only the modes' rows, which left most of the
+  // threads idle: on 18 cores of an Intel Xeon Gold 6240 the pack ran rdw 0.90,
+  // argon_blueshift 0.88 and ctc 0.92 of their windows. A host keeps the coarse rows after the
   // fine ones so that a deferred quadrature's stages transform the fine block alone.
   bool packs_forward() const noexcept {
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
-    if (!host_forward_pack())
+    // A compact problem keeps its separate transforms: its one row a transform runs
+    // serially below the FFT start, and the pack's few rows on the compact team ran
+    // averaged helium 1.35 times slower on 18 cores of an Intel Xeon Gold 6240 and
+    // 1.11 on 16 of an AMD EPYC 7763 (solprop issue #584).
+    if (!host_forward_pack() || compact_)
       return false;
 #endif
     return problem_.family == FieldFamily::field_real &&
