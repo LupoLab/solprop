@@ -446,7 +446,13 @@ end
 
 @testset "Transverse cadence, warning order and lexical stop ties" begin
     tables, policy = _transverse_tables(), _transverse_policy()
+    # The face count must come from prepared tables, not an unbound type parameter
+    # in the generated unparameterized keyword constructor (issue #645).
+    @test_throws MethodError SolpropJulia.TransverseState()
+    @test !hasmethod(SolpropJulia.TransverseState, Tuple{})
     state = SolpropJulia.TransverseState(tables)
+    @test state.baseline == state.peak == state.peak_raw == (0.0, 0.0)
+    @test state.last_columns !== state.noise_columns
     reading = _transverse_reading()
     notices = SolpropJulia.MonitorNotices(8)
     SolpropJulia.transverse_launch!(state, policy, tables, reading, 0.0, notices)

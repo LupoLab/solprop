@@ -1253,52 +1253,89 @@ Face baselines and maxima are fixed tuples in declared order. All coordinates ar
 m and totals are launch-normalised energy shares. `last_columns` and `noise_columns`
 are the only retained arrays; no history or notices are stored inside the state.
 """
-Base.@kwdef mutable struct TransverseState{N, V}
-    launch::Float64 = NaN
-    baseline::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
-    peak::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
-    peak_raw::NTuple{N, Float64} = ntuple(_ -> 0.0, Val(N))
-    allowance::Float64 = 0.0
+mutable struct TransverseState{N, V}
+    launch::Float64
+    baseline::NTuple{N, Float64}
+    peak::NTuple{N, Float64}
+    peak_raw::NTuple{N, Float64}
+    allowance::Float64
     noise_columns::V
-    has_noise::Bool = false
-    noise_share_in_ramp::Float64 = 0.0
-    ramp_raw::Float64 = 0.0
-    ramp_noise::Float64 = 0.0
-    spatial_removed::Float64 = 0.0
-    last_rate_z::Float64 = NaN
-    last_rate::Float64 = 0.0
+    has_noise::Bool
+    noise_share_in_ramp::Float64
+    ramp_raw::Float64
+    ramp_noise::Float64
+    spatial_removed::Float64
+    last_rate_z::Float64
+    last_rate::Float64
     last_columns::V
-    last_z::Float64 = NaN
-    next::Float64 = Inf
-    spacing_now::Float64 = Inf
-    backstop::Float64 = Inf
-    reach_reference::Float64 = 0.0
-    reads::Int = 0
-    largest_gap::Float64 = 0.0
-    warned_at::Float64 = NaN
-    status::TransverseStatus = TransverseClear
-    reason::UInt8 = 0
-    warned::Bool = false
-    ramp_warned::Bool = false
-    resumed::Bool = false
-    declared_share::Float64 = 0.0
-    strip_baseline::Float64 = 0.0
-    strip_floor::Float64 = 0.0
-    strip_peak::Float64 = 0.0
-    current::Float64 = 0.0
-    has_current_last::Bool = false
-    current_last_z::Float64 = NaN
-    current_last::Float64 = 0.0
-    current_baseline::Float64 = 0.0
-    returned_peak::Float64 = 0.0
-end
-function TransverseState(tables::TransverseTables{F, C, T, V, K, I, R, N}) where
-    {F, C, T, V, K, I, R, N}
-    count = length(tables.column_weights)
-    previous, noise = zeros(count), zeros(count)
-    return TransverseState{N, typeof(previous)}(;
-        last_columns = previous, noise_columns = noise
-    )
+    last_z::Float64
+    next::Float64
+    spacing_now::Float64
+    backstop::Float64
+    reach_reference::Float64
+    reads::Int
+    largest_gap::Float64
+    warned_at::Float64
+    status::TransverseStatus
+    reason::UInt8
+    warned::Bool
+    ramp_warned::Bool
+    resumed::Bool
+    declared_share::Float64
+    strip_baseline::Float64
+    strip_floor::Float64
+    strip_peak::Float64
+    current::Float64
+    has_current_last::Bool
+    current_last_z::Float64
+    current_last::Float64
+    current_baseline::Float64
+    returned_peak::Float64
+
+    # Binding the face count through tables avoids @kwdef's unparameterized
+    # constructor evaluating defaults with an unbound N (issue #645).
+    function TransverseState(tables::TransverseTables{F, C, T, V, K, I, R, N}) where
+        {F, C, T, V, K, I, R, N}
+        state = new{N, Vector{Float64}}()
+        state.launch = NaN
+        state.baseline = ntuple(_ -> 0.0, Val(N))
+        state.peak = ntuple(_ -> 0.0, Val(N))
+        state.peak_raw = ntuple(_ -> 0.0, Val(N))
+        state.allowance = 0.0
+        state.noise_columns = zeros(length(tables.column_weights))
+        state.has_noise = false
+        state.noise_share_in_ramp = 0.0
+        state.ramp_raw = 0.0
+        state.ramp_noise = 0.0
+        state.spatial_removed = 0.0
+        state.last_rate_z = NaN
+        state.last_rate = 0.0
+        state.last_columns = zeros(length(tables.column_weights))
+        state.last_z = NaN
+        state.next = Inf
+        state.spacing_now = Inf
+        state.backstop = Inf
+        state.reach_reference = 0.0
+        state.reads = 0
+        state.largest_gap = 0.0
+        state.warned_at = NaN
+        state.status = TransverseClear
+        state.reason = 0
+        state.warned = false
+        state.ramp_warned = false
+        state.resumed = false
+        state.declared_share = 0.0
+        state.strip_baseline = 0.0
+        state.strip_floor = 0.0
+        state.strip_peak = 0.0
+        state.current = 0.0
+        state.has_current_last = false
+        state.current_last_z = NaN
+        state.current_last = 0.0
+        state.current_baseline = 0.0
+        state.returned_peak = 0.0
+        return state
+    end
 end
 
 """
