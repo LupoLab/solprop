@@ -18,6 +18,7 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    PLANES,
     STORED,
     ScriptedError,
     soliton,
@@ -146,3 +147,34 @@ def test_a_poisoned_session_offers_no_pending_ticket(start_scripted):
     assert isinstance(batch.terminal.error, ScriptedError)
     assert batch.terminal.ticket is None
     assert session.pending_ticket() is None  # pyright: ignore[reportAttributeAccessIssue]
+
+
+def test_a_signal_out_of_a_propagation_leaves_its_attempts_to_the_checkpoint(
+    start_scripted,
+):
+    """SEP 47 section 5.5: a signal raised out of a propagation, between steps, leaves
+    the committed state exportable for the terminal checkpoint, with every attempt it
+    made delivered once.
+
+    The checkpoint exports the field first, as the service loop does, which drains
+    the driver's attempts; they are held for the attempts no event delivered
+    (``RunSession.undelivered``), not lost to the export.
+    """
+    session = start_scripted(soliton(), fail_at=3, signal=True).session
+    launch = session.advance()
+    session.acknowledge(launch.receipt)
+    with pytest.raises(KeyboardInterrupt):
+        session.advance()
+    ticket = session.pending_ticket()  # pyright: ignore[reportAttributeAccessIssue]
+    assert ticket is not None
+    assert 0.0 < ticket.z < PLANES[0]
+    field = session.export(ticket, CONSUMER)
+    assert np.all(np.isfinite(field))
+    history, _ = session.undelivered(ticket)
+    # The two trials before the signal, each accepted, the second ending where the
+    # committed state stands.
+    assert history.n_steps == 2 == session.status().attempts
+    assert bool(np.all(history.accepted))
+    assert history.z[-1] == ticket.z
+    assert session.undelivered(ticket)[0].n_steps == 0
+    assert session.status().outcome is Outcome.FAILED

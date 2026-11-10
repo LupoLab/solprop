@@ -200,7 +200,11 @@ def test_single_precision_takes_its_defaults_and_refuses_what_it_does_not_run():
     # A capillary takes its own default, at the floor, not the waveguide's 1e-5.
     controller = capillary("single").settings.controller
     assert cast("PIController", controller).rtol == 1e-6
-    assert simulation.translate().precision.single
+    problem = simulation.translate()
+    assert problem.precision.single
+    # Nothing in the problem itself is refused; the statistics and the step's exponent
+    # are the run's, checked with its request (`validate_run`).
+    assert problem.validate() is None
 
     def automatic() -> Simulation:
         return Simulation.from_gnlse(
