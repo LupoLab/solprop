@@ -145,7 +145,6 @@ from solprop.translate.routes import (
     ModalRoute,
     SpatialRoute,
     flux_of,
-    route_name,
     transverse_of,
 )
 from solprop.translate.stage import (
@@ -4260,7 +4259,9 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
     # The route by its variant (solprop SEP 47 section 6.2), refused by name before
     # anything is allocated: every route of the union but the modal route's TDSE
     # extension, which is the reference's alone.
-    match problem.route:
+    # Read as any object: a variant this build does not know is refused by name too.
+    route = cast("object", problem.route)
+    match route:
         case ModalRoute(tdse=tdse) if tdse is not None:
             raise BackendError(
                 "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
@@ -4273,9 +4274,9 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
             | SpatialRoute(kind="radial" | "cartesian" | "planar" | "line")
         ):
             pass
-        case route:
+        case _:
             raise BackendError(
-                f"solprop-native does not execute the {route_name(route)} route"
+                f"solprop-native does not execute the {type(route).__name__} route"
             )
     # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
     # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage

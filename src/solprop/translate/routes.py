@@ -77,8 +77,9 @@ def spatial_kind(geometry: SpatialGeometry) -> SpatialKind:
     -------
     str
         ``"radial"`` for a Hankel geometry, ``"planar"`` for the hybrid slab transform,
-        ``"line"`` for a Cartesian grid one sample wide in y (:class:`solprop.grid.
-        LineGrid`) and ``"cartesian"`` for any other Cartesian grid.
+        ``"line"`` for a Cartesian grid one sample wide in y
+        (:class:`solprop.grid.LineGrid`) and ``"cartesian"`` for any other Cartesian
+        grid.
     """
     if geometry.kind == "radial":
         return "radial"

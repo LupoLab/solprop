@@ -265,7 +265,8 @@ def test_the_cases_exercise_the_slab_route(case):
     if family.startswith("collar"):
         assert (
             transverse_of(problem.route) is not None
-            and transverse_of(problem.route).has_collar
+            and (transverse := transverse_of(problem.route)) is not None
+            and transverse.has_collar
         )
         assert np.any(geometry.absorber_rate > 0)
 

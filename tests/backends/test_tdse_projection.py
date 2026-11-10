@@ -100,10 +100,7 @@ def _project(polarisation, current, result, problem, bundle, prefactor, **option
     source is gated (SEP 26) and its projection requires an edge array, and a zero
     one leaves the spectrum the plain transform of the current handed over.
     """
-    if (
-        tdse_descriptor(problem.route) is not None
-        and tdse_descriptor(problem.route).gated
-    ):
+    if _descriptor(problem) is not None and _descriptor(problem).gated:
         options.setdefault("edge", np.zeros_like(current))
     return project_atomic_sources(
         polarisation, current, result, problem, bundle, prefactor, **options
@@ -116,7 +113,7 @@ def response_record(problem, current, *, cancelled=None):
         current[:, 0, :] + first,
         first,
         input_identity="manufactured field",
-        configuration_identity=tdse_descriptor(problem.route).identity,
+        configuration_identity=_descriptor(problem).identity,
         valid=np.ones(first.shape, dtype=bool),
         shadow_orders=(1,),
     )
@@ -369,7 +366,7 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
 ):
     problem, grid, bundle, prefactor = projection_case
     response = dataclasses.replace(
-        _response_from_json(tdse_descriptor(problem.route).configuration_json),
+        _response_from_json(_descriptor(problem).configuration_json),
     )
     problem = dataclasses.replace(
         problem,
@@ -390,7 +387,7 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
         first + nonlinear,
         first,
         input_identity=waveform_identity(fields),
-        configuration_identity=tdse_descriptor(problem.route).identity,
+        configuration_identity=_descriptor(problem).identity,
         valid=np.ones(fields.shape, dtype=bool),
         shadow_orders=(1,),
     )
@@ -428,3 +425,10 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
         assert large_metric["roundoff_floor"] > 1e6 * small_metric["roundoff_floor"]
     assert_array_equal(record.total_current, first + nonlinear)
     assert_array_equal(record.first_order_current, first)
+
+
+def _descriptor(problem):
+    """Return a TDSE problem's descriptor."""
+    descriptor = tdse_descriptor(problem.route)
+    assert descriptor is not None
+    return descriptor

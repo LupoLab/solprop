@@ -196,7 +196,7 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
         linear=dataclasses.replace(problem.linear, separable=bare),
         responses=dataclasses.replace(problem.responses, separable=bare),
         route=dataclasses.replace(
-            problem.route, flux=dataclasses.replace(flux_of(problem.route), base=bare)
+            problem.route, flux=dataclasses.replace(_flux(problem), base=bare)
         ),
     )
     steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
@@ -206,3 +206,10 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
     assert relative(actual, expected) < bound
     moved = propagate(native_class(), without, grid, grid.length)
     assert relative(moved, actual) > bound
+
+
+def _flux(problem):
+    """Return a spatial problem's flux plan."""
+    flux = flux_of(problem.route)
+    assert flux is not None
+    return flux

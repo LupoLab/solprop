@@ -85,7 +85,8 @@ def test_a_field_reduction_without_kept_fields_matches_local_in_a_batch(tmp_path
     assert reference.status.tolist() == result.status.tolist() == ["done"] * 2
     for point in scan.points():
         shape = build(point).translate().shape
-        assert result.point(point.index)["reduced/field_at_plane"].shape[-3:] == shape
+        reduced = np.asarray(result.point(point.index)["reduced/field_at_plane"])
+        assert reduced.shape[-3:] == shape
     assert_points_matched(result, reference, scan, build, what="batch member")
 
 
