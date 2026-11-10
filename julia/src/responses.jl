@@ -45,9 +45,12 @@ end
 Hold the translated instantaneous cubic coefficients without evaluating material data.
 
 # Arguments
-- `coefficient`: Finite real `epsilon_0 * chi3` per unit stage-density weight:
+- `coefficient`: Finite real multiplier per unit translated stage weight:
   C m V⁻³ for a dimensionless weight, or C m⁴ V⁻³ for a number density in m⁻³.
-  No analytic-signal factor or stage density is folded into this value.
+  A single species uses `epsilon_0 * chi3`; a composite uses `epsilon_0` with
+  units C/(V m) and `sum(chi3_species * density_species)` as its signed stage weight.
+  No analytic-signal factor is folded into this value; the prepared coefficient/weight
+  pair is authoritative.
 - `form`: `:real` for `(sum(E_q^2)) E_p`, or `:analytic` for
   `self_factor * sum(abs2(a_q)) * a_p + conjugate_factor * sum(a_q^2) * conj(a_p)`.
 - `self_factor`, `conjugate_factor`: Finite dimensionless analytic-cubic factors.
@@ -123,8 +126,9 @@ Write the instantaneous Kerr polarisation into caller-owned time/node storage.
 - `layout`: Explicit `ResponseLayout`; component sums stay within one node.
 - `coefficients`: Prepared `KerrCoefficients`, independent of other response profiles.
 - `execution`: Synchronous `KernelExecution` used to launch each time/node body.
-- `density`: Finite nonnegative stage weight, m⁻³ for per-atom susceptibility or
-  dimensionless for an absolute material susceptibility.
+- `density`: Finite signed translated stage weight. A single species supplies its
+  number density in m⁻³ or a dimensionless weight; a composite supplies its signed
+  susceptibility sum in m²/V². The keyword retains the neutral profile's name.
 - `carrier`: `exp(2im * omega0 * t)` on the internal time grid, length `n_time`.
   Required for a nonzero analytic harmonic coefficient; otherwise optional.
 - `window`: Optional real dimensionless temporal source window, length `n_time`.
@@ -139,7 +143,7 @@ storage must be disjoint. Warmed CPU calls allocate nothing.
 
 # Throws
 - `DimensionMismatch`: If storage, window or carrier shapes disagree with the layout.
-- `ArgumentError`: If stage density/count is invalid, a required carrier is absent,
+- `ArgumentError`: If stage weight/count is invalid, a required carrier is absent,
   real-cubic samples are complex, or real projection has an incompatible destination.
 
 # Notes
@@ -158,8 +162,7 @@ function kerr_polarisation!(
     _response_matrix(samples, layout)
     _response_count(layout, count)
     _response_window(window, layout)
-    isfinite(density) && density >= 0 ||
-        throw(ArgumentError("Kerr stage density must be finite and nonnegative"))
+    isfinite(density) || throw(ArgumentError("Kerr stage weight must be finite"))
     carrier === nothing || length(carrier) == layout.n_time ||
         throw(DimensionMismatch("Kerr carrier does not match the time axis"))
     !iszero(coefficients.harmonic_factor) && carrier === nothing &&

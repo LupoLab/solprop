@@ -187,7 +187,7 @@ end
         output, samples, layout, coefficients, execution; count = 2
     )
     @test_throws ArgumentError SolpropJulia.kerr_polarisation!(
-        output, samples, layout, coefficients, execution; density = -1
+        output, samples, layout, coefficients, execution; density = -Inf
     )
     @test_throws ArgumentError SolpropJulia.kerr_polarisation!(
         output, complex.(samples), layout, coefficients, execution
@@ -199,4 +199,38 @@ end
     @test_throws DimensionMismatch SolpropJulia.kerr_polarisation!(
         complex.(output), complex.(samples), layout, harmonic, execution; carrier = [1im]
     )
+end
+
+@testset "Kerr signed composite susceptibility weight" begin
+    for tasks in (1, 2), form in (:real, :analytic)
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(), tasks, true
+        )
+        layout = SolpropJulia.ResponseLayout(3, 1, 1)
+        samples = form == :real ? reshape([0.1, -0.3, 0.7], 3, 1) :
+            reshape([0.1 + 0.2im, -0.3 + 0.4im, 0.7 - 0.5im], 3, 1)
+        output = similar(samples)
+        coefficients = SolpropJulia.KerrCoefficients(2.0, form)
+        SolpropJulia.kerr_polarisation!(
+            output, samples, layout, coefficients, execution; density = -3.0
+        )
+        reference = map(samples) do sample
+            field = Complex{BigFloat}(sample)
+            factor = form == :real ? BigFloat(-6) : BigFloat(-6) * 3 / 4
+            factor * abs2(field) * field
+        end
+        # A scalar cubic and translated multiplier require fewer than 16 operations.
+        bound = 16eps(Float64) * maximum(abs, reference)
+        @test maximum(abs, output - reference) <= bound
+        SolpropJulia.kerr_polarisation!(
+            output, samples, layout, coefficients, execution; density = 0.0
+        )
+        @test all(iszero, output)
+        for weight in (NaN, Inf, -Inf)
+            @test_throws ArgumentError SolpropJulia.kerr_polarisation!(
+                output, samples, layout, coefficients, execution; density = weight
+            )
+            @test all(iszero, output)
+        end
+    end
 end
