@@ -237,7 +237,7 @@ function _adams_session_start!(session)
     adams_seed!(
         session.history, 1, session.field, session.state.z,
         session.sampler, session.rate, session.execution;
-        identity = adams_charged_calls(session.ledger),
+        identity = 0, # Portable history identifies the accepted or predicted sample kind.
         source_absent = session.source_absent,
     )
     session.positions[1] = session.state.z
@@ -338,7 +338,7 @@ function _adams_session_commit!(session, landing, choice)
     session.state.in_flight = true
     adams_accept!(
         history, free, session.work, session.execution;
-        identity = adams_charged_calls(session.ledger),
+        identity = 1,
     )
     fill!(history.occupied, false)
     for index in 1:keep
