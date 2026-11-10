@@ -365,8 +365,10 @@ Group explicit inputs for one actual observed field, with no mutable field cache
 The optional numerical families use the corresponding `*StatisticsInput` records.
 `profiles` is `(density, pressure, core_radius)` in m⁻³, catalogue bar, and metres,
 evaluated from each profile's own Julia table. `quadrature_error` is the session's
-accepted-step alarm; statistics do not rescore the last trial. A requested absent or
-nonfinite dependency raises an error rather than being replaced by a default.
+accepted-step alarm; statistics do not rescore the last trial. It is NaN before an
+accepted score, without an embedded rule or for a zero material source, as in the
+reference backend's `_update_alarm`. Other requested absent or nonfinite dependencies
+raise an error rather than being replaced by a default.
 """
 struct StatisticsInputs{S, T, P, G, F, Q}
     spectral::S
@@ -1108,8 +1110,9 @@ fills its existing slices and clears all unselected slices to zero; the session 
 row metadata, cadence, continuation and delivery. No callback, history growth or
 Python execution occurs here. All retained scratch is listed by `StatisticsWorkspace`.
 
-Undefined widths and zero-density centroids return NaN. Missing, malformed, nonfinite
-or unrepresentable requested inputs raise `ArgumentError` or `DimensionMismatch`.
+Undefined widths, zero-density centroids and unavailable quadrature alarms return NaN.
+Other missing, malformed, nonfinite or unrepresentable requested inputs raise
+`ArgumentError` or `DimensionMismatch`.
 A failed evaluation does not publish a row; the session owns that transaction.
 """
 function statistics!(
@@ -1151,8 +1154,10 @@ function statistics!(
             population_statistics!(output, slot, inputs.populations, workspace, execution)
         elseif code == 20
             _stat_count(slot, 1)
-            isfinite(inputs.quadrature_error) && inputs.quadrature_error >= 0 ||
-                throw(ArgumentError("accepted quadrature alarm must be finite nonnegative"))
+            (
+                isnan(inputs.quadrature_error) ||
+                    (isfinite(inputs.quadrature_error) && inputs.quadrature_error >= 0)
+            ) || throw(ArgumentError("quadrature alarm must be nonnegative finite or NaN"))
             output[slot.offset] = inputs.quadrature_error
         else
             spatial_statistics!(output, slot, grid, inputs.spatial, workspace, execution)

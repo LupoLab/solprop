@@ -280,6 +280,56 @@ end
     )
 end
 
+@testset "Unavailable quadrature alarms retain only their diagnostic NaN" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    selection = _statistics_selection(((:quadrature_error, 1),); periodic = (1,))
+    grid = SolpropJulia.StatisticsGrid([1.0], [0.0], [1.0])
+    workspace = SolpropJulia.StatisticsWorkspace(
+        execution, Float64; n_time = 1, n_columns = 1
+    )
+    output = zeros(1)
+    for periodic in (false, true)
+        # The launch, absent embedded rule and zero material source are unmeasured,
+        # not a zero quadrature error. Issue #653 preserves this catalogue contract.
+        SolpropJulia.statistics!(
+            output, selection, grid, SolpropJulia.StatisticsInputs(),
+            workspace, execution; periodic
+        )
+        @test isnan(only(output))
+        for score in (0.0, 0.125, floatmax(Float64))
+            inputs = SolpropJulia.StatisticsInputs(; quadrature_error = score)
+            SolpropJulia.statistics!(
+                output, selection, grid, inputs, workspace, execution; periodic
+            )
+            @test only(output) == score
+        end
+        for invalid in (-1.0, -Inf, Inf)
+            inputs = SolpropJulia.StatisticsInputs(; quadrature_error = invalid)
+            @test_throws ArgumentError SolpropJulia.statistics!(
+                output, selection, grid, inputs, workspace, execution; periodic
+            )
+        end
+    end
+    @test _statistics_allocations(
+        output, selection, grid, SolpropJulia.StatisticsInputs(), workspace, execution
+    ) == 0
+    for invalid in (NaN, -Inf, Inf)
+        inputs = SolpropJulia.StatisticsInputs(; profiles = (invalid, 0.0, 0.0))
+        selected = _statistics_selection(((:density, 1), (:quadrature_error, 1)))
+        @test_throws ArgumentError SolpropJulia.statistics!(
+            zeros(2), selected, grid, inputs, workspace, execution
+        )
+        spectral = SolpropJulia.SpectralStatisticsInput(
+            fill(complex(invalid), 1, 1), ones(1, 1)
+        )
+        selected = _statistics_selection(((:energy, 1), (:quadrature_error, 1)))
+        @test_throws ArgumentError SolpropJulia.statistics!(
+            zeros(2), selected, grid, SolpropJulia.StatisticsInputs(; spectral),
+            workspace, execution
+        )
+    end
+end
+
 function _statistics_spatial(widths, fluence, axis; tasks = 2)
     execution = SolpropJulia.KernelExecution(
         SolpropJulia.KernelAbstractions.CPU(), tasks, true
