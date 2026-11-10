@@ -99,6 +99,11 @@ end
             coefficients, stencil, history, 0.0, 1.0,
         )
     ) == 0
+    @test @allocated(
+        SolpropJulia.adams_stencil!(
+            stencil, 4, (1, 2, 3, 4, 5), (3, 4, 5),
+        )
+    ) == 0
     saved_slots, saved_orders = copy(stencil.slots), copy(stencil.orders)
     @test_throws ArgumentError SolpropJulia.adams_stencil!(
         stencil, 4, view(stencil.slots, 1:5), (3, 4, 5),
@@ -135,6 +140,12 @@ function adams_test_trial!(work, state, history, stencil, source, operator, exec
     SolpropJulia.adams_trial!(
         work, state, 0.0, 0.25, history, stencil, source, operator, operator, execution,
     )
+    return nothing
+end
+
+function adams_storage_cycle!(history, work, sampled, source, operator, execution)
+    SolpropJulia.adams_seed!(history, 1, sampled, 0.0, source, operator, execution)
+    SolpropJulia.adams_accept!(history, 5, work, execution; identity = 99)
     return nothing
 end
 
@@ -199,6 +210,13 @@ end
         )
     ) == 0
     SolpropJulia.adams_accept!(history, 5, work, ex; identity = 99)
+    seed_state = initial .* (1 + 1 / 8)
+    adams_storage_cycle!(history, work, seed_state, source, varying, ex)
+    @test @allocated(
+        adams_storage_cycle!(
+            history, work, seed_state, source, varying, ex,
+        )
+    ) == 0
     @test history.states[:, :, 5] == work.predictor
     @test history.states[:, :, 5] != work.candidate
     @test history.rates[:, :, 5] == work.endpoint_rate
