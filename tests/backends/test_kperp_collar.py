@@ -22,6 +22,7 @@ from backends.test_free_ladders import amplitude_bound
 from bounds import EPS, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -31,6 +32,7 @@ from solprop.output.schema import PlaneStore
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController, RungeKutta
+from solprop.translate.routes import transverse_of
 
 
 def column_run(backend, *, ramp, schedule, rtol=1e-6):
@@ -74,7 +76,7 @@ def test_the_rate_attenuates_each_column_exactly_over_the_run(schedule):
     ramp = SpatialAbsorber(real_space=False, safety_fraction=0.5)
     simulation, output = column_run("numpy_ref", ramp=ramp, schedule=schedule)
     launch, end = output.plane_field(0), output.plane_field(1)
-    design = simulation.translate().transverse
+    design = transverse_of(simulation.translate().route)
     assert design is not None
     rate = design.ramp_rate
     length = float(output["z"][-1])
@@ -121,7 +123,7 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
         )
         problem = simulation.translate()
         selected = select(backend, problem, grid=grid)
-        owner = cast("StepDriver", selected)
+        owner = cast("StepDriver | HostDriver", selected)
         try:
             owner.set_initial(problem.initial.field0, None)
             phases.append(owner._unitary_phase(owner._stage_scalars(0.0, 7e-4)).copy())
@@ -248,7 +250,7 @@ def test_the_ramp_weakens_an_aliased_product_as_predicted():
     rho = np.abs(space.k_x) / np.max(np.abs(space.k_x))
     assert rho[WEAK] == pytest.approx(0.95) and rho[TARGET] == pytest.approx(0.1)
     # The default ramp's midpoint is the weak beam's column; it spares the rest.
-    design = ramped.translate().transverse
+    design = transverse_of(ramped.translate().route)
     assert design is not None
     rate = design.ramp_rate
     assert rate[WEAK] == pytest.approx(design.ramp_strength / 2)

@@ -31,9 +31,9 @@ import numpy as np
 from jaxtyping import Bool, Complex, Float, Inexact, Num
 
 from solprop._helpers import PLAIN
-from solprop.backends.driver import StepDriver, refuse_general_leaves
 from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
-from solprop.backends.low_storage import LowStorageMarch
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.admission import (
@@ -107,7 +107,16 @@ from solprop.translate.coupled import (
 from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
-from solprop.translate.problem import MAX_N_POL, KernelProblem
+from solprop.translate.problem import MAX_N_POL, PropagationProblem
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    SpatialRoute,
+    flux_of,
+    route_name,
+    tdse_descriptor,
+    tdse_of,
+)
 from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
@@ -134,7 +143,7 @@ become the largest error in the step. The number is a judgement, not a measureme
 """
 
 
-class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
+class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]]):
     """Propagate one Kerr and plasma problem with interaction-picture DOPRI5.
 
     The oracle of ``docs/dev/backends.md`` section 2. It implements
@@ -146,9 +155,9 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     **Refusals.** A problem is refused by name, with
     :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
-    response, when a Raman kernel meets two polarisation components, when the transform
-    and the state would both carry the transverse components, or when its batch axis is
-    larger than one. A term silently dropped would run, converge and be wrong.
+    response, when a Raman kernel meets two polarisation components, or when the
+    transform and the state would both carry the transverse components. A term
+    silently dropped would run, converge and be wrong.
 
     **Convention.** Every array held or returned is in the FFT convention of
     ``docs/dev/conventions.md`` section 2; the backend never conjugates. The
@@ -162,9 +171,9 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
-        The validated kernel problem. :meth:`~.KernelProblem.validate` is called again
-        here: validation is the backend's defence, not the caller's courtesy.
+    problem : solprop.translate.problem.PropagationProblem
+        The validated kernel problem. :meth:`~.PropagationProblem.validate` is called
+        again here: validation is the backend's defence, not the caller's courtesy.
     grid : solprop.grid.TimeGrid, optional
         The grid the state lives on, needed only by :meth:`stats`.
     modes : collections.abc.Sequence, optional
@@ -202,7 +211,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     >>> summary.z, summary.n_rejected, summary.met_tolerance
     (0.01, 0, True)
     >>> backend.observe().field.shape
-    (1, 1, 1, 768)
+    (1, 1, 768)
     >>> backend.close()
     """
 
@@ -220,7 +229,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -230,7 +239,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Adopt a validated problem, refuse what this backend does not execute."""
         _refuse_unsupported(problem)
         problem.validate()
-        if (problem.tdse is None) != (tdse_binding is None):
+        if (tdse_descriptor(problem.route) is None) != (tdse_binding is None):
             raise BackendError(
                 "TDSE problems require an explicit host response binding"
             )
@@ -240,7 +249,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._tdse_last_projection: dict[str, object] | None = None
         super().__init__(problem, grid=grid, modes=modes, profiles=profiles)
         self._statistics_power_weight = np.empty(
-            problem.shape[1:] if problem.transform.geometry is None else (0,)
+            problem.shape if problem.transform.geometry is None else (0,)
         )
         # Formed once, so a geometry the far-field statistics refuse is refused here,
         # before any step (SEP 23 section 6).
@@ -296,21 +305,21 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         integrator = problem.stepper.integrator
         self._adams = None
         if isinstance(integrator, Multistep):
-            # The shared march reads this package's passes, so it is imported when a
-            # run asks for it rather than with the package.
-            from solprop.backends.multistep import AdamsMarch  # noqa: PLC0415
+            # The march's engine reads this package's passes, so it is imported when
+            # a run asks for it rather than with the package.
+            from solprop.backends.host.adams import HostAdamsMarch  # noqa: PLC0415
 
-            self._adams = AdamsMarch(self, integrator)
+            self._adams = HostAdamsMarch(self, integrator)
         elif isinstance(integrator, LowStorageRungeKutta):
             # The host engine is the oracle (SEP 24 section 6.5).
-            self._low_storage = LowStorageMarch(self, integrator)
+            self._low_storage = HostLowStorageMarch(self, integrator)
         self._adams_held: (
             tuple[float, float, StageScalars, Complex[np.ndarray, ...]] | None
         ) = None
         # The lab-frame source's unit "propagator": one element broadcast to the state's
         # shape, so it holds no volume beside the state.
         self._lab_frame = np.broadcast_to(
-            np.ones((), dtype=np.complex128), problem.shape
+            np.ones((), dtype=np.complex128), (1, *problem.shape)
         )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -450,9 +459,30 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
 
+        The trajectory's statistics, without the leading axis of one the march holds
+        its state with (SEP 47 section 6.2), which ``_stacked_statistics`` evaluates.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            Which statistics and which windows.
+
+        Returns
+        -------
+        dict
+            Small host arrays keyed by statistic name.
+        """
+        return {
+            name: np.asarray(value[0])
+            for name, value in self._stacked_statistics(spec).items()
+        }
+
+    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
+        """Collect the statistics with the leading axis of one of the held state.
+
         The statistics of the saved field go to :func:`solprop.stats.collect`, one call
-        per batch member, stacked along the leading batch axis the protocol promises;
-        there is exactly one definition of each in the package and that is it. The
+        per row of the held state, stacked along its leading axis; there is exactly one
+        definition of each in the package and that is it. The
         statistics :class:`solprop.stats.StatDefinition` marks ``backend`` are of
         quantities a saved plane does not carry -- the electron density, the peak
         ionisation rate, the on-axis intensity, the quadrature error -- and are formed
@@ -466,7 +496,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, each with a leading axis of one.
 
         Raises
         ------
@@ -505,7 +535,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     self._problem.transform,
                     one,
                     z=self._z,
-                    flux=self._problem.flux,
+                    flux=flux_of(self._problem.route),
                     profiles=self._profiles,
                     tables=tables,
                     operator=self._problem.linear.separable,
@@ -615,12 +645,12 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         names : tuple of str
             Backend-owned statistic names.
         state : numpy.ndarray
-            Accepted state at this plane with its leading batch axis.
+            Accepted state at this plane with its leading axis of one.
 
         Returns
         -------
         dict
-            Requested values with leading batch axes and no retained field cache.
+            Requested values with a leading axis of one and no retained field cache.
         """
         population_names = (
             tuple(
@@ -703,7 +733,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Returns
         -------
         numpy.ndarray
-            The value with a leading batch axis.
+            The value with a leading axis of one.
         """
         if name == "quadrature_error":
             return np.full(state.shape[0], self._alarm)
@@ -1128,8 +1158,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             assert tables is not None
             general = general_memory(self._general, tables, problem.grids.n_to)
         ledger = adams_memory(problem) | {
-            # One definition of these rows, which the construction-free estimate of
-            # `solprop.backends.memory` sums too.
+            # The rows' one definition, in `solprop.backends.memory`.
             **reference_base_memory(
                 problem,
                 tabulating=self._propagator_mode == "tabulate",
@@ -1198,7 +1227,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -1209,14 +1238,14 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout.
+            The state, shape ``(n_modes, n_pol, n_omega)``.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry, or ``None`` for the problem's own.
         z : float, optional
             The position the state belongs to, m; positive for a resume, which starts
             the history afresh unless
-            :meth:`~solprop.backends.driver.StepDriver.restore_march` then continues
-            it.
+            :meth:`~solprop.backends.host.driver.HostDriver.restore_march` then
+            continues it.
         resume : bool, optional
             Whether `field` came back from a saved plane, and so never takes the
             ``input`` draw.
@@ -1261,7 +1290,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 f"at z = {self._z:.6g} m ({error.calls} charged); "
                 "the run stops at its last accepted step, unfinished",
                 z=self._z,
-                field=self._adams_state().copy(),
+                field=self._adams_state()[0].copy(),
                 calls=error.calls,
             ) from None
 
@@ -2014,7 +2043,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         problem = self._problem
         grids, transform = problem.grids, problem.transform
         binding = self._tdse_binding
-        assert binding is not None and problem.current_numerator is not None
+        assert binding is not None and tdse_of(problem.route) is not None
         modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind="field")
         fields = np.ascontiguousarray(
             passes.synthesise(modal_t, transform.synthesis, bundle.taper_scale, 1)[
@@ -2217,9 +2246,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         problem = self._problem
         transform, grids = problem.transform, problem.grids
         # The field's own precision: complex128, or complex64 under SEP 33.
-        spectrum = np.zeros(
-            problem.shape[1:], dtype=np.result_type(modal_t, np.complex64)
-        )
+        spectrum = np.zeros(problem.shape, dtype=np.result_type(modal_t, np.complex64))
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(
@@ -2257,7 +2284,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         lab : numpy.ndarray
-            Lab-frame stage spectrum, including the batch axis.
+            Lab-frame stage spectrum, with the state's leading axis of one.
         bundle : solprop.translate.stage.StageScalars
             Response scalars at the stage position.
         inverse_propagator : numpy.ndarray
@@ -2370,7 +2397,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         lab : numpy.ndarray
-            Lab-frame stage spectrum, including the batch axis.
+            Lab-frame stage spectrum, with the state's leading axis of one.
         bundle : solprop.translate.stage.StageScalars
             Response scalars at the stage position.
         inverse_propagator : numpy.ndarray
@@ -2604,7 +2631,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         n_pol = transform.n_pol
         projected = np.zeros(
-            (transform.n_modes, self._problem.shape[2], grids.n_to),
+            (transform.n_modes, self._problem.shape[1], grids.n_to),
             dtype=modal_t.dtype,
         )
         coarse = None if self._embedded is None else np.zeros_like(projected)
@@ -2718,7 +2745,7 @@ class NumpyRefBackend(StepDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             or self._raman_rates != rates
             or self._raman_densities != amplitudes
         ):
-            if self._problem.transform.n_pol * self._problem.shape[2] == 2:
+            if self._problem.transform.n_pol * self._problem.shape[1] == 2:
                 self._raman_kernel = passes.tensor_raman_spectrum(
                     components,
                     rates,
@@ -2828,12 +2855,12 @@ class SourceTables:
     temporal_rate: Float[np.ndarray, " n_to"] | None
 
     @classmethod
-    def of(cls, problem: KernelProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
+    def of(cls, problem: PropagationProblem) -> "SourceTables":  # noqa: UP037 - the runtime type hook resolves this while the class body runs
         """Return the problem's own tables.
 
         Parameters
         ----------
-        problem : solprop.translate.problem.KernelProblem
+        problem : solprop.translate.problem.PropagationProblem
             The problem.
 
         Returns
@@ -2852,7 +2879,7 @@ class SourceTables:
         )
 
 
-def _refuse_adams(problem: KernelProblem) -> None:
+def _refuse_adams(problem: PropagationProblem) -> None:
     """Refuse what the Adams march does not execute (SEP 13 sections 2 and 6.2).
 
     Its history is of source samples along a diagonal flow, so a coupled flow is
@@ -2870,7 +2897,7 @@ def _refuse_adams(problem: KernelProblem) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
 
     Raises
@@ -2898,12 +2925,12 @@ def _refuse_adams(problem: KernelProblem) -> None:
     refuse_carrier_frame(problem, "numpy_ref", delivered=frozenset({"scalar"}))
 
 
-def _refuse_unsupported(problem: KernelProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem) -> None:
     """Refuse, by name, every problem this backend does not execute.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem to check.
 
     Raises
@@ -2911,7 +2938,18 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
-    refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
+    # The route first, by its variant (SEP 47 section 6.2): the reference executes
+    # every route of the union and the modal route's TDSE extension.
+    match problem.route:
+        case (
+            ModalRoute()
+            | GeneralRoute()
+            | SpatialRoute(kind="radial" | "cartesian" | "planar" | "line")
+        ):
+            pass
+        case route:
+            msg = f"numpy_ref does not execute the {route_name(route)} route"
+            raise BackendError(msg)
     _refuse_adams(problem)
     # One list for every backend: the coupled flow first, then the
     # general modal route, each refusal naming this backend.
@@ -2928,7 +2966,7 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(msg)
     if (
         problem.flags.has_raman
-        and problem.transform.n_pol * problem.shape[2] > 1
+        and problem.transform.n_pol * problem.shape[1] > 1
         and (
             not problem.responses.raman_terms
             or not all(term.tensor_capable for term in problem.responses.raman_terms)
@@ -2937,19 +2975,12 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(
             "vector Raman requires tensor-capable terms; found scalar_only"
         )
-    n_batch, _, n_pol, _ = problem.shape
+    _, n_pol, _ = problem.shape
     if problem.transform.n_pol * n_pol > MAX_N_POL:
         msg = (
             f"the transform resolves {problem.transform.n_pol} transverse components "
             f"and the state carries {n_pol}; the components belong to one of the two "
             "and not to both, so this problem would count them twice"
-        )
-        raise BackendError(msg)
-    if n_batch != NumpyRefBackend.max_batch:
-        msg = (
-            f"numpy_ref steps one problem at a time (max_batch = "
-            f"{NumpyRefBackend.max_batch}) and this problem has a batch axis of "
-            f"{n_batch}"
         )
         raise BackendError(msg)
 
@@ -2987,7 +3018,7 @@ general modal guide reports these as zero rather than omitting them
 """
 
 
-def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
+def _refuse_inadmissible(problem: PropagationProblem, spec: StatsSpec) -> None:
     """Refuse a statistic this problem's basis does not define, by name.
 
     The second door of the accessor whitelist (:mod:`solprop.output.capability`),
@@ -2998,7 +3029,7 @@ def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem this backend was built from.
     spec : solprop.stats.StatsSpec
         The statistics asked for.
@@ -3026,7 +3057,7 @@ def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
         raise BackendError(refusal)
 
 
-def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
+def _general_maps(problem: PropagationProblem) -> GeneralMaps | None:
     """Derive the general modal route's maps, or return ``None`` for another route.
 
     The maps are read out of the leaves once, here, because the route propagates
@@ -3037,7 +3068,7 @@ def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A validated problem this backend has already admitted.
 
     Returns
@@ -3571,23 +3602,6 @@ def _apply_flow(
     return carried
 
 
-_GENERAL_LEAVES = (
-    "linear.coupled_flow",
-    "linear.modal_metric",
-    "transform.modal_tables",
-    "responses.regional_responses",
-)
-"""The schema-12 leaves ``numpy_ref`` executes.
-
-The metric, the tables and the regional responses are the general modal route;
-``coupled_flow`` is executed in the combinations
-:func:`solprop.backends.numpy_ref.admission.refuse_coupled_flow` admits. Naming a leaf
-here only says the field may be present; which contents are executed is the shared
-list's, :func:`solprop.backends.numpy_ref.admission.refuse_general_route`, which every
-backend runs under its own name.
-"""
-
-
 def _check_flow_conditioning(
     flow: _CoupledFlow,
     section: int,
@@ -3699,12 +3713,12 @@ def _refuse_flow_conditioning(
         raise BackendError(msg)
 
 
-def _coupled_flow_maps(problem: KernelProblem) -> _CoupledFlow | None:
+def _coupled_flow_maps(problem: PropagationProblem) -> _CoupledFlow | None:
     """Decompose the coupled flow this backend will execute, once.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, already admitted by
         :func:`solprop.backends.numpy_ref.admission.refuse_coupled_flow`.
 
@@ -3765,7 +3779,7 @@ def _coupled_flow_maps(problem: KernelProblem) -> _CoupledFlow | None:
     return held
 
 
-def _source_record(problem: KernelProblem) -> dict[str, object]:
+def _source_record(problem: PropagationProblem) -> dict[str, object]:
     """Record a TDSE run's source filter and, for the gated one, its certificate.
 
     The steady-current certificate (SEP 26 section 4.4) is refused above its limit at
@@ -3773,7 +3787,7 @@ def _source_record(problem: KernelProblem) -> dict[str, object]:
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A TDSE problem.
 
     Returns
@@ -3782,7 +3796,7 @@ def _source_record(problem: KernelProblem) -> dict[str, object]:
         ``gated``, and for a gated source the certificate, its limit
         and the taper breakpoints in s.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     assert descriptor is not None
     record: dict[str, object] = {"gated": descriptor.gated}
     if descriptor.gated:
@@ -3797,7 +3811,7 @@ def _source_record(problem: KernelProblem) -> dict[str, object]:
 
 
 def _harmonic_carrier(
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> Complex[np.ndarray, " n_to"] | None:
     """Return ``exp(2 i omega_0 t)`` on the fine grid when the harmonic is radiated.
 
@@ -3810,7 +3824,7 @@ def _harmonic_carrier(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose compiled Kerr term says whether the harmonic is wanted.
 
     Returns
@@ -3837,7 +3851,7 @@ def _harmonic_carrier(
 
 
 def _embedded_projection(
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> Float[np.ndarray, "n_modes n_columns"] | None:
     """Return the embedded coarse-rule projection, when the quadrature has one.
 
@@ -3849,7 +3863,7 @@ def _embedded_projection(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose transform carries both projections.
 
     Returns

@@ -211,7 +211,7 @@ def test_a_run_through_the_entry_point_is_the_references_on_native():
     ).translate()
     maps = _general_maps(problem)
     assert maps is not None
-    state = problem.initial.field0[0]
+    state = problem.initial.field0
     bound = ten_step_bound(
         nonlinear_scale(maps, state, grid),
         source_bound(maps, grid.n_to, conditioning(maps, state, grid)),

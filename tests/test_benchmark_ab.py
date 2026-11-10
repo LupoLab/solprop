@@ -214,12 +214,12 @@ def test_small_case_runs_both_builds_in_alternating_order(
     assert read_record(out / "plan.json")["harness_files"]
 
 
-def test_each_arm_runs_its_own_backend_at_that_backends_precision():
-    values = {"case": "x", "backend": "native", "precision": "double"}
-    assert ab.arm_configuration(values, "mlx") == {
+def test_each_arm_runs_its_own_backend_in_double_precision():
+    values = {"case": "x", "backend": "native", "precision": "single"}
+    assert ab.arm_configuration(values, "numpy_ref") == {
         "case": "x",
-        "backend": "mlx",
-        "precision": "single",
+        "backend": "numpy_ref",
+        "precision": "double",
     }
     assert ab.arm_configuration(values, "native")["precision"] == "double"
 

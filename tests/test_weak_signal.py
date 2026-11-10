@@ -49,6 +49,7 @@ from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialMedium
 from solprop.spatial_absorber import collar_attenuation
 from solprop.stepper import Multistep, PIController
+from solprop.translate.routes import transverse_of
 
 C = 299792458.0
 LENGTH = 0.1
@@ -259,7 +260,7 @@ class Collared:
 def collared(specification: SpatialAbsorber) -> Collared:
     """Run on the design's line with a requested collar."""
     simulation, output = run(design_grid(), specification)
-    design = simulation.translate().transverse
+    design = transverse_of(simulation.translate().route)
     assert design is not None
     assert design.has_collar
     return Collared(design, output)

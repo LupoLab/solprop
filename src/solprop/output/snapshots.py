@@ -266,7 +266,7 @@ class SnapshotController:
             self._pending = True
         return self._pending and (explicit or now >= self._retry_at)
 
-    def _service(
+    def _service(  # noqa: PLR0913 - the snapshot transaction's context
         self,
         output: HDF5Output,
         archive: TDSEArchiveWriter | None,
@@ -275,6 +275,7 @@ class SnapshotController:
         require_history: bool,
         persist: Callable[[], None],
         provenance: RunMetadata | None = None,
+        z: float | None = None,
     ) -> None:
         """Publish one requested endpoint, reopening both writers before returning.
 
@@ -293,13 +294,16 @@ class SnapshotController:
         provenance : RunMetadata or None, optional
             Current execution's version and Git record. Defaults to the writer's
             metadata; the driver supplies its current record when resuming.
+        z : float or None, optional
+            The accepted endpoint, m, when `persist` records it as a running
+            checkpoint; the writer's last recorded position by default.
         """
         if not self._due():
             return
         assert output.outcome is not None
         provenance = output.metadata if provenance is None else provenance
         assert provenance is not None
-        z = output.outcome.z
+        z = output.outcome.z if z is None else z
         started = time.monotonic()
         requested = self._requested
         self._attempted = requested
@@ -704,11 +708,14 @@ def _checkpoint(directory: Path, records: list[_FileRecord]) -> dict[str, object
     optical = directory / records[0].path
     state = resume(optical)
     outcome = state.outcome
+    # The endpoint is the last saved plane, or a running checkpoint beyond it at the
+    # running outcome's position (SEP 47 section 5.5), which `resume` prefers; it is
+    # an accepted endpoint, never a dense observation.
     if (
         outcome is None
         or outcome.status != "running"
         or outcome.z != state.plane.z
-        or state.checkpoint is not None
+        or (state.checkpoint is not None and not state.checkpoint.landed)
         or state.plane.field is None
         or not np.all(np.isfinite(state.plane.field))
     ):

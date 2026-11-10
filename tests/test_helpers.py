@@ -20,6 +20,7 @@ import pytest
 from bounds import EPS, assert_within, gamma
 from solprop._helpers import PLAIN, Helpers
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.multistep import trial_tables
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.stepper.multistep import integrated_weights, lagrange_coefficients
@@ -150,6 +151,7 @@ def test_a_caller_outside_a_backend_compiles_nothing(monkeypatch):
         for name in ("points", "basis"):
             monkeypatch.setitem(record.__dict__, name, refuse)
     assert StepDriver.helpers is PLAIN
+    assert HostDriver.helpers is PLAIN
     assert integrated_weights([1.0, 0.0]).tolist() == [0.5, 0.5]
     assert lagrange_coefficients([1.0, 0.0]).shape == (2, 2)
     table = build(np.sin, 0.0, 1.0, tol=1e-8)

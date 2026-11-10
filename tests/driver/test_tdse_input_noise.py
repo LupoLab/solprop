@@ -33,6 +33,7 @@ from solprop.nonlinear.tdse import (
 )
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
+from solprop.translate.routes import tdse_descriptor
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.TDSECostWarning")
 
@@ -107,8 +108,8 @@ def _atomic(noise: str | None) -> Simulation:
 def _first_drive(simulation: Simulation, *, pulse: bool = True) -> np.ndarray:
     """Return the real field the atom is driven by at its first evaluation."""
     problem = simulation.translate()
-    assert problem.tdse is not None
-    binding = _Binding(problem.tdse, 20)
+    assert tdse_descriptor(problem.route) is not None
+    binding = _Binding(tdse_descriptor(problem.route), 20)
     backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
     try:
         launch = problem.initial.field0 if pulse else np.zeros(problem.shape, complex)
@@ -167,7 +168,7 @@ def test_the_draw_lies_inside_the_band_the_response_declares():
     assert simulation.noise is not None
     problem = simulation.translate()
     problem.validate()
-    assert problem.tdse is not None
+    assert tdse_descriptor(problem.route) is not None
     occupied = np.any(simulation.noise.spectrum != 0.0, axis=(0, 1))
     assert np.array_equal(occupied, problem.grids.active_mask)
     assert not np.any(occupied & (problem.grids.omega <= 0.0))
@@ -179,7 +180,7 @@ def test_the_modified_draw_is_refused_beside_the_tdse():
         _atomic("modified")
     parent = _atomic(None)
     problem = parent.translate()
-    assert problem.tdse is not None
+    assert tdse_descriptor(problem.route) is not None
     with pytest.raises(TranslationError, match="scalar resolved modal Adams"):
         dataclasses.replace(
             problem,

@@ -94,14 +94,18 @@ def test_free_packed_statistics_match_host_definitions(
     bounds["fwhm_r"] = 3 * profile_error / slope
     problem = make_problem(grid, space, initial, [])
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     backend = spatial_backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         actual = backend.stats(spec)
         for name, expected in reference.items():
-            errors = np.abs(actual[name][0] - expected)
+            errors = np.abs(actual[name] - expected)
             assert np.all(errors <= bounds[name]), (name, errors, bounds[name])
             pairs = (
                 [(float(np.max(errors)), float(np.max(bounds[name])))]

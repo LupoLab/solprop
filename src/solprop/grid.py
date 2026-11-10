@@ -39,7 +39,6 @@ from solprop.hankel import QDHT
 __all__ = [
     "DEFAULT_COLLAR_FRACTION",
     "FFT_SIZES",
-    "TRANSFORM_LIBRARIES",
     "Collar",
     "CollarPlacement",
     "EnvelopeGrid",
@@ -49,7 +48,6 @@ __all__ = [
     "LineGrid",
     "RadialGrid",
     "TimeGrid",
-    "TransformLibrary",
     "fft_cost",
     "planck_taper",
     "planck_taper_derivative",
@@ -1139,13 +1137,6 @@ class Collar:
 FFT_SIZES: Final = ("auto", "pow2", "smooth")
 """The transform-size rules of :meth:`FieldGrid.from_limits` and its envelope twin."""
 
-TransformLibrary = Literal["fftw", "mlx"]
-"""The transform library whose cost ``fft_size="auto"`` minimises: FFTW on a CPU, or
-MLX's Metal transforms on an Apple GPU (the ``mlx`` backend)."""
-
-TRANSFORM_LIBRARIES: Final = ("fftw", "mlx")
-"""The values of :data:`TransformLibrary`."""
-
 DEFAULT_COLLAR_FRACTION: Final = 0.1
 """Width of each temporal collar, as a fraction of the realised window (SEP 21 D3)."""
 
@@ -1158,56 +1149,27 @@ finding 14): within 10 per cent of the cheapest length for most requests.
 """
 
 
-_MLX_DIRECT_MAX: Final = 4096
-"""The longest transform MLX's GPU FFT runs directly at any 2-3-5-smooth length.
-
-Above it only a power of two keeps the direct algorithm; any other length takes
-Bluestein's, through padded transforms of twice the length or more.
-"""
-
-_MLX_BLUESTEIN_PENALTY: Final = 8.0
-"""The cost of an MLX GPU transform past :data:`_MLX_DIRECT_MAX` that is not a power of
-two, relative to the next power of two's.
-
-An Apple M5 Max (MLX 0.32), an rfft and irfft pair of one and of sixteen rows: every
-even 2-3-5-smooth length from 4320 to 10800 took 6 to 12 times the pair at the next
-power of two (10240: 715 us against 63 us at 16384), while every such length up to
-4096 took the time of a power of two.
-"""
-
-
-def fft_cost(n: int, library: TransformLibrary = "fftw") -> float:
+def fft_cost(n: int) -> float:
     """Return the modelled relative cost of a real transform of length `n`.
 
-    For FFTW, ``n log2 n`` times ``_RADIX_PENALTY`` for each factor of 3 and of 5. For
-    MLX's GPU transforms, ``n log2 n`` at a power of two and at any length up to
-    4096, and otherwise ``_MLX_BLUESTEIN_PENALTY`` times the next power of two's cost.
+    FFTW's: ``n log2 n`` times ``_RADIX_PENALTY`` for each factor of 3 and of 5.
 
     Parameters
     ----------
     n : int
         Transform length, at least 2.
-    library : {'fftw', 'mlx'}, optional
-        The library whose transforms are modelled; FFTW by default.
 
     Returns
     -------
     float
-        Relative cost, comparable between lengths of one library only.
+        Relative cost.
 
     Examples
     --------
     >>> from solprop.grid import fft_cost
     >>> fft_cost(4096) < fft_cost(4374)  # 4374 = 2 * 3^7
     True
-    >>> fft_cost(16384, "mlx") < fft_cost(10240, "mlx")
-    True
     """
-    if library == "mlx":
-        if n <= _MLX_DIRECT_MAX or n & (n - 1) == 0:
-            return n * math.log2(n)
-        padded = 1 << (n - 1).bit_length()
-        return _MLX_BLUESTEIN_PENALTY * padded * math.log2(padded)
     cost = n * math.log2(n)
     for prime, penalty in _RADIX_PENALTY.items():
         while n % prime == 0:
@@ -1396,7 +1358,6 @@ def _choose_sizes(
     trange: float,
     dt_fine: float,
     fft_size: str,
-    library: TransformLibrary = "fftw",
 ) -> tuple[int, int]:
     """Choose the coarse and fine transform sizes together.
 
@@ -1418,9 +1379,8 @@ def _choose_sizes(
     dt_fine : float
         Fine sample spacing, s.
     fft_size : {'auto', 'pow2', 'smooth'}
-        Rounding rule for both sizes; ``'auto'`` takes the cheapest pair.
-    library : {'fftw', 'mlx'}, optional
-        The library whose cost ``'auto'`` minimises (:func:`fft_cost`).
+        Rounding rule for both sizes; ``'auto'`` takes the cheapest pair by
+        :func:`fft_cost`.
 
     Returns
     -------
@@ -1435,7 +1395,7 @@ def _choose_sizes(
         pairs = []
         for n_fine in _smooth_sizes(_fft_size(needed, "smooth"), ceiling):
             pair = _choose_sizes(half_bins, n_fine * dt_fine, dt_fine, "smooth")
-            cost = fft_cost(pair[1], library) + fft_cost(pair[0], library)
+            cost = fft_cost(pair[1]) + fft_cost(pair[0])
             pairs.append((cost, pair[1], pair))
         return min(pairs)[2]
     n_to = _fft_size(trange / dt_fine, fft_size)
@@ -2057,7 +2017,6 @@ class FieldGrid(TimeGrid):
         dt: float | None = None,
         ffac: float = 6.0,
         fft_size: str = "auto",
-        transforms: TransformLibrary = "fftw",
         collar_fraction: float = DEFAULT_COLLAR_FRACTION,
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
@@ -2099,12 +2058,6 @@ class FieldGrid(TimeGrid):
             cheapest even 2-3-5-smooth size between the requirement and the next power
             of two by a transform-cost model (:func:`fft_cost`); ``'pow2'`` the next
             power of two; ``'smooth'`` the next even 2-3-5-smooth size.
-        transforms : {'fftw', 'mlx'}, optional
-            The transform library whose cost ``fft_size='auto'`` minimises: FFTW, the
-            default, or ``'mlx'`` for a single-precision run on the ``mlx`` backend,
-            whose GPU transforms past 4096 samples are fast at powers of two only
-            (:func:`fft_cost`). The keyword interfaces choose it from the run's
-            precision and backend.
         collar_fraction : float, optional
             Width of each temporal collar as a fraction of the realised window, in
             ``[0, 0.5)``. The collar lies **outside** the requested window: the grid is
@@ -2164,7 +2117,7 @@ class FieldGrid(TimeGrid):
             return min(math.floor(omega_max_window / d_omega) + 2, n_to // 2 + 1)
 
         needed = _needed_window(trange, collar_fraction, collar_placement)
-        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size, transforms)
+        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         # dt comes from the integer ratio rather than from pi/omega[-1], so that the
@@ -2242,7 +2195,6 @@ class EnvelopeGrid(TimeGrid):
         thg: bool = False,
         ffac: float | None = None,
         fft_size: str = "auto",
-        transforms: TransformLibrary = "fftw",
         collar_fraction: float = DEFAULT_COLLAR_FRACTION,
         collar_placement: CollarPlacement = "outside",
         # The return annotation stays quoted: beartype resolves it while the class body
@@ -2287,9 +2239,6 @@ class EnvelopeGrid(TimeGrid):
         fft_size : {'auto', 'pow2', 'smooth'}, optional
             How the transform sizes are rounded up, as for
             :meth:`FieldGrid.from_limits`; ``'auto'`` by default.
-        transforms : {'fftw', 'mlx'}, optional
-            The library whose cost ``'auto'`` minimises, as for
-            :meth:`FieldGrid.from_limits`; FFTW by default.
         collar_fraction : float, optional
             Width of each temporal collar as a fraction of the realised window, in
             ``[0, 0.5)``, outside the requested window, as for
@@ -2356,7 +2305,7 @@ class EnvelopeGrid(TimeGrid):
             return min(max(math.ceil(reach / d_omega), 1), n_to // 2)
 
         needed = _needed_window(trange, collar_fraction, collar_placement)
-        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size, transforms)
+        n_t, n_to = _choose_sizes(half_bins, needed, dt_fine, fft_size)
         trange_even = n_to * dt_fine
         d_omega = 2.0 * np.pi / trange_even
         dt_coarse = dt_fine * (n_to // n_t)

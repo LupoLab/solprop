@@ -20,7 +20,7 @@ import numpy as np
 import pytest
 
 from backends.conftest import EQUIVALENCE_BACKENDS
-from solprop.backends.multistep import AdamsMarch
+from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver.simulation import Simulation
 from solprop.gasflow import steady_fill
@@ -81,7 +81,7 @@ def march(simulation, backend_class=NumpyRefBackend, *, compensation=None, plane
     backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
     if compensation is not None:
         method = problem.stepper.integrator
-        backend._adams = AdamsMarch(backend, method, compensation=compensation)
+        backend._adams = HostAdamsMarch(backend, method, compensation=compensation)
     try:
         backend.set_initial(problem.initial.field0, None)
         steps, fields = [], []
@@ -142,7 +142,7 @@ def test_a_structurally_absent_source_takes_the_exact_flow():
     field, adams, _ = march(simulation)
     assert adams is not None and not adams._engine.compensated
     start = problem.initial.field0 * problem.grids.active_mask
-    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH)) * start
+    exact = np.exp(delta_phi(problem.linear, 0.0, LENGTH))[0] * start
     # Round-off of the flows' products, step by step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(exact).max())
 

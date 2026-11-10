@@ -68,7 +68,7 @@ from solprop.output.memory import MemoryOutput
 from solprop.physdata import MaterialSelection, Mixture
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 solprop_native = pytest.importorskip("solprop_native")
 NativeBackend = solprop_native.NativeBackend
@@ -86,7 +86,7 @@ pytestmark = [
 PROBE = Path(__file__).parent / "native_dispersive_thread_probe.py"
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """The CPU bound, or on a device build the predeclared device envelope."""
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
@@ -106,7 +106,7 @@ DISPERSIVE_ROWS = (
 # --- the measurements ------------------------------------------------------------
 
 
-def assert_one_evaluation(problem: KernelProblem, grid: Any) -> float:
+def assert_one_evaluation(problem: PropagationProblem, grid: Any) -> float:
     """One evaluation against the reference; return the departure."""
     ours = source(NativeBackend, problem, grid)
     bound = evaluation_bound(problem)
@@ -116,7 +116,7 @@ def assert_one_evaluation(problem: KernelProblem, grid: Any) -> float:
     return departure
 
 
-def assert_steps(problem: KernelProblem, grid: Any) -> float:
+def assert_steps(problem: PropagationProblem, grid: Any) -> float:
     """A replayed window of fixed steps against the reference; return the departure."""
     ours, summary = run(NativeBackend, problem, grid)
     bound = summary.n_steps * step_evaluations(problem) * evaluation_bound(problem)
@@ -128,7 +128,7 @@ def assert_steps(problem: KernelProblem, grid: Any) -> float:
     return departure
 
 
-def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
+def path_of(problem: PropagationProblem, grid: Any) -> dict[str, bool] | None:
     """Return how the native response runs: alone, in place, borrowed."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -137,7 +137,7 @@ def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
         backend.close()
 
 
-def one_step(problem: KernelProblem, length: float) -> KernelProblem:
+def one_step(problem: PropagationProblem, length: float) -> PropagationProblem:
     """Return the problem cut to one Runge-Kutta step of a tenth of `length`."""
     return dataclasses.replace(
         problem,
@@ -149,7 +149,7 @@ def one_step(problem: KernelProblem, length: float) -> KernelProblem:
     )
 
 
-def assert_one_step(problem: KernelProblem, grid: Any) -> None:
+def assert_one_step(problem: PropagationProblem, grid: Any) -> None:
     """Seven evaluations through the whole stage, against the reference."""
     ours, summary = run(NativeBackend, problem, grid)
     assert summary.n_steps == 1
@@ -159,7 +159,7 @@ def assert_one_step(problem: KernelProblem, grid: Any) -> None:
     assert disagreement(ours, theirs) < bound
 
 
-def route_case(route: str, evaluator: str) -> tuple[KernelProblem, Any]:
+def route_case(route: str, evaluator: str) -> tuple[PropagationProblem, Any]:
     """Return the ten-step case of a route the repeatability tests run."""
     response = DispersiveKerrResponse(ARGON, evaluator)
     if route == "free":
@@ -271,7 +271,11 @@ def test_free_space_chunks_accumulate_as_one(evaluator):
     grid = free_grid("field", True)
     problem = free_problem([DispersiveKerrResponse(ARGON, evaluator)], grid)
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=20)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=20),
+        ),
     )
     assert problem.transform.n_nodes % 20
     assert_one_evaluation(problem, grid)
@@ -326,7 +330,11 @@ def test_planar_blocks_accumulate_as_one(evaluator):
     assert geometry is not None
     n_x = geometry.shape[0]
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x),
+        ),
     )
     assert_one_evaluation(problem, grid)
 
@@ -472,7 +480,7 @@ def test_a_coherent_wall_flow_beside_the_response_matches_the_reference(policy):
 # --- what is this backend's alone ----------------------------------------------------
 
 
-def window_bound(problem: KernelProblem) -> float:
+def window_bound(problem: PropagationProblem) -> float:
     """Bound two runs of a route's ten-step case: every evaluation's rounding, added."""
     return STEPS * step_evaluations(problem) * evaluation_bound(problem)
 
@@ -520,7 +528,7 @@ def test_one_thread_and_four_agree(tmp_path):
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
+def ledger_of(problem: PropagationProblem, grid: Any) -> dict[str, int]:
     """Return the backend's ledger, every row of the response named."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -531,9 +539,9 @@ def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
     return ledger
 
 
-def ledger_cases() -> dict[str, tuple[KernelProblem, Any]]:
+def ledger_cases() -> dict[str, tuple[PropagationProblem, Any]]:
     """Return one problem of each route and response layout the ledger is held to."""
-    cases: dict[str, tuple[KernelProblem, Any]] = {}
+    cases: dict[str, tuple[PropagationProblem, Any]] = {}
     for evaluator in EVALUATORS:
         for thg in (True, False):
             grid = free_grid("field", thg)

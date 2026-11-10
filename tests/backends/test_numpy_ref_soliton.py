@@ -32,9 +32,9 @@ def propagate(backend_class, problem, grid, distance):
     backend = backend_class(problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(distance)
-    final = backend.observe().require_field()[0, 0, 0]
+    final = backend.observe().require_field()[0, 0]
     backend.close()
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     return summary, start, final
 
 

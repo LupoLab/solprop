@@ -235,8 +235,7 @@ A SEP becomes `Final` when:
 
 - every phase is merged and reported;
 - the functionality runs on the Tier 1 backends (`numpy_ref` and the native CPU build;
-  [ADR-061](../decisions.md)), with parity tests, and on `mlx` too where
-  the accepted SEP says so — or the accepted SEP records a justified exception, which
+  [ADR-061](../decisions.md)), with parity tests — or the accepted SEP records a justified exception, which
   then has an issue;
 - the manual documents it, and each manual page it produced ends with a link to the SEP;
 - the open questions left are moved to issues, and named in the last report.
@@ -288,8 +287,7 @@ and compares options; it is not a line-by-line plan, which belongs to the implem
   its tests, and the manual page with whichever lands first; `native` may shape the
   contract. Device (GPU)
   qualification follows the standing policy of [backends.md](../backends.md), later and
-  in one pass. `mlx` (Tier 3) takes the feature only where the
-  SEP says so ([ADR-061](../decisions.md)); the SEP weighs who would run it there.
+  in one pass.
 - **Parity, eventually.** Until a backend implements the feature it refuses the problem by
   name, with an error saying which backend does support it; it never falls back silently.
   A SEP is Final only when the backends that run the feature agree within tolerances

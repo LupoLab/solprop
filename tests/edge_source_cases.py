@@ -39,8 +39,9 @@ from solprop.nonlinear.tdse import (
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import prefactor_at
+from solprop.translate.routes import TDSESource, tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars, scalars
 from solprop.translate.tdse import (
     AtomicCallBudget,
@@ -64,7 +65,7 @@ class EdgeCase:
 
     Attributes
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Validated problem carrying the descriptor and the current numerator.
     grid : FieldGrid
         The refined response grid.
@@ -74,7 +75,7 @@ class EdgeCase:
         Stage polarisation prefactor.
     """
 
-    problem: KernelProblem
+    problem: PropagationProblem
     grid: FieldGrid
     bundle: StageScalars
     prefactor: np.ndarray
@@ -97,8 +98,9 @@ class EdgeCase:
     @property
     def descriptor(self) -> TDSEDescriptor:
         """Return the descriptor."""
-        assert self.problem.tdse is not None
-        return self.problem.tdse
+        descriptor = tdse_descriptor(self.problem.route)
+        assert descriptor is not None
+        return descriptor
 
     def to_source(self, raw: np.ndarray) -> np.ndarray:
         """Map a raw coarse spectrum of ``S`` to the source's modal units.
@@ -113,7 +115,9 @@ class EdgeCase:
             ones, problem.transform.projection, bundle.taper_scale, 1
         )
         scale = bundle.density * self.descriptor.remainder_scale
-        factor = problem.current_numerator / power_weight_at(problem, bundle.z1)
+        source = tdse_of(problem.route)
+        assert source is not None
+        factor = source.current_numerator / power_weight_at(problem, bundle.z1)
         return factor * (scale * weight) * raw
 
     def raw_dft(self, values: np.ndarray) -> np.ndarray:
@@ -196,20 +200,27 @@ def make_case(  # noqa: PLR0913 - one keyword per lattice choice of the fixture.
     )
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
-        current_numerator=current_numerator(grid),
+        route=dataclasses.replace(
+            problem.route,
+            tdse=TDSESource(
+                descriptor=TDSEDescriptor.from_response(response, grid),
+                current_numerator=current_numerator(grid),
+            ),
+        ),
     )
     return EdgeCase(
         problem, grid, scalars(problem, 0.0, 0.0), prefactor_at(problem.responses, 0.0)
     )
 
 
-def case_from_problem(problem: KernelProblem, grid: FieldGrid, z: float) -> EdgeCase:
+def case_from_problem(
+    problem: PropagationProblem, grid: FieldGrid, z: float
+) -> EdgeCase:
     """Wrap a translated TDSE problem at one position for direct evaluation.
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         A problem from ``Simulation.translate``.
     grid : FieldGrid
         Its response grid.

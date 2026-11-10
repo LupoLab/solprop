@@ -8,7 +8,8 @@ Physics objects become validated kernel-ready arrays and the kernel contract
 (``docs/dev/kernel-contract.md``). :func:`solprop.translate.problem.assemble` is the
 entry point: it builds the cumulative linear operator, the masks, the modal transform
 and the compiled responses, and returns the single
-:class:`~solprop.translate.problem.KernelProblem` that crosses into a backend.
+:class:`~solprop.translate.problem.PropagationProblem` that crosses into a backend, its
+route one variant of the closed union of :mod:`solprop.translate.routes`.
 """
 
 from solprop.translate.chebyshev import (
@@ -51,7 +52,7 @@ from solprop.translate.modal import (
 from solprop.translate.problem import (
     Flags,
     Initial,
-    KernelProblem,
+    PropagationProblem,
     StepperSettings,
     assemble,
 )
@@ -75,6 +76,13 @@ from solprop.translate.responses import (
     prefactor_at,
     raman_coefficients,
 )
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    Route,
+    SpatialRoute,
+    TDSESource,
+)
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -97,24 +105,29 @@ __all__ = [
     "AbsorberScheme",
     "CompiledResponses",
     "Flags",
+    "GeneralRoute",
     "Grids",
     "Initial",
-    "KernelProblem",
     "KerrCoefficients",
     "LinearOperator",
+    "ModalRoute",
     "ParameterExpansion",
     "PhiRepresentation",
     "PiecewiseChebyshev",
     "PlasmaCoefficients",
+    "PropagationProblem",
     "RamanCoefficients",
     "RamanKernels",
     "RateTable",
     "RepresentationChoice",
     "ResponseStage",
+    "Route",
+    "SpatialRoute",
     "StageScalars",
     "StageTerms",
     "StepAnchor",
     "StepperSettings",
+    "TDSESource",
     "Transform",
     "anchor",
     "assemble",

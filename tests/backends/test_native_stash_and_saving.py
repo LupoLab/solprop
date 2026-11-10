@@ -133,7 +133,7 @@ def assert_stash_is_the_fresh_scan(stashed, fresh, rate, field_range, n_to):
         for side in ("native", "numpy_ref"):
             assert_within(
                 stashed[name],
-                np.ravel(fresh[side][name]),
+                fresh[side][name],
                 bound,
                 what=f"{name} against {side}",
             )

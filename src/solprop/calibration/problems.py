@@ -14,7 +14,7 @@ temporal transforms. Each is adapted from the benchmark tracking set's case of t
 same physics (``benchmarks/builders.py``), with no noise so that every candidate does
 the same work, and with a *scale* that sizes its grid: the time window for the
 one-dimensional problems and the transverse count for the spatial ones. A run times
-their trial steps (``StepDriver.timed_step``), never a propagation.
+their trial steps (``Backend.timing_probe``), never a propagation.
 
 Four of them also come at production size (``*_large``), as large as the tracking
 set's cases of their kind: on these alone a narrower team or a higher threshold that

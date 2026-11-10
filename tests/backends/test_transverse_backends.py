@@ -2,14 +2,14 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The transverse edge on native and mlx, against ``numpy_ref`` (SEP 40).
+"""The transverse edge on native, against ``numpy_ref`` (SEP 40).
 
 Every backend reads the edge on the host from its state, as ``numpy_ref`` does; the
 native Adams march holds its steps to the edge's next read and hands the state back
-there, and mlx steps from the host under the driver's ceiling (section 5.3). mlx is
-compared with ``numpy_ref``'s single-precision path. The same run on two backends must
-then stop at the same read, read the same number of times and keep the same record; a
-requested collar must remove the same energy.
+there (section 5.3). ``numpy_ref``'s single-precision path is compared with its
+binary64 one. The same run on two backends must then stop at the same read, read the
+same number of times and keep the same record; a requested collar must remove the same
+energy.
 """
 
 import dataclasses
@@ -209,11 +209,6 @@ def test_a_backend_that_does_not_read_the_edge_runs_unwatched(
     assert record["reads"] == 0
 
 
-MLX = pytest.mark.skipif(
-    "mlx" not in available("single"), reason="mlx is not installed"
-)
-
-
 def single(simulation: Simulation, backend: str) -> Simulation:
     """Return `simulation` on `backend` in binary32, under Runge-Kutta."""
     simulation.settings = dataclasses.replace(
@@ -227,8 +222,8 @@ def single(simulation: Simulation, backend: str) -> Simulation:
 
 
 def test_numpy_ref_s_binary32_path_carries_the_radial_collar() -> None:
-    # The reference for the single-precision backends: binary32 agrees with binary64
-    # to the single-precision tolerance, and the edge reads alike.
+    # Binary32 agrees with binary64 to the single-precision tolerance, and the edge
+    # reads alike.
     outputs: list[PlaneStore] = []
     for precision in ("double", "single"):
         simulation = single(radial_collar("numpy_ref", RungeKutta()), "numpy_ref")
@@ -238,40 +233,6 @@ def test_numpy_ref_s_binary32_path_carries_the_radial_collar() -> None:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             output = simulation.run(progress="none")
-        assert isinstance(output, PlaneStore)
-        outputs.append(output)
-    reference, found = outputs
-    expected = np.asarray(reference["field"][-1])
-    error = float(
-        np.linalg.norm(np.asarray(found["field"][-1]) - expected)
-        / np.linalg.norm(expected)
-    )
-    assert error < 1e-5
-    first, second = edge_record(reference), edge_record(found)
-    assert second["reads"] == first["reads"]
-    assert second["transverse_status"] == first["transverse_status"] == "clear"
-
-
-@MLX
-@pytest.mark.parametrize("packet", [REREVIEW, MISS], ids=["rereview", "miss"])
-def test_mlx_stops_the_packet_where_numpy_ref_does(packet: Any) -> None:
-    reference = stopped_at(single(packet_run(packet), "numpy_ref"))
-    found = stopped_at(single(packet_run(packet), "mlx"))
-    assert found == pytest.approx(reference, rel=RTOL, abs=0.0)
-    assert found - packet.length / 16 * (1 + 1e-9) < true_stop(packet) <= found
-
-
-@MLX
-def test_a_requested_collar_runs_on_mlx_as_on_numpy_ref() -> None:
-    # Binary32 on both: the fields agree to the single-precision tolerance, and the
-    # edge reads alike.
-    outputs: list[PlaneStore] = []
-    for name in ("numpy_ref", "mlx"):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", BoundaryWarning)
-            output = single(radial_collar(name, RungeKutta()), name).run(
-                progress="none"
-            )
         assert isinstance(output, PlaneStore)
         outputs.append(output)
     reference, found = outputs

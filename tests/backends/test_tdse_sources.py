@@ -34,6 +34,7 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import assemble
 from solprop.translate.responses import ResponseStage
+from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
 from solprop.translate.tdse import TDSEDescriptor, TDSEResult, waveform_identity
 from solprop.translate.tdse_source import current_numerator
@@ -89,8 +90,13 @@ def source_case():
     # from material admission and avoids installing the optional atomic engine.
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
-        current_numerator=current_numerator(grid),
+        route=dataclasses.replace(
+            problem.route,
+            tdse=TDSESource(
+                descriptor=TDSEDescriptor.from_response(response, grid),
+                current_numerator=current_numerator(grid),
+            ),
+        ),
     )
     bundle = scalars(problem, 0.0, 0.0)
     row = np.arange(problem.transform.n_nodes, dtype=np.int64)[:, None]
@@ -115,8 +121,14 @@ def model_case(case, model, *, remainder_scale=2.0, cubic_scale=3.0):
         )
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
         responses=compiled,
+        route=dataclasses.replace(
+            problem.route,
+            tdse=dataclasses.replace(
+                problem.route.tdse,
+                descriptor=TDSEDescriptor.from_response(response, grid),
+            ),
+        ),
     )
     return problem, bundle, fields
 
@@ -126,13 +138,14 @@ def microscopic_record(problem, fields, *, sign=1.0, cancel=False):
     third = sign * 4.0 * fields**3
     remainder = np.zeros_like(fields) if cancel else sign * 2.0**-3 * fields**5
     dipole = sign * 2.0**-20 * fields**3
-    assert problem.tdse is not None
-    native = problem.tdse.kerr_model == "tdse_native"
+    descriptor = tdse_descriptor(problem.route)
+    assert descriptor is not None
+    native = descriptor.kerr_model == "tdse_native"
     result = TDSEResult(
         first + third + remainder,
         first,
         input_identity=waveform_identity(sign * fields),
-        configuration_identity=problem.tdse.identity,
+        configuration_identity=descriptor.identity,
         valid=np.ones(fields.shape, dtype=bool),
         shadow_orders=(1,) if native else (1, 3),
         third_order_current=None if native else third,
@@ -146,7 +159,7 @@ def test_each_closure_has_its_own_cubic_and_remainder_definition(source_case, mo
     problem, bundle, fields = model_case(source_case, model)
     result, third, remainder, dipole = microscopic_record(problem, fields)
     polarisation, current = atomic_sources(fields, result, problem, bundle)
-    assert problem.tdse is not None
+    assert tdse_descriptor(problem.route) is not None
     # The native source is gated by the grid collar (SEP 26); the cubic ones are not.
     gate = source_case[1].t_window_fine
     expected_current = bundle.density * (
@@ -185,11 +198,17 @@ def test_native_scale_preserves_complete_nonlinearity_after_linear_subtraction(
     )
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
         responses=dataclasses.replace(
             problem.responses,
             kerr_coefficients=None,
             response_order=(ResponseStage.ACCUMULATE,),
+        ),
+        route=dataclasses.replace(
+            problem.route,
+            tdse=dataclasses.replace(
+                problem.route.tdse,
+                descriptor=TDSEDescriptor.from_response(response, grid),
+            ),
         ),
     )
     result, third, remainder, _ = microscopic_record(problem, fields)
@@ -340,7 +359,9 @@ def test_atomic_sources_preserve_nonzero_endpoints_area_and_residual_current(
 def test_atomic_source_requires_an_atomic_descriptor(source_case):
     problem, bundle, fields = model_case(source_case, "tdse_shadow")
     result, _, _, _ = microscopic_record(problem, fields)
-    problem = dataclasses.replace(problem, tdse=None)
+    problem = dataclasses.replace(
+        problem, route=dataclasses.replace(problem.route, tdse=None)
+    )
     with pytest.raises(BackendError, match="requires a TDSE descriptor"):
         atomic_sources(fields, result, problem, bundle)
 
@@ -383,7 +404,14 @@ def test_native_source_collar_preserves_raw_currents_and_subtracts_before_gating
     )
     problem, bundle, fields = model_case(source_case, "tdse_native")
     problem = dataclasses.replace(
-        problem, tdse=TDSEDescriptor.from_response(response, grid)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            tdse=dataclasses.replace(
+                problem.route.tdse,
+                descriptor=TDSEDescriptor.from_response(response, grid),
+            ),
+        ),
     )
     result, third, remainder, _ = microscopic_record(problem, fields)
     raw = result.total_current.copy()
@@ -413,14 +441,23 @@ def test_native_source_collar_preserves_linear_cancellation(source_case):
     )
     problem, bundle, fields = model_case(source_case, "tdse_native")
     problem = dataclasses.replace(
-        problem, tdse=TDSEDescriptor.from_response(response, grid)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            tdse=dataclasses.replace(
+                problem.route.tdse,
+                descriptor=TDSEDescriptor.from_response(response, grid),
+            ),
+        ),
     )
     first = 2.0**40 * fields
+    descriptor = tdse_descriptor(problem.route)
+    assert descriptor is not None
     result = TDSEResult(
         first,
         first,
         input_identity=waveform_identity(fields),
-        configuration_identity=problem.tdse.identity,
+        configuration_identity=descriptor.identity,
         valid=np.ones(fields.shape, dtype=bool),
         shadow_orders=(1,),
     )
@@ -454,8 +491,14 @@ def test_hacc_source_is_the_sae_native_formula_with_its_gate(source_case, window
     for declared_response in (native, hacc):
         case = dataclasses.replace(
             problem,
-            tdse=TDSEDescriptor.from_response(declared_response, grid),
             responses=compiled,
+            route=dataclasses.replace(
+                problem.route,
+                tdse=dataclasses.replace(
+                    problem.route.tdse,
+                    descriptor=TDSEDescriptor.from_response(declared_response, grid),
+                ),
+            ),
         )
         result, _, _, _ = microscopic_record(case, fields)
         polarisation, current = atomic_sources(fields, result, case, bundle)
@@ -467,8 +510,9 @@ def test_hacc_source_is_the_sae_native_formula_with_its_gate(source_case, window
     assert_array_equal(results[0][0], results[1][0])
     assert_allclose(results[0][1], results[1][1], rtol=ROUNDING, atol=0)
     polarisation, current, remainder, case = results[1]
-    assert case.tdse is not None
-    gate = case.tdse.source_gate()
+    descriptor = tdse_descriptor(case.route)
+    assert descriptor is not None
+    gate = descriptor.source_gate()
     expected_gate = grid.t_window_fine if gate is None else gate
     # Same formula: density times the gated remainder at scale one, P = 0.
     assert_allclose(

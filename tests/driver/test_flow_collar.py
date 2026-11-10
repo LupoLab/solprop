@@ -70,7 +70,7 @@ from solprop.modes import CoherentWall
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
 from solprop.translate.coupled import flow_section, frozen_generator
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from state_records import check_state, record_bound
 
 pytestmark = [
@@ -99,7 +99,7 @@ def backend_class(name):
     return NumpyRefBackend
 
 
-def scored_everywhere(problem: KernelProblem) -> KernelProblem:
+def scored_everywhere(problem: PropagationProblem) -> PropagationProblem:
     """Return the problem with every bin scored: the residual applied everywhere."""
     grids = problem.grids
     return replace(
@@ -108,7 +108,7 @@ def scored_everywhere(problem: KernelProblem) -> KernelProblem:
     )
 
 
-def collar_bins(problem: KernelProblem):
+def collar_bins(problem: PropagationProblem):
     """Return the flow's bins the error norm does not score, bool over the bins."""
     flow = problem.linear.coupled_flow
     assert flow is not None
@@ -136,14 +136,14 @@ def _no_temporal_collar():
     )
 
 
-def _launched_in(problem: KernelProblem, index: int) -> KernelProblem:
+def _launched_in(problem: PropagationProblem, index: int) -> PropagationProblem:
     """Return the problem launched with 1e-9 in the first channel at one bin only."""
     state = np.zeros_like(problem.initial.field0)
-    state[0, 0, 0, index] = 1e-9
+    state[0, 0, index] = 1e-9
     return replace(problem, initial=replace(problem.initial, field0=state))
 
 
-def _frozen_product(problem: KernelProblem, index: int):
+def _frozen_product(problem: PropagationProblem, index: int):
     """Return ``prod_k exp(dz G_{s_k})`` at one bin, the frozen flow's own answer."""
     flow = problem.linear.coupled_flow
     assert flow is not None
@@ -186,7 +186,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     try:
         driver.set_initial(launched.initial.field0, None)
         driver.propagate_to(LENGTH)
-        got = driver.observe().require_field()[0, :, 0, index].copy()
+        got = driver.observe().require_field()[:, 0, index].copy()
     finally:
         driver.close()
     flow = problem.linear.coupled_flow
@@ -202,7 +202,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     departure = float(np.max(abs(got / got[0] - expected / expected[0])))
     assert departure <= bound, (departure, bound)
     if name == "numpy_ref":
-        old = run(NumpyRefBackend, scored_everywhere(launched), GRID)[0, :, 0, index]
+        old = run(NumpyRefBackend, scored_everywhere(launched), GRID)[:, 0, index]
         assert float(np.max(abs(old / old[0] - expected / expected[0]))) > 1e-3
 
 
@@ -278,7 +278,7 @@ def _seeded_growth(backend, problem, grid, collar, worst):
         final = driver.observe().require_field()
     finally:
         driver.close()
-    return float(abs(final[0, 3, 0, worst])) / seed
+    return float(abs(final[3, 0, worst])) / seed
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -354,7 +354,7 @@ IN_BAND_CASES = {
 """The varying coupled-flow cases, each with a Kerr half strong enough to couple."""
 
 
-def in_band_bound(problem: KernelProblem, grid, planes):
+def in_band_bound(problem: PropagationProblem, grid, planes):
     """Return the derived relative bound on the in-band answer's move, and its parts.
 
     ``planes`` are the new run's states after each of its steps, the last the answer.

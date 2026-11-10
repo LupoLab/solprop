@@ -23,9 +23,11 @@ import pytest
 from bounds import AccuracyEnvelope, assert_within, fft_bound, gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import field_retention, run_problem
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
@@ -157,7 +159,7 @@ def replay_bound(simulation: Simulation) -> float:
     a few milliradians, so the propagation does not amplify a perturbation.
     """
     problem = simulation.translate()
-    columns = problem.shape[1]
+    columns = problem.shape[0]
     return STEPS * (gamma(16) + 7 * fft_bound(columns * problem.grids.n_to))
 
 
@@ -407,12 +409,12 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
         with pytest.raises(DriverError, match="cannot store field-free planes"):
             run_problem(
                 problem,
                 backend,
                 _NoRetention(),
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
                 fields="none",
@@ -422,6 +424,7 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
                 problem,
                 backend,
                 MemoryOutput(),
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
                 fields="planes",
@@ -441,7 +444,7 @@ def test_a_field_free_observation_crosses_no_field(backend, monkeypatch):
     for field in (True, False):
         owner = select(backend, problem, grid=simulation.grid)
         copies = []
-        original = cast("type[StepDriver]", type(owner))._observed_field
+        original = cast("type[StepDriver | HostDriver]", type(owner))._observed_field
 
         def counted(self, state, copies=copies, original=original):
             copies.append(1)
@@ -478,7 +481,12 @@ def test_the_run_asks_the_backend_for_exactly_the_kept_fields(monkeypatch):
 
     monkeypatch.setattr(NumpyRefBackend, "observe", observe)
     stored(simulation.run(progress="none"))
-    assert asked == [True, False, False, False, True]
+    # Every event drains its attempts field-free (a yield's and the terminal event's
+    # too, SEP 47 section 5.3); the field crosses only for the two planes that keep it
+    # (section 5.4: an export only on request), the entrance first.
+    assert asked.count(True) == 2
+    assert asked[:2] == [False, True]
+    assert asked.index(True, 2) > asked.index(False, 2)
 
 
 def test_no_saved_plane_logs_the_retired_collar_diagnostic(caplog):
@@ -496,7 +504,7 @@ def test_a_field_free_observation_relies_on_the_step_loop_for_finiteness():
     simulation = cartesian("numpy_ref")
     problem = simulation.translate()
     poisoned = problem.initial.field0.copy()
-    poisoned[0, 0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
+    poisoned[0, 0, np.flatnonzero(problem.grids.active_mask)[0]] = np.nan
     backend = NumpyRefBackend(problem, grid=simulation.grid)
     try:
         backend.set_initial(poisoned, None)
@@ -519,24 +527,16 @@ def test_an_observation_refuses_a_noise_phase_without_its_field():
         np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
     )
     with pytest.raises(BackendError, match="without a field"):
-        Observation(0.0, None, np.zeros((1, 1, 1, 4)), history, 0, 0)
+        Observation(0.0, None, np.zeros((1, 1, 4)), history, 0, 0)
     with pytest.raises(BackendError, match="n_steps is 1"):
         Observation(0.0, None, None, history, 1, 0)
 
 
 def test_a_lockstep_batch_still_refuses_a_shared_observation():
     from solprop.backends.batch import LockstepRunner  # noqa: PLC0415
+    from solprop.backends.host.group import HostGroup  # noqa: PLC0415
 
     with pytest.raises(BackendError, match="observe_members"):
+        HostGroup.observe(object.__new__(HostGroup), field=False)
+    with pytest.raises(BackendError, match="observe_members"):
         LockstepRunner.observe(object.__new__(LockstepRunner), field=False)
-
-
-def test_a_lockstep_split_refuses_a_field_free_observation():
-    from solprop.driver.batch import split_observation  # noqa: PLC0415
-
-    history = BackendHistory(
-        np.zeros(0), np.zeros(0), np.zeros(0), np.zeros(0, bool), np.zeros(0)
-    )
-    observation = Observation(0.0, None, None, history, 0, 0)
-    with pytest.raises(DriverError, match="every member's field"):
-        split_observation(observation, {}, histories=[history])

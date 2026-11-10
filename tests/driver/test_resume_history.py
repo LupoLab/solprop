@@ -34,6 +34,7 @@ from flow_parity import build as flow_case
 from march_bounds import TIGHTER, assert_in_envelope
 from solprop.backends import available
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
 from solprop.exceptions import OutputError, SolpropWarning
@@ -162,16 +163,6 @@ CASES = {
     "single-soliton-numpy_ref": lambda build, rtol=RTOL: soliton(
         build, "numpy_ref", rtol=rtol, atol=0.0, **single(rtol)
     ),
-    "single-soliton-mlx": lambda build, rtol=RTOL: soliton(
-        build,
-        "mlx" if rtol >= SINGLE_RTOL_FLOOR else "native",
-        rtol=rtol,
-        atol=0.0,
-        **single(rtol),
-    ),
-    "single-varying-mlx": lambda _, rtol=RTOL: varying(
-        "mlx" if rtol >= SINGLE_RTOL_FLOOR else "native", rtol, **single(rtol)
-    ),
 }
 
 
@@ -186,10 +177,6 @@ def test_a_resumed_run_is_the_uninterrupted_one(
 ):
     if case.endswith("-native"):
         pytest.importorskip("solprop_native")
-    if case.endswith("-mlx"):
-        # The skip reason native/ci/check_skips.py expects off macOS; the macOS lanes
-        # install MLX and require Metal, so there the case runs.
-        pytest.importorskip("mlx.core")
     build = CASES[case](build_simulation)
     whole, part = tmp_path / "whole.h5", tmp_path / "part.h5"
     build().run(whole, progress="none")
@@ -200,7 +187,7 @@ def test_a_resumed_run_is_the_uninterrupted_one(
     state = resume(part)
     assert state.march is not None
     assert state.march.z == state.plane.z
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     # The snapshot was taken up: the history continued rather than restarting.
     assert AFRESH not in caplog.text
@@ -243,7 +230,7 @@ def test_a_run_stopped_between_planes_continues_from_its_checkpoint(
     assert state.march is not None and state.march.z == state.checkpoint.plane.z
     with open_file(whole) as first:
         assert state.march.z not in np.asarray(first["z"]).tolist()
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(part, resume=True, progress="none")
     assert AFRESH not in caplog.text
     assert_accurate_run(whole, part, reference)
@@ -298,7 +285,8 @@ def test_a_snapshot_over_the_default_size_is_never_copied(
     def refuse(self):
         pytest.fail("a snapshot over the limit was taken")
 
-    monkeypatch.setattr(StepDriver, "march_snapshot", refuse)
+    for driver in (StepDriver, HostDriver):
+        monkeypatch.setattr(driver, "march_snapshot", refuse)
     path = tmp_path / "run.h5"
     soliton(build_simulation, backend)().run(path, progress="none")
     assert resume(path).march is None
@@ -403,7 +391,7 @@ def test_native_keeps_its_history_resident_and_continues_it(
     run_until(build(), path, after=2)
     march = resume(path).march
     assert march is not None and set(march.rows) == {"store"}
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         build().run(path, resume=True, progress="none")
     assert AFRESH not in caplog.text
     with open_file(path) as stored:
@@ -414,7 +402,7 @@ def march(**changes):
     """Return a small hand-built march snapshot at z = 0.25 m, with `changes`."""
     fields = {
         "z": 0.25,
-        "state": np.ones((1, 1, 1, 4), complex),
+        "state": np.ones((1, 1, 4), complex),
         "proposal": 0.1,
         "method": "M()",
         "order": 2,
@@ -450,7 +438,7 @@ def saved_with(path, *snapshots):
         # check before validation; the identities are a tuple, which it cannot see.
         ({"identities": ("accepted",)}, "disagree in number"),
         ({"positions": np.array([0.2, np.nan])}, "must be finite"),
-        ({"state": np.full((1, 1, 1, 4), np.inf, complex)}, "must be finite"),
+        ({"state": np.full((1, 1, 4), np.inf, complex)}, "must be finite"),
         ({"z": math.inf}, "must be finite"),
         ({"proposal": math.nan}, "must be finite"),
     ],
@@ -541,7 +529,7 @@ def test_a_kept_history_is_set_aside_on_request(build_simulation, tmp_path, capl
     run_until(soliton(build_simulation, "numpy_ref")(), part, after=2)
     assert resume(part).march is not None
     afresh = soliton(build_simulation, "numpy_ref", resume_history=False)()
-    with caplog.at_level(logging.INFO, logger="solprop.driver.simulation"):
+    with caplog.at_level(logging.INFO, logger="solprop.driver"):
         afresh.run(part, resume=True, progress="none")
     assert "the Adams history starts afresh: resume_history=False" in caplog.text
     found, truth = fields(part)[1], fields(whole)[1]

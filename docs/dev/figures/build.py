@@ -670,6 +670,7 @@ MODULES = {
             "translate/",
             (
                 "problem",
+                "routes",
                 "stage",
                 "linop",
                 "expansion",
@@ -697,6 +698,7 @@ MODULES = {
                 "precision",
                 "tdse",
                 "tdse_source",
+                "run_request",
             ),
         ),
     ),
@@ -712,11 +714,26 @@ MODULES = {
                 "populations",
                 "memory",
                 "multistep",
-                "multistep_general",
                 "adams_core",
                 "rk_core",
                 "exponential",
                 "low_storage",
+                "session",
+                "events",
+                "export",
+                "driver_session",
+                "sessions",
+            ),
+        ),
+        Module(
+            "backends/host/",
+            (
+                "driver",
+                "adams",
+                "general",
+                "low_storage",
+                "group",
+                "session",
             ),
         ),
         Module(
@@ -732,10 +749,6 @@ MODULES = {
                 "general_modal",
                 "tdse",
             ),
-        ),
-        Module(
-            "backends/mlx_gpu/",
-            ("backend", "batch", "passes", "arithmetic", "envelope", "adams"),
         ),
     ),
     "D": (
@@ -799,6 +812,7 @@ MODULES = {
                 "defaults",
                 "estimate",
                 "plane_view",
+                "service",
             ),
         ),
         Module(
@@ -920,7 +934,7 @@ RUN_STAGES = (
         "D",
         "Simulation(...)",
         (
-            "translate.assemble(...)  →  KernelProblem",
+            "translate.assemble(...)  →  PropagationProblem",
             "backends.select(name, problem, grid=, modes=, profiles=)",
         ),
         "validated arrays",
@@ -963,7 +977,7 @@ class Section(NamedTuple):
     """Its heading there."""
 
     fields: tuple[str, ...]
-    """The `KernelProblem` fields it documents."""
+    """The `PropagationProblem` fields it documents."""
 
     leaf: str
     """The dataclass that carries them, as the contract names it."""
@@ -1000,7 +1014,7 @@ CONTRACT_SECTIONS = (
     Section(
         3,
         "linear operator",
-        ("linear", "flux", "transverse"),
+        ("linear",),
         "translate.linop.LinearOperator",
         ("linear.py", "modes/", "profiles.py"),
         "P",
@@ -1009,7 +1023,7 @@ CONTRACT_SECTIONS = (
     Section(
         4,
         "multimode transform",
-        ("transform",),
+        ("route",),
         "translate.modal.Transform",
         ("modes.quadrature", "modes.collection"),
         "P",
@@ -1018,7 +1032,7 @@ CONTRACT_SECTIONS = (
     Section(
         5,
         "responses and the prefactor",
-        ("responses", "tdse", "current_numerator"),
+        ("responses",),
         "translate.responses.CompiledResponses",
         ("nonlinear/", "physdata/", "boundaries.py"),
         "P",
@@ -1196,7 +1210,7 @@ SEAM_METHODS = (
     ("march_snapshot_nbytes", "its size, copying nothing"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("restore_march", "continue the history, or say why it starts afresh"),
-    ("timed_step", "one step of the march, for an estimate to time"),
+    ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
@@ -1214,7 +1228,7 @@ DRIVER_PARTS = (
     ("the noise", ("_noise_field", "_noise_at", "_noise_phase")),
     (
         "the per-stage bundle",
-        ("_hoist", "_stage_scalars", "_delta_phi", "_prefactor", "_unitary_phase"),
+        ("_hoist", "_stage_scalars", "_delta_phi", "_unitary_phase"),
     ),
     (
         "what a backend supplies",
@@ -1737,7 +1751,7 @@ RUN_ARTEFACTS = (
     ),
     (
         "T",
-        "KernelProblem",
+        "PropagationProblem",
         ("plain arrays, frozen, validated",),
     ),
     ("B", "StepSummary", ("z, n_steps, n_rejected, max_norm, mean_norm, wall_time",)),
@@ -1966,10 +1980,10 @@ CONTRACT_LEFT = 296.0
 """Width of the column of modules that feed the contract, in user units."""
 
 CONTRACT_MIDDLE = 420.0
-"""Width of the `KernelProblem` column, in user units."""
+"""Width of the `PropagationProblem` column, in user units."""
 
 CONTRACT_GAP = 58.0
-"""Space either side of the `KernelProblem` column, in user units."""
+"""Space either side of the `PropagationProblem` column, in user units."""
 
 
 def kernel_contract() -> drawsvg.Drawing:
@@ -1997,9 +2011,10 @@ def kernel_contract() -> drawsvg.Drawing:
     ]
     gap = 12.0
     subtitle = (
-        "kernel-contract.md §1 to §8. KernelProblem is the only object that crosses "
-        "into a backend: eleven fields, frozen, validated, versioned. On the left, "
-        "what builds each section; on the right, what a backend does with it."
+        "kernel-contract.md §1 to §8. PropagationProblem is the only object that "
+        "crosses into a backend: one trajectory, its route a closed union, frozen and "
+        "validated. On the left, what builds each section; on the right, what a "
+        "backend does with it."
     )
     top = header_height(subtitle) + 30
     inset = inset_height()
@@ -2011,7 +2026,7 @@ def kernel_contract() -> drawsvg.Drawing:
     _text(drawing, "built by", MARGIN, label_y, size=SMALL_SIZE, klass="bold dim")
     _text(
         drawing,
-        "translate.problem.KernelProblem",
+        "translate.problem.PropagationProblem",
         middle_x,
         label_y,
         size=SMALL_SIZE,
@@ -2566,8 +2581,8 @@ def backends() -> drawsvg.Drawing:
     subtitle = (
         "backends.md §1: the protocol is drawn at the level of operations on the "
         "propagated state, never at the array-namespace level. A backend is "
-        "constructed from a validated KernelProblem and host arrays and returns host "
-        "arrays; its buffers, layout and plans are private."
+        "constructed from a validated PropagationProblem and host arrays and returns "
+        "host arrays; its buffers, layout and plans are private."
     )
     footer = (
         "Three things every backend owes beyond the methods: deterministic "
@@ -2615,7 +2630,7 @@ def backends() -> drawsvg.Drawing:
     _table(
         drawing,
         Slot(MARGIN, y, left_width),
-        "backends/driver.py  ·  StepDriver, and no backend reimplements it",
+        "HostDriver (reference)  ·  StepDriver (native bridge)",
         driver_rows,
         168,
         Paint("fill-d", "ink-d"),

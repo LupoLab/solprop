@@ -315,7 +315,8 @@ def test_the_run_options_are_solprop_s() -> None:
     assert options["threads"] >= 1
     assert options["double"] == list(available("double"))
     assert "native" in options["double"] or "numpy_ref" in options["double"]
-    assert isinstance(options["metal"], bool)
+    assert options["single"] == ["numpy_ref"]
+    assert "metal" not in options  # the mlx backend was retired in SEP 47
 
 
 def test_the_threads_offered_are_a_run_s_not_the_kernel_s(

@@ -41,6 +41,7 @@ from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy, spatial_
 from solprop.stats import analytic_field
 from solprop.stepper import PIController
 from solprop.translate.coupling import input_port
+from solprop.translate.routes import flux_of
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -203,7 +204,7 @@ def test_a_gradient_plane_carries_its_rebuilt_path_certificate(tmp_path):
     simulation = spatial(
         RadialGrid(6e-4, 32), PressureGradient.two_point(2e-3, 1.0, 2.0)
     )
-    admitted = simulation.translate().flux
+    admitted = flux_of(simulation.translate().route)
     assert admitted is not None and admitted.admission is not None
     expected = admitted.admission
     path = tmp_path / "gradient.h5"

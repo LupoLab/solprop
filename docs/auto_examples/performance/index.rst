@@ -5,7 +5,7 @@
 Performance
 -----------
 
-Running the same physics faster or in less memory: single precision on an Apple GPU,
+Running the same physics in less memory: single precision on the reference backend,
 compared with binary64.
 
 
@@ -22,7 +22,7 @@ compared with binary64.
 
 .. raw:: html
 
-    <div class="sphx-glr-thumbcontainer" tooltip="A run can hold its field and evaluate its nonlinear response in binary32 with precision=&quot;single&quot;, which halves the memory of every field-sized buffer and is what an Apple-silicon GPU computes in. Whether a problem keeps its accuracy in binary32 is a property of the problem, so this example runs two of them both ways and compares: the photoionisation blue shift of /auto_examples/processes/plot_06_ionisation_blue_shift, here on an envelope grid with the envelope-grid plasma, and a short radial argon filament on a field grid. Each runs in binary64 on backend=&quot;auto&quot; and in binary32, where &quot;auto&quot; chooses the mlx backend on a Mac with a Metal GPU.">
+    <div class="sphx-glr-thumbcontainer" tooltip="A run can hold its field and evaluate its nonlinear response in binary32 with precision=&quot;single&quot;, which halves the memory of every field-sized buffer. Whether a problem keeps its accuracy in binary32 is a property of the problem, so this example runs two of them both ways and compares: the photoionisation blue shift of /auto_examples/processes/plot_06_ionisation_blue_shift, here over its first 0.2 m, and a short radial argon filament, both on field grids with the field-grid plasma. Each runs in binary64 on the default backend, native, and in binary32 on the reference backend, numpy_ref, which is named explicitly: it is the backend that runs single precision.">
 
 .. only:: html
 
@@ -33,7 +33,7 @@ compared with binary64.
 
 .. raw:: html
 
-      <div class="sphx-glr-thumbnail-title">Single precision on an Apple GPU</div>
+      <div class="sphx-glr-thumbnail-title">Single precision</div>
     </div>
 
 

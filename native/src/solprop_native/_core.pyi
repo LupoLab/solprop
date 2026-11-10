@@ -10,6 +10,14 @@ import numpy as np
 import numpy.typing as npt
 
 class State:
+    # The payload is `backend._native_problem` of a validated
+    # `solprop.translate.problem.PropagationProblem`: its shared grid, operator,
+    # response and source components, with the route variant the adapter visited
+    # (solprop SEP 47 section 6.2); `n_modes` and `n_pol_state` are the state's
+    # `(n_modes, n_pol, n_omega)`. The workspace keeps its four-axis layout
+    # `(1, n_modes, n_pol, n_omega)`: `set_initial`, `field_to_host` and the
+    # Adams rows carry the leading axis of one, which the adapter adds and removes,
+    # and a single trajectory crosses the Python seam without it.
     def __init__(self, problem: dict[str, object]) -> None: ...
     def set_initial(
         self,

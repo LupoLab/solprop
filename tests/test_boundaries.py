@@ -36,6 +36,7 @@ from solprop.output.schema import serialise
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import transverse_of
 
 EPS = np.finfo(np.float64).eps
 
@@ -754,7 +755,7 @@ def test_a_walkoff_leaves_a_free_space_transverse_collar_alone():
             noise=None,
             spatial_absorber=SpatialAbsorber(kappa=2.5e5),
         )
-        return simulation.translate().transverse
+        return transverse_of(simulation.translate().route)
 
     plain, walking = design(absorber(grid)), design(absorber(grid, walkoff=1e-14))
     assert plain is not None

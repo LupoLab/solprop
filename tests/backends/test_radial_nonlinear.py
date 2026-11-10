@@ -114,7 +114,7 @@ def derivative(spatial_backend_class, problem, grid):
             return backend._nonlinear(
                 backend._require_state(),
                 backend._stage_scalars(0.0, 0.0),
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         # This probe requests N(E, z=0), not an advanced field. A zero-length
         # trial exposes the same first stage without later stages inventing an
@@ -125,7 +125,7 @@ def derivative(spatial_backend_class, problem, grid):
             if backend.name == "native"
             else backend._stages[0].copy()
         )
-        return values.reshape(problem.shape[1:])
+        return values.reshape(problem.shape)
     finally:
         backend.close()
 
@@ -162,7 +162,7 @@ def test_radial_vector_raman_keeps_the_named_refusal(spatial_backend_class):
     scalar = make_problem(
         grid, space, np.zeros((space.n_r, 1, grid.n_omega), complex), [response]
     )
-    problem = dataclasses.replace(scalar, shape=(1, space.n_r, 2, grid.n_omega))
+    problem = dataclasses.replace(scalar, shape=(space.n_r, 2, grid.n_omega))
     with pytest.raises(BackendError, match="Raman"):
         spatial_backend_class(problem, grid=grid)
 
@@ -469,7 +469,7 @@ def test_radial_field_envelope_and_scalar_vector_parity(
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            state = backend.observe().require_field()[0]
+            state = backend.observe().require_field()
             if n_pol == 2:
                 np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
             indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)
@@ -513,7 +513,11 @@ def test_radial_chunked_nonlinear_transform_matches_the_full_rule(
     _, grid, space, start, responses, density = nonlinear_case
     problem = make_problem(grid, space, start, responses, density=density)
     chunked = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     # Repartitioning changes the reduction association only; its two dense sums
     # and temporal transforms are bounded before either derivative is evaluated.

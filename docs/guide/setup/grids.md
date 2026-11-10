@@ -144,9 +144,7 @@ $$t_n=\left(n-\frac{n_t}{2}\right)\delta t,\qquad n=0,\ldots,n_t-1.$$
 The sample count is even. By default (`fft_size="auto"`) the fine size is the
 cheapest even number with prime factors 2, 3 and 5 between the requirement and the next
 power of two, by a transform-cost model fitted to measured FFT timings
-({py:func}`solprop.grid.fft_cost`); FFTW's by default, and MLX's, which prefers powers
-of two past 4096 samples, with `transforms="mlx"` or for a single-precision keyword run
-on `mlx`. `fft_size="pow2"` takes the next power of two and
+({py:func}`solprop.grid.fft_cost`), FFTW's. `fft_size="pow2"` takes the next power of two and
 `fft_size="smooth"` the next 2-3-5 size. For example, a requirement of 4100 samples
 rounds to 8192 with the power-of-two choice and 4320 with the smooth choice.
 

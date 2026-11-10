@@ -2010,8 +2010,7 @@ class StepStats(Displayed):
         attempts, so this is not ``row * period``.
     values : dict
         The statistics, keyed by catalogue name, each shaped ``(n_rows, *shape)`` with
-        the statistic's own shape after the row axis -- the batch axis a backend
-        carries is dropped here, as it is for the plane statistics.
+        the statistic's own shape after the row axis, as the backend's rows are.
 
     Raises
     ------
@@ -2520,8 +2519,9 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     z : float
         The accepted position, m.
     state : numpy.ndarray
-        The accepted state in the canonical layout and the internal FFT convention,
-        exactly as the backend held it.
+        The accepted state, shape ``(n_modes, n_pol, n_omega)``, in the internal FFT
+        convention, exactly as the backend held it. A file stores it with a leading
+        axis of one, the layout it has always had (SEP 47 section 6.7).
     proposal : float
         The step the controller proposed next, m.
     method : str
@@ -2541,7 +2541,8 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     rows : collections.abc.Mapping
         The engine's rows by name: the samples (``"store"``) and, for a compensated
         exponential march, the sampled states and rates and each sample's flow
-        weights.
+        weights, in the engine's own layout, which keeps a leading axis of one after
+        the row axis.
     collar_was_quiet : bool
         Whether the in-stage collar was left out, quiet, at the last attempt, which
         holds the first step after it returns to its stable step (SEP 39 section
@@ -2562,7 +2563,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     >>> import numpy as np
     >>> from solprop.output.schema import MarchSnapshot
     >>> snapshot = MarchSnapshot(
-    ...     z=0.5, state=np.ones((1, 1, 1, 4), complex), proposal=0.1, method="M()",
+    ...     z=0.5, state=np.ones((1, 1, 4), complex), proposal=0.1, method="M()",
     ...     order=2, rejections=0, last_rejected=False,
     ...     positions=np.array([0.4, 0.5]), identities=("accepted", "predicted"),
     ...     slots=np.array([0, 1]), rows={"store": np.zeros((4, 1, 1, 1, 4), complex)},
@@ -2572,7 +2573,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     """
 
     z: float
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"]
     proposal: float
     method: str
     order: int
@@ -2614,6 +2615,37 @@ class MarchSnapshot:  # numpydoc ignore=PR02
             The state and every engine row.
         """
         return int(self.state.nbytes + sum(row.nbytes for row in self.rows.values()))
+
+
+def _holds_carried(plane: SavedPlane, carried: SavedPlane) -> bool:
+    """Return whether a checkpoint already begins with the attempts a resume carried.
+
+    The checkpoint a store holds after a resume, or a copy of it, starts with the
+    carried attempts, every column equal; a new one from the resumed march starts
+    where the resume did, with attempts of its own and its own wall clock.
+
+    Parameters
+    ----------
+    plane : SavedPlane
+        The checkpoint's plane.
+    carried : SavedPlane
+        The resumed checkpoint's plane, whose attempts no regular plane holds yet.
+
+    Returns
+    -------
+    bool
+        True when `plane`'s history and rows start with `carried`'s, or `carried`
+        holds nothing to add.
+    """
+    before, history = carried.step_history, plane.step_history
+    if before.n_steps == 0:
+        return carried.step_stats.n_rows == 0
+    if history.n_steps < before.n_steps:
+        return False
+    return all(
+        np.array_equal(getattr(history, name)[: before.n_steps], getattr(before, name))
+        for name in HISTORY_FIELDS
+    )
 
 
 def _prepend_checkpoint_history(
@@ -4504,7 +4536,9 @@ class PlaneStore(Displayed, ABC):
         self._annotations: dict[str, JsonValue] = {}
         self._outcome: RunOutcome | None = None
         self._terminal_checkpoint: TerminalCheckpoint | None = None
-        self._checkpoint_pending = False
+        # The attempts and rows of the checkpoint a resume started from, which no
+        # regular plane holds yet: the next plane or checkpoint is preceded by them.
+        self._carried: SavedPlane | None = None
         self._resume_outcome_pending = False
 
     @property
@@ -4578,7 +4612,15 @@ class PlaneStore(Displayed, ABC):
         outcome : RunOutcome
             Current status and cumulative call ledgers.
         checkpoint : TerminalCheckpoint or None
-            Accepted terminal field, with no newly requested atomic statistics.
+            Accepted field, with no newly requested atomic statistics. With a
+            ``"running"`` outcome it is a running checkpoint (SEP 47 section 5.5): an
+            accepted endpoint between saved planes, written so that a snapshot or a
+            later failure has a state to resume from. Its attempts and periodic rows
+            are not consumed: the next regular plane still carries them, and saving
+            that plane supersedes the checkpoint. ``None`` keeps a pending checkpoint
+            during progress and clears it otherwise; passing back the checkpoint
+            held (:attr:`~PlaneStore.terminal_checkpoint`), or a copy, with a closing
+            outcome keeps it as the state to resume from.
 
         Raises
         ------
@@ -4615,12 +4657,16 @@ class PlaneStore(Displayed, ABC):
                 raise OutputError("checkpoint field shape differs from saved planes")
             if self._n_saved and checkpoint.plane.z < self._last_saved_z():
                 raise OutputError("checkpoint precedes the last regular saved plane")
-            if self._checkpoint_pending and self._terminal_checkpoint is not None:
+            if self._carried is not None and not _holds_carried(
+                checkpoint.plane, self._carried
+            ):
+                # A new checkpoint is preceded by what a resume carried; the held one,
+                # or a copy of it, holds it already. Nothing is consumed: a running
+                # checkpoint is superseded, and the next plane is preceded by the
+                # same attempts.
                 checkpoint = dataclasses.replace(
                     checkpoint,
-                    plane=_prepend_checkpoint_history(
-                        self._terminal_checkpoint.plane, checkpoint.plane
-                    ),
+                    plane=_prepend_checkpoint_history(self._carried, checkpoint.plane),
                 )
         elif outcome.status == "running":
             checkpoint = self._terminal_checkpoint
@@ -4629,7 +4675,7 @@ class PlaneStore(Displayed, ABC):
         self._resume_outcome_pending = False
         self._terminal_checkpoint = checkpoint
         if outcome.status != "running":
-            self._checkpoint_pending = False
+            self._carried = None
 
     def _last_saved_z(self) -> float:
         """Return the position of the last regular saved plane.
@@ -4920,8 +4966,8 @@ class PlaneStore(Displayed, ABC):
         """
         self._check_usable()
         metadata = self._require_metadata()
-        if self._checkpoint_pending and self._terminal_checkpoint is not None:
-            plane = _prepend_checkpoint_history(self._terminal_checkpoint.plane, plane)
+        if self._carried is not None:
+            plane = _prepend_checkpoint_history(self._carried, plane)
         self._check_layout(plane, plane.field)
         stored = (
             None
@@ -4930,10 +4976,12 @@ class PlaneStore(Displayed, ABC):
         )
         self._append(plane, stored)
         self._n_saved += 1
+        self._carried = None
         if self._terminal_checkpoint is not None:
+            # A terminal or running checkpoint is superseded by the plane beyond it
+            # (SEP 47 section 5.5): a resume never goes back to it.
             self._write_outcome(self._outcome, None)
             self._terminal_checkpoint = None
-            self._checkpoint_pending = False
 
     def reserve(self, n_planes: int) -> None:
         """Expect a run of `n_planes` saved planes in all, before the first is saved.

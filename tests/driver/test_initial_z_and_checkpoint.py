@@ -16,6 +16,8 @@ from tests.driver.test_run import NullBackend
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
 from solprop.driver import simulation as simulation_module
@@ -53,6 +55,8 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate import problem as problem_module
+from solprop.translate.routes import tdse_descriptor
+from solprop.translate.run_request import describe_run
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -159,7 +163,8 @@ def test_a_replaced_modal_input_is_copied_once_by_its_conversion(state_copies):
     field = np.array(simulation._field0)
     problem = simulation.with_input(field).translate()
     assert problem.transform.geometry is None
-    assert problem.shape not in state_copies
+    # The one copy is the replaced input's; the translation takes no other.
+    assert state_copies == [field.shape]
     launch = problem.initial.field0.copy()
     field[...] = 0.0
     assert_array_equal(problem.initial.field0, launch)
@@ -198,7 +203,7 @@ def test_a_built_in_pulse_is_held_without_a_copy(state_copies):
     )
     spatial = free.translate()
     assert state_copies == []
-    assert spatial.initial.field0.base is free._field0
+    assert spatial.initial.field0 is free._field0
     assert not modal._field0.flags.writeable
     assert not problem.initial.field0.flags.writeable
 
@@ -409,7 +414,7 @@ def test_interior_input_uses_actual_z_modal_weight():
     # The independently sampled effective index and its Chebyshev table agree to
     # the table fit accuracy; zero-position normalization differs by much more.
     assert_allclose(
-        launch.translate().initial.field0[0][..., mask], expected, rtol=1e-9, atol=0
+        launch.translate().initial.field0[..., mask], expected, rtol=1e-9, atol=0
     )
     rebuilt = Simulation(
         simulation.grid,
@@ -476,6 +481,23 @@ def test_budget_stop_is_separate_and_resume_cannot_reset_its_budget(tmp_path):
     assert again.history.n_steps == stopped.history.n_steps
 
 
+def _loaded(backend, problem, start) -> int:
+    """Load a run's start into a backend through its session, as the run does.
+
+    Returns the start's first save plane still to propagate to; the backend is left
+    loaded and open.
+    """
+    session = start_session(
+        backend,
+        problem,
+        describe_run(problem, start_plane=start.plane_index),
+        start,
+        owns=False,
+    )
+    session.close()
+    return start.plane_index
+
+
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
@@ -491,14 +513,16 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
     state = resume(path)
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         assert backend.observe().z == 5e-6
         assert state.checkpoint is not None
         invalid = dataclasses.replace(
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            simulation._prime(backend, problem, invalid)
+            simulation._start(backend, problem, invalid)
     finally:
         backend.close()
 
@@ -521,7 +545,9 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
     assert state.outcome is None
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 1
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 1
+        )
         observed = backend.observe()
         assert observed.z == 5e-6
         assert_array_equal(
@@ -541,7 +567,6 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
     simulation = tiny_simulation()
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
-    backend.set_initial(problem.initial.field0, None)
     calls = []
     original = NumpyRefBackend.stats
 
@@ -559,6 +584,7 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
                 problem,
                 backend,
                 memory,
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
             )
@@ -960,6 +986,7 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
                 atomic_simulation.translate(),
                 NullBackend(),
                 LegacyOutput(),
+                start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
                 progress="none",
             )
@@ -1049,7 +1076,7 @@ def test_driver_records_binding_facts_before_close_on_success_and_budget_stop(
         dz_init=1e-6,
         dz_max=1e-6,
     )
-    binding = ManufacturedBinding(simulation.translate().tdse, limit)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), limit)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )
@@ -1107,7 +1134,9 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
     monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         assert backend.observe().z == state.plane.z
     finally:
         backend.close()
@@ -1126,7 +1155,7 @@ def test_interior_atomic_budget_message_matches_terminal_checkpoint(
         dz_max=1e-6,
     )
     simulation = atomic_simulation.with_input(atomic_simulation._field0, initial_z=5e-6)
-    binding = ManufacturedBinding(simulation.translate().tdse, 4)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), 4)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )
@@ -1166,7 +1195,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
     backend = select("numpy_ref", problem, grid=grid, modes=simulation.modes)
     try:
         backend.set_initial(problem.initial.field0, None)
-        field = backend.observe().require_field()[0].copy()
+        field = backend.observe().require_field().copy()
         state = ResumeState(
             simulation.metadata(),
             SavedPlane(z=5e-6, field=field),
@@ -1178,10 +1207,12 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             raise AssertionError("spatial physical fields have no modal power weight")
 
         monkeypatch.setattr(simulation_module, "power_amplitude", forbidden)
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         restored = backend.observe()
         assert restored.z == state.plane.z
-        assert_array_equal(restored.require_field()[0], field)
+        assert_array_equal(restored.require_field(), field)
     finally:
         backend.close()
 
@@ -1236,7 +1267,7 @@ def test_this_module_s_tdse_fixture_raises_the_cost_warning(
         dz_init=1e-6,
         dz_max=1e-6,
     )
-    binding = ManufacturedBinding(simulation.translate().tdse, None)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), None)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )

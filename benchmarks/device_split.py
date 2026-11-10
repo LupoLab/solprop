@@ -258,7 +258,7 @@ def main(argv: list[str] | None = None) -> None:
     built = time.perf_counter()
     problem = base.translate()
     translated = time.perf_counter()
-    launch = np.array(problem.initial.field0)[0]
+    launch = np.array(problem.initial.field0)
     emit(
         "setup",
         from_free_s=round(built - started, 2),

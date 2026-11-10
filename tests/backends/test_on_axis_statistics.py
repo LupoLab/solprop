@@ -26,6 +26,7 @@ from bounds import assert_within, device_backend, fft_bound, gamma, rate_log_sen
 from rate_oracles import adk_oracle
 from solprop.backends import select
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.populations import axis_node
 from solprop.driver import Simulation
@@ -94,7 +95,7 @@ def entrance_stats(grid, problem, modes, spec):
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
         # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("StepDriver", backend).axis_scans
+        return values, cast("HostDriver", backend).axis_scans
 
 
 RULES: list[tuple[RadialRule, int]] = [
@@ -118,7 +119,7 @@ def test_the_axis_value_is_the_same_on_every_rule(grid, table):
         problem = problem_on(grid, table, [mode], rule)
         values.append(entrance_stats(grid, problem, [mode], AXIS)[0])
     reference = values[0]
-    assert float(reference["on_axis_electron_density"][0]) > 0.0
+    assert float(reference["on_axis_electron_density"]) > 0.0
     for other in values[1:]:
         for name in ON_AXIS_PLASMA_STATISTICS:
             # The same row, synthesised two ways, which rounding may separate by a
@@ -133,8 +134,8 @@ def test_the_default_rule_s_node_maximum_is_the_axis_value(grid, table):
     problem = problem_on(grid, table, [mode], rule)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
     values, _ = entrance_stats(grid, problem, [mode], spec)
-    node = float(values["electron_density"][0])
-    axis = float(values["on_axis_electron_density"][0])
+    node = float(values["electron_density"])
+    axis = float(values["on_axis_electron_density"])
     assert abs(node / axis - 1.0) < 1e-4
 
 
@@ -147,8 +148,8 @@ def test_five_gauss_nodes_miss_the_axial_peak_that_the_axis_statistic_reads(
     problem = problem_on(grid, table, [mode], rule)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
     values, scans = entrance_stats(grid, problem, [mode], spec)
-    node = float(values["electron_density"][0])
-    axis = float(values["on_axis_electron_density"][0])
+    node = float(values["electron_density"])
+    axis = float(values["on_axis_electron_density"])
     # Measured 0.44 of the axial value: a rate of order eight or so at 92%.
     assert node < 0.8 * axis
     assert scans == 1
@@ -173,17 +174,21 @@ def test_a_radau_axis_node_supplies_the_row_when_the_nodes_were_scanned(
     assert counted == scans
 
 
-def test_consecutive_planes_scan_their_own_field(grid, table):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_consecutive_planes_scan_their_own_field(grid, table, name):
     """No row is reused across observations: each plane scans the field it has."""
+    if name == "native":
+        pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem = problem_on(grid, table, [mode], rule)
-    with closing(NumpyRefBackend(problem, grid=grid, modes=[mode])) as backend:
+    with closing(select(name, problem, grid=grid, modes=[mode])) as backend:
         backend.set_initial(problem.initial.field0, None)
-        first = float(backend.stats(AXIS)["on_axis_electron_density"][0])
+        first = float(backend.stats(AXIS)["on_axis_electron_density"])
         backend.propagate_to(0.004)
-        second = float(backend.stats(AXIS)["on_axis_electron_density"][0])
-        assert backend.axis_scans == 2
+        second = float(backend.stats(AXIS)["on_axis_electron_density"])
+        # select() returns the seam's protocol; the counter is the driver's.
+        assert cast("StepDriver | HostDriver", backend).axis_scans == 2
     assert first != second
 
 
@@ -197,8 +202,8 @@ def test_a_multimode_off_axis_maximum_stays_in_the_legacy_statistic(grid, table)
     problem = problem_on(grid, table, modes, rule, start=start)
     spec = StatsSpec(names=("electron_density", "on_axis_electron_density"))
     values, _ = entrance_stats(grid, problem, modes, spec)
-    assert float(values["on_axis_electron_density"][0]) < 1e-6 * float(
-        values["electron_density"][0]
+    assert float(values["on_axis_electron_density"]) < 1e-6 * float(
+        values["electron_density"]
     )
 
 
@@ -207,11 +212,11 @@ def test_the_species_forms_sum_to_the_total(grid, table):
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem = problem_on(grid, table, [mode], rule)
     values, _ = entrance_stats(grid, problem, [mode], AXIS)
-    species = values["on_axis_species_electron_density"][0]
+    species = values["on_axis_species_electron_density"]
     assert species.shape == (problem.responses.n_species,)
-    assert float(np.sum(species)) == float(values["on_axis_electron_density"][0])
-    assert float(np.max(values["on_axis_species_peak_ionisation_rate"][0])) == float(
-        values["on_axis_peak_ionisation_rate"][0]
+    assert float(np.sum(species)) == float(values["on_axis_electron_density"])
+    assert float(np.max(values["on_axis_species_peak_ionisation_rate"])) == float(
+        values["on_axis_peak_ionisation_rate"]
     )
 
 
@@ -284,8 +289,8 @@ def backend_stats(name, grid, problem, modes, spec):
     with closing(select(name, problem, grid=grid, modes=modes)) as backend:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(spec)
-        # select() returns the seam's protocol; the counter is the shared driver's.
-        return values, cast("StepDriver", backend).axis_scans
+        # select() returns the seam's protocol; the counter is the driver's.
+        return values, cast("StepDriver | HostDriver", backend).axis_scans
 
 
 @pytest.mark.parametrize("name", BACKENDS)
@@ -592,7 +597,7 @@ def test_a_state_that_carries_its_components_reads_the_same_axis(grid, table):
     for radial_rule in ("field_scale", "field_scale_radau"):
         rule = transverse_quadrature([mode], n_r=5, radial_rule=radial_rule)
         problem = problem_on(grid, table, [mode], rule, start=start)
-        assert problem.shape[2] == 2
+        assert problem.shape[1] == 2
         assert problem.transform.n_pol == 1
         spec = StatsSpec(names=("species_ionisation", *ON_AXIS_PLASMA_STATISTICS))
         values.append(entrance_stats(grid, problem, [mode], spec))
@@ -603,12 +608,15 @@ def test_a_state_that_carries_its_components_reads_the_same_axis(grid, table):
     )
 
 
-def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table, name):
+    if name == "native":
+        pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem = problem_on(grid, table, [mode], rule)
     with (
-        closing(NumpyRefBackend(problem, grid=grid)) as backend,
+        closing(select(name, problem, grid=grid)) as backend,
         pytest.raises(BackendError, match="need the mode set"),
     ):
         backend.set_initial(problem.initial.field0, None)

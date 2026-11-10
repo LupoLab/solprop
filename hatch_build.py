@@ -68,7 +68,3 @@ class NativePinHook(MetadataHookInterface):
         extras = metadata.setdefault("optional-dependencies", {})
         # The desktop front end, from gui/ at this same version.
         extras["gui"] = [f"solprop-gui=={metadata['version']}"]
-        # The Apple-GPU backend (SEP 33), on macOS on Apple silicon only; the pin is
-        # raised only with the GPU lane and the arithmetic probes run (Q9).
-        apple_silicon = 'sys_platform == "darwin" and platform_machine == "arm64"'
-        extras["mlx"] = [f"mlx>=0.32.4,<0.33; {apple_silicon}"]

@@ -21,6 +21,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.noise import NoiseRealisation
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Initial
+from solprop.translate.routes import flux_of
 
 pytestmark = [
     pytest.mark.skipif(
@@ -165,9 +166,9 @@ def test_a_modified_noise_draw_rides_the_slab_phase():
     noise[..., ~grid.active_mask] = 0
     problem = dataclasses.replace(
         problem,
-        initial=Initial(problem.initial.field0, noise, "modified", {}),
+        initial=Initial(problem.initial.field0, noise, "modified"),
     )
-    realisation = NoiseRealisation(noise[0], None, "modified")
+    realisation = NoiseRealisation(noise, None, "modified")
     reference = propagate(NumpyRefBackend, problem, grid, length, realisation)
     actual = propagate(native_class(), problem, grid, length, realisation)
     bound = ladder_bound("kerr", grid, space, problem, 1, length)
@@ -194,7 +195,9 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
         problem,
         linear=dataclasses.replace(problem.linear, separable=bare),
         responses=dataclasses.replace(problem.responses, separable=bare),
-        flux=dataclasses.replace(problem.flux, base=bare),  # pyright: ignore[reportArgumentType]
+        route=dataclasses.replace(
+            problem.route, flux=dataclasses.replace(_flux(problem), base=bare)
+        ),
     )
     steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound("collar-only", grid, space, problem, steps, grid.length)
@@ -203,3 +206,10 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
     assert relative(actual, expected) < bound
     moved = propagate(native_class(), without, grid, grid.length)
     assert relative(moved, actual) > bound
+
+
+def _flux(problem):
+    """Return a spatial problem's flux plan."""
+    flux = flux_of(problem.route)
+    assert flux is not None
+    return flux

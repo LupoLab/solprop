@@ -98,7 +98,7 @@ def node_field(problem, bundle):
     """Return the launch field at the mode-averaged route's one node."""
     grids = problem.grids
     modal = passes.to_time(
-        problem.initial.field0[0], grids.crop_index, grids.n_to, kind=problem.grid_kind
+        problem.initial.field0, grids.crop_index, grids.n_to, kind=problem.grid_kind
     )
     return passes.synthesise(
         modal, problem.transform.synthesis, bundle.taper_scale, problem.transform.n_pol
@@ -238,7 +238,7 @@ def stage_derivative(problem, grid):
         return backend._nonlinear(
             backend._require_state(),
             backend._stage_scalars(0.0, 0.0),
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )
     finally:
         backend.close()

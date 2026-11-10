@@ -75,8 +75,7 @@ plan. Cover as applicable:*
 - *the effect on the kernel contract and the frozen tables of
   tests/backends/test_driver.py;*
 - *each Tier 1 backend — numpy_ref and the native CPU build, in either order — and anything
-  that makes one of them hard; GPU considerations for later; whether mlx (Tier 3)
-  should take the feature too, and why (ADR-061);*
+  that makes one of them hard; GPU considerations for later;*
 - *the expected cost in time and memory, and how it scales;*
 - *new dependencies (to be agreed before acceptance).*
 

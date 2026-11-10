@@ -164,7 +164,7 @@ def launch_phase(problem, grid):
     """
     backend = NumpyRefBackend(problem, grid=grid)
     try:
-        state = problem.initial.field0
+        state = problem.initial.field0[None]
         backend._hoist(0.0)
         source = backend._nonlinear(
             state, backend._stage_scalars(0.0, 0.0), np.ones_like(state)

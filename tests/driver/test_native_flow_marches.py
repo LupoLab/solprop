@@ -213,7 +213,7 @@ def test_the_formed_actions_are_the_reference_s_on_either_route(
     simulation, problem = cases("scalar")
     rng = np.random.default_rng(6)
     n_active = 5
-    n_modes = problem.shape[1]
+    n_modes = problem.shape[0]
     assert n_modes == 3
     shape = (n_modes, n_modes, n_active)
     generator = (rng.standard_normal(shape) + 1j * rng.standard_normal(shape)) * 300.0

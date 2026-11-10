@@ -7,14 +7,17 @@
 import dataclasses
 import math
 import warnings
+from typing import Any, cast
 
+import numpy as np
 import pytest
 
 from capability_routes import ROUTES
-from solprop.backends.registry import available
+from solprop.backends.registry import available, select
+from solprop.backends.session import SessionError, Start
 from solprop.driver import Simulation
 from solprop.driver import estimate as estimate_module
-from solprop.exceptions import MaterialRangeWarning, SolpropWarning
+from solprop.exceptions import BackendError, MaterialRangeWarning, SolpropWarning
 from solprop.monitor import BoundaryCheck
 from solprop.recipe import Recipe
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta
@@ -175,3 +178,110 @@ def test_the_output_size_needs_no_backend(monkeypatch):
 
     monkeypatch.setattr(estimate_module, "select", refuse)
     assert simulation.output_bytes() == expected > 0
+
+
+BACKENDS = [
+    "numpy_ref",
+    pytest.param(
+        "native",
+        marks=pytest.mark.skipif(
+            "native" not in available(), reason="native is not installed"
+        ),
+    ),
+]
+"""The backends a timing probe is checked on: the reference and the native bridge."""
+
+
+def _backend(simulation):
+    problem = simulation.translate()
+    return problem, select(
+        simulation.settings.backend,
+        problem,
+        grid=simulation.grid,
+        modes=simulation.modes,
+        profiles=simulation.profiles,
+    )
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
+    """SEP 47 section 6.6: one trial from the loaded state, with a field readback."""
+    simulation = _built("soliton", backend)
+    problem, probed = _backend(simulation)
+    _, fresh = _backend(simulation)
+    try:
+        start = Start.entrance(problem)
+        probe = probed.timing_probe(start)
+        # The start is handed over once.
+        assert start.field is None
+        with pytest.raises(SessionError, match="already used"):
+            probed.timing_probe(start)
+        with pytest.raises(BackendError, match="take a trial"):
+            probe.field()
+        dz = float(problem.stepper.dz_init)
+        probe.trial()
+        probe.trial(float(problem.initial.z), 0.5 * dz)
+        half = probe.field()
+        probe.trial()
+        whole = probe.field()
+        assert half.shape == whole.shape == problem.shape
+        # The two lengths end in different states: the readback is the last trial's.
+        assert not np.array_equal(half, whole)
+        # Nothing was committed: no attempt, the launch position, the loaded state.
+        fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        expected = fresh.observe()
+        observed = probed.observe()
+        assert observed.n_steps == 0
+        assert observed.z == problem.initial.z
+        assert observed.field is not None and expected.field is not None
+        assert np.array_equal(observed.field, expected.field)
+        with pytest.raises(BackendError, match="take a trial"):
+            probe.field()
+        # The readback is the trial's own state as a kept step finishes it: the same
+        # arithmetic again, on one thread layout in one process, so agreement to a few
+        # roundings of the field's largest magnitude bounds it (SEP 25).
+        stepping = cast("Any", fresh)  # the driver's own trial, as a kernel test does
+        _, state = stepping._trial_step(float(problem.initial.z), dz)
+        trial = np.asarray(stepping._observed_field(stepping._finish(state, dz)))[0]
+        scale = float(np.max(np.abs(trial)))
+        np.testing.assert_allclose(whole, trial, rtol=0.0, atol=64e-16 * scale)
+        # A copy the probe owns: a later trial does not write to it.
+        before = whole.copy()
+        probe.trial(float(problem.initial.z), 0.25 * dz)
+        assert np.array_equal(whole, before)
+    finally:
+        probed.close()
+        fresh.close()
+
+
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_low_storage_probe_has_no_trial_field(backend):
+    length = 0.02
+    schedule = FixedSchedule.uniform(0.0, length, length / 8, save_planes=[length / 2])
+    simulation = Simulation.from_gnlse(
+        0.11,
+        length,
+        [0.0, 0.0, -11.83e-27],
+        wavelength=835e-9,
+        wavelength_limits=(500e-9, 2e-6),
+        trange=1e-12,
+        width=100e-15,
+        peak_power=9.8,
+        shape="sech",
+        save_planes=[length / 2, length],
+        schedule=schedule,
+        integrator=LowStorageRungeKutta(),
+        backend=backend,
+        dz_max=schedule.max_step,
+        dz_init=schedule.max_step,
+        absorber=False,
+        noise=None,
+    )
+    problem, probed = _backend(simulation)
+    try:
+        probe = probed.timing_probe(Start.entrance(problem))
+        probe.trial()
+        with pytest.raises(BackendError, match="no trial field"):
+            probe.field()
+    finally:
+        probed.close()

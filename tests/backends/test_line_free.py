@@ -102,9 +102,11 @@ def line_case(request):
     )
     problem = dataclasses.replace(
         problem,
-        # Force a remainder chunk, independently of the memory-derived default.
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     return family, grid, space, problem
 

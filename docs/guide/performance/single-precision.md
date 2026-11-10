@@ -8,16 +8,9 @@ processors without fast binary64 arithmetic compute in; whether a given problem 
 its accuracy in binary32 is a property of the problem, so this page records which do.
 
 ```{note}
-Single precision runs on the `mlx` backend, on the GPU of an Apple-silicon Mac
-([choosing a backend](backends.md#the-apple-gpu-backend)), for capillary and fibre runs
-and radial and Cartesian free space. Its Metal kernels run in the macOS lane of
-continuous integration. `mlx` is **experimental** in this release: its coverage is not
-measured, the survival record below was measured on the reference implementation
-(on `mlx` for two cases only), and the keyword interfaces size its grids for MLX's
-transforms ([grid sizes on `mlx`](#grid-sizes-on-mlx)). `numpy_ref` runs
+Single precision runs on the reference backend, `numpy_ref`, named explicitly: it runs
 every route below as the reference implementation, which defines the arithmetic and
-measures it but is not fast; away from Apple silicon it is the supported way to run single
-precision, by name, because `native` computes in binary64 only
+measures it but is not fast. `native` computes in binary64 only
 ([#342](https://github.com/LupoLab/solprop/issues/342)).
 ```
 
@@ -63,10 +56,7 @@ interfaces. Under single precision:
   run's floor `dz_min`) over which a strong collar or loss reaches that exponent is
   refused at translation, with the shortest step that fits, and one within a tenth of
   it is warned of; a 1 mm capillary's default collar on 0.25 mm steps is one such case.
-  On `mlx` an adaptive `RungeKutta()` trial past that range is combined in the lab frame
-  instead, by forward flows only, so it is not rejected and shrunk for the inverse's
-  sake: a radial Kerr beam whose first trial reaches 459 takes its millimetre in one
-  step, as binary64 does. The low-storage march and the exponential Adams method apply forward flows only: a
+  The low-storage march and the exponential Adams method apply forward flows only: a
   damped bin's flow underflows harmlessly towards zero, so they are limited by growth
   alone, which no passive medium has. The Kerr beams' 0.5 µm steps, whose spectral
   collar reaches 150 to 180, run in binary32 with `LowStorageRungeKutta()` for this
@@ -79,58 +69,27 @@ interfaces. Under single precision:
   method, when it changes precision.
 - **Noise.** A default `noise` resolves to none, and the run records why; an explicit
   noise model is refused (below).
-- **The backend.** `backend="auto"` resolves to `"mlx"` when MLX and a Metal GPU are
-  present, and is refused otherwise; it never resolves to a binary64 backend, nor to the
-  reference implementation, which is named explicitly, `backend="numpy_ref"`.
+- **The backend.** `backend="auto"` is refused: it never resolves to a binary64 backend,
+  nor to the reference implementation, which is named explicitly, `backend="numpy_ref"`.
 - **Outputs** are unchanged: saved fields, statistics and processing are binary64, and
   files are the same size. The precision is part of the run's configuration, so a run is
   never resumed in the other precision.
 
 ## What it covers
 
-| | `numpy_ref` | `mlx` |
-|---|---|---|
-| capillaries, solid-core and GNLSE fibres, mode-averaged and multimode, field and envelope grids | yes | yes |
-| Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes | yes |
-| field-grid plasma | yes | yes |
-| envelope-grid plasma | yes | yes, each sample's ellipse and cycle moments in one GPU kernel |
-| radial and Cartesian free space, including a line, with their transverse collars | yes | yes |
-| gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes | yes, where the operator is device-ready (not a z table) |
-| Runge–Kutta, the low-storage march | yes | yes |
-| fixed-schedule batches through `Batch` | yes | refused |
-| the Adams integrator | the exponential formulation | the exponential formulation, its history on the GPU; on the Metal device only |
-| noise models | refused (a known limitation, below) | refused |
-| the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused | refused |
-
-## Grid sizes on `mlx`
-
-A grid's default sample count, `fft_size="auto"`, is the cheapest size with prime
-factors 2, 3 and 5 by a transform-cost model ([grids](../setup/grids.md#coarse-and-fine-sampling)).
-For FFTW on a CPU that is often a smooth size such as 10240. MLX's GPU transform runs
-any such size up to 4096 directly, but above 4096 only powers of two: every other
-length takes Bluestein's algorithm, six to twelve times slower than the next power of
-two. On an Apple M5 Max an rfft and irfft pair took:
-
-| samples | µs | next power of two | µs |
-|---|---|---|---|
-| 5120 | 502 | 8192 | 78 |
-| 10240 | 715 | 16384 | 63 |
-
-So `"auto"` minimises the cost of the transform library the run will use
-({py:func}`solprop.grid.fft_cost`). The keyword interfaces (`prop_capillary`,
-`prop_gnlse`, `prop_waveguide`) take MLX's costs when the run is single precision on
-`mlx` (or `backend="auto"`, which resolves to it), and so build a power of two past
-4096 samples; with `backend="numpy_ref"`, or in binary64, they keep FFTW's. A grid of
-your own, as the free-space interfaces take, chooses with `transforms=`:
-
-```python
-from solprop.grid import FieldGrid
-
-grid = FieldGrid.from_limits(0.1, 800e-9, (200e-9, 3e-6), 200e-15, transforms="mlx")
-```
-
-`fft_size="pow2"` gives the same sizes past 4096. A run on `mlx` with a smooth grid
-past 4096 samples, given explicitly, runs correctly but slowly.
+| | `numpy_ref` |
+|---|---|
+| capillaries, solid-core and GNLSE fibres, mode-averaged and multimode, field and envelope grids | yes |
+| Kerr, the envelope grid's third-harmonic term, scalar and tensor Raman, gas Raman mixtures, the silica bundle | yes |
+| field-grid plasma | yes |
+| envelope-grid plasma | yes |
+| radial and Cartesian free space, including a line, with their transverse collars | yes |
+| gradients, tapers, loss, both temporal absorber schemes, the polarisation taper | yes |
+| Runge–Kutta, the low-storage march | yes |
+| fixed-schedule batches through `Batch` | yes |
+| the Adams integrator | the exponential formulation |
+| noise models | refused (a known limitation, below) |
+| the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics | refused |
 
 ## How the arithmetic is kept accurate
 
@@ -176,16 +135,12 @@ tolerance for comparison.
 | Cartesian Kerr beam, 64 × 64 | 2.7e-6 | 2.0e-5 (bands) | 4.2e-6 | survives |
 
 At `rtol = 1e-5` every case but the comb-to-continuum stays inside its envelopes too.
-The table is the reference implementation's, and its survival limits are the
-reference's; `mlx`'s are unmeasured but for the two cases below. Its rows were measured
+The table is the reference implementation's. Its rows were measured
 on 24 and 25 October 2026, before the single-precision fixes of 27 October 2026 made the
 reference's transforms sum in binary32 (the comb-to-continuum case, re-measured on them,
 is below) and before the default grids and boundaries changed
 ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)); they have not been
-repeated since. On `mlx`, whose envelope-grid plasma is its own discretisation of the
-cycle moments, the envelope-grid blue shift over its full 0.4 m has field error 4.8e-5
-(largest other 5.3e-5, the ionised fraction) and the field-grid one 2.2e-4 (2.8e-4,
-bands): both survive.
+repeated since.
 
 - **The comb-to-continuum limit.** Noise-free stimulated Raman scattering grows from
   whatever seed the Stokes band holds; rounding seeds it at the level of the unit
@@ -209,7 +164,8 @@ bands): both survive.
 Free space's binary64 default, `rtol = 1e-4`, was qualified in binary32 on 5 November
 2026 ([#85](https://github.com/LupoLab/solprop/issues/85)); until then a single-precision
 free-space run took `1e-5`. Each case ran with `RungeKutta()`, noise-free, on a
-power-of-two grid, in binary32 on `mlx` and binary64 on `native`, against a binary64 run
+power-of-two grid, in binary32 on the `mlx` backend (since retired) and binary64 on
+`native`, against a binary64 run
 at `rtol = 1e-6` (the field's relative difference):
 
 | case | binary64 at `1e-4` | binary32 at `1e-4` | binary64 at `1e-5` | binary32 at `1e-5` |
@@ -228,8 +184,8 @@ tolerance, not the precision, sets the error. The Cartesian filament takes 48 st
 [#342](https://github.com/LupoLab/solprop/issues/342) proposed: binary32 Adams judged
 against binary64 Adams at the same tolerance, rather than against Runge–Kutta, whose
 difference from Adams is the methods' truncation. Each case ran its whole length,
-noise-free, on a power-of-two grid, at each interface's default tolerance, on `mlx`
-(binary32) and `native` (binary64). The table gives the relative difference of the
+noise-free, on a power-of-two grid, at each interface's default tolerance, on the `mlx`
+backend (binary32, since retired) and `native` (binary64). The table gives the relative difference of the
 final fields, and binary64 Runge–Kutta's from binary64 Adams as the scale of the
 methods' own truncation:
 
@@ -260,45 +216,10 @@ binary32 Adams is closer to the binary64 reference than binary32 Runge–Kutta i
   Raman scattering; such runs reach their accuracy over a shorter length, as the record
   states.
 - **Performance.** On the reference implementation a single-precision run costs about as
-  much as a double-precision one. On `mlx` the gain over `native` grows with the
-  problem, and is largest for the envelope-grid plasma, whose cycle moments the GPU
-  evaluates one sample per thread. On an otherwise idle MacBook Pro M5 Max (18 CPU
-  cores, 40-core GPU), in the same process, on power-of-two grids and before the
-  default grids and boundaries changed
-  ([SEP 21](../../dev/seps/archive/sep-0021-absorbing-boundaries.md)), the median time
-  of a fixed step on `native` (binary64) over that on `mlx` (binary32) was:
-
-  | case | `native` / `mlx` |
-  |---|---|
-  | GNLSE with Raman, one line, 2¹⁴ / 2¹⁶ / 2¹⁸ samples | 1.7 / 3.4 / 5.3 |
-  | Ar capillary, field-grid plasma, 1 / 4 modes (300 fs) and 8 modes (1 ps) | 0.51 / 0.69 / 1.12 |
-  | the same with the envelope-grid plasma | 8.1 / 8.1 / 3.5 |
-  | radial Kerr beam, 64 / 256 nodes | 1.05 / 2.9 |
-  | Cartesian Kerr beam, 64 × 64 / 128 × 128 | 1.9 / 1.9 |
-  | radial argon filament, field grid, 64 / 128 / 256 nodes | 1.8 / 2.5 / 3.2 |
-
-  Small field-plasma capillaries are slower on the GPU, bound by its per-operation
-  latency. These are same-process comparisons on one machine, not the standard
-  benchmark suite, and they have not been repeated since: they indicate what a
-  power-of-two grid gains, and do not hold on the default grids, where `mlx` can be
-  slower than `native` ([grid sizes on `mlx`](#grid-sizes-on-mlx)).
-- **`mlx` is experimental.** Its custom Metal kernels run in continuous integration's
-  macOS default lane, which requires a usable Metal device. That lane does not measure
-  their coverage or run the runtime type checks, and no CI pass selects MLX's CPU device
-  ([the remaining CI gaps](../../dev/testing.md#the-mlx-omission)). Its survival limits
-  are unmeasured beyond the two plasma cases above: the comb-to-continuum's 0.05 m is the
-  reference implementation's, whose binary32
-  transforms (SciPy's) are two to four times more accurate than MLX's GPU transform (on
-  an Apple M5 Max, against a binary64 transform: 2.0 to 2.6 times at 2¹⁴ to 2¹⁸
-  samples, 3.1 to 4.0 times at 12288 and 98304). A less accurate transform shortens the
-  limit: the binary32 FFTW transforms of the withdrawn
-  [SEP 36](../../dev/seps/archive/sep-0036-native-reduced-precision.md) kept the case
-  inside its envelopes to 0.025 m only. Power-of-two grids by default under single
-  precision, a macOS `mlx` job with coverage and type checks, and a re-timing on current
-  grids come before it is fully supported.
+  much as a double-precision one; no backend runs it faster.
 
 The [worked example](../../auto_examples/performance/plot_01_single_precision.rst) runs a
-capillary with the envelope-grid plasma and a radial filament in both precisions and
-compares them. The precision setting, its binary32 contract, the survival study and the
-`mlx` backend were proposed and carried out by
+capillary and a radial filament, each with the field-grid plasma, in both precisions and
+compares them. The precision setting, its binary32 contract and the survival study were
+proposed and carried out by
 [SEP 33](../../dev/seps/archive/sep-0033-single-precision-mlx.md).

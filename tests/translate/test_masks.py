@@ -140,25 +140,25 @@ def test_an_unknown_scheme_is_refused(grid):
 
 def test_a_realisation_reaches_the_canonical_layout(grid):
     draw = modified_noise(grid, np.random.default_rng(5))
-    spectrum = noise_spectrum(draw, (1, 1, 1, grid.n_omega))
-    assert spectrum.shape == (1, 1, 1, grid.n_omega)
-    assert np.array_equal(spectrum[0], draw.spectrum)
+    spectrum = noise_spectrum(draw, (1, 1, grid.n_omega))
+    assert spectrum.shape == (1, 1, grid.n_omega)
+    assert np.array_equal(spectrum, draw.spectrum)
     assert not spectrum.flags.writeable
     assert spectrum.dtype == np.complex128
 
 
-def test_one_realisation_is_shared_across_a_batch(grid):
+def test_one_mode_s_realisation_is_broadcast_over_the_modes(grid):
     draw = input_noise(grid, np.random.default_rng(5))
-    spectrum = noise_spectrum(draw, (3, 1, 1, grid.n_omega))
-    assert spectrum.shape == (3, 1, 1, grid.n_omega)
-    for member in spectrum:
-        assert np.array_equal(member, draw.spectrum)
+    spectrum = noise_spectrum(draw, (3, 1, grid.n_omega))
+    assert spectrum.shape == (3, 1, grid.n_omega)
+    for mode in spectrum:
+        assert np.array_equal(mode, draw.spectrum[0])
 
 
 def test_a_realisation_that_does_not_fit_is_refused(grid):
     draw = modified_noise(grid, np.random.default_rng(5), n_modes=3)
     with pytest.raises(TranslationError, match="does not fit the state shape"):
-        noise_spectrum(draw, (1, 1, 1, grid.n_omega))
+        noise_spectrum(draw, (1, 1, grid.n_omega))
 
 
 # ------------------------------------------------------------------------ validation

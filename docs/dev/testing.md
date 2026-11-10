@@ -1,8 +1,7 @@
 # Testing
 
 All code is tested, to 100 % of statements and branches (the coverage lane fails below
-it; the experimental `mlx` backend is a recorded omission, [below](#the-mlx-omission)),
-in lanes, with several kinds of test
+it), in lanes, with several kinds of test
 per feature (ADR-022). This page fixes the taxonomy, the lanes, the reference problems, the
 tolerance policy and the layout. `AGENTS.md` carries the short rules; this is the long form.
 
@@ -74,33 +73,9 @@ instead of a tier marker:
 | default | `uv run poe test` | fast **and** medium, compiled kernels, random order (`pytest-randomly`), warnings as errors, doctests included, under xdist with every thread pool at one thread per worker. Step 8 of `poe check`. Plain `uv run pytest` runs the same selection serially (`addopts` carries no `-n`), for one file or test and for debugging. |
 | medium alone | `uv run poe test-medium` | the medium tier, timed against its budget |
 | slow | `uv run poe test-slow` | the slow tier under xdist, one worker per core, `--dist loadgroup`, every thread pool pinned to one thread per worker |
-| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package but the `mlx` backend, which needs macOS on Apple silicon and is tested in the macOS lane (`coverage-cpu.ini`; [the `mlx` omission](#the-mlx-omission)) |
+| coverage | `uv run poe cov` | the fast and medium tiers under xdist with one thread per worker; 100 % of the package (`coverage-cpu.ini`) |
 | gpu | `uv run pytest -m gpu` | needs a card |
 | benchmark | by hand, per docstring; `uv run poe bench` for `benchmarks/` | see [benchmarks.md](benchmarks.md) |
-
-### The `mlx` omission
-
-The coverage lane's 100 % leaves out one package, `solprop/backends/mlx_gpu`
-(`omit` in `coverage-cpu.ini`). This is a decision for while the `mlx` backend is
-experimental, and not an oversight:
-
-- the coverage lane runs on Linux, where MLX does not install (it installs on macOS on
-  Apple silicon only), so the package cannot be imported there, let alone measured;
-- its tests, `tests/backends/test_mlx.py` and the `mlx` cases of
-  `tests/backends/test_single_precision.py`, run on Metal in the macOS default lane,
-  including the custom kernels (the `gpu_only` tests). The lane asserts that Metal is
-  available, so losing the device fails the job rather than silently skipping those
-  tests. It runs without coverage or the runtime type checks (ADR-053);
-- no CI pass selects MLX's CPU device with `SOLPROP_MLX_DEVICE=cpu`; that path remains
-  available for local tests, where the custom kernels' tests skip;
-- basedpyright runs on Linux, where `mlx.core` does not resolve, so the package's MLX
-  calls are not type-checked.
-
-The omission ends with a macOS `mlx` job in CI: those two modules with the runtime type
-checks on, coverage restricted to `mlx_gpu` against a recorded floor, a second pass on
-MLX's CPU device, and basedpyright on `mlx_gpu`. It is in
-[#85](https://github.com/LupoLab/solprop/issues/85) with the rest of the backend's path
-to full support ([backends.md](backends.md) §4a).
 
 Hypothesis properties use the `solprop` profile loaded by `tests/conftest.py`.
 Their example count bounds the work; the per-example wall-clock deadline is disabled

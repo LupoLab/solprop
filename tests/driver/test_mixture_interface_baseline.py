@@ -79,7 +79,7 @@ def test_the_launch_and_the_log_weight_reconstruct_the_dispersion_problem(
     original = dataclasses.replace(
         problem,
         linear=dispersion,
-        initial=dataclasses.replace(problem.initial, field0=simulation._field0[None]),
+        initial=dataclasses.replace(problem.initial, field0=simulation._field0),
     )
     root = np.sqrt(power_weight_at(problem, 0.0))
     # The launch is divided by this same row, so the entrance is one division: exact.

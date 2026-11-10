@@ -6,6 +6,7 @@
 
 import dataclasses
 import inspect
+import math
 from typing import cast
 from unittest.mock import Mock
 
@@ -45,7 +46,7 @@ def test_capture_requires_metadata_before_saving(tmp_path, point):
     simulation = build(point)
     capture = _Capture(_Options((), "none", (), "none"), simulation, tmp_path)
     with pytest.raises(OutputError, match="opened before saving"):
-        capture.save(SavedPlane(z=0.0, field=simulation.translate().initial.field0[0]))
+        capture.save(SavedPlane(z=0.0, field=simulation.translate().initial.field0))
 
 
 @pytest.mark.parametrize(
@@ -73,7 +74,7 @@ def test_worker_rejects_noise_seed_mismatch(point):
     original = build(point)
     assert original.noise is not None
     wrong = original.with_input(
-        original.translate().initial.field0[0],
+        original.translate().initial.field0,
         noise=dataclasses.replace(original.noise, seed=43),
     )
     work = _Work(lambda point: wrong, _Options((), "none", (), "none"), "worker")
@@ -100,7 +101,7 @@ def test_scan_rejects_duplicate_or_invalid_reduction_names(tmp_path, names):
 )
 def test_input_update_refuses_incompatible_replacement(point, invalid):
     simulation = build(point)
-    field = simulation.translate().initial.field0[0].copy()
+    field = simulation.translate().initial.field0.copy()
     noise = simulation.noise
     if invalid == "shape":
         field = np.repeat(field, 2, axis=0)
@@ -179,7 +180,7 @@ def test_uninstrumented_retention_validation_rejects_unknown_fields():
 
 def test_probe_does_not_charge_noise_or_periodic_retention_when_disabled(point):
     base = build(point)
-    simulation = base.with_input(base.translate().initial.field0[0], noise=None)
+    simulation = base.with_input(base.translate().initial.field0, noise=None)
     work = _Work(lambda point: simulation, _Options((), "all", (), "none"), "worker")
     assert work.probe(_Job(point))["output_bytes"] > 0
 
@@ -223,3 +224,25 @@ def test_execution_provenance_handles_uninspectable_builder(tmp_path, monkeypatc
     absent = tmp_path / "absent.h5"
     _scan_run._finish_execution(_scan_run.Local(), build, None, absent)
     assert not absent.exists()
+
+
+def test_admission_counts_every_mode_of_a_retained_and_reduced_field():
+    """The bytes a point holds cover all ``n_modes`` columns of its field.
+
+    Admission sizes a retained plane and a field reduction at the problem's whole
+    ``(n_modes, n_pol, n_omega)``; dropping the first axis (the batch axis a slice
+    once removed) would undercount a multimode or spatial point by ``n_modes``.
+    """
+    from driver.test_prop_capillary import build as capillary  # noqa: PLC0415
+
+    simulation = capillary(modes=3, length=2e-3)
+    shape = simulation.translate().shape
+    assert shape[0] == 3
+    count = len(simulation.settings.save_planes) + 1
+    plane = math.prod(shape) * 16
+    retained = _Work(build, _Options((), "all", (), "none"), "worker")
+    assert retained._output_bytes(simulation, {}) == count * plane + count * 8
+    reduced = _Work(
+        build, _Options((scans.field_at_plane(),), "none", (), "none"), "worker"
+    )
+    assert reduced._output_bytes(simulation, {}) == plane + count * 8

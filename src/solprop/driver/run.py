@@ -30,32 +30,27 @@ The manual page is ``docs/guide/setup/running.md``.
 
 import dataclasses
 import logging
-import math
-import time
+import warnings
 from collections.abc import Mapping, Sequence
 from typing import Literal, cast
 
 import numpy as np
 
 from solprop._host import RunClock, machine, usage
-from solprop._interrupts import committing, handled, poll
+from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.driver.plane_view import PlaneWatch
-from solprop.driver.summary import resources, run_summary
+from solprop.backends.session import Start
+from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
     DriverError,
     OutputError,
-    ResponseBudgetError,
-    RunTerminated,
-    StopRequested,
+    SolpropWarning,
 )
-from solprop.fourier import power_amplitude
 from solprop.log import (
     DEFAULT_PROGRESS_PERIOD,
-    InterruptibleReporter,
     LogReporter,
     ProgressChoice,
     ProgressReporter,
@@ -77,6 +72,7 @@ from solprop.output.schema import (
     CheckpointOutput,
     FieldRetention,
     FieldsChoice,
+    MarchSnapshot,
     Output,
     PlaneStore,
     RecipeRecord,
@@ -87,7 +83,6 @@ from solprop.output.schema import (
     StepHistory,
     StepStats,
     TerminalCheckpoint,
-    _adopted,
     field_retention_refusal,
 )
 from solprop.output.snapshots import SnapshotController
@@ -95,18 +90,20 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor, transverse_of
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
+    "RESTART_RECORD",
     "LogReporter",
     "ProgressReporter",
     "check_snapshot_request",
     "field_retention",
     "open_run_record",
     "plane_from_observation",
+    "retention_at",
     "run_problem",
 ]
 
@@ -169,19 +166,18 @@ def plane_from_observation(
     observation: Observation,
     stats: Mapping[str, np.ndarray] | None = None,
     *,
-    member: int = 0,
     field: bool = True,
 ) -> SavedPlane:
     """Turn one observation and its statistics into the plane an output handler stores.
 
-    The only shape change on the way: the seam's arrays carry a leading batch axis and a
-    stored plane does not, so one member is taken from the field, the noise phase and
-    every statistic (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
+    The seam's arrays are one trajectory's, as a stored plane is, so no shape changes
+    on the way (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
     the field stays in the internal FFT convention, and the handler converts it on the
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
     vacuum-normalised one unless the caller has applied the interface conversion to
-    true-power amplitudes (``_power_observation``; see ``docs/dev/decisions.md``).
+    true-power amplitudes (a session's export with
+    ``ExportRecipe(power=True, ...)``; see ``docs/dev/decisions.md``).
 
     Parameters
     ----------
@@ -190,15 +186,7 @@ def plane_from_observation(
         :meth:`solprop.backends.protocol.Backend.observe`.
     stats : collections.abc.Mapping, optional
         What :meth:`solprop.backends.protocol.Backend.stats` returned there, keyed by
-        statistic name, each with a leading batch axis. Empty when omitted.
-
-        The observation's between-planes rows are taken across the same way: their
-        batch axis is the one *after* the row axis, so the member is taken from axis
-        one rather than axis zero.
-    member : int, optional
-        Which batch member to store; 0, the only member of an unbatched run, by
-        default. :func:`solprop.driver.batch.split_observation` stores each member of
-        a lockstep batch in turn.
+        statistic name. Empty when omitted.
     field : bool, optional
         Whether the plane keeps the field and its noise phase; ``False``, or an
         observation that carries no field, builds a field-free plane (SEP 22), which
@@ -216,9 +204,8 @@ def plane_from_observation(
     >>> from solprop.driver.run import plane_from_observation
     >>> history = BackendHistory(np.array([0.5]), np.array([0.5]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
-    >>> observation = Observation(0.5, np.ones((1, 1, 1, 4), complex), None, history,
-    ...                           1, 0)
-    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1, 1))})
+    >>> observation = Observation(0.5, np.ones((1, 1, 4), complex), None, history, 1, 0)
+    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1))})
     >>> plane.z, plane.shape, plane.stats["energy"].shape
     (0.5, (1, 1, 4), (1, 1))
     """
@@ -226,94 +213,25 @@ def plane_from_observation(
     rows = observation.step_stats
     return SavedPlane(
         z=observation.z,
-        field=observation.field[member]
-        if field and observation.field is not None
-        else None,
-        stats={name: np.asarray(value[member]) for name, value in values.items()},
+        field=observation.field if field else None,
+        stats={name: np.asarray(value) for name, value in values.items()},
         step_history=_history_of(observation.step_history),
-        step_stats=StepStats(
-            z=rows.z,
-            step=rows.step,
-            values={
-                name: np.asarray(value[:, member])
-                for name, value in rows.values.items()
-            },
-        ),
-        noise_phase=None
-        if observation.noise_phase is None or not field
-        else observation.noise_phase[member],
-    )
-
-
-def _adopted_plane(observation: Observation, *, field: bool = True) -> SavedPlane:
-    """Turn an observation of an unbatched run into a plane without copying its arrays.
-
-    An observation's arrays are read-only and nothing writes to them again
-    (:meth:`solprop.backends.protocol.Backend.observe`), so the plane can hold them as
-    they are: this is what lets a handler reduce a plane and drop it for no more than
-    the backend's own observation, and keep it if it wants to. A batch member is not
-    adopted, since its view would pin the whole batch: that route takes
-    :func:`plane_from_observation`, which copies.
-
-    Parameters
-    ----------
-    observation : solprop.backends.protocol.Observation
-        The observation of an unbatched run.
-    field : bool, optional
-        Whether the plane keeps the field and its noise phase.
-
-    Returns
-    -------
-    solprop.output.schema.SavedPlane
-        The plane, with its statistics still to add.
-    """
-    plane = plane_from_observation(observation, field=False)
-    if not field or observation.field is None:
-        return plane
-    phase = observation.noise_phase
-    return dataclasses.replace(
-        plane,
-        field=_adopted(observation.field[0]),
-        noise_phase=None if phase is None else _adopted(phase[0]),
-    )
-
-
-def _power_observation(problem: KernelProblem, observation: Observation) -> Observation:
-    """Convert modal output units once, before the handler changes Fourier sign.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        Translated problem supplying modal weights or spatial geometry.
-    observation : solprop.backends.protocol.Observation
-        Internal state and diagnostics at a saved plane.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        Observation carrying true-power amplitudes and unchanged diagnostics.
-    """
-    if problem.transform.geometry is not None or observation.field is None:
-        return observation
-    return dataclasses.replace(
-        observation,
-        field=power_amplitude(
-            observation.field, power_weight_at(problem, observation.z)
-        ),
+        step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
+        noise_phase=observation.noise_phase if field else None,
     )
 
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
-def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and commit sequence
-    problem: KernelProblem,
+def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
+    problem: PropagationProblem,
     backend: Backend,
     output: Output,
     *,
+    start: Start,
     metadata: RunMetadata,
     stats_spec: StatsSpec | None = None,
     progress: ProgressReporter | ProgressChoice | None = None,
     progress_period: float = DEFAULT_PROGRESS_PERIOD,
-    start_plane: int = 0,
     tdse_binding: TDSEBinding | None = None,
     resume_history: bool | None = None,
     fields: FieldsChoice = "all",
@@ -323,14 +241,16 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     boundary_monitor: BoundaryMonitor | None = None,
     stop: StopFlag | None = None,
     recipe: RecipeRecord | None = None,
+    restoration: Mapping[str, object] | None = None,
 ) -> None:
     """Run one translated problem to its save planes, writing each one out.
 
     The loop of ``docs/dev/architecture.md`` section 5, usable without a
-    :class:`solprop.driver.simulation.Simulation`. The backend must already hold its
-    initial state (:meth:`solprop.backends.protocol.Backend.set_initial`); the handler
-    is opened here, saved to plane by plane, and closed in a ``finally`` so that an
-    interrupted run leaves a readable file.
+    :class:`solprop.driver.simulation.Simulation`. The run starts a session on the
+    constructed backend from `start` (SEP 47); the handler is opened here, saved to
+    plane by plane, and closed in a ``finally`` so that an interrupted run leaves a
+    readable file. The backend stays open for the caller, who may start another run
+    on it.
 
     The plane at ``problem.initial.z`` is saved first, with an empty step history, and
     then each save plane in turn: propagate, observe, collect statistics, save. Steps
@@ -343,12 +263,20 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.save_planes`` is the itinerary.
     backend : solprop.backends.protocol.Backend
-        The backend stepping it, already loaded with its initial state.
+        The backend stepping it, constructed for `problem`. The run loads `start` into
+        it and leaves it open.
     output : solprop.output.schema.Output
         Where the planes go. Closed when the loop ends, whether or not it succeeded.
+    start : solprop.backends.session.Start
+        Where the run starts: :meth:`~solprop.backends.session.Start.entrance` for a
+        fresh run, or a resumed state with its ``plane_index``, the first save plane
+        strictly beyond it. A resume loads either the last regular plane or a separate
+        terminal checkpoint at its actual absolute position; the launch plane is
+        written when the handler holds no regular observations, so a resumed run never
+        stores it twice. The session takes the start's field.
     metadata : solprop.output.schema.RunMetadata
         The record of the run, written when the handler opens.
         :func:`solprop.driver.simulation.metadata_for` builds one.
@@ -369,11 +297,6 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         Seconds between the line reporter's periodic lines, s; ``0`` leaves only the
         plane and closing lines. A bar has its own redraw period and a given reporter
         its own business, so it is ignored for both.
-    start_plane : int, optional
-        Index of the first save plane strictly beyond the loaded state. A resume
-        loads either the last regular plane or a separate terminal checkpoint at
-        its actual absolute position. The launch plane is written when the handler
-        holds no regular observations, so a resumed run never stores it twice.
     tdse_binding : solprop.translate.tdse.TDSEBinding or None, optional
         Explicit live atomic runtime owned by the caller. Its ledgers and execution
         facts are captured before the caller closes it. TDSE requires an output
@@ -393,8 +316,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         Saved-plane indices for ``fields='planes'``, the entrance as 0 and negative
         from the end.
     snapshots : solprop.output.SnapshotController or None, optional
-        Requests immutable disk copies at committed accepted steps. Requires HDF5,
-        ``step_planes=1``, all fields and non-interpolated observations.
+        Requests immutable disk copies at committed accepted steps, each serviced at
+        the next accepted endpoint. Requires HDF5, all fields and non-interpolated
+        observations.
     tdse_archive : solprop.output.tdse_archive.TDSEArchiveWriter or None, optional
         Live archive to suspend and copy beside the optical writer.
     boundary_monitor : solprop.monitor.BoundaryMonitor or None, optional
@@ -414,22 +338,29 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     recipe : solprop.output.schema.RecipeRecord or None, optional
         The recipe the run was built from (SEP 41, S2), recorded in a plane store at
         the first run start and never rewritten; ``None`` records none.
+    restoration : collections.abc.Mapping or None, optional
+        On a resume, what the caller restored of the method history, written into
+        every execution record under ``outcome.execution["restart"]`` beside what this
+        execution keeps; ``None`` records no restoration. When the start carries a
+        method history (``start.march``), this is the record of its restoration, and
+        a history the session cannot install is warned about and recorded as reset
+        instead.
 
     Raises
     ------
     DriverError
         If the statistics given here disagree with the problem's own about the
-        between-planes channel; if the problem carries a batch axis, which the output
-        schema has no room for yet; if the record and the problem disagree about
-        whether this is a general modal run; if `start_plane` is not a plane of
-        this problem; or if the field retention is not valid, names a plane outside
-        the run, asks for ``fields='planes'`` beside ``step_planes`` (whose plane
-        count is not known in advance), or is not ``'all'`` for an output that cannot
-        store field-free planes.
+        between-planes channel; if the record and the problem disagree about
+        whether this is a general modal run; if the start's ``plane_index`` is not a
+        plane of this problem; or if the field retention is not valid, names a plane
+        outside the run, asks for ``fields='planes'`` beside ``step_planes`` (whose
+        plane count is not known in advance), or is not ``'all'`` for an output that
+        cannot store field-free planes.
 
     Examples
     --------
     >>> from solprop.backends.registry import select
+    >>> from solprop.backends.session import Start
     >>> from solprop.driver.run import run_problem
     >>> from solprop.driver.simulation import metadata_for
     >>> from solprop.grid import EnvelopeGrid
@@ -447,9 +378,8 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     ...                    save_planes=[0.005, 0.01], dz_max=0.01, dz_init=1e-3,
     ...                    density=1.0, shock=False, prefactor_index=1.0)
     >>> backend = select("numpy_ref", problem, grid=grid, modes=[gnlse.mode])
-    >>> backend.set_initial(problem.initial.field0, None)
     >>> handler = MemoryOutput()
-    >>> run_problem(problem, backend, handler,
+    >>> run_problem(problem, backend, handler, start=Start.entrance(problem),
     ...             metadata=metadata_for(problem, grid, modes=[gnlse.mode]))
     >>> backend.close()
     >>> handler.n_saved, handler["z"].tolist()
@@ -457,6 +387,7 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     """
     spec = problem.stats_spec if stats_spec is None else stats_spec
     planes = np.asarray(problem.stepper.save_planes, dtype=np.float64)
+    start_plane = start.plane_index
     _refuse_unrunnable(problem, spec, start_plane, planes.size, metadata=metadata)
     # The backend's door for a spec handed here rather than the problem's own, which
     # `select` already checked (SEP 23: a backend without a statistic refuses it).
@@ -466,7 +397,9 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
     retention = field_retention(problem, fields, field_planes)
     _check_retainable(output, retention)
     check_snapshot_request(problem, output, snapshots, resume_history, fields)
-    if problem.tdse is not None and not isinstance(output, CheckpointOutput):
+    if tdse_descriptor(problem.route) is not None and not isinstance(
+        output, CheckpointOutput
+    ):
         raise DriverError(
             "TDSE output must support terminal checkpoints and call ledgers"
         )
@@ -477,236 +410,110 @@ def run_problem(  # noqa: PLR0912, PLR0913, PLR0915 - the loop's inputs and comm
         # The low-storage march records 0.0, "not estimated" (SEP 24 section 6.3).
         estimated=not isinstance(problem.stepper.integrator, LowStorageRungeKutta),
     )
-    backend.set_progress(reporter)
-    backend.set_stop(stop)
-    started = time.perf_counter()
-    clock = RunClock.start()
+    # The session and its service loop (SEP 47): imported here, since the service
+    # loop builds on this module's output transactions.
+    from solprop.backends.sessions import start_session  # noqa: PLC0415
+    from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
+    from solprop.translate.run_request import (  # noqa: PLC0415
+        HistoryPolicy,
+        describe_run,
+    )
+
+    request = describe_run(
+        problem,
+        stats=spec,
+        retention=retention,
+        start_plane=start_plane,
+        monitor=boundary_monitor,
+        history=HistoryPolicy.from_choice(resume_history),
+        snapshots=snapshots is not None,
+    )
     logger.debug(
         "running %d save planes from index %d, collecting %d statistics",
         planes.size,
         start_plane,
         len(spec.names),
     )
-    checkpoint_output = _open_run(
-        output,
-        metadata,
+    march = start.march
+    session = start_session(
         backend,
-        tdse_binding,
-    )
-    if recipe is not None and isinstance(output, PlaneStore):
-        with committing():
-            output.record_recipe(recipe)
-    # A store that preallocates (`PlaneStore.reserve`) sizes itself for the entrance
-    # and every save plane; a resumed one keeps what it holds and grows to the rest.
-    reserve = getattr(output, "reserve", None)
-    if reserve is not None:
-        reserve(planes.size + 1)
-    _retain(output, retention, problem.shape[1:])
-    reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
-    # Read before this execution's first record replaces the earlier one's.
-    _refuse_unread_collar(problem, backend)
-    resumed, monitored, unwatched = _earlier_execution(output, checkpoint_output)
-    _announce(
         problem,
-        metadata,
-        backend,
-        output,
-        reporter,
-        (start_plane, reached),
-        boundary_check=None if boundary_monitor is None else boundary_monitor.check,
+        request,
+        start,
+        listener=reporter.step,
+        started=reporter.started,
+        stop=stop,
+        owns=False,
     )
-    keeper = _MarchKeeper(output, backend, resume_history)
-    # A plane observer is shown each committed plane (SEP 41, S3); a field the output
-    # does not keep is fetched from the backend only when the observer asks.
-    watch = PlaneWatch(
-        reporter,
-        metadata,
-        lambda: _fetched(problem, backend),
-        clock.observer,
-    )
-    pending: SavedPlane | None = None
-    pending_save_count = output.n_saved
-    snapshots_started = False
-    failure: BaseException | None = None
     try:
-        if snapshots is not None:
-            snapshots._start()
-            snapshots_started = True
-        _record_execution(
-            checkpoint_output,
-            backend,
-            tdse_binding,
-            _Status("running", reached),
-            clock=clock,
-        )
-        # The entrance is saved when the handler holds nothing, rather than whenever the
-        # run starts at plane zero: a run interrupted before it reached its first save
-        # plane leaves a file holding the entrance and nothing else, and resuming it
-        # starts at plane zero again without wanting a second copy of it.
-        if output.n_saved == 0 or missing_current_save:
-            keep = retention.keeps(output.n_saved)
-            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
-            pending = dataclasses.replace(
-                pending,
-                stats={
-                    name: np.asarray(value[0])
-                    for name, value in backend.stats(spec).items()
-                },
-            )
-            with committing():
-                output.save(pending)
-                _record_execution(
-                    checkpoint_output,
-                    backend,
-                    tdse_binding,
-                    _Status("running", reached),
-                    clock=clock,
-                )
-            watch.show(pending, output.n_saved - 1)
-        if boundary_monitor is not None:
-            if resumed:
-                # The record continues across the resume (SEP 21, ADR-057).
-                boundary_monitor.resume(
-                    monitored,
-                    plane=output.n_saved > 0 and float(output["z"][-1]) == reached,
-                    unwatched=unwatched,
-                )
-            backend.attach_monitor(boundary_monitor)
-        index = start_plane
-        while index < planes.size:
-            # Before the first step and between planes, for a backend that does not
-            # poll per trial itself.
-            poll(stop)
-            target = float(planes[index])
-            pending = None
-            pending_save_count = output.n_saved
-            summary = backend.propagate_to(target)
-            if not summary.met_tolerance:
-                logger.warning(
-                    "a step was too coarse for the tolerance it is scaled by on the "
-                    "way to the save plane at z = %.6e m (plane %d of %d): the largest "
-                    "scaled error norm was %.3e against the requested 1.0",
-                    target,
-                    index + 1,
-                    planes.size,
-                    summary.max_norm,
-                )
-            keep = retention.keeps(output.n_saved)
-            pending = _adopted_plane(_observed(problem, backend, keep=keep), field=keep)
-            pending_save_count = output.n_saved
-            pending = dataclasses.replace(
-                pending,
-                stats={
-                    name: np.asarray(value[0])
-                    for name, value in backend.stats(spec).items()
-                },
-            )
-            # The plane, the march's snapshot beside it and the execution record are
-            # one commit: a signal waits for the three (`solprop._interrupts`).
-            with committing():
-                output.save(pending)
-                keeper.keep(pending.z)
-                reached = summary.z
-                _record_execution(
-                    checkpoint_output,
-                    backend,
-                    tdse_binding,
-                    _Status("running", reached),
-                    clock=clock,
-                )
-            if snapshots is not None:
-                assert isinstance(output, HDF5Output)
-
-                def persist(z: float = reached) -> None:
-                    keeper.keep(
-                        z,
-                        required=isinstance(problem.stepper.integrator, Multistep),
-                    )
-                    _record_execution(
-                        checkpoint_output,
-                        backend,
-                        tdse_binding,
-                        _Status("running", z),
-                        clock=clock,
-                    )
-
-                snapshots._service(
-                    output,
-                    tdse_archive,
-                    next_save_index=int(np.searchsorted(planes, reached, side="right")),
-                    require_history=isinstance(problem.stepper.integrator, Multistep),
-                    persist=persist,
-                    provenance=metadata,
-                )
-            watch.show(pending, output.n_saved - 1)
-            reporter.plane(summary.z, summary)
-            # A natural step can stop short of the requested plane (SEP 14).
-            if math.isclose(summary.z, target, rel_tol=1e-12, abs_tol=0.0):
-                index += 1
-        if boundary_monitor is not None:
-            boundary_monitor.finish()
-        with committing():
-            _record_execution(
-                checkpoint_output,
-                backend,
-                tdse_binding,
-                _Status("complete", reached),
-                clock=clock,
-            )
-        reporter.finished(time.perf_counter() - started)
-        if isinstance(reporter, SummarisingReporter):
-            reporter.summary(resources(usage(clock)))
-    except BaseException as error:
-        failure = error
-        failed_z = _persist_failure(
-            problem,
-            backend,
-            checkpoint_output,
-            tdse_binding,
-            keeper,
-            _FailedObservation(
-                pending,
-                output.n_saved > pending_save_count,
-                error,
-                reached,
-                clock,
-                output.n_saved > 0 and retention.keeps(output.n_saved - 1),
+        if march is not None and restoration is not None:
+            restoration = _restored(march, restoration, session.march_refusal)
+        serve(
+            session,
+            output,
+            ServiceContext(
+                problem=problem,
+                request=request,
+                metadata=metadata,
+                reporter=reporter,
+                retention=retention,
+                resume_history=resume_history,
+                snapshots=snapshots,
+                tdse_binding=tdse_binding,
+                tdse_archive=tdse_archive,
+                recipe=recipe,
+                start_plane=start_plane,
+                stop=stop,
+                restoration=restoration,
             ),
         )
-        if failed_z is not None:
-            reached = failed_z
-        if isinstance(error, RunTerminated | StopRequested):
-            # A stop the caller asked for is not a warning; a signal may be one.
-            logger.log(
-                logging.INFO if isinstance(error, StopRequested) else logging.WARNING,
-                "%s at z = %.6e m; %s",
-                error,
-                reached,
-                "the run's state there is written, and resume=True continues it"
-                if failed_z is not None
-                else "no state was written there",
-            )
-        # A reporter holding a terminal (a bar) gives it back before the error
-        # propagates; a reporter implementing only the four basic calls is not told,
-        # and it is not this loop's business to demand more of it.
-        if isinstance(reporter, InterruptibleReporter):
-            reporter.interrupted(reached, error)
-        raise
     finally:
-        backend.set_stop(None)
-        try:
-            output.close()
-        except BaseException as error:
-            if failure is None:
-                raise
-            failure.add_note(f"the optical output could not be closed: {error}")
-        finally:
-            if snapshots is not None and snapshots_started:
-                snapshots._finish()
+        session.close()
+
+
+def _restored(
+    march: MarchSnapshot,
+    restoration: Mapping[str, object],
+    refusal: str | None,
+) -> Mapping[str, object]:
+    """Return a resume's restoration record once its session tried the history.
+
+    The caller hands the session the method history it decided to continue, with the
+    record of a successful restoration; a history the session could not install
+    (another engine's rows, another build's shapes) starts afresh, which is warned
+    about once and recorded as a reset (SEP 47 section 5.5).
+
+    Parameters
+    ----------
+    march : solprop.output.schema.MarchSnapshot
+        The history the start carried.
+    restoration : collections.abc.Mapping
+        The record of its restoration, as the caller expects it.
+    refusal : str or None
+        Why the session could not install it, or ``None`` when it did.
+
+    Returns
+    -------
+    collections.abc.Mapping
+        The record of what happened.
+    """
+    if refusal is None:
+        logger.info(
+            "continuing the Adams history at order %d, %d samples",
+            march.order,
+            len(march.identities),
+        )
+        return restoration
+    # Asked to continue a history this backend cannot install: the run is still
+    # correct to the integrator's tolerance, but it does less than was asked, so say so.
+    warnings.warn(
+        f"the Adams history starts afresh: {refusal}", SolpropWarning, stacklevel=4
+    )
+    return {**restoration, "state": "reset", "reason": "incompatible_representation"}
 
 
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
-    problem: KernelProblem,
+    problem: PropagationProblem,
     metadata: RunMetadata,
     backend: Backend,
     output: Output,
@@ -719,7 +526,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record.
@@ -760,7 +567,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
 
 def check_snapshot_request(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     output: Output,
     snapshots: SnapshotController | None,
     resume_history: bool | None,
@@ -774,7 +581,7 @@ def check_snapshot_request(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated run and observation policy.
     output : Output
         Requested optical writer.
@@ -797,8 +604,12 @@ def check_snapshot_request(
     if not isinstance(output, HDF5Output):
         raise DriverError("snapshots require HDF5Output")
     output._refuse_readonly()
-    if problem.shape[0] != 1 or problem.stepper.step_planes != 1:
-        raise DriverError("snapshots require an unbatched run with step_planes=1")
+    # A snapshot is taken at the next accepted endpoint, persisted as a running
+    # checkpoint when no plane is saved there, so it needs no step planes (SEP 47
+    # section 5.5).
+    # Interpolated output stays refused for now: a running checkpoint must first drain
+    # and commit the dense planes its accepted step crossed (SEP 47 section 5.5),
+    # which the transitional session does not do yet.
     if problem.stepper.interpolate_planes or fields != "all":
         raise DriverError("snapshots require fields='all' and no interpolated output")
     if isinstance(problem.stepper.integrator, Multistep) and resume_history is False:
@@ -807,52 +618,8 @@ def check_snapshot_request(
         )
 
 
-def _observed(problem: KernelProblem, backend: Backend, *, keep: bool) -> Observation:
-    """Observe the backend at a save plane, in output units where the field is kept.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    backend : solprop.backends.protocol.Backend
-        The backend at the plane.
-    keep : bool
-        Whether the plane keeps its field. A field-free plane asks the backend for no
-        field at all (SEP 22 section 5.1), so nothing crosses to the host.
-
-    Returns
-    -------
-    solprop.backends.protocol.Observation
-        The observation, its field in true-power units when it is kept and ``None``
-        otherwise.
-    """
-    return _power_observation(problem, backend.observe(field=keep))
-
-
-def _fetched(problem: KernelProblem, backend: Backend) -> np.ndarray:
-    """Return the field at the backend's current plane, in output units.
-
-    For a plane observer shown a plane whose field the output does not keep.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.KernelProblem
-        The translated problem.
-    backend : solprop.backends.protocol.Backend
-        The backend, at the plane.
-
-    Returns
-    -------
-    numpy.ndarray
-        The field, as a saved plane holds it.
-    """
-    plane = _adopted_plane(_observed(problem, backend, keep=True))
-    assert plane.field is not None  # observed with its field
-    return plane.field
-
-
 def field_retention(
-    problem: KernelProblem, fields: object, field_planes: Sequence[int]
+    problem: PropagationProblem, fields: object, field_planes: Sequence[int]
 ) -> FieldRetention:
     """Return a run's field retention, resolved against its saved planes.
 
@@ -862,7 +629,7 @@ def field_retention(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem: its save planes, and the entrance, are the planes.
     fields : object
         ``"all"``, ``"planes"`` or ``"none"``.
@@ -958,7 +725,9 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
 
 
 def _resume_position(
-    output: Output, checkpoint_output: CheckpointOutput | None, problem: KernelProblem
+    output: Output,
+    checkpoint_output: CheckpointOutput | None,
+    problem: PropagationProblem,
 ) -> tuple[float, bool]:
     """Resolve the actual checkpoint position and any scheduled observation owed.
 
@@ -968,7 +737,7 @@ def _resume_position(
         Open handler containing the regular saved observations.
     checkpoint_output : CheckpointOutput or None
         Checkpoint-capable handler, if available, holding any terminal state.
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated problem with absolute launch and scheduled save positions, m.
 
     Returns
@@ -992,7 +761,7 @@ def _resume_position(
     return reached, missing_current_save
 
 
-def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
+def _refuse_unread_collar(problem: PropagationProblem, backend: Backend) -> None:
     """Refuse a requested collar on a backend that does not read its return (SEP 40).
 
     A requested real-space collar is judged by what it returns, which the monitor's
@@ -1002,7 +771,7 @@ def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
     backend : solprop.backends.protocol.Backend
         The selected backend.
@@ -1012,7 +781,7 @@ def _refuse_unread_collar(problem: KernelProblem, backend: Backend) -> None:
     BackendError
         If the problem has a requested collar and the backend does not read the edge.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     if design is None or not design.has_collar:
         return
     if backend.reads_transverse_edge:
@@ -1157,8 +926,80 @@ class _FailedObservation:
     last_kept_field: bool
 
 
+RESTART_RECORD = "restart"
+"""The execution record's entry for what a restart keeps and restores (SEP 47 5.5).
+
+Optional, under the output compatibility rules: ``"retention"``, what the run kept of
+its method history at the record's position (``_MarchKeeper``), and, in a resumed
+execution, ``"restoration"`` (what it restored,
+``Simulation._continue_march``) and ``"monitor"`` (how
+the boundary monitor was restored). Each decision is a mapping with a ``"state"`` and
+a ``"reason"``. A file written before this record has none, which a reader takes as
+unknown, never as a reason (``retention_at``).
+"""
+
+
+def _method_history(
+    problem: PropagationProblem,
+) -> Literal["adams", "rk", "low_storage"]:
+    """Return which kind of method history a problem's march keeps.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+
+    Returns
+    -------
+    {'adams', 'rk', 'low_storage'}
+        An Adams history a resume can continue; Runge-Kutta controller memory (the
+        proposal and the norm memory), which a resume resets; or no history at all.
+    """
+    integrator = problem.stepper.integrator
+    if isinstance(integrator, Multistep):
+        return "adams"
+    if isinstance(integrator, LowStorageRungeKutta):
+        return "low_storage"
+    return "rk"
+
+
+def retention_at(
+    execution: Mapping[str, object] | None, z: float
+) -> Mapping[str, object] | None:
+    """Return the method-history retention an execution record states at `z`.
+
+    Parameters
+    ----------
+    execution : collections.abc.Mapping or None
+        An execution record (:attr:`solprop.output.schema.RunOutcome.execution`).
+    z : float
+        The position a resume starts from, m.
+
+    Returns
+    -------
+    collections.abc.Mapping or None
+        The retention decision recorded there, or ``None`` when the record states
+        none at `z`: a file written before the restart record, or a position where no
+        method history was persisted.
+    """
+    if execution is None:
+        return None
+    restart = execution.get(RESTART_RECORD)
+    if not isinstance(restart, Mapping):
+        return None
+    retention = cast("Mapping[str, object]", restart).get("retention")
+    if not isinstance(retention, Mapping):
+        return None
+    retention = cast("Mapping[str, object]", retention)
+    return retention if retention.get("z") == z else None
+
+
 class _MarchKeeper:
-    """Keep the Adams march's state beside each save, when the output can hold it.
+    """Keep the Adams march's state beside each save, and record what was kept.
+
+    Every persisted plane and checkpoint states whether its method history was
+    retained, omitted or is not applicable, and why (SEP 47 section 5.5); the run's
+    execution record carries the latest decision (:meth:`record`).
 
     Parameters
     ----------
@@ -1168,17 +1009,67 @@ class _MarchKeeper:
         The run's backend, whose march has a snapshot to keep or none.
     policy : bool or None
         The run's ``resume_history``.
+    method : {'adams', 'rk', 'low_storage'}, optional
+        The march's history (:func:`_method_history`).
+    retention : collections.abc.Mapping or None, optional
+        The decision already recorded at the position the run starts from, carried
+        into this execution's record until it persists a position of its own.
     """
 
-    def __init__(self, output: Output, backend: Backend, policy: bool | None) -> None:
+    def __init__(
+        self,
+        output: Output,
+        backend: Backend,
+        policy: bool | None,
+        *,
+        method: Literal["adams", "rk", "low_storage"] = "adams",
+        retention: Mapping[str, object] | None = None,
+    ) -> None:
         """Hold what keeping a snapshot needs."""
         self._save = getattr(output, "save_march", None)
         self._snapshot = backend.march_snapshot
         self._snapshot_nbytes = backend.march_snapshot_nbytes
+        self._refusal = backend.march_export_refusal
         self._policy = policy
+        self._method = method
+        # Measured once against the automatic limit: kept from then on, or not.
+        self._over_limit = False
+        self._within_limit = False
         self._kept_z: float | None = None
+        self._decision: dict[str, object] | None = (
+            None if retention is None else dict(retention)
+        )
 
-    def keep(self, z: float, *, required: bool = False) -> None:
+    def record(self) -> dict[str, object] | None:
+        """Return the latest retention decision, for the execution record.
+
+        Returns
+        -------
+        dict or None
+            ``"state"`` (``"retained"``, ``"omitted"`` or ``"not_applicable"``),
+            ``"reason"`` and ``"z"``, m, with ``"nbytes"`` where the size was measured;
+            ``None`` before anything was persisted.
+        """
+        return None if self._decision is None else dict(self._decision)
+
+    def _decide(self, z: float, state: str, reason: str, **sizes: int) -> None:
+        """Record a retention decision at `z`.
+
+        Parameters
+        ----------
+        z : float
+            The persisted position, m.
+        state : str
+            ``"retained"``, ``"omitted"`` or ``"not_applicable"``.
+        reason : str
+            Why.
+        **sizes : int
+            ``nbytes``, the history's size where it was measured, and ``limit``, the
+            automatic limit it was held to, bytes.
+        """
+        self._decision = {"state": state, "reason": reason, "z": z, **sizes}
+
+    def keep(self, z: float, *, required: bool = False) -> None:  # noqa: PLR0911, PLR0912 - one return per decision
         """Keep the march's state if it stands at `z`, the position just saved.
 
         Parameters
@@ -1196,19 +1087,34 @@ class _MarchKeeper:
         """
         if required and self._kept_z == z:
             return
+        if self._method == "low_storage":
+            self._decide(z, "not_applicable", "no_method_history")
+            return
+        if self._method == "rk":
+            # The proposal and the norm memory are not persisted (issue #596).
+            self._decide(z, "omitted", "unsupported_method")
+            return
         if self._save is None:
+            self._decide(z, "omitted", "output_cannot_store")
             if required:
                 raise OutputError(
                     "snapshot requires a backend and output with Adams history"
                 )
             return
         if self._policy is False and not required:
+            self._decide(z, "omitted", "explicit_policy")
             return
-        if self._policy is None and not required:
+        if self._over_limit and not required:
+            self._decide(
+                z, "omitted", "automatic_size_limit", limit=MARCH_SNAPSHOT_AUTO_BYTES
+            )
+            return
+        if self._policy is None and not required and not self._within_limit:
             # Before any copy: the snapshot over the limit is the state and the whole
             # history, on the host.
             nbytes = self._snapshot_nbytes(z)
             if nbytes is None:
+                self._omit_unavailable(z)
                 return
             if nbytes > MARCH_SNAPSHOT_AUTO_BYTES:
                 logger.info(
@@ -1217,115 +1123,56 @@ class _MarchKeeper:
                     nbytes,
                     MARCH_SNAPSHOT_AUTO_BYTES,
                 )
-                self._policy = False
+                self._over_limit = True
+                self._decide(
+                    z,
+                    "omitted",
+                    "automatic_size_limit",
+                    nbytes=nbytes,
+                    limit=MARCH_SNAPSHOT_AUTO_BYTES,
+                )
                 return
-            self._policy = True
+            self._within_limit = True
         snapshot = self._snapshot()
         if snapshot is None or snapshot.z != z:
+            self._omit_unavailable(z)
             if required:
                 raise OutputError(
                     "snapshot requires Adams history at the accepted endpoint"
                 )
             return
-        self._save(snapshot)
+        try:
+            self._save(snapshot)
+        except BaseException:
+            # A torn write reads as no snapshot (`_write_march`): expected, and lost.
+            self._decide(z, "omitted", "write_failed")
+            raise
         self._kept_z = z
-
-
-def _persist_failure(
-    problem: KernelProblem,
-    backend: Backend,
-    output: CheckpointOutput | None,
-    binding: TDSEBinding | None,
-    keeper: _MarchKeeper,
-    failure: _FailedObservation,
-) -> float | None:
-    """Checkpoint the accepted state without replacing the original exception.
-
-    Parameters
-    ----------
-    problem : KernelProblem
-        Translated problem, including absolute save positions in m.
-    backend : Backend
-        Backend retaining its last accepted field.
-    output : CheckpointOutput or None
-        Handler supporting separate terminal state persistence, when available.
-    binding : TDSEBinding or None
-        Optional live atomic service providing accounting snapshots.
-    keeper : _MarchKeeper
-        Keeps the Adams march's state beside the checkpoint.
-    failure : _FailedObservation
-        Original exception and any observation already drained before failure.
-
-    Returns
-    -------
-    float or None
-        Last accepted position in m, if it could be observed.
-    """
-    if output is None:
-        return None
-    pending = failure.pending
-    in_flight = backend.in_flight
-    if pending is None and in_flight is not None:
-        _record_abandoned_step(backend, output, binding, failure, in_flight)
-        return None
-    reached = None
-    try:
-        if pending is None:
-            pending = _adopted_plane(_power_observation(problem, backend.observe()))
-        elif pending.field is None:
-            # A field-free plane keeps no field, and a checkpoint always does (SEP
-            # 22, Q1): the state still stands where the plane was observed, so it is
-            # observed again for its field alone, the history being the plane's.
-            again = _adopted_plane(_power_observation(problem, backend.observe()))
-            pending = dataclasses.replace(
-                pending, field=again.field, noise_phase=again.noise_phase
-            )
-        history = pending.step_history
-        ends = (history.z + history.h)[history.accepted]
-        landed = (
-            not problem.stepper.interpolate_planes
-            or pending.z == problem.initial.z
-            or bool(np.any(np.isclose(ends, pending.z, rtol=1e-12, atol=0.0)))
+        self._decide(
+            z,
+            "retained",
+            "snapshot_required"
+            if required
+            else "explicit_policy"
+            if self._policy
+            else "automatic_policy",
+            nbytes=snapshot.nbytes,
         )
-        if failure.already_saved:
-            # Appending may succeed before flushing fails. The regular plane then
-            # already owns this history; replay must not append it twice.
-            pending = dataclasses.replace(
-                pending,
-                step_history=StepHistory.empty(),
-                step_stats=StepStats.empty(),
-            )
-        reached = pending.z
-        checkpoint = TerminalCheckpoint(
-            plane=pending,
-            next_save_index=int(
-                np.searchsorted(problem.stepper.save_planes, pending.z, side="right")
-            ),
-            landed=landed,
+
+    def _omit_unavailable(self, z: float) -> None:
+        """Record history that could not be had at `z`, naming an engine's refusal.
+
+        Parameters
+        ----------
+        z : float
+            The persisted position, m.
+        """
+        refused = self._refusal() is not None
+        self._decide(
+            z,
+            "omitted",
+            "incompatible_representation" if refused else "unavailable_history",
         )
-        # Written while the run is already stopping: a second signal is dropped.
-        with committing(deliver=False):
-            _record_execution(
-                output,
-                backend,
-                binding,
-                _Status(
-                    "budget_exhausted"
-                    if isinstance(failure.error, ResponseBudgetError)
-                    else "failed",
-                    reached,
-                    f"{type(failure.error).__name__}: {failure.error}",
-                ),
-                clock=failure.clock,
-                checkpoint=checkpoint,
-            )
-            keeper.keep(reached)
-    except Exception as checkpoint_error:
-        failure.error.add_note(
-            f"terminal checkpoint could not be persisted: {checkpoint_error}"
-        )
-        logger.exception("could not persist the terminal checkpoint")
-    return reached
 
 
 def _record_abandoned_step(
@@ -1334,15 +1181,19 @@ def _record_abandoned_step(
     binding: TDSEBinding | None,
     failure: _FailedObservation,
     step: tuple[float, float],
-) -> None:
-    """Record a failure that left a low-storage step in flight, with no checkpoint.
+    *,
+    restart: Mapping[str, object] | None = None,
+) -> float | None:
+    """Record a failure that left a low-storage step in flight, with no new checkpoint.
 
     The low-storage march accepts each step in place (SEP 24 section 6.2), so a step
     abandoned between its start and its commit leaves a state that is neither of the
     step's ends, which the backend refuses to observe, so nothing honest can be written
-    as a terminal checkpoint. The file ends at its last saved plane: a resume continues
-    from one that kept its field, to rounding, with ``step_planes`` bounding what is
-    lost, and refuses one that did not.
+    as a terminal checkpoint. The file falls back to the latest state it holds beyond
+    its last saved plane, a running checkpoint (SEP 47 section 5.5) or the checkpoint
+    this execution resumed from, which is kept; without one it ends at its last saved
+    plane: a resume continues from one that kept its field, to rounding, with
+    ``step_planes`` bounding what is lost, and refuses one that did not.
 
     Parameters
     ----------
@@ -1356,19 +1207,42 @@ def _record_abandoned_step(
         The original exception and the last saved position.
     step : tuple of float
         Where the abandoned step started and its length, m.
+    restart : collections.abc.Mapping or None, optional
+        The execution's restart record (:func:`_record_execution`).
+
+    Returns
+    -------
+    float or None
+        The position of the checkpoint fallen back to, m, or ``None`` without one.
     """
     z, dz = step
-    ending = (
-        "from which resume=True continues"
-        if failure.last_kept_field
-        else "which kept no field, so this file cannot be resumed; rerun it, keeping "
-        "a plane's field"
-    )
+    fallback = output.terminal_checkpoint
+    if fallback is not None:
+        ending = (
+            f"the file falls back to its latest checkpoint, z = "
+            f"{fallback.plane.z:.6g} m, "
+            + (
+                "from which resume=True continues"
+                if fallback.landed
+                else "an interpolated field, from which only "
+                "resume='interpolated' continues"
+            )
+        )
+    else:
+        kept = (
+            "from which resume=True continues"
+            if failure.last_kept_field
+            else "which kept no field, so this file cannot be resumed; rerun it, "
+            "keeping a plane's field"
+        )
+        ending = (
+            f"the file ends at its last saved plane, z = {failure.reached:.6g} m, "
+            f"{kept}"
+        )
     reason = (
         f"no terminal checkpoint is written: the low-storage step of {dz:.6g} m from "
         f"z = {z:.6g} m was abandoned in flight, so the state holds neither end of "
-        f"it; the file ends at its last saved plane, z = {failure.reached:.6g} m, "
-        f"{ending}"
+        f"it; {ending}"
     )
     failure.error.add_note(reason)
     logger.warning("%s", reason)
@@ -1380,14 +1254,18 @@ def _record_abandoned_step(
                 binding,
                 _Status(
                     "failed",
-                    failure.reached,
+                    failure.reached if fallback is None else fallback.plane.z,
                     f"{type(failure.error).__name__}: {failure.error}; {reason}",
                 ),
                 clock=failure.clock,
+                checkpoint=fallback,
+                restart=restart,
             )
     except Exception as record_error:
         failure.error.add_note(f"the failure could not be recorded: {record_error}")
         logger.exception("could not record the failure")
+        return None
+    return None if fallback is None else fallback.plane.z
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1409,7 +1287,7 @@ class _Status:
     message: str = ""
 
 
-def _record_execution(
+def _record_execution(  # noqa: PLR0913 - the record's parts
     output: CheckpointOutput | None,
     backend: Backend,
     binding: TDSEBinding | None,
@@ -1417,6 +1295,7 @@ def _record_execution(
     *,
     clock: RunClock,
     checkpoint: TerminalCheckpoint | None = None,
+    restart: Mapping[str, object] | None = None,
 ) -> None:
     """Snapshot call accounting without requesting any diagnostic evaluation.
 
@@ -1438,10 +1317,15 @@ def _record_execution(
         When the run started.
     checkpoint : TerminalCheckpoint or None, optional
         Accepted field to preserve separately from scheduled observations.
+    restart : collections.abc.Mapping or None, optional
+        The execution's restart record (:data:`RESTART_RECORD`); ``None`` or an empty
+        one records none.
     """
     if output is None:
         return
     record = {**backend.metadata(), "host": machine(), "resources": usage(clock)}
+    if restart:
+        record[RESTART_RECORD] = dict(restart)
     monitor = record.get("boundary_monitor")
     if status.status == "running" and isinstance(monitor, Mapping):
         # The monitor's per-plane rows go out with the closing record alone: rewritten
@@ -1474,7 +1358,7 @@ def _record_execution(
     )
 
 
-def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
+def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None:
     """Return the step count a replayed schedule will take, when it is knowable.
 
     A fixed schedule knows how many steps are left, which is a better ETA than any rate
@@ -1486,7 +1370,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.schedule`` is the schedule if there is
         one.
     start_plane : int
@@ -1504,7 +1388,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
 
 def _refuse_a_record_that_misnames_the_basis(
-    problem: KernelProblem, metadata: RunMetadata
+    problem: PropagationProblem, metadata: RunMetadata
 ) -> None:
     """Refuse a run whose record and problem disagree about the basis, by name.
 
@@ -1527,7 +1411,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     metadata : solprop.output.schema.RunMetadata
         The record about to be written.
@@ -1559,7 +1443,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
 
 def _refuse_unrunnable(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     spec: StatsSpec,
     start_plane: int,
     n_planes: int,
@@ -1570,7 +1454,7 @@ def _refuse_unrunnable(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     spec : solprop.stats.StatsSpec
         The statistics asked for. A ``periodic`` subset is accepted -- the seam carries
@@ -1600,14 +1484,6 @@ def _refuse_unrunnable(
             f"{list(channel.periodic)} every {channel.period}; the between-planes "
             "channel is armed when the backend is built, from the problem's own spec, "
             "so the two would disagree -- pass the problem's spec, or translate again"
-        )
-        raise DriverError(msg)
-    if problem.shape[0] != 1:
-        msg = (
-            f"this problem carries a batch axis of {problem.shape[0]} and a stored "
-            "plane has no batch axis; run a batch through "
-            "solprop.driver.scan.run_scan with executor=solprop.driver.executors."
-            "Batch(...), which stores each member separately"
         )
         raise DriverError(msg)
     if not 0 <= start_plane <= n_planes:

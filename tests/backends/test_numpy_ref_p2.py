@@ -226,7 +226,7 @@ def test_the_dissipative_solution_is_reproduced(
     # the soliton -- its sech tails reach exp(-26) at the window edge -- and the
     # round-off of 395 propagator applications, not the scheme: the reference carries
     # no quadrature error, because Gamma and zeta are both closed form.
-    assert relative(plane.field[0, 0, 0], reference) < 1e-11
+    assert relative(plane.field[0, 0], reference) < 1e-11
     assert summary.met_tolerance
     if stepped:
         assert problem.linear.hard_kinks.tolist() == [STEP_POSITION * Z0]

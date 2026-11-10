@@ -12,6 +12,7 @@ from numpy.testing import assert_allclose
 
 from solprop.backends import available
 from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.registry import select
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import constant_phi, delta_phi
@@ -51,7 +52,7 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
     )
     backend = select(backend_name, problem, grid=narrow_grid)
     try:
-        assert isinstance(backend, StepDriver)
+        assert isinstance(backend, (StepDriver, HostDriver))
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(end)
         at_kink = backend.observe()
@@ -72,11 +73,11 @@ def test_natural_save_at_hard_kink_restarts_before_the_next_trial(
         assert march.ledger.orders[steps_before_restart] == 1
         assert march.ledger.accepted_steps == 4
         assert march.ledger.rejected_steps == 0
-        start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+        start = problem.initial.field0[0, 0] * problem.grids.active_mask
         exact = np.exp(delta_phi(problem.linear, 0.0, end))[0, 0, 0] * start
         # Four exact linear steps differ only by propagator multiplication roundoff.
         assert_allclose(
-            final.require_field()[0, 0, 0],
+            final.require_field()[0, 0],
             exact,
             rtol=0.0,
             atol=64 * np.finfo(float).eps * np.max(np.abs(start)),

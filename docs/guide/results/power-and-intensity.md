@@ -83,7 +83,7 @@ from solprop.translate.linop import power_weight_at
 
 problem = simulation.translate()
 weight = power_weight_at(problem, 0.0)
-b = power_amplitude(problem.initial.field0[0], weight)
+b = power_amplitude(problem.initial.field0, weight)
 launch_energy = energy(simulation.grid, b).sum()
 ```
 

@@ -412,7 +412,7 @@ def advance(backend, simulation, file, geometry, artifact, result):
             propagation_seconds += time.perf_counter() - tick
             summaries.append(asdict(summary))
         tick = time.perf_counter()
-        state = backend.observe().require_field()[0]
+        state = backend.observe().require_field()
         ours.append(observables(simulation, state))
         theirs.append(observables(simulation, stored_plane(file, index, geometry)))
         reduction_seconds += time.perf_counter() - tick

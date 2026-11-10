@@ -48,6 +48,14 @@ backend may keep its own where its state lives (``StepDriver._low_storage_engine
 :class:`HostLowStorage` is the host engine and the oracle, over the backend's
 ``_adams_lab_source`` and ``_adams_propagator``.
 
+**The march is the native bridge's temporary copy.** Since SEP 47 phase 2,
+:class:`LowStorageMarch` serves only the native backend's inherited driver, as the
+bridge that keeps its execution working until its own session replaces it; the NumPy
+reference replays with its own copy
+(:class:`solprop.backends.host.low_storage.HostLowStorageMarch`) over the shared host
+engine, :class:`HostLowStorage`. :class:`LowStorageMarch` is removed with SEP 47's
+native session: the native backend leaves it in phase 3 and phase 5 deletes it.
+
 References
 ----------
 .. [1] J. D. Lawson, "Generalized Runge-Kutta processes for stable systems with large
@@ -60,16 +68,19 @@ References
 
 import logging
 import math
-from typing import Any, Protocol, cast, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, cast, runtime_checkable
 
 import numpy as np
 from jaxtyping import Complex, Float
 
 from solprop._interrupts import committing
-from solprop.backends.driver import StepDriver, replay_tolerance
+from solprop.backends.host.driver import HostDriver
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import LANDING_ULPS, FixedSchedule
+
+if TYPE_CHECKING:
+    from solprop.backends.driver import StepDriver
 
 __all__ = [
     "HostLowStorage",
@@ -263,9 +274,10 @@ class HostLowStorage:
 
     Parameters
     ----------
-    backend : solprop.backends.driver.StepDriver
-        The backend whose state, hooks and boundary treatments are used; its state is
-        a host array in the canonical layout.
+    backend : solprop.backends.host.driver.HostDriver
+        The reference backend whose state, hooks and boundary treatments are used; its
+        state is a host array in the canonical layout. The native bridge keeps its
+        registers resident and never takes this engine (SEP 47 phase 2).
     method : solprop.stepper.low_storage.LowStorageRungeKutta
         The march.
 
@@ -284,7 +296,7 @@ class HostLowStorage:
     memory ledger, and :meth:`close` releases them.
     """
 
-    def __init__(self, backend: StepDriver[Any], method: LowStorageRungeKutta) -> None:
+    def __init__(self, backend: HostDriver[Any], method: LowStorageRungeKutta) -> None:
         """Hold the backend with no registers yet."""
         self._backend = backend
         self._method = method
@@ -511,25 +523,22 @@ class LowStorageMarch:
 
     Notes
     -----
-    The march has no error estimate to warn on. It logs a warning, once per call of
-    :meth:`replay_to`, when the engine's stiffness indicator passes RK4's
-    negative-real stability interval
-    (:data:`~solprop.stepper.low_storage.LOW_STORAGE_REAL_INTERVAL`): an explicitly
-    integrated damping term the translation cannot bound in advance -- plasma loss --
-    is then near the step's stability limit.
+    The march serves the native bridge alone, whose engine is resident and atomic:
+    each step is one native call, so the step, the finish and the move commit
+    together. The resident engine forms no stiffness indicator; the reference's
+    march (:class:`solprop.backends.host.low_storage.HostLowStorageMarch`) warns on
+    the host engine's.
     """
 
-    def __init__(self, backend: StepDriver[Any], method: LowStorageRungeKutta) -> None:
+    def __init__(
+        self,
+        backend: "StepDriver[Any]",  # noqa: UP037 - lazy bridge type
+        method: LowStorageRungeKutta,
+    ) -> None:
         """Hold the backend and its engine."""
         self._backend = backend
         self._method = method
-        self._warned = False
-        resident = backend._low_storage_engine(method)
-        self._engine: LowStorageEngine = (
-            HostLowStorage(backend, method)
-            if resident is None
-            else cast("LowStorageEngine", resident)
-        )
+        self._engine = cast("LowStorageEngine", backend._low_storage_engine(method))
         self.source_evaluations = 0
 
     @property
@@ -539,17 +548,13 @@ class LowStorageMarch:
         Returns
         -------
         LowStorageEngine
-            The host engine, or the backend's own.
+            The backend's resident engine.
         """
         return self._engine
 
     def reset(self) -> None:
         """Forget what the engine holds: the state was loaded outside the march."""
         self._engine.reset()
-
-    def close(self) -> None:
-        """Release the engine's registers and table, with the backend's buffers."""
-        self._engine.close()
 
     def snapshot(self) -> None:
         """Return nothing for a resume to continue: the march keeps no history.
@@ -574,10 +579,11 @@ class LowStorageMarch:
         BackendError
             If the schedule runs out before the target is reached.
         """
+        from solprop.backends.driver import replay_tolerance  # noqa: PLC0415 - bridge
+
         backend = self._backend
         edges = schedule.edges
         slack = replay_tolerance(schedule, target)
-        self._warned = False
         while (
             backend._schedule_index < schedule.n_steps and backend._z < target - slack
         ):
@@ -633,17 +639,10 @@ class LowStorageMarch:
         backend._refuse_in_flight()
         z = backend._z
         backend._in_flight = (z, dz)
-        if self._engine.atomic:
-            # One native call: a signal waits for its return anyway, so the step,
-            # the finish and the move commit together (SEP 24 section 6.7).
-            with committing():
-                self._move(self._accept(z, dz, self._engine.step(z, dz)), end)
-        else:
-            squared = self._engine.step(z, dz)
-            finished = self._accept(z, dz, squared)
-            with committing():
-                self._move(finished, end)
-        self._check_stiffness(z, dz)
+        # One native call: a signal waits for its return anyway, so the step, the
+        # finish and the move commit together (SEP 24 section 6.7).
+        with committing():
+            self._move(self._accept(z, dz, self._engine.step(z, dz)), end)
         return 0.0
 
     def _move(self, finished: object, end: float) -> None:
@@ -697,32 +696,3 @@ class LowStorageMarch:
             )
             raise ConvergenceError(msg)
         return backend._finish(backend._state, dz)
-
-    def _check_stiffness(self, z: float, dz: float) -> None:
-        """Warn, once per replay, when a step's stiffness passes RK4's interval.
-
-        Parameters
-        ----------
-        z : float
-            Where the step started, m.
-        dz : float
-            The step, m.
-        """
-        stiffness = self._engine.stiffness
-        interval = self._method.real_stability_interval
-        if self._warned or not stiffness > interval:
-            return
-        self._warned = True
-        logger.warning(
-            "%s: the %s march's stiffness indicator h rho = %.3g passed RK4's "
-            "stability interval %.4g on the step of %.4g m from z = %.6g m; an "
-            "explicitly integrated damping term (plasma loss, an in-stage collar) is "
-            "near the step's stability limit and may make the replay diverge. Take "
-            "shorter steps",
-            self._backend.name,
-            self._method.name,
-            stiffness,
-            interval,
-            dz,
-            z,
-        )

@@ -55,7 +55,11 @@ def test_radial_short_envelope_uses_device_blas(
         dz_max=1e-5,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -98,7 +102,11 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         density=1.0,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     # The established radial source ladder: FFT depth and two length-n_r dot
     # products, with an absolute majorant for cancellation at dark bins.
@@ -115,7 +123,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
             reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
                 reference._require_state(),  # pyright: ignore[reportPrivateUsage]
                 reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         )
     finally:
@@ -138,7 +146,7 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         backend.set_initial(problem.initial.field0, None)
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape[1:])
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
         assert np.isfinite(actual).all()
         scale = float(np.max(np.abs(expected)))
         assert scale > 0

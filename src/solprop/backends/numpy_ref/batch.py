@@ -10,8 +10,8 @@ from typing import cast
 import numpy as np
 
 from solprop._helpers import PLAIN
-from solprop.backends.batch import LockstepRunner, _refuse_invalid_norm
-from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.group import HostGroup, _refuse_invalid_norm
 from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.exceptions import BackendError
@@ -19,7 +19,7 @@ from solprop.exceptions import BackendError
 __all__ = ["NumpyBatchBackend"]
 
 
-class NumpyBatchBackend(LockstepRunner):
+class NumpyBatchBackend(HostGroup):
     """Evaluate batch stage arithmetic with independently parameterised responses.
 
     Stage sums, input construction and the final update operate on arrays with a
@@ -53,9 +53,7 @@ class NumpyBatchBackend(LockstepRunner):
             # action or the explicit residual, so a member carrying
             # `linear.coupled_flow` would run, converge and propagate the diagonal
             # half of an equation whose off-diagonal it silently dropped. A
-            # lockstep group is a group of *singleton* members, each with
-            # `n_batch == 1`, so the singleton backend's own batch-axis refusal
-            # never fires for it.
+            # lockstep group is a sequence of single-trajectory members.
             if member._problem.linear.coupled_flow is not None:
                 msg = (
                     "the numpy_ref lockstep batch does not execute "
@@ -68,17 +66,17 @@ class NumpyBatchBackend(LockstepRunner):
                 raise BackendError(msg)
             # Its stage arithmetic over the member axis is binary64: binary64
             # propagators and the plain error norm. Single-precision members each
-            # take their own binary32 trial through `LockstepRunner`, which
+            # take their own binary32 trial through `HostGroup`, which
             # `registry.select_batch` builds for them.
             if member._problem.precision.single:
                 msg = (
                     "the numpy_ref lockstep batch evaluates its stage arithmetic in "
                     "binary64 and refuses a single-precision member; batch "
-                    "single-precision members with LockstepRunner, as "
+                    "single-precision members with HostGroup, as "
                     "registry.select_batch does"
                 )
                 raise BackendError(msg)
-        super().__init__([cast(StepDriver[object], member) for member in members])
+        super().__init__([cast(HostDriver[object], member) for member in members])
 
     def _trial_step(self, z: float, dz: float) -> tuple[float, tuple[object, ...]]:
         """Evaluate vector stage arithmetic with independent member responses.

@@ -14,6 +14,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import run_problem
 from solprop.driver.simulation import metadata_for
@@ -585,7 +586,6 @@ def test_a_direct_run_of_a_problem_reports_what_was_compiled():
     from solprop.backends.registry import select  # noqa: PLC0415 - only this test
 
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
-    backend.set_initial(problem.initial.field0, None)
     reporter = Recording()
     output = MemoryOutput()
     try:
@@ -593,6 +593,7 @@ def test_a_direct_run_of_a_problem_reports_what_was_compiled():
             problem,
             backend,
             output,
+            start=Start.entrance(problem),
             metadata=metadata_for(problem, simulation.grid, modes=simulation.modes),
             progress=reporter,
         )

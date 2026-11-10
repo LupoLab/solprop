@@ -101,7 +101,7 @@ def transfer(radii, steps, name="numpy_ref"):
         driver = backend(launched, grid=grid)
         driver.set_initial(launched.initial.field0, None)
         driver.propagate_to(LENGTH)
-        columns.append(driver.observe().require_field()[0, :, 0, index] / 1e-9)
+        columns.append(driver.observe().require_field()[:, 0, index] / 1e-9)
         driver.close()
     carrier = delta_phi(problem.linear, 0.0, LENGTH)[0, :, 0, index]
     assert np.all(carrier == carrier[0])

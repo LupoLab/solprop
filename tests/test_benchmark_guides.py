@@ -37,7 +37,7 @@ def test_wall_cases_keep_full_profiles(name):
         else {SolpropWarning, GrazingIncidenceWarning}
     )
     assert simulation.grid.length == 2e-4
-    assert problem.shape[1] == (4 if name == "vector_wall" else 3)
+    assert problem.shape[0] == (4 if name == "vector_wall" else 3)
     assert (simulation.wall is None) == (name == "taper")
     assert simulation.taper_coupling
 

@@ -34,6 +34,7 @@ from solprop.translate.collar_check import (
     _radial_return,
     design_check,
 )
+from solprop.translate.routes import transverse_of
 from solprop.translate.transverse import (
     _relaunched,
     _trial_grid,
@@ -116,7 +117,7 @@ def test_a_design_that_returns_too_much_is_refused_naming_a_fraction() -> None:
 
 
 def test_a_wide_design_passes_and_records_its_check() -> None:
-    design = suite(2.6, SpatialAbsorber()).translate().transverse
+    design = transverse_of(suite(2.6, SpatialAbsorber()).translate().route)
     assert design is not None
     check = design.check
     assert check["status"] == "passed"
@@ -130,7 +131,7 @@ def test_a_wide_design_passes_and_records_its_check() -> None:
 def test_a_design_near_the_budget_is_refined() -> None:
     # f = 1.5 with kappa = 2.2e5 returns about 2.4e-8, within a factor of two of the
     # budget: the estimate is refined once and decides at 3e-8.
-    design = suite(1.5, SpatialAbsorber(kappa=2.2e5)).translate().transverse
+    design = transverse_of(suite(1.5, SpatialAbsorber(kappa=2.2e5)).translate().route)
     assert design is not None
     assert design.check["refined"] is True
     assert design.check["status"] == "passed"
@@ -140,13 +141,15 @@ def test_a_design_near_the_budget_is_refined() -> None:
 
 
 def test_a_zero_launch_with_a_declared_band_leaves_the_check_pending() -> None:
-    design = suite(2.6, SpatialAbsorber(kappa=1.2e5), energy=0.0).translate().transverse
+    design = transverse_of(
+        suite(2.6, SpatialAbsorber(kappa=1.2e5), energy=0.0).translate().route
+    )
     assert design is not None
     assert design.check["status"] == "pending"
 
 
 def test_no_check_is_run_without_a_collar() -> None:
-    design = suite(1.0, None).translate().transverse
+    design = transverse_of(suite(1.0, None).translate().route)
     assert design is not None
     assert design.check == {}
 
@@ -161,9 +164,9 @@ def _pulse(waist: float = W0, energy: float = 1e-9) -> SpatialPulse:
 def test_a_rescaled_launch_reuses_the_verdict() -> None:
     # The check is linear and normalised by the launch's energy (section 5.2).
     parent = suite(2.6, SpatialAbsorber())
-    design = parent.translate().transverse
+    design = transverse_of(parent.translate().route)
     child = parent.with_input(_pulse(energy=3e-9))
-    assert child.translate().transverse is design
+    assert transverse_of(child.translate().route) is design
 
 
 def test_a_new_launch_gets_its_own_check() -> None:
@@ -176,10 +179,10 @@ def test_a_new_launch_gets_its_own_check() -> None:
         except DriverError as error:
             assert "translate a new simulation" in str(error)
             return
-    design = child.translate().transverse
+    design = transverse_of(child.translate().route)
     assert design is not None
     assert design.check["status"] == "passed"
-    assert design.check is not parent.translate().transverse.check  # pyright: ignore[reportOptionalMemberAccess]
+    assert design.check is not transverse_of(parent.translate().route).check  # pyright: ignore[reportOptionalMemberAccess]
 
 
 def test_a_pending_check_runs_on_the_launch_it_is_given() -> None:
@@ -189,7 +192,7 @@ def test_a_pending_check_runs_on_the_launch_it_is_given() -> None:
     with pytest.raises(DriverError, match="has not been checked"):
         child.run(progress="none")
     launched = child.with_input(_pulse())
-    design = launched.translate().transverse
+    design = transverse_of(launched.translate().route)
     assert design is not None
     assert design.check["status"] == "passed"
 
@@ -245,7 +248,7 @@ def test_the_periodic_check_runs_on_every_periodic_route(kind: str) -> None:
     # The Strang march (section 4.4): a design either passes with its check recorded,
     # or is refused by the check by name; nothing else.
     try:
-        design = _periodic(kind).translate().transverse
+        design = transverse_of(_periodic(kind).translate().route)
     except TranslationError as error:
         assert "design check" in str(error)
         return
@@ -300,7 +303,7 @@ def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
 
     with pytest.raises(TranslationError, match=r"section 4\.7"):
         scheduled(LENGTH / 4).translate()
-    assert scheduled(LENGTH / 16).translate().transverse is not None
+    assert transverse_of(scheduled(LENGTH / 16).translate().route) is not None
 
 
 def _line(
@@ -313,7 +316,7 @@ def _line(
     omega0 = 2 * math.pi * C / 800e-9
     spectrum = np.exp(-(((grid.omega - omega0) / (0.1 * omega0)) ** 2))
     columns = np.fft.fft(np.exp(-((np.asarray(space.x) / waist) ** 2)))
-    launch = columns[None, :, None, None] * spectrum[None, None, None, :]
+    launch = columns[:, None, None] * spectrum[None, None, :]
     return space, dispersion, launch.astype(complex)
 
 
@@ -347,8 +350,14 @@ def test_a_refined_estimate_that_disagrees_is_inconclusive() -> None:
         SpatialAbsorber(kappa=0.45 * top), space, dispersion, launch, 2e-3
     )
     assert design.collar_rate is not None
+    # The check reads the launch behind a leading axis of one, as checked_design does.
     result = design_check(
-        space, 0.1 * design.collar_rate, launch, dispersion, 2e-3, min(design.width)
+        space,
+        0.1 * design.collar_rate,
+        launch[np.newaxis],
+        dispersion,
+        2e-3,
+        min(design.width),
     )
     assert result.refined
     assert result.status == "inconclusive"
@@ -358,9 +367,9 @@ def test_a_refined_estimate_that_disagrees_is_inconclusive() -> None:
 def test_a_polarisation_that_carries_nothing_changes_nothing() -> None:
     space, dispersion, launch = _line(68, 5e-3, 20e-6)
     rate = 1e3 * (1 - np.asarray(space.window))
-    one = design_check(space, rate, launch, dispersion, 5e-3, 100e-6)
-    both = np.concatenate([launch, np.zeros_like(launch)], axis=2)
-    two = design_check(space, rate, both, dispersion, 5e-3, 100e-6)
+    one = design_check(space, rate, launch[np.newaxis], dispersion, 5e-3, 100e-6)
+    both = np.concatenate([launch, np.zeros_like(launch)], axis=1)
+    two = design_check(space, rate, both[np.newaxis], dispersion, 5e-3, 100e-6)
     assert two.returned == pytest.approx(one.returned, rel=1e-12)
     assert two.status == one.status == "passed"
 
@@ -372,7 +381,9 @@ def test_a_launch_with_nothing_in_the_requested_band_returns_nothing() -> None:
     band = dispersion.grid.inband_mask & dispersion.grid.active_mask
     outside = np.where(band, 0.0, 1.0) * np.abs(launch).max()
     rate = 1e3 * (1 - np.asarray(space.window))
-    result = design_check(space, rate, launch * 0 + outside, dispersion, 5e-3, 1e-4)
+    result = design_check(
+        space, rate, (launch * 0 + outside)[np.newaxis], dispersion, 5e-3, 1e-4
+    )
     assert result.status == "passed"
     assert result.returned == 0.0
 
