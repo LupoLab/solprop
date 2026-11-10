@@ -694,6 +694,7 @@ def test_stop_token_listeners_fire():
     token.attach(lambda: calls.append("late"))
     assert calls == ["early", "late"]  # attached to a set token: called at once
     detach()
+    detach()  # a second detach does nothing
     token.clear()
     assert not token.is_set()
     token.set()

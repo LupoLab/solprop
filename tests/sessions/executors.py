@@ -58,7 +58,7 @@ from solprop.monitor import BoundaryMonitor
 from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
-from solprop.stepper import PIController
+from solprop.stepper import Multistep, PIController
 from solprop.translate.problem import KernelProblem, assemble
 from solprop.translate.run_request import RunRequest
 
@@ -119,7 +119,9 @@ def fibre() -> GnlseProblem:
     )
 
 
-def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
+def soliton(
+    *, step_planes: int = 0, period: int = 2, integrator: Multistep | None = None
+) -> KernelProblem:
     """Return the fundamental soliton over :data:`PLANES`.
 
     Parameters
@@ -128,6 +130,9 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
         Observe the end of every ``step_planes``-th accepted step; ``0`` for none.
     period : int, optional
         The period of the periodic ``energy`` rows, accepted steps.
+    integrator : solprop.stepper.multistep.Multistep or None, optional
+        An Adams march, which no scripted driver runs; the default Runge-Kutta march
+        otherwise.
 
     Returns
     -------
@@ -149,6 +154,7 @@ def soliton(*, step_planes: int = 0, period: int = 2) -> KernelProblem:
         shock=False,
         prefactor_index=1.0,
         step_planes=step_planes,
+        integrator=integrator,
         stats_spec=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),

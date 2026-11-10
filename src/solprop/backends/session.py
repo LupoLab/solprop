@@ -177,8 +177,6 @@ class StopToken:
         with self._lock:
             self._listeners.append(listener)
             already = self._event.is_set()
-        if already:
-            listener()
 
         def detach() -> None:
             """Remove the listener; a second call does nothing."""
@@ -186,6 +184,8 @@ class StopToken:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
 
+        if already:
+            listener()
         return detach
 
 

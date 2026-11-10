@@ -334,3 +334,64 @@ def test_a_monitor_continuation_is_given_once_and_before_it_watches():
     session._attached = True
     with pytest.raises(SessionError, match="before it watches"):
         session.continue_monitor(given)
+
+
+def test_a_restart_record_states_a_retention_only_at_its_own_position():
+    # An execution record that says nothing at the resume position -- no record, no
+    # restart entry, a restart entry without a retention decision (an execution that
+    # restored and stopped before persisting anything), or a decision elsewhere --
+    # states none, and the resume reads it as unknown, never as a reason.
+    retention = {"state": "retained", "reason": "automatic_policy", "z": 0.5}
+    assert run_module.retention_at(None, 0.5) is None
+    assert run_module.retention_at({}, 0.5) is None
+    assert run_module.retention_at({"restart": "garbled"}, 0.5) is None
+    restoration = {"state": "reset", "reason": "unsupported_method", "z": 0.25}
+    assert (
+        run_module.retention_at({"restart": {"restoration": restoration}}, 0.5) is None
+    )
+    assert run_module.retention_at({"restart": {"retention": retention}}, 0.25) is None
+    assert (
+        run_module.retention_at({"restart": {"retention": retention}}, 0.5) == retention
+    )
+
+
+def test_a_history_set_aside_on_request_restarts_quietly_under_the_default_policy(
+    build_simulation, tmp_path
+):
+    # The file says it set the history aside on request: a resume under the default
+    # policy finds none and starts afresh for that reason, without a warning.
+    path = tmp_path / "run.h5"
+    interrupted(soliton(build_simulation, "numpy_ref", resume_history=False), path)
+    assert restart(path)["retention"]["reason"] == "explicit_policy"
+    assert resumed(soliton(build_simulation, "numpy_ref"), path) == []
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == ("reset", "explicit_policy")
+    assert restoration["retention"]["state"] == "omitted"
+
+
+def test_a_history_the_writing_engine_could_not_export_warns_once_on_resume(
+    build_simulation, tmp_path, monkeypatch
+):
+    # The run that wrote the file had an engine that did not export its history; a
+    # resume whose engine could install one finds none and says why, once.
+    build = soliton(build_simulation, "numpy_ref")
+    path = tmp_path / "run.h5"
+    with monkeypatch.context() as patched:
+        patched.setattr(HostDriver, "march_snapshot_nbytes", lambda self, z: None)
+        patched.setattr(
+            HostDriver, "march_export_refusal", lambda self: "refused by the test"
+        )
+        interrupted(build, path)
+    retention = restart(path)["retention"]
+    assert (retention["state"], retention["reason"]) == (
+        "omitted",
+        "incompatible_representation",
+    )
+    caught = resumed(build, path)
+    assert len(caught) == 1
+    assert "the run's engine does not export it" in str(caught[0].message)
+    restoration = restart(path)["restoration"]
+    assert (restoration["state"], restoration["reason"]) == (
+        "reset",
+        "incompatible_representation",
+    )
