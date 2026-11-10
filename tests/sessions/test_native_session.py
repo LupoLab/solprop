@@ -35,6 +35,7 @@ from sessions.executors import (
     drive,
     entrance,
     fibre,
+    skip_device_refused,
     window,
 )
 from solprop.backends.driver_session import DriverSession
@@ -192,6 +193,7 @@ def _make_native(problem, request, **controls):
     solprop_native.session.NativeSession
         The session.
     """
+    skip_device_refused(problem, request)
     return native_session.NativeSession(
         problem,
         request,

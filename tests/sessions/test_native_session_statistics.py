@@ -27,7 +27,13 @@ import pytest
 
 from bounds import gamma
 from optmat_parity import INTEGRATION_AGREEMENT
-from sessions.executors import PLANES, entrance, fibre, window
+from sessions.executors import (
+    PLANES,
+    entrance,
+    fibre,
+    skip_device_refused,
+    window,
+)
 from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.export import ExportRecipe
 from solprop.backends.registry import select
@@ -115,6 +121,7 @@ def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
     request = dataclasses.replace(
         request, observation=dataclasses.replace(request.observation, step_planes=1)
     )
+    skip_device_refused(problem, request)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )
@@ -495,6 +502,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
                 <= tables["core_radius"]["max_error"]
             )
     # The record reaches the session's execution record.
+    skip_device_refused(problem, describe_run(problem, stats=spec))
     session = native_session.NativeSession(
         problem,
         describe_run(problem, stats=spec),
@@ -673,6 +681,7 @@ def test_rows_of_every_family_cause_no_return_to_python():
     grid, problem, modes, profiles = _capillary()
     spec = StatsSpec(names=CAPILLARY, periodic=_periodic(CAPILLARY), period=1)
     request = describe_run(problem, stats=spec)
+    skip_device_refused(problem, request)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )

@@ -26,6 +26,7 @@ import numpy as np
 import pytest
 
 from march_bounds import FIXED_ORDER
+from sessions.executors import DEVICE_GROUP, device_build
 from sessions.test_group import (
     IDENTITY,
     PLANES,
@@ -54,6 +55,8 @@ from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.run_request import describe_run
 
 group_module = pytest.importorskip("solprop_native.group")
+
+pytestmark = pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
 
 INTEGRATORS = {
     "runge_kutta": None,

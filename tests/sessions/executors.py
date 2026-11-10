@@ -654,6 +654,36 @@ def device_build() -> bool:
     return solprop_native.build_info().device_backend != "none"
 
 
+def skip_device_refused(problem: KernelProblem, request: RunRequest) -> None:
+    """Skip the calling test where the native session refuses its run on a device.
+
+    On a device build the native session admits SEP 47 phase 3's representative path
+    and refuses the rest by name (``solprop_native.session.device_refusal``), which
+    phase 4 ports; a test of a refused feature skips, naming it. Nothing on a CPU
+    build.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+    """
+    if not device_build():
+        return
+    import pytest  # noqa: PLC0415 - only a test calls it
+    from solprop_native.session import device_refusal  # noqa: PLC0415 - optional
+
+    refused = device_refusal(problem, request)
+    if refused is not None:
+        pytest.skip(f"the native session refuses {refused} (SEP 47 phase 4)")
+
+
+DEVICE_GROUP = "the native group session refuses a device build (SEP 47 phase 4)"
+"""Why the native group's tests skip on a device build: a group there runs in the
+transitional group, as before."""
+
+
 @dataclass(frozen=True)
 class Executor:
     """One session implementation under the conformance suite.
