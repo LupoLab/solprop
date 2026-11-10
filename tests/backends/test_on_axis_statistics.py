@@ -206,17 +206,21 @@ def test_an_axis_statistic_leaves_the_node_statistics_the_plan_s(
         np.testing.assert_array_equal(both[name], alone[name], name)
 
 
-def test_consecutive_planes_scan_their_own_field(grid, table):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_consecutive_planes_scan_their_own_field(grid, table, name):
     """No row is reused across observations: each plane scans the field it has."""
+    if name == "native":
+        pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem = problem_on(grid, table, [mode], rule)
-    with closing(NumpyRefBackend(problem, grid=grid, modes=[mode])) as backend:
+    with closing(select(name, problem, grid=grid, modes=[mode])) as backend:
         backend.set_initial(problem.initial.field0, None)
         first = float(backend.stats(AXIS)["on_axis_electron_density"][0])
         backend.propagate_to(0.004)
         second = float(backend.stats(AXIS)["on_axis_electron_density"][0])
-        assert backend.axis_scans == 2
+        # select() returns the seam's protocol; the counter is the driver's.
+        assert cast("StepDriver | HostDriver", backend).axis_scans == 2
     assert first != second
 
 
@@ -636,12 +640,15 @@ def test_a_state_that_carries_its_components_reads_the_same_axis(grid, table):
     )
 
 
-def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_backend_without_its_modes_cannot_synthesise_the_axis(grid, table, name):
+    if name == "native":
+        pytest.importorskip("solprop_native")
     mode = argon()
     rule = transverse_quadrature([mode], n_r=5, radial_rule="field_scale")
     problem = problem_on(grid, table, [mode], rule)
     with (
-        closing(NumpyRefBackend(problem, grid=grid)) as backend,
+        closing(select(name, problem, grid=grid)) as backend,
         pytest.raises(BackendError, match="need the mode set"),
     ):
         backend.set_initial(problem.initial.field0, None)

@@ -83,6 +83,11 @@ def test_each_class_moves_one_step_past_its_nearest_sizes() -> None:
         "stage threshold 5001",
     ]
     assert len(proposals(record, problems, 18, limit=3)) == 3
+    # A class whose sizes all run serially can only thread one more of them.
+    serial = {"a": [Operation("kernels", "stage", 500)]}
+    assert [c.name for c in proposals(record, serial, 18) if c.setting == "stage"] == [
+        "stage threshold 500"
+    ]
 
 
 def test_the_medium_width_and_the_compact_team_have_short_ladders() -> None:

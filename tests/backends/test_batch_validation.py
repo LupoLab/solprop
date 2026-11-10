@@ -16,7 +16,7 @@ import numpy as np
 import pytest
 
 from backends import test_batch_lockstep as fixtures
-from scripted_driver import ScriptedDriver
+from scripted_driver import HostScriptedDriver, ScriptedDriver
 from solprop.backends import Backend, select_batch
 from solprop.backends.batch import LockstepRunner
 from solprop.backends.host.group import HostGroup
@@ -24,7 +24,7 @@ from solprop.backends.numpy_ref import passes
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.exceptions import BackendError, ConvergenceError
 from solprop.stats import StatsSpec
-from solprop.stepper import FixedSchedule, RungeKutta
+from solprop.stepper import FixedSchedule, Multistep, RungeKutta
 from solprop.stepper.tableau import TSIT5
 
 RUNNERS = [
@@ -71,13 +71,16 @@ def test_batch_registry_dispatches_optional_native_without_installation(monkeypa
 
 
 @pytest.mark.parametrize(("runner", "name"), RUNNERS)
-@pytest.mark.parametrize("contract", ["tableau", "schedule", "planes", "statistics"])
+@pytest.mark.parametrize(
+    "contract", ["tableau", "integrator", "schedule", "planes", "statistics"]
+)
 def test_batch_rejects_different_member_execution_contract(runner, name, contract):
     _members_of(name)
     first = fixtures.simulation(0, name)
     second = fixtures.simulation(1, name)
     changes = {
         "tableau": {"integrator": RungeKutta(TSIT5)},
+        "integrator": {"integrator": Multistep()},
         "schedule": {"schedule": FixedSchedule.uniform(0.0, 0.001, 0.000125)},
         "planes": {"save_planes": [0.001]},
         "statistics": {"stats": StatsSpec(names=("energy",))},
@@ -85,7 +88,8 @@ def test_batch_rejects_different_member_execution_contract(runner, name, contrac
     second.settings = dataclasses.replace(second.settings, **changes[contract])
     with ExitStack() as cleanup:
         members = [fixtures.loaded(one, cleanup) for one in (first, second)]
-        with pytest.raises(BackendError, match="same"):
+        refused = "same integrator" if contract == "integrator" else "same"
+        with pytest.raises(BackendError, match=refused):
             runner(members)
         assert all(member.observe().z == 0.0 for member in members)
 
@@ -207,13 +211,20 @@ def test_registry_refuses_unknown_backend_without_taking_ownership(monkeypatch):
         assert owner.observe().z == 0.0
 
 
-def test_batch_requires_complete_backend_protocol():
+@pytest.mark.parametrize(
+    ("runner", "driver"),
+    [
+        pytest.param(HostGroup, HostScriptedDriver, id="host"),
+        pytest.param(LockstepRunner, ScriptedDriver, id="bridge"),
+    ],
+)
+def test_batch_requires_complete_backend_protocol(runner, driver):
     simulation = fixtures.simulation(0, "numpy_ref")
-    owner = ScriptedDriver(simulation.translate())
+    owner = driver(simulation.translate())
     try:
         owner.set_initial(simulation.translate().initial.field0, None)
         with pytest.raises(BackendError, match="backend protocol"):
-            LockstepRunner([owner])
+            runner([owner])
     finally:
         owner.close()
 

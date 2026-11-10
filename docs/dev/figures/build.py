@@ -714,7 +714,6 @@ MODULES = {
                 "memory",
                 "node_chunk",
                 "multistep",
-                "multistep_general",
                 "adams_core",
                 "rk_core",
                 "exponential",
@@ -1229,7 +1228,7 @@ DRIVER_PARTS = (
     ("the noise", ("_noise_field", "_noise_at", "_noise_phase")),
     (
         "the per-stage bundle",
-        ("_hoist", "_stage_scalars", "_delta_phi", "_prefactor", "_unitary_phase"),
+        ("_hoist", "_stage_scalars", "_delta_phi", "_unitary_phase"),
     ),
     (
         "what a backend supplies",

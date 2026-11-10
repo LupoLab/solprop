@@ -283,7 +283,9 @@ measured. For a scan of one-thread jobs it removes most of each job's constructi
 on a Xeon Gold 6240, constructing the averaged helium capillary took 1.40 s cold and
 0.03 s with the plans in place, beside a 0.27 s window (1.78 s and 0.05 s on an AMD
 EPYC 7763), and the comb-to-continuum capillary 5.0 s and 0.06 s
-([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)).
+([measurements](../../dev/benchmarks.md#persistent-fftw-wisdom)). Under
+`SOLPROP_FFTW_PLAN=measure` on 16 cores of an AMD EPYC 7763, the comb-to-continuum
+capillary's construction fell from 13.7 s to 0.18 s, its window unchanged.
 
 `OMP_NUM_THREADS` and `KOKKOS_NUM_THREADS` do **not** size the Kokkos pool — the backend
 initialises Kokkos with an explicit thread count, which takes precedence; set
