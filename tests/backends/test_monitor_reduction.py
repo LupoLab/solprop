@@ -218,7 +218,11 @@ def _chunked(simulation: Simulation) -> PropagationProblem:
     """Return the Cartesian case's problem with node chunks that leave a partial one."""
     problem = simulation.translate()
     return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=50)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=50),
+        ),
     )
 
 

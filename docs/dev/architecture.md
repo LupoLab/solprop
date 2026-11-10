@@ -217,7 +217,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `physdata/` | Species, mixtures, equations of state, transport properties (viscosity, sound speed, mean free path), optical material data, metals, nonlinear and Raman data | P |
 | `modes/` | Mode protocols and derived quantities; capillary, antiresonant, tabulated, step-index, rectangular and planar (slab, uniform in y, per unit width) modes, with `PlanarGrid` for the planar guide resolved in y; shared gas fill, quadrature and collections; full-vector modal records, material laws and regions, bound step-index and radial graded-index providers, and the guide that pairs a provider with a mode collection, and the connection of a basis that moves along z | P |
 | `linear.py`, `boundaries.py`, `nonlinear/` | Linear assembly, absorbing rates, response definitions, ionisation, Raman, normalisation and the GNLSE mapping | P |
-| `translate/` | Validated `PropagationProblem`; parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
+| `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
 | `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
@@ -461,8 +461,14 @@ circular limits. Circular launch still uses the existing real modal basis.
 ## 7. The translation layer (`translate/`)
 
 The translation layer produces the `PropagationProblem` ([kernel-contract.md](kernel-contract.md)):
-plain arrays with fixed dtypes, shapes and axis names, validated (finite, contiguous, sizes
-consistent) and immutable, with no version number (ADR-068). What it computes, once per problem:
+one trajectory's plain arrays with fixed dtypes, shapes and axis names, validated (finite,
+contiguous, sizes consistent) and immutable, with no version number (ADR-068). Its
+shared groups are common to every route; what differs between routes is one variant of a
+closed union, `problem.route` (`translate/routes.py`: `ModalRoute`, `GeneralRoute` or
+`SpatialRoute` of kind radial, Cartesian, planar or line), each with the fields its
+executor needs, which every backend visits explicitly and refuses by name before it
+allocates ([SEP 47](seps/sep-0047-run-ownership.md) §6.2). What it computes, once per
+problem:
 
 | product | from | representation |
 |---|---|---|
@@ -475,7 +481,7 @@ consistent) and immutable, with no version number (ADR-068). What it computes, o
 | stepper settings | `stepper/` | tableau, tolerances, controller parameters, schedule, save planes, caps |
 | statistics requests | `stats.py` | which statistics, which windows |
 | spatial plane measure | `spatial.py`, `adiabatic.py`, `translate/flux.py` | the `FluxPlan`: separable coefficients whose root gives each column's axial admittance, the material square's z table for a varying radial medium, and its adiabatic admission (SEP 34) |
-| batch parameters | `driver/batch.py` | per-member scalars or per-member table indices |
+| route | `translate/routes.py` | the variant, its transform and its own leaves: the TDSE source, the plane measure, the transverse boundary |
 
 Validation is not optional: a backend calls `problem.validate()` and refuses anything
 inconsistent. Tables are cached on the `Simulation` and rebuilt only when a physics object
@@ -652,7 +658,8 @@ durable distributed execution. A controller owns the collected HDF5 scan file.
 
 Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
 started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
-independently translated member problems, each loaded from its own `Start`, advanced
+independently translated single-trajectory member problems — no problem carries a batch
+axis — each loaded from its own `Start`, advanced
 one common window (save plane) at a time, each member reporting its own events. The
 batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Until the
 native session lands the group is served over the lockstep runners (`BatchBackend`,

@@ -149,8 +149,11 @@ def general_runs(strand):
         "full": problem,
         "frozen": dataclasses.replace(
             problem,
-            transform=dataclasses.replace(
-                problem.transform, modal_tables=frozen_tables
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(
+                    problem.transform, modal_tables=frozen_tables
+                ),
             ),
         ),
     }

@@ -403,7 +403,11 @@ def test_a_line_beam_agrees(family):
             ),
         )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     assert_parity(problem, grid, transverse=problem.transform.n_nodes, depth=depth)
 

@@ -33,6 +33,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import flux_of
 
 pytestmark = [
     pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning"),
@@ -243,7 +244,7 @@ def test_the_native_closure_buffers_are_in_the_ledger():
     finally:
         owner.close()
     grid, radial = _radial(SpatialMedium("Ar", pressure=Linear(0.5, 3.0, 1e-3)))
-    flux = radial.flux
+    flux = flux_of(radial.route)
     assert flux is not None and flux.material is not None
     owner = select("native", radial, grid=grid)
     try:

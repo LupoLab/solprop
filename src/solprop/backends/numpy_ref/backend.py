@@ -108,6 +108,15 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import MAX_N_POL, PropagationProblem
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    SpatialRoute,
+    flux_of,
+    route_name,
+    tdse_descriptor,
+    tdse_of,
+)
 from solprop.translate.spatial import separable_values
 from solprop.translate.stage import StageScalars, combine
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, TDSEPurpose
@@ -230,7 +239,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Adopt a validated problem, refuse what this backend does not execute."""
         _refuse_unsupported(problem)
         problem.validate()
-        if (problem.tdse is None) != (tdse_binding is None):
+        if (tdse_descriptor(problem.route) is None) != (tdse_binding is None):
             raise BackendError(
                 "TDSE problems require an explicit host response binding"
             )
@@ -527,7 +536,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     self._problem.transform,
                     one,
                     z=self._z,
-                    flux=self._problem.flux,
+                    flux=flux_of(self._problem.route),
                     profiles=self._profiles,
                     tables=tables,
                     operator=self._problem.linear.separable,
@@ -2035,7 +2044,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         problem = self._problem
         grids, transform = problem.grids, problem.transform
         binding = self._tdse_binding
-        assert binding is not None and problem.current_numerator is not None
+        assert binding is not None and tdse_of(problem.route) is not None
         modal_t = passes.to_time(lab[0], grids.crop_index, grids.n_to, kind="field")
         fields = np.ascontiguousarray(
             passes.synthesise(modal_t, transform.synthesis, bundle.taper_scale, 1)[
@@ -2930,6 +2939,18 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
     BackendError
         Naming what is unsupported.
     """
+    # The route first, by its variant (SEP 47 section 6.2): the reference executes
+    # every route of the union and the modal route's TDSE extension.
+    match problem.route:
+        case (
+            ModalRoute()
+            | GeneralRoute()
+            | SpatialRoute(kind="radial" | "cartesian" | "planar" | "line")
+        ):
+            pass
+        case route:
+            msg = f"numpy_ref does not execute the {route_name(route)} route"
+            raise BackendError(msg)
     refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
     _refuse_adams(problem)
     # One list for every backend: the coupled flow first, then the
@@ -3794,7 +3815,7 @@ def _source_record(problem: PropagationProblem) -> dict[str, object]:
         ``gated``, and for a gated source the certificate, its limit
         and the taper breakpoints in s.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     assert descriptor is not None
     record: dict[str, object] = {"gated": descriptor.gated}
     if descriptor.gated:

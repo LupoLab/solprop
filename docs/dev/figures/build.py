@@ -670,6 +670,7 @@ MODULES = {
             "translate/",
             (
                 "problem",
+                "routes",
                 "stage",
                 "linop",
                 "expansion",
@@ -1014,7 +1015,7 @@ CONTRACT_SECTIONS = (
     Section(
         3,
         "linear operator",
-        ("linear", "flux", "transverse"),
+        ("linear",),
         "translate.linop.LinearOperator",
         ("linear.py", "modes/", "profiles.py"),
         "P",
@@ -1023,7 +1024,7 @@ CONTRACT_SECTIONS = (
     Section(
         4,
         "multimode transform",
-        ("transform",),
+        ("route",),
         "translate.modal.Transform",
         ("modes.quadrature", "modes.collection"),
         "P",
@@ -1032,7 +1033,7 @@ CONTRACT_SECTIONS = (
     Section(
         5,
         "responses and the prefactor",
-        ("responses", "tdse", "current_numerator"),
+        ("responses",),
         "translate.responses.CompiledResponses",
         ("nonlinear/", "physdata/", "boundaries.py"),
         "P",
@@ -1210,7 +1211,7 @@ SEAM_METHODS = (
     ("march_snapshot_nbytes", "its size, copying nothing"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("restore_march", "continue the history, or say why it starts afresh"),
-    ("timed_step", "one step of the march, for an estimate to time"),
+    ("timing_probe", "single trials from a start, for an estimate to time"),
     ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
@@ -2012,9 +2013,9 @@ def kernel_contract() -> drawsvg.Drawing:
     gap = 12.0
     subtitle = (
         "kernel-contract.md §1 to §8. PropagationProblem is the only object that "
-        "crosses into a backend: eleven fields, frozen, validated, versioned. On the "
-        "left, "
-        "what builds each section; on the right, what a backend does with it."
+        "crosses into a backend: one trajectory, its route a closed union, frozen and "
+        "validated. On the left, what builds each section; on the right, what a "
+        "backend does with it."
     )
     top = header_height(subtitle) + 30
     inset = inset_height()

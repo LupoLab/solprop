@@ -41,6 +41,7 @@ from solprop.pulses import GaussianPulse, PlanarPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import separable_values
 
 pytestmark = [
@@ -207,8 +208,10 @@ def on_leaf(problem, leaf, *, seed=3):
         linear=dataclasses.replace(problem.linear, separable=leaf),
         responses=dataclasses.replace(problem.responses, separable=leaf),
         grids=dataclasses.replace(problem.grids, active_mask=leaf.active),
-        flux=dataclasses.replace(problem.flux, base=leaf),
         initial=dataclasses.replace(problem.initial, field0=field),
+        route=dataclasses.replace(
+            problem.route, flux=dataclasses.replace(flux_of(problem.route), base=leaf)
+        ),
     )
 
 

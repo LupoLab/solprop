@@ -55,7 +55,11 @@ def test_radial_short_envelope_uses_device_blas(
         dz_max=1e-5,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -98,7 +102,11 @@ def test_radial_partial_chunks_preserve_the_reference_source(
         density=1.0,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     # The established radial source ladder: FFT depth and two length-n_r dot
     # products, with an absolute majorant for cancellation at dark bins.

@@ -75,7 +75,10 @@ def current_only(problem, grid, rule, chunk):
                 if stage is not ResponseStage.KERR
             ),
         ),
-        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 

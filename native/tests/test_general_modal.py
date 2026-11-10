@@ -14,6 +14,7 @@ before the run (:func:`_parity_bound`).
 
 from __future__ import annotations
 
+import copy
 import dataclasses
 import json
 import math
@@ -766,7 +767,9 @@ def test_moving_maps_without_their_connection_are_refused_by_name() -> None:
     transform = dataclasses.replace(problem.transform)
     object.__setattr__(transform, "modal_tables", moving)
     spoiled = dataclasses.replace(problem)
-    object.__setattr__(spoiled, "transform", transform)
+    route = copy.copy(spoiled.route)
+    object.__setattr__(route, "transform", transform)
+    object.__setattr__(spoiled, "route", route)
     with pytest.raises(
         BackendError, match=r"native executes a moving guide.s maps.*no coupled flow"
     ):

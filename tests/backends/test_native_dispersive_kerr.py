@@ -288,7 +288,11 @@ def test_node_chunks_accumulate_as_one(case, raman, evaluator):
     )
     problem = simulation.translate()
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=8)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=8),
+        ),
     )
     assert_one_evaluation(problem, simulation.grid)
 
@@ -639,7 +643,11 @@ def test_chunked_nodes_pack_their_projections():
     simulation = capillary("polynomial")
     problem = simulation.translate()
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=8)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=8),
+        ),
     )
     ledger = ledger_of(problem, simulation.grid)
     chunks = -(-problem.transform.n_nodes // 8)

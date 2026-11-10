@@ -55,6 +55,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate import problem as problem_module
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.run_request import describe_run
 from solprop.translate.tdse import AtomicCallLedger
 
@@ -1075,7 +1076,7 @@ def test_driver_records_binding_facts_before_close_on_success_and_budget_stop(
         dz_init=1e-6,
         dz_max=1e-6,
     )
-    binding = ManufacturedBinding(simulation.translate().tdse, limit)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), limit)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )
@@ -1154,7 +1155,7 @@ def test_interior_atomic_budget_message_matches_terminal_checkpoint(
         dz_max=1e-6,
     )
     simulation = atomic_simulation.with_input(atomic_simulation._field0, initial_z=5e-6)
-    binding = ManufacturedBinding(simulation.translate().tdse, 4)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), 4)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )
@@ -1266,7 +1267,7 @@ def test_this_module_s_tdse_fixture_raises_the_cost_warning(
         dz_init=1e-6,
         dz_max=1e-6,
     )
-    binding = ManufacturedBinding(simulation.translate().tdse, None)
+    binding = ManufacturedBinding(tdse_descriptor(simulation.translate().route), None)
     monkeypatch.setattr(
         runtime_module, "prepare_binding", lambda *args, **kwargs: binding
     )

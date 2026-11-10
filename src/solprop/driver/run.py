@@ -93,6 +93,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor, transverse_of
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
@@ -424,7 +425,9 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     retention = field_retention(problem, fields, field_planes)
     _check_retainable(output, retention)
     check_snapshot_request(problem, output, snapshots, resume_history, fields)
-    if problem.tdse is not None and not isinstance(output, CheckpointOutput):
+    if tdse_descriptor(problem.route) is not None and not isinstance(
+        output, CheckpointOutput
+    ):
         raise DriverError(
             "TDSE output must support terminal checkpoints and call ledgers"
         )
@@ -806,7 +809,7 @@ def _refuse_unread_collar(problem: PropagationProblem, backend: Backend) -> None
     BackendError
         If the problem has a requested collar and the backend does not read the edge.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     if design is None or not design.has_collar:
         return
     if backend.reads_transverse_edge:

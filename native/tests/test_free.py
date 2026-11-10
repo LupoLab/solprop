@@ -45,7 +45,11 @@ def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
         dz_init=1e-4,
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=5)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=5),
+        ),
     )
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -261,7 +265,11 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     geometry = problem.transform.geometry
     assert geometry is not None
@@ -331,7 +339,11 @@ def _planar_problem(
     )
     chunk = 2 * space.x.size
     return space, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 

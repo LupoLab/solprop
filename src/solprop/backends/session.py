@@ -275,7 +275,6 @@ class Start:
         -------
         Start
             The start at ``problem.initial.z``, before the first save plane.
-
         """
         return cls(
             field=problem.initial.field0, z=float(problem.initial.z), noise=noise

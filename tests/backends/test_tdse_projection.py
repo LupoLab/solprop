@@ -31,6 +31,7 @@ from solprop.stepper import PIController
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import assemble
 from solprop.translate.responses import prefactor_at
+from solprop.translate.routes import TDSESource, tdse_descriptor
 from solprop.translate.stage import scalars
 from solprop.translate.tdse import (
     TDSEDescriptor,
@@ -80,8 +81,13 @@ def projection_case(request):
     )
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
-        current_numerator=current_numerator(grid),
+        route=dataclasses.replace(
+            problem.route,
+            tdse=TDSESource(
+                descriptor=TDSEDescriptor.from_response(response, grid),
+                current_numerator=current_numerator(grid),
+            ),
+        ),
     )
     bundle = scalars(problem, 0.0, 0.0)
     return problem, grid, bundle, prefactor_at(problem.responses, 0.0)
@@ -94,7 +100,10 @@ def _project(polarisation, current, result, problem, bundle, prefactor, **option
     source is gated (SEP 26) and its projection requires an edge array, and a zero
     one leaves the spectrum the plain transform of the current handed over.
     """
-    if problem.tdse is not None and problem.tdse.gated:
+    if (
+        tdse_descriptor(problem.route) is not None
+        and tdse_descriptor(problem.route).gated
+    ):
         options.setdefault("edge", np.zeros_like(current))
     return project_atomic_sources(
         polarisation, current, result, problem, bundle, prefactor, **options
@@ -107,7 +116,7 @@ def response_record(problem, current, *, cancelled=None):
         current[:, 0, :] + first,
         first,
         input_identity="manufactured field",
-        configuration_identity=problem.tdse.identity,
+        configuration_identity=tdse_descriptor(problem.route).identity,
         valid=np.ones(first.shape, dtype=bool),
         shadow_orders=(1,),
     )
@@ -239,9 +248,12 @@ def test_unpaired_rule_reports_unavailable_instead_of_a_zero_error(projection_ca
     problem, grid, bundle, prefactor = projection_case
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(
-            problem.transform,
-            projection_coarse=problem.transform.projection,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(
+                problem.transform,
+                projection_coarse=problem.transform.projection,
+            ),
         ),
     )
     current = np.ones((problem.transform.n_nodes, 1, grid.n_to))
@@ -274,12 +286,13 @@ def test_projection_refuses_inconsistent_or_nonfinite_nodal_inputs(projection_ca
         _project(current, current, result, problem, bundle, prefactor)
 
 
-@pytest.mark.parametrize("missing", ["tdse", "current_numerator"])
-def test_projection_requires_both_separate_source_descriptors(projection_case, missing):
+def test_projection_requires_the_route_s_tdse_source(projection_case):
     problem, grid, bundle, prefactor = projection_case
     current = np.zeros((problem.transform.n_nodes, 1, grid.n_to))
     result = response_record(problem, current)
-    problem = dataclasses.replace(problem, **{missing: None})
+    problem = dataclasses.replace(
+        problem, route=dataclasses.replace(problem.route, tdse=None)
+    )
     with pytest.raises(BackendError, match="independent current and polarisation"):
         _project(current, current, result, problem, bundle, prefactor)
 
@@ -356,10 +369,17 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
 ):
     problem, grid, bundle, prefactor = projection_case
     response = dataclasses.replace(
-        _response_from_json(problem.tdse.configuration_json),
+        _response_from_json(tdse_descriptor(problem.route).configuration_json),
     )
     problem = dataclasses.replace(
-        problem, tdse=TDSEDescriptor.from_response(response, grid)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            tdse=dataclasses.replace(
+                problem.route.tdse,
+                descriptor=TDSEDescriptor.from_response(response, grid),
+            ),
+        ),
     )
     fields = np.zeros((problem.transform.n_nodes, grid.n_to))
     nonlinear = np.zeros_like(fields)
@@ -370,7 +390,7 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
         first + nonlinear,
         first,
         input_identity=waveform_identity(fields),
-        configuration_identity=problem.tdse.identity,
+        configuration_identity=tdse_descriptor(problem.route).identity,
         valid=np.ones(fields.shape, dtype=bool),
         shadow_orders=(1,),
     )
@@ -387,7 +407,7 @@ def test_filtered_projection_keeps_core_impulse_and_counts_cancelled_operands(
     # Its DFT is (-1)^k. The remaining scale is the independent modal sum and
     # current coefficient, with no finite-window or integration approximation.
     expected = (
-        problem.current_numerator
+        problem.route.tdse.current_numerator
         / power_weight_at(problem, bundle.z1)
         * np.sum(problem.transform.projection, axis=1)[:, None, None]
         * bundle.density

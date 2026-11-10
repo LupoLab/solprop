@@ -166,7 +166,11 @@ def test_a_transform_and_a_state_cannot_both_carry_the_components(
         _n_pol=2,
         kind="modal",
     )
-    spoiled = substitute(problem, transform=transform, validate=False)
+    spoiled = substitute(
+        problem,
+        validate=False,
+        route=dataclasses.replace(problem.route, transform=transform),
+    )
     object.__setattr__(spoiled, "shape", (1, 2, narrow_grid.n_omega))
     with pytest.raises(BackendError, match=r"belong to one of the two"):
         backend_class(spoiled)

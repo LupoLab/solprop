@@ -38,6 +38,7 @@ from solprop.nonlinear.tdse import (
 from solprop.output import MemoryOutput
 from solprop.output.schema import serialise
 from solprop.stats import StatsSpec
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 
 _LENGTH = 10 * 2.0**-20
@@ -91,7 +92,7 @@ def test_tdse_keyword_builds_the_one_response_run_in_one_step(caplog):
     record = plain(simulation.configuration["tdse_entry"])
     assert record["backend"] == {"requested": "auto", "resolved": "numpy_ref"}
     assert record["model"] == "sae"
-    assert simulation.translate().tdse is not None
+    assert tdse_descriptor(simulation.translate().route) is not None
     # A default execution record is taken when none is given.
     assert _capillary(tdse=response).settings.tdse_execution == TDSEExecution()
 
@@ -106,9 +107,10 @@ def test_hacc_window_duration_resolves_from_the_capillary_request():
     explicit = _capillary(
         tdse=hacc_response(preset_basis(1), atomic_window=TDSEAtomicWindow(60e-15))
     )
-    assert (
-        explicit.translate().tdse.identity == simulation.translate().tdse.identity  # type: ignore[union-attr]
-    )
+    stated = tdse_descriptor(explicit.translate().route)
+    resolved = tdse_descriptor(simulation.translate().route)
+    assert stated is not None and resolved is not None
+    assert stated.identity == resolved.identity
     with pytest.raises(DriverError, match="unresolved"):
         _capillary(
             tdse=hacc_response(preset_basis(1), atomic_window="auto"),

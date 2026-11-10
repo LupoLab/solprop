@@ -271,7 +271,11 @@ def test_free_space_chunks_accumulate_as_one(evaluator):
     grid = free_grid("field", True)
     problem = free_problem([DispersiveKerrResponse(ARGON, evaluator)], grid)
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=20)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=20),
+        ),
     )
     assert problem.transform.n_nodes % 20
     assert_one_evaluation(problem, grid)
@@ -326,7 +330,11 @@ def test_planar_blocks_accumulate_as_one(evaluator):
     assert geometry is not None
     n_x = geometry.shape[0]
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=3 * n_x),
+        ),
     )
     assert_one_evaluation(problem, grid)
 

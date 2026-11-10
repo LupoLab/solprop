@@ -120,7 +120,12 @@ def test_vector_mode_rows_match_state_polarisation(
             dz_max=grid.length / 2,
             schedule=original.stepper.schedule,
         )
-        problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
+        problem = replace(
+            problem,
+            route=replace(
+                problem.route, transform=replace(problem.transform, node_chunk=3)
+            ),
+        )
         result, _ = run(backend_class, problem, grid)
         results.append(result.reshape(2, -1))
     # The two representations sum identical Cartesian sources with different

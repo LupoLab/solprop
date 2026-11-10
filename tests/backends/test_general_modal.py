@@ -21,6 +21,7 @@ placeholders and the assembly's refusals -- is
 ``tests/translate/test_general_route.py``.
 """
 
+import copy
 import dataclasses
 
 import numpy as np
@@ -75,6 +76,7 @@ from solprop.translate.responses import (
     isotropic_kerr_tensor,
     regional_responses,
 )
+from solprop.translate.routes import GeneralRoute
 
 LEAVES = ("coupled_flow", "modal_metric", "modal_tables", "regional_responses")
 GROUP = {
@@ -151,7 +153,22 @@ def with_leaf(problem, name):
     group_name = GROUP[name]
     group = dataclasses.replace(getattr(problem, group_name))
     object.__setattr__(group, name, leaf_value(name, problem))
-    return dataclasses.replace(problem, **{group_name: group})
+    return replaced_group(problem, group_name, group)
+
+
+def replaced_group(problem, group_name, group):
+    """Return the problem with one group replaced, the transform on its route.
+
+    A transform that gains general modal tables makes the route a general one; any
+    other transform is set on a copy of the route, past the route's own check.
+    """
+    if group_name != "transform":
+        return dataclasses.replace(problem, **{group_name: group})
+    if problem.transform.modal_tables is None and group.modal_tables is not None:
+        return dataclasses.replace(problem, route=GeneralRoute(group))
+    route = copy.copy(problem.route)
+    object.__setattr__(route, "transform", group)
+    return dataclasses.replace(problem, route=route)
 
 
 @pytest.fixture(scope="module")
@@ -581,7 +598,7 @@ def spoiled_problem(case, *, amplitudes=(1.0,), **changes):
     for group_name, name, value in changes.values():
         group = dataclasses.replace(getattr(problem, group_name))
         object.__setattr__(group, name, value)
-        problem = dataclasses.replace(problem, **{group_name: group})
+        problem = replaced_group(problem, group_name, group)
     return problem
 
 

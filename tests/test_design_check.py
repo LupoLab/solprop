@@ -34,6 +34,7 @@ from solprop.translate.collar_check import (
     _radial_return,
     design_check,
 )
+from solprop.translate.routes import transverse_of
 from solprop.translate.transverse import (
     _relaunched,
     _trial_grid,
@@ -116,7 +117,7 @@ def test_a_design_that_returns_too_much_is_refused_naming_a_fraction() -> None:
 
 
 def test_a_wide_design_passes_and_records_its_check() -> None:
-    design = suite(2.6, SpatialAbsorber()).translate().transverse
+    design = transverse_of(suite(2.6, SpatialAbsorber()).translate().route)
     assert design is not None
     check = design.check
     assert check["status"] == "passed"
@@ -130,7 +131,7 @@ def test_a_wide_design_passes_and_records_its_check() -> None:
 def test_a_design_near_the_budget_is_refined() -> None:
     # f = 1.5 with kappa = 2.2e5 returns about 2.4e-8, within a factor of two of the
     # budget: the estimate is refined once and decides at 3e-8.
-    design = suite(1.5, SpatialAbsorber(kappa=2.2e5)).translate().transverse
+    design = transverse_of(suite(1.5, SpatialAbsorber(kappa=2.2e5)).translate().route)
     assert design is not None
     assert design.check["refined"] is True
     assert design.check["status"] == "passed"
@@ -140,13 +141,15 @@ def test_a_design_near_the_budget_is_refined() -> None:
 
 
 def test_a_zero_launch_with_a_declared_band_leaves_the_check_pending() -> None:
-    design = suite(2.6, SpatialAbsorber(kappa=1.2e5), energy=0.0).translate().transverse
+    design = transverse_of(
+        suite(2.6, SpatialAbsorber(kappa=1.2e5), energy=0.0).translate().route
+    )
     assert design is not None
     assert design.check["status"] == "pending"
 
 
 def test_no_check_is_run_without_a_collar() -> None:
-    design = suite(1.0, None).translate().transverse
+    design = transverse_of(suite(1.0, None).translate().route)
     assert design is not None
     assert design.check == {}
 
@@ -161,9 +164,9 @@ def _pulse(waist: float = W0, energy: float = 1e-9) -> SpatialPulse:
 def test_a_rescaled_launch_reuses_the_verdict() -> None:
     # The check is linear and normalised by the launch's energy (section 5.2).
     parent = suite(2.6, SpatialAbsorber())
-    design = parent.translate().transverse
+    design = transverse_of(parent.translate().route)
     child = parent.with_input(_pulse(energy=3e-9))
-    assert child.translate().transverse is design
+    assert transverse_of(child.translate().route) is design
 
 
 def test_a_new_launch_gets_its_own_check() -> None:
@@ -176,10 +179,10 @@ def test_a_new_launch_gets_its_own_check() -> None:
         except DriverError as error:
             assert "translate a new simulation" in str(error)
             return
-    design = child.translate().transverse
+    design = transverse_of(child.translate().route)
     assert design is not None
     assert design.check["status"] == "passed"
-    assert design.check is not parent.translate().transverse.check  # pyright: ignore[reportOptionalMemberAccess]
+    assert design.check is not transverse_of(parent.translate().route).check  # pyright: ignore[reportOptionalMemberAccess]
 
 
 def test_a_pending_check_runs_on_the_launch_it_is_given() -> None:
@@ -189,7 +192,7 @@ def test_a_pending_check_runs_on_the_launch_it_is_given() -> None:
     with pytest.raises(DriverError, match="has not been checked"):
         child.run(progress="none")
     launched = child.with_input(_pulse())
-    design = launched.translate().transverse
+    design = transverse_of(launched.translate().route)
     assert design is not None
     assert design.check["status"] == "passed"
 
@@ -245,7 +248,7 @@ def test_the_periodic_check_runs_on_every_periodic_route(kind: str) -> None:
     # The Strang march (section 4.4): a design either passes with its check recorded,
     # or is refused by the check by name; nothing else.
     try:
-        design = _periodic(kind).translate().transverse
+        design = transverse_of(_periodic(kind).translate().route)
     except TranslationError as error:
         assert "design check" in str(error)
         return
@@ -300,7 +303,7 @@ def test_a_fixed_schedule_beyond_the_collar_s_limits_is_refused() -> None:
 
     with pytest.raises(TranslationError, match=r"section 4\.7"):
         scheduled(LENGTH / 4).translate()
-    assert scheduled(LENGTH / 16).translate().transverse is not None
+    assert transverse_of(scheduled(LENGTH / 16).translate().route) is not None
 
 
 def _line(

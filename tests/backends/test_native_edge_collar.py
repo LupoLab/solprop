@@ -44,6 +44,7 @@ from solprop.stepper import (
     PIController,
     RungeKutta,
 )
+from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import TransverseEdge
 
 pytestmark = pytest.mark.skipif(
@@ -739,7 +740,7 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     def launch() -> tuple[dict[str, Any], int]:
         simulation = _case(route, noise="input")
         problem = simulation.translate()
-        assert problem.transverse is not None
+        assert transverse_of(problem.route) is not None
         backend = cast(
             "Any",
             select(

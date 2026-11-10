@@ -2,9 +2,11 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
+import copy
 import dataclasses
 import math
 import re
+import typing
 import warnings
 from pathlib import Path
 from typing import cast
@@ -47,6 +49,7 @@ from solprop.translate.problem import (
     assemble,
 )
 from solprop.translate.responses import CompiledResponses, prefactor_at
+from solprop.translate.routes import Route, TDSESource, flux_of
 
 CONTRACT = Path(__file__).resolve().parents[2] / "docs" / "dev" / "kernel-contract.md"
 DOCS = CONTRACT.parents[1]
@@ -163,7 +166,11 @@ def contract_field_names(path=CONTRACT):
 
 
 def dataclass_field_names(problem):
-    """Every contract field of the dataclass tree, by the contract's walking rule."""
+    """Every contract field of the dataclass tree, by the contract's walking rule.
+
+    The route is a closed union: every variant's fields are rows of the document,
+    whichever variant this problem carries, and so are the TDSE source's.
+    """
     names = set()
 
     def visit(node):
@@ -176,6 +183,9 @@ def dataclass_field_names(problem):
                 visit(value)
 
     visit(problem)
+    visit(problem.transform)
+    for variant in (*typing.get_args(Route.__value__), TDSESource):
+        names.update(entry.name for entry in dataclasses.fields(variant))
     return names
 
 
@@ -408,6 +418,12 @@ def corrupt(problem, group, name, value):
     copy = dataclasses.replace(problem)
     member = dataclasses.replace(getattr(copy, group))
     object.__setattr__(member, name, value)
+    if group == "transform":
+        # The transform is the route's: corrupt it where it is held.
+        route = dataclasses.replace(copy.route)
+        object.__setattr__(route, "transform", member)
+        object.__setattr__(copy, "route", route)
+        return copy
     object.__setattr__(copy, group, member)
     return copy
 
@@ -610,7 +626,9 @@ def test_validate_rejects_a_raman_kernel_on_a_vector_problem(raman_soliton):
     transform = dataclasses.replace(raman_soliton.transform)
     object.__setattr__(transform, "_n_pol", 2)
     stale = dataclasses.replace(raman_soliton)
-    object.__setattr__(stale, "transform", transform)
+    route = copy.copy(stale.route)
+    object.__setattr__(route, "transform", transform)
+    object.__setattr__(stale, "route", route)
     with pytest.raises(TranslationError, match="tensor"):
         stale.validate()
 
@@ -1020,11 +1038,11 @@ def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
             power_weight=soliton.linear.power_weight,
             power_weight_constant=soliton.linear.power_weight_constant,
         ),
-        transform=soliton.transform,
         responses=soliton.responses,
         initial=soliton.initial,
         stepper=soliton.stepper,
         stats_spec=soliton.stats_spec,
+        route=soliton.route,
     )
     rebuilt.validate()
     assert rebuilt.linear.phi_representation == "constant"
@@ -1446,13 +1464,16 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
     soliton, radial_problem
 ):
     """A spatial problem needs its plane measure on its band, and others carry none."""
-    flux = radial_problem.flux
+    flux = flux_of(radial_problem.route)
     assert flux is not None
     radial_problem.validate()
-    with pytest.raises(TranslationError, match="requires its plane measure"):
-        dataclasses.replace(radial_problem, flux=None).validate()
-    with pytest.raises(TranslationError, match="requires its plane measure"):
-        dataclasses.replace(soliton, flux=flux).validate()
+    # The annotation refuses it under the test session's type checks; the route
+    # itself does without them.
+    with pytest.raises((TranslationError, TypeError), match="flux"):
+        dataclasses.replace(radial_problem.route, flux=None)
+    # A modal route has no plane measure to carry: the union leaves it no field.
+    assert flux_of(soliton.route) is None
+    assert "flux" not in {field.name for field in dataclasses.fields(soliton.route)}
     narrowed = np.array(flux.base.active, copy=True)
     narrowed[np.flatnonzero(narrowed)[0]] = False
     narrowed.setflags(write=False)
@@ -1460,4 +1481,6 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
         flux, base=dataclasses.replace(flux.base, active=narrowed)
     )
     with pytest.raises(TranslationError, match="active mask must match"):
-        dataclasses.replace(radial_problem, flux=stale).validate()
+        dataclasses.replace(
+            radial_problem, route=dataclasses.replace(radial_problem.route, flux=stale)
+        ).validate()

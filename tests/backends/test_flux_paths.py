@@ -22,6 +22,7 @@ from solprop.spatial import SpatialFlux, SpatialMedium, spatial_energy
 from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.translate.flux import flux_from_record, flux_record
+from solprop.translate.routes import flux_of
 
 LENGTH = 1e-3
 ENERGY = 3e-9
@@ -83,7 +84,7 @@ def test_linear_flux_is_conserved_through_a_gas_path(spatial_backend_class, prof
     """A lossless path keeps the launched physical energy at every plane."""
     medium = MEDIA[profile]
     simulation = _case(spatial_backend_class.name, medium, [0.25e-3, 0.75e-3, LENGTH])
-    admission = simulation.translate().flux
+    admission = flux_of(simulation.translate().route)
     assert admission is not None
     assert admission.admission is not None
     # The certificate is exact for these monotone paths; the step attains it.
@@ -126,7 +127,7 @@ def test_a_plane_or_flux_on_a_jump_needs_a_side():
 
 def test_the_recorded_plane_measure_keeps_its_certificate():
     """A gradient run's output record rebuilds its plane measure and admission."""
-    plan = _case("numpy_ref", MEDIA["step"], [LENGTH]).translate().flux
+    plan = flux_of(_case("numpy_ref", MEDIA["step"], [LENGTH]).translate().route)
     assert plan is not None
     assert plan.admission is not None
     for record in (flux_record(plan), serialise(flux_record(plan))):
@@ -153,7 +154,7 @@ def test_a_set_adiabatic_budget_is_recorded_and_enforced():
     assert metadata.configuration["adiabatic_accuracy"] is loose
     assert "adiabatic_accuracy" not in default.metadata().configuration
     assert metadata.configuration_hash() != default.metadata().configuration_hash()
-    plan = chosen.translate().flux
+    plan = flux_of(chosen.translate().route)
     assert plan is not None
     assert plan.admission is not None
     assert plan.admission.accuracy == loose

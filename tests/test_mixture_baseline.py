@@ -163,6 +163,11 @@ def historical_fields(value):
         }:
             continue
         child = getattr(value, name)
+        if name == "route":
+            # SEP 47 moved the transform into the problem's route: compare the route's
+            # fields at the problem's top level, where the record holds them.
+            yield from historical_fields(child)
+            continue
         if name in ("plasma_channels", "raman_terms", "ionisation_table"):
             # Schema 6 wraps the existing leaves in channel tuples. Compare their
             # contents at their schema-5 paths.

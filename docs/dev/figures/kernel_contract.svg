@@ -71,8 +71,8 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 </style>
 <rect x="0" y="0" width="1200" height="933.5" class="ground" />
 <text x="32" y="44.0" font-size="21" class="bold">The kernel contract, section by section</text>
-<text x="32" y="64.0" font-size="12" class="dim">kernel-contract.md §1 to §8. PropagationProblem is the only object that crosses into a backend: eleven fields, frozen, validated, versioned. On the left, what builds each</text>
-<text x="32" y="79.5" font-size="12" class="dim">section; on the right, what a backend does with it.</text>
+<text x="32" y="64.0" font-size="12" class="dim">kernel-contract.md §1 to §8. PropagationProblem is the only object that crosses into a backend: one trajectory, its route a closed union, frozen and validated. On the left,</text>
+<text x="32" y="79.5" font-size="12" class="dim">what builds each section; on the right, what a backend does with it.</text>
 <text x="32" y="113.0" font-size="12" class="bold dim">built by</text>
 <text x="386.0" y="113.0" font-size="12" class="bold ink-t">translate.problem.PropagationProblem</text>
 <text x="864.0" y="113.0" font-size="12" class="bold dim">read by a backend</text>
@@ -106,7 +106,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="32" y="251.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
 <text x="42.0" y="280.5" font-size="12" class="dim">linear.py · modes/ · profiles.py</text>
 <rect x="386.0" y="251.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="273.0" font-size="15" class="bold ink-t">§3   linear · flux · transverse</text>
+<text x="396.0" y="273.0" font-size="15" class="bold ink-t">§3   linear</text>
 <text x="396.0" y="288.5" font-size="12" class="dim">linear operator</text>
 <text x="396.0" y="304.0" font-size="12" class="dim">translate.linop.LinearOperator</text>
 <rect x="864.0" y="251.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
@@ -119,7 +119,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="32" y="314.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
 <text x="42.0" y="343.5" font-size="12" class="dim">modes.quadrature · modes.collection</text>
 <rect x="386.0" y="314.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="336.0" font-size="15" class="bold ink-t">§4   transform</text>
+<text x="396.0" y="336.0" font-size="15" class="bold ink-t">§4   route</text>
 <text x="396.0" y="351.5" font-size="12" class="dim">multimode transform</text>
 <text x="396.0" y="367.0" font-size="12" class="dim">translate.modal.Transform</text>
 <rect x="864.0" y="314.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />
@@ -132,7 +132,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <rect x="32" y="377.0" width="296.0" height="51.0" rx="7" ry="7" class="fill-p" />
 <text x="42.0" y="406.5" font-size="12" class="dim">nonlinear/ · physdata/ · boundaries.py</text>
 <rect x="386.0" y="377.0" width="420.0" height="66.0" rx="7" ry="7" class="fill-t" />
-<text x="396.0" y="399.0" font-size="15" class="bold ink-t">§5   responses · tdse · current_numerator</text>
+<text x="396.0" y="399.0" font-size="15" class="bold ink-t">§5   responses</text>
 <text x="396.0" y="414.5" font-size="12" class="dim">responses and the prefactor</text>
 <text x="396.0" y="430.0" font-size="12" class="dim">translate.responses.CompiledResponses</text>
 <rect x="864.0" y="377.0" width="304.0" height="51.0" rx="7" ry="7" class="fill-b" />

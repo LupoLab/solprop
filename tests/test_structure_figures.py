@@ -105,7 +105,7 @@ def test_every_contract_section_names_fields_of_the_problem(section):
 
 
 def test_the_contract_figure_covers_every_field():
-    """Between them the eight sections account for all eleven fields."""
+    """Between them the eight sections account for all twelve fields."""
     drawn = {name for section in build.CONTRACT_SECTIONS for name in section.fields}
     assert drawn == {field.name for field in dataclasses.fields(PropagationProblem)}
 

@@ -106,7 +106,10 @@ def _blocked(simulation: Simulation, chunk: int | None) -> PropagationProblem:
         return problem
     return dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
 
 

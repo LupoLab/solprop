@@ -430,11 +430,11 @@ def tabulated():
         ),
         grids=problem.grids,
         linear=linear,
-        transform=problem.transform,
         responses=responses,
         initial=problem.initial,
         stepper=problem.stepper,
         stats_spec=problem.stats_spec,
+        route=problem.route,
     )
     rebuilt.validate()
     return rebuilt

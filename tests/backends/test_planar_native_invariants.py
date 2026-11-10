@@ -21,6 +21,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.noise import NoiseRealisation
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Initial
+from solprop.translate.routes import flux_of
 
 pytestmark = [
     pytest.mark.skipif(
@@ -194,7 +195,9 @@ def test_the_safety_ramp_joins_the_slab_on_either_backend():
         problem,
         linear=dataclasses.replace(problem.linear, separable=bare),
         responses=dataclasses.replace(problem.responses, separable=bare),
-        flux=dataclasses.replace(problem.flux, base=bare),  # pyright: ignore[reportArgumentType]
+        route=dataclasses.replace(
+            problem.route, flux=dataclasses.replace(flux_of(problem.route), base=bare)
+        ),
     )
     steps = problem.stepper.schedule.steps.size  # pyright: ignore[reportOptionalMemberAccess]
     bound = ladder_bound("collar-only", grid, space, problem, steps, grid.length)

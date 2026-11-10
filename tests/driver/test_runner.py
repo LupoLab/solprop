@@ -10,6 +10,7 @@ runs (class R of ``docs/dev/testing.md`` section 3), its Adams call ledger and t
 pieces of state a load restores (section 4.7) are structural and compared exactly.
 """
 
+import copy
 import dataclasses
 import gc
 import math
@@ -46,6 +47,8 @@ from solprop.output.schema import (
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialFlux
 from solprop.stepper import FixedSchedule, Multistep, RungeKutta
+from solprop.translate.routes import GeneralRoute, ModalRoute, SpatialRoute, TDSESource
+from solprop.translate.tdse import TDSEDescriptor
 
 LENGTH = 1e-3
 STEPS = 10
@@ -56,6 +59,19 @@ def stored(output: Output) -> PlaneStore:
     """Return a standard handler as the store it is, for its typed readers."""
     assert isinstance(output, PlaneStore)
     return output
+
+
+def bare_tdse() -> TDSESource:
+    """Return a TDSE source whose descriptor is a bare record, for a route check.
+
+    A check that reads only whether the route carries a TDSE extension needs no
+    atomic descriptor, which a TDSE translation builds at some cost.
+    """
+    numerator = np.zeros((1, 1, 1))
+    numerator.setflags(write=False)
+    return TDSESource(
+        descriptor=object.__new__(TDSEDescriptor), current_numerator=numerator
+    )
 
 
 def capillary(backend: str, *, dense: bool = False) -> Simulation:
@@ -304,8 +320,9 @@ def test_a_backend_that_closed_itself_closes_its_runner():
 
 def test_a_tdse_run_has_no_runner(monkeypatch):
     simulation = capillary("numpy_ref")
+    route = dataclasses.replace(simulation.translate().route, tdse=bare_tdse())
     monkeypatch.setattr(
-        simulation, "translate", lambda: types.SimpleNamespace(tdse=object())
+        simulation, "translate", lambda: types.SimpleNamespace(route=route)
     )
     with pytest.raises(DriverError, match="TDSE response"):
         simulation.runner()
@@ -341,6 +358,40 @@ def test_a_derived_problem_is_the_constructed_one_but_for_its_input():
     )
     with pytest.raises(DriverError, match=r"stepper\.dz_max differs"):
         check_derived_problem(problem, stepped)
+
+
+def test_a_derived_problem_on_another_route_is_refused():
+    # The transform is the same object, so only the route's variant, TDSE source or
+    # plane measure can differ: each is the constructed problem's or refused.
+    simulation = capillary("numpy_ref")
+    problem = simulation.translate()
+    check_derived_problem(
+        problem,
+        dataclasses.replace(
+            problem, route=ModalRoute(transform=problem.transform, tdse=None)
+        ),
+    )
+    # A general modal route needs tables this transform lacks: built past its check.
+    general = object.__new__(GeneralRoute)
+    object.__setattr__(general, "transform", problem.transform)
+    other = copy.copy(problem)
+    object.__setattr__(other, "route", general)
+    with pytest.raises(DriverError, match="does not share the runner's route"):
+        check_derived_problem(problem, other)
+    attached = copy.copy(problem)
+    object.__setattr__(
+        attached, "route", dataclasses.replace(problem.route, tdse=bare_tdse())
+    )
+    with pytest.raises(DriverError, match="does not share the runner's route"):
+        check_derived_problem(problem, attached)
+    spatial = cartesian("numpy_ref").translate()
+    assert isinstance(spatial.route, SpatialRoute)
+    remeasured = dataclasses.replace(
+        spatial,
+        route=dataclasses.replace(spatial.route, flux=copy.copy(spatial.route.flux)),
+    )
+    with pytest.raises(DriverError, match="does not share the runner's route"):
+        check_derived_problem(spatial, remeasured)
 
 
 def test_with_input_validates_the_replaced_input_alone():

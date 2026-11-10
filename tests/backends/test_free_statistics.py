@@ -94,7 +94,11 @@ def test_free_packed_statistics_match_host_definitions(
     bounds["fwhm_r"] = 3 * profile_error / slope
     problem = make_problem(grid, space, initial, [])
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     backend = spatial_backend_class(problem, grid=grid)
     try:

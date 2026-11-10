@@ -44,6 +44,7 @@ from solprop.translate.coupled import metric_at
 from solprop.translate.linop import LinearOperator
 from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import axial_admittance
 
 __all__ = [
@@ -137,10 +138,11 @@ def port_metric(problem: PropagationProblem, grid: TimeGrid, z: float) -> PlaneM
     """
     geometry = problem.transform.geometry
     if geometry is not None:
-        if problem.flux is None:
+        flux = flux_of(problem.route)
+        if flux is None:
             msg = "a spatial problem carries its plane measure"
             raise TranslationError(msg)
-        admittance = axial_admittance(problem.flux.at(z), grid.omega, slice(None))
+        admittance = axial_admittance(flux.at(z), grid.omega, slice(None))
         return PlaneMetric(
             "admittance",
             admittance=admittance,

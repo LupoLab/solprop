@@ -67,6 +67,7 @@ from solprop.translate.masks import noise_spectrum
 from solprop.translate.plasma_source import plasma_source_record
 from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.responses import prefactor_at
+from solprop.translate.routes import transverse_of
 from solprop.translate.stage import (
     StageScalars,
     anchor,
@@ -1293,7 +1294,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             and not resume
             and position == self._problem.initial.z
         ):
-            if self._problem.transverse is not None:
+            if transverse_of(self._problem.route) is not None:
                 self._clean_columns = _clean_launch_columns(
                     values[0], drawn[0], self._problem.grids.active_mask
                 )
@@ -3052,5 +3053,5 @@ def _declared_discard(problem: PropagationProblem) -> bool:
     bool
         True when its transverse specification sets ``discard_above``.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     return design is not None and design.specification.discard_above is not None

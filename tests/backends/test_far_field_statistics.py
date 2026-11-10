@@ -53,6 +53,7 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import ABSORBED_CHANNELS, FAR_FIELD_STATISTICS, SpatialMedium
 from solprop.stats import ApertureSet, StatsSpec
 from solprop.stepper import PIController, RungeKutta
+from solprop.translate.routes import flux_of
 from solprop.translate.spatial import axial_admittance, separable_values
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
@@ -761,7 +762,12 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
     field = problem.initial.field0
     with pytest.raises(BackendError, match="tables"):
         collect_spatial(
-            far_spec(), grid, problem.transform, field, z=0.0, flux=problem.flux
+            far_spec(),
+            grid,
+            problem.transform,
+            field,
+            z=0.0,
+            flux=flux_of(problem.route),
         )
     tables = FarFieldTables(problem).for_spec(far_spec())
     # The saved-field names need no operator.
@@ -771,7 +777,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
         problem.transform,
         field,
         z=0.0,
-        flux=problem.flux,
+        flux=flux_of(problem.route),
         tables=tables,
     )
     assert beam["beam_spectrum"].shape == (grid.n_omega,)
@@ -782,7 +788,7 @@ def test_the_host_pass_refuses_what_it_was_not_given(grid):
             problem.transform,
             field,
             z=0.0,
-            flux=problem.flux,
+            flux=flux_of(problem.route),
             tables=tables,
         )
 

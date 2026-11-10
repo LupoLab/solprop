@@ -281,7 +281,12 @@ def envelope_case(
         )
     return replace(
         problem,
-        transform=replace(problem.transform, node_chunk=2 if route == "modal" else 3),
+        route=replace(
+            problem.route,
+            transform=replace(
+                problem.transform, node_chunk=2 if route == "modal" else 3
+            ),
+        ),
     ), grid
 
 

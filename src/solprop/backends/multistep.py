@@ -84,6 +84,7 @@ from solprop.stepper.schedule import (
     landing,
 )
 from solprop.translate.linop import phi_rate
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import TDSEPurpose
 
 if TYPE_CHECKING:
@@ -1778,7 +1779,7 @@ def source_absent(problem: Any) -> bool:
     return (
         len(responses.response_order) == 1
         and not in_stage
-        and problem.tdse is None
+        and tdse_descriptor(problem.route) is None
         and problem.transform.modal_tables is None
         and problem.linear.separable is None
     )

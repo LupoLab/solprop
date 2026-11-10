@@ -17,6 +17,7 @@ import numpy as np
 from solprop.fourier import n_omega_for
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor
 
 __all__ = [
     "LOCAL_FLUX_STATISTICS",
@@ -97,22 +98,23 @@ def reference_base_memory(
     held = bool(problem.responses.plasma_channels)
     radial = transform.geometry is not None and transform.geometry.kind == "radial"
     held_columns = chunk_columns if free or radial else n_modes * n_pol
+    descriptor = tdse_descriptor(problem.route)
     return {
         # TDSE keeps the complete radial input while stable native chunks are
         # evaluated. Include subtraction operands and embedded P/J projection
         # transients in the same admission used by the constructed reference.
         "tdse_nodal_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 8 * transform.n_nodes * n_to * 8,
         "tdse_projected_sources": 0
-        if problem.tdse is None
+        if descriptor is None
         else 6 * modal_time + 8 * field_bytes,
         # A gated source's edge term (SEP 26): the scaled g'S, its two absolute
         # rounding operands and the raw operand sum on the nodes; the projected edge
         # array and its two absolute projections, for the fine and embedded maps; and
         # the edge spectrum with 1/(i omega) and the diagnostic's band products.
         "tdse_edge_sources": 0
-        if problem.tdse is None or not problem.tdse.gated
+        if descriptor is None or not descriptor.gated
         else 4 * transform.n_nodes * n_to * 8 + 6 * modal_time + 8 * field_bytes,
         # SEP 27: total J and its two products coexist with the non-plasma
         # polarisation. Radial/free routes combine spectra on nodes; modal routes

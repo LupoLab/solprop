@@ -23,6 +23,7 @@ from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
+from solprop.translate.routes import transverse_of
 from spatial_records import record_metric
 
 COLLAR = SpatialAbsorber(kappa=11.5e3, attenuation=400.0)
@@ -65,9 +66,8 @@ def free_absorber(request):
     responses = (
         [KerrResponse(0.0, thg=False)] if request.param == "field_analytic" else []
     )
-    design = problem_for(
-        (grid, space, boundary, start, index, None, None, responses), 8
-    ).transverse
+    case = (grid, space, boundary, start, index, None, None, responses)
+    design = transverse_of(problem_for(case, 8).route)
     assert design is not None and design.has_collar
     # Build the DFT from its geometric sums, independently of FFT calls in
     # either backend, so the matrix exponential is a distinct absorber oracle.
@@ -104,7 +104,11 @@ def test_cartesian_absorber_is_the_physical_multiplication_rate(
     expected = absorption @ start[:, :, index]
     problem = problem_for(free_absorber, 8)
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     actual = derivative(spatial_backend_class, problem, grid)
     assert np.max(np.abs(actual[:, :, index] - expected)) < bound
@@ -124,11 +128,12 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
 ):
     grid, space, _, start, index, absorption, phase, _ = free_absorber
     problem = problem_for(free_absorber, steps)
-    assert problem.transverse is not None
+    design = transverse_of(problem.route)
+    assert design is not None
     linear_norm = np.max(np.abs(phase))
     # The physical absorber is unitarily similar to diag(-alpha/2), so its
     # spectral norm is known without measuring a matrix norm.
-    absorber_norm = 0.5 * problem.transverse.alpha0
+    absorber_norm = 0.5 * design.alpha0
     bound = rk_bound(linear_norm, absorber_norm, steps)
     bound += gamma(256 * (space.n_columns + grid.n_to)) * steps
     bound += gamma(64) * LENGTH * grid.omega[index] / C
@@ -199,7 +204,10 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(problem.responses, absorber_scheme="split_step"),
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     dz = LENGTH / 8
     bound = gamma(128 * (space.n_columns + grid.n_t)) * np.max(np.abs(start))

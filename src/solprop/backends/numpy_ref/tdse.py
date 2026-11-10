@@ -20,6 +20,7 @@ from solprop.backends.numpy_ref import passes
 from solprop.exceptions import BackendError
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars
 from solprop.translate.tdse import TDSEResult, lattice_times, waveform_identity
 from solprop.translate.tdse_source import steady_current_certificate
@@ -78,7 +79,7 @@ def atomic_sources(
     BackendError
         If an identity, shape or required observable does not match the model.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     if descriptor is None:
         raise BackendError("atomic source assembly requires a TDSE descriptor")
     if (
@@ -162,7 +163,7 @@ def atomic_edge_source(
         If the descriptor is absent, the result is not this configuration's, or the
         array is not finite.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     if descriptor is None:
         raise BackendError("atomic edge assembly requires a TDSE descriptor")
     if not descriptor.gated:
@@ -197,7 +198,7 @@ def _source_gate(problem: PropagationProblem) -> Float[np.ndarray, " n_to"]:
         The atomic window's gate when one is set, else the fine temporal collar,
         shape ``(n_to,)``.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     gate = None if descriptor is None else descriptor.source_gate()
     return problem.grids.t_window_fine if gate is None else gate
 
@@ -308,7 +309,8 @@ def _roundoff_terms(
     # radix-transform depth. This is a floating-point indicator, not a bound on
     # the native atomic integration, spectral truncation or physical model.
     operations = 8 + 2 * projection.shape[1] + 5 * np.ceil(np.log2(problem.grids.n_to))
-    if problem.tdse is not None and problem.tdse.gated:
+    descriptor = tdse_descriptor(problem.route)
+    if descriptor is not None and descriptor.gated:
         # The gate's multiplication.
         operations += 1
     return scaled, float(operations * np.finfo(float).eps)
@@ -702,7 +704,7 @@ def _leading_taper(
         ``"empty leading taper"``), the sampled weight ``W_- / dt`` and the bound per
         band.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     assert descriptor is not None
     remainder = np.abs(result.total_current - result.first_order_current)
     zero_low, one_low, _, zero_high = descriptor.source_breakpoints()
@@ -777,7 +779,7 @@ def _edge_diagnostic(
     dict
         JSON-compatible record of SEP 26 section 5. A diagnostic, never a gate.
     """
-    descriptor, grids = problem.tdse, problem.grids
+    descriptor, grids = tdse_descriptor(problem.route), problem.grids
     assert descriptor is not None
     weight = factor * grids.omega_window
     truncating, divided = spectra
@@ -877,8 +879,9 @@ def project_atomic_sources(  # noqa: PLR0913 - the existing seam plus the edge a
     BackendError
         If a required descriptor, map or source shape is absent or nonfinite.
     """
-    descriptor, transform, grids = problem.tdse, problem.transform, problem.grids
-    if descriptor is None or problem.current_numerator is None:
+    source, transform, grids = tdse_of(problem.route), problem.transform, problem.grids
+    descriptor = None if source is None else source.descriptor
+    if descriptor is None:
         raise BackendError(
             "TDSE projection requires independent current and polarisation factors"
         )
@@ -989,8 +992,9 @@ def _current_operands(
         If the edge array's presence, shape or finiteness is wrong, or a cubic
         replacement lacks its third-order operand.
     """
-    descriptor = problem.tdse
-    assert descriptor is not None and problem.current_numerator is not None
+    source = tdse_of(problem.route)
+    assert source is not None
+    descriptor = source.descriptor
     gated = descriptor.gated
     if gated != (edge is not None):
         raise BackendError(
@@ -1021,6 +1025,6 @@ def _current_operands(
         derivative_magnitude=None
         if not gated
         else scale * (raw * descriptor.source_gate_derivative_error())[:, None, :],
-        factor=problem.current_numerator / power_weight_at(problem, bundle.z1),
+        factor=source.current_numerator / power_weight_at(problem, bundle.z1),
         inverse=_inverse_i_omega(problem) if gated else None,
     )

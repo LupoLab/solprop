@@ -4,6 +4,7 @@
 
 """Species axes, transverse populations and final inventory accounting."""
 
+import copy
 import dataclasses
 import math
 
@@ -194,7 +195,9 @@ def test_resolved_species_energy_uses_physical_weights_and_taper(taper):
         if taper is None
         else build(lambda z: np.full(z.shape, taper), 0.0, grid.length),
     )
-    problem = dataclasses.replace(original, transform=transform)
+    problem = dataclasses.replace(
+        original, route=dataclasses.replace(original.route, transform=transform)
+    )
     fractions = np.array([[0.1, 0.2, 0.3], [0.4, 0.5, 0.6]])
     actual = population_statistics(problem, 0.0, fractions, np.zeros_like(fractions))
     density = np.array([1e24, 2e24])
@@ -225,7 +228,11 @@ def test_spatial_species_energy_uses_the_geometry_measure(geometry):
             FreeGrid(1e-3, 4, 1e-3, 4), grid, n_pol=1, z_max=grid.length
         )
     )
-    problem = dataclasses.replace(original, transform=transform)
+    # The population mapping reads only the transform's measure: put a spatial one on
+    # the modal case's route, past the route's own refusal of it.
+    route = copy.copy(original.route)
+    object.__setattr__(route, "transform", transform)
+    problem = dataclasses.replace(original, route=route)
     fractions = np.full((2, transform.n_nodes), 0.25)
     actual = population_statistics(problem, 0.0, fractions, np.zeros_like(fractions))
     assert transform.geometry is not None
@@ -254,7 +261,9 @@ def test_population_mapping_refuses_wrong_channel_extents_and_missing_measure():
     )
     with pytest.raises(BackendError, match="physical transverse node weights"):
         population_statistics(
-            dataclasses.replace(original, transform=transform),
+            dataclasses.replace(
+                original, route=dataclasses.replace(original.route, transform=transform)
+            ),
             0.0,
             np.zeros((2, 3)),
             np.zeros((2, 3)),

@@ -347,6 +347,13 @@ from solprop.translate.problem import (
     assemble,
 )
 from solprop.translate.responses import KerrForm, declares_harmonic_carrier
+from solprop.translate.routes import (
+    SpatialRoute,
+    flux_of,
+    tdse_descriptor,
+    tdse_of,
+    transverse_of,
+)
 from solprop.translate.tdse import AtomicCallLedger, TDSEBinding, refine_response_grid
 from solprop.translate.tdse_source import TDSE_UNAVAILABLE_STATISTICS
 from solprop.translate.transverse import (
@@ -1588,12 +1595,14 @@ def metadata_for(  # noqa: PLR0913 - the record's parts, each a distinct object
             "window": geometry.window,
             "absorber_rate": geometry.absorber_rate,
             "flux_model": "scalar-axial-admittance",
-            "flux_plan": flux_record(problem.flux),
+            "flux_plan": flux_record(flux_of(problem.route)),
         }
-    tdse_record = None if problem.tdse is None else dataclasses.asdict(problem.tdse)
+    descriptor = tdse_descriptor(problem.route)
+    tdse_record = None if descriptor is None else dataclasses.asdict(descriptor)
+    design = transverse_of(problem.route)
     return RunMetadata(
         reference=_plane_reference_record(problem, grid, record, frame, modes, modal),
-        transverse=None if problem.transverse is None else problem.transverse.record(),
+        transverse=None if design is None else design.record(),
         grid=GridRecord.from_grid(grid),
         modes=tuple(ModeRecord.from_mode(mode) for mode in modes),
         simulation_kind=(
@@ -2760,10 +2769,14 @@ class Simulation(Displayed):
             ),
             replacement_noise,
         )
-        updated._problem = dataclasses.replace(
-            updated._problem,
-            transverse=_rechecked(self, original, updated._problem),
-        )
+        route = updated._problem.route
+        if isinstance(route, SpatialRoute):
+            updated._problem = dataclasses.replace(
+                updated._problem,
+                route=dataclasses.replace(
+                    route, transverse=_rechecked(self, original, updated._problem)
+                ),
+            )
         if initial_z is not None:
             # A new launch changes the save planes: the launch must precede them, and
             # a replayed schedule contain them (SEP 22 section 5.2).
@@ -3465,7 +3478,7 @@ class Simulation(Displayed):
         grid = self.grid
         return TransverseEdge(
             space,
-            problem.transverse,
+            transverse_of(problem.route),
             check.edge_budget,
             check.stop_factor,
             length,
@@ -3651,7 +3664,9 @@ class Simulation(Displayed):
             retention = field_retention(
                 problem, self.settings.fields, self.settings.field_planes
             )
-            if problem.tdse is not None and not isinstance(handler, CheckpointOutput):
+            if tdse_descriptor(problem.route) is not None and not isinstance(
+                handler, CheckpointOutput
+            ):
                 raise DriverError(
                     "TDSE output must support terminal checkpoints and call ledgers"
                 )
@@ -3665,7 +3680,7 @@ class Simulation(Displayed):
             )
             if (
                 snapshots is not None
-                and problem.tdse is not None
+                and tdse_descriptor(problem.route) is not None
                 and state is not None
                 and _recorded_archive_uuid(state) is not None
                 and tdse_archive is None
@@ -3679,7 +3694,7 @@ class Simulation(Displayed):
             archive: TDSEArchiveWriter | None = None
             failure: BaseException | None = None
             try:
-                if problem.tdse is not None:
+                if tdse_descriptor(problem.route) is not None:
                     binding, archive = self._prepare_atomic(
                         problem,
                         _AtomicContext(handler, state, metadata),
@@ -3847,7 +3862,7 @@ class Simulation(Displayed):
             The binding and the open archive session, or None without a request.
             A failure closes the archive before it propagates.
         """
-        descriptor = problem.tdse
+        descriptor = tdse_descriptor(problem.route)
         assert descriptor is not None
         _warn_tdse_cost(self.settings.quadrature)
         execution = self.settings.tdse_execution
@@ -3908,7 +3923,7 @@ class Simulation(Displayed):
         backend : Backend
             The prepared optical backend.
         """
-        descriptor = problem.tdse
+        descriptor = tdse_descriptor(problem.route)
         if binding is None or descriptor is None or descriptor.model != "hacc":
             return
         declared = next(
@@ -7288,7 +7303,7 @@ class SimulationRunner(Displayed):
     def __init__(self, simulation: Simulation) -> None:
         """Translate, admit and construct the backend, once."""
         problem = simulation.translate()
-        if problem.tdse is not None:
+        if tdse_descriptor(problem.route) is not None:
             msg = (
                 "a TDSE response binds an atomic runtime with its own lifecycle, which "
                 "a runner cannot reuse across inputs; run each input with "
@@ -7730,10 +7745,12 @@ _SHARED_LEAVES = (
     "transform",
     "responses",
     "stats_spec",
-    "tdse",
-    "current_numerator",
 )
-"""The leaves :meth:`Simulation.with_input` shares with the translated problem."""
+"""The leaves :meth:`Simulation.with_input` shares with the translated problem.
+
+The route is shared but for a spatial route's transverse design, whose check
+:meth:`Simulation.with_input` reruns on the new launch: its variant and its other
+leaves are compared beside these (:func:`check_derived_problem`)."""
 
 
 def check_derived_problem(
@@ -7780,6 +7797,16 @@ def check_derived_problem(
                 "steps one translated problem and changes only its input"
             )
             raise DriverError(msg)
+    if (
+        type(derived.route) is not type(constructed.route)
+        or tdse_of(derived.route) is not tdse_of(constructed.route)
+        or flux_of(derived.route) is not flux_of(constructed.route)
+    ):
+        msg = (
+            "the input's problem does not share the runner's route: a runner steps "
+            "one translated problem and changes only its input"
+        )
+        raise DriverError(msg)
     if derived.initial.z != constructed.initial.z:
         msg = (
             f"the input is launched at z = {derived.initial.z!r} m and the runner's "
@@ -8081,7 +8108,7 @@ def _mixture_reuse(
             source, updated, old, new, problem.responses.prefactor_expansion
         ),
         kernels,
-        problem.transverse,
+        transverse_of(problem.route),
     )
 
 
@@ -8489,7 +8516,7 @@ def _validate_resume(
     elif not np.all(np.isfinite(state.plane.field)):
         raise DriverError("resume requires a finite stored field")
     outcome = state.outcome
-    if problem.tdse is not None and (
+    if tdse_descriptor(problem.route) is not None and (
         outcome is None or not outcome.logical_calls or not outcome.atomic_calls
     ):
         raise DriverError("a TDSE resume requires persisted cumulative call ledgers")
@@ -8500,7 +8527,7 @@ def _validate_resume(
             raise DriverError("logical call budget is below previously charged work")
     if outcome is not None and outcome.atomic_calls:
         atomic = AtomicCallLedger.from_record(outcome.atomic_calls)
-        if problem.tdse is None or execution is None:
+        if tdse_descriptor(problem.route) is None or execution is None:
             raise DriverError(
                 "an atomic call ledger requires an explicit TDSE execution"
             )
@@ -8536,7 +8563,7 @@ def _check_tdse_archive(
         return
     if not isinstance(archive, TDSEArchive):
         raise DriverError("tdse_archive must be a TDSEArchive or None")
-    if problem.tdse is None:
+    if tdse_descriptor(problem.route) is None:
         raise DriverError(
             "tdse_archive archives a TDSE response's provider evaluations; this run "
             "has no TDSE response"
@@ -8633,7 +8660,7 @@ def _open_tdse_archive(
     TDSEArchiveWriter or None
         The open session, or None without a request.
     """
-    descriptor = problem.tdse
+    descriptor = tdse_descriptor(problem.route)
     if archive is None or descriptor is None:
         return None
     recorded = None if state is None else _recorded_archive_uuid(state)
@@ -9870,7 +9897,7 @@ def _rechecked(
     DriverError
         If the check refuses the design for the new launch.
     """
-    design = original.transverse
+    design = transverse_of(original.route)
     if design is None or not design.has_collar:
         return design
     space = simulation.spatial_grid
@@ -9966,7 +9993,7 @@ def _refuse_pending_check(problem: PropagationProblem) -> None:
     DriverError
         If its transverse design's check is pending.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     if design is not None and design.check.get("status") == "pending":
         msg = (
             "this run's collar has not been checked against a launch: give it one "

@@ -105,7 +105,10 @@ def vector_problem(
     )
     if chunk is not None:
         problem = replace(
-            problem, transform=replace(problem.transform, node_chunk=chunk)
+            problem,
+            route=replace(
+                problem.route, transform=replace(problem.transform, node_chunk=chunk)
+            ),
         )
     return problem, grid, modes
 

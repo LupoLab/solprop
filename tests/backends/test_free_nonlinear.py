@@ -146,7 +146,11 @@ def test_cartesian_kerr_matches_physical_column_oracle(
     problem = make_problem(grid, space, initial, [response])
     # Force a remainder chunk, independently of the memory-derived default.
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     actual = derivative(spatial_backend_class, problem, grid)
     defect = np.max(np.abs(actual - expected))
@@ -212,8 +216,7 @@ def test_cartesian_linear_flow_resolves_both_sides_and_exact_cutoff(
         problem,
         linear=dataclasses.replace(problem.linear, separable=data),
         responses=dataclasses.replace(problem.responses, separable=data),
-        # A uniform Cartesian medium's plane measure is its own operator (SEP 34).
-        flux=FluxPlan(data),
+        route=dataclasses.replace(problem.route, flux=FluxPlan(data)),
     )
     root = np.sqrt(complex(residual))
     expected = initial.copy()

@@ -143,6 +143,9 @@ def planar_case(name, *, steps=None, node_chunk=None):
     if node_chunk is not None:
         problem = dataclasses.replace(
             problem,
-            transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
+            ),
         )
     return grid, space, problem

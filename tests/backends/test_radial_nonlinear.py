@@ -513,7 +513,11 @@ def test_radial_chunked_nonlinear_transform_matches_the_full_rule(
     _, grid, space, start, responses, density = nonlinear_case
     problem = make_problem(grid, space, start, responses, density=density)
     chunked = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     # Repartitioning changes the reduction association only; its two dense sums
     # and temporal transforms are bounded before either derivative is evaluated.

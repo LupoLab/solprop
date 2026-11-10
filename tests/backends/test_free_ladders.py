@@ -82,8 +82,11 @@ def free_case(request):
     )
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     return family, grid, space, problem
 
@@ -242,8 +245,11 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
     names = ("electron_density", "peak_ionisation_rate", "species_electron_density")
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=names),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     rows = {}
     for implementation in (NumpyRefBackend, spatial_backend_class):

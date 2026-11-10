@@ -158,7 +158,6 @@ def problem_for(tag, steps):
     fine_window.setflags(write=False)
     problem = dataclasses.replace(
         problem,
-        transform=transform,
         responses=compiled,
         linear=dataclasses.replace(
             constant_phi(spectrum(tag + "_LINEAR"), grid.length),
@@ -166,14 +165,12 @@ def problem_for(tag, steps):
             power_weight=problem.linear.power_weight,
             power_weight_constant=problem.linear.power_weight_constant,
         ),
-        # This source-level witness matches Luna's physical electric-field launch.
-        # The user launch conversion has separate tests; retain this exact
-        # internal amplitude so the archived coefficient witness keeps its scope.
         initial=dataclasses.replace(
             problem.initial,
             field0=spectrum(tag + "_INITIAL")[None, None, :],
         ),
         grids=dataclasses.replace(problem.grids, t_window_fine=fine_window),
+        route=dataclasses.replace(problem.route, transform=transform),
     )
     problem.validate()
     return problem, grid

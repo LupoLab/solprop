@@ -434,7 +434,9 @@ def test_tdse_is_refused_by_name_before_integrator_or_native_setup(
     # earliest refusal. Neither a valid atomic basis nor an optional provider is
     # needed to reject a route that this backend never executes.
     requested = copy.copy(problem)
-    object.__setattr__(requested, "tdse", SimpleNamespace(source_filter=source_filter))
+    route = copy.copy(problem.route)
+    object.__setattr__(route, "tdse", SimpleNamespace(source_filter=source_filter))
+    object.__setattr__(requested, "route", route)
     object.__setattr__(
         requested,
         "stepper",
@@ -515,7 +517,15 @@ def test_every_schema_14_general_modal_leaf_is_refused_by_name(
     assert getattr(getattr(problem, group), leaf) is None
     spoiled_group = copy.copy(getattr(problem, group))
     object.__setattr__(spoiled_group, leaf, _leaf_value(problem, leaf))
-    spoiled = dataclasses.replace(problem, **{group: spoiled_group})
+    if group == "transform":
+        # The transform is the route's, whose own check refuses tables on a modal
+        # route: the copy is spoiled past it, as the transform was.
+        route = copy.copy(problem.route)
+        object.__setattr__(route, "transform", spoiled_group)
+        spoiled = copy.copy(problem)
+        object.__setattr__(spoiled, "route", route)
+    else:
+        spoiled = dataclasses.replace(problem, **{group: spoiled_group})
     expected = {
         "coupled_flow": r"native executes a constant-Schur coupled flow",
         "modal_metric": r"native executes linear\.modal_metric",

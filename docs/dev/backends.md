@@ -481,7 +481,7 @@ contract does not carry.
 
 **Spatial statistics measure the medium's flux** ([SEP 34](seps/archive/sep-0034-medium-flux.md)).
 The shared spatial statistics, `backends.spatial.collect_spatial`, read the plane's
-coefficients through `problem.flux.at(z)` (kernel schema 35): energy and the far-field
+coefficients through `problem.route.flux.at(z)` (the spatial route's plane measure) (kernel schema 35): energy and the far-field
 spectra weight each column and bin by the real admittance `c Re k_z/omega` of that root,
 and fluence, intensities and the on-axis spectrum synthesise the closure `G` from the
 complex admittance before forming `Re(E conj(G))/2`, signed and not clipped. The widths

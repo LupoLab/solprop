@@ -45,8 +45,11 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
     reference = derivative(NumpyRefBackend, problem, grid)
     whole = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(
-            problem.transform, node_chunk=problem.transform.n_nodes
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(
+                problem.transform, node_chunk=problem.transform.n_nodes
+            ),
         ),
     )
     backend = NumpyRefBackend(whole, grid=grid)

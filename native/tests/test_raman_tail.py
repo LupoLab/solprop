@@ -91,10 +91,13 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
     )
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
         stepper=dataclasses.replace(
             problem.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
+        ),
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
         ),
     )
     if chunk > 1:
@@ -154,8 +157,11 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 for peer_chunk in (1, 4):
                     peer_problem = dataclasses.replace(
                         problem,
-                        transform=dataclasses.replace(
-                            problem.transform, node_chunk=peer_chunk
+                        route=dataclasses.replace(
+                            problem.route,
+                            transform=dataclasses.replace(
+                                problem.transform, node_chunk=peer_chunk
+                            ),
                         ),
                     )
                     peer = NativeBackend(peer_problem, grid=grid)

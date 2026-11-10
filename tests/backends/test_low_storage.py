@@ -74,6 +74,7 @@ from solprop.stepper import (
 from solprop.stepper.schedule import LANDING_ULPS
 from solprop.translate.linop import delta_phi
 from solprop.translate.problem import PropagatorMode, StepperSettings, assemble
+from solprop.translate.routes import TDSESource
 
 # The fixtures here launch noise-free into time windows kept tight for speed, which
 # hold more than a millionth of the energy in their guards or collar: the boundary
@@ -804,8 +805,8 @@ def test_the_translation_refuses_a_coupled_flow():
 def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
     """Through ``validate``, before the TDSE route's own checks would name Adams.
 
-    The descriptor is the Adams route's; the march's check reads only its presence and
-    the current numerator beside it, so stand-ins suffice (the full TDSE path is the
+    The march's check reads only the TDSE source's presence, and it runs before the
+    route's own checks, so an unfilled stand-in suffices (the full TDSE path is the
     route's own tests').
     """
     length = 0.1
@@ -817,8 +818,9 @@ def test_the_tdse_response_is_refused_by_name(soliton_problem, narrow_grid):
         integrator=MARCH,
     )
     spoiled = copy.copy(problem)
-    object.__setattr__(spoiled, "tdse", object())
-    object.__setattr__(spoiled, "current_numerator", np.zeros(problem.shape))
+    route = copy.copy(spoiled.route)
+    object.__setattr__(route, "tdse", object.__new__(TDSESource))
+    object.__setattr__(spoiled, "route", route)
     with pytest.raises(TranslationError, match="does not step the TDSE response"):
         spoiled.validate()
 
@@ -1241,7 +1243,11 @@ def cartesian_march(mode, *, noise=None, collar=False):
         absorber_scheme="nonlinear",
     )
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=7),
+        ),
     )
     if collar:
         # A collar cannot be designed on this coarse box (SEP 40's floor); the subject

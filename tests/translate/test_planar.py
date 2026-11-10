@@ -27,6 +27,7 @@ from solprop.translate.planar import (
     planar_transform,
 )
 from solprop.translate.problem import assemble
+from solprop.translate.routes import transverse_of
 from solprop.translate.spatial import (
     SeparableOperator,
     SpatialGeometry,
@@ -95,7 +96,7 @@ def test_the_geometry_is_the_slab_kind_with_columns_and_nodes_apart(space, probl
     rows = geometry.window.reshape(16, -1)
     assert_array_equal(rows, np.repeat(space.window_y[:, None], space.x.size, axis=1))
     assert np.any(rows < 1)
-    assert problem.transverse is None
+    assert transverse_of(problem.route) is None
     assert not np.any(geometry.absorber_rate)
     assert geometry.inverse_scale == 1 / 16
     assert problem.stepper.propagator_mode == "auto"
@@ -107,7 +108,7 @@ def test_a_requested_collar_sets_the_y_rate_outside_the_window():
     modes = [SlabMode(HALF_GAP, "Ar", 1.0, order=p) for p in (1, 3)]
     roomy = PlanarGrid(modes, 1e-3, 40, collar_fraction=1.0)
     problem = assembled(roomy, spatial_absorber=SpatialAbsorber(kappa=2.5e4))
-    design = problem.transverse
+    design = transverse_of(problem.route)
     geometry = problem.transform.geometry
     assert design is not None and design.has_collar and geometry is not None
     rows = geometry.window.reshape(40, -1)

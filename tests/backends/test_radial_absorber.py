@@ -31,6 +31,7 @@ from solprop.nonlinear.responses import KerrResponse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import DOPRI5, FixedSchedule, PIController
 from solprop.translate.problem import assemble
+from solprop.translate.routes import transverse_of
 from spatial_records import record_metric
 
 EPS = np.finfo(float).eps
@@ -107,7 +108,7 @@ def absorber_case(request):
     responses = (
         [KerrResponse(chi3=0.0, thg=False)] if family == "field_analytic" else []
     )
-    design = assembled(grid, space, boundary, start, responses, 8).transverse
+    design = transverse_of(assembled(grid, space, boundary, start, responses, 8).route)
     assert design is not None and design.has_collar
     # Direct Fourier-Bessel forward and inverse formulas, independent of the
     # backend's composed matrix and with no temporal pad/crop factors.

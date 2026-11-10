@@ -41,6 +41,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.responses import prefactor_at
+from solprop.translate.routes import TDSESource, tdse_descriptor, tdse_of
 from solprop.translate.stage import StageScalars, scalars
 from solprop.translate.tdse import (
     AtomicCallBudget,
@@ -97,8 +98,8 @@ class EdgeCase:
     @property
     def descriptor(self) -> TDSEDescriptor:
         """Return the descriptor."""
-        assert self.problem.tdse is not None
-        return self.problem.tdse
+        assert tdse_descriptor(self.problem.route) is not None
+        return tdse_descriptor(self.problem.route)
 
     def to_source(self, raw: np.ndarray) -> np.ndarray:
         """Map a raw coarse spectrum of ``S`` to the source's modal units.
@@ -113,7 +114,9 @@ class EdgeCase:
             ones, problem.transform.projection, bundle.taper_scale, 1
         )
         scale = bundle.density * self.descriptor.remainder_scale
-        factor = problem.current_numerator / power_weight_at(problem, bundle.z1)
+        source = tdse_of(problem.route)
+        assert source is not None
+        factor = source.current_numerator / power_weight_at(problem, bundle.z1)
         return factor * (scale * weight) * raw
 
     def raw_dft(self, values: np.ndarray) -> np.ndarray:
@@ -196,8 +199,13 @@ def make_case(  # noqa: PLR0913 - one keyword per lattice choice of the fixture.
     )
     problem = dataclasses.replace(
         problem,
-        tdse=TDSEDescriptor.from_response(response, grid),
-        current_numerator=current_numerator(grid),
+        route=dataclasses.replace(
+            problem.route,
+            tdse=TDSESource(
+                descriptor=TDSEDescriptor.from_response(response, grid),
+                current_numerator=current_numerator(grid),
+            ),
+        ),
     )
     return EdgeCase(
         problem, grid, scalars(problem, 0.0, 0.0), prefactor_at(problem.responses, 0.0)

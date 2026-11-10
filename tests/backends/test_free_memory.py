@@ -45,13 +45,13 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
     fine_rate.setflags(write=False)
     problem = dataclasses.replace(
         problem,
-        transform=transform,
         responses=dataclasses.replace(
             problem.responses,
             absorber_scheme=scheme,
             temporal_absorber=coarse_rate,
             temporal_absorber_fine=fine_rate,
         ),
+        route=dataclasses.replace(problem.route, transform=transform),
     )
     backend = spatial_backend_class(problem, grid=grid)
     try:

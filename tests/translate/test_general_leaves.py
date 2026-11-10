@@ -14,6 +14,7 @@ but relates nothing to the canonical state, so the last section of this module c
 the four leaves against a real problem's grids, channels and run (contract section 4).
 """
 
+import copy
 import warnings
 from dataclasses import replace
 
@@ -37,6 +38,7 @@ from solprop.translate.coupled import (
 from solprop.translate.modal_tables import ModalTransformTables
 from solprop.translate.problem import _walk_arrays, assemble
 from solprop.translate.responses import RegionalResponseTables
+from solprop.translate.routes import GeneralRoute
 
 OMEGA = np.linspace(1.0e15, 2.0e15, 3)
 N_OMEGA = len(OMEGA)
@@ -848,6 +850,16 @@ def with_leaves(problem, **leaves):
         group = changed.get(group_name) or replace(getattr(problem, group_name))
         object.__setattr__(group, name, value)
         changed[group_name] = group
+    transform = changed.pop("transform", None)
+    if transform is not None:
+        # The transform is the route's. A general modal reference makes the route a
+        # general one; any other change is set on a copy, past the route's own check.
+        if transform.modal_tables is not None and transform.geometry is None:
+            changed["route"] = GeneralRoute(transform)
+        else:
+            route = copy.copy(problem.route)
+            object.__setattr__(route, "transform", transform)
+            changed["route"] = route
     return replace(problem, **changed)
 
 

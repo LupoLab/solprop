@@ -22,6 +22,7 @@ from solprop.translate.linop import constant_phi, delta_phi, tabulate, unitary_p
 from solprop.translate.problem import assemble
 from solprop.translate.radial import radial_transform
 from solprop.translate.responses import compile_responses, prefactor_at
+from solprop.translate.routes import ModalRoute, spatial_kind
 from solprop.translate.spatial import (
     SeparableOperator,
     SpatialGeometry,
@@ -342,14 +343,6 @@ def free_contract():
     )
     return dataclasses.replace(
         original,
-        transform=dataclasses.replace(
-            original.transform,
-            geometry=geometry,
-            kind="free",
-            synthesis=np.empty((0, 0)),
-            projection=np.empty((0, 0)),
-            projection_coarse=np.empty((0, 0)),
-        ),
         linear=dataclasses.replace(
             original.linear,
             phi_representation="separable",
@@ -363,6 +356,18 @@ def free_contract():
             separable=coefficients,
             prefactor=None,
             prefactor_constant=None,
+        ),
+        route=dataclasses.replace(
+            original.route,
+            kind=spatial_kind(geometry),
+            transform=dataclasses.replace(
+                original.transform,
+                geometry=geometry,
+                kind="free",
+                synthesis=np.empty((0, 0)),
+                projection=np.empty((0, 0)),
+                projection_coarse=np.empty((0, 0)),
+            ),
         ),
     )
 
@@ -412,18 +417,19 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
     problem = free_contract
     without_geometry = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(
-            problem.transform,
-            geometry=None,
-            kind="modal",
-            node_chunk=1,
-            synthesis=np.ones((1, 1)),
-            projection=np.ones((1, 1)),
-            projection_coarse=np.ones((1, 1)),
+        # A problem without geometry is a modal one and carries no plane measure,
+        # which leaves the separable operator as the one inconsistency.
+        route=ModalRoute(
+            transform=dataclasses.replace(
+                problem.transform,
+                geometry=None,
+                kind="modal",
+                node_chunk=1,
+                synthesis=np.ones((1, 1)),
+                projection=np.ones((1, 1)),
+                projection_coarse=np.ones((1, 1)),
+            )
         ),
-        # A problem without geometry carries no plane measure; dropping it too
-        # leaves the separable operator as the one inconsistency.
-        flux=None,
     )
     with pytest.raises(TranslationError, match="requires free or slab geometry"):
         without_geometry._check_spatial()
@@ -463,9 +469,12 @@ def test_free_absorber_stability_refuses_only_above_the_unitary_transverse_limit
         rate = np.full_like(geometry.absorber_rate, threshold * factor)
         candidate = dataclasses.replace(
             problem,
-            transform=dataclasses.replace(
-                problem.transform,
-                geometry=dataclasses.replace(geometry, absorber_rate=rate),
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(
+                    problem.transform,
+                    geometry=dataclasses.replace(geometry, absorber_rate=rate),
+                ),
             ),
         )
         if refused:

@@ -278,15 +278,15 @@ def substitute():
         parts = {
             "grids": base.grids,
             "linear": base.linear,
-            "transform": base.transform,
             "responses": base.responses,
             "initial": base.initial,
             "stepper": base.stepper,
+            "route": base.route,
         } | groups
         derived = flags or Flags.from_content(
             base.shape,
             parts["linear"],
-            parts["transform"],
+            parts["route"].transform,
             parts["responses"],
             parts["initial"],
         )
@@ -295,6 +295,8 @@ def substitute():
             shape=base.shape,
             flags=derived,
             stats_spec=base.stats_spec,
+            precision=base.precision,
+            split_crossing=base.split_crossing,
             **parts,
         )
         if validate:

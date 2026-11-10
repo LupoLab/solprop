@@ -16,6 +16,7 @@ import dataclasses
 import inspect
 import io
 import logging
+import typing
 
 import numpy as np
 import pytest
@@ -39,7 +40,9 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate import routes
 from solprop.translate.linop import LinearOperator, delta_phi
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.spatial import SeparableOperator
 from solprop.translate.stage import StageScalars, StageTerms, scalars
 
@@ -1318,3 +1321,60 @@ def test_the_adams_and_dense_hooks_default_to_refusal(driver):
     np.testing.assert_allclose(
         propagator.reshape(-1), np.broadcast_to(expected, propagator.shape).reshape(-1)
     )
+
+
+# --- the descriptor (SEP 47 section 6.2) -------------------------------------------
+
+PROPAGATION_PROBLEM_FIELDS = (
+    "grid_kind",
+    "shape",
+    "flags",
+    "grids",
+    "linear",
+    "responses",
+    "initial",
+    "stepper",
+    "stats_spec",
+    "route",
+    "precision",
+    "split_crossing",
+)
+"""The fields of the one descriptor that crosses into a backend, in order."""
+
+ROUTE_VARIANT_FIELDS = {
+    "ModalRoute": ("transform", "tdse"),
+    "GeneralRoute": ("transform",),
+    "SpatialRoute": ("kind", "transform", "flux", "transverse"),
+}
+"""The closed route union: each variant and its fields, in order.
+
+A route is added or changed here, in `kernel-contract.md` and in native's
+`ROUTE_FIELDS` together (the contract's extension procedure, section 10)."""
+
+TDSE_SOURCE_FIELDS = ("descriptor", "current_numerator")
+SPATIAL_KINDS = ("radial", "cartesian", "planar", "line")
+
+
+def test_the_descriptor_and_its_route_union_are_frozen():
+    assert (
+        tuple(field.name for field in dataclasses.fields(PropagationProblem))
+        == PROPAGATION_PROBLEM_FIELDS
+    )
+    assert typing.get_args(routes.Route.__value__) == tuple(
+        getattr(routes, name) for name in ROUTE_VARIANT_FIELDS
+    )
+    for name, expected in ROUTE_VARIANT_FIELDS.items():
+        variant = getattr(routes, name)
+        assert tuple(field.name for field in dataclasses.fields(variant)) == expected
+    assert (
+        tuple(field.name for field in dataclasses.fields(routes.TDSESource))
+        == TDSE_SOURCE_FIELDS
+    )
+    assert routes.SPATIAL_KINDS == SPATIAL_KINDS
+
+
+def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
+    native = pytest.importorskip("solprop_native")
+    assert set(native.PROBLEM_FIELDS) <= set(PROPAGATION_PROBLEM_FIELDS)
+    for name, fields in native.ROUTE_FIELDS.items():
+        assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])

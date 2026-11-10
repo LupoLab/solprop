@@ -1,8 +1,9 @@
 # The kernel contract
 
-`solprop.translate.problem.PropagationProblem` is the only object that crosses from the physics and
-translation layers into a backend. It is a frozen dataclass of plain NumPy arrays and scalars,
-validated, and documented here field by field. A backend may assume everything
+`solprop.translate.problem.PropagationProblem` is the only object that crosses from the
+physics and translation layers into a backend: one trajectory's validated numerical
+meaning, its route a closed union of typed variants. It is a frozen dataclass of plain
+NumPy arrays and scalars, validated, and documented here field by field. A backend may assume everything
 stated here and nothing else; the translation layer promises everything stated here and
 nothing else. Changing this file and the dataclass together is the only way to extend the
 contract, and a test checks that the fields listed here and the fields of the dataclass agree.
@@ -48,19 +49,60 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
-| `transform` | frozen dataclass | section 4 (`translate.modal.Transform`) |
 | `responses` | frozen dataclass | section 5 (`translate.responses.CompiledResponses`) |
 | `initial` | frozen dataclass | section 6 (`translate.problem.Initial`) |
 | `stepper` | frozen dataclass | section 7 (`translate.problem.StepperSettings`) |
-| `tdse` | `TDSEDescriptor` or `None` | immutable atomic specification, resolved response lattice and scientific identity; section 5 |
-| `current_numerator` | `(n_modes,n_pol,n_omega) float64` or `None` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins; divided by the stage real effective index |
-| `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
+| `route` | `ModalRoute \| GeneralRoute \| SpatialRoute` | the closed union of route descriptions (`translate.routes`), each variant carrying exactly the fields its executor needs: the transform (§4) and the route's own leaves. Below, under *The route union* |
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
-| `transverse` | `SpatialAbsorberDesign` or `None` | a free-space run's resolved transverse boundary ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary and on modal routes. Added in version 41 |
 | `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
-`PropagationProblem` also carries one **property**, which is not a field and so not a row
-above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
+`PropagationProblem` also carries two **properties**, which are not fields and so not rows
+above: `transform`, the route's transform, and `device_ready`, true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
+
+### The route union
+
+`route` is one of three frozen variants from `translate.routes`, a closed union
+([SEP 47](seps/sep-0047-run-ownership.md) §6.2). The grid, operator, response and source
+groups above are shared by every route; a variant carries exactly the fields its
+executor needs, and checks them on construction. `validate()` visits the variant with a
+`match` statement for what spans groups, and every backend admits a problem the same
+way: it visits `problem.route`, and prepares the variant or refuses it, by name
+(`translate.routes.route_name`), before it allocates. `PropagationProblem.transform` is
+a read-only property, the route's transform, which every variant has.
+
+`ModalRoute` — modal amplitudes through the static synthesis and projection of §4: the
+mode-averaged effective-area route and the resolved quadrature, a wall's coupled flow
+(§3) among them.
+
+| field | type | meaning |
+|---|---|---|
+| `transform` | frozen dataclass | §4, of kind `"mode_averaged"` or `"modal"`, with neither `geometry` nor `modal_tables` |
+| `tdse` | `TDSESource` or `None` | the TDSE response, the modal route's reference-only extension (§6); `None` without one |
+
+`TDSESource` — the TDSE response's immutable scientific identity. Only `numpy_ref`
+executes it; `native` refuses it by name. Its execution resource, the atomic binding, is
+the driver's and crosses explicitly (§6).
+
+| field | type | meaning |
+|---|---|---|
+| `descriptor` | `TDSEDescriptor` | atomic specification, resolved response lattice and scientific identity |
+| `current_numerator` | `(n_modes,n_pol,n_omega) float64` | independent current coefficient numerator, `-crop_scale/(2 epsilon_0 c)` on active bins and zero elsewhere, frozen and nowhere positive; divided by the stage real effective index |
+
+`GeneralRoute` — a general modal guide (the route a
+`translate.general.GeneralModalRoute` record assembles into).
+
+| field | type | meaning |
+|---|---|---|
+| `transform` | frozen dataclass | §4, carrying `modal_tables`; its static matrices are the declared placeholders |
+
+`SpatialRoute` — free space on a transverse grid of one of four kinds.
+
+| field | type | meaning |
+|---|---|---|
+| `kind` | `"radial" \| "cartesian" \| "planar" \| "line"` | the transverse grid: Hankel, two-dimensional Cartesian, the hybrid planar slab transform, or a Cartesian grid one sample wide in y (`grid.LineGrid`); equal to `translate.routes.spatial_kind` of the geometry |
+| `transform` | frozen dataclass | §4, with a spatial `geometry` (`"radial"`, `"free"` or `"slab"`) |
+| `flux` | `FluxPlan` | the plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Its active mask equals `grids.active_mask` |
+| `transverse` | `SpatialAbsorberDesign` or `None` | the resolved transverse boundary ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary |
 
 **How a stage is evaluated, and why `device_ready` exists.** Three of the quantities a
 stage needs are *arrays* that depend on z — the propagator's exponent ΔΦ, the response
@@ -978,7 +1020,8 @@ kernel-cache validity; the one-component kernel keeps the single-species amplitu
 
 ### Optional TDSE source binding
 
-`tdse` describes the atomic basis, prepared ground state, discrete shadow order,
+`route.tdse.descriptor` (the modal route's `TDSESource`, §1) describes the atomic
+basis, prepared ground state, discrete shadow order,
 output selection, calibration and response lattice as canonical JSON and a SHA-256
 identity. The scalar fields are checked against this record. It contains no
 native handle. The driver passes a `translate.tdse.TDSEBinding` explicitly to
@@ -1065,6 +1108,13 @@ already holds, or one the translation built for it, is taken without a second co
 
 ## 7. Stepper settings and schedule
 
+These settings, and the statistics request of §8, are run policy rather than the
+problem's numerical meaning: a backend's session also receives them, resolved, in the
+immutable `translate.run_request.RunRequest` it is prepared with
+([SEP 47](seps/sep-0047-run-ownership.md) §§5.2, 6.3). They stay on the descriptor until
+the backends that still read `problem.stepper` and `problem.stats_spec` take them from
+the request at preparation; that move is SEP 47 work still to land.
+
 | field | type | meaning |
 |---|---|---|
 | `tableau` | frozen dataclass | `solprop.stepper.tableau.Tableau`: nodes, matrix, solution weights, error weights `b − b̂`, orders, FSAL flag |
@@ -1144,14 +1194,25 @@ the step history and over the same interval, and a row may not index past it.
 
 ## 10. Extension procedure
 
-1. Add the field to the dataclass with a default under which a problem that does not use
-   it is unchanged.
-2. Add the row here, rewrite the frozen tables the change moves
-   (`tests/backends/test_driver.py`) and add a release-note fragment.
-3. Extend `validate()`.
-4. Implement in `numpy_ref` and `native`, in either order (ADR-068), with a test and the
-   equivalence test; a backend that does not have it yet refuses it by name.
-5. Update the memory budget in [architecture.md §8](architecture.md) if a buffer is added.
+The descriptor is a typed contract, extended by changing its types and their tests in
+both distributions, never through an untyped optional field
+([SEP 47](seps/sep-0047-run-ownership.md) §6.2):
+
+| Addition | Contract, admission and qualification |
+|---|---|
+| Route | Add a variant to the union in `translate.routes`, with its scientific validation in its own `__post_init__` and in `PropagationProblem.validate`'s visit of the route. Each backend visits it (`numpy_ref`'s `refuse_route`, `native`'s `_refuse_native_route`) and either prepares it or refuses it by name before workspace allocation. Qualify the route's transforms, flow, source and export against independent references. |
+| Response/operator | Add a typed component within the finite representation vocabulary (§3, §5), its units, shape, validity and error contract, and its validation. Extend reference evaluation, native lowering and the capability tests; never pass it through an untyped optional field. |
+| Statistic | Add its typed specification, dependencies, units and sampling rules to the statistics request (§8); qualify periodic and plane equivalence and reference and native reductions, including field-free execution. |
+| Auxiliary evolving state | Add a typed physical-state component, separate from method history. Its own physics SEP specifies initialisation, evolution and stage coupling, rejection rollback, error control, observations, checkpoint and reset, and group ownership before admission. The present set is empty. |
+
+Every addition updates the rows of this document (which
+`tests/translate/test_problem.py` checks against the dataclasses in both directions),
+the frozen descriptor tables in `tests/backends/test_driver.py`, `native`'s
+`_check_seam` manifest when the native adapter reads it, the capability and refusal
+tests, the memory ledger ([architecture.md §8](architecture.md)), the manual and the
+source and error-budget evidence, and adds a release-note fragment. It lands on
+`numpy_ref` and native CPU, in either order (ADR-068), unless its accepted SEP records
+an exception. There is no version counter to bump (ADR-068).
 
 ## 11. The Adams march
 

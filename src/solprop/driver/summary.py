@@ -33,6 +33,7 @@ from solprop.monitor import BoundaryCheck
 from solprop.output.schema import Output, RunMetadata
 from solprop.stepper.multistep import Multistep
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor, transverse_of
 from solprop.transverse_monitor import READS
 
 __all__ = [
@@ -566,7 +567,7 @@ def _responses(problem: PropagationProblem, configuration: Mapping[str, object])
         raman_terms=problem.flags.n_raman if problem.flags.has_raman else None,
         plasma=problem.flags.has_plasma,
         dispersive=problem.responses.dispersive_kerr is not None,
-        tdse=problem.tdse is not None,
+        tdse=tdse_descriptor(problem.route) is not None,
     )
     if not any(line.startswith("Raman") for line in lines):
         lines.append("Raman off")
@@ -832,7 +833,7 @@ def _transverse(
     str
         The boundary, then what the monitor will report.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     if design is None:
         boundary = "wall or wrap, no safety ramp"
     elif design.has_collar:

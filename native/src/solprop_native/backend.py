@@ -138,6 +138,14 @@ from solprop.translate.plasma_source import (
 )
 from solprop.translate.problem import PropagationProblem, PropagatorMode
 from solprop.translate.responses import CompiledResponses, ResponseStage
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    SpatialRoute,
+    flux_of,
+    route_name,
+    transverse_of,
+)
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -1363,7 +1371,7 @@ class NativeBackend(StepDriver[_core.State]):
         """
         _, n_pol, n_omega = self._problem.shape
         return _transverse_edge_bytes(
-            cast("Any", space), self._problem.transverse, n_pol, n_omega
+            cast("Any", space), transverse_of(self._problem.route), n_pol, n_omega
         )
 
     def _edge_reading(
@@ -4230,11 +4238,26 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
             "solprop-native computes in binary64 only and refuses precision='single' "
             "(solprop SEP 33); use backend='numpy_ref', the single-precision oracle"
         )
-    if problem.tdse is not None:
-        raise BackendError(
-            "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
-            "use backend='numpy_ref' with the independent solprop-tdse atomic engine"
-        )
+    # The route by its variant (solprop SEP 47 section 6.2), refused by name before
+    # anything is allocated: every route of the union but the modal route's TDSE
+    # extension, which is the reference's alone.
+    match problem.route:
+        case ModalRoute(tdse=tdse) if tdse is not None:
+            raise BackendError(
+                "solprop-native does not execute TDSEGasResponse (solprop SEP 12); "
+                "use backend='numpy_ref' with the independent solprop-tdse atomic "
+                "engine"
+            )
+        case (
+            ModalRoute()
+            | GeneralRoute()
+            | SpatialRoute(kind="radial" | "cartesian" | "planar" | "line")
+        ):
+            pass
+        case route:
+            raise BackendError(
+                f"solprop-native does not execute the {route_name(route)} route"
+            )
     # Schema 16's low-call Adams integrator (solprop SEP 13) runs here on the modal
     # fibre route (SEP 14 phase 2), its source evaluated by the general engine's stage
     # pipeline; elsewhere it is refused by name rather than stepped by this backend's
@@ -5030,7 +5053,7 @@ def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
     (:func:`_upload_flux_table`); the admission record is not read. ``flux_closure``
     sizes the magnetic closure's buffers for the problem's own local statistics.
     """
-    flux = problem.flux
+    flux = flux_of(problem.route)
     if flux is None:
         return {}
     closure = bool(set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS)
@@ -5056,7 +5079,7 @@ def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
 
 def _upload_flux_table(native: _core.State, problem: PropagationProblem) -> None:
     """Make a radial plane measure's material z table resident, once (SEP 34)."""
-    flux = problem.flux
+    flux = flux_of(problem.route)
     if flux is None or flux.material is None:
         return
     table = flux.material

@@ -163,6 +163,16 @@ from solprop.translate.responses import (
     response_kinks,
     unlanded_kinks,
 )
+from solprop.translate.routes import (
+    GeneralRoute,
+    ModalRoute,
+    Route,
+    SpatialRoute,
+    TDSESource,
+    route_name,
+    spatial_kind,
+    tdse_of,
+)
 from solprop.translate.spatial import (
     FluxPlan,
     RateBounds,
@@ -913,8 +923,6 @@ class PropagationProblem:
         Frequency axis, masks and oversampling data (section 2).
     linear : solprop.translate.linop.LinearOperator
         The cumulative linear operator (section 3).
-    transform : solprop.translate.modal.Transform
-        Synthesis and projection (section 4).
     responses : solprop.translate.responses.CompiledResponses
         The compiled nonlinear term (section 5).
     initial : Initial
@@ -923,21 +931,13 @@ class PropagationProblem:
         Tableau, controller, caps and schedule (section 7).
     stats_spec : solprop.stats.StatsSpec
         Which statistics to collect (section 8).
-    tdse : solprop.translate.tdse.TDSEDescriptor or None, optional
-        Immutable atomic and response-lattice scientific identity. Execution plans
-        remain owned by the driver and cross the seam as an explicit binding.
-    current_numerator : numpy.ndarray or None, optional
-        Independent current source numerator, ``-crop_scale/(2 epsilon_0 c)``,
-        shape ``(n_modes, n_pol, n_omega)``. Zero outside the retained band.
-        Divide by the stage's real effective index without dividing by frequency.
-    flux : solprop.translate.spatial.FluxPlan or None, optional
-        A spatial run's plane-measure coefficients (version 35); required with
-        spatial geometry and absent otherwise.
+    route : solprop.translate.routes.ModalRoute, GeneralRoute or SpatialRoute
+        What differs between routes, in exactly one variant of a closed union, each
+        with the fields its executor needs (SEP 47 section 6.2): the transform
+        (section 4) and the route's own leaves (:mod:`solprop.translate.routes`).
     precision : solprop.translate.precision.Precision, optional
         The arithmetic the run is held in (version 36): binary64 by default, or
         binary32 under SEP 33's contract. Tables are binary64 here either way.
-    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None, optional
-        A free-space run's resolved transverse boundary (version 41).
     split_crossing : solprop.boundaries.SplitCrossing or None, optional
         The split temporal collar's crossing limit (version 43): each bin's walk-off
         bucket, the collar's width and the launch's limit, which the boundary
@@ -969,17 +969,24 @@ class PropagationProblem:
     flags: Flags
     grids: Grids
     linear: LinearOperator
-    transform: Transform
     responses: CompiledResponses
     initial: Initial
     stepper: StepperSettings
     stats_spec: StatsSpec
-    tdse: TDSEDescriptor | None = None
-    current_numerator: Float[np.ndarray, "n_modes n_pol n_omega"] | None = None
-    flux: FluxPlan | None = None
+    route: Route
     precision: Precision = DOUBLE
-    transverse: SpatialAbsorberDesign | None = None
     split_crossing: SplitCrossing | None = None
+
+    @property
+    def transform(self) -> Transform:
+        """Return the route's transform, which every route variant carries.
+
+        Returns
+        -------
+        solprop.translate.modal.Transform
+            Synthesis and projection (section 4).
+        """
+        return self.route.transform
 
     @property
     def device_ready(self) -> bool:
@@ -1070,33 +1077,9 @@ class PropagationProblem:
         >>> problem.validate() is None
         True
         """
-        if (self.tdse is None) != (self.current_numerator is None):
-            raise TranslationError("TDSE descriptor and current numerator must coexist")
         self._check_integrator()
         self._check_precision()
-        if self.tdse is not None:
-            self._check_tdse()
-            unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
-                (*self.stats_spec.names, *self.stats_spec.periodic)
-            )
-            if unavailable:
-                raise TranslationError(
-                    f"TDSE does not define legacy statistics {sorted(unavailable)}; "
-                    "request explicitly labelled atomic diagnostics"
-                )
-        if self.current_numerator is not None:
-            values = self.current_numerator
-            if (
-                values.shape != self.shape
-                or values.dtype != np.float64
-                or values.flags.writeable
-                or not values.flags.c_contiguous
-                or not np.all(np.isfinite(values))
-                or np.any(values > 0.0)
-            ):
-                raise TranslationError(
-                    "current numerator must be a frozen finite source row"
-                )
+        self._check_route()
         if not self.initial.z < self.stepper.save_planes[0]:
             raise TranslationError("save planes must follow the initial position")
         self._check_arrays()
@@ -1141,6 +1124,43 @@ class PropagationProblem:
         if self.stepper.schedule is not None:
             self._check_schedule()
 
+    def _check_route(self) -> None:
+        """Visit the route variant and check what it shares with the other groups.
+
+        Each variant checks its own fields (``validate``, also run on construction);
+        what spans groups is checked here, one variant at a time (SEP 47 section 6.2).
+
+        Raises
+        ------
+        TranslationError
+            Naming the route and what disagrees.
+        """
+        # Again here, as every group's own checks are: a problem may hold a route
+        # that was changed after it was built.
+        self.route.validate()
+        match self.route:
+            case ModalRoute(tdse=TDSESource() as source):
+                self._check_tdse(source)
+                unavailable = TDSE_UNAVAILABLE_STATISTICS.intersection(
+                    (*self.stats_spec.names, *self.stats_spec.periodic)
+                )
+                if unavailable:
+                    msg = (
+                        "TDSE does not define legacy statistics "
+                        f"{sorted(unavailable)}; request explicitly labelled atomic "
+                        "diagnostics"
+                    )
+                    raise TranslationError(msg)
+            case ModalRoute() | GeneralRoute():
+                pass
+            case SpatialRoute(flux=flux):
+                if not np.array_equal(flux.base.active, self.grids.active_mask):
+                    msg = "the plane measure's active mask must match the temporal grid"
+                    raise TranslationError(msg)
+            case _:  # pragma: no cover - the union is closed and every variant is above
+                msg = f"a problem carries a route of type {type(self.route).__name__}"
+                raise TranslationError(msg)
+
     def _check_integrator(self) -> None:
         """Refuse what the low-storage march does not step, by name (SEP 24 section 5).
 
@@ -1164,7 +1184,7 @@ class PropagationProblem:
                 "RungeKutta() or Multistep(formulation='exponential')"
             )
             raise TranslationError(msg)
-        if self.tdse is not None:
+        if tdse_of(self.route) is not None:
             msg = (
                 f"the {method.name} march does not step the TDSE response, which "
                 "runs on the Adams route alone; use Multistep()"
@@ -1198,7 +1218,7 @@ class PropagationProblem:
                 "the hybrid planar kind",
             ),
             (self.linear.coupled_flow is not None, "a coupled flow"),
-            (self.tdse is not None, "a TDSE response"),
+            (tdse_of(self.route) is not None, "a TDSE response"),
             (
                 self.responses.dispersive_kerr is not None,
                 "the dispersive electronic response",
@@ -1320,16 +1340,24 @@ class PropagationProblem:
             stacklevel=4,
         )
 
-    def _check_tdse(self) -> None:
-        """Refuse a manually constructed atomic seam outside the admitted route."""
-        descriptor = self.tdse
-        assert descriptor is not None
+    def _check_tdse(self, source: TDSESource) -> None:
+        """Refuse a manually constructed atomic seam outside the admitted route.
+
+        Parameters
+        ----------
+        source : solprop.translate.routes.TDSESource
+            The modal route's TDSE extension.
+
+        Raises
+        ------
+        TranslationError
+            Naming what departs from the scalar resolved modal Adams route.
+        """
+        descriptor = source.descriptor
         method = self.stepper.integrator
         if (
             self.grid_kind != "field"
             or self.shape[:2] != (1, 1)
-            or self.transform.geometry is not None
-            or self.transform.modal_tables is not None
             or self.transform.n_pol != 1
             or self.flags.mode_averaged
             # The input draw is part of the launch and drives the atom with it; the
@@ -1379,8 +1407,8 @@ class PropagationProblem:
         expected = np.where(
             self.grids.active_mask, -self.grids.crop_scale / (2 * EPS0 * C), 0.0
         )
-        if self.current_numerator is None or not np.array_equal(
-            self.current_numerator, expected[None, None, :]
+        if source.current_numerator.shape != self.shape or not np.array_equal(
+            source.current_numerator, expected[None, None, :]
         ):
             raise TranslationError(
                 "TDSE current numerator differs from the physical coefficient"
@@ -1541,20 +1569,6 @@ class PropagationProblem:
             msg = "power_weight_constant must match its degree-zero table"
             raise TranslationError(msg)
 
-    def _check_flux(self) -> None:
-        """Check a spatial problem carries its plane measure on the run's band."""
-        if (self.transform.geometry is None) != (self.flux is None):
-            msg = (
-                "a spatial problem requires its plane measure (flux), and a problem "
-                "without spatial geometry carries none"
-            )
-            raise TranslationError(msg)
-        if self.flux is not None and not np.array_equal(
-            self.flux.base.active, self.grids.active_mask
-        ):
-            msg = "the plane measure's active mask must match the temporal grid"
-            raise TranslationError(msg)
-
     def _check_spatial(self) -> None:
         """Check spatial geometry and the shared separable representation agree."""
         geometry = self.transform.geometry
@@ -1562,7 +1576,6 @@ class PropagationProblem:
         if self.responses.separable is not separable:
             msg = "linear and responses must share the same separable coefficients"
             raise TranslationError(msg)
-        self._check_flux()
         if separable is not None:
             if geometry is None or geometry.kind not in ("free", "slab"):
                 msg = "a separable spatial operator requires free or slab geometry"
@@ -1908,7 +1921,8 @@ class PropagationProblem:
         TranslationError
             Naming the bound and the longest step.
         """
-        design = self.transverse
+        route = self.route
+        design = route.transverse if isinstance(route, SpatialRoute) else None
         schedule = self.stepper.schedule
         if design is None or not design.has_collar or schedule is None:
             return
@@ -5315,6 +5329,11 @@ def _walk_arrays(problem: PropagationProblem) -> list[tuple[str, np.ndarray]]:
                 visit(f"{prefix}[{index}]", value)
         elif is_dataclass(node) and not isinstance(node, type):
             for entry in fields(node):
+                if node is problem and entry.name == "route":
+                    # The route's leaves keep the names they have always had:
+                    # ``transform.synthesis``, ``flux.base.kperp_sq``.
+                    visit(prefix, getattr(node, entry.name))
+                    continue
                 name = f"{prefix}.{entry.name}" if prefix else entry.name
                 visit(name, getattr(node, entry.name))
 
@@ -6375,13 +6394,14 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The transverse boundary (SEP 40): resolved against the grid, the medium and
         the noise-free `field0` into the safety ramp, folded into the operator as
         ``SeparableOperator.kperp_rate``, and a real-space collar on request, as the
-        geometry's ``absorber_rate``; its design is
-        :attr:`PropagationProblem.transverse`. ``None``, the default here, carries
-    neither. Refused without a spatial grid. adiabatic_accuracy :
-        solprop.adiabatic.AdiabaticAccuracy or None, optional The budgets a radial
-        medium varying along z must meet for its forward amplitude transport (SEP 34
-        section 4.5); None, the default, is ``AdiabaticAccuracy()``. A path exceeding
-    them is refused. precision : solprop.translate.precision.Precision, optional
+        geometry's ``absorber_rate``; its design is the spatial route's
+        ``transverse`` (:class:`~solprop.translate.routes.SpatialRoute`). ``None``,
+        the default here, carries neither. Refused without a spatial grid.
+    adiabatic_accuracy : solprop.adiabatic.AdiabaticAccuracy or None, optional
+        The budgets a radial medium varying along z must meet for its forward
+        amplitude transport (SEP 34 section 4.5); None, the default, is
+        ``AdiabaticAccuracy()``. A path exceeding them is refused.
+    precision : solprop.translate.precision.Precision, optional
         The arithmetic the run is held in (SEP 33): :data:`~.precision.DOUBLE`, the
         default, or :data:`~.precision.SINGLE`. The tables are built in binary64
         either way; what single precision refuses is refused here.
@@ -6670,16 +6690,19 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
             harmonic_carrier=compiled.harmonic_carrier,
         ),
         linear=linear,
-        transform=transform,
         responses=compiled,
         initial=initial,
         stepper=settings,
         stats_spec=StatsSpec() if stats_spec is None else stats_spec,
-        tdse=tdse,
-        current_numerator=None if tdse is None else current_numerator(grid),
-        flux=flux,
+        route=_route(
+            transform,
+            tdse=None
+            if tdse is None
+            else TDSESource(descriptor=tdse, current_numerator=current_numerator(grid)),
+            flux=flux,
+            transverse=design,
+        ),
         precision=precision,
-        transverse=design,
         split_crossing=crossing,
     )
     _validated(problem)
@@ -6699,6 +6722,63 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     if logger.isEnabledFor(logging.DEBUG):
         logger.debug("%s", debug_summary(problem))
     return problem
+
+
+def _route(
+    transform: Transform,
+    *,
+    tdse: TDSESource | None,
+    flux: FluxPlan | None,
+    transverse: SpatialAbsorberDesign | None,
+) -> Route:
+    """Return the route variant an assembled transform and its leaves describe.
+
+    Parameters
+    ----------
+    transform : solprop.translate.modal.Transform
+        The assembled transform: a spatial geometry makes a spatial route, general
+        modal tables a general one, and anything else a modal one.
+    tdse : solprop.translate.routes.TDSESource or None
+        The TDSE extension, admitted on the modal route alone.
+    flux : solprop.translate.spatial.FluxPlan or None
+        The plane measure, which a spatial route requires and no other carries.
+    transverse : solprop.spatial_absorber.SpatialAbsorberDesign or None
+        The transverse boundary, a spatial route's alone.
+
+    Returns
+    -------
+    solprop.translate.routes.Route
+        The variant.
+
+    Raises
+    ------
+    TranslationError
+        If a leaf is given to a route that does not carry it.
+    """
+    geometry = transform.geometry
+    if (geometry is None) != (flux is None):
+        msg = (
+            "a spatial problem requires its plane measure (flux), and a problem "
+            "without spatial geometry carries none"
+        )
+        raise TranslationError(msg)
+    if tdse is not None and (
+        geometry is not None or transform.modal_tables is not None
+    ):
+        raise TranslationError("TDSE requires the scalar resolved modal Adams route")
+    if geometry is not None:
+        assert flux is not None
+        return SpatialRoute(
+            kind=spatial_kind(geometry),
+            transform=transform,
+            flux=flux,
+            transverse=transverse,
+        )
+    if transverse is not None:
+        raise TranslationError("a transverse boundary belongs to a spatial route")
+    if transform.modal_tables is not None:
+        return GeneralRoute(transform=transform)
+    return ModalRoute(transform=transform, tdse=tdse)
 
 
 def debug_summary(problem: PropagationProblem) -> str:
@@ -6739,15 +6819,8 @@ def debug_summary(problem: PropagationProblem) -> str:
     """
     linear, transform = problem.linear, problem.transform
     tables, metric = transform.modal_tables, linear.modal_metric
-    route = (
-        "general modal guide"
-        if tables is not None
-        else "spatial"
-        if transform.geometry is not None
-        else "modal"
-    )
     rows = [
-        f"kernel problem: {problem.grid_kind} grid, route {route}",
+        f"kernel problem: {problem.grid_kind} grid, route {route_name(problem.route)}",
         f"  shape:         {problem.shape} (modes, pol, omega)",
         f"  flow:          phi {linear.phi_representation}, "
         f"{linear.n_intervals} interval(s), {linear.nbytes / 2**20:.3f} MB",

@@ -91,7 +91,12 @@ def test_spatial_vector_raman_and_actual_width_tails(
         dz_init=length / 2,
         schedule=FixedSchedule.uniform(0.0, length, length / 2),
     )
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
+    problem = replace(
+        problem,
+        route=replace(
+            problem.route, transform=replace(problem.transform, node_chunk=3)
+        ),
+    )
     assert problem.transform.n_nodes % 3 != 0
     check_run(spatial_equivalence_backend_class, problem, grid)
 
@@ -121,7 +126,12 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         schedule=original.stepper.schedule,
     )
     assert problem.transform.n_pol * problem.shape[1] == 2
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=5))
+    problem = replace(
+        problem,
+        route=replace(
+            problem.route, transform=replace(problem.transform, node_chunk=5)
+        ),
+    )
     check_run(spatial_equivalence_backend_class, problem, grid)
 
 

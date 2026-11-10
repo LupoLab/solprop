@@ -291,7 +291,10 @@ def raman_capillary(raman_field_grid):
         if chunk is not None:
             problem = dataclasses.replace(
                 problem,
-                transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+                route=dataclasses.replace(
+                    problem.route,
+                    transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+                ),
             )
         return problem, kerr, raman
 
@@ -885,9 +888,9 @@ def test_a_vector_state_with_a_raman_kernel_is_refused_by_name(
     two = dataclasses.replace(base.transform, _n_pol=2, kind="modal")
     problem = substitute(
         base,
-        transform=two,
         flags=dataclasses.replace(base.flags, has_raman=True),
         validate=False,
+        route=dataclasses.replace(base.route, transform=two),
     )
     with pytest.raises(BackendError, match="tensor-capable"):
         backend_class(problem)

@@ -41,7 +41,9 @@ def test_a_snapshot_is_stored_with_its_leading_axis_and_read_back_without(tmp_pa
     state = np.arange(4, dtype=complex).reshape(1, 1, 4)
     with h5py.File(tmp_path / "run.h5", "w") as file:
         _write_march(file.require_group("march_snapshot"), snapshot(state))
-        assert file["march_snapshot/state"].shape == (1, 1, 1, 4)
+        stored = file["march_snapshot/state"]
+        assert isinstance(stored, h5py.Dataset)
+        assert stored.shape == (1, 1, 1, 4)
         read = _read_march(file, 0.5)
     assert read is not None
     assert read.state.shape == (1, 1, 4)
@@ -55,6 +57,7 @@ def _old_file(path, stored):
             file.require_group("march_snapshot"), snapshot(np.zeros((1, 1, 4), complex))
         )
         group = file["march_snapshot"]
+        assert isinstance(group, h5py.Group)
         del group["state"]
         group.create_dataset("state", data=stored)
 

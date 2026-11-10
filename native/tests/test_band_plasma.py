@@ -225,7 +225,11 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, PropagationProble
     if kind == "free":
         # A remainder chunk, so the band column's rings meet a partial block.
         problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+            problem,
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(problem.transform, node_chunk=7),
+            ),
         )
     return grid, banded(problem, design_running_integral(grid, "band"))
 
@@ -290,7 +294,11 @@ def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) ->
     """Check full/tail chunks across the width boundary within SEP 25 bounds."""
     grid, problem = case("free")
     problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=chunk),
+        ),
     )
     bound = march_bound(problem, grid, STEPS)
     expected, expected_stats = march(NumpyRefBackend, problem, grid)
@@ -499,8 +507,11 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     grid, original = modal(kind)
     problem = dataclasses.replace(
         original,
-        transform=dataclasses.replace(original.transform, node_chunk=chunk),
         stepper=dataclasses.replace(original.stepper, integrator=None),
+        route=dataclasses.replace(
+            original.route,
+            transform=dataclasses.replace(original.transform, node_chunk=chunk),
+        ),
     )
     bound = march_bound(problem, grid, STEPS)
     score_bound = 8 * bound

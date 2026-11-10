@@ -4,6 +4,7 @@
 
 """The frame record and the port metric of a translated problem (SEP 31)."""
 
+import copy
 import dataclasses
 
 import pytest
@@ -53,6 +54,13 @@ def test_a_spatial_problem_without_its_plane_measure_has_no_port_metric():
     simulation = radial()
     problem = simulation.translate()
     assert port_metric(problem, simulation.grid, 0.0).kind == "admittance"
-    # A hand-assembled, unvalidated problem that dropped its plane measure.
+    # A hand-assembled, unvalidated problem that dropped its plane measure (set past
+    # the route's own refusal on construction).
+    route = copy.copy(problem.route)
+    object.__setattr__(route, "flux", None)
     with pytest.raises(TranslationError, match="plane measure"):
-        port_metric(dataclasses.replace(problem, flux=None), simulation.grid, 0.0)
+        port_metric(
+            dataclasses.replace(problem, route=route),
+            simulation.grid,
+            0.0,
+        )

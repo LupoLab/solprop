@@ -73,7 +73,11 @@ def modal_problem(case, route):
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
     return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=3),
+        ),
     )
 
 
@@ -111,7 +115,11 @@ def scalar_raman_problem(kind, with_plasma):
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
     return grid, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
+        problem,
+        route=dataclasses.replace(
+            problem.route,
+            transform=dataclasses.replace(problem.transform, node_chunk=3),
+        ),
     )
 
 
@@ -147,7 +155,11 @@ def scalar_plasma_problem(mode_count, preionisation, with_kerr):
     )
     if mode_count > 1:
         problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
+            problem,
+            route=dataclasses.replace(
+                problem.route,
+                transform=dataclasses.replace(problem.transform, node_chunk=3),
+            ),
         )
     return grid, problem
 

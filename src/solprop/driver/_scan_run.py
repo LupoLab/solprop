@@ -60,6 +60,7 @@ from solprop.output.schema import (
 )
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_of
 from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
@@ -612,7 +613,7 @@ class _Work:
         """
         if (
             not self.keeps_backend
-            or simulation.translate().tdse is not None
+            or tdse_of(simulation.translate().route) is not None
             or not _device_build(simulation.settings.backend)
         ):
             self.close()

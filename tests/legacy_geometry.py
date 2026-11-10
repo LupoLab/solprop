@@ -73,4 +73,6 @@ def with_collar_rate(problem: PropagationProblem, peak: float) -> PropagationPro
         problem.transform,
         geometry=dataclasses.replace(geometry, absorber_rate=rate),
     )
-    return dataclasses.replace(problem, transform=transform)
+    return dataclasses.replace(
+        problem, route=dataclasses.replace(problem.route, transform=transform)
+    )
