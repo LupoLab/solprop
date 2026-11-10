@@ -121,9 +121,9 @@ model and policy enter `driver.batch._signature`, because every other entry ther
 describes an execution *layout* and two different guides share all of it; and a group
 assembled outside that grouping is refused by name, at `driver.batch`'s
 `refuse_mixed_guides` and again in `backends/batch.py`'s `_validate_members`. The lockstep
-runner hands each member its own singleton row, so a batched general run is what its
-members are alone, to the same rounding bound. A **fused** batch axis carrying modal tables is refused by
-`numpy_ref`, and a member carrying a coupled flow is refused by every backend's batch.
+runner hands each member its own problem, so a batched general run is what its members
+are alone, to the same rounding bound; a problem is one trajectory and carries no batch
+axis. A member carrying a coupled flow is refused by every backend's batch.
 
 **Three things every backend owes, beyond the ten methods.**
 

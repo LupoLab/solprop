@@ -2010,8 +2010,7 @@ class StepStats(Displayed):
         attempts, so this is not ``row * period``.
     values : dict
         The statistics, keyed by catalogue name, each shaped ``(n_rows, *shape)`` with
-        the statistic's own shape after the row axis -- the batch axis a backend
-        carries is dropped here, as it is for the plane statistics.
+        the statistic's own shape after the row axis, as the backend's rows are.
 
     Raises
     ------

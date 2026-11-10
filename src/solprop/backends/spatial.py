@@ -535,7 +535,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     Returns
     -------
     dict
-        Scalar or small array values, without the backend's batch axis.
+        Scalar or small array values, one trajectory's.
 
     Raises
     ------

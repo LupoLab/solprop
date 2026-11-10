@@ -646,12 +646,12 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         names : tuple of str
             Backend-owned statistic names.
         state : numpy.ndarray
-            Accepted state at this plane with its leading batch axis.
+            Accepted state at this plane with its leading axis of one.
 
         Returns
         -------
         dict
-            Requested values with leading batch axes and no retained field cache.
+            Requested values with a leading axis of one and no retained field cache.
         """
         population_names = (
             tuple(
@@ -734,7 +734,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Returns
         -------
         numpy.ndarray
-            The value with a leading batch axis.
+            The value with a leading axis of one.
         """
         if name == "quadrature_error":
             return np.full(state.shape[0], self._alarm)
@@ -2285,7 +2285,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         lab : numpy.ndarray
-            Lab-frame stage spectrum, including the batch axis.
+            Lab-frame stage spectrum, with the state's leading axis of one.
         bundle : solprop.translate.stage.StageScalars
             Response scalars at the stage position.
         inverse_propagator : numpy.ndarray
@@ -2398,7 +2398,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         lab : numpy.ndarray
-            Lab-frame stage spectrum, including the batch axis.
+            Lab-frame stage spectrum, with the state's leading axis of one.
         bundle : solprop.translate.stage.StageScalars
             Response scalars at the stage position.
         inverse_propagator : numpy.ndarray

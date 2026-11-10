@@ -125,8 +125,8 @@ def stage_input(
     dz : float
         Length of the step, m, positive.
     propagator : numpy.ndarray
-        ``exp(dPhi_i)``, dimensionless, broadcastable against the state; the batch axis
-        is 1 when the members share a fibre.
+        ``exp(dPhi_i)``, dimensionless, broadcastable against the state, whose leading
+        axis of one it shares.
     noise : numpy.ndarray or None
         The shot-noise field already advanced to this position,
         ``N0 exp(i Im Phi(omega, z))``, in the square root of watts, or ``None`` when no
