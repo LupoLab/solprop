@@ -12,12 +12,14 @@ developer conventions. Python objects enter only through the optional PythonCall
 module SolpropJulia
 
 import AcceleratedKernels
+import Adapt
 import Atomix
 import FFTW
 import KernelAbstractions
 import LinearAlgebra
 import Polyester
 import PrecompileTools
+import StrideArraysCore
 
 public copy_preparation
 public StopFlag, stop_address, stop_requested, stop_setter_address

@@ -84,6 +84,26 @@ package index. Evaluated against glibc's `libmvec` (2 ulp, and reachable from GC
 through fast-math or hand-written vector declarations) and Intel's MKL (faster on Intel
 only, by at most 1.5 times, and a large dependency); see ADR-059.
 
+## The optional Julia engine
+
+[SEP 48](seps/sep-0048-julia-backend.md) defines the optional pure-Julia numerical
+engine and its separate application environments. Its committed manifests pin a joint
+CPU/device resolution; PythonCall and vendor packages remain weak engine dependencies.
+The numerical package directly uses FFTW, KernelAbstractions, AcceleratedKernels,
+Polyester, Atomix and PrecompileTools, with Julia's LinearAlgebra standard library.
+
+**Adapt** and **StrideArraysCore** are direct dependencies for the bounded CPU scalar
+launcher. Adapt recursively converts immutable closure captures, including nested
+closures and tuples; StrideArraysCore supplies the same `PtrArray` storage views used
+by Polyester. The launcher roots every original captured array while adapting and
+executing the complete synchronous batch. This avoids allocating Polyester's argument
+wrapper when a scalar body captures arrays. It refuses an adapted body that still
+contains managed references. These dependencies already belonged to the pinned closure;
+making the imports explicit adds no package or artifact. Adapt's 4.8 floor preserves
+the generated recursive closure adaptation used by the allocation checks;
+StrideArraysCore's `PtrArray` API uses the existing 0.5 series. The manifests retain
+Adapt 4.8.0 and StrideArraysCore 0.5.9.
+
 ## The desktop front end (`gui` extra)
 
 `solprop-gui` is the repository's third distribution, built from `gui/` and installed
