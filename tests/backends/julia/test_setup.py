@@ -48,6 +48,9 @@ def _bundle(path):
     _write(path / "src" / "SolpropJulia.jl", "module SolpropJulia\nend\n")
     _write(path / "ext" / "PythonCallExt.jl", "module PythonCallExt\nend\n")
     _write(path / "scripts" / "instantiate.jl", "# fixture installer\n")
+    _write(path / "scripts" / "artifact_inventory.jl", "# fixture inventory\n")
+    _write(path / "scripts" / "artifact_selectors.toml", "# fixture selectors\n")
+    _write(path / "scripts" / "resolve.jl", "# fixture resolver\n")
     _write(path / "environments" / "versions.toml", "# fixture resolution record\n")
     for device in _platforms.DEVICES:
         project = path / "environments" / device

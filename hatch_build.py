@@ -2,14 +2,15 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Pin ``solprop-native`` and the ``gui`` extra to this release's own distributions.
+"""Pin sibling distributions and bundle the optional Julia engine.
 
 solprop, solprop-native and solprop-gui are released together from one repository at
 one version (SEP 29), so solprop requires exactly that native version (SEP 43), and
 ``solprop[gui]`` that front end. The version is the repository's (hatch-vcs), known only
 when the metadata is built, so the runtime dependencies are written here. They are
-dynamic rather than a pin over a static list: a wheel built from the sdist runs no
-hooks, and reads only dynamic fields from the sdist's metadata.
+dynamic rather than a pin over a static list: a wheel built from the sdist reads
+dynamic fields from its metadata without rerunning the metadata hook. The separate
+build hook includes the Julia package inputs and their engine digest in each wheel.
 """
 
 import runpy
@@ -108,10 +109,7 @@ class JuliaBundleHook(BuildHookInterface):
         force_include[str(digest_file)] = f"{target}/_engine_digest.txt"
         # An explicit source inventory excludes developer records, caches and
         # local evidence, including when building from a worktree or an sdist.
-        files = set(source["engine_files"](bundle))
-        files.update((bundle / "environments").rglob("*.toml"))
-        files.update(path for path in (bundle / "scripts").rglob("*") if path.is_file())
-        for path in sorted(files):
+        for path in sorted(source["bundle_files"](bundle)):
             relative = path.relative_to(bundle).as_posix()
             force_include[str(path)] = f"{target}/_bundle/{relative}"
 

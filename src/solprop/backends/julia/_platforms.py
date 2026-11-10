@@ -125,6 +125,14 @@ def device_refusal(device: str, host: str) -> str | None:
         return "the julia metal device requires macOS on Apple silicon"
     if device in {"cuda", "rocm"} and not host.startswith("linux-"):
         return f"the julia {device} device is supported on Linux only"
+    # CUDA's pinned artifact selectors distinguish Jetson/L4T from SBSA. The
+    # current host identity records only OS and ISA, so it cannot pin that choice.
+    if device == "cuda" and host == "linux-aarch64":
+        return (
+            "the julia cuda device on Linux aarch64 is not qualified: "
+            "Jetson and SBSA artifact selection needs a distinct setup identity; "
+            "use the cpu device or Linux x86-64 CUDA"
+        )
     if device == "rocm":
         roots = [
             Path(one)

@@ -1,6 +1,7 @@
 # SEP 48 implementation
 
-Branch: `feature/sep-0048-julia-backend`. One draft implementation pull request.
+Branch: `feature/sep-0048-julia-backend`.
+Draft implementation [PR #611](https://github.com/LupoLab/solprop/pull/611).
 Proposal [#609](https://github.com/LupoLab/solprop/pull/609) merged at `04e72192`.
 The completed implementation is left ready for maintainer review, not auto-merged.
 
@@ -89,6 +90,10 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
   temporarily puts the active device environment first, after proving identical global
   and per-package effective preferences, then restores the runtime order. This permits
   weak-extension dependency lookup without changing the published runtime identity.
+- CUDA setup on Linux aarch64 refuses until identity distinguishes Jetson/L4T from
+  SBSA. The pinned runtime and driver selectors choose different artifacts there;
+  the current OS/ISA identity cannot establish portability. CPU aarch64 setup remains
+  supported but unqualified, as SEP 48 specifies.
 - Julia consumes only `RunRequest` policy through the generic preparation boundary.
   It never inherits the legacy driver or uses a Python-over-Julia numerical loop.
 - DF32 admission bounds actual exponent spans, including replay and restored Adams
@@ -100,7 +105,7 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
 
 ## Next actions
 
-1. Open the single draft implementation PR and record its link here.
+1. Integrate reviewed Julia CI and publish the packaging/documentation corrections.
 2. Qualify installed-wheel and editable identities and the packaged subprocess gate.
 3. Integrate independently reviewed Julia CI and run the Linux runtime gate.
 4. Pass the phase 1 probes before implementing the complete numerical session against
@@ -146,6 +151,13 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
 - Foundation checks: ruff and whole-package basedpyright pass; the targeted Python
   setup/runtime and SEP consistency selection passes 569 tests with three expected
   process-SEP skips. This is not numerical parity evidence.
+- Independent wheel review passed direct and source-archive builds, installed source
+  pairing and lazy import/status. Its incidental-file inclusion finding is corrected
+  with a shared declared-input list and a regression; independent injected-file direct
+  and source-archive wheel rebuilds now exclude all sentinels and have identical Julia
+  payloads. This smoke used an isolated no-dependency install with existing dependencies;
+  fresh dependency resolution remains in CI. The public setup API page fixes three unresolved
+  function references; Sphinx now passes with warnings as errors.
 - Additional planning review requires conditioning-aware bounds near zeros of phi
   functions and corrects Metal's portable sine/cosine allowance to 4 ulp. Experimental
   witnesses remain measurements; algorithm and admission constants are not qualified.

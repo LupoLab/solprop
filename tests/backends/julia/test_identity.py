@@ -104,6 +104,33 @@ def test_wheel_sources_require_the_generated_source_identity(
 def test_setup_inputs_always_name_required_installer_and_version_table(tmp_path):
     expected = {
         tmp_path / "scripts" / "instantiate.jl",
+        tmp_path / "scripts" / "artifact_inventory.jl",
+        tmp_path / "scripts" / "artifact_selectors.toml",
+        tmp_path / "scripts" / "resolve.jl",
         tmp_path / "environments" / "versions.toml",
     }
     assert set(_source.setup_files(tmp_path, ())) == expected
+
+
+def test_wheel_and_setup_exclude_incidental_inputs(tmp_path):
+    root = _sources(tmp_path / "engine")
+    expected_digest = _source.engine_digest(root)
+    incidental = (
+        "scripts/private-review.txt",
+        "scripts/__pycache__/review-cache.pyc",
+        "environments/cpu/LocalPreferences.toml",
+        "environments/local/Project.toml",
+        "src/__pycache__/review-cache.pyc",
+    )
+    for relative in incidental:
+        path = root / relative
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_bytes(b"local content")
+    package_files = _source.bundle_files(root)
+    setup_files = _source.setup_files(root, ("cpu", "cuda"))
+    assert all(root / name not in package_files for name in incidental)
+    assert all(root / name not in setup_files for name in incidental)
+    assert root / "scripts" / "artifact_inventory.jl" in package_files
+    assert root / "environments" / "cuda" / "runtime.toml" in package_files
+    assert root / "environments" / "quality" / "Manifest.toml" in package_files
+    assert _source.engine_digest(root) == expected_digest

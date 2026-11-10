@@ -58,6 +58,8 @@ def test_runtime_requires_selected_minor(version, expected):
         ("rocm", "darwin-aarch64", "Linux only"),
         ("metal", "darwin-aarch64", None),
         ("cpu", "linux-aarch64", None),
+        ("cuda", "linux-aarch64", "Jetson and SBSA artifact selection"),
+        ("cuda", "linux-x86_64", None),
     ],
 )
 def test_device_platform_prerequisites(device, host, reason):

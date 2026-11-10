@@ -15,7 +15,7 @@
 | **Requires** | SEPs 25, 33, 46 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | `feature/sep-0048-julia-backend`; one draft implementation PR |
+| **Implementation** | [PR #611](https://github.com/LupoLab/solprop/pull/611), `feature/sep-0048-julia-backend` |
 | **Manual pages** | [Julia backend](../../guide/performance/julia.md) |
 
 ## Part I — Proposal

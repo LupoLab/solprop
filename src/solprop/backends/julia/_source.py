@@ -15,6 +15,22 @@ import re
 from collections.abc import Iterable
 from pathlib import Path
 
+_INSTALLER_INPUTS = (
+    "instantiate.jl",
+    "artifact_inventory.jl",
+    "artifact_selectors.toml",
+    "resolve.jl",
+)
+_BUNDLED_ENVIRONMENTS = (
+    "cpu",
+    "cuda",
+    "rocm",
+    "metal",
+    "joint",
+    "quality",
+    "formatter",
+)
+
 
 def file_digest(path: Path) -> str:
     """Return the SHA-256 of a file's bytes.
@@ -73,7 +89,7 @@ def engine_digest(bundle: Path) -> str:
     -------
     str
         A SHA-256 hexadecimal digest of ``Project.toml``, ``bridge.toml`` and every
-        file under ``src`` and ``ext``.
+        Julia source file under ``src`` and ``ext``.
 
     Raises
     ------
@@ -99,13 +115,13 @@ def engine_files(bundle: Path) -> tuple[Path, ...]:
     Returns
     -------
     tuple of pathlib.Path
-        Project, bridge contract and every source or extension file.
+        Project, bridge contract and every Julia source or extension file.
     """
     paths = [bundle / "Project.toml", bundle / "bridge.toml"]
     paths.extend(
         path
         for directory in ("src", "ext")
-        for path in (bundle / directory).rglob("*")
+        for path in (bundle / directory).rglob("*.jl")
         if path.is_file()
     )
     return tuple(paths)
@@ -159,13 +175,31 @@ def setup_files(bundle: Path, devices: tuple[str, ...]) -> tuple[Path, ...]:
         Installer scripts, projects, manifests and recorded toolkit defaults.
     """
     files = [bundle / "environments" / "versions.toml"]
-    files.extend(path for path in (bundle / "scripts").rglob("*") if path.is_file())
-    if bundle / "scripts" / "instantiate.jl" not in files:
-        files.append(bundle / "scripts" / "instantiate.jl")
+    files.extend(bundle / "scripts" / name for name in _INSTALLER_INPUTS)
     for device in devices:
         project = bundle / "environments" / device
         files.extend((project / "Project.toml", project / "Manifest.toml"))
-        runtime = project / "runtime.toml"
-        if runtime.is_file():
-            files.append(runtime)
+        if device == "cuda" and (project / "runtime.toml").is_file():
+            files.append(project / "runtime.toml")
     return tuple(files)
+
+
+def bundle_files(bundle: Path) -> tuple[Path, ...]:
+    """Return only declared Julia inputs for wheel package data.
+
+    Parameters
+    ----------
+    bundle : pathlib.Path
+        Julia package root.
+
+    Returns
+    -------
+    tuple of pathlib.Path
+        Engine sources, named installer scripts and generated environment inputs.
+        Incidental files, local preferences and compilation caches are excluded.
+    """
+    files = {*engine_files(bundle), *setup_files(bundle, _BUNDLED_ENVIRONMENTS)}
+    # Editable setup can take an explicit toolkit without a default table. Wheels
+    # must ship the declared default so an ordinary CUDA setup needs no guess.
+    files.add(bundle / "environments" / "cuda" / "runtime.toml")
+    return tuple(sorted(files))

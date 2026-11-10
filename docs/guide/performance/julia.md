@@ -16,6 +16,8 @@ solprop julia setup
 solprop julia status
 ```
 
+The [Python setup interface](../../api/julia.md) provides the same operations for scripts.
+
 Setup uses Julia 1.13.3 and matching JuliaCall/PythonCall 0.9.37. An existing Julia
 executable can be supplied with `--julia`; another patch in the 1.13 series is recorded
 as untested. A different minor series requires new manifests and qualification.
@@ -32,6 +34,13 @@ solprop julia setup --device metal
 
 Metal requires macOS on Apple silicon. ROCm requires a discoverable system installation;
 missing required ROCm libraries are reported before runtime startup.
+The qualification targets are Linux x86-64 and macOS arm64. CPU setup also installs on
+Linux aarch64 and Windows x64, which remain unqualified; Windows arm64 is refused.
+CUDA on Linux aarch64 refuses until setup identity distinguishes Jetson from SBSA and
+records the selected driver platform. These use different artifacts in the pinned
+[CUDA runtime selector](https://github.com/JuliaBinaryWrappers/CUDA_Runtime_jll.jl/blob/CUDA_Runtime-v0.25.0%2B3/.pkg/platform_augmentation.jl#L463-L499)
+and [driver selector](https://github.com/JuliaBinaryWrappers/CUDA_Driver_jll.jl/blob/CUDA_Driver-v13.5.0%2B0/.pkg/platform_augmentation.jl#L27-L62).
+
 CUDA setup can fetch a specified toolkit without a GPU, for a later compute-node run:
 
 ```sh
@@ -51,8 +60,8 @@ Python environment that created it does not remove the engine.
 
 Changed engine sources, preferences or installed device selections produce a different
 identity. Selection without an explicit identity requires exactly one compatible setup;
-ambiguity reports the available IDs. The execution interface selects an identity through
-the `setup_id` backend option and records it as execution metadata.
+ambiguity reports the available IDs. The forthcoming session interface will select an
+identity through the `setup_id` backend option and record it as execution metadata.
 
 The first preparation fixes the process's runtime, depot and installed environment
 stack. A different setup, another depot, or a device installed after initialization
