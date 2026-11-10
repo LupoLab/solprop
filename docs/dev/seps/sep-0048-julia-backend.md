@@ -238,14 +238,19 @@ is the meaning a Julia session must preserve, and the arithmetic it uses to do s
 policies they name. It never agrees bit for bit with another backend. How closely it
 agrees depends on what is compared, in three classes (§7.1 gives the tests):
 
-- **Class M, a matched discrete history.** On a fixed schedule with a fixed-order method,
-  and in a replay, both backends take the same steps by construction. Fields and
+- **Class M, a matched discrete history.** Both sides run the whole discrete computation
+  identically. That means the same prescribed schedule, a method that makes no discrete
+  choice on it (a fixed-order method, a Runge–Kutta tableau, the low-storage replay),
+  matched startup and restart history, and matched save-plane handling. Fields and
   statistics then agree to rounding. The budget follows
   [SEP 25](archive/sep-0025-rounding-level-reproducibility.md) §§4.3–4.4: the operation
   counts, together with the conditioning of what is computed and the sensitivity that the
   steps propagate.
-- **Class A, independent adaptive runs.** Their reductions round differently, so an
-  adaptive run may accept different steps and orders. SEP 47 §4.3 permits this. Each run
+  - A replay of `Multistep` is not class M. `FixedSchedule` records step lengths only,
+    so the replay still chooses orders and may follow another history (SEP 25 §4.4).
+- **Class A, independent adaptive runs, and ordinary variable-order replay.** Their
+  reductions round differently, so an adaptive run may accept different steps and
+  orders, and a replay may choose different orders. SEP 47 §4.3 permits this. Each run
   is then compared with a tighter or converged reference, within an accuracy envelope set
   by the run's tolerance. Each backend counts its own work exactly, and the two counts
   are not required to be equal.
@@ -774,8 +779,11 @@ The C-ABI-friendly boundary of §6.2 keeps both possible.
 **Julia tests**, `Pkg.test` in `julia/`, in two groups:
 
 - **`Core`:**
-  - the shared helpers (Chebyshev rows, Adams basis) bit for bit against recorded
-    values;
+  - the shared helpers (Chebyshev rows, Adams basis) against the plain Python forms,
+    within operation-derived bounds, as `tests/test_helpers.py` does for the native
+    records. Bitwise agreement is recorded as information, not asserted. Exact
+    comparison is kept for structural results: refusals, the refused position and NaN
+    propagation;
   - the double-float primitives against their bounds;
   - every FFT plan form the engine uses, on each array type present;
   - a warmed step that allocates nothing on the CPU (`@allocated`).
@@ -903,14 +911,17 @@ Each admitted capability is compared with `numpy_ref` on a short window: about t
 or a fibre short enough to finish in seconds. Each comparison belongs to one of §4's
 classes, and its tolerance comes from that class.
 
-- **Class M, a matched discrete history:** fixed schedules, replays and fixed-order
-  methods. Both backends take the same steps by construction. Fields and every
+- **Class M, a matched discrete history:** the same prescribed schedule with a method
+  that makes no discrete choice on it (`Multistep(variable_order=False)`, the Runge–Kutta
+  tableaux, RK4IP and the low-storage replay), with matched startup, restart history and
+  save-plane handling (§4). Fields and every
   statistic agree within SEP 25's rounding budget: the operation counts, with the
   conditioning and propagated sensitivity of what is compared (SEP 25 §§4.3–4.4 and
   [testing.md](../testing.md)). Each budget is derived in a comment beside its test. The
   experiment's windows agreed to $10^{-13}$ or better; that is a record, not a bound.
-- **Class A, independent adaptive runs:** `Multistep` and the adaptive Runge–Kutta
-  tableaux, each run as in production.
+- **Class A, independent adaptive runs and variable-order replay:** `Multistep` and
+  the adaptive Runge–Kutta tableaux, each run as in production, and `Multistep` replayed
+  on a recorded schedule with its orders chosen afresh.
   - Accepted steps and orders may differ from the reference's.
   - Each run is compared with a converged reference: a `numpy_ref` run at a tolerance at
     least a hundred times tighter, or a stored witness computed that way. The envelope
@@ -921,14 +932,18 @@ classes, and its tolerance comes from that class.
   judgement and the landing. Recorded readings are replayed into the Julia session's
   decision functions and into the reference's. Their decisions and records must agree
   bit for bit (SEP 47 §4.3).
-- **Groups.** Members of a fixed-schedule group are class M against their solo runs on
-  `julia`.
-- **Repeat runs** on the same device, thread count and setup are class M with SEP 25's
-  repeatability bound. Bitwise equality is not required.
+- **Groups and repeat runs.**
+  - Members of a fixed-schedule group are compared with their solo runs on `julia`.
+  - Repeat runs are compared on the same device, thread count and setup.
+  - Each is class M, within SEP 25's repeatability bound, when its method makes no
+    discrete choice on the schedule. It is class A when the method chooses orders, as
+    variable-order `Multistep` does.
+  - Bitwise equality is never required.
 - **Resume** (§5.3):
-  - an Adams history resume on a fixed schedule is class M against the uninterrupted
-    run;
-  - an adaptive resume, and every field restart, are class A;
+  - an Adams history resume is class M only with a fixed-order method on the
+    prescribed schedule, its history matched;
+  - a variable-order or adaptive resume, and every field restart, are class A against
+    the uninterrupted run (SEP 25 §4.4);
   - a cross-backend history resume (between `julia` and `native` or `numpy_ref`) is
     class A against the uninterrupted reference run;
   - the restart record's retained, restored and reset items are checked exactly;
@@ -1037,7 +1052,10 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
   - the cost of loading a device package into a process that has already run on the
     CPU, including any recompilation it causes;
   - a spawned scan worker's overhead.
-- **Optional:** whole runs, and further machines.
+- **Not part of this SEP's qualification:** whole runs. Like the release tracking set
+  (`python -m benchmarks track`), they are run separately by hand, on a quiet machine,
+  never as a change's qualification (AGENTS.md). Further machines are optional
+  windows.
 - **Regressions** against the experiment's last rows are explained in the phase report.
 
 #### 7.6 Merge criteria, and evidence for later
@@ -1293,6 +1311,9 @@ records each decision where it applies:
 - 2026-11-10: §§3.3 and 11 state what each phase needs from SEP 47. Phase 1 needs
   nothing, phase 2 needs #605 (merged), and phases 2 and 4 are better begun after #607.
   The branch starts from main rather than stacking.
+- 2026-11-10: The automated review's findings on PR #609 were answered (Part III).
+  §§4 and 7.1 place variable-order replay in class A, §6.6 compares the helpers within
+  rounding bounds, and §7.5 takes whole runs out of the qualification.
 
 ### AI review — 2026-11-10
 
@@ -1629,3 +1650,30 @@ status stays In review: no human review is recorded yet.
 **Evidence.** This response read the experiment's `dfloat.jl` and its double-float tests
 at `b84d3ab8`, solprop's taper defaults, and the review's cited documentation. It ran no
 Julia, no GPU and no bridge probe.
+
+### Response to the automated review — 2026-11-10 — Opus 5.5
+
+The Codex connector left six findings on PR #609. Each is answered on its own thread
+and summarised here; none needed a maintainer decision.
+
+- **Adaptive accuracy against control identity** (§7.1, P1). The same point as R1,
+  fixed in the response above: classes M, A and C.
+- **Helpers compared within rounding bounds** (§6.6, P1). Accepted. The `Core` group
+  compared the Chebyshev rows and the Adams basis bit for bit with recorded values.
+  `tests/test_helpers.py::test_points_agree_with_the_plain_form` instead asserts an
+  operation-derived bound and records bitwise agreement as information. §6.6 now does
+  the same, and keeps exact comparison for structural results only.
+- **Whole runs out of the qualification** (§7.5, P1). Already fixed by the R10 decision,
+  where whole runs became optional and not required for merge. §7.5 now says outright
+  that whole runs belong to separately invoked tracking, never to this change's
+  qualification.
+- **The JuliaCall and PythonCall pair** (§6.5, P1). The same point as R4, fixed above:
+  an exact pin, part of the setup's identity, checked before start-up.
+- **CUDA artifacts on a node with no GPU** (§5.1, P2). The same point as R5, fixed
+  above: `--cuda-runtime`, every artifact fetched before publication, an offline
+  package manager at run time, and a first offline GPU run in the CUDA pass.
+- **Variable-order replay is class A** (§§4 and 7.1, P1). Accepted. SEP 25 §4.4 says
+  that `FixedSchedule` stores step lengths only, and that a replay of `Multistep` still
+  chooses orders. §4 now reserves class M for a computation matched in method, orders,
+  startup, restart history and save-plane handling. §7.1 places variable-order replay,
+  and groups, repeat runs and resumes whose method chooses orders, in class A.
