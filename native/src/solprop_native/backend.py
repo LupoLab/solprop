@@ -14,6 +14,7 @@ import os
 import time
 import types
 import warnings
+import weakref
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
 from pathlib import Path
@@ -4610,8 +4611,36 @@ def _host_residual(
     return drive
 
 
+_HOST_FLOWS: weakref.WeakKeyDictionary[PropagationProblem, _HostFlow | None] = (
+    weakref.WeakKeyDictionary()
+)
+"""Each problem's decomposed coupled flow while it lives: admission reads its route,
+and a backend built for the problem its factors, which the run only reads."""
+
+
 def _host_flow(problem: PropagationProblem) -> _HostFlow | None:
-    """Decompose an admitted coupled flow once, or return ``None`` without one."""
+    """Decompose an admitted coupled flow once per problem, or return ``None``.
+
+    The Schur decompositions (one per active bin and section) are the expensive part
+    of admitting a coupled flow, so the decomposition is kept with the problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+
+    Returns
+    -------
+    _HostFlow or None
+        The decomposition, or ``None`` without a coupled flow.
+    """
+    if problem not in _HOST_FLOWS:
+        _HOST_FLOWS[problem] = _decomposed_flow(problem)
+    return _HOST_FLOWS[problem]
+
+
+def _decomposed_flow(problem: PropagationProblem) -> _HostFlow | None:
+    """Decompose an admitted coupled flow, or return ``None`` without one."""
     flow: CoupledFlowTables | None = problem.linear.coupled_flow
     if flow is None:
         return None
