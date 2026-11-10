@@ -6,6 +6,7 @@ module SolpropJuliaPythonCallExt
 import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
+import SolpropJulia: start_low_storage
 import SolpropJulia: export_session!, session_attempts!, session_orders!
 
 """
@@ -292,6 +293,19 @@ function start_adams(
         policy, norm, schedule, source, flow;
         stop, plane_index = plane, plane_pending,
         source_absent = pyconvert(Bool, transfer.source_absent),
+        exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
+    )
+end
+
+function start_low_storage(
+        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
+    )
+    execution = preparation.execution
+    state, norm, schedule, source, flow = _launch(preparation, transfer, field)
+    return SolpropJulia.LowStorageSession(
+        execution, state, z, SolpropJulia.RK4IPTableau(), norm, schedule, source, flow;
+        stop, plane_index = plane, plane_pending,
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end

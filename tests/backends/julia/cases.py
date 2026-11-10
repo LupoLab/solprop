@@ -19,6 +19,7 @@ from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import Translation, assemble
@@ -64,6 +65,20 @@ def adams_case(*, method=None, steps: int | None = 8, rtol=1e-8, dz_max=0.02):
         ),
         error_control=replace(
             original.request.error_control, interval_cap=method.interval_cap
+        ),
+    )
+    return Translation(original.problem, request)
+
+
+def low_storage_case(*, steps: int | None = 8, dz_max=0.02):
+    """Return the short soliton with the prescribed low-storage RK4IP scheme."""
+    original = cpu_case(steps=steps, dz_max=dz_max)
+    request = replace(
+        original.request,
+        integration=replace(
+            original.request.integration,
+            kind=MethodKind.LOW_STORAGE,
+            method=LowStorageRungeKutta(),
         ),
     )
     return Translation(original.problem, request)

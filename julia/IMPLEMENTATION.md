@@ -11,7 +11,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal RK and landed Adams pass; service attachment in progress | Twenty-four real bridge tests cover numerical composition, adaptive accuracy and exact Adams budget accounting |
+| 2: CPU binary64 session | Scalar modal RK, landed Adams and low-storage pass; service attachment in progress | Thirty-three real bridge tests cover numerical composition, adaptive accuracy, exact counters and poisoned failures |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
@@ -50,8 +50,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/low_storage_session.jl` and its test | Fixed-schedule low-storage session; reviewed Adams returns to master ownership |
-| Numerical services agent | `julia/src/quadrature_alarm.jl` and its test; focused `statistics.jl` source/test correction | Modal quadrature diagnostic and unavailable-value fix (#653); reviewed observation services return to master ownership |
+| Numerical transform/Adams agent | `julia/src/adams_transfer.jl` and its test; two approved identity-tag assignments in `adams_session.jl` | Portable history transfer and fresh-session restore; dense wrapper proposed separately |
+| Numerical services agent | `src/solprop/backends/julia/_profiles.py` and its test | Independent represented profile-statistic lowering with measured errors; numerical alarm and diagnostic fix reviewed and integrated |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Production code read-only | Adams and observation sessions approved; reviewing Python bridge integration and subsequent numerical slices |
 
@@ -478,3 +478,34 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   exposed a missing `start_group` contract entry (#654). The entry and missing-member
   regression now pass seven targeted tests; the shared frozen signature was already
   correct. The registry overload-docstring correction also remains in the next push.
+- Adams bridge milestone `50b369f9` and native contract correction `441b47fe` are
+  pushed to the draft PR. The subsequent native quality lane passes. GitHub found one
+  test-only type-narrowing error on `ResponseBudgetError.field`; an explicit ndarray
+  assertion now preserves that API check. Whole-package typing reports zero errors
+  and three existing native-extension source warnings; the scoped adapter check has
+  zero errors or warnings. GitHub uses the freshly built extension for its full gate.
+- Reviewed low-storage `5cfb3577`, unavailable-diagnostic correction `0739d9b8` and
+  stable quadrature leaf `78ffd086` are integrated at `b29849cc`, `a54b54ab` and
+  `b0a024d5`. Independent qualification passes 428 low-storage assertions, 144 focused
+  statistic assertions and 685 quadrature assertions, including a 256-bit norm oracle.
+  The alarm leaf is available; accepted-source scoring and notice attachment remain
+  master integration work.
+- Low-storage bridge review is complete. A fresh managed setup passes all 33 real
+  bridge tests in 72.50 seconds on macOS arm64 with two Julia threads, including an
+  actual first-source overflow with attempted count one, committed count zero and no
+  field ticket. Sixty-two typed boundary/lowering tests pass. The combined numerical
+  selection passes 2,410 bounds-enabled assertions; all 16 Aqua/JET checks pass with
+  994 definitions analysed and none cached.
+- Fixed-history Adams comparisons at orders one, five and six now use input-only
+  positive polynomial-product envelopes, separate retained-source error propagation,
+  and a verified Wiener-norm radius. Review found that the earlier RK helper assumed
+  an analytic soliton peak without bounding discrete stages (#656). Both RK and RK4IP
+  now use absolute-tableau stage majorants and a verified radius with explicit
+  transform, combination and phase-formation budgets. All ten affected comparisons
+  pass with unchanged precomputed bounds; adaptive runs keep their independent
+  converged-reference envelopes. The time-window multiplier is included explicitly.
+- Portable Adams sample identity means accepted versus predicted, not charged-call
+  ordinal. The next transfer slice uses explicit integer tags mapped to the existing
+  strings, exact full store copies, oldest-first selected positions and zero-based
+  portable slots. Only a fresh unadvanced session can restore; compatibility refusals
+  precede all writes. Python retains history-key, precision, noise and ledger policy.

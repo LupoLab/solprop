@@ -172,13 +172,14 @@ end
     session = adams_session_fixture(; replay = true)
     launch = SolpropJulia.advance!(session)
     @test SolpropJulia.session_execution(session, launch.generation) ==
-        (0, (0, 0, 0, 0, 0, 0, 0, 0, 0))
+        (0, (0, 0, 0, 0, 0, 0, 0, 0, 0), nothing)
     @test_throws ArgumentError SolpropJulia.session_budget(session, launch.generation)
     SolpropJulia.acknowledge!(session, launch.generation)
     @test_throws ArgumentError SolpropJulia.session_execution(session, launch.generation)
     report = SolpropJulia.advance!(session; work_limit = 3, deadline = 60.0)
     generation, count = report.generation, session.attempts.count
-    actual, logical = SolpropJulia.session_execution(session, generation)
+    actual, logical, method = SolpropJulia.session_execution(session, generation)
+    @test method === nothing
     @test actual == session.source.calls == 4
     @test logical == (1, 3, 0, 0, 3, 0, 0, 0, 0)
     orders = zeros(Int64, count)
@@ -192,7 +193,7 @@ end
     SolpropJulia.session_orders!(orders, session, generation)
     @test orders[2] == 0
     session.state.poisoned = true
-    @test SolpropJulia.session_execution(session, generation) == (actual, logical)
+    @test SolpropJulia.session_execution(session, generation) == (actual, logical, nothing)
     @test_throws ArgumentError SolpropJulia.session_orders!(
         view(session.orders, 1:count), session, generation,
     )
@@ -222,10 +223,30 @@ end
         spent, needed = maximum == 1 ? (0, 2) : (3, 1)
         @test SolpropJulia.session_budget(session, failed.generation) ==
             (maximum, spent, needed)
-        actual, logical = SolpropJulia.session_execution(session, failed.generation)
+        actual, logical, method = SolpropJulia.session_execution(session, failed.generation)
+        @test method === nothing
         @test actual == (absent ? 0 : spent)
         @test sum(logical[1:3]) == spent
         SolpropJulia.acknowledge!(session, failed.generation)
         @test_throws ArgumentError SolpropJulia.session_budget(session, failed.generation)
+    end
+end
+
+@testset "Bridge low-storage accounting preserves committed and attempted work" begin
+    for failed_call in (0, 2, 6)
+        session = low_storage_session_fixture(; fail_on = failed_call)
+        launch = SolpropJulia.advance!(session)
+        @test SolpropJulia.session_execution(session, launch.generation) ==
+            (0, nothing, (0, 0))
+        SolpropJulia.acknowledge!(session, launch.generation)
+        report = SolpropJulia.advance!(session; work_limit = 2, deadline = 60.0)
+        expected = failed_call == 0 ? (8, nothing, (8, 2)) :
+            failed_call == 2 ? (2, nothing, (0, 0)) : (6, nothing, (4, 1))
+        @test SolpropJulia.session_execution(session, report.generation) == expected
+        @test report.poisoned == (failed_call != 0)
+        SolpropJulia.acknowledge!(session, report.generation)
+        @test_throws ArgumentError SolpropJulia.session_execution(
+            session, report.generation,
+        )
     end
 end

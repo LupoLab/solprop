@@ -134,7 +134,7 @@ class _Engine:
             acknowledge_session=self.acknowledge,
             session_status=self.status,
             session_failure=lambda session: session.frame.failure,
-            session_execution=lambda session, generation: (0, None),
+            session_execution=lambda session, generation: (0, None, None),
             fail_session=self.fail,
         )
         for name, operation in (
@@ -679,7 +679,7 @@ def test_execution_orders_survive_failed_copy_and_encode_each_chunk_once(
         assert session.pending and session.generation == generation
         count = session.frame.report.attempts
         startup = int(count > 0)
-        return startup + count, (startup, count, 0, 0, count, 0, 0, 0, 0)
+        return startup + count, (startup, count, 0, 0, count, 0, 0, 0, 0), None
 
     failed = False
 

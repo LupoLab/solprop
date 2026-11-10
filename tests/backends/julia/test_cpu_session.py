@@ -12,12 +12,10 @@ from dataclasses import replace
 import numpy as np
 import pytest
 
-from backends.julia.cases import adams_case, cpu_case
+from backends.julia.bounds import adams_rounding_budget, rk_rounding_budget
+from backends.julia.cases import adams_case, cpu_case, low_storage_case
 from sessions.executors import (
-    BETA2,
-    GAMMA,
     IDENTITY,
-    TAU0,
     Started,
     drive,
     fibre,
@@ -80,37 +78,19 @@ def _run(case, *, julia, work_limit=256, deadline=0.1):
         return result
 
 
-def _rounding_budget(case):
-    # Two FFTs per Kerr evaluation, cubic products, modal contractions, tableau
-    # combinations and linear flow; a conservative eight roundings per FFT level
-    # per transform and 128 for the scalar algebra. The fundamental soliton has
-    # nonlinear phase gamma*P0*L, so exp(3*phase) bounds cubic perturbation growth
-    # over this short window. Compare field norms, avoiding relative error at zeros.
-    assert case.request.replay is not None
-    fft_levels = math.ceil(math.log2(case.problem.grids.n_to))
-    stages = len(case.request.integration.tableau.nodes)
-    operations = case.request.replay.schedule.n_steps * stages * (16 * fft_levels + 128)
-    unit = np.finfo(float).eps / 2
-    gamma = operations * unit / (1 - operations * unit)
-    peak = abs(BETA2) / (GAMMA * TAU0**2)
-    amplification = math.exp(3 * GAMMA * peak * 0.02)
-    return 2 * gamma * amplification
-
-
 @pytest.mark.parametrize("work_limit", [1, 256])
 def test_eight_replayed_steps_match_the_reference_with_a_rounding_budget(work_limit):
     case = cpu_case(dz_max=1e-5)
+    bound = rk_rounding_budget(case)
     actual = _run(case, julia=True, work_limit=work_limit, deadline=0.0)
     reference = _run(case, julia=False)
-    bound = _rounding_budget(case)
     assert bound > 0
     assert actual.status.outcome is Outcome.COMPLETED
     assert actual.status.attempts == reference.status.attempts == 8
     assert actual.status.rejected == reference.status.rejected == 0
     assert len(actual.fields) == len(reference.fields) == 3
     for got, expected in zip(actual.fields, reference.fields, strict=True):
-        scale = np.linalg.norm(expected.ravel())
-        assert np.linalg.norm((got - expected).ravel()) <= bound * scale
+        assert np.linalg.norm((got - expected).ravel()) <= bound
         assert np.all(np.isfinite(got))
     chunks = [
         (getattr(event, "history", None), getattr(event, "step_stats", None))
@@ -450,6 +430,42 @@ def test_adaptive_adams_meets_an_independently_converged_rk_reference():
     assert actual.status.outcome is Outcome.COMPLETED
 
 
+@pytest.mark.parametrize("order", [1, 5, 6])
+@pytest.mark.parametrize("work_limit", [1, 256])
+def test_fixed_adams_histories_match_with_conditioned_rounding_budget(
+    order, work_limit
+):
+    case = adams_case(method=Multistep(order=order, variable_order=False))
+    bound = adams_rounding_budget(case, order)
+    assert np.isfinite(bound) and bound > 0
+    runs, records = [], []
+    for julia in (True, False):
+        if julia:
+            _, prepared = _prepared(case)
+        else:
+            owner = select(
+                "numpy_ref",
+                case.problem,
+                case.request,
+                grid=window(),
+                modes=[fibre().mode],
+            )
+            prepared = owner.prepare(case.problem, case.request)
+        with prepared.start(Start.entrance(case.problem)) as session:
+            result = drive(Started(session), export=IDENTITY, work_limit=work_limit)
+            assert result.status.outcome is Outcome.COMPLETED
+            runs.append(result)
+            records.append(session.execution_record()["response_calls"])
+    # Identical histories/order choices are an explicit hypothesis of this bound;
+    # ordinary replay or an adaptive trajectory would need an accuracy envelope.
+    assert records[0] == records[1]
+    assert records[0]["accepted_steps"] == 8
+    assert records[0]["rejected_steps"] == 0
+    assert records[0]["restarts"] == 0
+    for actual, expected in zip(runs[0].fields, runs[1].fields, strict=True):
+        assert np.linalg.norm((actual - expected).ravel()) <= bound
+
+
 @pytest.mark.parametrize("work_limit", [1, 256])
 @pytest.mark.parametrize("absent", [False, True])
 def test_adams_budget_retains_the_accepted_field_and_exact_logical_counts(
@@ -490,6 +506,7 @@ def test_adams_budget_retains_the_accepted_field_and_exact_logical_counts(
         field = np.array(error.field)
         assert field.shape == case.problem.shape
         assert np.all(np.isfinite(field))
+    assert isinstance(error.field, np.ndarray)
     assert np.array_equal(error.field, field)
     owner = select(
         "numpy_ref", case.problem, case.request, grid=window(), modes=[fibre().mode]
@@ -502,3 +519,60 @@ def test_adams_budget_retains_the_accepted_field_and_exact_logical_counts(
         assert isinstance(other, ResponseBudgetError)
         assert str(error) == str(other)
         assert calls == reference.execution_record()["response_calls"]
+
+
+@pytest.mark.parametrize("work_limit", [1, 256])
+def test_low_storage_replay_matches_the_reference_and_committed_counts(work_limit):
+    case = low_storage_case()
+    bound = rk_rounding_budget(case)
+    _, prepared = _prepared(case)
+    with prepared.start(Start.entrance(case.problem)) as session:
+        actual = drive(Started(session), export=IDENTITY, work_limit=work_limit)
+        record = session.execution_record()
+        assert actual.status.outcome is Outcome.COMPLETED
+        assert record["source_evaluations"] == 32
+        assert record["attempted_source_evaluations"] == 32
+        assert record["norm_evaluations"] == 8
+        assert "response_calls" not in record
+        history, _ = join_attempts(actual.chunks)
+        assert history.n_steps == 8
+        assert np.all(history.error_norm == 0)  # The method declares 'not estimated'.
+        assert np.all(history.accepted)
+        assert case.request.replay is not None
+        assert np.array_equal(history.dz, case.request.replay.schedule.steps)
+    reference = _run(case, julia=False)
+    assert bound > 0
+    for got, expected in zip(actual.fields, reference.fields, strict=True):
+        assert np.linalg.norm((got - expected).ravel()) <= bound
+
+
+def test_low_storage_source_failure_poisoning_retains_attempted_work():
+    from solprop.backends.events import Eligibility  # noqa: PLC0415
+
+    case = low_storage_case()
+    assert case.request.replay is not None
+    kerr = case.problem.responses.kerr_coefficients
+    assert kerr is not None
+    problem = replace(
+        case.problem,
+        responses=replace(
+            case.problem.responses,
+            kerr_coefficients=replace(kerr, coefficient=1e300),
+        ),
+    )
+    _, prepared = _prepared(Translation(problem, case.request))
+    with prepared.start(Start.entrance(problem)) as session:
+        launch = session.advance()
+        session.acknowledge(launch.receipt)
+        failed = session.advance()
+        terminal = failed.terminal
+        assert terminal is not None and terminal.outcome is Outcome.FAILED
+        assert terminal.eligibility is Eligibility.POISONED
+        assert terminal.ticket is None
+        assert session.failure_ticket() is None
+        assert session.in_flight == (0.0, case.request.replay.schedule.steps[0])
+        record = session.execution_record()
+        assert record["source_evaluations"] == 0
+        assert record["attempted_source_evaluations"] == 1
+        assert record["norm_evaluations"] == 0
+        session.acknowledge(failed.receipt)

@@ -26,3 +26,9 @@ implementation.
 Adams preserves shared control policy, exact logical budget charges, actual source-call
 counts and compact accepted-order records across event yields. Budget refusal retains
 the accepted field; portable Adams history continuation remains under implementation.
+
+The fixed low-storage RK4IP session owns its register updates and prescribed itinerary.
+Its record separates attempted from committed source calls, and in-flight failures
+poison the field without discarding actual work counts. Matched-history RK and Adams
+comparisons use checked discrete-stage and retained-source bounds, including the effect
+of windowing ([#656](https://github.com/LupoLab/solprop/issues/656)).

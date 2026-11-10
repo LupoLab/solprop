@@ -12,6 +12,7 @@ from jaxtyping import Bool, Float
 from solprop.backends.julia._descriptors import owned
 from solprop.exceptions import BackendError
 from solprop.stepper.controller import START_GROWTH, PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import MarchPolicy, Multistep, march_policy
 from solprop.translate.problem import PropagationProblem, validate_run
 from solprop.translate.run_request import ErrorControlSpec, MethodKind, RunRequest
@@ -48,6 +49,8 @@ class RunTransfer:
     source_absent : bool
         Whether admitted descriptors prove the complete source structurally zero.
         No sampled zero or constant profile establishes this property.
+    low_storage : bool
+        Select the fixed RK4IP register scheme instead of an embedded tableau.
     """
 
     control: ErrorControlSpec
@@ -67,6 +70,7 @@ class RunTransfer:
     start_growth: float
     adams: MarchPolicy | None = None
     source_absent: bool = False
+    low_storage: bool = False
 
 
 def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
@@ -89,9 +93,12 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
     solprop.exceptions.BackendError
         For a method or service not yet implemented in this first composition.
     """
+    low_storage = request.integration.kind is MethodKind.LOW_STORAGE
+    if low_storage and request.replay is None:
+        raise BackendError("julia low-storage RK4IP requires a fixed replay schedule")
+    if low_storage and type(request.integration.method) is not LowStorageRungeKutta:
+        raise BackendError("julia refuses custom low-storage methods; use numpy_ref")
     validate_run(problem, request)
-    if request.integration.kind not in (MethodKind.RUNGE_KUTTA, MethodKind.ADAMS):
-        raise BackendError("this julia march composition requires Runge-Kutta or Adams")
     if type(request.error_control.controller) is not PIController:
         raise BackendError("julia refuses custom controllers; use numpy_ref")
     if request.observation.dense:
@@ -135,6 +142,7 @@ def lower_run(problem: PropagationProblem, request: RunRequest) -> RunTransfer:
         _adams_policy(problem, request),
         # lower_modal has already excluded general, spatial and atomic pipelines.
         len(responses.response_order) == 1 and not in_stage,
+        low_storage,
     )
 
 

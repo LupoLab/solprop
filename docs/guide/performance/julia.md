@@ -7,7 +7,9 @@ environment does not establish that its propagation kernels are qualified.
 
 The current internal integration supports scalar modal fields and envelopes in binary64
 with Kerr, Raman and plasma responses and Runge–Kutta or exponential Adams stepping,
-including adaptive and fixed replay schedules. Constant, tabulated and expanded
+including adaptive and fixed replay schedules. Fixed schedules also support the
+three-register low-storage RK4IP method, which records no embedded error estimate.
+Constant, tabulated and expanded
 operators, prefactors and power weights keep their full represented variation. Each
 material response uses its own density, decay and preionisation profiles; taper scaling
 follows the translated mode map.
@@ -24,10 +26,15 @@ order counts. A spent call budget stops before the next trial and carries the la
 accepted field. Portable Adams history export and restore are still pending and refuse
 explicitly; this milestone does not qualify continuation checkpoints.
 
+Low-storage execution records preserve the established `source_evaluations` count
+of committed steps and separately report `attempted_source_evaluations` and completed
+`norm_evaluations`. If an in-place trial fails, its attempted calls remain visible and
+its field is poisoned, so no field-export ticket is issued.
+
 This composition is being extended to the remaining accepted routes,
 integrators, statistics and monitors before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
-Low-storage, statistics and temporal/transverse-monitor components have separate tests;
+Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
 The current session supports in-stage temporal absorption. Split absorption, noise,
 vector responses, general modal and spatial transforms, and observation services remain

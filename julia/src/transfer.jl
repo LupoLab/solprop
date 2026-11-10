@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public ModalPreparation, prepare_modal, start_runge_kutta, start_adams
+public start_low_storage
 public advance_session, acknowledge_session, session_status, export_session!
 public session_attempts!, session_failure, session_memory, preparation_memory
 public fail_session
@@ -74,6 +75,17 @@ The extension copies every policy value from the shared resolved Python record.
 function start_adams end
 
 """
+    start_low_storage(preparation, transfer, field, z, plane, plane_pending, stop)
+
+Copy a starting field and fixed itinerary into an owned low-storage RK4IP session.
+
+Arguments have the same ownership, shape and units as `start_runge_kutta`. This
+scheme retains no continuation history or embedded tableau. The source invocation
+and committed-step counters remain separate when an in-place step fails.
+"""
+function start_low_storage end
+
+"""
     advance_session(session, work_limit, deadline)
 
 Advance the complete engine through a positional bridge call that may release Python's GIL.
@@ -140,16 +152,18 @@ end
 """
     session_execution(session, generation)
 
-Read cumulative actual source calls and optional Adams logical counters without draining.
+Read cumulative actual source calls and optional method counters without draining.
 
 The logical tuple is startup, predictor, corrected, rejected, accepted steps, rejected
 steps, restarts, failure restarts and dense observations, in shared `CallLedger` order.
-Other methods return `nothing` for that tuple. A pending poisoned generation still
+Other methods return `nothing` for that tuple. The third result is the low-storage
+tuple of committed source calls and norm reductions, or `nothing` for other methods.
+A pending poisoned generation still
 permits these diagnostic reads; closed, stale and acknowledged generations refuse.
 """
 function session_execution(session::RungeKuttaSession, generation::Int)
     _session_chunk_pending(session, generation)
-    return (session.source.calls, nothing)
+    return (session.source.calls, nothing, nothing)
 end
 
 function session_execution(session::AdamsSession, generation::Int)
@@ -162,6 +176,16 @@ function session_execution(session::AdamsSession, generation::Int)
             ledger.accepted_steps, ledger.rejected_steps, ledger.restarts,
             ledger.failure_restarts, ledger.dense_observations,
         ),
+        nothing,
+    )
+end
+
+function session_execution(session::LowStorageSession, generation::Int)
+    _session_chunk_pending(session, generation)
+    counts = session.counts
+    return (
+        counts.attempted_source_evaluations, nothing,
+        (counts.committed_source_evaluations, counts.norm_evaluations),
     )
 end
 

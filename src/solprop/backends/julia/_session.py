@@ -161,6 +161,9 @@ class JuliaSession:
         self._adams = transfer.adams is not None
         if self._adams:
             initial["response_calls"] = dict.fromkeys(_CALL_COUNTERS, 0)
+        if transfer.low_storage:
+            initial["attempted_source_evaluations"] = 0
+            initial["norm_evaluations"] = 0
         self._accounting = _ExecutionRecord(
             initial, np.empty((0, 2), dtype=np.int64), 0
         )
@@ -177,7 +180,11 @@ class JuliaSession:
         self._lease = StopLease(runtime, self._token)
         try:
             self._engine = runtime.own_call(
-                "start_runge_kutta" if transfer.adams is None else "start_adams",
+                "start_low_storage"
+                if transfer.low_storage
+                else "start_adams"
+                if self._adams
+                else "start_runge_kutta",
                 preparation,
                 transfer,
                 start.field,
@@ -432,6 +439,11 @@ class JuliaSession:
                 **dict(zip(_CALL_COUNTERS, record.response_calls, strict=True)),
             }
         updated["source_evaluations"] = record.source_evaluations
+        if record.low_storage_counts is not None:
+            committed, norms = record.low_storage_counts
+            updated["source_evaluations"] = committed
+            updated["attempted_source_evaluations"] = record.source_evaluations
+            updated["norm_evaluations"] = norms
         # Publish only a complete encoding, so a failed allocation can retry without
         # counting a prefix twice. No Julia object or per-step Python callback remains.
         encoded = np.asarray(runs, dtype=np.int64).reshape(-1, 2)

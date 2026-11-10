@@ -13,7 +13,7 @@ import pytest
 from benchmarks.records import SuiteError
 from benchmarks.worker import _Loaded
 
-from backends.julia.cases import adams_case, cpu_case
+from backends.julia.cases import adams_case, cpu_case, low_storage_case
 from solprop.backends.julia import backend
 from solprop.backends.julia._descriptors import (
     TableTransfer,
@@ -166,6 +166,28 @@ def test_adams_rejects_disagreeing_resolved_interval_topology():
     )
     with pytest.raises(BackendError, match="interval-cap policy disagree"):
         lower_run(case.problem, request)
+
+
+def test_low_storage_lowers_the_recorded_steps_without_an_adaptive_policy():
+    case = low_storage_case()
+    transfer = lower_run(case.problem, case.request)
+    assert transfer.low_storage and transfer.adams is None
+    assert case.request.replay is not None
+    assert np.array_equal(transfer.steps, case.request.replay.schedule.steps)
+    assert np.array_equal(transfer.edges, case.request.replay.schedule.edges)
+    assert np.all(transfer.steps <= transfer.control.dz_max)
+    assert not transfer.steps.flags.writeable
+
+
+def test_low_storage_refuses_an_adaptive_request_before_runtime_entry(monkeypatch):
+    case = low_storage_case(steps=None)
+
+    def no_runtime(**_):
+        pytest.fail("a fixed itinerary must be required before initialization")
+
+    monkeypatch.setattr(backend, "get_runtime", no_runtime)
+    with pytest.raises(BackendError, match="requires a fixed replay schedule"):
+        JuliaBackend(case.problem, case.request)
 
 
 def test_binary32_refuses_before_a_runtime_is_selected(monkeypatch):

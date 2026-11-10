@@ -44,11 +44,15 @@ class EngineExecution:
     orders : numpy.ndarray
         One integer per completed attempt in the pending chunk, zero for rejections.
         Empty for a method without Adams orders. The receiving session owns encoding.
+    low_storage_counts : tuple of int or None
+        Committed source evaluations and completed norm evaluations for RK4IP.
+        Its established public source counter excludes abandoned in-flight work.
     """
 
     source_evaluations: int
     response_calls: tuple[int, ...] | None
     orders: Int[np.ndarray, " n_attempts"]
+    low_storage_counts: tuple[int, int] | None = None
 
 
 def _execution(
@@ -74,7 +78,11 @@ def _execution(
     result = runtime.engine.session_execution(session, generation)
     logical = result[1]
     if logical is None:
-        return EngineExecution(int(result[0]), None, np.empty(0, dtype=np.int64))
+        counts = result[2]
+        low_storage = None if counts is None else (int(counts[0]), int(counts[1]))
+        return EngineExecution(
+            int(result[0]), None, np.empty(0, dtype=np.int64), low_storage
+        )
     counts = tuple(int(value) for value in logical)
     orders = np.empty(int(session.attempts.count), dtype=np.int64)
     getattr(runtime.engine, "session_orders!")(orders, session, generation)
