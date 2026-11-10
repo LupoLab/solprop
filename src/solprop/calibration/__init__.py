@@ -102,8 +102,8 @@ def calibrate(
     Parameters
     ----------
     level : str, optional
-        ``"quick"`` (about 20 s), ``"standard"`` (about 90 s) or ``"thorough"``
-        (about five minutes).
+        ``"quick"`` (about 30 s), ``"standard"`` (about two minutes) or
+        ``"thorough"`` (about seven minutes).
     budget : float or None, optional
         The deadline in seconds, the level's when ``None``.
 
@@ -269,9 +269,12 @@ def import_profile(path: Path, environ: Mapping[str, str] | None = None) -> bool
 
 
 def clear(environ: Mapping[str, str] | None = None) -> int:
-    """Forget this machine and build's profiles in the user's store.
+    """Forget this machine and build's profiles and stored FFT plans.
 
-    A calibration in progress keeps its claim. Read-only directories are not touched.
+    The user's store loses the profiles, their refinements and the plans runs measured
+    (``wisdom.json``, solprop ADR-076), and the file ``SOLPROP_FFTW_WISDOM`` keeps for
+    this build, when the variable is set, goes too. A calibration in progress keeps
+    its claim. Read-only directories are not touched.
 
     Parameters
     ----------
@@ -284,6 +287,26 @@ def clear(environ: Mapping[str, str] | None = None) -> int:
         The files removed.
     """
     found = choice(environ)
-    if found.fingerprint is None:
-        return 0
-    return _native.store.Store(store_directory(environ)).clear(found.fingerprint.digest)
+    removed = 0
+    digest = None if found.fingerprint is None else found.fingerprint.digest
+    if digest is not None:
+        removed = _native.store.Store(store_directory(environ)).clear(digest)
+    named = (os.environ if environ is None else environ).get("SOLPROP_FFTW_WISDOM", "")
+    if not named.strip():
+        return removed
+    try:
+        if digest is None:
+            # SOLPROP_CALIBRATION=off reads no profile, but runs still keep the named
+            # file, under the same fingerprint (solprop_native._wisdom.machine_key).
+            build = _native.fingerprint.build_identity(
+                _native.packages(), _native.variant()
+            )
+            digest = _native.fingerprint.fingerprint(
+                _native.topology.read_topology(), build
+            ).digest
+        base = Path(named.strip()).expanduser()
+        base.with_name(f"{base.name}.native-{digest}").unlink()
+        removed += 1
+    except OSError, ValueError, RuntimeError:
+        pass
+    return removed

@@ -147,16 +147,14 @@ class Choice:
         The row's plan efforts and the generation's wisdom (SEP 46 section 6.7), where
         the row's workspace settings hold (:meth:`workspace`); ``None`` keeps the plan
         policy: no profile, a row without planning, other process settings, or the
-        user's own ``SOLPROP_FFTW_PLAN`` or ``SOLPROP_FFTW_WISDOM``, which take
-        precedence.
+        user's own ``SOLPROP_FFTW_PLAN``, which takes precedence.
+        ``SOLPROP_FFTW_WISDOM`` only moves the plans runs measured (solprop ADR-076),
+        which the profile's winners take precedence over.
         """
         row = self.row
         if row is None or self.generation is None or not row.planning:
             return None
-        if any(
-            environ.get(name, "").strip()
-            for name in ("SOLPROP_FFTW_PLAN", "SOLPROP_FFTW_WISDOM")
-        ):
+        if environ.get("SOLPROP_FFTW_PLAN", "").strip():
             return None
         fitted = row.fitted_under
         assert self.found is not None

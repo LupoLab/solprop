@@ -738,7 +738,8 @@ Threads are a property of the plan, chosen at construction: a plan of fewer real
 than `default_threaded_fft_min_samples` runs on one thread (§4), and the others take their
 width from the size rules of §3.4, within the process's thread budget (ADR-052: the affinity
 mask, the cgroup CPU quota on the process's own path rounded down, and `SOLPROP_THREADS`;
-never `os.cpu_count()`). Wisdom is explicit and opt-in (`SOLPROP_FFTW_WISDOM`, §4).
+never `os.cpu_count()`). The plans runs measure are kept by default, per machine and
+build (ADR-076, §4).
 
 ### 3.4 Threading regimes
 
@@ -1301,16 +1302,39 @@ threaded plans; free space's transverse planes are measured at any width. An exp
 planning, `measure` and experimental `patient` time it. Estimate can still consume
 matching wisdom already present in the process; the backend does not clear shared FFTW
 wisdom. Planning is destructive and precedes state initialization.
-Wisdom outlives the process only when `SOLPROP_FFTW_WISDOM` names a file: the adapter
-(`solprop_native._wisdom`) imports this build's file, `<name>.native-<key>`, before the
-state plans, and afterwards merges the file into the process's wisdom and replaces it
-whole when that adds a plan. The key digests FFTW's wisdom preamble (its version and
-planner signature, which FFTW checks again on import) and the processor model. Readers
-take no lock, since the file only ever changes by an atomic rename; writers serialise on
-`<file>.lock` (`flock` on POSIX). The C++ side only converts wisdom to and from text
-(`export_fftw_wisdom`, `import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's
-threaded solvers first, since they are part of the planner signature an import must
-match. Metadata records `wisdom_loaded` and `wisdom_digest`.
+The plans runs measure outlive the process, by default (ADR-076). The adapter
+(`solprop_native._wisdom`) keeps them by plan key (`fft_plan_key`: kind, sizes,
+strides, placement, alignment and threads), each with the wisdom of that transform
+alone, in `wisdom.json` in the calibration store's directory of the machine and build
+(`<store>/machines/<fingerprint>/`, ADR-074's fingerprint), or as
+`<name>.native-<fingerprint>` beside the file `SOLPROP_FFTW_WISDOM` names;
+`SOLPROP_CALIBRATION=off` keeps no default file, and the process keeps what it measured
+in memory for its later workspaces either way. A run's own planning (the policy's, or
+the profile's) is offered the stored plans (`FftPlanning::stored`) and asked to keep
+what it measures (`keep`). In `begin_seed` a key the profile holds is planned from the
+profile's wisdom, as before; any other seeded above estimate plans *alone*: the
+workspace's accumulated wisdom is exported and forgotten, only that key's known wisdom
+imported (stored, or measured earlier in this workspace, so a key seeded twice is
+measured once; a key to measure starts from what the workspace measured so far, whose
+sub-plans it shares), and after the seed (`release_seed`) the transform's own wisdom is exported
+into `measured` when the seed added an entry the stored text lacked, or the key is
+listed in `reused`; the workspace's wisdom is then imported back over the transform's,
+so that a profile's entries win where both hold one. A key left at estimate that the
+store holds is not seeded: its wisdom is imported beneath the workspace's for
+Kokkos-FFT's estimate plan to take, and it counts as reused. Seeds and their Kokkos-FFT
+plans interleave (a workspace seeds several transforms before planning them), so the
+wisdom accumulates within a workspace rather than being forgotten between keys; SEP 46's
+transaction still forgets it before and after a profiled workspace. After construction
+the adapter stores the measured plans not held by the profile, so a profile's winners
+are never overridden. Readers take no lock, since the file only ever changes by an
+atomic rename; writers serialise on `<file>.lock` (`flock` on POSIX), merge the file's
+plans with their own and replace it only when that adds or changes one. A calibration's
+own workspaces (given `fft_planning`) and its children (`off`) neither read nor write
+the store. The C++ side only converts wisdom to and from text (`export_fftw_wisdom`,
+`import_fftw_wisdom` in `fft_plan.hpp`), registering FFTW's threaded solvers first,
+since they are part of the planner signature an import must match. Metadata records
+`wisdom_loaded` (the file held plans) and `wisdom_digest` (of the plans the workspace
+built from wisdom or measured).
 Contiguous Raman transforms use the same planning policy, including long doubled
 rows and partial chunks. On macOS, NEON FFTW handles serial and long Raman rows;
 short parallel power-of-two rows (at most 16384 samples) retain Accelerate. Selection
@@ -1578,11 +1602,14 @@ at most:
   lengths below, at and past one block, partial tiles, both `beta` and row subviews, so
   the kernel's blocking and order are free. Vendor-BLAS and device builds use
   `KokkosBlas::gemm`.
-- **Small transforms on one FFTW thread.** A modal or spatial plan whose real side holds
-  fewer than **16 384** samples per execution (32 768 on macOS; `default_threaded_fft_min_samples`;
-  `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES` overrides it) is made on a one-thread
-  execution instance, because below that a threaded FFTW plan only costs time: the
-  threshold is a speed threshold. FFTW's planner may choose a transform's factorisation by
+- **Small transforms on one FFTW thread; larger ones by shape.** A modal or spatial plan
+  whose real side holds fewer than **8 192** samples per execution (32 768 on macOS; the
+  execution record's `fft_threshold`; `SOLPROP_NATIVE_THREADED_FFT_MIN_SAMPLES`
+  overrides it) is made on a one-thread execution instance, because below that a
+  threaded FFTW plan only costs time: the threshold is a speed threshold. Above it a
+  batch takes a thread per `fft_thread_elements` samples, at most one a row unless its
+  rows are `fft_long_row` long, when it may take the medium width
+  ([transforms by shape](benchmarks.md#transforms-by-shape-and-one-forward-pack)). FFTW's planner may choose a transform's factorisation by
   the thread count (a two-column 256-point inverse took radix 4 with 64-point leaves at
   three and four threads and radix 8 with 32-point leaves at others), which moves ten
   realistic steps by at most 8 u: within the transform's rounding bound, so it constrains

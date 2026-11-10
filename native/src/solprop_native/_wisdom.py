@@ -2,29 +2,37 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Keep the native backend's FFTW wisdom in the file ``SOLPROP_FFTW_WISDOM`` names.
+"""Keep the FFTW plans the native backend's runs measure (solprop ADR-076).
 
-Measured planning is most of a short one-thread run's construction: on an AMD EPYC 7763
-a 6400-sample real transform alone takes about 1.3 s to plan, against a run window of
-one or two seconds. FFTW's wisdom records the plans a measurement chose, and a later
-process that imports it plans the same transforms at once. Wisdom only chooses among
-FFTW's exact algorithms, so it never changes what a transform computes; which algorithm
-was chosen can change the rounding, as a new measurement can.
+Measured planning is most of a short run's construction: on an AMD EPYC 7763 a
+6400-sample real transform alone takes about 1.3 s to plan, and the threaded rows of a
+multimode stage up to 12 s, against a run window of a few seconds. FFTW's wisdom records
+the plans a measurement chose, and a later process that imports it plans the same
+transforms at once. Wisdom only chooses among FFTW's exact algorithms, so it never
+changes what a transform computes; which algorithm was chosen can change the rounding,
+as a new measurement can.
 
-Nothing is read or written without the variable. The native backend links its own FFTW,
-whose wisdom another FFTW build cannot read, so it keeps a file of its own beside the
-named one, ``<name>.native-<key>``. The key digests the FFTW library's wisdom preamble
-(its version and the signature of its planner's configuration) and the processor's
-model, so machines of different kinds sharing a home directory keep separate plans, and
-a file from another FFTW is never offered to this one; FFTW refuses foreign wisdom by
-its signature in any case.
+The plans are kept by transform, not as one blob of wisdom: each plan key (the
+transform's kind, sizes, strides, placement, alignment and threads, as a calibration
+keys its winners) holds the wisdom of that transform alone, measured in place by the
+run that first planned it. A workspace is offered the plans it may use; a transform the
+store holds plans from its own wisdom only, and one it lacks is measured alone and
+added (``FftPlanning`` in ``fft_plan.hpp``). A calibration profile's winners keep
+precedence: a key the profile holds is never read from or written to this store.
+
+By default the file is ``wisdom.json`` in the calibration store's directory of this
+machine and build (``<store>/machines/<fingerprint>/``), so different machines and
+builds never share plans and ``solprop calibrate --clear`` removes them with the
+profile. ``SOLPROP_FFTW_WISDOM`` names another file, beside which this build's is kept
+as ``<name>.native-<fingerprint>``; ``SOLPROP_CALIBRATION=off`` keeps no default file.
+Every process also keeps the plans it measured in memory, for its later workspaces.
 
 Many processes of a scan may share one file. A reader never takes a lock: the file is
 only ever replaced whole, by an atomic rename. A writer takes an exclusive lock on
-``<file>.lock`` (on POSIX systems), merges the file's current wisdom into its own, and
-replaces the file only when that adds something, so a run whose plans were all known
-writes nothing. A file that cannot be read or written costs only the measurement: it is
-reported in the log and the run goes on.
+``<file>.lock`` (on POSIX systems), merges the file's current plans with its own, and
+replaces the file only when that adds a plan, so a run whose plans were all known
+writes nothing. A file that cannot be named, read or written costs only the
+measurement: it is reported in the log and the run goes on.
 """
 
 from __future__ import annotations
@@ -32,85 +40,104 @@ from __future__ import annotations
 import contextlib
 import functools
 import hashlib
+import json
 import logging
 import os
-import platform
 import threading
-from collections.abc import Generator
+from collections.abc import Collection, Generator, Mapping
 from pathlib import Path
+from typing import cast
 
 from . import _core
+from ._store import cache_directory, mode
 
 try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows: the atomic replace alone applies
     fcntl = None
 
-__all__ = ["digest", "load", "store", "wisdom_file"]
+__all__ = ["FILE", "FORMAT", "digest", "plans", "remember", "store", "wisdom_file"]
 
 logger = logging.getLogger(__name__)
 
 ENVIRONMENT = "SOLPROP_FFTW_WISDOM"
-"""The variable naming the wisdom file."""
+"""The variable naming another wisdom file."""
+
+FILE = "wisdom.json"
+"""The default file's name, in the store's directory of this machine and build."""
+
+FORMAT = 1
+"""The file's format; a file of another format is not read."""
 
 _LOCK = threading.Lock()
-# Per wisdom file: the (mtime, size) of the version this process imported last, and the
-# wisdom the process held right after it last loaded or stored that file.
-_imported: dict[Path, tuple[int, int] | None] = {}
-_known: dict[Path, str] = {}
-
-
-def _processor(text: str | None = None) -> str:
-    """Name the processor model from `text`, by default Linux's ``/proc/cpuinfo``."""
-    if text is None:
-        try:
-            text = Path("/proc/cpuinfo").read_text(encoding="utf-8", errors="replace")
-        except OSError:  # pragma: no cover - not Linux
-            return platform.processor()
-    wanted = ("model name", "cpu model", "CPU implementer", "CPU part")
-    fields = [
-        line.split(":", 1)[1].strip()
-        for line in text.splitlines()[:64]
-        if ":" in line and line.split(":", 1)[0].strip() in wanted
-    ]
-    return " ".join(dict.fromkeys(fields)) or platform.processor()
+# Per file: the (mtime, size) of the version this process read last, and its plans.
+_read: dict[Path, tuple[tuple[int, int], dict[str, str]]] = {}
+# The plans this process measured, for its later workspaces.
+_measured: dict[str, str] = {}
 
 
 @functools.cache
-def _key() -> str | None:
-    """Digest what decides whether stored plans suit this process, once.
-
-    ``None`` when the build keeps no FFTW wisdom.
-    """
-    wisdom = _core.export_fftw_wisdom()
-    if wisdom is None:
-        return None
-    text = "\n".join((wisdom.split("\n", 1)[0], platform.machine(), _processor()))
-    return hashlib.blake2b(text.encode(), digest_size=6).hexdigest()
+def _keeps_wisdom() -> bool:
+    """Whether the build keeps FFTW wisdom: not a device build or a provider without."""
+    return _core.export_fftw_wisdom() is not None
 
 
-def wisdom_file(named: str | None = None) -> Path | None:
-    """Return this build's wisdom file for the named one, or ``None`` without one.
+@functools.cache
+def machine_key() -> str:
+    """Return this machine and build's fingerprint digest, the profile's (SEP 46 §5)."""
+    import solprop_native as package
+
+    found = package.PROFILE.fingerprint
+    if found is not None:
+        return found.digest
+    # SOLPROP_CALIBRATION=off reads no profile, and so took no fingerprint.
+    from ._fingerprint import build_identity, fingerprint
+    from ._topology import read_topology
+
+    return fingerprint(
+        read_topology(),
+        build_identity(
+            [Path(entry) for entry in package.__path__],
+            package._STEM,  # pyright: ignore[reportPrivateUsage] - same package
+        ),
+    ).digest
+
+
+def wisdom_file(environ: Mapping[str, str] = os.environ) -> Path | None:
+    """Return this machine and build's plan file, or ``None`` without one.
 
     Parameters
     ----------
-    named : str, optional
-        The file ``SOLPROP_FFTW_WISDOM`` names; ``None`` reads the variable.
+    environ : Mapping[str, str]
+        The environment.
 
     Returns
     -------
     pathlib.Path or None
-        ``<name>.native-<key>`` beside the named file; ``None`` when nothing is named or
-        the build keeps no FFTW wisdom (a device build, or a provider without it).
+        ``<name>.native-<fingerprint>`` beside the file ``SOLPROP_FFTW_WISDOM`` names;
+        otherwise ``wisdom.json`` in the calibration store's directory of this machine
+        and build. ``None`` under ``SOLPROP_CALIBRATION=off`` without the variable, on
+        a build that keeps no FFTW wisdom (a device build, or a provider without it),
+        and, with a logged warning, when the name cannot be used.
     """
-    named = os.environ.get(ENVIRONMENT) if named is None else named
-    if not named:
+    named = environ.get(ENVIRONMENT, "").strip()
+    try:
+        if not named and mode(environ) == "off":
+            return None
+        if not _keeps_wisdom():
+            return None
+        key = machine_key()
+        if named:
+            base = Path(named).expanduser()
+            if not base.name or base.name in {".", ".."}:
+                raise ValueError(f"{named!r} names no file")
+            return base.with_name(f"{base.name}.native-{key}")
+        return cache_directory(environ) / "machines" / key / FILE
+    except (OSError, RuntimeError, ValueError) as error:
+        logger.warning(
+            "solprop_native: cannot keep FFTW plans (%s); planning without them", error
+        )
         return None
-    key = _key()
-    if key is None:
-        return None
-    base = Path(named).expanduser()
-    return base.with_name(f"{base.name}.native-{key}")
 
 
 def _version(path: Path) -> tuple[int, int] | None:
@@ -122,45 +149,76 @@ def _version(path: Path) -> tuple[int, int] | None:
     return stat.st_mtime_ns, stat.st_size
 
 
-def _import(path: Path, text: str) -> bool:
-    """Merge `text` into FFTW's wisdom; report and refuse what FFTW refuses."""
-    if _core.import_fftw_wisdom(text):
-        return True
-    logger.warning("solprop_native: %s is not this FFTW's wisdom; ignoring it", path)
-    return False
+def _parse(path: Path, text: str) -> dict[str, str]:
+    """Return the plans of a file's `text`; report and refuse anything else."""
+    try:
+        data = json.loads(text)
+        if not isinstance(data, dict):
+            raise ValueError("not a mapping")
+        values = cast(dict[str, object], data)
+        if values.get("format") != FORMAT:
+            raise ValueError(f"format {values.get('format')!r}, expected {FORMAT}")
+        found = values.get("plans")
+        if not isinstance(found, dict) or not all(
+            isinstance(key, str) and isinstance(plan, str)
+            for key, plan in cast(dict[object, object], found).items()
+        ):
+            raise ValueError("its plans are not text by key")
+    except ValueError as error:
+        logger.warning("solprop_native: ignoring the FFTW plans in %s: %s", path, error)
+        return {}
+    return dict(cast(dict[str, str], found))
 
 
-def load(path: Path | None) -> bool:
-    """Import the wisdom file before planning, unless this process already holds it.
+def _load(path: Path) -> dict[str, str]:
+    """Return the file's plans, read again only when it changed; hold `_LOCK`."""
+    try:
+        version = _version(path)
+        if version is None:
+            return {}
+        cached = _read.get(path)
+        if cached is not None and cached[0] == version:
+            return cached[1]
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError) as error:
+        logger.warning("solprop_native: cannot read FFTW plans: %s", error)
+        return {}
+    found = _parse(path, text)
+    _read[path] = (version, found)
+    return found
+
+
+def plans(path: Path | None) -> tuple[dict[str, str], bool]:
+    """Return the plans a workspace is offered, and whether the file supplied any.
 
     Parameters
     ----------
     path : pathlib.Path or None
-        This build's wisdom file (:func:`wisdom_file`); ``None`` does nothing.
+        This build's plan file (:func:`wisdom_file`); ``None`` offers this process's
+        own plans alone.
 
     Returns
     -------
+    dict
+        Each plan's wisdom by key: the file's, under those this process measured.
     bool
-        Whether the file's wisdom is in force.
+        Whether the file held any plan.
     """
-    if path is None:
-        return False
     with _LOCK:
-        try:
-            version = _version(path)
-            if version is None:
-                return False
-            if _imported.get(path) == version:
-                return True
-            text = path.read_text(encoding="ascii")
-        except (OSError, UnicodeDecodeError) as error:
-            logger.warning("solprop_native: cannot read FFTW wisdom: %s", error)
-            return False
-        if not _import(path, text):
-            return False
-        _imported[path] = version
-        _known[path] = _core.export_fftw_wisdom() or ""
-        return True
+        found = _load(path) if path is not None else {}
+        return found | _measured, bool(found)
+
+
+def remember(measured: Mapping[str, str]) -> None:
+    """Keep plans this process measured for its later workspaces.
+
+    Parameters
+    ----------
+    measured : Mapping[str, str]
+        Each plan's own wisdom by key.
+    """
+    with _LOCK:
+        _measured.update(measured)
 
 
 @contextlib.contextmanager
@@ -178,59 +236,72 @@ def _replace(path: Path, text: str) -> None:
     """Write `text` beside `path`, then rename it over `path` in one step."""
     partial = path.parent / f".{path.name}.{os.getpid()}.{threading.get_ident()}"
     try:
-        partial.write_text(text, encoding="ascii")
+        partial.write_text(text, encoding="utf-8")
         partial.replace(path)
     finally:
         partial.unlink(missing_ok=True)
 
 
-def store(path: Path | None) -> bool:
-    """Merge the plans this process measured into the wisdom file.
+def store(
+    path: Path | None, measured: Mapping[str, str], profiled: Collection[str] = ()
+) -> bool:
+    """Merge plans a run measured into the file.
 
     Parameters
     ----------
     path : pathlib.Path or None
-        This build's wisdom file (:func:`wisdom_file`); ``None`` does nothing.
+        This build's plan file (:func:`wisdom_file`); ``None`` does nothing.
+    measured : Mapping[str, str]
+        Each plan's own wisdom by key, as the workspace measured it.
+    profiled : Collection[str]
+        The keys a calibration profile holds, which are never stored here.
 
     Returns
     -------
     bool
         Whether the file was replaced.
     """
-    if path is None:
+    new = {key: plan for key, plan in measured.items() if key not in profiled}
+    if path is None or not new:
         return False
     with _LOCK:
-        wisdom = _core.export_fftw_wisdom() or ""
-        if wisdom == _known.get(path):
-            return False
         try:
             with _exclusive(path):
-                stored = path.read_text(encoding="ascii") if path.exists() else ""
-                if stored:
-                    _import(path, stored)
-                merged = _core.export_fftw_wisdom() or ""
-                changed = merged != stored
-                if changed:
-                    _replace(path, merged)
                 version = _version(path)
+                current = (
+                    _parse(path, path.read_text(encoding="utf-8"))
+                    if version is not None
+                    else {}
+                )
+                merged = current | new
+                changed = merged != current
+                if changed:
+                    record = {"format": FORMAT, "plans": merged}
+                    _replace(path, json.dumps(record, indent=0, sort_keys=True))
+                    version = _version(path)
         except (OSError, UnicodeDecodeError) as error:
-            logger.warning("solprop_native: cannot store FFTW wisdom: %s", error)
+            logger.warning("solprop_native: cannot store FFTW plans: %s", error)
             return False
-        _known[path] = merged
-        _imported[path] = version
+        if version is not None:
+            _read[path] = (version, merged)
         return changed
 
 
-def digest() -> str | None:
-    """Return a short digest of the wisdom in force, for the run's metadata.
+def digest(applied: Mapping[str, str]) -> str | None:
+    """Return a short digest of a workspace's plans, for its run's metadata.
+
+    Parameters
+    ----------
+    applied : Mapping[str, str]
+        The wisdom of each plan the workspace built from wisdom or measured, by key.
 
     Returns
     -------
     str or None
-        The first sixteen hex characters of a BLAKE2b over FFTW's exported wisdom;
-        ``None`` on a build without FFTW wisdom.
+        The first sixteen hex characters of a BLAKE2b over the plans; ``None`` on a
+        build without FFTW wisdom.
     """
-    wisdom = _core.export_fftw_wisdom()
-    if wisdom is None:
+    if not _keeps_wisdom():
         return None
-    return hashlib.blake2b(wisdom.encode(), digest_size=8).hexdigest()
+    text = json.dumps(dict(applied), sort_keys=True)
+    return hashlib.blake2b(text.encode(), digest_size=8).hexdigest()

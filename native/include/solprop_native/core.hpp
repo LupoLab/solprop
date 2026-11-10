@@ -257,13 +257,20 @@ struct OperationGrain {
       `compact_max_fine_samples` fine samples) runs its kernels on a team of at most
       `compact_threads` and its threaded transforms on that whole team.
     - `stable_kernel_team`: once a kernel pool holds a full-width instance, a
-      medium-width kernel takes it too (`CpuExecutionPool::get`). */
+      medium-width kernel takes it too (`CpuExecutionPool::get`).
+    - A batch of transforms whose row length is known threads by its shape (solprop
+      issue #587): from the FFT class's threshold, one thread per
+      `fft_thread_elements` samples and at most one a row -- or `medium_threads`, if
+      more, when its rows are at least `fft_long_row` samples long -- and its pool's
+      capacity from the class's full size. FFTW's threaded plans divide the rows
+      among the threads, and split a row only where it is long. */
 struct CpuExecution {
   std::array<OperationGrain, cpu_operation_count> grain{};
   std::size_t response_full_samples{}, response_full_columns{};
   int medium_threads{}, compact_threads{};
   std::size_t compact_max_fine_samples{};
   bool stable_kernel_team{};
+  std::size_t fft_thread_elements{}, fft_long_row{};
   bool operator==(const CpuExecution&) const = default;
   [[nodiscard]] const OperationGrain&
   operator[](CpuOperation operation) const noexcept {
@@ -289,7 +296,18 @@ void require_cpu_execution(const CpuExecution& execution);
 
     A transform's group is `rows` (one thread), `threaded_rows` or `planes`; its key
     names its kind, sizes, strides, placement, alignment and threads
-    (`fft_plan_key`). Efforts are "estimate", "measure" or "patient". */
+    (`fft_plan_key`). Efforts are "estimate", "measure" or "patient".
+
+    Plans runs measured before (solprop ADR-076), in the legacy and profile modes:
+    `stored` holds each transform's own wisdom by key, below the profile's `wisdom`,
+    which is consulted first. A transform seeded above estimate that `stored` holds, or
+    any when `keep` is set, is planned alone: the workspace's wisdom is set aside, the
+    transform's stored wisdom alone imported (or, for one to measure, what the
+    workspace measured so far, whose sub-plans it may share), and after the seed the
+    workspace's wisdom comes back over the transform's. A transform seeded twice is
+    measured once. A plan the stored wisdom built is listed in
+    `reused`, as is one left at estimate whose stored wisdom was imported for its
+    estimate plan; one that measured is kept in `measured` when `keep` is set. */
 struct FftPlanning {
   enum class Mode { legacy, profile, capture };
   Mode mode{Mode::legacy};
@@ -297,10 +315,16 @@ struct FftPlanning {
   std::map<std::string, std::string> wisdom;
   std::string capture_effort{"measure"};
   double time_limit{-1.0};
+  std::map<std::string, std::string> stored;
+  bool keep{false};
   // What planning found: each transform's group, the wisdom captured, and the
-  // profile's plans that no longer build.
-  std::map<std::string, std::string> groups, captured;
-  std::vector<std::string> missing;
+  // profile's plans that no longer build; the stored plans reused and the transforms
+  // measured, each with its own wisdom.
+  std::map<std::string, std::string> groups, captured, measured;
+  std::vector<std::string> missing, reused;
+  // While one transform plans alone: the workspace's wisdom, set aside.
+  bool alone{false};
+  std::string held;
 };
 
 /** Choose a width without changing the runtime or a vendor library's pool. */
@@ -344,6 +368,15 @@ private:
   std::map<int, ExecutionSpace> instances_;
   CpuSizing sizing_;
 };
+
+/** A transform batch's row length, as its CPU width and sizing record count it
+    (`CpuExecutionPool::get`'s `fine_samples` for the FFT and Raman classes): extent 0
+    counts the rows and the remaining extents make one row, so a transverse plane is
+    one row; a rank-1 view is one row. */
+template <class View> [[nodiscard]] std::size_t row_length(const View& rows) noexcept {
+  const std::size_t count = View::rank() == 1 ? 1 : rows.extent(0);
+  return count == 0 ? 0 : rows.size() / count;
+}
 
 /** Whether the host FFTW's threaded loops take a scoped team (`CpuTeamScope`): the
     OpenMP FFTW with its loop callback (FFTW 3.3.9 and later). Without it a compact

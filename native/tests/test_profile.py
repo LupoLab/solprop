@@ -440,7 +440,8 @@ def test_a_rows_fft_planning_applies_where_its_workspace_settings_do(
     }
     # The user's own planning wins; other process settings keep the policy.
     assert chosen.planning(Process(4, "spin"), {"SOLPROP_FFTW_PLAN": "patient"}) is None
-    assert chosen.planning(Process(4, "spin"), {"SOLPROP_FFTW_WISDOM": "w"}) is None
+    # A wisdom file only moves the plans runs measured: the profile still applies.
+    assert chosen.planning(Process(4, "spin"), {"SOLPROP_FFTW_WISDOM": "w"}) == applied
     assert chosen.planning(Process(4, "passive"), {}) is None
     assert chosen.planning(Process(2, "spin"), {}) is None
     # A row without planning, or with malformed efforts, keeps the policy too.
