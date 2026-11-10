@@ -611,10 +611,17 @@ def test_rejected_trials_are_recorded_and_not_kept(start_scripted):
     assert np.flatnonzero(~flags).tolist() == [trial - 1 for trial in rejected]
     assert run.status.rejected == len(rejected)
     assert run.attempts == run.status.attempts
+    # Every chunk counts, in delivery order: a deadline's yield delivers its own.
+    fields = dict(zip(map(id, run.observations), run.fields, strict=True))
     accepted = 0
-    for event, field in zip(run.observations, run.fields, strict=True):
-        accepted += int(event.history.accepted.sum())
-        np.testing.assert_array_equal(field, run.fields[0] * FACTOR**accepted)
+    for event in run.events:
+        history = getattr(event, "history", None)
+        if history is not None:
+            accepted += int(history.accepted.sum())
+        if id(event) in fields:
+            np.testing.assert_array_equal(
+                fields[id(event)], run.fields[0] * FACTOR**accepted
+            )
 
 
 # ------------------------------------------------------------------------ stops
