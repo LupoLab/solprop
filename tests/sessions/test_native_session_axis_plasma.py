@@ -415,7 +415,7 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
     bridge (SEP 47 phase 4)."""
     grid, modes, problem, request = _entrance_problem("envelope-rotated-x")
     run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
-    skip_device_refused(problem, run)
+    skip_device_refused(problem)
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
