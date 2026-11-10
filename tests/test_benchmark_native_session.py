@@ -22,9 +22,13 @@ def test_period_one_rows_return_to_python_only_on_the_driver(case):
     assert driver["attempts"] == native["attempts"] > 0
     assert driver["statistics_rows"] == native["statistics_rows"] > 0
     assert driver["native_returns"]["host_step:statistics"] > 0
-    # Rows taken natively: the native session returns at its planes and end alone.
-    assert native["batches"] == native["planes"] + 1
-    assert native["native_returns"] == {
+    # Rows taken natively: the native session returns at its planes and end alone,
+    # and at its time bound (DEFAULT_DEADLINE), which a loaded host can reach between
+    # two planes: a return the clock makes, not a row.
+    returns = dict(native["native_returns"])
+    yielded = returns.pop("session_progress:deadline", 0)
+    assert native["batches"] == native["planes"] + 1 + yielded
+    assert returns == {
         "session_observation": native["planes"],
         "session_terminal": 1,
     }

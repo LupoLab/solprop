@@ -131,10 +131,11 @@ def test_spatial_statistics_refuse_a_malformed_native_result(
     try:
         backend.set_initial(problem.initial.field0, None)
 
-        def malformed_statistics(_flags: int, _factor: float, _z: float) -> list[float]:
-            return [0.0, 0.0]
+        # Energy is the statistics plan's: one value, and the native plan hands two.
+        def malformed_statistics(_plan: object, _z: float) -> np.ndarray:
+            return np.zeros(2)
 
-        malformed = SimpleNamespace(spatial_statistics=malformed_statistics)
+        malformed = SimpleNamespace(planned_statistics=malformed_statistics)
         with monkeypatch.context() as patch:
             patch.setattr(backend, "_native_state", malformed)
             with pytest.raises(BackendError, match="returned 2 values; consumed 1"):

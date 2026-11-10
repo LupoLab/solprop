@@ -721,6 +721,10 @@ class NativeSession:
             z=float(start.z),
             resume=start.resume,
         )
+        # The load put a collar back into the stages only in the driver's flag
+        # (`_set_collar_quiet`): an earlier native session on this backend (a runner's
+        # last input) rests it in the native state alone. The session starts with it in.
+        driver._collar_changed()
         # A resume's ledgers, then its method history after the field, which resets
         # it (`DriverSession`): the march's state below is the restored one.
         if start.ledgers is not None:

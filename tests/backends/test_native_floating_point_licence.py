@@ -143,6 +143,26 @@ REFUSED = (
 """Flags SEP 25 section 4.2 item 4 and section 5 refuse."""
 
 
+STRICT_SOURCES = (
+    "src/adams_march.cpp",
+    "src/watch.cpp",
+    "src/rk_march.cpp",
+    "src/session.cpp",
+    "src/session_statistics.cpp",
+    "src/low_storage.cpp",
+    "src/transverse.cpp",
+    "src/session_edge.cpp",
+    "src/dense.cpp",
+)
+"""The translation units built without contraction (ADR-060, SEP 45, SEP 47).
+
+The Adams march's decisions, the boundary watch's predictions, the Runge-Kutta march's
+arithmetic, the low-storage replay's keys, the native session's scheduling, its
+statistics plan's finishing, the transverse edge's judgement and the dense-output
+weights. Written out, as the helper list is, so that dropping a file fails.
+"""
+
+
 def test_the_build_system_asks_for_none_of_the_refused_flags():
     source = NATIVE / "CMakeLists.txt"
     if not source.exists():
@@ -154,14 +174,14 @@ def test_the_build_system_asks_for_none_of_the_refused_flags():
         assert flag not in text, flag
     assert "-fno-fast-math" in text
     assert "-ffp-contract=fast" in text
-    # The Adams march's decisions, the boundary watch's predictions and the
-    # Runge-Kutta march's arithmetic round as Python's do, on every compiler.
-    assert re.search(
-        r"set_source_files_properties\(src/adams_march\.cpp\s+src/watch\.cpp\s+"
-        r"src/rk_march\.cpp\s+PROPERTIES\s+COMPILE_OPTIONS"
-        r'\s+"-ffp-contract=off"\)',
+    # The strict translation units round as Python's do, on every compiler.
+    strict = re.search(
+        r"set_source_files_properties\(((?:src/\w+\.cpp\s+)+)PROPERTIES\s+"
+        r'COMPILE_OPTIONS\s+"-ffp-contract=off"\)',
         text,
     )
+    assert strict is not None
+    assert tuple(strict.group(1).split()) == STRICT_SOURCES
 
 
 def test_the_installed_build_records_none_of_the_refused_flags():

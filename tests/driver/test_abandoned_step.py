@@ -12,13 +12,11 @@ that kept its field and from no other, and a stop between steps checkpoints as e
 import dataclasses
 import logging
 import threading
-from typing import cast
 
 import numpy as np
 import pytest
 
 from march_bounds import assert_matched, march_bound
-from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.backends.session import Start
@@ -144,31 +142,68 @@ def test_a_stop_between_steps_checkpoints_as_ever(backend, tmp_path):
         assert stored["z"].tolist()[-1] == LENGTH
 
 
+def _abandon_natively(monkeypatch, *, after: int) -> None:
+    """Fail the native session's step ``after + 1`` partway, its state overwritten.
+
+    The native engine's injected failure (``adams_march_fault``), armed as the session
+    prepares the backend's state: the low-storage step raises after its passes and
+    before its finish, the one way a native step is abandoned in flight.
+    """
+    session = pytest.importorskip("solprop_native.session").NativeSession
+    prepare = session._prepare
+
+    def arming(self, backend, start):
+        prepared = prepare(self, backend, start)
+        backend._native_state.adams_march_fault("trial", after, "backend")
+        return prepared
+
+    monkeypatch.setattr(session, "_prepare", arming)
+
+
 def test_a_step_abandoned_natively_leaves_no_checkpoint(monkeypatch, tmp_path):
     """The native engine's own exception, the one way it abandons a step in flight."""
-    pytest.importorskip("solprop_native")
     path = tmp_path / "run.h5"
+    _abandon_natively(monkeypatch, after=STEPS // 2)
     simulation = built("native")
-    with simulation.runner() as runner:
-        march = cast("StepDriver", runner.backend)._low_storage
-        assert march is not None
-        engine = march.engine
-        original = engine.step
-        calls = []
-
-        def failing(z, dz):
-            calls.append(z)
-            squared = original(z, dz)
-            if len(calls) == STEPS // 2 + 1:
-                raise AbandonedError
-            return squared
-
-        monkeypatch.setattr(engine, "step", failing)
-        with pytest.raises(AbandonedError) as caught:
-            runner.run(simulation._field0.copy(), output=path, progress="none")
-    assert "cannot be resumed" in " ".join(caught.value.__notes__)
+    with (
+        simulation.runner() as runner,
+        pytest.raises(RuntimeError, match="injected native failure") as caught,
+    ):
+        runner.run(simulation._field0.copy(), output=path, progress="none")
+    notes = " ".join(caught.value.__notes__)
+    assert "abandoned in flight" in notes
+    assert "cannot be resumed" in notes
     with open_file(path) as stored:
         assert stored.terminal_checkpoint is None
+        assert stored["z"].tolist() == [0.0, LENGTH / 2]
+
+
+def test_a_step_abandoned_natively_falls_back_to_the_latest_running_checkpoint(
+    monkeypatch, tmp_path
+):
+    """SEP 47 section 5.5, on the native session production runs take.
+
+    A snapshot due before the first step is a running checkpoint at its end; the
+    third step is abandoned natively, and a resume continues from that checkpoint.
+    """
+    path = tmp_path / "run.h5"
+    controller = SnapshotController(tmp_path / "snapshots")
+    controller.request()
+    _abandon_natively(monkeypatch, after=2)
+    with pytest.raises(RuntimeError, match="injected native failure") as caught:
+        built("native", fields="all").run(path, progress="none", snapshots=controller)
+    assert "falls back to its latest checkpoint" in " ".join(caught.value.__notes__)
+    with open_file(path) as stored:
+        checkpoint = stored.terminal_checkpoint
+        assert checkpoint is not None and checkpoint.plane.z == LENGTH / STEPS
+        assert stored.outcome is not None and stored.outcome.status == "failed"
+        assert stored.outcome.z == checkpoint.plane.z
+        assert stored["z"].tolist() == [0.0]
+    monkeypatch.undo()
+    built("native", fields="all").run(path, progress="none", resume=True)
+    with open_file(path) as stored:
+        assert stored.terminal_checkpoint is None
+        assert stored["z"].tolist() == [0.0, LENGTH / 2, LENGTH]
 
 
 def test_a_stop_without_a_checkpoint_does_not_say_one_was_written(caplog):
