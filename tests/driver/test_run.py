@@ -26,7 +26,7 @@ from solprop.backends.registry import select
 from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings, metadata_for, run_problem
 from solprop.driver.run import plane_from_observation
-from solprop.exceptions import DriverError
+from solprop.exceptions import BackendError, DriverError
 from solprop.grid import EnvelopeGrid
 from solprop.log import NullReporter
 from solprop.nonlinear.gnlse import problem_from
@@ -156,6 +156,9 @@ class NullBackend:
     def prepare(self, problem, request):
         # The transitional session over this driver, as any driver prepares one.
         return DriverPrepared(self, problem, request)
+
+    def prepare_group(self, members, problems, requests):
+        raise BackendError("the null backend runs no group")
 
     def set_initial(self, field, noise, *, z=0.0, resume=False):
         pass

@@ -42,7 +42,12 @@ endpoint (SEP 47 section 5.5).
 
 A :class:`GroupSession` advances compatible trajectories through one common fixed
 schedule, a window at a time, and reports each member's own events and outcome (SEP 47
-section 6.7).
+section 6.7). A backend prepares its own group the same way, from the group's first
+member (:class:`PreparedGroup`)::
+
+    prepared = members[0].prepare_group(members, problems, requests)
+    with prepared.start(starts, stop=token) as group:
+        ...
 
 :class:`SessionLedger` is the lifecycle bookkeeping every Python session shares:
 receipts, the pending barrier, closing and poisoning. It holds no numerical state.
@@ -85,6 +90,7 @@ __all__ = [
     "ExecutionOptions",
     "GroupSession",
     "PreparedExecution",
+    "PreparedGroup",
     "RunSession",
     "SessionBackend",
     "SessionError",
@@ -1023,6 +1029,42 @@ class PreparedExecution(Protocol):
 
     def close(self) -> None:
         """Release the prepared resources; idempotent."""
+        ...
+
+
+@runtime_checkable
+class PreparedGroup(Protocol):
+    """A backend's preparation of a group of compatible members (SEP 47 section 6.7).
+
+    The group's counterpart of :class:`PreparedExecution`: a backend returns it from
+    :meth:`~solprop.backends.protocol.Backend.prepare_group`, and its :meth:`start`
+    opens the backend's own :class:`GroupSession`, so that
+    :func:`solprop.backends.sessions.start_group` names no backend.
+    """
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it."""
+        ...
+
+    def start(
+        self, starts: Sequence[Start], *, stop: StopFlag | None = None
+    ) -> GroupSession:
+        """Start the group, each member from its entrance.
+
+        Parameters
+        ----------
+        starts : collections.abc.Sequence of Start
+            Each member's entrance, in member order; the group takes their fields.
+        stop : solprop.log.StopFlag or None, optional
+            A group-wide stop token.
+
+        Returns
+        -------
+        GroupSession
+            The started group, which owns the members once it is constructed; a start
+            that fails leaves them to the caller.
+        """
         ...
 
 

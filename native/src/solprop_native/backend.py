@@ -66,9 +66,11 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
+from solprop.backends.protocol import Backend
 from solprop.backends.session import (
     ExecutionOptions,
     PreparedExecution,
+    PreparedGroup,
     statistics_unavailable,
 )
 from solprop.backends.spatial import (
@@ -2099,6 +2101,36 @@ class NativeBackend(StepDriver[_core.State]):
         from .session import NativePrepared
 
         return NativePrepared(self, problem, request)
+
+    def prepare_group(
+        self,
+        members: Sequence[Backend],
+        problems: Sequence[PropagationProblem],
+        requests: Sequence[RunRequest],
+    ) -> PreparedGroup:
+        """Prepare a group of compatible native members (SEP 47 section 6.7).
+
+        Its start opens the native group session whenever that admits the group, and
+        the transitional lockstep group otherwise
+        (:class:`solprop_native.group.NativePreparedGroup`).
+
+        Parameters
+        ----------
+        members : sequence of solprop.backends.protocol.Backend
+            One constructed native backend per member, this one first.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group.
+        """
+        from .group import NativePreparedGroup
+
+        return NativePreparedGroup(members, problems, requests)
 
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""

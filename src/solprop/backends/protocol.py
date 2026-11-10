@@ -44,7 +44,7 @@ from solprop.stats import StatsSpec
 
 if TYPE_CHECKING:
     # The session module builds on this one's records, so its start is a forward name.
-    from solprop.backends.session import PreparedExecution, Start
+    from solprop.backends.session import PreparedExecution, PreparedGroup, Start
     from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
@@ -688,11 +688,11 @@ class Backend(Protocol):
     >>> names[8:12]
     ['march_snapshot_nbytes', 'memory_ledger', 'metadata', 'observe']
     >>> names[12:16]
-    ['prepare', 'propagate_to', 'request', 'restore_call_ledgers']
+    ['prepare', 'prepare_group', 'propagate_to', 'request']
     >>> names[16:19]
-    ['restore_march', 'set_initial', 'set_progress']
+    ['restore_call_ledgers', 'restore_march', 'set_initial']
     >>> names[19:]
-    ['set_stop', 'stats', 'timing_probe']
+    ['set_progress', 'set_stop', 'stats', 'timing_probe']
     """
 
     name: str
@@ -727,6 +727,36 @@ class Backend(Protocol):
         -------
         solprop.backends.session.PreparedExecution
             The prepared execution, whose ``start`` opens the backend's session.
+        """
+        ...
+
+    def prepare_group(
+        self,
+        members: "Sequence[Backend]",  # noqa: UP037 - bound after the class body
+        problems: "Sequence[PropagationProblem]",  # noqa: UP037
+        requests: "Sequence[RunRequest]",  # noqa: UP037
+    ) -> "PreparedGroup":  # noqa: UP037 - the session module imports this one
+        """Prepare a group of compatible members of this backend (SEP 47 section 6.7).
+
+        Called on the group's first member, ``members[0]``, so that the backend, not
+        the run layer, chooses the group it runs
+        (:func:`solprop.backends.sessions.start_group`). A backend that runs no group
+        raises :class:`~solprop.exceptions.BackendError` saying so.
+
+        Parameters
+        ----------
+        members : collections.abc.Sequence of Backend
+            One constructed backend per member, this one first, all of this backend,
+            holding no state yet.
+        problems : sequence of solprop.translate.problem.PropagationProblem
+            Each member's independently translated problem.
+        requests : sequence of solprop.translate.run_request.RunRequest
+            Each member's run request, with its own fresh boundary monitor.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedGroup
+            The prepared group, whose ``start`` opens the backend's group session.
         """
         ...
 
