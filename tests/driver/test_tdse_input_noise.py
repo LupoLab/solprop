@@ -108,9 +108,12 @@ def _atomic(noise: str | None) -> Simulation:
 def _first_drive(simulation: Simulation, *, pulse: bool = True) -> np.ndarray:
     """Return the real field the atom is driven by at its first evaluation."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert tdse_descriptor(problem.route) is not None
     binding = _Binding(tdse_descriptor(problem.route), 20)
-    backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, tdse_binding=binding
+    )
     try:
         launch = problem.initial.field0 if pulse else np.zeros(problem.shape, complex)
         backend.set_initial(launch, None, z=0.0)

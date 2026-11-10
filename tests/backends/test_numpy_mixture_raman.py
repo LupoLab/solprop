@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 from numpy.testing import assert_allclose
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.exceptions import BackendError
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
@@ -32,7 +32,7 @@ def prepare_raman(backend, rates, densities):
 
 @pytest.fixture
 def case():
-    mixture, grid, mode, responses, problem = mixture_case()
+    mixture, grid, mode, responses, (problem, run_request) = mixture_translation()
     extra = tuple(
         RamanResponse(
             models=(
@@ -62,11 +62,11 @@ def case():
             initial=problem.initial,
         ),
     )
-    return grid, problem
+    return grid, problem, run_request
 
 
 def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
-    _, problem = case
+    _, problem, _ = case
     bundle = scalars(problem, 0.0, 0.0)
     n_to = problem.grids.n_to
     t = np.arange(n_to) * problem.grids.dt_fine
@@ -105,8 +105,8 @@ def test_one_raman_convolution_matches_the_sum_of_component_convolutions(case):
 
 
 def test_raman_cache_tracks_every_amplitude_and_decay_rate(case):
-    grid, problem = case
-    backend = NumpyRefBackend(problem, grid=grid)
+    grid, problem, run_request = case
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     bundle = scalars(problem, 0.0, 0.0)
     first = backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
     assert backend._raman_spectrum(bundle.raman_rates, bundle.raman_densities) is first
@@ -128,7 +128,7 @@ def test_raman_cache_tracks_every_amplitude_and_decay_rate(case):
 
 
 def test_raman_component_extents_are_checked(case):
-    _, problem = case
+    _, problem, _ = case
     bundle = scalars(problem, 0.0, 0.0)
     with pytest.raises(BackendError, match="Raman"):
         passes.mixture_raman_spectrum(
@@ -147,14 +147,13 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
     case, equivalence_backend_class
 ):
 
-    grid, original = case
+    grid, problem, original_request = case
     steps = 16
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(
-            original.stepper,
+    run_request = original_request.with_stepper(
+        dataclasses.replace(
+            original_request.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / steps),
-        ),
+        )
     )
     # Each step has seven evaluations; two component kernels each carry one
     # convolution and two plasma exposures. The same 64-eps/sample budget used
@@ -163,7 +162,7 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
     assert bound > 0.0
     outputs = []
     for backend_type in (NumpyRefBackend, equivalence_backend_class):
-        backend = backend_type(problem, grid=grid)
+        backend = backend_type(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             summary = backend.propagate_to(grid.length)
@@ -179,8 +178,8 @@ def test_multiple_raman_components_propagate_with_one_cached_kernel(
 def test_compiled_raman_cache_keys_include_every_component(
     case, equivalence_backend_class
 ):
-    grid, problem = case
-    backend = equivalence_backend_class(problem, grid=grid)
+    grid, problem, run_request = case
+    backend = equivalence_backend_class(problem, run_request, grid=grid)
     bundle = scalars(problem, 0.0, 0.0)
     try:
         prepare_raman(backend, bundle.raman_rates, bundle.raman_densities)

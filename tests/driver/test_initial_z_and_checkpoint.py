@@ -56,7 +56,6 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate import problem as problem_module
 from solprop.translate.routes import tdse_descriptor
-from solprop.translate.run_request import describe_run
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -140,6 +139,7 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
     original = simulation.translate()
     launch = simulation.with_input(simulation._field0, initial_z=5e-6)
     problem = launch.translate()
+    run_request = launch._run_request()
     assert launch.initial_z == problem.initial.z == 5e-6
     assert problem.linear is original.linear
     assert launch.grid is simulation.grid
@@ -149,7 +149,7 @@ def test_with_input_retains_absolute_tables_and_filters_only_explicit_launch():
         launch.metadata().configuration_hash()
         != simulation.metadata().configuration_hash()
     )
-    assert_array_equal(problem.stepper.save_planes, [1e-5])
+    assert_array_equal(run_request.stepper.save_planes, [1e-5])
     again = launch.with_input(launch._field0)
     assert again.initial_z == 5e-6
     assert_array_equal(again.settings.save_planes, launch.settings.save_planes)
@@ -481,7 +481,7 @@ def test_budget_stop_is_separate_and_resume_cannot_reset_its_budget(tmp_path):
     assert again.history.n_steps == stopped.history.n_steps
 
 
-def _loaded(backend, problem, start) -> int:
+def _loaded(backend, problem, run_request, start) -> int:
     """Load a run's start into a backend through its session, as the run does.
 
     Returns the start's first save plane still to propagate to; the backend is left
@@ -490,7 +490,7 @@ def _loaded(backend, problem, start) -> int:
     session = start_session(
         backend,
         problem,
-        describe_run(problem, start_plane=start.plane_index),
+        run_request.for_run(start_plane=start.plane_index),
         start,
         owns=False,
     )
@@ -501,6 +501,7 @@ def _loaded(backend, problem, start) -> int:
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
+    run_request = simulation._run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -511,10 +512,18 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
     path = tmp_path / "checkpoint.h5"
     memory.to_file(path)
     state = resume(path)
-    backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
+    backend = select(
+        "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         assert (
-            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+            _loaded(
+                backend,
+                problem,
+                run_request,
+                simulation._start(backend, problem, state),
+            )
+            == 0
         )
         assert backend.observe().z == 5e-6
         assert state.checkpoint is not None
@@ -535,6 +544,7 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
         simulation.settings, save_planes=[5e-6, 1e-5]
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     memory = MemoryOutput()
     memory.open(simulation.metadata())
     memory.save(SavedPlane(z=0.0, field=simulation._field0))
@@ -543,10 +553,18 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
     memory.to_file(path)
     state = resume(path)
     assert state.outcome is None
-    backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
+    backend = select(
+        "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         assert (
-            _loaded(backend, problem, simulation._start(backend, problem, state)) == 1
+            _loaded(
+                backend,
+                problem,
+                run_request,
+                simulation._start(backend, problem, state),
+            )
+            == 1
         )
         observed = backend.observe()
         assert observed.z == 5e-6
@@ -566,7 +584,10 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     calls = []
     original = NumpyRefBackend.stats
 
@@ -835,8 +856,9 @@ def test_a_logical_ledger_continues_under_another_integrator():
     # installed in a Runge-Kutta march (SEP 42 section 5.6).
     simulation = tiny_simulation(max_calls=None)
     problem = simulation.translate()
-    problem = dataclasses.replace(
-        problem, stepper=dataclasses.replace(problem.stepper, integrator=None)
+    run_request = simulation._run_request()
+    run_request = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, integrator=None)
     )
     saved = SavedPlane(z=5e-6, field=simulation._field0)
     outcome = RunOutcome(
@@ -845,7 +867,7 @@ def test_a_logical_ledger_continues_under_another_integrator():
     state = ResumeState(
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
-    assert simulation_module._validate_resume(problem, state, None) == 0
+    assert simulation_module._validate_resume(problem, run_request, state, None) == 0
 
 
 @pytest.mark.parametrize("case", ["outside", "field", "cap", "atomic"])
@@ -876,7 +898,9 @@ def test_resume_rejects_incompatible_state_before_backend_allocation(case):
         simulation.metadata(), saved, 1, StepHistory.empty(), outcome=outcome
     )
     with pytest.raises(DriverError, match=message):
-        simulation_module._validate_resume(problem, state, None)
+        simulation_module._validate_resume(
+            problem, simulation._run_request(), state, None
+        )
 
 
 @pytest.mark.parametrize("case", ["unused", "mixed", "missing"])
@@ -984,7 +1008,7 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
         else:
             run_problem(
                 atomic_simulation.translate(),
-                NullBackend(),
+                NullBackend(request=atomic_simulation._run_request()),
                 LegacyOutput(),
                 start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
@@ -1121,6 +1145,7 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
 ):
     simulation = tiny_simulation()
     problem = simulation.translate()
+    run_request = simulation._run_request()
     state = ResumeState(
         simulation.metadata(),
         SavedPlane(z=5e-6, field=simulation._field0),
@@ -1132,10 +1157,18 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
         raise AssertionError("a file without an outcome carries no call ledgers")
 
     monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
-    backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
+    backend = select(
+        "numpy_ref", problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         assert (
-            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+            _loaded(
+                backend,
+                problem,
+                run_request,
+                simulation._start(backend, problem, state),
+            )
+            == 0
         )
         assert backend.observe().z == state.plane.z
     finally:
@@ -1192,7 +1225,10 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         noise=None,
     )
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = select(
+        "numpy_ref", problem, run_request, grid=grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         field = backend.observe().require_field().copy()
@@ -1208,7 +1244,13 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
 
         monkeypatch.setattr(simulation_module, "power_amplitude", forbidden)
         assert (
-            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+            _loaded(
+                backend,
+                problem,
+                run_request,
+                simulation._start(backend, problem, state),
+            )
+            == 0
         )
         restored = backend.observe()
         assert restored.z == state.plane.z

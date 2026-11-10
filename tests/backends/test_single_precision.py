@@ -77,7 +77,7 @@ from solprop.translate.precision import (
     precision_named,
 )
 from vector_raman_cases import CHUNK as VECTOR_CHUNK
-from vector_raman_cases import vector_problem
+from vector_raman_cases import vector_translation
 
 U32 = UNIT_ROUNDOFF_32
 
@@ -155,7 +155,8 @@ def capillary(
 def loaded(simulation: Simulation, cleanup: ExitStack | None = None) -> Backend:
     """Return the simulation's backend with its launch loaded."""
     problem = simulation.translate()
-    backend = select("numpy_ref", problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select("numpy_ref", problem, run_request, grid=simulation.grid)
     if cleanup is not None:
         cleanup.callback(backend.close)
     backend.set_initial(problem.initial.field0, None)
@@ -180,7 +181,7 @@ def rescaled(backend: Backend, exponent: int) -> None:
     physical = single._observed_field(single._require_state())
     single._scale = math.ldexp(1.0, exponent)
     single._scale_exponent = exponent
-    controller = single._problem.stepper.controller
+    controller = single._stepper.controller
     single._controller = dataclasses.replace(
         controller, atol=controller.atol / single._scale
     )
@@ -232,8 +233,9 @@ def test_the_compiled_backends_refuse_a_single_precision_problem(name):
     if name not in available():
         pytest.skip(f"{name} is not installed")
     problem = gnlse("single").translate()
+    run_request = gnlse("single")._run_request()
     with pytest.raises(BackendError, match="binary64 only"):
-        select(name, problem)
+        select(name, problem, run_request)
 
 
 def test_the_oracle_applies_the_settings_admission_to_a_problem_past_them():
@@ -243,20 +245,20 @@ def test_the_oracle_applies_the_settings_admission_to_a_problem_past_them():
     replaced after translation reached the backend without them. The Adams integrator
     is admitted (#342).
     """
-    problem = gnlse("single", steps=None).translate()
-    stepper = problem.stepper
-    adams = dataclasses.replace(
-        problem, stepper=dataclasses.replace(stepper, integrator=Multistep())
+    simulation = gnlse("single", steps=None)
+    problem, run_request = simulation.translate(), simulation._run_request()
+    stepper = run_request.stepper
+    adams = run_request.with_stepper(
+        dataclasses.replace(stepper, integrator=Multistep())
     )
-    tight = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
+    tight = run_request.with_stepper(
+        dataclasses.replace(
             stepper, controller=dataclasses.replace(stepper.controller, rtol=1e-8)
-        ),
+        )
     )
     with pytest.raises(BackendError, match="below the single-precision floor"):
-        select("numpy_ref", tight)
-    select("numpy_ref", adams).close()
+        select("numpy_ref", problem, tight)
+    select("numpy_ref", problem, adams).close()
 
 
 def test_a_step_whose_inverse_propagator_overflows_binary32_is_refused():
@@ -326,8 +328,9 @@ def overflowing_beam(precision: str) -> Simulation:
 def run_to_end(simulation: Simulation, backend: str) -> Observation:
     """Propagate on `backend` to the last save plane and return its observation."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     with ExitStack() as cleanup:
-        made = select(backend, problem, grid=simulation.grid)
+        made = select(backend, problem, run_request, grid=simulation.grid)
         cleanup.callback(made.close)
         made.set_initial(problem.initial.field0, None)
         made.propagate_to(float(simulation.settings.save_planes[-1]))
@@ -436,12 +439,13 @@ def test_the_state_is_binary32_at_the_launch_scale_and_observed_exactly():
 
 def test_a_zero_launch_takes_the_unit_scale_and_stays_zero():
     problem = gnlse("single", gamma=0.0, raman=False).translate()
+    run_request = gnlse("single", gamma=0.0, raman=False)._run_request()
     zeros = np.zeros_like(problem.initial.field0)
     zeros.setflags(write=False)
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=zeros)
     )
-    backend = cast(NumpySingleBackend, select("numpy_ref", problem))
+    backend = cast(NumpySingleBackend, select("numpy_ref", problem, run_request))
     try:
         assert backend.scale == 1.0
         backend.set_initial(zeros, None)
@@ -666,7 +670,9 @@ def test_tensor_raman_on_two_components_agrees_with_binary64(family, material):
     The real field grid keeps the harmonic in the drive; methane, a spherical top, has
     the isotropic kernel alone.
     """
-    problem, grid, modes = vector_problem(family=family, material=material, steps=8)
+    problem, run_request, grid, modes = vector_translation(
+        family=family, material=material, steps=8
+    )
     fields = {}
     cases: tuple[tuple[PrecisionName, type[NumpyRefBackend]], ...] = (
         ("double", NumpyRefBackend),
@@ -674,10 +680,12 @@ def test_tensor_raman_on_two_components_agrees_with_binary64(family, material):
     )
     for precision, backend_class in cases:
         case = dataclasses.replace(problem, precision=precision_named(precision))
-        backend = backend_class(case, grid=grid, modes=modes, options=VECTOR_CHUNK)
+        backend = backend_class(
+            case, run_request, grid=grid, modes=modes, options=VECTOR_CHUNK
+        )
         try:
             backend.set_initial(case.initial.field0, None)
-            backend.propagate_to(float(case.stepper.save_planes[-1]))
+            backend.propagate_to(float(run_request.stepper.save_planes[-1]))
             fields[precision] = backend.observe().field
         finally:
             backend.close()
@@ -875,8 +883,9 @@ def test_a_table_beyond_binary32_range_is_refused_by_name():
 
 def test_the_single_oracle_refuses_a_double_problem():
     problem = gnlse("double").translate()
+    run_request = gnlse("double")._run_request()
     with pytest.raises(BackendError, match="needs a single problem"):
-        NumpySingleBackend(problem)
+        NumpySingleBackend(problem, run_request)
 
 
 @pytest.mark.parametrize(

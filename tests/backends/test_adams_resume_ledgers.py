@@ -63,7 +63,10 @@ def test_saved_adams_resume_preserves_exhausted_call_budget(backend_name, tmp_pa
 def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class):
     simulation = tiny_adams(backend_name)
     problem = simulation.translate()
-    backend = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    run_request = simulation._run_request()
+    backend = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(1e-6)
@@ -74,7 +77,9 @@ def test_restored_adams_ledger_charges_fresh_startup(backend_name, backend_class
         assert before.total == 2 and before.startup == 1
     finally:
         backend.close()
-    resumed = backend_class(problem, grid=simulation.grid, modes=simulation.modes)
+    resumed = backend_class(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         resumed.set_initial(field, None, z=1e-6)
         resumed.restore_call_ledgers(saved)
@@ -100,7 +105,10 @@ def test_adams_restore_rejects_invalid_logical_counts(
 ):
     simulation = tiny_adams(backend_name)
     backend = backend_class(
-        simulation.translate(), grid=simulation.grid, modes=simulation.modes
+        simulation.translate(),
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
     valid = CallLedger().to_record()
     invalid = dict(valid)
@@ -121,7 +129,10 @@ def test_compiled_adams_refuses_atomic_ledger_without_changing_logical_counts(
 ):
     simulation = tiny_adams("numpy_ref")
     backend = equivalence_backend_class(
-        simulation.translate(), grid=simulation.grid, modes=simulation.modes
+        simulation.translate(),
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
     try:
         with pytest.raises(BackendError, match="does not restore atomic"):

@@ -27,7 +27,7 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from mixture_cases import mixture_case
+from mixture_cases import mixture_translation
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule
 
@@ -36,17 +36,15 @@ STEPS = 8
 
 
 def problem_and_grid():
-    """Return the eight-step fixed-schedule mixture problem and its grid."""
-    _, grid, _, _, original = mixture_case()
-    problem = dataclasses.replace(
-        original,
-        stepper=dataclasses.replace(
-            original.stepper,
+    """Return the eight-step fixed-schedule mixture problem, its request and grid."""
+    _, grid, _, _, (problem, original_request) = mixture_translation()
+    run_request = original_request.with_stepper(
+        dataclasses.replace(
+            original_request.stepper,
             schedule=FixedSchedule.uniform(0, grid.length, grid.length / STEPS),
-        ),
-        stats_spec=StatsSpec(names=NAMES, periodic=NAMES, period=1),
-    )
-    return problem, grid
+        )
+    ).for_run(stats=StatsSpec(names=NAMES, periodic=NAMES, period=1))
+    return problem, run_request, grid
 
 
 # The doctest collection imports every module under tests/, and the arguments it
@@ -65,8 +63,8 @@ if __name__ == "__main__":
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
-    problem, grid = problem_and_grid()
-    backend = solprop_native.NativeBackend(problem, grid=grid)
+    problem, run_request, grid = problem_and_grid()
+    backend = solprop_native.NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)

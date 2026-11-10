@@ -21,9 +21,9 @@ from solprop.translate.linop import delta_phi
 LENGTH = 0.05  # m, a fiftieth of the soliton period: enough steps to accumulate error
 
 
-def propagate(backend_class, problem, grid, z):
+def propagate(backend_class, problem, run_request, grid, z):
     """Run a problem to a plane and return the masked initial and final spectra."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(z)
     plane = backend.observe()
@@ -48,9 +48,11 @@ def test_a_constant_operator_is_the_exact_linear_flow(
 ):
     """Every pass may run and contribute nothing, or be skipped altogether."""
     responses = [zero_kerr] if with_kerr else []
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH], responses=responses)
+    problem, run_request = linear_problem(
+        narrow_grid, save_planes=[LENGTH], responses=responses
+    )
     assert problem.flags.constant_linop
-    summary, final = propagate(backend_class, problem, narrow_grid, LENGTH)
+    summary, final = propagate(backend_class, problem, run_request, narrow_grid, LENGTH)
     # Every step multiplies by one propagator factor, so the round-off is bounded by
     # n_steps * eps = 43 * 2.2e-16 = 9.5e-15 on the largest bin (Higham); the gate's
     # 1e-14 is that bound rounded up. Measured 4.8e-16 over 43 steps, with and without
@@ -73,7 +75,7 @@ def test_a_z_varying_operator_is_the_exact_linear_flow(
     times the loss's -- which is exactly the two-term expansion the seam's device form
     is, so the case runs on a compiled backend as well as on the oracle.
     """
-    base = linear_problem(narrow_grid, save_planes=[LENGTH])
+    base, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
     detuning = base.grids.omega - base.grids.omega0
     active = base.grids.active_mask
     terms = [0.5j * detuning**2 * active, -0.5 * active]
@@ -91,7 +93,7 @@ def test_a_z_varying_operator_is_the_exact_linear_flow(
         responses=expanded_prefactor(base.responses),
     )
     assert not problem.flags.constant_linop
-    summary, final = propagate(backend_class, problem, narrow_grid, LENGTH)
+    summary, final = propagate(backend_class, problem, run_request, narrow_grid, LENGTH)
     # The table's own approximation error cancels exactly: the sum of the steps'
     # differences of one polynomial telescopes to Phi(L) - Phi(0) whatever the
     # interpolant is. What is left is the round-off of two Clenshaw passes per step,
@@ -107,12 +109,12 @@ def test_the_linear_flow_is_independent_of_the_step_count(
     backend_class, linear_problem, narrow_grid, n_steps
 ):
     """A replayed schedule of any length reaches the same place, to round-off."""
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[LENGTH],
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / n_steps),
     )
-    summary, final = propagate(backend_class, problem, narrow_grid, LENGTH)
+    summary, final = propagate(backend_class, problem, run_request, narrow_grid, LENGTH)
     assert summary.n_steps == n_steps
     # As above, with the step count as the only variable: 31 * 2.2e-16 = 6.8e-15.
     # Measured 9.6e-17, 1.9e-16 and 9.6e-16 at 2, 7 and 31 steps -- linear in the count,
@@ -124,8 +126,8 @@ def test_a_linear_run_meets_its_tolerance_and_records_every_step(
     backend_class, linear_problem, narrow_grid
 ):
     """A zero embedded estimate is a met tolerance, and every step is still recorded."""
-    problem = linear_problem(narrow_grid, save_planes=[LENGTH])
-    backend = backend_class(problem, grid=narrow_grid)
+    problem, run_request = linear_problem(narrow_grid, save_planes=[LENGTH])
+    backend = backend_class(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(LENGTH)
     plane = backend.observe()

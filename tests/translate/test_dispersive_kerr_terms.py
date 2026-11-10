@@ -224,13 +224,13 @@ def problem_for(grid, mode, responses):
 def test_the_problem_carries_the_leaf_and_its_stage_row(field_grid, mode):
     problem = problem_for(
         field_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
-    )
+    ).problem
     assert problem.grids.carrier_2w0 is None
     bundle = scalars(problem, 0.0, 0.05)
     expected = float(mode.density(np.array([0.05]))[0])
     (density,) = bundle.dispersive_kerr_densities
     assert density == pytest.approx(expected, rel=1e-10)
-    constant = problem_for(field_grid, mode, [KerrResponse(1e-51)])
+    constant = problem_for(field_grid, mode, [KerrResponse(1e-51)]).problem
     assert constant.responses.dispersive_kerr is None
     assert scalars(constant, 0.0, 0.05).dispersive_kerr_densities == ()
 
@@ -240,7 +240,7 @@ def test_validation_binds_the_leaf_to_the_grid(
 ):
     problem = problem_for(
         thg_envelope_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
-    )
+    ).problem
     assert problem.grids.carrier_2w0 is not None
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
@@ -253,7 +253,7 @@ def test_validation_binds_the_leaf_to_the_grid(
     with pytest.raises(TranslationError, match="carrier"):
         spoiled.validate()
     conserving = DispersiveKerrResponse(ARGON, "polynomial", thg=False)
-    envelope_problem = problem_for(envelope_grid, mode, [conserving])
+    envelope_problem = problem_for(envelope_grid, mode, [conserving]).problem
     field_leaf = compile_for(field_grid, mode, [conserving]).dispersive_kerr
     misplaced = dataclasses.replace(
         envelope_problem,
@@ -322,7 +322,7 @@ def test_node_admission_counts_the_dispersive_node_buffers(
         dz_init=1e-3,
         quadrature=transverse_quadrature([mode], n_r=8),
         density=Constant(2.5e25),
-    )
+    ).problem
     transform = problem.transform
     whole = transform.n_nodes
     assert whole > 2
@@ -337,7 +337,7 @@ def test_node_admission_counts_the_dispersive_node_buffers(
         _dispersive_chunk(
             whole, transform, problem.responses, 1, field_grid.n_to, per_node - 1
         )
-    without = problem_for(field_grid, mode, [KerrResponse(1e-51)])
+    without = problem_for(field_grid, mode, [KerrResponse(1e-51)]).problem
     assert (
         _dispersive_chunk(
             whole, without.transform, without.responses, 1, field_grid.n_to, 1
@@ -377,7 +377,7 @@ def test_node_admission_counts_a_symmetric_mixture_as_one_product(
         dz_max=0.01,
         dz_init=1e-3,
         quadrature=transverse_quadrature([mode], n_r=8),
-    )
+    ).problem
     transform = problem.transform
     whole = transform.n_nodes
     per_node = (BUFFERS_PER_NODE + extra) * field_grid.n_to * 16
@@ -411,7 +411,7 @@ def test_a_free_column_holds_the_products_in_time_and_frequency(evaluator, produ
         dz_max=1e-4,
         dz_init=1e-5,
         density=Constant(2.5e25),
-    )
+    ).problem
     nodes = 0 if evaluator == "symmetric" else 2
     per_column = (20 + nodes + 2 * products) * grid.n_to * 16
     transform = problem.transform
@@ -487,7 +487,9 @@ def test_validation_binds_the_leaf_carrier_to_its_sector(thg_envelope_grid, mode
     A constant harmonic Kerr term keeps the grid's harmonic carrier, so a full-sector
     leaf that drops its own flag passes the grid's check and is caught by the leaf's.
     """
-    problem = problem_for(thg_envelope_grid, mode, [KerrResponse(1e-51, thg=True)])
+    problem = problem_for(
+        thg_envelope_grid, mode, [KerrResponse(1e-51, thg=True)]
+    ).problem
     leaf = compile_for(
         thg_envelope_grid, mode, [DispersiveKerrResponse(ARGON, "polynomial")]
     ).dispersive_kerr
@@ -505,7 +507,7 @@ def test_validation_binds_the_leaf_carrier_to_its_sector(thg_envelope_grid, mode
 def test_validation_binds_the_leaf_to_its_route_and_populations(field_grid, mode):
     problem = problem_for(
         field_grid, mode, [DispersiveKerrResponse(ARGON, "symmetric", thg=False)]
-    )
+    ).problem
     leaf = problem.responses.dispersive_kerr
     assert leaf is not None
 

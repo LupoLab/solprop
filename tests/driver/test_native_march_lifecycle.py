@@ -56,7 +56,9 @@ backend's own march, which serves what the session refuses."""
 def on_path(monkeypatch, path: str) -> None:
     """Run on `path`: the bridge when the native session is made to refuse every run."""
     if path == "bridge":
-        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
+        )
 
 
 def with_fault(monkeypatch, stage: str, after: int, category: str) -> list[Any]:

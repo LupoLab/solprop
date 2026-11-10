@@ -23,7 +23,6 @@ import pytest
 from driver.test_field_free_planes import cartesian, low_storage
 from driver.test_runner import capillary
 from solprop import fourier
-from solprop.backends import sessions
 from solprop.backends.driver import StepDriver
 from solprop.backends.events import ObservationReady
 from solprop.backends.export import ExportRecipe
@@ -43,7 +42,6 @@ from solprop.stepper import Multistep, RungeKutta
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import PropagationProblem
-from solprop.translate.run_request import describe_run
 
 IDENTITY = ExportRecipe(power=False, optics=False)
 """The state as the session holds it."""
@@ -302,9 +300,10 @@ def _observed_at_its_first_plane(
 ) -> tuple[PropagationProblem, Backend, Observation]:
     """Return a loaded backend stepped to the first save plane, and its observation."""
     problem = simulation.translate()
-    backend = select(name, problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    backend = select(name, problem, run_request, grid=simulation.grid)
     backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(problem.stepper.save_planes[0]))
+    backend.propagate_to(float(run_request.stepper.save_planes[0]))
     return problem, backend, backend.observe()
 
 
@@ -319,12 +318,18 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
     backend is held to it on the bridge, which still serves what the native session
     refuses; the native session exports from its resident state instead.
     """
-    monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
+    if backend == "native":
+        # The prepared execution's choice, made to refuse: the bridge serves the run.
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
+        )
     simulation = STORED[case](backend)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     stepping = select(
         backend,
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -344,7 +349,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(
     session = start_session(
         stepping,
         problem,
-        describe_run(problem),
+        run_request,
         Start(field=problem.initial.field0, z=float(problem.initial.z)),
     )
     try:

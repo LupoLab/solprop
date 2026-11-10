@@ -51,8 +51,8 @@ if __name__ == "__main__":
     fields = {}
     for index, name in enumerate(sys.argv[2:]):
         mode, collar = name.split("-")
-        problem, grid, _ = cartesian_march(mode, collar=collar == "collar")
+        problem, run_request, grid, _ = cartesian_march(mode, collar=collar == "collar")
         fields[f"case{index}"] = replay(
-            NativeBackend, problem, grid, options=CARTESIAN_CHUNK
+            NativeBackend, problem, run_request, grid, options=CARTESIAN_CHUNK
         )
     np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

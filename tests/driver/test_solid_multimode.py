@@ -191,7 +191,7 @@ def equal_steps(length, steps):
 
 def run_fixed(case, state, steps, backend="numpy_ref"):
     """Propagate `state` over :data:`FWM_LENGTH` in `steps` equal fixed steps."""
-    problem = assemble(
+    problem, run_request = assemble(
         case.grid,
         list(case.guide.mode_collection),
         [],
@@ -206,7 +206,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
         general=case.route,
         schedule=equal_steps(FWM_LENGTH, steps),
     )
-    owner = select(backend, problem, grid=case.grid)
+    owner = select(backend, problem, run_request, grid=case.grid)
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(FWM_LENGTH)
@@ -611,7 +611,7 @@ def grin_exit_energies(elements, trange, steps):
     state = np.zeros((3, 1, grid.n_omega), dtype=complex)
     for channel, fraction in enumerate(GRIN_SPLIT):
         state[channel, 0] = np.sqrt(fraction) * pulse
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         list(guide.mode_collection),
         [],
@@ -623,7 +623,7 @@ def grin_exit_energies(elements, trange, steps):
         general=route,
         schedule=equal_steps(GRIN_LENGTH, steps),
     )
-    owner = NumpyRefBackend(problem, grid=grid)
+    owner = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(GRIN_LENGTH)

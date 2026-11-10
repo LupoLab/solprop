@@ -66,7 +66,7 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
-from solprop.backends.session import ExecutionOptions
+from solprop.backends.session import ExecutionOptions, PreparedExecution
 from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
@@ -136,7 +136,12 @@ from solprop.translate.linop import power_weight_at, rate_weights
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
-from solprop.translate.problem import PropagationProblem, PropagatorMode
+from solprop.translate.problem import (
+    PropagationProblem,
+    PropagatorMode,
+    StepperSettings,
+    validate_run,
+)
 from solprop.translate.responses import CompiledResponses, ResponseStage
 from solprop.translate.routes import (
     GeneralRoute,
@@ -145,6 +150,7 @@ from solprop.translate.routes import (
     flux_of,
     transverse_of,
 )
+from solprop.translate.run_request import RunRequest
 from solprop.translate.stage import (
     StageScalars,
     StageTerms,
@@ -340,6 +346,7 @@ class NativeBackend(StepDriver[_core.State]):
     def __init__(
         self,
         problem: PropagationProblem,
+        request: RunRequest,
         *,
         grid: TimeGrid | None = None,
         modes: Sequence[Mode] | None = None,
@@ -353,14 +360,15 @@ class NativeBackend(StepDriver[_core.State]):
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
         check_build()
-        _refuse_unsupported(problem)
-        problem.validate()
+        stepper = request.stepper
+        _refuse_unsupported(problem, stepper)
+        validate_run(problem, request)
         # solprop SEP 29 G1: a z table is evaluated natively on a CPU build; a device
         # build refuses it, naming the table's size and the CPU backends.
         if not problem.device_ready and _on_device():
             require_device_ready(problem, "native")
         super().__init__(
-            problem, grid=grid, modes=modes, profiles=profiles, options=options
+            problem, request, grid=grid, modes=modes, profiles=profiles, options=options
         )
         # solprop SEP 47 section 6.5: this backend's lowering of the host plan, and
         # the general route's own chunk at the plan's budget.
@@ -372,7 +380,7 @@ class NativeBackend(StepDriver[_core.State]):
             if problem.transform.modal_tables is None
             else general_planned_chunk(problem, self.chunk_plan)
         )
-        self._z_tables = None if problem.device_ready else _ZTables(problem)
+        self._z_tables = None if problem.device_ready else _ZTables(problem, stepper)
         self._flow = _host_flow(problem)
         # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
         self._rk_staged: bool | None = None
@@ -390,7 +398,11 @@ class NativeBackend(StepDriver[_core.State]):
         )
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
-        self._far_field = FarFieldTables(problem) if far_field is None else far_field
+        self._far_field = (
+            FarFieldTables(problem, request.observation.stats)
+            if far_field is None
+            else far_field
+        )
         # solprop SEP 47: the native statistics plans lowered for the specs asked.
         self._statistics_plans: dict[
             tuple[int, tuple[str, ...]], tuple[StatsSpec, StatisticsLowering]
@@ -412,13 +424,14 @@ class NativeBackend(StepDriver[_core.State]):
         self._native_state = _core.State(
             _native_problem(
                 problem,
+                request,
                 self._terms,
                 self._flow,
                 self._z_tables,
                 node_chunk=self._node_chunk,
                 general_chunk=self._general_chunk,
             )
-            | _low_storage_payload(problem, device=_on_device())
+            | _low_storage_payload(problem, stepper, device=_on_device())
             | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
             | _planning_payload(fft_planning, stored)
         )
@@ -428,20 +441,21 @@ class NativeBackend(StepDriver[_core.State]):
         if cpu_execution is None:
             # A stage-2 refinement of this very execution (solprop SEP 46 section
             # 6.6): the workspace is built again with its record.
-            refined = _refined_record(problem, self._native_state)
+            refined = _refined_record(problem, stepper, self._native_state)
             if refined is not None:
                 stored |= _keep_plans(self._native_state, wisdom)
                 self._native_state.close()
                 self._native_state = _core.State(
                     _native_problem(
                         problem,
+                        request,
                         self._terms,
                         self._flow,
                         self._z_tables,
                         node_chunk=self._node_chunk,
                         general_chunk=self._general_chunk,
                     )
-                    | _low_storage_payload(problem, device=_on_device())
+                    | _low_storage_payload(problem, stepper, device=_on_device())
                     | {"cpu_execution": refined[0].native()}
                     | _planning_payload(fft_planning, stored)
                 )
@@ -478,7 +492,7 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop's Adams march (SEP 14 phase 2) steps on host arrays, with one native
         # source evaluation a step; the accepted state is kept on the host beside the
         # native one, which the statistics and observations read.
-        integrator = problem.stepper.integrator
+        integrator = stepper.integrator
         self._resident: _ResidentAdams | None = None
         self._adams = (
             _NativeAdamsMarch(self, integrator, march=adams_march)
@@ -650,7 +664,7 @@ class NativeBackend(StepDriver[_core.State]):
         self._resident = _ResidentAdams(
             native=self._native_state,
             method=method,
-            controller=self._problem.stepper.controller,
+            controller=self._stepper.controller,
             n_omega=self._problem.grids.n_omega,
             arrays=self._resident_arrays,
             sample=self._resident_sample,
@@ -660,7 +674,7 @@ class NativeBackend(StepDriver[_core.State]):
             shape=self._layout,
             helpers=self.helpers,
             compensated=compensated,
-            interpolate=self._problem.stepper.interpolate_planes,
+            interpolate=self._stepper.interpolate_planes,
             carrier=carrier_reference(self._problem, method),
         )
         # solprop SEP 39 phases 1 and 3: where the trial's stage rows are one bundle
@@ -723,7 +737,7 @@ class NativeBackend(StepDriver[_core.State]):
         kerr = responses.kerr_coefficients
         taper = problem.transform.taper_scale
         return {
-            "n_stages": problem.stepper.tableau.n_stages,
+            "n_stages": self._stepper.tableau.n_stages,
             "phi": phi,
             "phi_weights": phi_weights,
             "phi_rate": phi_rate,
@@ -779,9 +793,9 @@ class NativeBackend(StepDriver[_core.State]):
         device build forms its flows per element under ``"auto"``: there an extra field
         read costs more than the exponential (SEP 24 section 4.3).
         """
-        if not isinstance(self._problem.stepper.integrator, LowStorageRungeKutta):
+        if not isinstance(self._stepper.integrator, LowStorageRungeKutta):
             return "recompute"
-        asked = self._problem.stepper.propagator_mode
+        asked = self._stepper.propagator_mode
         if asked == "auto" and self._low_storage is not None and _on_device():
             return "recompute"
         return super()._propagator_mode
@@ -790,7 +804,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Return a resident trial's arrays, every stage row at `position`."""
         bundle = self._stage_scalars(anchor, position)
         self._last_bundle = bundle
-        stages = self._problem.stepper.tableau.n_stages
+        stages = self._stepper.tableau.n_stages
         arrays, material = self._repeated_arrays(bundle)
         flow = self._flow
         if flow is not None:
@@ -842,7 +856,7 @@ class NativeBackend(StepDriver[_core.State]):
         Adams trial more than its coefficient tables. The other problems take
         `_trial_arrays`.
         """
-        stages = self._problem.stepper.tableau.n_stages
+        stages = self._stepper.tableau.n_stages
         if (
             self._z_tables is not None
             or self._terms.separable is not None
@@ -917,7 +931,7 @@ class NativeBackend(StepDriver[_core.State]):
 
     def _dense_stages(self) -> list[ComplexArray]:
         """Return the accepted trial's stage derivatives from the engine (SEP 14)."""
-        stages = self._problem.stepper.tableau.n_stages
+        stages = self._stepper.tableau.n_stages
         return [
             self._native_state.stage_to_host(index).reshape(self._layout)
             for index in range(stages)
@@ -1020,9 +1034,7 @@ class NativeBackend(StepDriver[_core.State]):
             tables = self._stage_tables()
             if tables is not None:
                 self._native_state.adams_stage_tables(tables | _chord_tables(None))
-                self._rk_nodes = [
-                    float(node) for node in self._problem.stepper.tableau.nodes
-                ]
+                self._rk_nodes = [float(node) for node in self._stepper.tableau.nodes]
                 flow = self._flow
                 if flow is not None:
                     modes = int(flow.vectors.shape[-1])
@@ -1048,7 +1060,7 @@ class NativeBackend(StepDriver[_core.State]):
                     z, dz, self._rk_nodes, prepare_only=defer_update
                 )
         self._hoist(z)
-        tableau = self._problem.stepper.tableau
+        tableau = self._stepper.tableau
         # Every stage's scalars and the whole step's, each table read once (solprop
         # kernel schema 28).
         *bundles, whole = self._stage_bundles(
@@ -1257,7 +1269,7 @@ class NativeBackend(StepDriver[_core.State]):
             # Forgotten first: a refusal below leaves no set of actions behind a key.
             self._flow_key = None
             fractions = np.array(
-                [*(float(node) for node in self._problem.stepper.tableau.nodes), 1.0],
+                [*(float(node) for node in self._stepper.tableau.nodes), 1.0],
                 dtype=np.float64,
             )
             for fraction in fractions:
@@ -1288,7 +1300,7 @@ class NativeBackend(StepDriver[_core.State]):
         (solprop SEP 45 phase 2, Q1); a controller with weights, or one whose ``scale``
         is not ``PIController.scale``, keeps the host's reduction and its own scale.
         """
-        controller = self._problem.stepper.controller
+        controller = self._stepper.controller
         if _RK_ROWS != "host" and type(controller).scale is PIController.scale:
             if controller.weights is None:
                 return float(_core.rk_score(partials, controller.rtol, controller.atol))
@@ -1304,7 +1316,7 @@ class NativeBackend(StepDriver[_core.State]):
         old = math.sqrt(float(np.asarray(partials[0], dtype=np.float64).sum()))
         new = math.sqrt(float(np.asarray(partials[1], dtype=np.float64).sum()))
         residual = math.sqrt(float(np.asarray(partials[2], dtype=np.float64).sum()))
-        scale = self._problem.stepper.controller.scale(old, new)
+        scale = self._stepper.controller.scale(old, new)
         if isinstance(scale, np.ndarray):
             native_scale = np.ascontiguousarray(scale, dtype=np.float64)
             weighted = self._native_state.weighted_error(native_scale)
@@ -1314,7 +1326,7 @@ class NativeBackend(StepDriver[_core.State]):
     def _rk_weights_ready(self) -> None:
         """Hand the native state a weighted controller's weights, once (SEP 45)."""
         if not self._rk_weighted:
-            weights = self._problem.stepper.controller.weights
+            weights = self._stepper.controller.weights
             assert weights is not None
             self._native_state.rk_weights_configure(
                 [float(value) for value in np.asarray(weights, dtype=np.float64)]
@@ -1751,6 +1763,7 @@ class NativeBackend(StepDriver[_core.State]):
                 profiles=self._profiles,
                 apertures=apertures,
                 on_axis=on_axis,
+                z_end=self._stepper.z_end,
             )
             if len(self._statistics_plans) >= _STATISTICS_PLANS:
                 self._statistics_plans.clear()
@@ -1997,7 +2010,7 @@ class NativeBackend(StepDriver[_core.State]):
             None
             if not far
             else self._far_field.for_spec(
-                self._problem.stats_spec if spec is None else spec
+                self._request.observation.stats if spec is None else spec
             )
         )
         if far and tables is None:
@@ -2203,7 +2216,7 @@ class NativeBackend(StepDriver[_core.State]):
         }
         held = self._host_state
         ledger["adams_host_state"] = 0 if held is None else held.nbytes
-        stepper = self._problem.stepper
+        stepper = self._stepper
         if (
             stepper.interpolate_planes
             and not isinstance(stepper.integrator, Multistep)
@@ -2216,6 +2229,33 @@ class NativeBackend(StepDriver[_core.State]):
             field = int(ledger.get("state", 0))
             ledger["rk_dense"] = 6 * field + field // 16
         return ledger
+
+    def prepare(
+        self, problem: PropagationProblem, request: RunRequest
+    ) -> PreparedExecution:
+        """Prepare a run of this backend for one problem and request (SEP 47 5.2).
+
+        The backend lowered the request where it was built; each start of the result
+        opens the native session whenever it admits the run, and the transitional
+        session over this backend's own march otherwise
+        (:class:`solprop_native.session.NativePrepared`).
+
+        Parameters
+        ----------
+        problem : solprop.translate.problem.PropagationProblem
+            The translated problem: this backend's, or one derived from it with
+            another input.
+        request : solprop.translate.run_request.RunRequest
+            The run's request.
+
+        Returns
+        -------
+        solprop.backends.session.PreparedExecution
+            The prepared execution.
+        """
+        from .session import NativePrepared
+
+        return NativePrepared(self, problem, request)
 
     def close(self) -> None:
         """Release native plans and views; repeated calls have no effect."""
@@ -2928,7 +2968,7 @@ def native_node_chunk(
 
 
 def _low_storage_payload(
-    problem: PropagationProblem, *, device: bool
+    problem: PropagationProblem, stepper: StepperSettings, *, device: bool
 ) -> dict[str, object]:
     """Return the native problem's low-storage rows (solprop kernel schema 32).
 
@@ -2938,10 +2978,10 @@ def _low_storage_payload(
     the estimate's CPU count over-states it by the table. A device's input crosses the
     state's layout through tiles (``docs/dev/benchmarks.md``); a CPU's has its own.
     """
-    if not isinstance(problem.stepper.integrator, LowStorageRungeKutta):
+    if not isinstance(stepper.integrator, LowStorageRungeKutta):
         return {}
-    flows = low_storage_flows(problem, "native")
-    if device and problem.stepper.propagator_mode == "auto":
+    flows = low_storage_flows(problem, stepper, "native")
+    if device and stepper.propagator_mode == "auto":
         flows = 0
     return {
         "low_storage": True,
@@ -3040,7 +3080,9 @@ def stage_tables_available(problem: PropagationProblem) -> bool:
     return phi and prefactor
 
 
-def native_march_refusal(problem: PropagationProblem) -> str | None:
+def native_march_refusal(
+    problem: PropagationProblem, stepper: StepperSettings
+) -> str | None:
     """Return why the backend would step a run's march on the host, or ``None``.
 
     ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
@@ -3050,7 +3092,7 @@ def native_march_refusal(problem: PropagationProblem) -> str | None:
     forms, and the carrier frame on a z table; for Runge-Kutta, stage rows the host
     forms. A controller overriding a decision is refused by its caller.
     """
-    integrator = problem.stepper.integrator
+    integrator = stepper.integrator
     staged = stage_tables_available(problem)
     if isinstance(integrator, Multistep):
         if _ADAMS_MARCH == "host":
@@ -3118,7 +3160,7 @@ def _host_due(backend: Any, watching: bool) -> dict[str, int]:
     if backend._row_spec is not None:
         period = backend._row_period
         due["statistics"] = period - backend._accepted_steps % period
-    every = backend._problem.stepper.step_planes
+    every = backend._stepper.step_planes
     if every:
         due["step_planes"] = every - backend._natural_count % every
     monitor = backend._monitor
@@ -3315,7 +3357,7 @@ class _NativeAdamsMarch(AdamsMarch):
         if backend._natural_stop_due(target):
             return
         self._configure()
-        schedule = backend._problem.stepper.schedule
+        schedule = backend._stepper.schedule
         if schedule is not None:
             # A replay takes the schedule's steps as given (`AdamsMarch._replay_to`).
             slack = replay_tolerance(schedule, target)
@@ -3355,7 +3397,7 @@ class _NativeAdamsMarch(AdamsMarch):
         if self._runner is None:
             backend = self._driver
             engine = cast("_ResidentAdams", self._engine)
-            schedule = backend._problem.stepper.schedule
+            schedule = backend._stepper.schedule
             steps = edges = _NO_SCHEDULE
             if schedule is not None:
                 steps = np.ascontiguousarray(schedule.steps, dtype=np.float64)
@@ -3395,7 +3437,7 @@ class _NativeAdamsMarch(AdamsMarch):
         if backend._row_spec is not None:
             period = backend._row_period
             steps.append(period - backend._accepted_steps % period)
-        every = backend._problem.stepper.step_planes
+        every = backend._stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
         if backend._halt_requested:
@@ -3660,7 +3702,7 @@ class _NativeRungeKuttaMarch:
         if _RK_MARCH == "host":
             return "the private switch asked for it", False
         driver: Any = backend
-        stepper = driver._problem.stepper
+        stepper = driver._stepper
         controller: PIController = stepper.controller
         overridden = [
             name
@@ -3692,7 +3734,7 @@ class _NativeRungeKuttaMarch:
     def _policy(self) -> dict[str, object]:
         """Return the run's controller and landing record (kernel contract 12)."""
         backend = self._driver
-        stepper = backend._problem.stepper
+        stepper = backend._stepper
         controller = stepper.controller
         breakpoints = np.asarray(backend._problem.linear.phi_breakpoints, np.float64)
         if not stepper.interval_cap:
@@ -3732,7 +3774,7 @@ class _NativeRungeKuttaMarch:
         interval = None if monitor is None else float(monitor.interval)
         if self._configured == (interval,) or self._runner is not None:
             return
-        stepper = backend._problem.stepper
+        stepper = backend._stepper
         controller = stepper.controller
         if controller.weights is not None:
             backend._rk_weights_ready()
@@ -3773,7 +3815,7 @@ class _NativeRungeKuttaMarch:
             trial fails.
         """
         backend = self._driver
-        dense = backend._problem.stepper.interpolate_planes
+        dense = backend._stepper.interpolate_planes
         if dense and backend._dense_ahead is not None:
             # The march is ahead of the last interpolated plane; resume it there.
             backend._adams_restore(*backend._dense_ahead)
@@ -3836,7 +3878,7 @@ class _NativeRungeKuttaMarch:
         if backend._row_spec is not None:
             period = backend._row_period
             steps.append(period - backend._accepted_steps % period)
-        every = backend._problem.stepper.step_planes
+        every = backend._stepper.step_planes
         if every:
             steps.append(every - backend._natural_count % every)
         if backend._halt_requested:
@@ -4026,7 +4068,7 @@ class _NativeRungeKuttaMarch:
             raise ConvergenceError(msg)
         if reason == _FLOOR:
             proposed = float(result["floor_proposal"])
-            dz_min = float(self._driver._problem.stepper.dz_min)
+            dz_min = float(self._driver._stepper.dz_min)
             msg = (
                 f"step control asked for {proposed:.3e} m, below the floor dz_min ="
                 f" {dz_min:.3e} m; the tolerance cannot be met here"
@@ -4091,9 +4133,10 @@ class _ResidentLowStorage:
         self.stiffness = math.nan
         self.atomic = True
         problem = backend._problem  # pyright: ignore[reportPrivateUsage] - the owner's problem
-        payload = _low_storage_payload(problem, device=_on_device())
+        stepper = backend._stepper  # pyright: ignore[reportPrivateUsage] - the owner's policy
+        payload = _low_storage_payload(problem, stepper, device=_on_device())
         self._flows = int(cast(int, payload["low_storage_flows"]))
-        schedule = problem.stepper.schedule
+        schedule = stepper.schedule
         assert schedule is not None  # the translation refused the march without one
         self._keys, self._edges = table_steps(schedule), schedule.edges
         self._table_step = math.nan
@@ -4142,7 +4185,7 @@ class _ResidentLowStorage:
             bundles_at(midpoint, [midpoint, end] if modal else [midpoint])[0],
             bundles_at(end, [end])[0],
         ]
-        stages = problem.stepper.tableau.n_stages
+        stages = backend._stepper.tableau.n_stages  # pyright: ignore[reportPrivateUsage]
         padded = bundles + [bundles[-1]] * (stages - len(bundles))
         arrays, material = backend._trial_arrays(padded, bundles[-1])  # pyright: ignore[reportPrivateUsage]
         phi_delta = np.zeros_like(arrays[0])
@@ -4222,13 +4265,13 @@ class _ZTables:
         The ``Phi`` term that holds the rate, or ``None`` when no march reads it.
     """
 
-    def __init__(self, problem: PropagationProblem) -> None:
-        """Size the slots from the problem; nothing crosses until :meth:`upload`."""
+    def __init__(self, problem: PropagationProblem, stepper: StepperSettings) -> None:
+        """Size the slots from the problem and its method; nothing crosses yet."""
         self._problem = problem
         self.phi = problem.linear.phi_representation == "table"
         self.prefactor = problem.responses.prefactor_representation == "table"
-        integrator = problem.stepper.integrator
-        self.slots = z_table_slots(problem)
+        integrator = stepper.integrator
+        self.slots = z_table_slots(stepper)
         if self.slots > _TABLE_POINTS:
             raise BackendError(
                 f"native evaluates a z table at {_TABLE_POINTS} positions a call, and "
@@ -4371,8 +4414,8 @@ class ControllerLike(Protocol):
         ...
 
 
-def _refuse_adams(problem: PropagationProblem) -> None:
-    integrator = problem.stepper.integrator
+def _refuse_adams(problem: PropagationProblem, stepper: StepperSettings) -> None:
+    integrator = stepper.integrator
     # The low-storage march (solprop SEP 24 phase 3) runs on every route the
     # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
@@ -4404,12 +4447,13 @@ def _refuse_adams(problem: PropagationProblem) -> None:
             f"the {integrator.name} integrator; use Multistep(formulation="
             "'exponential') or the Runge-Kutta march"
         )
-    refuse_formulation(problem, "native")
+    refuse_formulation(problem, stepper, "native")
     # SEP 35 phase 3: the scalar shift on CPU builds; device builds wait for their
     # qualification.
     device = _on_device()
     refuse_carrier_frame(
         problem,
+        stepper,
         "native (device build)" if device else "native",
         delivered=frozenset() if device else frozenset({"scalar"}),
     )
@@ -4447,7 +4491,7 @@ def _refuse_omitted_stages(responses: CompiledResponses) -> None:
         )
 
 
-def _refuse_unsupported(problem: PropagationProblem) -> None:
+def _refuse_unsupported(problem: PropagationProblem, stepper: StepperSettings) -> None:
     _refuse_omitted_stages(problem.responses)
     if problem.precision.single:
         raise BackendError(
@@ -4487,7 +4531,7 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
         refuse_general_route(
             problem, backend="native", flow_methods=_FLOW_METHODS, moving_maps=True
         )
-    _refuse_adams(problem)
+    _refuse_adams(problem, stepper)
     # One list for every backend: the general modal route and the coupled flow, each
     # refusal naming this backend.
     # A moving guide's synthesis and projection, combined per stage over schema 14's
@@ -4807,7 +4851,7 @@ def _aperture_payload(
 
 
 def _refined_record(
-    problem: PropagationProblem, state: _core.State
+    problem: PropagationProblem, stepper: StepperSettings, state: _core.State
 ) -> tuple[ExecutionRecord, str] | None:
     """Return a stored stage-2 refinement of this execution, or ``None``.
 
@@ -4825,7 +4869,7 @@ def _refined_record(
         # SEP 47 section 6.2) are found again.
         shape=(1, *problem.shape),
         grid_kind=problem.grid_kind,
-        integrator=type(problem.stepper.integrator).__name__,
+        integrator=type(stepper.integrator).__name__,
         sizing=state.execution_sizing,
         process=_package.PROCESS,
         fingerprint=_package.PROFILE.fingerprint.digest,
@@ -4920,6 +4964,7 @@ def _planning_record(state: _core.State) -> dict[str, object]:
 
 def _native_problem(
     problem: PropagationProblem,
+    request: RunRequest,
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
@@ -4927,6 +4972,7 @@ def _native_problem(
     node_chunk: int | None = None,
     general_chunk: int | None = None,
 ) -> dict[str, object]:
+    stepper = request.stepper
     # The constructor hands its lowered chunks; a direct caller takes the automatic
     # plan's (solprop SEP 47 section 6.5).
     if node_chunk is None:
@@ -5032,7 +5078,7 @@ def _native_problem(
             # solprop SEP 23: the stored axes and the slots of the problem's own
             # far-field request, which size the native band partials.
             k_x, k_y = geometry.spectral_axes
-            slots, _ = far_field_partials(problem)
+            slots, _ = far_field_partials(problem, request.observation.stats)
             spatial_data |= {
                 "spatial_k_x": np.ascontiguousarray(k_x, dtype=np.float64),
                 "spatial_k_y": np.ascontiguousarray(k_y, dtype=np.float64),
@@ -5053,7 +5099,7 @@ def _native_problem(
         plasma is not None
         and problem.responses.envelope_plasma is None
         and problem.initial.noise_model != "modified"
-        and problem.stepper.tableau.first_same_as_last
+        and stepper.tableau.first_same_as_last
         and not (
             absorber is not None and problem.responses.absorber_scheme == "split_step"
         )
@@ -5065,7 +5111,7 @@ def _native_problem(
                 "species_ionisation",
                 "species_electron_density",
             }
-            & set(problem.stats_spec.periodic)
+            & set(request.observation.stats.periodic)
         )
     )
     return {
@@ -5078,11 +5124,11 @@ def _native_problem(
         **_general_payload(problem, general_chunk),
         **_flow_payload(flow),
         **_dispersive_payload(problem),
-        **_flux_payload(problem),
+        **_flux_payload(problem, request.observation.stats),
         "n_omega": n_omega,
         "n_t": problem.grids.n_t,
         "n_to": problem.grids.n_to,
-        "n_stages": problem.stepper.tableau.n_stages,
+        "n_stages": stepper.tableau.n_stages,
         "n_modes": problem.shape[0],
         "n_pol_state": problem.shape[1],
         "n_pol_transform": problem.transform.n_pol,
@@ -5096,7 +5142,7 @@ def _native_problem(
         "in_stage_absorber": temporal_in_stage or spatial_absorption,
         "split_step_absorber": absorber is not None
         and problem.responses.absorber_scheme == "split_step",
-        "first_same_as_last": problem.stepper.tableau.first_same_as_last,
+        "first_same_as_last": stepper.tableau.first_same_as_last,
         "crop_index": np.ascontiguousarray(problem.grids.crop_index, dtype=np.uint64),
         "active_mask": np.ascontiguousarray(problem.grids.active_mask),
         "norm_mask": np.ascontiguousarray(problem.grids.norm_mask),
@@ -5141,12 +5187,10 @@ def _native_problem(
         "power_weight": np.ascontiguousarray(
             np.empty(0) if geometry is not None else power_weight_at(problem, 0.0)
         ),
-        "tableau_matrix": np.ascontiguousarray(problem.stepper.tableau.matrix),
-        "tableau_nodes": np.ascontiguousarray(problem.stepper.tableau.nodes),
-        "solution_weights": np.ascontiguousarray(
-            problem.stepper.tableau.solution_weights
-        ),
-        "error_weights": np.ascontiguousarray(problem.stepper.tableau.error_weights),
+        "tableau_matrix": np.ascontiguousarray(stepper.tableau.matrix),
+        "tableau_nodes": np.ascontiguousarray(stepper.tableau.nodes),
+        "solution_weights": np.ascontiguousarray(stepper.tableau.solution_weights),
+        "error_weights": np.ascontiguousarray(stepper.tableau.error_weights),
         "synthesis": 0.0 if free else float(problem.transform.synthesis[0, 0]),
         "projection": 0.0 if free else float(problem.transform.projection[0, 0]),
         "kerr_coefficient": 0.0 if kerr is None else kerr.coefficient,
@@ -5167,7 +5211,7 @@ def _native_problem(
             else np.empty((0, 2), dtype=np.float64)
         ),
         "stash_plasma": stash_plasma,
-        "weighted_controller": problem.stepper.controller.weights is not None,
+        "weighted_controller": stepper.controller.weights is not None,
         "dt_fine": problem.grids.dt_fine,
         "dt": problem.grids.dt,
         "raman_fraction": 0.0 if raman is None else float(raman.fraction),
@@ -5315,7 +5359,7 @@ def _dispersive_payload(problem: PropagationProblem) -> dict[str, object]:
     }
 
 
-def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
+def _flux_payload(problem: PropagationProblem, stats: StatsSpec) -> dict[str, object]:
     """Pack the plane measure of solprop SEP 34 (kernel schema 35).
 
     A separable run (Cartesian, line, planar) is measured by its own operator's root,
@@ -5323,12 +5367,13 @@ def _flux_payload(problem: PropagationProblem) -> dict[str, object]:
     not that operator is refused. A radial run packs the entrance's material and
     transverse squares and whether a material z table follows
     (:func:`_upload_flux_table`); the admission record is not read. ``flux_closure``
-    sizes the magnetic closure's buffers for the problem's own local statistics.
+    sizes the magnetic closure's buffers for the run's own local statistics,
+    `stats`.
     """
     flux = flux_of(problem.route)
     if flux is None:
         return {}
-    closure = bool(set(problem.stats_spec.names) & LOCAL_FLUX_STATISTICS)
+    closure = bool(set(stats.names) & LOCAL_FLUX_STATISTICS)
     if problem.linear.separable is not None:
         if flux.base is not problem.linear.separable or flux.material is not None:
             raise BackendError(

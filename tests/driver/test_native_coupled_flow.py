@@ -70,6 +70,7 @@ from solprop.modes.capillary import CoherentWall
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialKerr
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -98,16 +99,19 @@ what makes the source carried back through the flow a measurable part of the ste
 
 @dataclass(frozen=True)
 class Case:
-    """One coupled-flow problem, its grid and the length it is run to."""
+    """One coupled-flow problem, its run's request, its grid and its length."""
 
     problem: PropagationProblem
+    run_request: RunRequest
     grid: TimeGrid
     length: float
 
 
 def _capillary_case(simulation: Simulation) -> Case:
     """Wrap a capillary simulation's problem."""
-    return Case(simulation.translate(), simulation.grid, LENGTH)
+    return Case(
+        simulation.translate(), simulation._run_request(), simulation.grid, LENGTH
+    )
 
 
 def scalar_wall() -> Case:
@@ -195,7 +199,12 @@ def split_block() -> Case:
         basis=split_basis(),
     )
     simulation = build(guide, grid, energy=2e-9)
-    return Case(simulation.translate(), simulation.grid, GENERAL_Z_END)
+    return Case(
+        simulation.translate(),
+        simulation._run_request(),
+        simulation.grid,
+        GENERAL_Z_END,
+    )
 
 
 CASES = {
@@ -222,7 +231,7 @@ def native_class():
 def propagate(case: Case, backend, field0=None) -> np.ndarray:
     """Run one case to its end on one backend and return the final state."""
     problem = case.problem
-    driver = backend(problem, grid=case.grid)
+    driver = backend(problem, case.run_request, grid=case.grid)
     try:
         driver.set_initial(problem.initial.field0 if field0 is None else field0, None)
         driver.propagate_to(case.length)
@@ -272,12 +281,14 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
     residual = float(np.max(flow.residual_norm_bound)) * dz
     assert flow.generator is not None
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
-    carry = 2 * channels * kappa * eps + kappa * formation_bound(problem, dz)
+    carry = 2 * channels * kappa * eps + kappa * formation_bound(
+        problem, case.run_request, dz
+    )
     source = (
         2 * 512 * eps * math.log2(problem.grids.n_to)
         + (channels + 84 + 3 * nodes) * eps
     )
-    stages = problem.stepper.tableau.n_stages
+    stages = case.run_request.stepper.tableau.n_stages
     per_step = 16 * eps + 2 * carry
     per_stage = rho * (source + 2 * carry) + residual * (terms + 2 * channels) * eps
     growth = (1 + 3 * rho + residual) ** STEPS
@@ -347,11 +358,11 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
     held = _host_flow(case.problem)
     assert reference is not None and held is not None
     assert np.all(held.route) if route == "eigenbasis" else not np.any(held.route)
-    nodes = case.problem.stepper.tableau.nodes
+    nodes = case.run_request.stepper.tableau.nodes
     fractions = np.array([*(float(node) for node in nodes), 1.0])
     dz = case.length / STEPS
-    bound = formation_bound(case.problem, dz)
-    backend = native_class()(case.problem, grid=case.grid)
+    bound = formation_bound(case.problem, case.run_request, dz)
+    backend = native_class()(case.problem, case.run_request, grid=case.grid)
     try:
         native = backend._native_state
         shape = (fractions.size, -1, reference.n_modes, reference.n_modes)
@@ -381,7 +392,7 @@ def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_boun
 def test_an_action_needing_too_many_squarings_is_refused_by_name_on_native():
     """The reference's squaring limit, on the section's row-sum norm, in its words."""
     case = scalar_wall()
-    backend = native_class()(case.problem, grid=case.grid)
+    backend = native_class()(case.problem, case.run_request, grid=case.grid)
     try:
         backend.set_initial(case.problem.initial.field0, None)
         whole = backend._stage_scalars(0.0, case.length / STEPS)
@@ -408,11 +419,12 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
         flow, inverse_condition_bound=np.ones_like(flow.inverse_condition_bound)
     )
     problem = replace(
-        case.problem,
-        linear=replace(case.problem.linear, coupled_flow=shrunk),
-        stepper=replace(case.problem.stepper, integrator=None),
+        case.problem, linear=replace(case.problem.linear, coupled_flow=shrunk)
     )
-    backend = native_class()(problem, grid=case.grid)
+    run_request = case.run_request.with_stepper(
+        replace(case.run_request.stepper, integrator=None)
+    )
+    backend = native_class()(problem, run_request, grid=case.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="native measured a coupled flow"):
@@ -424,9 +436,9 @@ def test_a_step_longer_than_the_certificate_is_refused_by_name_on_native():
 def test_cf4_is_refused_by_name_at_the_backend_and_the_entry_point():
     """CF4 stays the reference's: both doors name it and the backend."""
     simulation = varying(wall=CF4_WALL)
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
-        native_class()(problem, grid=simulation.grid)
+        native_class()(problem, run_request, grid=simulation.grid)
     for name in ("native", "auto"):
         with pytest.raises(DriverError, match=r"method='cf4'.*numpy_ref"):
             varying(wall=CF4_WALL, backend=name).translate()
@@ -440,7 +452,9 @@ def test_a_native_batch_refuses_a_coupled_flow_by_name():
     )
 
     case = scalar_wall()
-    members = [native_class()(case.problem, grid=case.grid) for _ in range(2)]
+    members = [
+        native_class()(case.problem, case.run_request, grid=case.grid) for _ in range(2)
+    ]
     for member in members:
         member.set_initial(case.problem.initial.field0, None)
     try:
@@ -458,14 +472,14 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
     case = taper_gradient()
     flow = case.problem.linear.coupled_flow
     assert flow is not None and flow.generator is not None
-    backend = native_class()(case.problem, grid=case.grid)
+    backend = native_class()(case.problem, case.run_request, grid=case.grid)
     try:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
     channels, _, bins = case.problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
-    stages = case.problem.stepper.tableau.n_stages
+    stages = case.run_request.stepper.tableau.n_stages
     block = active * channels * channels * 16
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
     assert ledger["flow_forward"] == (stages + 1) * block
@@ -475,7 +489,7 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
     assert ledger["flow_weights"] == stages * terms * 8
     assert ledger["flow_drive"] == channels * bins * 16
     other = capillary(energy=ENERGY, pressure=PRESSURE)
-    plain = native_class()(other.translate(), grid=other.grid)
+    plain = native_class()(other.translate(), other._run_request(), grid=other.grid)
     try:
         rows = dict(plain.memory_ledger())
     finally:

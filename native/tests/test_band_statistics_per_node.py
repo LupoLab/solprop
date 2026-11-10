@@ -44,6 +44,7 @@ from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.ionisation import RateTable
 from solprop.translate.problem import PropagationProblem
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend
 from bounds import UNIT_ROUNDOFF
@@ -91,7 +92,9 @@ def launch(amplitude: float) -> npt.NDArray[np.float64]:
     return amplitude * np.exp(-((t / 4e-15) ** 2)) * np.cos(2.35e15 * t)
 
 
-def problem_for(amplitude: float, rule: RunningIntegral) -> PropagationProblem:
+def problem_for(
+    amplitude: float, rule: RunningIntegral
+) -> tuple[PropagationProblem, RunRequest]:
     """Return a one-node argon problem whose launch synthesises to :func:`launch`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -118,23 +121,25 @@ def problem_for(amplitude: float, rule: RunningIntegral) -> PropagationProblem:
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
+    run_request = simulation._run_request()
     spectrum = np.fft.rfft(launch(amplitude))[np.asarray(GRID.crop_index)]
     field = spectrum.reshape(problem.shape)
-    unit = fields_of(problem, field)
+    unit = fields_of(problem, run_request, field)
     field = field * (amplitude / np.max(np.abs(unit)))
     return dataclasses.replace(
         problem,
         initial=dataclasses.replace(problem.initial, field0=field),
         responses=dataclasses.replace(problem.responses, plasma_integral=rule),
-        stats_spec=StatsSpec(names=STATISTICS),
-    )
+    ), run_request.for_run(stats=StatsSpec(names=STATISTICS))
 
 
 def fields_of(
-    problem: PropagationProblem, field: npt.NDArray[np.complex128]
+    problem: PropagationProblem,
+    run_request: RunRequest,
+    field: npt.NDArray[np.complex128],
 ) -> np.ndarray:
     """Return the reference's node fields for the state `field`."""
-    reference = NumpyRefBackend(problem, grid=GRID)
+    reference = NumpyRefBackend(problem, run_request, grid=GRID)
     try:
         reference.set_initial(field, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
@@ -150,21 +155,22 @@ def fields_of(
 def statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: PropagationProblem,
+    run_request: RunRequest,
 ) -> dict[str, np.ndarray]:
     """Return the launch's statistics."""
-    backend = implementation(problem, grid=GRID)
+    backend = implementation(problem, run_request, grid=GRID)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return backend.stats(problem.stats_spec)
+        return backend.stats(run_request.observation.stats)
     finally:
         backend.close()
 
 
 def node_fields_and_error(
-    problem: PropagationProblem, grid: FieldGrid
+    problem: PropagationProblem, run_request: RunRequest, grid: FieldGrid
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return the reference's launch node fields and their error between syntheses."""
-    reference = NumpyRefBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         reference.set_initial(problem.initial.field0, None)
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
@@ -217,9 +223,9 @@ def fraction_terms(
 def test_the_node_s_statistics_are_the_reference_s(name: str, amplitude: float) -> None:
     """Fraction, largest rate and diagnostics of one node, at the original's budget."""
     rule = rules()[name]
-    problem = problem_for(amplitude, rule)
+    problem, run_request = problem_for(amplitude, rule)
     budget = band_budget(rule)
-    fields, field_error = node_fields_and_error(problem, GRID)
+    fields, field_error = node_fields_and_error(problem, run_request, GRID)
     magnitude = np.sqrt(np.sum(fields**2, axis=1))
     delta = np.sum(field_error, axis=1)
     coefficients = problem.responses.plasma_coefficients
@@ -227,8 +233,8 @@ def test_the_node_s_statistics_are_the_reference_s(name: str, amplitude: float) 
     peak_rate, spread, _, final_error = fraction_terms(
         coefficients.rate, PREIONISATION, rule, GRID.dt_fine, magnitude, delta
     )
-    expected = statistics(NumpyRefBackend, problem)
-    actual = statistics(NativeBackend, problem)
+    expected = statistics(NumpyRefBackend, problem, run_request)
+    actual = statistics(NativeBackend, problem, run_request)
     # The fraction and the largest rate: the original's budget, plus the synthesis.
     neutral = float(problem.responses.density(0.0))
     fraction = float(expected["electron_density"]) / neutral
@@ -286,9 +292,9 @@ def test_each_channel_s_fraction_is_the_reference_s() -> None:
     pulse cut by the window, a rate the quadratic law's and starts of 0 and 0.01: one
     component and a different rate, which is weaker than the original on those counts.
     """
-    grid, problem = capillary("mixture_edge", 1)
+    grid, problem, run_request = capillary("mixture_edge", 1)
     # The helium channel starts from exactly none; the argon from the stress case's 1 %.
-    _, preionised = capillary("preionised_quiet", 1)
+    _, preionised, _ = capillary("preionised_quiet", 1)
     assert preionised.responses.plasma_coefficients is not None
     plain, argon = problem.responses.plasma_channels
     assert float(plain.preionisation(0.0)) == 0.0
@@ -299,18 +305,20 @@ def test_each_channel_s_fraction_is_the_reference_s() -> None:
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(problem.responses, plasma_channels=channels),
-        stats_spec=StatsSpec(names=("species_ionisation",)),
     )
+    run_request = run_request.for_run(stats=StatsSpec(names=("species_ionisation",)))
     budget = 64 * (2 * rule.half_width + 1) * grid.n_to * float(np.finfo(float).eps)
-    fields, field_error = node_fields_and_error(problem, grid)
+    fields, field_error = node_fields_and_error(problem, run_request, grid)
     magnitude = np.sqrt(np.sum(fields**2, axis=1))
     delta = np.sum(field_error, axis=1)
 
     def launch_ionisation(implementation: type) -> np.ndarray:
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
-            return np.asarray(backend.stats(problem.stats_spec)["species_ionisation"])
+            return np.asarray(
+                backend.stats(run_request.observation.stats)["species_ionisation"]
+            )
         finally:
             backend.close()
 

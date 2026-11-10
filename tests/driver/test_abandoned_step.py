@@ -236,6 +236,11 @@ def test_a_step_abandoned_after_a_running_checkpoint_falls_back_to_it(
         assert_matched(
             np.asarray(stored["field"]),
             np.asarray(reference["field"]),
-            march_bound(built().translate()),
+            march_bound(*_translated(built())),
             what="field",
         )
+
+
+def _translated(simulation):
+    """Return a simulation's problem and its run's request."""
+    return simulation.translate(), simulation._run_request()

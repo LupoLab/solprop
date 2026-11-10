@@ -31,7 +31,7 @@ pytestmark = [
 @pytest.mark.parametrize("name", CASES)
 @pytest.mark.parametrize("rule", ["band", "trapezoid"])
 def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
-    grid, problem = case(name)
+    grid, problem, run_request = case(name)
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(
@@ -43,9 +43,12 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
     # projected in different chunk orders, so no time-discretisation term enters.
     relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
     assert relative > 0
-    reference = derivative(NumpyRefBackend, problem, grid, options_for(name))
+    reference = derivative(
+        NumpyRefBackend, problem, run_request, grid, options_for(name)
+    )
     backend = NumpyRefBackend(
         problem,
+        run_request,
         grid=grid,
         options=ExecutionOptions(node_chunk=problem.transform.n_nodes),
     )
@@ -70,7 +73,7 @@ def test_source_chunking_and_zero_after_a_nonzero_evaluation(name, rule):
 
 @pytest.mark.parametrize("name", ["mode_averaged", "analytic", "multimode", "mixture"])
 def test_removing_kerr_does_not_change_the_held_minus_gated_source(name):
-    grid, problem = case(name)
+    grid, problem, run_request = case(name)
     kerr = problem.responses.kerr_coefficients
     assert kerr is not None
     absent = dataclasses.replace(
@@ -86,9 +89,9 @@ def test_removing_kerr_does_not_change_the_held_minus_gated_source(name):
     relative = gamma(64 * grid.n_to + 32 * problem.transform.n_nodes)
     results = []
     for value in (problem, absent):
-        held = derivative(NumpyRefBackend, value, grid)
+        held = derivative(NumpyRefBackend, value, run_request, grid)
         with _gated_source():
-            gated = derivative(NumpyRefBackend, value, grid)
+            gated = derivative(NumpyRefBackend, value, run_request, grid)
         results.append((held, gated))
     allowance = relative * sum(np.max(abs(item)) for pair in results for item in pair)
     assert allowance > 0
@@ -99,10 +102,10 @@ def test_removing_kerr_does_not_change_the_held_minus_gated_source(name):
 
 
 def test_mixture_production_assembles_both_current_channels():
-    grid, problem = case("mixture")
+    grid, problem, run_request = case("mixture")
     bundle = scalars(problem, 0.0, 0.0)
     transform, grids = problem.transform, problem.grids
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend._hoist(0.0)
         nodes = passes.synthesise(
@@ -188,7 +191,7 @@ def test_mixture_production_assembles_both_current_channels():
 def test_real_column_decomposition_in_assembled_units(
     rule, name, components, preionisation, record_property
 ):
-    grid, problem = case(name)
+    grid, problem, run_request = case(name)
     grids, transform = problem.grids, problem.transform
     integral = design_running_integral(grid, rule)
     bundle = scalars(problem, 0.0, 0.0)
@@ -232,7 +235,7 @@ def test_real_column_decomposition_in_assembled_units(
     a_j = x / q - z / q**2
     a_p = v - y / q - z / q**2
     defect = q * v - x - y
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         backend._hoist(0.0)
         weight = backend._prefactor(bundle)[..., active] * grids.omega_window[active]
@@ -256,6 +259,7 @@ def test_real_column_decomposition_in_assembled_units(
 def test_raman_amplitude_does_not_change_the_held_minus_gated_source(kerr_present):
     simulation = build(gas="H2", raman=True)
     problem, grid = simulation.translate(), simulation.grid
+    run_request = simulation._run_request()
     coefficients = problem.responses.kerr_coefficients
     assert coefficients is not None and problem.responses.raman_terms
     problem = dataclasses.replace(
@@ -280,9 +284,9 @@ def test_raman_amplitude_does_not_change_the_held_minus_gated_source(kerr_presen
     )
     results = []
     for value in (problem, without):
-        held = derivative(NumpyRefBackend, value, grid)
+        held = derivative(NumpyRefBackend, value, run_request, grid)
         with _gated_source():
-            gated = derivative(NumpyRefBackend, value, grid)
+            gated = derivative(NumpyRefBackend, value, run_request, grid)
         results.append((held, gated))
     # Four assembled operands: cancellation in the plasma difference must not
     # reduce the rounding budget for the unchanged Raman convolution and Kerr.

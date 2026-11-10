@@ -3018,7 +3018,7 @@ class AdamsMarch:
         self._backend = backend
         self._method = method
         # Whether the run interpolates its planes, and with what (ADR-036, ADR-039).
-        self._interpolate = backend._problem.stepper.interpolate_planes
+        self._interpolate = backend._stepper.interpolate_planes
         self._interpolant = getattr(method, "interpolant", "adams")
         self._kernels = (
             AdamsKernels(helpers=backend.helpers) if kernels is None else kernels
@@ -3076,7 +3076,7 @@ class AdamsMarch:
         )
         # Every number the controller and the landings read, from one record (SEP 39
         # section 4.2); the decisions are `adams_core`'s functions of it.
-        settings = backend._problem.stepper
+        settings = backend._stepper
         linear = backend._problem.linear
         carrier = self._engine.carrier
         self._policy: MarchPolicy = march_policy(
@@ -3284,7 +3284,7 @@ class AdamsMarch:
         from solprop.backends.driver import reached  # noqa: PLC0415 - import cycle
 
         backend = self._backend
-        settings = backend._problem.stepper
+        settings = backend._stepper
         dense = self._interpolate
         if self._ahead is not None:
             # The march is ahead of the last observation; resume it there.

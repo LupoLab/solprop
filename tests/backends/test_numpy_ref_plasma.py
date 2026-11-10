@@ -289,7 +289,7 @@ def ionising_capillary(field_grid):
         )
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", MaterialRangeWarning)
-            problem = assemble(
+            problem, run_request = assemble(
                 field_grid,
                 mode,
                 [kerr, plasma],
@@ -299,7 +299,7 @@ def ionising_capillary(field_grid):
                 dz_max=0.01,
                 dz_init=1e-4,
             )
-        return problem, kerr, plasma
+        return problem, run_request, kerr, plasma
 
     return build
 
@@ -366,8 +366,8 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     ionising_capillary, preionisation
 ):
     """The whole chain against the two oracles, with nothing of the backend in it."""
-    problem, kerr, plasma = ionising_capillary(preionisation)
-    backend = NumpyRefBackend(problem)
+    problem, run_request, kerr, plasma = ionising_capillary(preionisation)
+    backend = NumpyRefBackend(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
     state = problem.initial.field0[None]
     ones = np.ones_like(state)
@@ -383,7 +383,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
 
 def test_the_pre_ionisation_is_read_at_the_plane(ionising_capillary):
     """The oracle for a plane is ``dataclasses.replace`` with its value."""
-    problem, _, plasma = ionising_capillary(0.4)
+    problem, _, _, plasma = ionising_capillary(0.4)
     table = problem.responses.plasma_coefficients.preionisation
     for z in (0.0, 0.05, 0.2):
         assert float(table(z)) == pytest.approx(0.4, rel=1e-14)
@@ -393,8 +393,8 @@ def test_the_pre_ionisation_is_read_at_the_plane(ionising_capillary):
 
 def test_a_plasma_run_steps_and_ionises(backend_class, ionising_capillary):
     """A propagation that actually frees electrons, end to end."""
-    problem, _, _ = ionising_capillary()
-    backend = backend_class(problem)
+    problem, run_request, _, _ = ionising_capillary()
+    backend = backend_class(problem, run_request)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(0.1)
     plane = backend.observe()
@@ -436,11 +436,11 @@ def test_an_envelope_grid_refuses_the_plasma_by_name(field_grid):
 @pytest.fixture
 def ionised_backend(field_grid, ionising_capillary, backend_class):
     """A capillary propagated far enough to leave a plasma behind."""
-    problem, _, _ = ionising_capillary()
+    problem, run_request, _, _ = ionising_capillary()
     mode = MarcatiliMode(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
-    backend = backend_class(problem, grid=field_grid, modes=[mode])
+    backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.1)
@@ -551,7 +551,7 @@ def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_gri
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             field_grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -561,7 +561,7 @@ def test_a_plasma_statistic_without_a_plasma_is_refused(backend_class, field_gri
             dz_max=0.01,
             dz_init=1e-4,
         )
-    backend = backend_class(problem, grid=field_grid)
+    backend = backend_class(problem, run_request, grid=field_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="declares none"):
         backend.stats(StatsSpec(names=("electron_density",)))
@@ -582,7 +582,7 @@ def test_a_stage_without_its_coefficients_is_refused(ionising_capillary, field, 
     """`response_order` and the coefficients come from one compiler and can only
     disagree in a hand-built or stale problem; the pass says which is missing rather
     than reading a ``None``."""
-    problem, _, _ = ionising_capillary()
+    problem, _, _, _ = ionising_capillary()
     responses = dataclasses.replace(problem.responses)
     object.__setattr__(responses, field, None if field == "kerr_coefficients" else ())
     with pytest.raises(BackendError, match=named):
@@ -599,7 +599,7 @@ def test_a_stage_without_its_coefficients_is_refused(ionising_capillary, field, 
 
 def test_a_plasma_stage_out_of_sequence_is_refused(ionising_capillary):
     """The current cannot run before the scan that feeds it."""
-    problem, _, _ = ionising_capillary()
+    problem, _, _, _ = ionising_capillary()
     responses = dataclasses.replace(problem.responses)
     object.__setattr__(
         responses,
@@ -629,19 +629,19 @@ def test_the_plasma_statistics_are_the_same_between_planes_as_at_one(
     the same accepted state, so the same numbers to the plasma chain's rounding.
     """
     names = ("energy", "electron_density", "peak_ionisation_rate", "peak_intensity")
-    problem, _, _ = ionising_capillary()
-    problem = dataclasses.replace(
-        problem, stats_spec=StatsSpec(names=names, periodic=names, period=1)
+    problem, run_request, _, _ = ionising_capillary()
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=names, periodic=names, period=1)
     )
     mode = MarcatiliMode(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
     )
-    backend = backend_class(problem, grid=field_grid, modes=[mode])
+    backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.1)
         observed = backend.observe()
-        at_plane = backend.stats(problem.stats_spec)
+        at_plane = backend.stats(run_request.observation.stats)
     finally:
         backend.close()
     rows = observed.step_stats
@@ -674,9 +674,9 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
     import solprop.backends.host.driver as host_module  # noqa: PLC0415 - patched here
 
     names = ("peak_intensity",)
-    problem, _, _ = ionising_capillary()
-    problem = dataclasses.replace(
-        problem, stats_spec=StatsSpec(names=names, periodic=names, period=1)
+    problem, run_request, _, _ = ionising_capillary()
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=names, periodic=names, period=1)
     )
     mode = MarcatiliMode(
         125e-6, "Ar", PressureGradient.two_point(0.2, 2.0, 0.2), cladding=1.45
@@ -690,12 +690,12 @@ def test_the_on_axis_matrix_is_built_once_and_rescaled(
             "mode_matrix",
             lambda *args, **kwargs: builds.append(args) or real(*args, **kwargs),
         )
-    backend = backend_class(problem, grid=field_grid, modes=[mode])
+    backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.1)
         observed = backend.observe()
-        at_plane = backend.stats(problem.stats_spec)
+        at_plane = backend.stats(run_request.observation.stats)
     finally:
         backend.close()
     rows = observed.step_stats
@@ -726,7 +726,7 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
     names = ("peak_intensity",)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             field_grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -736,16 +736,16 @@ def test_the_on_axis_matrix_follows_a_taper(field_grid, backend_class):
             dz_max=0.01,
             dz_init=1e-4,
         )
-    problem = dataclasses.replace(
-        problem, stats_spec=StatsSpec(names=names, periodic=names, period=1)
+    run_request = run_request.for_run(
+        stats=StatsSpec(names=names, periodic=names, period=1)
     )
     assert problem.transform.taper_scale is not None
-    backend = backend_class(problem, grid=field_grid, modes=[mode])
+    backend = backend_class(problem, run_request, grid=field_grid, modes=[mode])
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(0.1)
         observed = backend.observe()
-        at_plane = backend.stats(problem.stats_spec)
+        at_plane = backend.stats(run_request.observation.stats)
         rescaled = backend._on_axis_synthesis([mode])
     finally:
         backend.close()

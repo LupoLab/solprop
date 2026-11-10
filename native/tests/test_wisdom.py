@@ -278,8 +278,8 @@ def _planning(backend: NativeBackend) -> _Planned:
 def test_a_second_run_of_a_shape_plans_without_measuring(
     phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    problem, grid = phase_a_case
-    first = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    first = NativeBackend(problem, run_request, grid=grid)
     try:
         metadata = first.metadata()
         found = _planning(first)
@@ -295,7 +295,7 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
     _core.forget_fftw_wisdom()
-    second = NativeBackend(problem, grid=grid)
+    second = NativeBackend(problem, run_request, grid=grid)
     try:
         metadata = second.metadata()
         found = _planning(second)
@@ -311,15 +311,15 @@ def test_a_second_run_of_a_shape_plans_without_measuring(
 def test_off_still_reuses_a_processs_own_plans(
     phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     monkeypatch.delenv(_wisdom.ENVIRONMENT)
     assert _wisdom.wisdom_file() is None  # the tests run under off
-    first = NativeBackend(problem, grid=grid)
+    first = NativeBackend(problem, run_request, grid=grid)
     try:
         assert _planning(first).measured
     finally:
         first.close()
-    second = NativeBackend(problem, grid=grid)
+    second = NativeBackend(problem, run_request, grid=grid)
     try:
         assert _planning(second).measured == {}
         assert _planning(second).reused
@@ -332,8 +332,8 @@ def test_off_still_reuses_a_processs_own_plans(
 def test_a_profiles_winner_takes_precedence_over_stored_plans(
     phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    problem, grid = phase_a_case
-    first = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    first = NativeBackend(problem, run_request, grid=grid)
     try:
         kept = dict(_planning(first).measured)
     finally:
@@ -357,7 +357,7 @@ def test_a_profiles_winner_takes_precedence_over_stored_plans(
     )
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
-    second = NativeBackend(problem, grid=grid)
+    second = NativeBackend(problem, run_request, grid=grid)
     try:
         found = _planning(second)
         assert found.missing == []
@@ -374,8 +374,8 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     phase_a_case: PhaseACase, measured: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A transform left at estimate imports its stored plan for its estimate plan."""
-    problem, grid = phase_a_case
-    first = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = phase_a_case
+    first = NativeBackend(problem, run_request, grid=grid)
     try:
         kept = sorted(_planning(first).measured)
     finally:
@@ -384,7 +384,7 @@ def test_an_estimate_run_takes_the_stored_plans_without_seeding(
     monkeypatch.setattr(_wisdom, "_read", {})
     monkeypatch.setattr(_wisdom, "_measured", {})
     _core.forget_fftw_wisdom()
-    second = NativeBackend(problem, grid=grid)
+    second = NativeBackend(problem, run_request, grid=grid)
     try:
         found = _planning(second)
         assert found.measured == {}

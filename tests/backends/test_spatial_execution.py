@@ -41,26 +41,26 @@ def radial_blas_case(n_r, n_pol, chunk, duration):
         80e-6,
         jones=(1 + 0j,) if n_pol == 1 else (1 + 0j, 0.5j),
     )
-    problem = make_problem(
+    problem, run_request = make_problem(
         grid,
         space,
         # make_problem's medium is the vacuum.
         pulse.build(grid, space, medium=SpatialMedium()),
         [KerrResponse(1e-22, thg=False)],
     )
-    return grid, problem, ExecutionOptions(node_chunk=chunk)
+    return grid, problem, run_request, ExecutionOptions(node_chunk=chunk)
 
 
 @pytest.mark.parametrize(("n_r", "n_pol", "chunk", "duration"), RADIAL_BLAS_CASES)
 def test_radial_real_blas_preserves_transform_and_memory_contract(
     spatial_backend_class, n_r, n_pol, chunk, duration, request
 ):
-    grid, problem, options = radial_blas_case(n_r, n_pol, chunk, duration)
+    grid, problem, run_request, options = radial_blas_case(n_r, n_pol, chunk, duration)
     # Two radial reductions and temporal transforms, with the existing chunk
     # ladder's association allowance, fixed before either backend runs.
     bound = gamma(64 * n_r + 32 * grid.n_to)
-    reference = derivative(NumpyRefBackend, problem, grid, options)
-    actual = derivative(spatial_backend_class, problem, grid, options)
+    reference = derivative(NumpyRefBackend, problem, run_request, grid, options)
+    actual = derivative(spatial_backend_class, problem, run_request, grid, options)
     np.testing.assert_allclose(
         actual, reference, rtol=0, atol=bound * np.max(np.abs(reference))
     )
@@ -72,7 +72,7 @@ def test_radial_real_blas_preserves_transform_and_memory_contract(
         bound,
         spatial_backend_class.name,
     )
-    backend = spatial_backend_class(problem, grid=grid, options=options)
+    backend = spatial_backend_class(problem, run_request, grid=grid, options=options)
     try:
         metadata, ledger = backend.metadata(), backend.memory_ledger()
         if backend.name == "native":

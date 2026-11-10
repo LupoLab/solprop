@@ -56,11 +56,13 @@ def _line() -> Simulation:
 def _judged(simulation: Simulation, state: np.ndarray, draw, *, resume: bool) -> None:
     """Load `state` with `draw` and attach a fresh monitor, which judges the launch."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = cast(
         "Any",
         select(
             "numpy_ref",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,

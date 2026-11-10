@@ -276,7 +276,7 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
         progress = Requests(controller, snapshots)
     observed: dict[str, Any] = {
         "metadata": simulation.metadata(),
-        "stats_spec": problem.stats_spec,
+        "stats_spec": _statistics(simulation, problem),
         "progress": "none" if progress is None else progress,
         "resume_history": simulation.settings.resume_history,
         "fields": retention.fields,
@@ -350,6 +350,28 @@ def _session_start() -> Any:
         return importlib.import_module("solprop.backends.session").Start
     except ImportError:
         return None
+
+
+def _run_request(simulation: Any) -> Any:
+    """Return a simulation's run request, or ``None`` on a build without one.
+
+    From SEP 47's request on, the stepping policy and the statistics are the
+    request's and a backend is built with it; before, the problem carried them.
+    """
+    request = getattr(simulation, "_run_request", None)
+    return None if request is None else request()
+
+
+def _stepper(simulation: Any, problem: Any) -> Any:
+    """Return the run's stepper settings: its request's, or before it its problem's."""
+    request = _run_request(simulation)
+    return problem.stepper if request is None else request.stepper
+
+
+def _statistics(simulation: Any, problem: Any) -> Any:
+    """Return the run's statistics, from its request or, before it, its problem."""
+    request = _run_request(simulation)
+    return problem.stats_spec if request is None else request.observation.stats
 
 
 def _periodic_rows(handler: Output) -> int:
@@ -507,10 +529,16 @@ def warm_up(engine: Backend, problem: PropagationProblem, until: float) -> None:
     from solprop.backends.events import ObservationReady  # noqa: PLC0415
     from solprop.backends.export import ExportRecipe  # noqa: PLC0415
     from solprop.backends.sessions import start_session  # noqa: PLC0415
-    from solprop.translate.run_request import describe_run  # noqa: PLC0415
 
+    # The request the backend was built with, where it has one (SEP 47 section 5.2);
+    # before, the problem carried the policy and its request was described from it.
+    request = getattr(engine, "request", None)
+    if request is None:
+        from solprop.translate.run_request import describe_run  # noqa: PLC0415
+
+        request = describe_run(problem)
     session = start_session(
-        engine, problem, describe_run(problem), Start.entrance(problem), owns=False
+        engine, problem, request, Start.entrance(problem), owns=False
     )
     try:
         while not session.finished:
@@ -587,10 +615,14 @@ def measure(
         if hasattr(simulation.settings, "execution_options")
         else {}
     )
+    request = _run_request(simulation)
+    # The request where a backend is built with it (SEP 47 section 5.2).
+    prepared = () if request is None else (request,)
     engine = (
         select(
             configuration["backend"],
             problem,
+            *prepared,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -602,12 +634,15 @@ def measure(
     backend_seconds = time.perf_counter() - started
     retention = (
         field_retention(
-            problem, simulation.settings.fields, simulation.settings.field_planes
+            problem if request is None else request,
+            simulation.settings.fields,
+            simulation.settings.field_planes,
         )
         if single
         else None
     )
-    controller = problem.stepper.controller
+    stepper = _stepper(simulation, problem)
+    controller = stepper.controller
     if scratch is not None:
         scratch.mkdir(parents=True, exist_ok=True)
     root = Path(tempfile.mkdtemp(prefix="solprop-bench-", dir=scratch))
@@ -658,7 +693,7 @@ def measure(
             "finite": last.get("finite"),
             "counted": counters,
             "repeat_difference": _repeat_difference(finals),
-            "integrator": integrator_label(problem.stepper.integrator),
+            "integrator": integrator_label(stepper.integrator),
             "precision": configuration.get("precision", "double"),
             "rtol": controller.rtol,
             "atol": controller.atol,
@@ -668,7 +703,7 @@ def measure(
             "shape": list(problem.shape),
             "resolution": metadata_value(
                 {
-                    "integrator": serialise(problem.stepper.integrator),
+                    "integrator": serialise(stepper.integrator),
                     "controller": serialise(controller),
                 }
             ),

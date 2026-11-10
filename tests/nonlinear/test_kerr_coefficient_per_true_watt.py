@@ -22,13 +22,13 @@ from solprop.translate.linop import power_weight_at
 from solprop.translate.problem import assemble
 
 
-def true_watt_slope(problem, grid):
+def true_watt_slope(problem, run_request, grid):
     # A periodic CW has no pulse edges. Remove only the temporal diagnostic
     # collar, whose spectral leakage otherwise contaminates a round-off test.
     problem = replace(
         problem, grids=replace(problem.grids, t_window_fine=np.ones(grid.n_to))
     )
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         # The backend's private hook keeps the state's leading axis of one.
         state = np.zeros((1, *problem.shape), complex)
@@ -60,7 +60,7 @@ def test_capillary_kerr_coefficient_per_true_watt(grid_class, resolved, pressure
     grid = grid_class.from_limits(1e-3, 835e-9, (700e-9, 1e-6), 400e-15)
     mode = MarcatiliMode(125e-6, "Ar", pressure, cladding=1.45, loss=False)
     chi3 = 2.2e-26  # Synthetic susceptibility; density=1 isolates the normalisation.
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         [mode] if resolved else mode,
         [KerrResponse(chi3=chi3, thg=False)],
@@ -75,7 +75,7 @@ def test_capillary_kerr_coefficient_per_true_watt(grid_class, resolved, pressure
         if resolved
         else None,
     )
-    measured, carrier = true_watt_slope(problem, grid)
+    measured, carrier = true_watt_slope(problem, run_request, grid)
     omega = grid.omega[carrier]
     index = float(np.real(mode.neff(np.array([omega]))[0]))
     expected = 3 * omega * chi3 / (4 * EPS0 * C**2 * index**2 * mode.aeff())
@@ -106,7 +106,7 @@ def test_gnlse_kerr_coefficient_per_true_watt(fibre):
         absorber=False,
         **({"noise": None, **({"fibre": mode, "n2": n2} if fibre else {})}),
     )
-    problem = simulation.translate()
-    measured, _ = true_watt_slope(problem, grid)
+    problem, run_request = simulation.translate(), simulation._run_request()
+    measured, _ = true_watt_slope(problem, run_request, grid)
     bound = 256 * np.finfo(float).eps * (grid.n_omega + problem.transform.n_nodes)
     np.testing.assert_allclose(measured, gamma, rtol=bound, atol=0)

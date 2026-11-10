@@ -16,8 +16,13 @@ the terminal outcome with its checkpoint eligibility.
 presents the lockstep runners a batched scan steps compatible members with through
 the group protocol, :class:`~solprop.backends.session.GroupSession`.
 
-Both are temporary internal adapters, named in SEP 47's Part II with their removal
-milestone; nothing outside the session machinery constructs them directly.
+:class:`DriverPrepared` is the prepared execution (SEP 47 section 5.2) a constructed
+driver returns from ``prepare(problem, request)``: each ``start`` opens one session of
+its kind over that driver, :class:`DriverSession` by default and
+:class:`~solprop.backends.host.session.HostSession` for the reference.
+
+Both sessions are temporary internal adapters, named in SEP 47's Part II with their
+removal milestone; nothing outside the session machinery constructs them directly.
 """
 
 from __future__ import annotations
@@ -56,6 +61,7 @@ from solprop.backends.protocol import (
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    RunSession,
     SessionError,
     SessionLedger,
     SessionState,
@@ -82,7 +88,7 @@ if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
     from solprop.backends.protocol import Backend
 
-__all__ = ["AttemptListener", "DriverGroupSession", "DriverSession"]
+__all__ = ["AttemptListener", "DriverGroupSession", "DriverPrepared", "DriverSession"]
 
 AttemptListener = Callable[[float, float, bool], None]
 """Called with each attempt's end, length and acceptance, for a progress reporter."""
@@ -1165,6 +1171,129 @@ class DriverSession:
         # A view of its own, as every fetch has handed out: a destination a caller
         # passes back is then never taken for the source and is checked as one.
         return field.view()
+
+
+class DriverPrepared:
+    """A prepared execution over a constructed driver (SEP 47 section 5.2).
+
+    The driver was built for the problem and a request -- it lowered the method, the
+    error control, the itinerary, the planes and the statistics then -- so preparing
+    binds the problem and the request one run serves, a request that differs from the
+    driver's own only in its start, retention, monitor and history
+    (:meth:`~solprop.translate.run_request.RunRequest.for_run`). Each :meth:`start`
+    opens one session of `session` over the driver.
+
+    Parameters
+    ----------
+    driver : solprop.backends.protocol.Backend
+        The constructed driver; it stays its caller's unless a session owns it.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+    session : type, optional
+        The session class each start opens: :class:`DriverSession` by default.
+    """
+
+    def __init__(
+        self,
+        driver: Backend,
+        problem: PropagationProblem,
+        request: RunRequest,
+        *,
+        session: type[DriverSession] | None = None,
+    ) -> None:
+        """Bind the problem and the request to the driver."""
+        self._driver = driver
+        self._problem = problem
+        self._request = request
+        self._session = DriverSession if session is None else session
+        self._closed = False
+
+    @property
+    def backend(self) -> str:
+        """Return the registered name of the backend that prepared it."""
+        return self._driver.name
+
+    def start(
+        self,
+        start: Start,
+        *,
+        listener: AttemptListener | None = None,
+        started: Callable[[float, float, int], None] | None = None,
+        stop: StopFlag | None = None,
+        owns: bool = True,
+    ) -> RunSession:
+        """Start a session from an initial state or a checkpoint.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the run starts; the session takes its field.
+        listener : callable or None, optional
+            Called with each attempt as it is made, for a progress reporter.
+        started : callable or None, optional
+            Called with the start, the end and the plane count when propagation
+            begins.
+        stop : solprop.log.StopFlag or None, optional
+            The run's stop token.
+        owns : bool, optional
+            Whether closing the session closes the driver.
+
+        Returns
+        -------
+        solprop.backends.session.RunSession
+            The started session.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If this preparation is closed.
+        """
+        if self._closed:
+            msg = "the prepared execution is closed"
+            raise SessionError(msg)
+        return self._session(
+            self._driver,
+            self._problem,
+            self._request,
+            start,
+            listener=listener,
+            started=started,
+            stop=stop,
+            owns=owns,
+        )
+
+    def metadata(self) -> Mapping[str, object]:
+        """Return the execution metadata recorded with the run.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The driver's own (:meth:`solprop.backends.protocol.Backend.metadata`).
+        """
+        return self._driver.metadata()
+
+    def memory_ledger(self) -> Mapping[str, int]:
+        """Return every retained buffer by name, bytes.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The driver's ledger.
+        """
+        return self._driver.memory_ledger()
+
+    def close(self) -> None:
+        """Refuse further starts and close the driver it was prepared on; idempotent.
+
+        A caller that keeps the driver for later runs leaves the preparation open: a
+        session it started with ``owns=False`` never closes the driver.
+        """
+        if self._closed:
+            return
+        self._closed = True
+        self._driver.close()
 
 
 def _bound(event: Event, receipt: Receipt, member: int | None = None) -> Event:

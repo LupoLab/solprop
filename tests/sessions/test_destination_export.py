@@ -43,7 +43,6 @@ from solprop.output import CallbackOutput, HDF5Output, MemoryOutput, open_file
 from solprop.output.schema import Output, SavedPlane, StoredField, stored_spectrum
 from solprop.stats import StatsSpec
 from solprop.translate.linop import power_weight_at
-from solprop.translate.run_request import describe_run
 
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
 
@@ -132,14 +131,16 @@ def _run(
     backend: str, output: Output, progress: object = "none", **keywords: Any
 ) -> None:
     """Run the lifecycle suite's soliton on a backend into `output`."""
-    problem = soliton()
-    stepping = select(backend, problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = soliton()
+    stepping = select(
+        backend, problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         run_problem(
             problem,
             stepping,
             output,
-            metadata=metadata_for(problem, window(), modes=[fibre().mode]),
+            metadata=metadata_for(problem, run_request, window(), modes=[fibre().mode]),
             progress=progress,  # pyright: ignore[reportArgumentType]
             start=entrance(problem),
             **keywords,
@@ -287,52 +288,52 @@ def native_session() -> Any:
     return pytest.importorskip("solprop_native.session")
 
 
-def _soliton() -> tuple[Any, dict[str, Any]]:
-    return soliton(), {"grid": window(), "modes": [fibre().mode]}
+def _soliton() -> tuple[Any, Any, dict[str, Any]]:
+    return *soliton(), {"grid": window(), "modes": [fibre().mode]}
 
 
-def _from_simulation(simulation: Any) -> tuple[Any, dict[str, Any]]:
+def _from_simulation(simulation: Any) -> tuple[Any, Any, dict[str, Any]]:
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,
         "profiles": simulation.profiles,
     }
-    return simulation.translate(), context
+    return simulation.translate(), simulation._run_request(), context
 
 
-def _capillary() -> tuple[Any, dict[str, Any]]:
+def _capillary() -> tuple[Any, Any, dict[str, Any]]:
     from driver.test_runner import capillary  # noqa: PLC0415
 
     return _from_simulation(capillary("native"))
 
 
-def _radial() -> tuple[Any, dict[str, Any]]:
+def _radial() -> tuple[Any, Any, dict[str, Any]]:
     from backends.test_transverse_backends import radial_collar  # noqa: PLC0415
     from solprop.stepper import RungeKutta  # noqa: PLC0415
 
     return _from_simulation(radial_collar("native", RungeKutta()))
 
 
-def _cartesian() -> tuple[Any, dict[str, Any]]:
+def _cartesian() -> tuple[Any, Any, dict[str, Any]]:
     from driver.test_field_free_planes import cartesian  # noqa: PLC0415
 
     return _from_simulation(cartesian("native"))
 
 
-def _line() -> tuple[Any, dict[str, Any]]:
+def _line() -> tuple[Any, Any, dict[str, Any]]:
     from test_transverse_reads import REREVIEW, packet_run  # noqa: PLC0415
 
     return _from_simulation(packet_run(REREVIEW, backend="native", check=None))
 
 
-def _planar() -> tuple[Any, dict[str, Any]]:
+def _planar() -> tuple[Any, Any, dict[str, Any]]:
     from backends.test_planar_native import planar_case  # noqa: PLC0415
 
-    grid, _, problem = planar_case("envelope_kerr")
-    return problem, {"grid": grid}
+    grid, _, problem, run_request = planar_case("envelope_kerr")
+    return problem, run_request, {"grid": grid}
 
 
-ROUTES: dict[str, Callable[[], tuple[Any, dict[str, Any]]]] = {
+ROUTES: dict[str, Callable[[], tuple[Any, Any, dict[str, Any]]]] = {
     "modal, unit weight": _soliton,
     "modal, true-power weight": _capillary,
     "radial": _radial,
@@ -348,10 +349,9 @@ def test_the_native_pass_fills_a_destination_on_every_route(route, native_sessio
     at the launch and at the first plane after it; the stored form is the two-step
     conversion of the consumer field.
     """
-    problem, context = ROUTES[route]()
-    problem = dataclasses.replace(problem, stats_spec=StatsSpec())
+    problem, run_request, context = ROUTES[route]()
     session = native_session.NativeSession(
-        problem, describe_run(problem), entrance(problem), **context
+        problem, run_request.for_run(stats=StatsSpec()), entrance(problem), **context
     )
     spatial = problem.transform.geometry is not None
     kind = context["grid"].kind
@@ -394,6 +394,7 @@ def _served(
     native_session: Any,
     output: Output,
     problem: Any,
+    run_request: Any,
     context: dict[str, Any],
     spy: _Spy,
 ) -> Any:
@@ -402,8 +403,7 @@ def _served(
     from solprop.driver.service import ServiceContext, serve  # noqa: PLC0415
     from solprop.log import resolve_reporter  # noqa: PLC0415
 
-    problem = dataclasses.replace(problem, stats_spec=StatsSpec())
-    request = describe_run(problem)
+    request = run_request.for_run(stats=StatsSpec())
     session = native_session.NativeSession(
         problem, request, entrance(problem), **context
     )
@@ -415,9 +415,9 @@ def _served(
             ServiceContext(
                 problem=problem,
                 request=request,
-                metadata=metadata_for(problem, context["grid"], modes=()),
+                metadata=metadata_for(problem, request, context["grid"], modes=()),
                 reporter=resolve_reporter("none"),
-                retention=field_retention(problem, "all", ()),
+                retention=field_retention(request, "all", ()),
                 resume_history=None,
                 snapshots=None,
                 tdse_binding=None,
@@ -435,10 +435,10 @@ def _served(
 def test_the_native_session_writes_a_kept_field_once_into_its_row(
     route, native_session
 ):
-    problem, context = ROUTES[route]()
+    problem, run_request, context = ROUTES[route]()
     spy = _Spy()
     output = _Exported()
-    status = _served(native_session, output, problem, context, spy)
+    status = _served(native_session, output, problem, run_request, context, spy)
     stored = np.asarray(output["field"])
     assert status.exports == len(spy.calls) == output.n_saved == stored.shape[0]
     for (_, recipe, out, _), (values, as_written), row in zip(
@@ -452,10 +452,12 @@ def test_the_native_session_writes_a_kept_field_once_into_its_row(
 def test_the_native_session_hands_a_file_one_new_array_per_kept_plane(
     tmp_path, native_session
 ):
-    problem, context = ROUTES["cartesian"]()
+    problem, run_request, context = ROUTES["cartesian"]()
     spy = _Spy()
     path = tmp_path / "run.h5"
-    status = _served(native_session, HDF5Output(path), problem, context, spy)
+    status = _served(
+        native_session, HDF5Output(path), problem, run_request, context, spy
+    )
     assert status.exports == len(spy.calls)
     with open_file(path) as reader:
         stored = np.asarray(reader["field"])

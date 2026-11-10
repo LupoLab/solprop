@@ -84,13 +84,13 @@ def current_only(problem, grid, rule):
 def test_embedded_current_projection_accumulates_partial_chunks(
     rule, chunk, record_property
 ):
-    grid, problem = case("multimode")
+    grid, problem, run_request = case("multimode")
     assert problem.transform.projection_coarse is not None
     problem = current_only(problem, grid, rule)
     options = ExecutionOptions(node_chunk=chunk)
     relative = bound(problem, grid, "native", 0)
     assert relative > 0
-    reference = NumpyRefBackend(problem, grid=grid, options=options)
+    reference = NumpyRefBackend(problem, run_request, grid=grid, options=options)
     try:
         reference._hoist(0.0)
         state = problem.initial.field0
@@ -147,7 +147,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         for limit, mag, operations in zip(limits, magnitudes, (8, 12), strict=True)
     ]
     allowed = per_bin[0][..., None] * abs(inverse) + per_bin[1][..., None] * inverse**2
-    backend = native.NativeBackend(problem, grid=grid, options=options)
+    backend = native.NativeBackend(problem, run_request, grid=grid, options=options)
     try:
         backend.set_initial(state, None)
         backend._trial_step(0.0, 0.0)

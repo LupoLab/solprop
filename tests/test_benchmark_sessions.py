@@ -22,7 +22,6 @@ from benchmarks.records import SuiteError
 from benchmarks.registry import CASES, Case, select
 from benchmarks.worker import measure
 
-from solprop.backends import sessions
 from solprop.exceptions import HostMarchWarning
 
 backend = pytest.importorskip("solprop_native.backend")
@@ -42,9 +41,10 @@ FIBRES = (
 )
 
 
-def _no_native_session(*args, **kwargs):
+def _no_native_session(*args):
     """Refuse every run to the native session, so the bridge serves it."""
-    del args, kwargs
+    del args
+    return "the test's bridge"
 
 
 def counted(name, tmp_path, fraction=0.125, repeats=0):
@@ -142,7 +142,7 @@ def test_the_bridge_counts_the_same_work_with_a_return_per_step(
     # the same way, it makes the same attempts, rows, planes and copies, and returns
     # to Python at every step the session keeps native.
     _, run, session = counted(name, tmp_path)
-    monkeypatch.setattr(sessions, "_native_session", _no_native_session)
+    monkeypatch.setattr("solprop_native.session.session_refusal", _no_native_session)
     _, bridged, bridge = counted(name, tmp_path / "bridge")
     assert (bridged["accepted"], bridged["rejected"]) == (
         run["accepted"],

@@ -65,7 +65,6 @@ from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.run_request import describe_run
 
 PLANES = (0.0005, 0.001)
 """The save planes, m: four fixed steps of 0.25 mm, two per window."""
@@ -163,6 +162,7 @@ def constructed(simulation: Simulation, cleanup: ExitStack) -> Any:
     owner = select(
         simulation.settings.backend,
         simulation.translate(),
+        simulation._run_request(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -187,8 +187,8 @@ def group_of(
         owners,
         problems,
         [
-            describe_run(problem, monitor=monitor)
-            for problem, monitor in zip(problems, watched, strict=True)
+            one._run_request().for_run(monitor=monitor)
+            for one, monitor in zip(simulations, watched, strict=True)
         ],
         [Start.entrance(problem) for problem in problems],
         stop=stop,
@@ -262,11 +262,10 @@ def test_a_group_reports_each_member_s_planes_as_its_lone_run_does(backend):
     ]
     for index, simulation in enumerate(simulations):
         problem = simulation.translate()
+        run_request = simulation._run_request()
         with ExitStack() as cleanup:
             owner = constructed(simulation, cleanup)
-            lone = start_session(
-                owner, problem, describe_run(problem), Start.entrance(problem)
-            )
+            lone = start_session(owner, problem, run_request, Start.entrance(problem))
             cleanup.callback(lone.close)
             alone = []
             while not lone.finished:
@@ -323,7 +322,7 @@ def test_a_group_starts_its_members_fresh_and_one_start_each(backend):
     problems = [one.translate() for one in simulations]
     with ExitStack() as cleanup:
         owners = [constructed(one, cleanup) for one in simulations]
-        requests = [describe_run(problem) for problem in problems]
+        requests = [one._run_request() for one in simulations]
         with pytest.raises(SessionError, match="one problem, request and start"):
             start_group(owners, problems, requests, [Start.entrance(problems[0])])
         resumed = Start.entrance(problems[1])

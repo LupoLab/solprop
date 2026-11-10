@@ -55,7 +55,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 
@@ -140,16 +139,15 @@ def _prepared(simulation: Simulation, period: int = 2) -> tuple[Any, Any]:
     """Return a simulation's problem and its monitored run request.
 
     Statistics the native session takes natively, with periodic rows every `period`
-    accepted steps after each step's check (SEP 47 section 5.3), as the problem's own:
-    the driver takes its rows from the problem.
+    accepted steps after each step's check (SEP 47 section 5.3), as the request's own:
+    the driver takes its rows from the request it is built with.
     """
-    problem = dataclasses.replace(
-        simulation.translate(),
-        stats_spec=StatsSpec(
+    return simulation.translate(), simulation._run_request().for_run(
+        stats=StatsSpec(
             names=("energy", "peak_power"), periodic=("energy",), period=period
         ),
+        monitor=simulation._boundary_monitor(),
     )
-    return problem, describe_run(problem, monitor=simulation._boundary_monitor())
 
 
 def _start(
@@ -170,7 +168,7 @@ def _start(
         "profiles": simulation.profiles,
     }
     if kind == "driver":
-        driver = select("native", problem, **context)
+        driver = select("native", problem, request, **context)
         return DriverSession(driver, problem, request, start)
     skip_device_refused(problem, request)
     return native_session.NativeSession(problem, request, start, **context)
@@ -442,9 +440,11 @@ def _through_serve(simulation: Simulation, kind: str, *, error: bool = False) ->
     context = ServiceContext(
         problem=problem,
         request=request,
-        metadata=metadata_for(problem, simulation.grid, modes=simulation.modes),
+        metadata=metadata_for(
+            problem, request, simulation.grid, modes=simulation.modes
+        ),
         reporter=resolve_reporter("none"),
-        retention=field_retention(problem, "all", ()),
+        retention=field_retention(request, "all", ()),
         resume_history=None,
         snapshots=None,
         tdse_binding=None,

@@ -29,19 +29,19 @@ sizings: list[object] = []
 for route in ROUTES:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem, grid = envelope_case(route, 2)
+        problem, run_request, grid = envelope_case(route, 2)
     owner = solprop_native.NativeBackend(
-        problem, grid=grid, options=envelope_options(route)
+        problem, run_request, grid=grid, options=envelope_options(route)
     )
     try:
         owner.set_initial(problem.initial.field0, None)
         summary = owner.propagate_to(grid.length)
         observation = owner.observe()
-        values = owner.stats(problem.stats_spec)
+        values = owner.stats(run_request.observation.stats)
         arrays[f"{route}_field"] = observation.require_field()
         for name in NAMES:
             arrays[f"{route}_plane_{name}"] = np.asarray(values[name])
-        for name in problem.stats_spec.periodic:
+        for name in run_request.observation.stats.periodic:
             arrays[f"{route}_rows_{name}"] = observation.step_stats.values[name]
         steps.append(summary.n_steps)
         sizings.append(owner.metadata()["execution_sizing"])

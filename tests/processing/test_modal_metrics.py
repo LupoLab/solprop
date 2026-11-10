@@ -744,7 +744,8 @@ def test_both_cpu_backends_refuse_a_general_name_on_an_ordinary_run(backend):
         noise=None,
     )
     problem = simulation.translate()
-    built = select(backend, problem, grid=simulation.grid)
+    run_request = simulation._run_request()
+    built = select(backend, problem, run_request, grid=simulation.grid)
     try:
         built.set_initial(problem.initial.field0, None)
         with pytest.raises(BackendError, match="is unavailable for this modal run"):

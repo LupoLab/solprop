@@ -135,9 +135,9 @@ def entry_point(name, **overrides) -> MemoryOutput:
     )
 
 
-def launch_source(problem, grid) -> tuple[np.ndarray, float]:
+def launch_source(problem, run_request, grid) -> tuple[np.ndarray, float]:
     """Return the reference's source ``N(a_0)`` at the launch, and ``||a_0||``."""
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     try:
         # The backend's private state keeps its leading axis of one.
         state = problem.initial.field0[np.newaxis]
@@ -151,7 +151,7 @@ def launch_source(problem, grid) -> tuple[np.ndarray, float]:
 def without(name, switch) -> np.ndarray:
     """Return the launch source of one case with one response switched off."""
     reduced = simulation(name, **{switch: False})
-    return launch_source(reduced.translate(), reduced.grid)[0]
+    return launch_source(reduced.translate(), reduced._run_request(), reduced.grid)[0]
 
 
 def rate_sensitivity(table: RateTable) -> tuple[float, float]:
@@ -172,13 +172,13 @@ def rate_sensitivity(table: RateTable) -> tuple[float, float]:
     return float(np.max(candidates)), float(np.max(np.abs(table.log_rate)))
 
 
-def shares(name, problem, grid) -> tuple[float, float, float]:
+def shares(name, problem, run_request, grid) -> tuple[float, float, float]:
     """Return ``Phi_r`` of Kerr, Raman and plasma at the launch of one case.
 
     The source is a sum over the responses, so removing one and subtracting isolates
     it; each share is its norm over the state's, times the length.
     """
-    total, norm = launch_source(problem, grid)
+    total, norm = launch_source(problem, run_request, grid)
     plasma_source = total - without(name, "plasma")
     raman_source = total - without(name, "raman")
     kerr_source = total - plasma_source - raman_source
@@ -196,11 +196,11 @@ def lipschitz_scale(name) -> float:
     :func:`parity_bound` states.
     """
     built = simulation(name)
-    problem = built.translate()
+    problem, run_request = built.translate(), built._run_request()
     plasma_leaf = problem.responses.plasma_coefficients
     assert plasma_leaf is not None
     sensitivity, _ = rate_sensitivity(plasma_leaf.rate)
-    phi_kerr, phi_raman, phi_plasma = shares(name, problem, built.grid)
+    phi_kerr, phi_raman, phi_plasma = shares(name, problem, run_request, built.grid)
     return 3 * phi_kerr + 3 * phi_raman + (1 + sensitivity) * phi_plasma
 
 
@@ -241,7 +241,7 @@ def parity_bound(name, backend, reference) -> float:
     ``B_10``'s per-step source term exactly.
     """
     built = simulation(name)
-    problem = built.translate()
+    problem, run_request = built.translate(), built._run_request()
     grid = built.grid
     transform, contraction = COMPILED[backend]
     eps = 2.0 * UNIT
@@ -261,11 +261,11 @@ def parity_bound(name, backend, reference) -> float:
         * (2 * sensitivity * (n_modes + transform * log_n + 2) + 4 * largest_log + 2)
         + scan_bound(grid.n_to)
     )
-    phi_kerr, phi_raman, phi_plasma = shares(name, problem, grid)
+    phi_kerr, phi_raman, phi_plasma = shares(name, problem, run_request, grid)
     lipschitz = 3 * phi_kerr + 3 * phi_raman + (1 + sensitivity) * phi_plasma
     phi_eff = lipschitz / 3
     source = (phi_kerr * kerr + phi_raman * raman + phi_plasma * plasma) / phi_eff
-    scales = flow_scales(problem, grid, reference)
+    scales = flow_scales(problem, run_request, grid, reference)
     return ten_step_bound(replace(scales, phi=phi_eff, source=source))
 
 

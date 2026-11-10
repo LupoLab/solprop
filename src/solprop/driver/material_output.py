@@ -114,14 +114,20 @@ def material_record(mixture: Mixture) -> dict[str, object]:
 
 
 def processing_record(
-    problem: PropagationProblem, grid: TimeGrid, mixture: Mixture, modes: Sequence[Mode]
+    problem: PropagationProblem,
+    planes: Float[np.ndarray, " n_z"],
+    grid: TimeGrid,
+    mixture: Mixture,
+    modes: Sequence[Mode],
 ) -> dict[str, object]:
     """Record compact data for species absorption and node fluence after reload.
 
     Parameters
     ----------
     problem : PropagationProblem
-        Translated geometry and save positions, with no backend state.
+        Translated geometry, with no backend state.
+    planes : numpy.ndarray
+        The run's save positions, m (its request's ``observation.save_planes``).
     grid : TimeGrid
         Time and angular-frequency axes and temporal padding scale.
     mixture : Mixture
@@ -136,7 +142,7 @@ def processing_record(
         the active band, and physical field synthesis with temporal padding removed.
         A replaced total loss is recorded as unavailable species attribution.
     """
-    positions = np.concatenate(([0.0], problem.stepper.save_planes))
+    positions = np.concatenate(([0.0], planes))
     transform = problem.transform
     geometry = transform.geometry
     omega = np.sort(grid.omega[grid.active_mask])

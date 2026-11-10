@@ -47,7 +47,6 @@ from solprop.backends.sessions import start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
 from solprop.stepper.multistep import ComparisonMultistep
-from solprop.translate.run_request import describe_run
 
 PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
 """The reference backend and its host machinery."""
@@ -229,7 +228,7 @@ def test_the_reference_marches_and_groups_with_the_host_copies(
         "_low_storage": (LowStorageRungeKutta(), HostLowStorageMarch),
     }
     for attribute, (integrator, march) in marches.items():
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             1,
             save_planes=[length],
@@ -238,9 +237,11 @@ def test_the_reference_marches_and_groups_with_the_host_copies(
             dz_init=length / 4,
             integrator=integrator,
         )
-        with closing(NumpyRefBackend(problem, grid=narrow_grid)) as backend:
+        with closing(
+            NumpyRefBackend(problem, run_request, grid=narrow_grid)
+        ) as backend:
             assert type(getattr(backend, attribute)) is march
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[length],
@@ -248,7 +249,7 @@ def test_the_reference_marches_and_groups_with_the_host_copies(
         dz_max=length / 4,
         dz_init=length / 4,
     )
-    member = NumpyRefBackend(problem, grid=narrow_grid)
+    member = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     member.set_initial(problem.initial.field0, None)
     with closing(NumpyBatchBackend([member])) as group:
         assert isinstance(group, HostGroup)
@@ -257,24 +258,22 @@ def test_the_reference_marches_and_groups_with_the_host_copies(
 def test_the_run_layer_serves_the_reference_with_the_host_session(
     soliton_problem, narrow_grid
 ):
-    problem = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
-    request = describe_run(problem)
-    reference = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
+    request = run_request
+    reference = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     with start_session(reference, problem, request, Start.entrance(problem)) as session:
         assert type(session) is HostSession
-    scripted = cast("Any", ScriptedDriver(problem, grid=narrow_grid))
+    scripted = cast("Any", ScriptedDriver(problem, run_request, grid=narrow_grid))
     with start_session(scripted, problem, request, Start.entrance(problem)) as session:
         assert type(session) is DriverSession
 
 
 def test_the_host_session_refuses_a_bridge_driver(soliton_problem, narrow_grid):
-    problem = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
-    scripted = cast("Any", ScriptedDriver(problem, grid=narrow_grid))
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
+    scripted = cast("Any", ScriptedDriver(problem, run_request, grid=narrow_grid))
     try:
         with pytest.raises(BackendError, match="host driver"):
-            HostSession(
-                scripted, problem, describe_run(problem), Start.entrance(problem)
-            )
+            HostSession(scripted, problem, run_request, Start.entrance(problem))
     finally:
         scripted.close()
 
@@ -284,8 +283,8 @@ def test_an_injected_adams_engine_is_gated_and_checked_as_the_bridge_s(
 ):
     # The bridge's march takes a resident engine on the fused and exponential paths
     # only; the reference's takes an injected one there alone, and names what it lacks.
-    problem = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
-    with closing(NumpyRefBackend(problem, grid=narrow_grid)) as backend:
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[1e-3])
+    with closing(NumpyRefBackend(problem, run_request, grid=narrow_grid)) as backend:
         with pytest.raises(BackendError, match="exponential path lacks"):
             HostAdamsMarch(backend, Multistep(), engine=object())
         general = HostAdamsMarch(backend, ComparisonMultistep(order=3), engine=object())

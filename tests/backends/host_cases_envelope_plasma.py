@@ -86,7 +86,7 @@ def geometry_case(envelope_mixture, geometry, n_pol):
     else:
         mode = MarcatiliMode(30e-6, mixture=mixture, cladding=1.45, loss=False)
         initial = pulse.build(grid) * np.asarray(jones)[None, :, None]
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
@@ -100,7 +100,7 @@ def geometry_case(envelope_mixture, geometry, n_pol):
     )
     if geometry != "modal":
         assert problem.transform.n_nodes % 3 != 0
-    return problem, grid
+    return problem, run_request, grid
 
 
 PARTIAL = ExecutionOptions(node_chunk=3)
@@ -120,9 +120,9 @@ if __name__ == "__main__":
 
     record_sizing(sys.argv[1])
     solprop_native = importlib.import_module("solprop_native")
-    problem, grid = geometry_case(build_envelope_mixture(), "free", 2)
+    problem, run_request, grid = geometry_case(build_envelope_mixture(), "free", 2)
     backend = solprop_native.NativeBackend(
-        problem, grid=grid, options=geometry_options("free")
+        problem, run_request, grid=grid, options=geometry_options("free")
     )
     try:
         backend.set_initial(problem.initial.field0, None)

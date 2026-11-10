@@ -25,12 +25,18 @@ section 6.3 specifies:
 - :class:`BoundaryRequest` holds the boundary monitor's configuration;
 - :class:`HistoryPolicy` says when the method's history is kept for a resume.
 
-:func:`describe_run` builds one from a problem and the run's settings.
+:func:`describe_run` builds one from the stepper section translation resolved
+(:class:`~solprop.translate.problem.StepperSettings`) and the run's settings;
+:func:`solprop.translate.problem.assemble` returns the request for a fresh run beside
+its problem, and :meth:`RunRequest.for_run` adapts it to one run's start, retention,
+monitor and history. The problem carries none of this (SEP 47 section 5.2).
 """
 
 from __future__ import annotations
 
+import dataclasses
 import enum
+import functools
 from dataclasses import dataclass
 
 import numpy as np
@@ -45,7 +51,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.stepper.tableau import Tableau
-from solprop.translate.problem import PropagationProblem, PropagatorMode
+from solprop.translate.problem import PropagatorMode, StepperSettings
 
 __all__ = [
     "MARCH_SNAPSHOT_AUTO_BYTES",
@@ -292,9 +298,170 @@ class RunRequest:
     history: HistoryPolicy
     snapshots: bool = False
 
+    @functools.cached_property
+    def stepper(self) -> StepperSettings:
+        """Return the stepping policy as the one record translation resolved.
+
+        The method, the error control, the itinerary and the planes, gathered back
+        into :class:`~solprop.translate.problem.StepperSettings` for the code that
+        reads them together: the march drivers, the request-aware checks
+        (:func:`solprop.translate.problem.validate_run`) and the run's configuration
+        record, whose hash they enter exactly as before.
+
+        Returns
+        -------
+        solprop.translate.problem.StepperSettings
+            The record, built once per request.
+
+        Examples
+        --------
+        >>> from solprop.stepper import DOPRI5, PIController
+        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.translate.run_request import describe_run
+        >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+        ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+        >>> describe_run(settings).stepper.save_planes.tolist()
+        [0.5, 1.0]
+        """
+        integration, control = self.integration, self.error_control
+        observation = self.observation
+        return StepperSettings(
+            tableau=integration.tableau,
+            controller=control.controller,
+            dz_min=control.dz_min,
+            dz_max=control.dz_max,
+            dz_init=control.dz_init,
+            stretch=control.stretch,
+            schedule=None if self.replay is None else self.replay.schedule,
+            save_planes=observation.save_planes,
+            propagator_mode=integration.propagator_mode,
+            integrator=integration.method,
+            interval_cap=control.interval_cap,
+            auto_init=control.auto_init,
+            interpolate_planes=observation.dense,
+            step_planes=observation.step_planes,
+        )
+
+    def with_stepper(self, stepper: StepperSettings) -> RunRequest:
+        """Return this request with another stepper section, its other policies kept.
+
+        The statistics, retention, start, monitor, history and snapshot policy stay;
+        the method, the error control, the itinerary and the planes are `stepper`'s.
+        :meth:`solprop.driver.simulation.Simulation.with_input` uses it for the planes
+        left beyond an interior launch.
+
+        Parameters
+        ----------
+        stepper : solprop.translate.problem.StepperSettings
+            The new stepper section.
+
+        Returns
+        -------
+        RunRequest
+            The request.
+
+        Raises
+        ------
+        TranslationError
+            If this request's start plane is not a plane of the new section.
+
+        Examples
+        --------
+        >>> import dataclasses
+        >>> from solprop.stepper import DOPRI5, PIController
+        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.translate.run_request import describe_run
+        >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+        ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+        >>> request = describe_run(settings)
+        >>> shorter = dataclasses.replace(settings, save_planes=[1.0])
+        >>> later = request.with_stepper(shorter)
+        >>> later.observation.save_planes.tolist()
+        [1.0]
+        """
+        observation = self.observation
+        return describe_run(
+            stepper,
+            stats=observation.stats,
+            retention=observation.retention,
+            start_plane=observation.start_plane,
+            monitor=self.boundary.monitor,
+            history=self.history,
+            snapshots=self.snapshots,
+        )
+
+    def for_run(
+        self,
+        *,
+        stats: StatsSpec | None = None,
+        retention: FieldRetention | None = None,
+        start_plane: int = 0,
+        monitor: BoundaryMonitor | None = None,
+        history: HistoryPolicy | None = None,
+        snapshots: bool = False,
+    ) -> RunRequest:
+        """Return this request with one run's observation, boundary and history.
+
+        The method, the error control, the itinerary and the planes are kept: a
+        backend prepared for this request serves the returned one.
+
+        Parameters
+        ----------
+        stats : solprop.stats.StatsSpec or None, optional
+            The statistics; this request's own by default.
+        retention : solprop.output.schema.FieldRetention or None, optional
+            Field retention, already resolved against the planes; every field by
+            default.
+        start_plane : int, optional
+            The first save plane beyond the starting state.
+        monitor : solprop.monitor.BoundaryMonitor or None, optional
+            A fresh boundary monitor, or ``None``.
+        history : HistoryPolicy or None, optional
+            Method-history retention; automatic by default.
+        snapshots : bool, optional
+            Whether snapshot requests may arrive.
+
+        Returns
+        -------
+        RunRequest
+            The run's request.
+
+        Raises
+        ------
+        TranslationError
+            If `start_plane` is not a plane of the run.
+
+        Examples
+        --------
+        >>> from solprop.stepper import DOPRI5, PIController
+        >>> from solprop.translate.problem import StepperSettings
+        >>> from solprop.translate.run_request import describe_run
+        >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+        ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+        >>> describe_run(settings).for_run(start_plane=1).observation.start_plane
+        1
+        """
+        observation = self.observation
+        planes = observation.save_planes.size
+        if not 0 <= start_plane <= planes:
+            msg = f"start_plane {start_plane} is not a plane of a run with {planes}"
+            raise TranslationError(msg)
+        return dataclasses.replace(
+            self,
+            observation=dataclasses.replace(
+                observation,
+                start_plane=start_plane,
+                stats=observation.stats if stats is None else stats,
+                retention=FieldRetention() if retention is None else retention,
+            ),
+            boundary=BoundaryRequest(monitor),
+            history=HistoryPolicy() if history is None else history,
+            snapshots=snapshots,
+        )
+
 
 def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
-    problem: PropagationProblem,
+    stepper: StepperSettings,
     *,
     stats: StatsSpec | None = None,
     retention: FieldRetention | None = None,
@@ -303,15 +470,15 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
     history: HistoryPolicy | None = None,
     snapshots: bool = False,
 ) -> RunRequest:
-    """Build the run request for a translated problem and the run's settings.
+    """Build the run request from a resolved stepper section and the run's settings.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem; its stepper settings supply the method, error control,
-        itinerary and planes.
+    stepper : solprop.translate.problem.StepperSettings
+        The stepper section translation resolved; it supplies the method, error
+        control, itinerary and planes.
     stats : solprop.stats.StatsSpec or None, optional
-        The statistics; the problem's own by default.
+        The statistics; none by default.
     retention : solprop.output.schema.FieldRetention or None, optional
         Field retention, already resolved against the planes; every field by default.
     start_plane : int, optional
@@ -331,7 +498,7 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
     Raises
     ------
     TranslationError
-        If `start_plane` is not a plane of the problem.
+        If `start_plane` is not a plane of the run.
 
     Examples
     --------
@@ -345,16 +512,16 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
     >>> gnlse = problem_from([0.0, 0.0, -1.2e-26], omega_ref=grid.omega0,
     ...                      gamma=0.11, shock=False)
     >>> start = SechPulse(wavelength=835e-9, width=1e-13, peak_power=1.0).build(grid)
-    >>> problem = assemble(
+    >>> problem, request = assemble(
     ...     grid, gnlse.mode, [gnlse.kerr], start,
     ...     controller=PIController(rtol=1e-8, atol=1e-14), save_planes=[1.0],
     ...     dz_max=0.1, dz_init=1e-3, shock=False, prefactor_index=1.0, density=1.0,
     ... )
-    >>> request = describe_run(problem)
-    >>> request.integration.kind.value, request.observation.save_planes.tolist()
+    >>> again = describe_run(request.stepper)
+    >>> again.integration.kind.value, again.observation.save_planes.tolist()
     ('runge_kutta', [1.0])
     """
-    settings = problem.stepper
+    settings = stepper
     planes = np.array(settings.save_planes, dtype=np.float64)
     planes.setflags(write=False)
     if not 0 <= start_plane <= planes.size:
@@ -389,7 +556,7 @@ def describe_run(  # noqa: PLR0913 - one resolved choice per keyword
             start_plane=start_plane,
             dense=settings.interpolate_planes,
             step_planes=settings.step_planes,
-            stats=problem.stats_spec if stats is None else stats,
+            stats=StatsSpec() if stats is None else stats,
             retention=FieldRetention() if retention is None else retention,
         ),
         boundary=BoundaryRequest(monitor),

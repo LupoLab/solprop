@@ -124,8 +124,10 @@ class _Windows:
         )
 
         problem = simulation.translate()
+        stepper = simulation._run_request().stepper
         self.backend = NativeBackend(
             problem,
+            simulation._run_request(),
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -137,16 +139,16 @@ class _Windows:
         )
         self.probe = self.backend.timing_probe(Start.entrance(problem))
         start = float(problem.initial.z)
-        end = float(max(problem.stepper.save_planes, default=start))
-        self.dz = float(problem.stepper.dz_init)
+        end = float(max(stepper.save_planes, default=start))
+        self.dz = float(stepper.dz_init)
         self.positions = (
             [start]
-            if problem.stepper.schedule is not None
+            if stepper.schedule is not None
             else [
                 start + (end - start) * index / POSITIONS for index in range(POSITIONS)
             ]
         )
-        self.low_storage = problem.stepper.schedule is not None
+        self.low_storage = stepper.schedule is not None
 
     def fields(self) -> list[np.ndarray]:
         """Return the field each window's trial step ends in, on the host.
@@ -404,6 +406,7 @@ def _refine(
             "inconclusive", "", reason="SOLPROP_CALIBRATION=off: no profile to refine"
         )
     problem = simulation.translate()
+    rtol = float(simulation._run_request().stepper.controller.rtol)
     base_record = cast(dict[str, int | bool], native.EXECUTION.native())
     opened = [_Windows(simulation, None)]
     base = opened[0]
@@ -415,7 +418,7 @@ def _refine(
             # problem (SEP 47 section 6.2) are found again.
             shape=(1, *problem.shape),
             grid_kind=problem.grid_kind,
-            integrator=type(problem.stepper.integrator).__name__,
+            integrator=type(simulation._run_request().stepper.integrator).__name__,
             sizing=sizing,
             process=native.PROCESS,
             fingerprint=native.PROFILE.fingerprint.digest,
@@ -431,7 +434,6 @@ def _refine(
             c.name: _Windows(simulation, c.record(base_record)) for c in candidates
         }
         opened += list(windows.values())
-        rtol = float(problem.stepper.controller.rtol)
         reference = base.fields()
         accurate = {
             name: _accurate(window.fields(), reference, rtol)

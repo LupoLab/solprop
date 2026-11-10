@@ -275,7 +275,7 @@ def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_
     if name not in available():
         pytest.skip(f"the {name} backend is not installed")
     mode = MarcatiliMode(125e-6, "Ar", 1.0, cladding=1.45, loss=False)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         [],
@@ -288,7 +288,7 @@ def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_
     )
     # A step driver that is also a closable backend: no one static type names both.
     backend: Any = select(
-        name, problem, grid=grid, modes=(mode,) if with_modes else None
+        name, problem, run_request, grid=grid, modes=(mode,) if with_modes else None
     )
     spec = StatsSpec(names=("peak_intensity",))
     try:

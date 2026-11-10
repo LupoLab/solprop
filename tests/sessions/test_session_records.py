@@ -26,7 +26,6 @@ from sessions.executors import (
 from solprop.backends.events import ObservationKind, ObservationReady, Outcome
 from solprop.backends.session import RunSession
 from solprop.stepper import Multistep
-from solprop.translate.run_request import describe_run
 
 # The soliton's 1 ps window is tight for a monitor's guards; the window is not tested.
 pytestmark = pytest.mark.filterwarnings("ignore::solprop.exceptions.BoundaryWarning")
@@ -119,7 +118,7 @@ def test_a_monitored_session_reports_its_monitor_record(start, executor):
     """
     problem = soliton()
     log: list[tuple[str, float]] = []
-    session = start(problem, describe_run(problem, monitor=spy_monitor(log))).session
+    session = start(problem, problem.request.for_run(monitor=spy_monitor(log))).session
     _first_plane(session)
     record = session.monitor_record()
     assert isinstance(record, Mapping)

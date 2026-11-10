@@ -53,7 +53,7 @@ from solprop.transverse_monitor import (
 from ._watch import _number  # pyright: ignore[reportPrivateUsage] - one reading
 
 if TYPE_CHECKING:
-    from solprop.translate.problem import PropagationProblem
+    from solprop.translate.problem import PropagationProblem, StepperSettings
     from solprop.transverse_monitor import TransverseEdge, TransverseStatus
 
 __all__ = [
@@ -178,7 +178,9 @@ def declared(problem: PropagationProblem) -> bool:
     return _declared_discard(problem)
 
 
-def edge_config(edge: TransverseEdge, problem: PropagationProblem) -> EdgeConfig:
+def edge_config(
+    edge: TransverseEdge, problem: PropagationProblem, stepper: StepperSettings
+) -> EdgeConfig:
     """Return the native edge's configuration for a run's fresh edge.
 
     Parameters
@@ -186,15 +188,17 @@ def edge_config(edge: TransverseEdge, problem: PropagationProblem) -> EdgeConfig
     edge : solprop.transverse_monitor.TransverseEdge
         The run's fresh edge; it is not changed.
     problem : solprop.translate.problem.PropagationProblem
-        The translated problem: its fixed schedule and its declared content, as
-        ``StepDriver.attach_monitor`` hands them to the edge's launch.
+        The translated problem: its declared content, as ``StepDriver.attach_monitor``
+        hands it to the edge's launch.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section: its fixed schedule, if any.
 
     Returns
     -------
     EdgeConfig
         The configuration.
     """
-    schedule = problem.stepper.schedule
+    schedule = stepper.schedule
     steps = None if schedule is None else np.asarray(schedule.steps)
     return config_of(edge, steps=steps, declared=declared(problem))
 

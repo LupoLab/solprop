@@ -55,7 +55,6 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import PropagationProblem, assemble
-from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 
@@ -170,7 +169,7 @@ def _driver_session(problem, request, **controls) -> Started:
     sessions.executors.Started
         The session.
     """
-    driver = select("native", problem, grid=window(), modes=[fibre().mode])
+    driver = select("native", problem, request, grid=window(), modes=[fibre().mode])
     return Started(
         DriverSession(driver, problem, request, entrance(problem), **controls)
     )
@@ -277,8 +276,8 @@ def test_identical_inputs_give_the_drivers_trace_and_fields(case, recipe):
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(**CASES[case])
-    request = describe_run(problem)
+    problem, run_request = _case(**CASES[case])
+    request = run_request
     baseline = drive(_driver_session(problem, request), export=recipe)
     started = _native_session(problem, request)
     run = drive(started, export=recipe)
@@ -298,8 +297,8 @@ def test_periodic_rows_cause_no_return_to_python(case):
     observations and its end, while the driver session returns once a row; the rows
     are taken natively, each once, and arrive in bulk with their observation.
     """
-    problem = _case(period=1, step_planes=0, **CASES[case])
-    request = describe_run(problem)
+    problem, run_request = _case(period=1, step_planes=0, **CASES[case])
+    request = run_request
     session = _make_native(problem, request)
     run = drive(Started(session))
     status = session.native.status()
@@ -324,8 +323,8 @@ def test_a_stop_from_another_thread_reaches_a_march_in_progress():
     sets the token while the march holds no Python lock. The march stops after the
     attempt in hand, and the session ends stopped at an eligible committed endpoint.
     """
-    problem = _case(step_planes=0, period=50, dz_init=2e-6, dz_max=2e-6)
-    request = describe_run(problem)
+    problem, run_request = _case(step_planes=0, period=50, dz_init=2e-6, dz_max=2e-6)
+    request = run_request
     token = StopToken()
     started = _native_session(problem, request, stop=token)
     session = started.session
@@ -417,8 +416,8 @@ class _OwnAccept(PIController):
 )
 def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatch):
     """SEP 47 section 6.3: every refused feature names itself, before allocation."""
-    problem, settings = build()
-    _refused(problem, describe_run(problem, **settings), name, monkeypatch)
+    (problem, run_request), settings = build()
+    _refused(problem, run_request.for_run(**settings), name, monkeypatch)
 
 
 @pytest.mark.parametrize(
@@ -445,8 +444,8 @@ def test_a_device_build_refuses_by_name_what_phase_3_does_not_admit(
     """
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
     monkeypatch.setattr(native_session, "_device_backend", lambda: "cuda")
-    problem = _case(**options)
-    _refused(problem, describe_run(problem), name, monkeypatch)
+    problem, run_request = _case(**options)
+    _refused(problem, run_request, name, monkeypatch)
 
 
 @pytest.mark.parametrize("case", ["rk", "adams", "adams-period-3", "rk-replay"])
@@ -456,16 +455,16 @@ def test_a_device_build_admits_the_representative_path(case, monkeypatch):
     (``test_native_session_monitor``)."""
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
     monkeypatch.setattr(native_session, "_device_backend", lambda: "cuda")
-    problem = _case(**CASES[case])
-    assert native_session.refusal(problem, describe_run(problem)) is None
+    problem, run_request = _case(**CASES[case])
+    assert native_session.refusal(problem, run_request) is None
 
 
 def test_a_hip_build_leaves_the_session_to_the_bridge(monkeypatch):
     """Until an AMD Instinct run qualifies it, HIP keeps the transitional session."""
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
     monkeypatch.setattr(native_session, "_device_backend", lambda: "hip")
-    problem = _case(**CASES["rk"])
-    refused = native_session.refusal(problem, describe_run(problem))
+    problem, run_request = _case(**CASES["rk"])
+    refused = native_session.refusal(problem, run_request)
     assert refused is not None
     assert "HIP" in refused
 
@@ -475,8 +474,8 @@ def test_a_session_leases_its_state_exclusively():
 
     While it lives, the backend's own march refuses to run on the leased state.
     """
-    problem = _case()
-    session = _make_native(problem, describe_run(problem))
+    problem, run_request = _case()
+    session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
@@ -491,8 +490,8 @@ def test_observations_carry_the_rows_since_the_previous_one():
     Each row's position is its attempt's end and its index points into the same
     observation's history, counted with rejections.
     """
-    problem = _case(rtol=1e-9, step_planes=0, period=2)
-    started = _native_session(problem, describe_run(problem))
+    problem, run_request = _case(rtol=1e-9, step_planes=0, period=2)
+    started = _native_session(problem, run_request)
     run: Run = drive(started)
     started.session.close()
     for event in run.observations[1:]:
@@ -515,7 +514,7 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
     from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.translate.linop import power_weight_at  # noqa: PLC0415
 
-    problem = _case()
+    problem, run_request = _case()
     rng = np.random.default_rng(47)
     field = np.array(problem.initial.field0, dtype=np.complex128, copy=True)
     parts = field.view(np.float64).reshape(*field.shape, 2)  # real, imaginary
@@ -525,7 +524,7 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
     parts[..., 3::13, 0] *= -rng.random(parts[..., 3::13, 0].shape)
     session = native_session.NativeSession(
         problem,
-        describe_run(problem),
+        run_request,
         Start(field=field, z=0.0),
         grid=window(),
         modes=[fibre().mode],
@@ -588,8 +587,8 @@ def test_a_leased_state_refuses_every_live_use(name):
     method that mutates it or reads its live field or workspace is refused by name;
     its fixed facts stay readable, so the execution record can be written.
     """
-    problem = _case()
-    session = _make_native(problem, describe_run(problem))
+    problem, run_request = _case()
+    session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
@@ -611,8 +610,8 @@ def test_closing_the_state_closes_its_session_first():
     """SEP 47 section 5.2: the state's own close closes the session that leases it,
     which then refuses to advance; nothing uses the closed state.
     """
-    problem = _case()
-    session = _make_native(problem, describe_run(problem))
+    problem, run_request = _case()
+    session = _make_native(problem, run_request)
     batch = session.advance()
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
@@ -630,8 +629,8 @@ def test_status_polls_from_another_thread_do_not_wait_for_an_advance():
     status, a snapshot request and a stop need no session lock: another thread polls
     them while a long advance is in hand.
     """
-    problem = _case(step_planes=0, period=50, dz_init=2e-6, dz_max=2e-6)
-    session = _make_native(problem, describe_run(problem))
+    problem, run_request = _case(step_planes=0, period=50, dz_init=2e-6, dz_max=2e-6)
+    session = _make_native(problem, run_request)
     session.acknowledge(session.advance().receipt)
     polls: list[int] = []
     done = threading.Event()
@@ -662,8 +661,8 @@ def test_a_full_chunk_buffer_yields_and_changes_nothing(monkeypatch):
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(rtol=1e-12, step_planes=0, period=1, dz_init=1e-2)
-    request = describe_run(problem)
+    problem, run_request = _case(rtol=1e-12, step_planes=0, period=1, dz_init=1e-2)
+    request = run_request
     baseline = drive(_native_session(problem, request), export=CONSUMER)
     monkeypatch.setattr(native_session, "ATTEMPT_CAPACITY", 3)
     monkeypatch.setattr(native_session, "ROW_CAPACITY", 2)
@@ -682,9 +681,9 @@ def test_march_admission_is_decided_before_the_backend_is_built(monkeypatch):
     """
     from solprop_native import backend as native_backend  # noqa: PLC0415
 
-    problem = _case()
-    request = describe_run(problem)
-    assert native_backend.native_march_refusal(problem) is None
+    problem, run_request = _case()
+    request = run_request
+    assert native_backend.native_march_refusal(problem, run_request.stepper) is None
     session = _make_native(problem, request)
     built = session._backend  # pyright: ignore[reportPrivateUsage]
     assert built is not None
@@ -737,8 +736,8 @@ def test_runge_kutta_dense_planes_follow_the_drivers_run():
     if not _one_thread():
         pytest.skip("equal decisions are claimed on one thread (SOLPROP_THREADS=1)")
     for options in ({"step_planes": 3, "rtol": 1e-8}, DENSE["runge-kutta-rejections"]):
-        problem = _case(interpolate=True, **{"step_planes": 0, **options})
-        request = describe_run(problem)
+        problem, run_request = _case(interpolate=True, **{"step_planes": 0, **options})
+        request = run_request
         baseline = drive(_driver_session(problem, request), export=CONSUMER)
         started = _native_session(problem, request)
         run = drive(started, export=CONSUMER)
@@ -762,8 +761,8 @@ def test_dense_planes_meet_the_reference(case):
     positions within 1e-6 relative (``tests/backends/test_resident_adams.py``).
     Measured: at most 2.8e-16 of the peak, and 4.8e-11 relative in positions.
     """
-    problem = _case(interpolate=True, step_planes=0, **DENSE[case])
-    request = describe_run(problem)
+    problem, run_request = _case(interpolate=True, step_planes=0, **DENSE[case])
+    request = run_request
     reference = drive(
         EXECUTORS["reference"].start(problem, request, entrance(problem)),
         export=IDENTITY,
@@ -790,8 +789,8 @@ def test_a_dense_plane_crosses_to_the_host_only_as_its_export(case):
     No stage, field or extension crosses to the host to interpolate a plane, and
     nothing crosses back: the state's crossings are the exported planes' bytes alone.
     """
-    problem = _case(interpolate=True, step_planes=0, **DENSE[case])
-    session = _make_native(problem, describe_run(problem))
+    problem, run_request = _case(interpolate=True, step_planes=0, **DENSE[case])
+    session = _make_native(problem, run_request)
     backend = session._backend  # pyright: ignore[reportPrivateUsage]
     assert backend is not None
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
@@ -814,15 +813,17 @@ def test_the_ledger_counts_runge_kutta_dense_output_before_and_during_a_session(
     then what the session allocated, until it closes; an Adams run's lives in its
     history's views.
     """
-    problem = _case(interpolate=True, step_planes=0)
-    backend = select("native", problem, grid=window(), modes=[fibre().mode])
+    problem, run_request = _case(interpolate=True, step_planes=0)
+    backend = select(
+        "native", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
     field = ledger["state"]
     assert ledger["rk_dense"] == 6 * field + field // 16 > 0
-    session = _make_native(problem, describe_run(problem))
+    session = _make_native(problem, run_request)
     live = session._backend  # pyright: ignore[reportPrivateUsage]
     assert live is not None
     assert live.memory_ledger()["rk_dense"] == ledger["rk_dense"]
@@ -832,8 +833,10 @@ def test_the_ledger_counts_runge_kutta_dense_output_before_and_during_a_session(
     session.native.close()
     assert state.memory_ledger()["rk_dense"] == 0
     session.close()
-    landed = _case(step_planes=0)
-    backend = select("native", landed, grid=window(), modes=[fibre().mode])
+    landed, landed_request = _case(step_planes=0)
+    backend = select(
+        "native", landed, landed_request, grid=window(), modes=[fibre().mode]
+    )
     try:
         assert backend.memory_ledger()["rk_dense"] == 0
     finally:

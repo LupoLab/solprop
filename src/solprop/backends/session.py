@@ -7,15 +7,16 @@
 Python constructs and validates the scientific problem
 (:class:`solprop.translate.problem.PropagationProblem`) and resolves every run policy
 into an immutable :class:`solprop.translate.run_request.RunRequest`. A backend prepares
-them once (:meth:`SessionBackend.prepare`), and the prepared execution starts one
+them once (:meth:`SessionBackend.prepare`, which every backend offers as
+``Backend.prepare``), and the prepared execution starts one
 :class:`RunSession` per trajectory. The session is the only owner of that trajectory's
 mutable numerical state: the field, the method's history, the controller and monitor,
 the counters and cursors, and the pending events. Python's service loop
 (:mod:`solprop.driver.service`) advances it, services the events it yields -- files,
 callbacks, warnings, progress -- and acknowledges them::
 
-    prepared = backend.prepare(problem, request, options)
-    with prepared.start(start) as session:
+    prepared = backend.prepare(problem, request)
+    with prepared.start(start, stop=token) as session:
         while not session.finished:
             batch = session.advance(work_limit=256, deadline=0.1)
             service(batch)
@@ -71,6 +72,7 @@ from solprop.backends.events import (
 from solprop.backends.export import ExportRecipe
 from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.exceptions import BackendError
+from solprop.log import StopFlag
 from solprop.noise import NoiseRealisation
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.problem import PropagationProblem
@@ -889,13 +891,31 @@ class PreparedExecution(Protocol):
         """Return the registered name of the backend that prepared it."""
         ...
 
-    def start(self, start: Start) -> RunSession:
+    def start(
+        self,
+        start: Start,
+        *,
+        listener: Callable[[float, float, bool], None] | None = None,
+        started: Callable[[float, float, int], None] | None = None,
+        stop: StopFlag | None = None,
+        owns: bool = True,
+    ) -> RunSession:
         """Start a session from an initial state or a checkpoint.
 
         Parameters
         ----------
         start : Start
             The initial state or checkpoint the session starts from.
+        listener : callable or None, optional
+            Called with each attempt's end, length and acceptance as it is made, for a
+            progress reporter; it observes only.
+        started : callable or None, optional
+            Called with the start, the end and the plane count when propagation
+            begins.
+        stop : solprop.log.StopFlag or None, optional
+            The run's stop token.
+        owns : bool, optional
+            Whether closing the session closes the backend.
         """
         ...
 
@@ -913,7 +933,12 @@ class PreparedExecution(Protocol):
 
 
 class SessionBackend(Protocol):
-    """A backend that prepares executions (SEP 47 section 6.1)."""
+    """A backend that prepares executions (SEP 47 section 6.1).
+
+    Every :class:`~solprop.backends.protocol.Backend` is one: it is built for a problem
+    and a request (:func:`solprop.backends.registry.select`), and ``prepare`` binds the
+    problem and the request one run serves.
+    """
 
     name: str
 
@@ -921,7 +946,6 @@ class SessionBackend(Protocol):
         self,
         problem: PropagationProblem,
         request: RunRequest,
-        options: ExecutionOptions,
     ) -> PreparedExecution:
         """Lower a problem and request; refuse an unsupported one before allocating.
 
@@ -931,8 +955,6 @@ class SessionBackend(Protocol):
             The translated problem.
         request : solprop.translate.run_request.RunRequest
             What the run asks of the backend.
-        options : ExecutionOptions
-            The execution options.
         """
         ...
 

@@ -16,9 +16,12 @@ lowering (the native problem, the stage tables and the CPU execution record), tu
 each batch's compact records into :mod:`solprop.backends.events` types, and fills
 export destinations through the native recipe. It keeps no numerical state.
 
-Production runs on a native backend use it whenever it admits the run
-(:func:`solprop.backends.sessions.start_session`); what it refuses runs on
-:class:`~solprop.backends.driver_session.DriverSession` over the backend's own march.
+Production runs on a native backend use it whenever it admits the run: the backend's
+prepared execution (:class:`NativePrepared`, from ``NativeBackend.prepare``, which
+:func:`solprop.backends.sessions.start_session` starts) opens a :class:`NativeSession`
+then, and what it refuses runs on
+:class:`~solprop.backends.driver_session.DriverSession` over the backend's own march,
+the reason recorded (:func:`session_refusal`).
 It admits a subset and refuses every other feature by name before allocating anything
 (:func:`refusal`, and :func:`backend_refusal` once the backend is built):
 
@@ -68,6 +71,7 @@ from __future__ import annotations
 
 import dataclasses
 import itertools
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any, cast
@@ -75,6 +79,7 @@ from typing import TYPE_CHECKING, Any, cast
 import numpy as np
 import numpy.typing as npt
 from solprop._interrupts import committing
+from solprop.backends.driver_session import DriverPrepared
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -152,25 +157,29 @@ if TYPE_CHECKING:
 
     from solprop.backends.events import Event
     from solprop.backends.export import ExportRecipe
-    from solprop.backends.session import Start
+    from solprop.backends.session import RunSession, Start
     from solprop.grid import TimeGrid
     from solprop.log import StopFlag
     from solprop.modes.protocol import Mode
     from solprop.monitor import BoundaryMonitor
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
-    from solprop.translate.problem import PropagationProblem
+    from solprop.translate.problem import PropagationProblem, StepperSettings
     from solprop.translate.run_request import RunRequest
 
 __all__ = [
     "ADMITTED_GENERAL_STATISTICS",
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
+    "NativePrepared",
     "NativeSession",
     "backend_refusal",
     "device_refusal",
     "refusal",
+    "session_refusal",
 ]
+
+logger = logging.getLogger(__name__)
 
 CALL_ATTEMPTS = 256
 """A march call's most attempts, as the driver's native marches bound them (SEP 39)."""
@@ -280,7 +289,7 @@ def refusal(
         if not stage_tables_available(problem):
             return "a low-storage step whose stage rows the host forms"
     else:
-        march = native_march_refusal(problem)
+        march = native_march_refusal(problem, request.stepper)
         if march is not None:
             return march
     return _statistics_refusal(problem, request.observation.stats)
@@ -370,7 +379,7 @@ def backend_refusal(backend: NativeBackend) -> str | None:
     ):
         # The noise phase at a plane reads the z table's slot in the native state.
         return f"the {driver._problem.initial.noise_model!r} noise model on a z table"
-    integrator = driver._problem.stepper.integrator
+    integrator = driver._stepper.integrator
     if isinstance(integrator, Multistep):
         return cast("str | None", driver._adams.refusal)
     if isinstance(integrator, LowStorageRungeKutta):
@@ -380,7 +389,7 @@ def backend_refusal(backend: NativeBackend) -> str | None:
 
 
 def _diverged(
-    name: str, problem: PropagationProblem, event: _core.SessionEvent
+    name: str, stepper: StepperSettings, event: _core.SessionEvent
 ) -> ConvergenceError:
     """Return the error of a low-storage step that ended in a non-finite state.
 
@@ -391,8 +400,8 @@ def _diverged(
     ----------
     name : str
         The backend's name.
-    problem : solprop.translate.problem.PropagationProblem
-        The problem, whose method names the march.
+    stepper : solprop.translate.problem.StepperSettings
+        The run's stepper section, whose method names the march.
     event : solprop_native._core.SessionEvent
         The terminal record: where the step started and its length.
 
@@ -401,7 +410,7 @@ def _diverged(
     solprop.exceptions.ConvergenceError
         The divergence.
     """
-    method = cast("LowStorageRungeKutta", problem.stepper.integrator)
+    method = cast("LowStorageRungeKutta", stepper.integrator)
     return ConvergenceError(
         f"{name}: a replayed {method.name} step of {event.replay_dz:.4g} m from z = "
         f"{event.z:.6g} m ended in a non-finite state: the field has diverged. A "
@@ -563,6 +572,8 @@ class NativeSession:
             grid, modes, profiles = adopted._grid, adopted._modes, adopted._profiles
         self._problem = problem
         self._request = request
+        # The stepping policy as one record (`RunRequest.stepper`).
+        self._stepper = request.stepper
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
         self._finish_logged = False
         # A declared launch's share in the ramp's band is logged once it is launched.
@@ -602,7 +613,7 @@ class NativeSession:
         union = tuple(dict.fromkeys((*spec.names, *self._row_names)))
         # One set of far-field tables, read by the plan and handed to the backend.
         self._far_field = (
-            FarFieldTables(problem) if backend is None else backend._far_field  # pyright: ignore[reportPrivateUsage] - the tables it was built with
+            FarFieldTables(problem, spec) if backend is None else backend._far_field  # pyright: ignore[reportPrivateUsage] - the tables it was built with
         )
         self._owns = owned or owns
         lowering = self._lower(union, grid, modes, profiles)
@@ -617,6 +628,7 @@ class NativeSession:
         if backend is None:
             backend = NativeBackend(
                 problem,
+                request,
                 grid=grid,
                 modes=modes,
                 profiles=profiles,
@@ -696,6 +708,7 @@ class NativeSession:
                 modes=modes,
                 profiles=profiles,
                 apertures=apertures,
+                z_end=self._stepper.z_end,
             )
         except BackendError as error:
             msg = f"the native session does not run {error}"
@@ -725,7 +738,7 @@ class NativeSession:
             decided before it was built.
         """
         driver = self._driver(backend)
-        integrator = self._problem.stepper.integrator
+        integrator = self._stepper.integrator
         backend.set_initial(
             np.asarray(start.take_field()),
             start.noise,
@@ -766,7 +779,9 @@ class NativeSession:
             kind = "low_storage"
             # The flows `_ResidentLowStorage` holds, and the operator's origin, from
             # which a constant operator's table is built.
-            payload = _low_storage_payload(self._problem, device=_on_device())
+            payload = _low_storage_payload(
+                self._problem, self._stepper, device=_on_device()
+            )
             backend._native_state.low_storage_configure(  # pyright: ignore[reportPrivateUsage]
                 int(cast("int", payload["low_storage_flows"])),
                 driver._terms.separable is not None,
@@ -862,7 +877,7 @@ class NativeSession:
             of :func:`~solprop.stepper.tableau.continuous_extension`, which the
             translation requires of a Runge-Kutta run with interpolated planes.
         """
-        stepper = self._problem.stepper
+        stepper = self._stepper
         if isinstance(stepper.integrator, Multistep):
             return {"weights": _EMPTY}
         weights = continuous_extension(stepper.tableau)
@@ -902,7 +917,7 @@ class NativeSession:
             plan["floor"] = [floor, *(floor * monitor.weights.mean(axis=1)).tolist()]
         if monitor.transverse is not None:
             plan["edge"] = _transverse.edge_config(
-                monitor.transverse, self._problem
+                monitor.transverse, self._problem, self._stepper
             ).native()
         if start.monitor is not None:
             plan.update(self._continuation(start.monitor))
@@ -1102,7 +1117,7 @@ class NativeSession:
             self._launch_owed = False
             return
         announce, self._started = self._started, None
-        settings = self._problem.stepper
+        settings = self._stepper
         if self._start_z < settings.z_end:
             announce(self._start_z, settings.z_end, len(settings.save_planes))
 
@@ -1404,7 +1419,7 @@ class NativeSession:
         if self._low_storage:
             # Four source evaluations a committed step (`LowStorageMarch`), which the
             # native replay makes: none for a step abandoned or diverged.
-            method = cast("LowStorageRungeKutta", self._problem.stepper.integrator)
+            method = cast("LowStorageRungeKutta", self._stepper.integrator)
             record["source_evaluations"] = method.evaluations * status.attempts
         record["native_session"] = {
             "march_calls": status.march_calls,
@@ -1814,7 +1829,7 @@ class NativeSession:
             The summary.
         """
         record = ControlRecord.from_norms(
-            self._problem.stepper.controller,
+            self._stepper.controller,
             self._plane_norms,
             n_rejected=self._plane_rejected,
         )
@@ -1977,7 +1992,7 @@ class NativeSession:
         """
         if event.reason == _DIVERGED:
             return float(event.replay_dz)
-        schedule = self._problem.stepper.schedule
+        schedule = self._stepper.schedule
         assert schedule is not None  # only a replayed low-storage step is in place
         return float(schedule.steps[int(event.cursor)])
 
@@ -2054,7 +2069,7 @@ class NativeSession:
         if notice.kind is not _watch.NoticeKind.NONE and self._monitor is not None:
             return _watch.notice_error(self._monitor.check, notice)
         if event.schedule_exhausted:
-            schedule = self._problem.stepper.schedule
+            schedule = self._stepper.schedule
             end = math.nan if schedule is None else float(schedule.z_end)
             return BackendError(
                 f"the replayed schedule ends at {end:.6g} m and cannot reach "
@@ -2078,7 +2093,7 @@ class NativeSession:
             return self._budget_error(event)
         driver = self._driver(self._backend)
         if self._low_storage and event.reason == _DIVERGED:
-            return _diverged(driver.name, self._problem, event)
+            return _diverged(driver.name, self._stepper, event)
         if self._adams:
             march = driver._adams
         elif self._low_storage:
@@ -2095,3 +2110,123 @@ class NativeSession:
         except Exception as error:
             return error
         return RuntimeError(event.message or "the native session failed")
+
+
+def session_refusal(
+    backend: NativeBackend,
+    problem: PropagationProblem,
+    request: RunRequest,
+    start: Start,
+) -> str | None:
+    """Return why the native session does not serve a run on a backend, or ``None``.
+
+    The prepared execution's choice (:class:`NativePrepared`): a subclass of the
+    backend, which the session does not adopt, what :func:`refusal` refuses before
+    the backend is built and what :func:`backend_refusal` refuses once it is. A test
+    that forces the transitional session replaces this function.
+
+    Parameters
+    ----------
+    backend : solprop_native.backend.NativeBackend
+        The built backend.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+    start : solprop.backends.session.Start
+        Where the run starts.
+
+    Returns
+    -------
+    str or None
+        The reason, or ``None`` when the native session runs it.
+    """
+    if type(backend) is not NativeBackend:
+        return f"a {type(backend).__name__}, which the native session does not adopt"
+    return refusal(problem, request, start) or backend_refusal(backend)
+
+
+class NativePrepared(DriverPrepared):
+    """The native backend's prepared execution (SEP 47 section 5.2).
+
+    Each start opens a :class:`NativeSession` over the backend whenever it admits the
+    run, and the transitional
+    :class:`~solprop.backends.driver_session.DriverSession` over the backend's own
+    march otherwise; the reason is kept as :attr:`refused` and logged.
+
+    Parameters
+    ----------
+    driver : solprop_native.backend.NativeBackend
+        The constructed backend.
+    problem : solprop.translate.problem.PropagationProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's request.
+    """
+
+    def __init__(
+        self,
+        driver: NativeBackend,
+        problem: PropagationProblem,
+        request: RunRequest,
+    ) -> None:
+        """Bind the problem and the request to the backend."""
+        super().__init__(driver, problem, request)
+        self._native_backend = driver
+        self.refused: str | None = None
+        """Why the last start ran on the transitional session; ``None`` on the native
+        one."""
+
+    def start(
+        self,
+        start: Start,
+        *,
+        listener: Callable[[float, float, bool], None] | None = None,
+        started: Callable[[float, float, int], None] | None = None,
+        stop: StopFlag | None = None,
+        owns: bool = True,
+    ) -> RunSession:
+        """Start the native session, or the transitional one where it refuses.
+
+        Parameters
+        ----------
+        start : solprop.backends.session.Start
+            Where the run starts; the session takes its field.
+        listener : callable or None, optional
+            Called with each attempt as it is made; the native session then yields
+            after every attempt.
+        started : callable or None, optional
+            Called with the start, the end and the plane count when propagation
+            begins.
+        stop : solprop.log.StopFlag or None, optional
+            The run's stop token.
+        owns : bool, optional
+            Whether closing the session closes the backend.
+
+        Returns
+        -------
+        solprop.backends.session.RunSession
+            The session.
+        """
+        refused = session_refusal(
+            self._native_backend, self._problem, self._request, start
+        )
+        self.refused = refused
+        if refused is None:
+            return NativeSession(
+                self._problem,
+                self._request,
+                start,
+                stop=stop,
+                listener=listener,
+                backend=self._native_backend,
+                owns=owns,
+                started=started,
+            )
+        logger.debug(
+            "the native session does not run %s; the transitional session runs it",
+            refused,
+        )
+        return super().start(
+            start, listener=listener, started=started, stop=stop, owns=owns
+        )

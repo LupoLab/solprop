@@ -16,7 +16,6 @@ every plasma statistic and the run diagnostics are read at the end. Usage:
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import sys
 import warnings
@@ -44,14 +43,14 @@ class _Recording(NativeBackend):
 arrays: dict[str, np.ndarray] = {}
 with warnings.catch_warnings():
     warnings.simplefilter("ignore")
-    for label, (grid, problem) in (
+    for label, (grid, problem, run_request) in (
         ("radial", spatial("radial")),
         ("mixture", modal("mixture", "band")),
         ("long_quiet", case("preionised_quiet", 10)),
         ("long_mixture", case("mixture_edge", 10)),
     ):
-        problem = dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
-        field, stats = march(_Recording, problem, grid)
+        run_request = run_request.for_run(stats=StatsSpec(names=STATISTICS))
+        field, stats = march(_Recording, problem, run_request, grid)
         arrays[f"{label}_field"] = field
         for name in STATISTICS:
             arrays[f"{label}_{name}"] = np.asarray(stats[name])

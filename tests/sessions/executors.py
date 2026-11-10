@@ -41,7 +41,7 @@ import functools
 import os
 import warnings
 from collections.abc import Callable, Collection, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 import numpy as np
@@ -77,13 +77,12 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import PropagationProblem, Translation, assemble
 from solprop.translate.run_request import (
     IntegrationSpec,
     MethodKind,
     ReplaySpec,
     RunRequest,
-    describe_run,
 )
 
 BETA2 = -11.83e-27  # s^2/m, as tests/backends/conftest.py
@@ -153,8 +152,8 @@ def soliton(
     interpolate: bool = False,
     integrator: Multistep | None = None,
     planes: Collection[float] = PLANES,
-) -> PropagationProblem:
-    """Return the fundamental soliton over :data:`PLANES`.
+) -> Translation:
+    """Return the fundamental soliton over :data:`PLANES`, and its run's request.
 
     Parameters
     ----------
@@ -171,8 +170,8 @@ def soliton(
 
     Returns
     -------
-    solprop.translate.problem.PropagationProblem
-        The translated problem.
+    solprop.translate.problem.Translation
+        The translated problem and its request.
     """
     grid = window()
     peak = abs(BETA2) / (GAMMA * TAU0**2)
@@ -230,6 +229,8 @@ class _Outcomes:
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request.
     reject_at : collection of int, optional
         Trials that score :data:`REJECTED`.
     fail_at : int or None, optional
@@ -247,6 +248,7 @@ class _Outcomes:
     def __init__(
         self,
         problem: PropagationProblem,
+        run_request: RunRequest,
         *,
         reject_at: Collection[int] = (),
         fail_at: int | None = None,
@@ -254,7 +256,7 @@ class _Outcomes:
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
-        super().__init__(problem, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
+        super().__init__(problem, run_request, factor=FACTOR, scale=SCALE, **kwargs)  # pyright: ignore[reportCallIssue]
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
@@ -339,7 +341,7 @@ def _over_driver(
     Parameters
     ----------
     make : callable
-        ``(problem, **script) -> driver``.
+        ``(problem, request, **script) -> driver``.
     host_state : bool
         Whether the driver's state is a host array the aliasing checks can read.
     session : type, optional
@@ -354,7 +356,7 @@ def _over_driver(
     def start_session(
         problem, request, start, *, stop=None, listener=None, context=None, **script
     ):
-        driver = make(problem, context=context, **script)
+        driver = make(problem, request, context=context, **script)
         reads = [0]
         observe = driver.observe
 
@@ -387,9 +389,17 @@ def _selected(name: str) -> Callable[..., Any]:
         The constructor; it takes no script.
     """
 
-    def make(problem: PropagationProblem, *, context: Mapping[str, Any] | None) -> Any:
+    def make(
+        problem: PropagationProblem,
+        request: RunRequest,
+        *,
+        context: Mapping[str, Any] | None,
+    ) -> Any:
         return select(
-            name, problem, **(_soliton_context() if context is None else context)
+            name,
+            problem,
+            request,
+            **(_soliton_context() if context is None else context),
         )
 
     return make
@@ -407,7 +417,11 @@ def _soliton_context() -> dict[str, Any]:
 
 
 def _host_scripted(
-    problem: PropagationProblem, *, context: Mapping[str, Any] | None, **script: Any
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    context: Mapping[str, Any] | None,
+    **script: Any,
 ) -> HostSessionScript:
     """Return a scripted driver on the reference's own driver for a problem.
 
@@ -415,6 +429,8 @@ def _host_scripted(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request.
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
     **script
@@ -426,11 +442,15 @@ def _host_scripted(
         The driver.
     """
     assert context is None, "a script runs the soliton alone"
-    return HostSessionScript(problem, grid=window(), **script)
+    return HostSessionScript(problem, request, grid=window(), **script)
 
 
 def _scripted(
-    problem: PropagationProblem, *, context: Mapping[str, Any] | None, **script: Any
+    problem: PropagationProblem,
+    request: RunRequest,
+    *,
+    context: Mapping[str, Any] | None,
+    **script: Any,
 ) -> SessionScript:
     """Return a scripted driver for a problem.
 
@@ -438,6 +458,8 @@ def _scripted(
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run's request.
     context : collections.abc.Mapping or None
         Refused: a script runs the soliton alone.
     **script
@@ -449,7 +471,7 @@ def _scripted(
         The driver.
     """
     assert context is None, "a script runs the soliton alone"
-    return SessionScript(problem, grid=window(), **script)
+    return SessionScript(problem, request, grid=window(), **script)
 
 
 def _native_session(
@@ -514,7 +536,7 @@ def low_storage(
     tuple
         The replayed problem and its request.
     """
-    stepper = problem.stepper
+    stepper = request.stepper
     schedule = FixedSchedule.uniform(
         float(problem.initial.z),
         stepper.z_end,
@@ -522,17 +544,13 @@ def low_storage(
         save_planes=list(stepper.save_planes),
     )
     method = LowStorageRungeKutta()
-    replayed = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(stepper, integrator=method, schedule=schedule),
-    )
     integration = IntegrationSpec(
         kind=MethodKind.LOW_STORAGE,
         tableau=request.integration.tableau,
         method=method,
         propagator_mode=request.integration.propagator_mode,
     )
-    return replayed, dataclasses.replace(
+    return problem, dataclasses.replace(
         request, integration=integration, replay=ReplaySpec(schedule)
     )
 
@@ -615,8 +633,10 @@ def edged(
         planes=[REREVIEW.length / 2, REREVIEW.length],
         backend="numpy_ref",
     )
-    problem = replace(simulation.translate(), stats_spec=StatsSpec())
-    request = describe_run(problem, monitor=simulation._boundary_monitor())
+    problem = simulation.translate()
+    request = simulation._run_request().for_run(
+        stats=StatsSpec(), monitor=simulation._boundary_monitor()
+    )
     return problem, request, {"grid": simulation.grid, "modes": simulation.modes}
 
 

@@ -50,7 +50,6 @@ from solprop.output.schema import MarchSnapshot
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
@@ -188,8 +187,8 @@ def test_the_session_exports_the_drivers_method_history(case):
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(**SNAPSHOTTED[case])
-    request = describe_run(problem)
+    problem, run_request = _case(**SNAPSHOTTED[case])
+    request = run_request
     expected = _snapshots(_driver_session(problem, request))
     got = _snapshots(Started(_native(problem, request, _entrance(problem))))
     assert len(got) == len(expected) > len(PLANES)
@@ -212,8 +211,8 @@ def test_a_snapshot_is_the_state_its_ticket_names():
     exports, its newest sample at the ticket's position; a stale ticket is refused,
     and a Runge-Kutta march keeps none.
     """
-    problem = _case(integrator=Multistep(), step_planes=0)
-    request = describe_run(problem)
+    problem, run_request = _case(integrator=Multistep(), step_planes=0)
+    request = run_request
     session = _native(problem, request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
@@ -231,8 +230,8 @@ def test_a_snapshot_is_the_state_its_ticket_names():
             session.march_snapshot(event.ticket)
     finally:
         session.close()
-    problem = _case(step_planes=0)
-    session = _native(problem, describe_run(problem), _entrance(problem))
+    problem, run_request = _case(step_planes=0)
+    session = _native(problem, run_request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
         batch = session.advance()
@@ -243,13 +242,17 @@ def test_a_snapshot_is_the_state_its_ticket_names():
         session.close()
 
 
-def _resumed(problem, snapshot: MarchSnapshot, ledger: dict[str, object]) -> Start:
+def _resumed(
+    problem, run_request, snapshot: MarchSnapshot, ledger: dict[str, object]
+) -> Start:
     """Return a resume at a snapshot's plane, carrying its history and ledger.
 
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
         The problem.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request, whose planes the snapshot's position is among.
     snapshot : solprop.output.schema.MarchSnapshot
         The history, at a save plane.
     ledger : dict
@@ -260,7 +263,7 @@ def _resumed(problem, snapshot: MarchSnapshot, ledger: dict[str, object]) -> Sta
     solprop.backends.session.Start
         The start.
     """
-    index = int(np.searchsorted(problem.stepper.save_planes, snapshot.z, "right"))
+    index = int(np.searchsorted(run_request.stepper.save_planes, snapshot.z, "right"))
     return Start(
         field=np.array(snapshot.state),
         z=snapshot.z,
@@ -313,21 +316,23 @@ def test_a_resumed_history_continues_as_the_drivers_does(case):
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(step_planes=0, **ADAMS[case])
-    request = describe_run(problem)
+    problem, run_request = _case(step_planes=0, **ADAMS[case])
+    request = run_request
     snapshot, ledger = _at_second_plane(
         Started(_native(problem, request, _entrance(problem)))
     )
     assert ledger["accepted_steps"]
-    driver = select("native", problem, grid=window(), modes=[fibre().mode])
+    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
     baseline_session = DriverSession(
-        driver, problem, request, _resumed(problem, snapshot, ledger)
+        driver, problem, request, _resumed(problem, run_request, snapshot, ledger)
     )
     assert baseline_session.march_refusal is None
     baseline = drive(Started(baseline_session), export=IDENTITY)
     expected = driver.metadata()["response_calls"]
     baseline_session.close()
-    session = _native(problem, request, _resumed(problem, snapshot, ledger))
+    session = _native(
+        problem, request, _resumed(problem, run_request, snapshot, ledger)
+    )
     assert session.march_refusal is None
     run = drive(Started(session), export=IDENTITY)
     got = session.execution_record()["response_calls"]
@@ -345,8 +350,8 @@ def test_the_ledger_record_is_the_drivers():
     """
     if not _one_thread():
         pytest.skip("bitwise agreement is claimed on one thread (SOLPROP_THREADS=1)")
-    problem = _case(integrator=Multistep())
-    request = describe_run(problem)
+    problem, run_request = _case(integrator=Multistep())
+    request = run_request
     started = _driver_session(problem, request)
     drive(started)
     driver = started.session.driver  # pyright: ignore[reportAttributeAccessIssue]
@@ -364,13 +369,13 @@ def test_the_budget_stops_the_session_as_it_stops_the_drivers_march():
     """The source-call budget ends the native session where it ends the backend's
     march: the same error, message, position, field and calls.
     """
-    problem = _case(
+    problem, run_request = _case(
         integrator=Multistep(max_calls=40),
         step_planes=0,
         dz_init=LENGTH / 400,
         dz_max=LENGTH / 400,
     )
-    request = describe_run(problem)
+    request = run_request
     baseline = drive(_driver_session(problem, request))
     run = drive(Started(_native(problem, request, _entrance(problem))))
     got, expected = run.terminal.error, baseline.terminal.error
@@ -390,8 +395,8 @@ def test_a_failure_between_batches_still_checkpoints_the_committed_state():
     the committed state, whose field and history are exported for the checkpoint;
     nothing advances again.
     """
-    problem = _case(integrator=Multistep(), step_planes=0)
-    session = _native(problem, describe_run(problem), _entrance(problem))
+    problem, run_request = _case(integrator=Multistep(), step_planes=0)
+    session = _native(problem, run_request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
         batch = session.advance()
@@ -454,14 +459,14 @@ def test_a_signal_during_an_advance_is_raised_with_its_batch_pending(monkeypatch
     and includes every attempt the advance made, once, with the history there.
     """
     # Steps short enough that the advance's bound, not a plane, returns it.
-    problem = _case(
+    problem, run_request = _case(
         integrator=Multistep(),
         step_planes=0,
         dz_init=LENGTH / 400,
         dz_max=LENGTH / 400,
     )
     _armed(monkeypatch, "trial", 5, "sigterm")
-    session = _native(problem, describe_run(problem), _entrance(problem))
+    session = _native(problem, run_request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
         with handled(), pytest.raises(RunTerminated):
@@ -488,11 +493,13 @@ def test_a_backend_that_steps_on_the_host_is_served_by_the_driver(monkeypatch):
     served by the transitional session over that march, decided before the start's
     field is taken; otherwise production runs on the native session.
     """
-    problem = _case(integrator=Multistep(), step_planes=0)
-    request = describe_run(problem)
+    problem, run_request = _case(integrator=Multistep(), step_planes=0)
+    request = run_request
     for switch, served in (("native", native_session.NativeSession), ("host", None)):
         monkeypatch.setattr(native_backend, "_ADAMS_MARCH", switch)
-        backend = select("native", problem, grid=window(), modes=[fibre().mode])
+        backend = select(
+            "native", problem, run_request, grid=window(), modes=[fibre().mode]
+        )
         start = _entrance(problem)
         session = start_session(backend, problem, request, start)
         try:
@@ -552,8 +559,9 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
         pytest.skip("the translation refuses dense output beside the modified noise")
     simulation = _noisy(noise, check=check, march=march)
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert problem.initial.noise_model == noise
-    request = describe_run(problem, monitor=simulation._boundary_monitor())
+    request = run_request.for_run(monitor=simulation._boundary_monitor())
     skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
@@ -564,7 +572,10 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
         start = Start(field=problem.initial.field0, z=float(problem.initial.z))
         if kind == "driver":
             session: Any = DriverSession(
-                select("native", problem, **context), problem, request, start
+                select("native", problem, run_request, **context),
+                problem,
+                request,
+                start,
             )
         else:
             session = native_session.NativeSession(problem, request, start, **context)
@@ -615,11 +626,12 @@ def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
         **GRID, **PULSE,
     )  # fmt: skip
     problem = simulation.translate()
-    request = describe_run(problem)
+    run_request = simulation._run_request()
+    request = run_request
     skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
-    backend = select("native", problem, **context)
+    backend = select("native", problem, run_request, **context)
     try:
         start = Start(field=problem.initial.field0, z=float(problem.initial.z))
         with pytest.raises(BackendError, match="'input' noise model on a z table"):
@@ -658,9 +670,9 @@ def test_an_error_translating_a_batch_leaves_its_chunk_to_the_checkpoint(monkeyp
     """SEP 47 section 5.3: the batch is held before it is translated, so an error in
     the translation leaves its attempts to the failure's checkpoint, delivered once.
     """
-    problem = _case(integrator=Multistep(), step_planes=0)
+    problem, run_request = _case(integrator=Multistep(), step_planes=0)
     _untranslatable(monkeypatch)
-    session = _native(problem, describe_run(problem), _entrance(problem))
+    session = _native(problem, run_request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
         with pytest.raises(_TranslationError):
@@ -683,7 +695,7 @@ def test_a_signal_beside_an_error_translating_its_batch_is_raised_with_its_cause
     """A signal that arrived during the native call is not dropped beside an error in
     the batch's translation: it is raised, the error its cause.
     """
-    problem = _case(
+    problem, run_request = _case(
         integrator=Multistep(),
         step_planes=0,
         dz_init=LENGTH / 400,
@@ -691,7 +703,7 @@ def test_a_signal_beside_an_error_translating_its_batch_is_raised_with_its_cause
     )
     _armed(monkeypatch, "trial", 5, "sigterm")
     _untranslatable(monkeypatch)
-    session = _native(problem, describe_run(problem), _entrance(problem))
+    session = _native(problem, run_request, _entrance(problem))
     try:
         session.acknowledge(session.advance().receipt)
         with handled(), pytest.raises(RunTerminated) as raised:
@@ -723,10 +735,12 @@ def test_production_selects_the_session_and_a_field_restart_continues_as_the_dri
     and a dense plane's march stands ahead of it) continues as the backend's own march
     continues it, bitwise on one thread.
     """
-    problem = _case(step_planes=0, **RESTARTED[case])
-    request = describe_run(problem)
+    problem, run_request = _case(step_planes=0, **RESTARTED[case])
+    request = run_request
     skip_device_refused(problem, request)
-    backend = select("native", problem, grid=window(), modes=[fibre().mode])
+    backend = select(
+        "native", problem, run_request, grid=window(), modes=[fibre().mode]
+    )
     session = start_session(backend, problem, request, _entrance(problem))
     assert isinstance(session, native_session.NativeSession)
     field = None
@@ -751,7 +765,7 @@ def test_production_selects_the_session_and_a_field_restart_continues_as_the_dri
             field=field.copy(), z=z, plane_index=index, plane_pending=False, resume=True
         )
 
-    driver = select("native", problem, grid=window(), modes=[fibre().mode])
+    driver = select("native", problem, run_request, grid=window(), modes=[fibre().mode])
     baseline = drive(
         Started(DriverSession(driver, problem, request, resumed())), export=IDENTITY
     )

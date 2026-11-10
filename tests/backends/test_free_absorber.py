@@ -35,7 +35,7 @@ near one over the run, so that the absorber is a sizeable part of the flow."""
 
 
 def problem_for(case, steps, **options):
-    """The case's problem on a fixed schedule of `steps`, with the collar requested."""
+    """The case's problem and request on a schedule of `steps`, with the collar."""
     grid, space, boundary, start, _, _, _, responses = case
     options.setdefault("spatial_absorber", COLLAR)
     return assembled(grid, space, boundary, start, responses, steps, **options)
@@ -68,7 +68,7 @@ def free_absorber(request):
         [KerrResponse(0.0, thg=False)] if request.param == "field_analytic" else []
     )
     case = (grid, space, boundary, start, index, None, None, responses)
-    design = transverse_of(problem_for(case, 8).route)
+    design = transverse_of(problem_for(case, 8).problem.route)
     assert design is not None and design.has_collar
     # Build the DFT from its geometric sums, independently of FFT calls in
     # either backend, so the matrix exponential is a distinct absorber oracle.
@@ -103,9 +103,13 @@ def test_cartesian_absorber_is_the_physical_multiplication_rate(
         np.abs(absorption) @ np.abs(start[:, :, index])
     )
     expected = absorption @ start[:, :, index]
-    problem = problem_for(free_absorber, 8)
+    problem, run_request = problem_for(free_absorber, 8)
     actual = derivative(
-        spatial_backend_class, problem, grid, ExecutionOptions(node_chunk=7)
+        spatial_backend_class,
+        problem,
+        run_request,
+        grid,
+        ExecutionOptions(node_chunk=7),
     )
     assert np.max(np.abs(actual[:, :, index] - expected)) < bound
     record_metric(
@@ -123,7 +127,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     free_absorber, spatial_backend_class, steps, request
 ):
     grid, space, _, start, index, absorption, phase, _ = free_absorber
-    problem = problem_for(free_absorber, steps)
+    problem, run_request = problem_for(free_absorber, steps)
     design = transverse_of(problem.route)
     assert design is not None
     linear_norm = np.max(np.abs(phase))
@@ -135,7 +139,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     bound += gamma(64) * LENGTH * grid.omega[index] / C
     assert 0 < bound < 0.01
     expected = expm(LENGTH * (np.diag(phase) + absorption)) @ start[:, :, index]
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         result = backend.propagate_to(LENGTH)
@@ -162,11 +166,11 @@ def test_cartesian_collar_diagnostic_reports_illuminated_window(
     free_absorber, spatial_backend_class, request
 ):
     grid, space, _, start, _, _, _, _ = free_absorber
-    problem = problem_for(free_absorber, 8)
+    problem, run_request = problem_for(free_absorber, 8)
     field = np.exp(-((space.r / 0.8e-3) ** 2))
     expected = np.sum(field[space.window < 1] ** 2) / np.sum(field**2)
     bound = gamma(128 * (space.n_columns + grid.n_to))
-    assert expected > problem.stepper.controller.rtol
+    assert expected > run_request.stepper.controller.rtol
     measured = collar_field_fraction(problem, start)
     assert abs(measured - expected) < bound
     record_metric(
@@ -196,7 +200,7 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
     rate = (1 + np.cos(2 * np.pi * np.arange(grid.n_t) / grid.n_t)) / LENGTH
     boundary = dataclasses.replace(boundary, temporal_rate=rate)
     case = (grid, space, boundary, start, *free_absorber[4:])
-    problem = problem_for(case, 8)
+    problem, run_request = problem_for(case, 8)
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(problem.responses, absorber_scheme="split_step"),
@@ -221,7 +225,10 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
         np.fft.fft2(temporal, axes=(0, 1)).reshape(start.shape) * grid.active_mask
     )
     backend = spatial_backend_class(
-        problem, grid=grid, options=ExecutionOptions(node_chunk=7)
+        problem,
+        run_request,
+        grid=grid,
+        options=ExecutionOptions(node_chunk=7),
     )
     try:
         backend.set_initial(problem.initial.field0, None)

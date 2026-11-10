@@ -128,7 +128,9 @@ def test_the_ramp_covers_the_outer_tenth_of_the_wavenumbers() -> None:
 def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
     # At full size f = 2.6 resolves to 242 1/m (Part II); a paraxial scaling of the
     # lengths by 1/8 scales the rate by 8.
-    problem = suite(2.6, SpatialAbsorber()).translate()
+    simulation = suite(2.6, SpatialAbsorber())
+    problem = simulation.translate()
+    run_request = simulation._run_request()
     design = transverse_of(problem.route)
     assert design is not None and design.has_collar
     assert design.alpha0 == pytest.approx(8 * 242, rel=0.01)
@@ -141,7 +143,7 @@ def test_the_scaled_suite_collar_is_the_full_case_s_design_scaled() -> None:
         design.alpha0, rel=1e-6
     )
     # The crossing limit holds an adaptive run's longest step.
-    assert problem.stepper.dz_max == pytest.approx(design.crossing_step)
+    assert run_request.stepper.dz_max == pytest.approx(design.crossing_step)
     assert design.crossing_step < LENGTH
 
 

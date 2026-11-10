@@ -122,7 +122,8 @@ def test_the_rate_never_reaches_the_noise_phase(backend):
             seed=3,
         )
         problem = simulation.translate()
-        selected = select(backend, problem, grid=grid)
+        run_request = simulation._run_request()
+        selected = select(backend, problem, run_request, grid=grid)
         owner = cast("StepDriver | HostDriver", selected)
         try:
             owner.set_initial(problem.initial.field0, None)
@@ -167,12 +168,12 @@ def ramped_problem(steps):
         ),
         noise=None,
     )
-    return grid, space, simulation.translate(), length
+    return grid, space, simulation.translate(), simulation._run_request(), length
 
 
 def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, request):
     steps = 10
-    grid, space, problem, length = ramped_problem(steps)
+    grid, space, problem, run_request, length = ramped_problem(steps)
     operator = problem.linear.separable
     assert operator is not None and operator.kperp_rate is not None
     assert np.any(operator.kperp_rate > 0)
@@ -180,7 +181,7 @@ def test_the_backends_agree_on_a_run_carrying_the_rate(spatial_backend_class, re
     assert bound > 0
     values = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)

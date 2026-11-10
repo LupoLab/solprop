@@ -38,12 +38,12 @@ if "native" in available():
 SOLITON_PERIOD = math.pi / 2 * (100e-15) ** 2 / 11.83e-27
 
 
-def run(backend_class, problem, grid):
+def run(backend_class, problem, run_request, grid):
     """Propagate to the last plane; return the field, the ledger and the step sizes."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     steps, field = [], None
-    for plane in problem.stepper.save_planes:
+    for plane in run_request.stepper.save_planes:
         backend.propagate_to(float(plane))
         observed = backend.observe()
         steps += list(observed.step_history.dz)
@@ -69,7 +69,7 @@ def test_a_compiled_backend_follows_the_reference_trajectory(
     narrow_grid, soliton_problem, method, backend_class
 ):
     interpolate = method == "interpolated"
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         2,
         save_planes=[SOLITON_PERIOD / 8, SOLITON_PERIOD / 4],
@@ -78,9 +78,9 @@ def test_a_compiled_backend_follows_the_reference_trajectory(
         interpolate_planes=interpolate,
     )
     reference, reference_ledger, reference_steps = run(
-        NumpyRefBackend, problem, narrow_grid
+        NumpyRefBackend, problem, run_request, narrow_grid
     )
-    field, ledger, steps = run(backend_class, problem, narrow_grid)
+    field, ledger, steps = run(backend_class, problem, run_request, narrow_grid)
     # The same decisions: every step, order and call.
     assert ledger.orders == reference_ledger.orders
     assert ledger.total == reference_ledger.total
@@ -101,7 +101,7 @@ def test_a_compiled_backend_steps_the_modified_noise_as_the_reference(
     # SEP 16 phase 3: the draw enters each sample at its own position, through the
     # same stage pipeline the Runge-Kutta march uses.
     noise = modified_noise(narrow_grid, np.random.default_rng(3))
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         2,
         save_planes=[SOLITON_PERIOD / 8],
@@ -111,7 +111,7 @@ def test_a_compiled_backend_steps_the_modified_noise_as_the_reference(
     )
 
     def noisy_run(backend_class):
-        backend = backend_class(problem, grid=narrow_grid)
+        backend = backend_class(problem, run_request, grid=narrow_grid)
         backend.set_initial(problem.initial.field0, noise)
         backend.propagate_to(SOLITON_PERIOD / 8)
         field = backend.observe().require_field()
@@ -156,14 +156,14 @@ def assert_marches_without_responses(
         if collar
         else {}
     )
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid,
         save_planes=[SOLITON_PERIOD / 8],
         integrator=Multistep(formulation="interaction"),
         **extra,
     )
-    reference, _, _ = run(NumpyRefBackend, problem, narrow_grid)
-    field, _, _ = run(backend_class, problem, narrow_grid)
+    reference, _, _ = run(NumpyRefBackend, problem, run_request, narrow_grid)
+    field, _, _ = run(backend_class, problem, run_request, narrow_grid)
     scale = np.max(np.abs(reference))
     np.testing.assert_allclose(field, reference, rtol=0, atol=1e-13 * scale)
 
@@ -211,14 +211,16 @@ def assert_sources_the_reference(backend_class, route):
         integrator=Multistep(formulation="interaction"),
         **route,
     )
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     start = problem.initial.field0
     pulse = np.fft.ifft(start, axis=-1)
     edge = np.roll(pulse, pulse.shape[-1] * 2 // 5, axis=-1)
     lab = np.fft.fft(pulse + 0.5 * edge, axis=-1)
     found = []
     for evaluating in (NumpyRefBackend, backend_class):
-        backend = evaluating(problem, grid=simulation.grid, modes=simulation.modes)
+        backend = evaluating(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
         backend.set_initial(start, None)
         source, back = backend._adams_source(lab[None], 0.0, 1e-3)
         found.append((np.array(source), np.array(back)))

@@ -40,7 +40,9 @@ class _Scripted:
     Parameters
     ----------
     problem : solprop.translate.problem.PropagationProblem
-        The problem whose grid, planes and controller the march uses.
+        The problem whose grid the march uses.
+    run_request : solprop.translate.run_request.RunRequest
+        Its run's request, whose planes and controller the march uses.
     norms : sequence of float, optional
         The error norms of the first trials, in order; later trials score
         ``(dz / scale) ** 5``.
@@ -64,8 +66,10 @@ class _Scripted:
 
         def _require_state(self) -> Any: ...
 
-    def __init__(self, problem, *, norms=(), factor=1.0, scale=SCALE, **kwargs):
-        super().__init__(problem, **kwargs)  # pyright: ignore[reportCallIssue]
+    def __init__(
+        self, problem, run_request, *, norms=(), factor=1.0, scale=SCALE, **kwargs
+    ):
+        super().__init__(problem, run_request, **kwargs)  # pyright: ignore[reportCallIssue]
         self._norms = list(norms)
         self._factor = factor
         self._scale = scale

@@ -82,9 +82,19 @@ def spm_field_problem(field_grid):
     return build_problem
 
 
-def run(backend_class, problem, grid, planes, *, modes=None, noise=None, **options):
+def run(  # noqa: PLR0913 - the run and its context
+    backend_class,
+    problem,
+    run_request,
+    grid,
+    planes,
+    *,
+    modes=None,
+    noise=None,
+    **options,
+):
     """Propagate a problem to every plane and return the fields and the summaries."""
-    backend = backend_class(problem, grid=grid, modes=modes, **options)
+    backend = backend_class(problem, run_request, grid=grid, modes=modes, **options)
     try:
         backend.set_initial(problem.initial.field0, noise)
         fields, summaries = [], []
@@ -144,9 +154,11 @@ def test_the_linear_flow_is_the_reference_s(
     over 8 steps, so 32 eps; measured 1.1e-16 on the retired ``numba_cpu``, which is
     under one, and 3.1e-22 on native.
     """
-    problem = linear_problem(narrow_grid, save_planes=[0.05], responses=[zero_kerr])
-    ours, _ = run(equivalence_backend_class, problem, narrow_grid, [0.05])
-    theirs, _ = run(NumpyRefBackend, problem, narrow_grid, [0.05])
+    problem, run_request = linear_problem(
+        narrow_grid, save_planes=[0.05], responses=[zero_kerr]
+    )
+    ours, _ = run(equivalence_backend_class, problem, run_request, narrow_grid, [0.05])
+    theirs, _ = run(NumpyRefBackend, problem, run_request, narrow_grid, [0.05])
     measured = disagreement(ours[0], theirs[0])
     assert measured < 32 * EPS
     rung(
@@ -167,14 +179,14 @@ def test_one_step_of_the_soliton_agrees(
     request,
 ):
     """Rung P1, one step: one nonlinear evaluation through the whole pipeline."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[1e-3],
         schedule=FixedSchedule.uniform(0.0, 1e-3, 1e-3),
     )
-    ours, _ = run(equivalence_backend_class, problem, soliton_grid, [1e-3])
-    theirs, _ = run(NumpyRefBackend, problem, soliton_grid, [1e-3])
+    ours, _ = run(equivalence_backend_class, problem, run_request, soliton_grid, [1e-3])
+    theirs, _ = run(NumpyRefBackend, problem, run_request, soliton_grid, [1e-3])
     # One step is seven stages of a few complex products and two transforms each;
     # 16 eps by Higham on log2(8192), measured 2.4e-16 on the retired numba_cpu.
     measured = disagreement(ours[0], theirs[0])
@@ -191,14 +203,16 @@ def test_eight_steps_of_the_soliton_agree(
     request,
 ):
     """Rung P1, eight steps: the accumulation over a schedule, not one evaluation."""
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[8e-3],
         schedule=FixedSchedule.uniform(0.0, 8e-3, 1e-3),
     )
-    ours, summaries = run(equivalence_backend_class, problem, soliton_grid, [8e-3])
-    theirs, reference = run(NumpyRefBackend, problem, soliton_grid, [8e-3])
+    ours, summaries = run(
+        equivalence_backend_class, problem, run_request, soliton_grid, [8e-3]
+    )
+    theirs, reference = run(NumpyRefBackend, problem, run_request, soliton_grid, [8e-3])
     assert summaries[0].n_steps == reference[0].n_steps == 8
     measured = disagreement(ours[0], theirs[0])
     bound = ladder_bound(
@@ -227,15 +241,15 @@ def test_a_full_adaptive_run_meets_the_reference_s_accuracy(
     ladder's 1600 eps, the rung of ``docs/dev/accuracy.md`` section 7, as a diagnostic.
     """
     planes = [0.02, 0.05]
-    problem = soliton_problem(soliton_grid, 3, save_planes=planes)
-    tight = soliton_problem(
+    problem, run_request = soliton_problem(soliton_grid, 3, save_planes=planes)
+    tight, tight_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=planes,
         controller=PIController(rtol=1e-13, atol=1e-20),
     )
-    converged, _ = run(NumpyRefBackend, tight, soliton_grid, planes)
-    theirs, reference = run(NumpyRefBackend, problem, soliton_grid, planes)
+    converged, _ = run(NumpyRefBackend, tight, tight_request, soliton_grid, planes)
+    theirs, reference = run(NumpyRefBackend, problem, run_request, soliton_grid, planes)
     envelope = AccuracyEnvelope(
         reference="numpy_ref at rtol 1e-13, N = 3 soliton, both planes, relative L2",
         error=max(
@@ -244,7 +258,9 @@ def test_a_full_adaptive_run_meets_the_reference_s_accuracy(
         factor=4.0,
     )
     assert envelope.error > 0
-    ours, summaries = run(equivalence_backend_class, problem, soliton_grid, planes)
+    ours, summaries = run(
+        equivalence_backend_class, problem, run_request, soliton_grid, planes
+    )
     for plane, (ourf, best) in enumerate(zip(ours, converged, strict=True)):
         assert disagreement(ourf, best) <= envelope.bound, plane
     for one, other in zip(summaries, reference, strict=True):
@@ -271,7 +287,6 @@ def test_a_capillary_run_with_an_absorber_and_a_kink_agrees(
     capillary_problem,
     field_grid,
     request,
-    substitute,
 ):
     """A field grid, the real cubic, a pressure gradient, a hard kink, an absorber.
 
@@ -287,17 +302,19 @@ def test_a_capillary_run_with_an_absorber_and_a_kink_agrees(
     a different rounding of the same one. Holding the schedule removes the fork and the
     two agree at the bound they always did.
     """
-    problem = capillary_problem()
-    fixed = substitute(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+    problem, run_request = capillary_problem()
+    fixed = problem
+    run_request = run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             # Below the collar's own stability limit of 1.1 mm (ADR-025).
             schedule=FixedSchedule.uniform(0.0, 0.2, 0.0005, save_planes=[0.1, 0.2]),
-        ),
+        )
     )
-    ours, summaries = run(equivalence_backend_class, fixed, field_grid, [0.1, 0.2])
-    theirs, reference = run(NumpyRefBackend, fixed, field_grid, [0.1, 0.2])
+    ours, summaries = run(
+        equivalence_backend_class, fixed, run_request, field_grid, [0.1, 0.2]
+    )
+    theirs, reference = run(NumpyRefBackend, fixed, run_request, field_grid, [0.1, 0.2])
     assert [one.n_steps for one in summaries] == [one.n_steps for one in reference]
     bound = ladder_bound(
         equivalence_backend_name, 200 * 16 * EPS, field_grid.n_to, 200 * 7
@@ -332,9 +349,9 @@ def test_the_analytic_field_family_agrees(
     already running, by doubling the positive bins. Same operator, different route, so
     the bound is the transform's rather than the arithmetic's.
     """
-    problem = spm_field_problem()
-    ours, _ = run(equivalence_backend_class, problem, field_grid, [0.05])
-    theirs, _ = run(NumpyRefBackend, problem, field_grid, [0.05])
+    problem, run_request = spm_field_problem()
+    ours, _ = run(equivalence_backend_class, problem, run_request, field_grid, [0.05])
+    theirs, _ = run(NumpyRefBackend, problem, run_request, field_grid, [0.05])
     measured = disagreement(ours[0], theirs[0])
     bound = analytic_bound(equivalence_backend_name, field_grid.n_to)
     assert measured < bound
@@ -358,14 +375,18 @@ def test_two_runs_agree(equivalence_backend_class, soliton_problem, soliton_grid
     eps``, :func:`test_eight_steps_of_the_soliton_agree`) and nothing more is promised:
     a threaded reduction may order its sums differently from one run to the next.
     """
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid,
         3,
         save_planes=[8e-3],
         schedule=FixedSchedule.uniform(0.0, 8e-3, 1e-3),
     )
-    first, _ = run(equivalence_backend_class, problem, soliton_grid, [8e-3])
-    second, _ = run(equivalence_backend_class, problem, soliton_grid, [8e-3])
+    first, _ = run(
+        equivalence_backend_class, problem, run_request, soliton_grid, [8e-3]
+    )
+    second, _ = run(
+        equivalence_backend_class, problem, run_request, soliton_grid, [8e-3]
+    )
     assert_within(second[0], first[0], 8 * 16 * EPS, what="repeat run")
 
 
@@ -376,12 +397,14 @@ def test_a_resume_continues_where_the_run_stopped(
 ):
     """``set_initial(z=)`` on a replayed schedule, to round-off against a whole run."""
     schedule = FixedSchedule.uniform(0.0, 0.02, 1e-3)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         soliton_grid, 3, save_planes=[0.01, 0.02], schedule=schedule
     )
-    whole, _ = run(equivalence_backend_class, problem, soliton_grid, [0.01, 0.02])
+    whole, _ = run(
+        equivalence_backend_class, problem, run_request, soliton_grid, [0.01, 0.02]
+    )
 
-    backend = equivalence_backend_class(problem, grid=soliton_grid)
+    backend = equivalence_backend_class(problem, run_request, grid=soliton_grid)
     try:
         backend.set_initial(whole[0], None, z=0.01)
         backend.propagate_to(0.02)
@@ -398,8 +421,8 @@ def test_the_observation_hook_is_the_identity_on_the_reference(
     soliton_problem, narrow_grid
 ):
     """The device-state hook cannot copy or perturb the reference's state."""
-    problem = soliton_problem(narrow_grid, 1, save_planes=[0.01])
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    problem, run_request = soliton_problem(narrow_grid, 1, save_planes=[0.01])
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         state = backend._require_state()

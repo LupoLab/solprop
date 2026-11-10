@@ -643,18 +643,19 @@ def _covers(table: PiecewiseChebyshev, start: float, end: float) -> bool:
 
 _PROFILE_TABLES: weakref.WeakKeyDictionary[
     PropagationProblem,
-    dict[str, tuple[ZProfile, PiecewiseChebyshev, dict[str, object]]],
+    dict[tuple[str, float], tuple[ZProfile, PiecewiseChebyshev, dict[str, object]]],
 ] = weakref.WeakKeyDictionary()
-"""Each problem's profile tables and their records, by statistic, while it lives.
+"""Each problem's profile tables and their records, by statistic and last plane, while
+it lives.
 
-A table and its measured error depend only on the problem and the profile, so a run
-repeated on one problem (a runner, ``with_input``, a scan's reused translation) lowers
-them once.
+A table and its measured error depend only on the problem, the profile and the run's
+last plane, so a run repeated on one problem (a runner, ``with_input``, a scan's reused
+translation) lowers them once.
 """
 
 
 def _profile_table(
-    problem: PropagationProblem, name: str, profile: ZProfile
+    problem: PropagationProblem, name: str, profile: ZProfile, z_end: float
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and its record, lowered once per problem.
 
@@ -666,6 +667,9 @@ def _profile_table(
         The statistic.
     profile : solprop.profiles.ZProfile
         The path it reads.
+    z_end : float
+        The run's last plane, m (:attr:`solprop.translate.problem.StepperSettings.
+        z_end`).
 
     Returns
     -------
@@ -673,15 +677,15 @@ def _profile_table(
         The table, and its record for ``statistics_tables`` (a copy).
     """
     held = _PROFILE_TABLES.setdefault(problem, {})
-    cached = held.get(name)
+    cached = held.get((name, z_end))
     if cached is None or cached[0] is not profile:
-        table, record = _lowered_profile_table(problem, name, profile)
-        cached = held[name] = (profile, table, record)
+        table, record = _lowered_profile_table(problem, name, profile, z_end)
+        cached = held[name, z_end] = (profile, table, record)
     return cached[1], dict(cached[2])
 
 
 def _lowered_profile_table(
-    problem: PropagationProblem, name: str, profile: ZProfile
+    problem: PropagationProblem, name: str, profile: ZProfile, z_end: float
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and the record of its measured error.
 
@@ -699,6 +703,8 @@ def _lowered_profile_table(
         The statistic.
     profile : solprop.profiles.ZProfile
         The path it reads.
+    z_end : float
+        The run's last plane, m.
 
     Returns
     -------
@@ -714,7 +720,7 @@ def _lowered_profile_table(
     from solprop.translate.problem import _walk_tables
 
     start = float(problem.initial.z)
-    end = float(problem.stepper.z_end)
+    end = float(z_end)
     if not end > start:
         end = start + max(abs(start), 1.0) * 1e-12
 
@@ -806,6 +812,7 @@ def lower(
     profiles: Mapping[str, ZProfile] | None = None,
     apertures: tuple[np.ndarray, np.ndarray, int] | None = None,
     on_axis: np.ndarray | None = None,
+    z_end: float,
 ) -> StatisticsLowering:
     """Lower statistics for native evaluation, once.
 
@@ -827,6 +834,8 @@ def lower(
     apertures : tuple or None, optional
         A spatial route's far-field tables packed for the native pass (the adapter's
         ``_aperture_payload``): the apertures, the regions and the exponent.
+    z_end : float
+        The run's last plane, m, which a profile statistic's table must reach.
     on_axis : numpy.ndarray or None, optional
         The mode set's synthesis on the axis at the reference position, when the
         caller already built it (``StepDriver._on_axis``); built here otherwise.
@@ -898,7 +907,7 @@ def lower(
         if profiles is None or name not in profiles:
             msg = f"the {name} statistic needs the {name!r} profile"
             raise BackendError(msg)
-        table, tables[name] = _profile_table(problem, name, profiles[name])
+        table, tables[name] = _profile_table(problem, name, profiles[name], z_end)
         slots = plan["profiles"]
         assert isinstance(slots, list)
         slots[index] = _table(table)

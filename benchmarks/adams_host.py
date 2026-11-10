@@ -164,9 +164,11 @@ def _run(  # noqa: PLR0913
         settings = dataclasses.replace(settings, stats=spec)
     simulation.settings = settings
     problem = simulation.translate()
+    request = simulation._run_request()
     engine = select(
         "native",
         problem,
+        request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
@@ -174,7 +176,7 @@ def _run(  # noqa: PLR0913
     )
     try:
         retention = field_retention(
-            problem, simulation.settings.fields, simulation.settings.field_planes
+            request, simulation.settings.fields, simulation.settings.field_planes
         )
         warm_up(engine, problem, configuration["warmup"] * configuration["stop"])
         totals.march = totals.native = 0.0

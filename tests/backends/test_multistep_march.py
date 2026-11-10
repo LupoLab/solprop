@@ -53,15 +53,17 @@ def narrow_grid():
 
 def test_an_unfused_method_holds_no_history_rows(linear_problem, narrow_grid):
     # Its history is a list of arrays, outside the fused store's rows.
-    problem = linear_problem(narrow_grid, save_planes=[0.01], integrator=PECE4)
-    assert adams_memory(problem) == {}
+    problem, run_request = linear_problem(
+        narrow_grid, save_planes=[0.01], integrator=PECE4
+    )
+    assert adams_memory(problem, run_request.stepper) == {}
 
 
-def run(problem, grid):
+def run(problem, run_request, grid):
     """Propagate a problem to its last plane; return the field and the call ledger."""
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
     backend.set_initial(problem.initial.field0, None)
-    backend.propagate_to(float(problem.stepper.save_planes[-1]))
+    backend.propagate_to(float(run_request.stepper.save_planes[-1]))
     field = backend.observe().require_field()[0, 0]
     ledger = None if backend._adams is None else backend._adams.ledger
     backend.close()
@@ -77,7 +79,7 @@ def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, orde
     # is a loose safety net that never binds, and the startup ramp starts a thousandth
     # of a step down so its low-order error stays below the mature steps'.
     def solve(n, integrator, rtol=1e-2):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             1,
             save_planes=[SOLITON_PERIOD],
@@ -86,7 +88,7 @@ def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, orde
             dz_init=SOLITON_PERIOD / n * 1e-3,
             integrator=integrator,
         )
-        return run(problem, narrow_grid)[0]
+        return run(problem, run_request, narrow_grid)[0]
 
     reference = solve(1, None, rtol=1e-12)
     errors = [
@@ -101,8 +103,10 @@ def test_adams_converges_at_its_order(narrow_grid, soliton_problem, method, orde
 
 def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_problem):
     length = 0.5
-    problem = linear_problem(narrow_grid, save_planes=[length], integrator=PECE4)
-    field, ledger = run(problem, narrow_grid)
+    problem, run_request = linear_problem(
+        narrow_grid, save_planes=[length], integrator=PECE4
+    )
+    field, ledger = run(problem, run_request, narrow_grid)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
     # A zero source leaves only the propagators' products: round-off per step.
@@ -122,14 +126,14 @@ def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_pro
     ],
 )
 def test_adams_call_ledger(narrow_grid, soliton_problem, method, per_step):
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[SOLITON_PERIOD / 4, SOLITON_PERIOD / 2],
         controller=PIController(rtol=1e-4, atol=1e-18),
         integrator=method,
     )
-    _, ledger = run(problem, narrow_grid)
+    _, ledger = run(problem, run_request, narrow_grid)
     assert ledger is not None
     # One startup call at the entrance; the save plane keeps the history.
     assert ledger.startup == 1
@@ -184,10 +188,10 @@ def test_a_loose_adams_tolerance_is_warned_on(rtol):
 def test_contract_admits_an_integrator_with_a_schedule(narrow_grid, soliton_problem):
     # SEP 16 phase 2: a schedule fixes an Adams run's accepted positions.
     schedule = FixedSchedule.uniform(0.0, 0.1, 0.01, save_planes=[0.1])
-    problem = soliton_problem(
+    _, run_request = soliton_problem(
         narrow_grid, 1, save_planes=[0.1], schedule=schedule, integrator=PEC4
     )
-    assert problem.stepper.schedule is schedule
+    assert run_request.stepper.schedule is schedule
 
 
 @pytest.mark.parametrize("dense", ["adams", "hermite"])
@@ -198,10 +202,10 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
     method = ComparisonMultistep(
         corrector="pec", order=3, corrector_order=4, interpolant=dense
     )
-    problem = linear_problem(
+    problem, run_request = linear_problem(
         narrow_grid, save_planes=planes, integrator=method, interpolate_planes=True
     )
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     start = problem.initial.field0[0, 0] * problem.grids.active_mask
     for plane in planes:
@@ -225,7 +229,7 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
     planes = list(np.linspace(0.05, 1.0, 20) * SOLITON_PERIOD)
 
     def fields(method, *, interpolate=False):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             2,
             save_planes=planes,
@@ -233,7 +237,7 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
             integrator=method,
             interpolate_planes=interpolate,
         )
-        backend = NumpyRefBackend(problem, grid=narrow_grid)
+        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
         backend.set_initial(problem.initial.field0, None)
         observed = []
         for plane in planes:
@@ -260,14 +264,14 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
 @pytest.mark.medium
 def test_variable_order_converges_and_uses_its_orders(narrow_grid, soliton_problem):
     def solve(integrator, rtol):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             2,
             save_planes=[SOLITON_PERIOD / 2],
             controller=PIController(rtol=rtol, atol=1e-18),
             integrator=integrator,
         )
-        return run(problem, narrow_grid)
+        return run(problem, run_request, narrow_grid)
 
     reference, _ = solve(None, 1e-11)
     method = Multistep(formulation="interaction")
@@ -286,14 +290,14 @@ def test_variable_order_converges_and_uses_its_orders(narrow_grid, soliton_probl
 def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     budget = 25
     method = ComparisonMultistep(corrector="pece", order=3, max_calls=budget)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[SOLITON_PERIOD],
         controller=PIController(rtol=1e-6, atol=1e-18),
         integrator=method,
     )
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(ResponseBudgetError, match="budget of 25") as caught:
         backend.propagate_to(SOLITON_PERIOD)
@@ -312,14 +316,14 @@ def test_resume_restarts_the_history_and_charges_its_startup(
     narrow_grid, soliton_problem
 ):
     method = ComparisonMultistep(corrector="pec", order=3, corrector_order=4)
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[SOLITON_PERIOD / 2, SOLITON_PERIOD],
         controller=PIController(rtol=1e-7, atol=1e-18),
         integrator=method,
     )
-    whole = NumpyRefBackend(problem, grid=narrow_grid)
+    whole = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     whole.set_initial(problem.initial.field0, None)
     whole.propagate_to(SOLITON_PERIOD / 2)
     halfway = whole.observe().require_field()
@@ -327,7 +331,7 @@ def test_resume_restarts_the_history_and_charges_its_startup(
     uninterrupted = whole.observe().require_field()
     whole.close()
 
-    resumed = NumpyRefBackend(problem, grid=narrow_grid)
+    resumed = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     resumed.set_initial(halfway, None, z=SOLITON_PERIOD / 2)
     resumed.propagate_to(SOLITON_PERIOD)
     restarted = resumed.observe().require_field()
@@ -411,8 +415,11 @@ def test_an_interior_kink_restarts_the_history():
         noise=None,
     )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert 0.1 in problem.linear.hard_kinks
-    backend = NumpyRefBackend(problem, grid=simulation.grid, modes=simulation.modes)
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(0.2)
     history = backend.observe().step_history
@@ -434,7 +441,7 @@ def test_the_backend_refuses_what_the_march_cannot_step(
     # The modified noise is admitted since SEP 16 phase 2
     # (tests/backends/test_exponential_march.py); a coupled flow is not, in the
     # interaction formulation, and every backend says so on construction.
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[0.1],
@@ -446,28 +453,28 @@ def test_the_backend_refuses_what_the_march_cannot_step(
         np.sort(problem.grids.omega),
         problem.linear.phi_breakpoints[[0, -1]],
         np.zeros((1, 1, problem.grids.omega.size), dtype=complex),
-        dz_max=problem.stepper.dz_max,
+        dz_max=run_request.stepper.dz_max,
         condition_limit=1e6,
         gauge_id="test",
         certificate_id="constant-schur",
     )
     coupled = replace(problem, linear=replace(problem.linear, coupled_flow=flow))
     with pytest.raises(BackendError, match="a coupled linear flow"):
-        backend_class(coupled, grid=narrow_grid)
+        backend_class(coupled, run_request, grid=narrow_grid)
 
 
 def test_repeated_rejections_restart_the_history(narrow_grid, soliton_problem):
     # A parasitic mode of the recurrence survives every smaller step, so the third
     # rejection in a row restarts at order one (SEP 13 phase 2). Driven directly: no
     # in-tree problem rejects three times running at a mature order.
-    problem = soliton_problem(
+    problem, run_request = soliton_problem(
         narrow_grid,
         1,
         save_planes=[SOLITON_PERIOD / 4],
         controller=PIController(rtol=1e-4, atol=1e-18),
         integrator=Multistep(formulation="interaction"),
     )
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(SOLITON_PERIOD / 4)
     march = backend._adams
@@ -493,14 +500,14 @@ def test_variable_order_pece_one_order_higher_takes_the_general_path(
     )
 
     def final(integrator, rtol):
-        problem = soliton_problem(
+        problem, run_request = soliton_problem(
             narrow_grid,
             2,
             save_planes=planes,
             controller=PIController(rtol=rtol, atol=1e-18),
             integrator=integrator,
         )
-        backend = NumpyRefBackend(problem, grid=narrow_grid)
+        backend = NumpyRefBackend(problem, run_request, grid=narrow_grid)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(planes[-1])
         field = np.array(backend.observe().require_field())

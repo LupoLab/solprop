@@ -22,7 +22,7 @@ free_response = test_free_ladders.free_case
 def test_cartesian_column_buffers_stay_within_the_shared_budget(
     free_response, spatial_backend_class, scheme, request
 ):
-    family, grid, space, problem = free_response
+    family, grid, space, problem, run_request = free_response
     # At most 19 complex-equivalent time columns are simultaneously retained:
     # response/FFT 8, doubled Raman 3, GPU plasma 3.5, split-step 2, statistics 2.5.
     # One further column covers real-FFT endpoint bins. Use a small budget to
@@ -49,7 +49,10 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
         route=dataclasses.replace(problem.route, transform=transform),
     )
     backend = spatial_backend_class(
-        problem, grid=grid, options=ExecutionOptions(node_budget=budget)
+        problem,
+        run_request,
+        grid=grid,
+        options=ExecutionOptions(node_budget=budget),
     )
     try:
         backend.set_initial(problem.initial.field0, None)

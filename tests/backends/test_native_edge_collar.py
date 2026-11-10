@@ -183,11 +183,13 @@ def node_chunk(simulation: Simulation) -> int:
 def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
     """Return a native backend loaded with `state`, its edge bound."""
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -437,11 +439,14 @@ def test_a_collars_read_leaves_the_march_where_it_was(
             dz_max=LENGTH / steps,
         )
         problem = simulation.translate()
+        run_request = simulation._run_request()
+        run_request = simulation._run_request()
         backend = cast(
             "Any",
             select(
                 "native",
                 problem,
+                run_request,
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -744,12 +749,15 @@ def test_a_supplied_unmasked_draw_judges_as_the_host_does_with_no_transfer(
     def launch() -> tuple[dict[str, Any], int]:
         simulation = _case(route, noise="input")
         problem = simulation.translate()
+        run_request = simulation._run_request()
+        run_request = simulation._run_request()
         assert transverse_of(problem.route) is not None
         backend = cast(
             "Any",
             select(
                 "native",
                 problem,
+                run_request,
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
@@ -796,11 +804,13 @@ def test_a_resume_with_no_monitor_record_crosses_once() -> None:
     # draw, whose run has no record of the monitor, so it's judged here as a launch.
     simulation = _case("line", noise="input")
     problem = simulation.translate()
+    run_request = simulation._run_request()
     backend = cast(
         "Any",
         select(
             "native",
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,

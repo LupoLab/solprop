@@ -63,29 +63,30 @@ COUPLED = (
 
 
 def translated(route: str, integrator: Multistep | None = None):
-    """Return a route's simulation and problem under `integrator`, the exponential
-    Multistep by default."""
+    """Return a route's simulation, problem and request under `integrator`, the
+    exponential Multistep by default."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore")
         simulation = ROUTES[route](None)
         simulation.settings = dataclasses.replace(
             simulation.settings, integrator=integrator or Multistep()
         )
-        return simulation, simulation.translate()
+        return simulation, simulation.translate(), simulation._run_request()
 
 
-def backend_of(simulation, problem):
+def backend_of(simulation, problem, run_request):
     return NativeBackend(
         problem,
+        run_request,
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
     )
 
 
-def positions(problem) -> list[tuple[float, float]]:
+def positions(problem, run_request) -> list[tuple[float, float]]:
     """Return anchor and stage pairs across the run, edges and breakpoints included."""
-    start, end = float(problem.initial.z), float(problem.stepper.z_end)
+    start, end = float(problem.initial.z), float(run_request.stepper.z_end)
     edges = [float(edge) for edge in problem.linear.phi_breakpoints]
     inner = sorted({*np.linspace(start, end, 7).tolist(), *edges})
     return [(start, end), (end, end), *itertools.pairwise(inner)]
@@ -93,8 +94,8 @@ def positions(problem) -> list[tuple[float, float]]:
 
 @pytest.mark.parametrize("route", STAGED + UNSTAGED)
 def test_only_repeated_bundles_are_staged(route):
-    simulation, problem = translated(route)
-    backend = backend_of(simulation, problem)
+    simulation, problem, run_request = translated(route)
+    backend = backend_of(simulation, problem, run_request)
     try:
         assert backend._adams is not None
         assert backend._adams._engine.staged is (route in STAGED)
@@ -104,12 +105,12 @@ def test_only_repeated_bundles_are_staged(route):
 
 @pytest.mark.parametrize("route", STAGED)
 def test_the_native_stage_scalars_are_solprop_s_bundle(route):
-    simulation, problem = translated(route)
-    backend = backend_of(simulation, problem)
+    simulation, problem, run_request = translated(route)
+    backend = backend_of(simulation, problem, run_request)
     try:
         state = backend._native_state
-        stages = problem.stepper.tableau.n_stages
-        for z0, z1 in positions(problem):
+        stages = run_request.stepper.tableau.n_stages
+        for z0, z1 in positions(problem, run_request):
             backend._hoist(z0)
             arrays, material = backend._resident_arrays(z0, z1)
             expected = dict(
@@ -150,8 +151,8 @@ def test_the_native_stage_scalars_are_solprop_s_bundle(route):
 
 
 def test_the_native_rate_is_read_on_the_closing_side():
-    simulation, problem = translated("capillary (pressure gradient)")
-    backend = backend_of(simulation, problem)
+    simulation, problem, run_request = translated("capillary (pressure gradient)")
+    backend = backend_of(simulation, problem, run_request)
     try:
         linear = problem.linear
         assert linear.phi_expansion is not None
@@ -167,17 +168,17 @@ def test_the_native_rate_is_read_on_the_closing_side():
 
 def march(route, monkeypatch, *, staged, integrator=None):
     """Run a route's planes on native, staged or with the host forming the stages."""
-    simulation, problem = translated(route, integrator)
+    simulation, problem, run_request = translated(route, integrator)
     with monkeypatch.context() as patch:
         if not staged:
             patch.setattr(NativeBackend, "_stage_tables", lambda self: None)
-        backend = backend_of(simulation, problem)
+        backend = backend_of(simulation, problem, run_request)
     try:
         assert backend._adams is not None
         assert backend._adams._engine.staged is staged
         backend.set_initial(problem.initial.field0, None)
         fields, steps = [], []
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
             observed = backend.observe()
             fields.append(observed.field.copy())

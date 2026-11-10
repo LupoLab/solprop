@@ -176,7 +176,7 @@ def make_case(  # noqa: PLR0913 - one keyword per lattice choice of the fixture.
         quadrature=transverse_quadrature([mode], n_r=n_r),
         components=("x",),
         integrator=Multistep(formulation="interaction"),
-    )
+    ).problem
     basis = TDSEBasis(
         "manufactured", (0.0, 1e-9), (8,), 3, 1e-16, source="edge-free fixture"
     )

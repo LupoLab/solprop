@@ -92,9 +92,12 @@ def test_free_packed_statistics_match_host_definitions(
         [moment_error, (1 + math.exp(-2)) * profile_error / slope]
     )
     bounds["fwhm_r"] = 3 * profile_error / slope
-    problem = make_problem(grid, space, initial, [])
+    problem, run_request = make_problem(grid, space, initial, [])
     backend = spatial_backend_class(
-        problem, grid=grid, options=ExecutionOptions(node_chunk=7)
+        problem,
+        run_request,
+        grid=grid,
+        options=ExecutionOptions(node_chunk=7),
     )
     try:
         backend.set_initial(problem.initial.field0, None)

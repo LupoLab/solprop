@@ -23,7 +23,7 @@ from solprop.noise import input_noise, modified_noise
 from solprop.output.hdf5 import resume
 from solprop.polarisation import horizontal, rotate, waveplate
 from solprop.stats import StatsSpec
-from vector_raman_cases import raman_response, vector_problem
+from vector_raman_cases import raman_response, vector_translation
 
 
 @pytest.mark.medium
@@ -34,7 +34,8 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
 ):
     if backend == "native":
         pytest.importorskip("solprop_native")
-    problem, grid, modes = vector_problem(steps=8)
+    problem, run_request, grid, modes = vector_translation(steps=8)
+    schedule, controller = run_request.stepper.schedule, run_request.stepper.controller
     make_noise = input_noise if noise_model == "input" else modified_noise
     draw = make_noise(grid, np.random.default_rng(4040), n_modes=1, n_pol=2)
 
@@ -49,13 +50,13 @@ def test_tensor_run_resumes_with_the_same_realisation_and_configuration(
                 backend=backend,
                 density=1e25,
                 save_planes=[grid.length / 2, grid.length],
-                schedule=problem.stepper.schedule,
+                schedule=schedule,
                 # No order choice on the prescribed schedule: the resumed run and
                 # the uninterrupted one are one discrete march.
                 integrator=FIXED_ORDER,
                 dz_init=grid.length / 8,
                 dz_max=grid.length / 8,
-                controller=problem.stepper.controller,
+                controller=controller,
                 stats=StatsSpec(names=("energy",)),
             ),
         )
@@ -104,7 +105,8 @@ def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(
 ):
     if backend == "native":
         pytest.importorskip("solprop_native")
-    problem, grid, modes = vector_problem(steps=2)
+    problem, run_request, grid, modes = vector_translation(steps=2)
+    schedule, controller = run_request.stepper.schedule, run_request.stepper.controller
 
     def build(point):
         jones = to_internal(
@@ -120,11 +122,11 @@ def test_jones_tensor_scan_batches_match_singletons_with_a_partial_group(
                 backend=backend,
                 density=1e25,
                 save_planes=[grid.length],
-                schedule=problem.stepper.schedule,
+                schedule=schedule,
                 integrator=FIXED_ORDER,
                 dz_init=grid.length / 2,
                 dz_max=grid.length / 2,
-                controller=problem.stepper.controller,
+                controller=controller,
                 stats=StatsSpec(names=("energy",)),
             ),
         )

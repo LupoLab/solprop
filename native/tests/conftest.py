@@ -21,6 +21,7 @@ from solprop.nonlinear.gnlse import problem_from
 from solprop.pulses import SechPulse
 from solprop.stepper import PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 # A machine calibration (solprop SEP 46) neither runs nor applies in the suite unless a
 # test asks for one, so that a developer's store cannot change what a test measures.
@@ -29,14 +30,14 @@ os.environ.setdefault("SOLPROP_CALIBRATION", "off")
 # Trigger the documented macOS runtime ordering without adding an unused binding.
 __import__("solprop_native")
 
-type PhaseACase = tuple[PropagationProblem, EnvelopeGrid]
-type RamanCase = tuple[PropagationProblem, EnvelopeGrid]
+type PhaseACase = tuple[PropagationProblem, RunRequest, EnvelopeGrid]
+type RamanCase = tuple[PropagationProblem, RunRequest, EnvelopeGrid]
 type ComplexArray = npt.NDArray[np.complex128]
 
 
 @pytest.fixture(scope="session")
 def phase_a_case() -> PhaseACase:
-    """Return a small, scalar, mode-averaged envelope problem and its grid."""
+    """Return a small, scalar, mode-averaged envelope problem, its request and grid."""
     beta2 = -11.83e-27
     gamma = 0.11
     tau0 = 100e-15
@@ -54,7 +55,7 @@ def phase_a_case() -> PhaseACase:
         width=tau0,
         peak_power=peak,
     ).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         model.mode,
         [model.kerr],
@@ -67,7 +68,7 @@ def phase_a_case() -> PhaseACase:
         dz_max=1e-3,
         dz_init=1e-4,
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 @pytest.fixture(scope="session")
@@ -90,7 +91,7 @@ def raman_case() -> RamanCase:
         width=100e-15,
         peak_power=abs(beta2) / (gamma * (100e-15) ** 2),
     ).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         model.mode,
         model.responses,
@@ -103,11 +104,11 @@ def raman_case() -> RamanCase:
         dz_max=1e-5,
         dz_init=1e-5,
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 @pytest.fixture
 def writable_initial(phase_a_case: PhaseACase) -> ComplexArray:
     """Return an owning, writable initial field for mutation/lifetime tests."""
-    problem, _ = phase_a_case
+    problem, _, _ = phase_a_case
     return np.array(problem.initial.field0, copy=True)

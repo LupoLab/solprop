@@ -59,7 +59,7 @@ def projection_case(request):
         density=1.0,
         quadrature=rule,
         components=("x",),
-    )
+    ).problem
     basis = TDSEBasis(
         "manufactured", (0.0, 1e-9), (8,), 3, 1e-16, source="projection fixture"
     )

@@ -32,8 +32,8 @@ def test_two_channels_are_repeatable_and_thread_invariant(tmp_path):
     sample, per channel, per stage, seven stages a step, eight steps; the statistics
     are held to it relatively, the ionised fractions absolutely as well.
     """
-    problem, grid = problem_and_grid()
-    assert problem.stepper.integrator is None
+    _, run_request, grid = problem_and_grid()
+    assert run_request.stepper.integrator is None
     names = ["threads", "steps", "rows", "field"] + [
         f"{kind}:{name}" for kind in ("rows", "stats") for name in NAMES
     ]

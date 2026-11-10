@@ -24,8 +24,8 @@ POLICY = {"rows": "measure", "threaded_rows": "estimate", "planes": "measure"}
 
 def _plan(case: PhaseACase, planning: dict[str, object] | None) -> dict[str, object]:
     """Build the case's workspace under `planning`; return what its planning found."""
-    problem, grid = case
-    backend = NativeBackend(problem, grid=grid, fft_planning=planning)
+    problem, run_request, grid = case
+    backend = NativeBackend(problem, run_request, grid=grid, fft_planning=planning)
     try:
         found = dict(backend._native_state.fft_planning)  # pyright: ignore[reportPrivateUsage]
         found["metadata"] = cast(dict[str, object], backend.metadata()["calibration"])[

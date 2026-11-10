@@ -16,6 +16,7 @@ from solprop.backends import (
     StepSummary,
     protocol,
 )
+from solprop.backends.driver_session import DriverPrepared
 from solprop.exceptions import BackendError
 from solprop.log import NullReporter
 from solprop.stats import StatsSpec
@@ -323,9 +324,14 @@ class Stub:
     reads_transverse_edge = False
     in_flight = None
     closed = False
+    request = None
+    """The run's request: the stub runs nothing, so it holds none."""
 
     def set_initial(self, field, noise):
         self.field = field
+
+    def prepare(self, problem, request):
+        return DriverPrepared(self, problem, request)
 
     def restore_call_ledgers(self, logical, atomic=None):
         return None

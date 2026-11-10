@@ -67,9 +67,10 @@ def _signature(member: BatchMember) -> str:
             "use Local or Pool to preserve the selected backend"
         )
     problem = simulation.translate()
+    request = simulation._run_request()
     if problem.transform.geometry is not None:
         raise DriverError("Batch currently requires fibre geometry")
-    if problem.stepper.schedule is None:
+    if request.replay is None:
         raise DriverError(
             "Batch requires an explicit fixed schedule; discover and calibrate "
             "with solprop.stepper before replay"
@@ -82,8 +83,8 @@ def _signature(member: BatchMember) -> str:
         "flags": problem.flags,
         "noise_model": problem.initial.noise_model,
         "grids": problem.grids,
-        "stepper": problem.stepper,
-        "statistics": problem.stats_spec,
+        "stepper": request.stepper,
+        "statistics": request.observation.stats,
         "nodes": transform.n_nodes,
         # Each member's planned chunk (SEP 47 section 6.5): members whose responses
         # plan different chunks (Raman tensor weights, dispersive groups) do not

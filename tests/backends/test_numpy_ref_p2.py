@@ -138,7 +138,7 @@ def dissipative(
     synthetic_expansion,
     expanded_prefactor,
 ):
-    """Return ``(*, stepped) -> (problem, distance, Gamma)`` for the P2 fibre.
+    """Return ``(*, stepped) -> (problem, run_request, distance, Gamma)`` for P2.
 
     The operator is the closed-form ``Phi`` as the separable sum it is -- one array
     times the dispersion's integral plus another times the loss's -- and ``gamma(Z)``
@@ -152,7 +152,7 @@ def dissipative(
         loss_integral = step_loss_integral if stepped else smooth_loss_integral
         distance = recurrence_position() * Z0
         start = exact_spectrum(soliton_grid, 0.0, loss_integral)
-        base = assemble(
+        base, run_request = assemble(
             soliton_grid,
             gnlse.mode,
             [gnlse.kerr],
@@ -189,6 +189,7 @@ def dissipative(
         assert kerr is not None
         problem = substitute(
             base,
+            run_request=run_request,
             linear=synthetic_expansion(base, terms, weights_of, kinks=kinks),
             responses=dataclasses.replace(
                 expanded_prefactor(base.responses),
@@ -198,7 +199,7 @@ def dissipative(
                 kerr_coefficients=dataclasses.replace(kerr, density=density),
             ),
         )
-        return problem, distance, loss_integral
+        return problem, run_request, distance, loss_integral
 
     return build
 
@@ -213,8 +214,8 @@ def test_the_dissipative_solution_is_reproduced(
     backend_class, dissipative, soliton_grid, stepped
 ):
     """P2 and P2b: a smooth loss, and one that jumps at a declared hard kink."""
-    problem, distance, loss_integral = dissipative(stepped=stepped)
-    backend = backend_class(problem, grid=soliton_grid)
+    problem, run_request, distance, loss_integral = dissipative(stepped=stepped)
+    backend = backend_class(problem, run_request, grid=soliton_grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(distance)
     plane = backend.observe()

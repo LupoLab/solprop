@@ -167,9 +167,12 @@ FORMULATIONS = pytest.mark.parametrize(
 def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulation):
     simulation = _atomic_simulation(method=Multistep(formulation=formulation))
     problem = simulation.translate()
+    run_request = simulation._run_request()
     assert tdse_descriptor(problem.route) is not None
     binding = _Binding(tdse_descriptor(problem.route), 20, fail_at=3)
-    backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
+    backend = NumpyRefBackend(
+        problem, run_request, grid=simulation.grid, tdse_binding=binding
+    )
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         initial = backend.observe()

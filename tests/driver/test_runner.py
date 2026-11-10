@@ -47,6 +47,7 @@ from solprop.output.schema import (
 )
 from solprop.pulses import GaussianPulse
 from solprop.spatial import SpatialFlux
+from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, Multistep, RungeKutta
 from solprop.translate.routes import GeneralRoute, ModalRoute, SpatialRoute, TDSESource
 from solprop.translate.tdse import TDSEDescriptor
@@ -128,7 +129,7 @@ def bound(simulation: Simulation) -> float:
     problem = simulation.translate()
     return (
         STEPS
-        * step_evaluations(problem)
+        * step_evaluations(simulation._run_request())
         * (fft_bound(problem.grids.n_to) + fft_bound(problem.transform.n_nodes))
     )
 
@@ -146,14 +147,16 @@ class _Stop(NullReporter):
         raise RuntimeError(msg)
 
 
-def restored(backend, problem) -> tuple:
+def restored(backend, problem, run_request) -> tuple:
     """Return the four pieces of state a load restores (SEP 22 section 4.7).
 
     The quadrature alarm as the entrance plane reads it, ``quadrature_error`` before
     any march: in-tree backends keep it on the host, Kokkos in its native state.
     """
     march = backend._adams
-    spec = dataclasses.replace(problem.stats_spec, names=("quadrature_error",))
+    spec = dataclasses.replace(
+        run_request.observation.stats, names=("quadrature_error",)
+    )
     entrance = float(backend.stats(spec)["quadrature_error"])
     return (
         backend._dense_ahead is None,
@@ -242,6 +245,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
             simulation.settings, integrator=RungeKutta()
         )
     problem = simulation.translate()
+    run_request = simulation._run_request()
     with simulation.runner() as runner:
         with pytest.raises(RuntimeError, match="on purpose"):
             runner.run(inputs(simulation)[0], progress=_Stop())
@@ -261,6 +265,7 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
         fresh = select(
             backend,
             problem,
+            run_request,
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
@@ -268,7 +273,9 @@ def test_a_load_restores_what_a_failed_run_left_as_a_fresh_backend_holds(
         try:
             fresh.set_initial(problem.initial.field0, None, z=problem.initial.z)
             # Restored state is exact: the same flags, alarm and integer ledger.
-            assert restored(left, problem) == restored(fresh, problem)
+            assert restored(left, problem, run_request) == restored(
+                fresh, problem, run_request
+            )
         finally:
             fresh.close()
         after = stored(runner.run(inputs(simulation)[1], progress="none"))
@@ -345,17 +352,19 @@ def test_a_tdse_run_has_no_runner(monkeypatch):
 def test_a_derived_problem_is_the_constructed_one_but_for_its_input():
     simulation = capillary("numpy_ref")
     problem = simulation.translate()
+    run_request = simulation._run_request()
+    derived = simulation.with_input(inputs(simulation)[1])
     check_derived_problem(
-        problem, simulation.with_input(inputs(simulation)[1]).translate()
+        problem, derived.translate(), run_request, derived._run_request()
     )
     replaced = dataclasses.replace(problem, grids=dataclasses.replace(problem.grids))
     with pytest.raises(DriverError, match="share the runner's grids"):
-        check_derived_problem(problem, replaced)
+        check_derived_problem(problem, replaced, run_request, run_request)
     moved = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, z=1e-6)
     )
     with pytest.raises(DriverError, match="different initial_z"):
-        check_derived_problem(problem, moved)
+        check_derived_problem(problem, moved, run_request, run_request)
     noisy = dataclasses.replace(
         problem,
         initial=dataclasses.replace(
@@ -365,25 +374,30 @@ def test_a_derived_problem_is_the_constructed_one_but_for_its_input():
         ),
     )
     with pytest.raises(DriverError, match="noise model 'input'"):
-        check_derived_problem(problem, noisy)
-    stepped = dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(problem.stepper, dz_max=problem.stepper.dz_max / 2),
+        check_derived_problem(problem, noisy, run_request, run_request)
+    stepped = run_request.with_stepper(
+        dataclasses.replace(run_request.stepper, dz_max=run_request.stepper.dz_max / 2)
     )
     with pytest.raises(DriverError, match=r"stepper\.dz_max differs"):
-        check_derived_problem(problem, stepped)
+        check_derived_problem(problem, problem, run_request, stepped)
+    # The statistics are the request's, shared with the derived run like the leaves.
+    counted = run_request.for_run(stats=StatsSpec(names=("energy",)))
+    with pytest.raises(DriverError, match="share the runner's stats_spec"):
+        check_derived_problem(problem, problem, run_request, counted)
 
 
 def test_a_derived_problem_on_another_route_is_refused():
     # The transform is the same object, so only the route's variant, TDSE source or
     # plane measure can differ: each is the constructed problem's or refused.
     simulation = capillary("numpy_ref")
-    problem = simulation.translate()
+    problem, run_request = simulation.translate(), simulation._run_request()
     check_derived_problem(
         problem,
         dataclasses.replace(
             problem, route=ModalRoute(transform=problem.transform, tdse=None)
         ),
+        run_request,
+        run_request,
     )
     # A general modal route needs tables this transform lacks: built past its check.
     general = object.__new__(GeneralRoute)
@@ -391,21 +405,22 @@ def test_a_derived_problem_on_another_route_is_refused():
     other = copy.copy(problem)
     object.__setattr__(other, "route", general)
     with pytest.raises(DriverError, match="does not share the runner's route"):
-        check_derived_problem(problem, other)
+        check_derived_problem(problem, other, run_request, run_request)
     attached = copy.copy(problem)
     object.__setattr__(
         attached, "route", dataclasses.replace(problem.route, tdse=bare_tdse())
     )
     with pytest.raises(DriverError, match="does not share the runner's route"):
-        check_derived_problem(problem, attached)
-    spatial = cartesian("numpy_ref").translate()
+        check_derived_problem(problem, attached, run_request, run_request)
+    planar = cartesian("numpy_ref")
+    spatial, spatial_request = planar.translate(), planar._run_request()
     assert isinstance(spatial.route, SpatialRoute)
     remeasured = dataclasses.replace(
         spatial,
         route=dataclasses.replace(spatial.route, flux=copy.copy(spatial.route.flux)),
     )
     with pytest.raises(DriverError, match="does not share the runner's route"):
-        check_derived_problem(spatial, remeasured)
+        check_derived_problem(spatial, remeasured, spatial_request, spatial_request)
 
 
 def test_with_input_validates_the_replaced_input_alone():
@@ -430,7 +445,12 @@ def test_with_input_validates_the_replaced_input_alone():
         other.metadata().configuration_hash()
     )
     # Every leaf but the input, the stepper and the flags is shared, unscanned.
-    check_derived_problem(simulation.translate(), derived.translate())
+    check_derived_problem(
+        simulation.translate(),
+        derived.translate(),
+        simulation._run_request(),
+        derived._run_request(),
+    )
 
 
 def test_a_large_array_input_is_recorded_by_its_digest(monkeypatch):
@@ -601,8 +621,9 @@ def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatc
             simulation.settings, integrator=Multistep(), backend="native"
         )
         problem = simulation.translate()
+        run_request = simulation._run_request()
         backend = select(
-            "native", problem, grid=simulation.grid, modes=simulation.modes
+            "native", problem, run_request, grid=simulation.grid, modes=simulation.modes
         )
     try:
         assert getattr(backend, "_resident", ...) is None
@@ -691,12 +712,14 @@ def test_with_input_refuses_a_non_finite_realisation_and_keeps_a_pulse_recipe():
     assert derived.metadata().configuration["pulse"] is pulse
     # A new launch keeps the stepper's checks: the launch precedes every plane.
     problem = single.translate()
+    run_request = single._run_request()
     late = dataclasses.replace(
         problem,
         initial=dataclasses.replace(
-            problem.initial, z=float(problem.stepper.save_planes[0])
+            problem.initial, z=float(run_request.stepper.save_planes[0])
         ),
     )
     with pytest.raises(TranslationError, match="follow the initial position"):
-        late.validate_launch()
-    cartesian("numpy_ref").translate().validate_launch()  # a replayed schedule
+        late.validate_launch(run_request)
+    replayed = cartesian("numpy_ref")
+    replayed.translate().validate_launch(replayed._run_request())  # a schedule

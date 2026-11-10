@@ -21,6 +21,7 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
@@ -30,24 +31,27 @@ from solprop_native.backend import (
 
 @pytest.fixture
 def free_payload(phase_a_case: PhaseACase) -> dict[str, object]:
-    original, grid = phase_a_case
+    _, base_request, grid = phase_a_case
     space = FreeGrid(1e-3, 4, 1.5e-3, 6, collar_fraction=0)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [],
         np.zeros((24, 1, grid.n_omega), complex),
         spatial_grid=space,
         medium=SpatialMedium(),
-        controller=original.stepper.controller,
+        controller=base_request.stepper.controller,
         save_planes=[1e-3],
         dz_max=1e-3,
         dz_init=1e-4,
     )
-    backend = NativeBackend(problem, grid=grid, options=ExecutionOptions(node_chunk=5))
+    backend = NativeBackend(
+        problem, run_request, grid=grid, options=ExecutionOptions(node_chunk=5)
+    )
     try:
         return _native_problem(
             problem,
+            run_request,
             backend._terms,  # pyright: ignore[reportPrivateUsage]
             node_chunk=backend.node_chunk,
         )
@@ -248,7 +252,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
         80e-6,
         jones=(1, 0.5j),
     )
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -268,7 +272,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
     names = ("energy", "peak_intensity", "on_axis_intensity", "beam_radius", "fwhm_r")
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     for implementation in (NumpyRefBackend, NativeBackend):
-        backend = implementation(problem, grid=grid, options=options)
+        backend = implementation(problem, run_request, grid=grid, options=options)
         try:
             if isinstance(backend, NativeBackend):
                 ledger = backend.memory_ledger()
@@ -303,7 +307,7 @@ def test_a_line_of_one_y_row_matches_the_reference(collar: float) -> None:
 
 def _planar_problem(
     grid: EnvelopeGrid, controller: PIController, *, collar: float = 0.0
-) -> tuple[PlanarGrid, PropagationProblem]:
+) -> tuple[PlanarGrid, PropagationProblem, RunRequest]:
     """Return a small Kerr slab problem: three orders, 5 y rows, two rows per chunk."""
     # A constant plate index: the fixture's band reaches beyond silica's fit.
     modes = [SlabMode(63.5e-6, order=p, cladding=1.45) for p in (1, 2, 3)]
@@ -315,7 +319,7 @@ def _planar_problem(
         offset_x=10e-6,
     )
     length = 1e-3
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -328,7 +332,7 @@ def _planar_problem(
         dz_init=length / 10,
         schedule=FixedSchedule.uniform(0.0, length, length / 10),
     )
-    return space, problem
+    return space, problem, run_request
 
 
 def _planar_options(space: PlanarGrid) -> ExecutionOptions:
@@ -345,8 +349,8 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
     statistics agree under solprop's planar ladder bound
     (``tests/backends/test_planar_native.py``).
     """
-    original, grid = phase_a_case
-    space, problem = _planar_problem(grid, original.stepper.controller)
+    _, base_request, grid = phase_a_case
+    space, problem, run_request = _planar_problem(grid, base_request.stepper.controller)
     geometry = problem.transform.geometry
     assert geometry is not None
     assert geometry.kind == "slab"
@@ -354,7 +358,9 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
     rows: list[tuple[np.ndarray, dict[str, np.ndarray]]] = []
     length = 1e-3
     for implementation in (NumpyRefBackend, NativeBackend):
-        backend = implementation(problem, grid=grid, options=_planar_options(space))
+        backend = implementation(
+            problem, run_request, grid=grid, options=_planar_options(space)
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)
@@ -393,12 +399,15 @@ def test_the_hybrid_planar_kind_matches_the_reference(phase_a_case: PhaseACase) 
 
 @pytest.fixture
 def planar_payload(phase_a_case: PhaseACase) -> dict[str, object]:
-    original, grid = phase_a_case
-    space, problem = _planar_problem(grid, original.stepper.controller)
-    backend = NativeBackend(problem, grid=grid, options=_planar_options(space))
+    _, base_request, grid = phase_a_case
+    space, problem, run_request = _planar_problem(grid, base_request.stepper.controller)
+    backend = NativeBackend(
+        problem, run_request, grid=grid, options=_planar_options(space)
+    )
     try:
         return _native_problem(
             problem,
+            run_request,
             backend._terms,  # pyright: ignore[reportPrivateUsage]
             node_chunk=backend.node_chunk,
         )

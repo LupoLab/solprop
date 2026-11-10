@@ -555,7 +555,9 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     if reserve is not None:
         reserve(planes.size + 1)
     _retain(output, context.retention, problem.shape)
-    reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
+    reached, missing_current_save = _resume_position(
+        output, checkpoint_output, problem, context.request
+    )
     _refuse_unread_collar(problem, backend)
     # The request's own monitor: its thresholds; the session owns its state.
     monitor = context.request.boundary.monitor
@@ -584,13 +586,14 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         output,
         reporter,
         (context.start_plane, reached),
+        request=context.request,
         boundary_check=None if monitor is None else monitor.check,
     )
     keeper = _MarchKeeper(
         output,
         backend,
         context.resume_history,
-        method=_method_history(problem),
+        method=_method_history(context.request),
         retention=None if earlier is None else retention_at(earlier.execution, reached),
     )
     exports = _Exports(session, context.metadata.grid.kind)

@@ -33,7 +33,8 @@ from solprop.spatial import SpatialFlux, SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, PIController
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import Translation, assemble
+from solprop.translate.run_request import RunRequest
 
 CAPILLARY_ROW_NAMES = ("energy", "peak_power", "fwhm_t")
 """The statistics the capillary's rows carry, as the retired rows test read them."""
@@ -54,7 +55,7 @@ def _sizing(backend) -> dict[str, dict[str, int]]:
 
 
 def route_adams_problem(route: str, formulation: str):
-    """Return a route under Adams, adaptive at ``rtol`` 1e-8, and its simulation.
+    """Return a route under Adams at ``rtol`` 1e-8: simulation, problem and request.
 
     The retired test's input is ``ROUTES["cartesian"]`` with one formulation named; the
     other routes are the same builder's, for what it could not reach.
@@ -70,30 +71,31 @@ def route_adams_problem(route: str, formulation: str):
             "integrator": Multistep(formulation=formulation),  # pyright: ignore[reportArgumentType]
         }
     )
-    return simulation, simulation.translate()
+    return simulation, simulation.translate(), simulation._run_request()
 
 
-def ten_steps(problem: PropagationProblem) -> PropagationProblem:
-    """Return `problem` on ten equal prescribed steps over its length."""
-    end = float(problem.stepper.save_planes[-1])
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper,
+def ten_steps(run_request: RunRequest) -> RunRequest:
+    """Return `run_request` on ten equal prescribed steps over its length."""
+    end = float(run_request.stepper.save_planes[-1])
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper,
             schedule=FixedSchedule.uniform(0.0, end, end / 10 * 1.0000001),
-        ),
+        )
     )
 
 
 def adams_matched(option: str):
     """Ten fixed steps at the method's top order, ``"<route>|<formulation>"``."""
     route, formulation = option.split("|")
-    simulation, problem = route_adams_problem(route, formulation)
-    problem = fixed_order(ten_steps(problem))
-    backend = _native()(problem, grid=simulation.grid, modes=simulation.modes)
+    simulation, problem, run_request = route_adams_problem(route, formulation)
+    run_request = fixed_order(ten_steps(run_request))
+    backend = _native()(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         observed = backend.observe()
         return {"field": observed.require_field().copy()}, _sizing(backend)
@@ -104,14 +106,16 @@ def adams_matched(option: str):
 def adams_route(option: str):
     """March a route of ``capability_routes`` adaptively, ``<route>|<formulation>``."""
     route, formulation = option.split("|")
-    simulation, problem = route_adams_problem(route, formulation)
-    backend = _native()(problem, grid=simulation.grid, modes=simulation.modes)
+    simulation, problem, run_request = route_adams_problem(route, formulation)
+    backend = _native()(
+        problem, run_request, grid=simulation.grid, modes=simulation.modes
+    )
     try:
         march = backend._adams
         assert march is not None
         assert type(march._engine).__name__ == "_ResidentAdams"
         backend.set_initial(problem.initial.field0, None)
-        for plane in problem.stepper.save_planes:
+        for plane in run_request.stepper.save_planes:
             backend.propagate_to(float(plane))
         observed = backend.observe()
         return {
@@ -128,7 +132,7 @@ def field_grid() -> FieldGrid:
     return FieldGrid.from_limits(0.2, 800e-9, (200e-9, 4e-6), 100e-15)
 
 
-def replayed_capillary(names=None) -> PropagationProblem:
+def replayed_capillary(names=None) -> Translation:
     """Return the gradient capillary rung on its fixed 0.5 mm schedule.
 
     The fixture ``capillary_problem`` of ``tests/backends/conftest.py`` and the retired
@@ -143,7 +147,7 @@ def replayed_capillary(names=None) -> PropagationProblem:
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -155,21 +159,19 @@ def replayed_capillary(names=None) -> PropagationProblem:
             absorber=absorber(grid),
         )
     stepper = dataclasses.replace(
-        problem.stepper,
+        run_request.stepper,
         schedule=FixedSchedule.uniform(0.0, 0.2, 0.0005, save_planes=[0.1, 0.2]),
     )
-    fixed = dataclasses.replace(problem, stepper=stepper)
+    fixed = run_request.with_stepper(stepper)
     if names is not None:
-        fixed = dataclasses.replace(
-            fixed, stats_spec=StatsSpec(names=names, periodic=names, period=1)
-        )
-    return fixed
+        fixed = fixed.for_run(stats=StatsSpec(names=names, periodic=names, period=1))
+    return Translation(problem, fixed)
 
 
 def capillary():
     """Replay the capillary to its first plane, with the statistics rows on."""
-    problem = replayed_capillary(CAPILLARY_ROW_NAMES)
-    backend = _native()(problem, grid=field_grid())
+    problem, run_request = replayed_capillary(CAPILLARY_ROW_NAMES)
+    backend = _native()(problem, run_request, grid=field_grid())
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(0.1)
@@ -200,14 +202,15 @@ def dispersive(option: str):
     simulation = dispersive_capillary(
         evaluator, gas="N2" if raman else "Ar", raman=raman, stepped=True
     )
-    problem = fixed_order(simulation.translate())
+    problem = simulation.translate()
+    run_request = fixed_order(simulation._run_request())
     assert problem.transform.n_nodes == 33
     fields = []
     for _ in range(2):
-        backend = _native()(problem, grid=simulation.grid)
+        backend = _native()(problem, run_request, grid=simulation.grid)
         try:
             backend.set_initial(problem.initial.field0, None)
-            backend.propagate_to(float(problem.stepper.save_planes[-1]))
+            backend.propagate_to(float(run_request.stepper.save_planes[-1]))
             fields.append(backend.observe().require_field().copy())
             sizing = _sizing(backend)
         finally:
@@ -215,23 +218,24 @@ def dispersive(option: str):
     return {"field": fields[0], "again": fields[1]}, sizing  # pyright: ignore[reportPossiblyUnboundVariable]
 
 
-def with_adams(problem: PropagationProblem) -> PropagationProblem:
-    """Return a separable problem under the default Adams method."""
-    return dataclasses.replace(
-        problem,
-        stepper=dataclasses.replace(
-            problem.stepper, integrator=Multistep(), propagator_mode="recompute"
-        ),
+def with_adams(run_request: RunRequest) -> RunRequest:
+    """Return a separable problem's request under the default Adams method."""
+    return run_request.with_stepper(
+        dataclasses.replace(
+            run_request.stepper, integrator=Multistep(), propagator_mode="recompute"
+        )
     )
 
 
 def planar(march: str):
     """Replay ``kerr-collar`` at a fixed order, twice, ``rk`` or ``adams``."""
-    grid, _, problem = planar_case("kerr-collar")
-    problem = fixed_order(with_adams(problem) if march == "adams" else problem)
+    grid, _, problem, run_request = planar_case("kerr-collar")
+    run_request = fixed_order(
+        with_adams(run_request) if march == "adams" else run_request
+    )
     fields = []
     for _ in range(2):
-        backend = _native()(problem, grid=grid)
+        backend = _native()(problem, run_request, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(grid.length)
@@ -260,7 +264,9 @@ def noisy_problem(march: str, *, draw: bool = True):
         np.random.default_rng(32),
         model="modified",
     )
-    problem, grid, space = cartesian_march("tabulate", noise=noise if draw else None)
+    problem, run_request, grid, space = cartesian_march(
+        "tabulate", noise=noise if draw else None
+    )
     pulse = SpatialPulse(
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
@@ -273,14 +279,14 @@ def noisy_problem(march: str, *, draw: bool = True):
     )
     if march != "march":
         method = None if march == "rk" else Multistep(formulation="exponential")
-        problem = dataclasses.replace(
-            problem,
-            stepper=dataclasses.replace(
-                problem.stepper, integrator=method, propagator_mode="recompute"
-            ),
+        run_request = fixed_order(
+            run_request.with_stepper(
+                dataclasses.replace(
+                    run_request.stepper, integrator=method, propagator_mode="recompute"
+                )
+            )
         )
-        problem = fixed_order(problem)
-    return problem, grid, noise if draw else None
+    return problem, run_request, grid, noise if draw else None
 
 
 def noisy(march: str):
@@ -289,11 +295,11 @@ def noisy(march: str):
 
     fields = {}
     for name, draw in (("field", True), ("quiet", False)):
-        problem, grid, noise = noisy_problem(march, draw=draw)
-        backend = _native()(problem, grid=grid, options=CARTESIAN_CHUNK)
+        problem, run_request, grid, noise = noisy_problem(march, draw=draw)
+        backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
         try:
             backend.set_initial(problem.initial.field0, noise)
-            backend.propagate_to(float(problem.stepper.save_planes[-1]))
+            backend.propagate_to(float(run_request.stepper.save_planes[-1]))
             fields[name] = backend.observe().require_field().copy()
             if draw:
                 sizing = _sizing(backend)
@@ -323,7 +329,7 @@ def wide_transverse_problem(march: str = "march"):
         GaussianPulse(wavelength=800e-9, fwhm=30e-15, energy=1e-7), 80e-6
     )
     schedule = FixedSchedule.uniform(0.0, length, length / 4)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         None,
         [KerrResponse(1e-22, thg=False)],
@@ -338,16 +344,16 @@ def wide_transverse_problem(march: str = "march"):
         integrator=MARCH if march == "march" else Multistep(),
         propagator_mode="tabulate" if march == "march" else "recompute",
     )
-    return fixed_order(problem), grid
+    return problem, fixed_order(run_request), grid
 
 
 def wide_transverse(march: str = "march"):
     """Replay `march` on the plane whose transverse transform can use its pool."""
-    problem, grid = wide_transverse_problem(march)
-    backend = _native()(problem, grid=grid)
+    problem, run_request, grid = wide_transverse_problem(march)
+    backend = _native()(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return {"field": backend.observe().require_field().copy()}, _sizing(backend)
     finally:
         backend.close()
@@ -365,22 +371,30 @@ def accept_problem():
     """
     simulation = ROUTES["cartesian"](None)
     problem = simulation.translate()
-    return simulation, dataclasses.replace(
-        problem,
-        responses=dataclasses.replace(problem.responses, absorber_scheme="nonlinear"),
-        stepper=dataclasses.replace(
-            problem.stepper,
-            integrator=None,
-            save_planes=np.array([ACCEPT_STEP]),
-            schedule=FixedSchedule(np.array([ACCEPT_STEP])),
+    run_request = simulation._run_request()
+    return (
+        simulation,
+        dataclasses.replace(
+            problem,
+            responses=dataclasses.replace(
+                problem.responses, absorber_scheme="nonlinear"
+            ),
+        ),
+        run_request.with_stepper(
+            dataclasses.replace(
+                run_request.stepper,
+                integrator=None,
+                save_planes=np.array([ACCEPT_STEP]),
+                schedule=FixedSchedule(np.array([ACCEPT_STEP])),
+            )
         ),
     )
 
 
 def accept():
     """One trial's partials beside the states they reduce, the launch and the result."""
-    simulation, problem = accept_problem()
-    backend = _native()(problem, grid=simulation.grid)
+    simulation, problem, run_request = accept_problem()
+    backend = _native()(problem, run_request, grid=simulation.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         launch = backend._native_state.field_to_host().copy()
@@ -400,7 +414,7 @@ def linear_cartesian(mode: str):
     """Return ``cartesian_march``'s beam with no response: a pass is its fold."""
     from backends.test_low_storage import cartesian_march  # noqa: PLC0415
 
-    problem, grid, _ = cartesian_march(mode)
+    problem, run_request, grid, _ = cartesian_march(mode)
     return (
         dataclasses.replace(
             problem,
@@ -410,6 +424,7 @@ def linear_cartesian(mode: str):
                 kerr_coefficients=None,
             ),
         ),
+        run_request,
         grid,
     )
 
@@ -418,8 +433,8 @@ def folds(mode: str):
     """March the linear beam, saving every step's squared norm from the engine."""
     from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
 
-    problem, grid = linear_cartesian(mode)
-    backend = _native()(problem, grid=grid, options=CARTESIAN_CHUNK)
+    problem, run_request, grid = linear_cartesian(mode)
+    backend = _native()(problem, run_request, grid=grid, options=CARTESIAN_CHUNK)
     norms = []
     try:
         engine = backend._low_storage._engine  # pyright: ignore[reportOptionalMemberAccess]
@@ -431,7 +446,7 @@ def folds(mode: str):
 
         engine.step = recorded
         backend.set_initial(problem.initial.field0, None)
-        backend.propagate_to(float(problem.stepper.save_planes[-1]))
+        backend.propagate_to(float(run_request.stepper.save_planes[-1]))
         return {
             "field": backend.observe().require_field().copy(),
             "norms": np.array(norms),
@@ -452,14 +467,17 @@ def linear_flow_problem(name: str):
     # The entry point refuses a capillary with no nonlinearity.
     object.__setattr__(linear, "responses", ())
     problem = linear.translate()
-    schedule = problem.stepper.schedule
+    run_request = linear._run_request()
+    schedule = run_request.stepper.schedule
     return (
         dataclasses.replace(
             problem,
             responses=dataclasses.replace(
                 problem.responses, absorber_scheme="split_step"
             ),
-            stepper=dataclasses.replace(problem.stepper, integrator=None),
+        ),
+        run_request.with_stepper(
+            dataclasses.replace(run_request.stepper, integrator=None)
         ),
         linear.grid,
         float(schedule.steps[0]),  # pyright: ignore[reportOptionalMemberAccess]
@@ -468,8 +486,8 @@ def linear_flow_problem(name: str):
 
 def flow(name: str):
     """One linear trial of a coupled flow: the partials and the state."""
-    problem, grid, dz = linear_flow_problem(name)
-    backend = _native()(problem, grid=grid)
+    problem, run_request, grid, dz = linear_flow_problem(name)
+    backend = _native()(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         partials = np.array(backend._prepare_trial(0.0, dz), dtype=np.float64)

@@ -36,9 +36,12 @@ SPEC = StatsSpec(names=("electron_density", "peak_ionisation_rate"))
 def test_the_statistics_refuse_and_a_quiet_field_recovers(
     monkeypatch: pytest.MonkeyPatch, geometry: str
 ) -> None:
-    problem, grid = envelope_case(geometry, 1, mixture=False)
+    problem, run_request, grid = envelope_case(geometry, 1, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options(geometry).node_chunk
+        problem,
+        run_request,
+        terms(problem),
+        node_chunk=envelope_options(geometry).node_chunk,
     )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # As the source's test: alternating incompatible rules must fail refinement.
@@ -51,7 +54,9 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
-    owner = NativeBackend(problem, grid=grid, options=envelope_options(geometry))
+    owner = NativeBackend(
+        problem, run_request, grid=grid, options=envelope_options(geometry)
+    )
     try:
         owner.set_initial(
             np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None

@@ -47,6 +47,7 @@ from solprop.translate.problem import (
     _held_state,
     _walk_arrays,
     assemble,
+    validate_run,
 )
 from solprop.translate.responses import CompiledResponses, prefactor_at
 from solprop.translate.routes import Route, TDSESource, flux_of
@@ -97,7 +98,7 @@ def gnlse(envelope_grid):
 
 
 @pytest.fixture(scope="module")
-def soliton(envelope_grid, gnlse):
+def soliton_translation(envelope_grid, gnlse):
     """The N = 1 soliton problem of the scaffold, assembled for a kernel."""
     peak = abs(BETA2) / (GAMMA * TAU0**2)
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(
@@ -130,7 +131,7 @@ def capillary():
 
 
 @pytest.fixture(scope="module")
-def gradient(field_grid, capillary):
+def gradient_translation(field_grid, capillary):
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -145,6 +146,42 @@ def gradient(field_grid, capillary):
             dz_init=1e-4,
             absorber=absorber(field_grid),
         )
+
+
+@pytest.fixture(scope="module")
+def soliton(soliton_translation):
+    """The soliton's problem."""
+    return soliton_translation.problem
+
+
+@pytest.fixture(scope="module")
+def soliton_request(soliton_translation):
+    """The soliton's run request."""
+    return soliton_translation.request
+
+
+@pytest.fixture(scope="module")
+def gradient(gradient_translation):
+    """The gradient capillary's problem."""
+    return gradient_translation.problem
+
+
+@pytest.fixture(scope="module")
+def gradient_request(gradient_translation):
+    """The gradient capillary's run request."""
+    return gradient_translation.request
+
+
+@pytest.fixture(scope="module")
+def raman_soliton(raman_soliton_translation):
+    """The Raman soliton's problem."""
+    return raman_soliton_translation.problem
+
+
+@pytest.fixture(scope="module")
+def raman_soliton_request(raman_soliton_translation):
+    """The Raman soliton's run request."""
+    return raman_soliton_translation.request
 
 
 # ------------------------------------------------------------------- the contract test
@@ -165,11 +202,13 @@ def contract_field_names(path=CONTRACT):
     return names
 
 
-def dataclass_field_names(problem):
+def dataclass_field_names(problem, run_request):
     """Every contract field of the dataclass tree, by the contract's walking rule.
 
     The route is a closed union: every variant's fields are rows of the document,
-    whichever variant this problem carries, and so are the TDSE source's.
+    whichever variant this problem carries, and so are the TDSE source's. The run's
+    policy is the request's (SEP 47 section 5.2): its stepper section is walked as a
+    group (section 7), and its statistics are the row ``stats`` (section 8).
     """
     names = set()
 
@@ -184,14 +223,18 @@ def dataclass_field_names(problem):
 
     visit(problem)
     visit(problem.transform)
+    visit(run_request.stepper)
+    names.add("stats")
     for variant in (*typing.get_args(Route.__value__), TDSESource):
         names.update(entry.name for entry in dataclasses.fields(variant))
     return names
 
 
-def test_the_contract_document_and_the_dataclass_list_the_same_fields(soliton):
+def test_the_contract_document_and_the_dataclass_list_the_same_fields(
+    soliton, soliton_request
+):
     documented = contract_field_names()
-    implemented = dataclass_field_names(soliton)
+    implemented = dataclass_field_names(soliton, soliton_request)
     assert documented - implemented == set(), "documented but not implemented"
     assert implemented - documented == set(), "implemented but not documented"
 
@@ -244,7 +287,7 @@ def test_every_page_states_the_schema_the_code_writes():
 # ------------------------------------------------------------------------- assembly
 
 
-def test_the_soliton_problem_assembles(soliton, envelope_grid):
+def test_the_soliton_problem_assembles(soliton, envelope_grid, soliton_request):
     assert soliton.grid_kind == "envelope"
     assert soliton.shape == (1, 1, envelope_grid.n_omega)
     assert soliton.flags == Flags(
@@ -262,7 +305,7 @@ def test_the_soliton_problem_assembles(soliton, envelope_grid):
     # one-interval fast path rather than an adaptive build.
     assert soliton.linear.n_intervals == 1
     assert soliton.linear.phi_degrees.tolist() == [1]
-    assert soliton.stepper.z_end == 1.0
+    assert soliton_request.stepper.z_end == 1.0
 
 
 def test_the_gradient_capillary_assembles(gradient, field_grid, capillary):
@@ -312,7 +355,7 @@ def test_the_polarisation_taper_is_off_unless_asked_for(envelope_grid, gnlse):
         "dz_init": 1e-4,
         **GNLSE,
     }
-    plain = assemble(envelope_grid, gnlse.mode, [gnlse.kerr], start, **request)
+    plain = assemble(envelope_grid, gnlse.mode, [gnlse.kerr], start, **request).problem
     assert np.all(plain.grids.omega_window == 1.0)
     tapered = assemble(
         envelope_grid,
@@ -321,7 +364,7 @@ def test_the_polarisation_taper_is_off_unless_asked_for(envelope_grid, gnlse):
         start,
         polarisation_taper=True,
         **request,
-    )
+    ).problem
     assert np.array_equal(tapered.grids.omega_window, envelope_grid.omega_window)
 
 
@@ -361,7 +404,7 @@ def test_a_noise_realisation_is_carried_in_the_canonical_layout(envelope_grid, g
         dz_init=1e-4,
         noise=draw,
         **GNLSE,
-    )
+    ).problem
     assert problem.flags.has_noise
     assert problem.initial.noise_model == "modified"
     assert problem.initial.noise0 is not None
@@ -369,12 +412,12 @@ def test_a_noise_realisation_is_carried_in_the_canonical_layout(envelope_grid, g
     assert np.array_equal(problem.initial.noise0, draw.spectrum)
 
 
-def test_the_defaults_follow_the_stepper_design(soliton):
-    assert soliton.stepper.tableau is DOPRI5
-    assert soliton.stepper.dz_min == default_dz_min(1.0)
-    assert soliton.stepper.stretch == 1.1
-    assert soliton.stepper.propagator_mode == "auto"
-    assert soliton.stepper.schedule is None
+def test_the_defaults_follow_the_stepper_design(soliton_request):
+    assert soliton_request.stepper.tableau is DOPRI5
+    assert soliton_request.stepper.dz_min == default_dz_min(1.0)
+    assert soliton_request.stepper.stretch == 1.1
+    assert soliton_request.stepper.propagator_mode == "auto"
+    assert soliton_request.stepper.schedule is None
 
 
 def test_a_fixed_schedule_that_lands_on_the_planes_is_accepted(envelope_grid, gnlse):
@@ -382,7 +425,7 @@ def test_a_fixed_schedule_that_lands_on_the_planes_is_accepted(envelope_grid, gn
         envelope_grid
     )
     schedule = FixedSchedule.uniform(0.0, 1.0, 0.05, save_planes=[0.5, 1.0])
-    problem = assemble(
+    _, run_request = assemble(
         envelope_grid,
         gnlse.mode,
         [gnlse.kerr],
@@ -394,7 +437,7 @@ def test_a_fixed_schedule_that_lands_on_the_planes_is_accepted(envelope_grid, gn
         schedule=schedule,
         **GNLSE,
     )
-    assert problem.stepper.schedule is schedule
+    assert run_request.stepper.schedule is schedule
 
 
 # --------------------------------------------------------------- validate rejects
@@ -427,52 +470,73 @@ def corrupt(problem, group, name, value):
     return copy
 
 
-def test_validate_rejects_a_not_finite_array(soliton):
+def corrupt_statistics(run_request, name, value):
+    """Overwrite one field of a request's statistics, bypassing their own checks.
+
+    The statistics are the request's (SEP 47 section 5.2); their arrays are held to
+    the seam's rules under their old name ``stats_spec`` (:func:`validate_run`).
+    """
+    stats = dataclasses.replace(run_request.observation.stats)
+    object.__setattr__(stats, name, value)
+    return run_request.for_run(stats=stats)
+
+
+def test_validate_rejects_a_not_finite_array(soliton, soliton_request):
     spoiled = np.array(soliton.grids.omega, copy=True)
     spoiled[3] = np.nan
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="not finite"):
-        corrupt(soliton, "grids", "omega", spoiled).validate()
+        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
 
 
-def test_validate_admits_infinite_energy_window_edges_but_not_nan(soliton):
+def test_validate_admits_infinite_energy_window_edges_but_not_nan(
+    soliton, soliton_request
+):
     # A half-open window may run to either end of the axis, as the manual shows.
     windows = np.array([[-np.inf, 2.4e15], [2.4e15, np.inf]])
     spec = StatsSpec(names=("energy_window",), energy_windows=windows)
-    corrupt(soliton, "stats_spec", "energy_windows", spec.energy_windows).validate()
+    validate_run(
+        soliton,
+        corrupt_statistics(soliton_request, "energy_windows", spec.energy_windows),
+    )
     spoiled = np.array([[np.nan, 2.4e15]])
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="not finite"):
-        corrupt(soliton, "stats_spec", "energy_windows", spoiled).validate()
+        validate_run(
+            soliton, corrupt_statistics(soliton_request, "energy_windows", spoiled)
+        )
 
 
-def test_validate_rejects_a_wrong_dtype(soliton):
+def test_validate_rejects_a_wrong_dtype(soliton, soliton_request):
     spoiled = np.asarray(soliton.grids.omega, dtype=np.float32)
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="dtype"):
-        corrupt(soliton, "grids", "omega", spoiled).validate()
+        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
 
 
-def test_validate_rejects_a_non_contiguous_array(soliton):
+def test_validate_rejects_a_non_contiguous_array(soliton, soliton_request):
     spoiled = np.repeat(np.asarray(soliton.grids.omega), 2)[::2]
     spoiled.setflags(write=False)
     assert not spoiled.flags.c_contiguous
     with pytest.raises(TranslationError, match="C-contiguous"):
-        corrupt(soliton, "grids", "omega", spoiled).validate()
+        validate_run(corrupt(soliton, "grids", "omega", spoiled), soliton_request)
 
 
-def test_validate_rejects_a_writeable_array(soliton):
+def test_validate_rejects_a_writeable_array(soliton, soliton_request):
     with pytest.raises(TranslationError, match="writeable"):
-        corrupt(
-            soliton, "grids", "omega", np.array(soliton.grids.omega, copy=True)
-        ).validate()
+        validate_run(
+            corrupt(
+                soliton, "grids", "omega", np.array(soliton.grids.omega, copy=True)
+            ),
+            soliton_request,
+        )
 
 
-def test_validate_rejects_a_non_boolean_mask(soliton):
+def test_validate_rejects_a_non_boolean_mask(soliton, soliton_request):
     spoiled = np.asarray(soliton.grids.active_mask, dtype=np.float64)
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="must be Boolean"):
-        corrupt(soliton, "grids", "active_mask", spoiled).validate()
+        validate_run(corrupt(soliton, "grids", "active_mask", spoiled), soliton_request)
 
 
 @pytest.mark.parametrize(
@@ -482,60 +546,88 @@ def test_validate_rejects_a_non_boolean_mask(soliton):
         ("grids", "omega", (7,), "bins, expected"),
     ],
 )
-def test_validate_rejects_an_inconsistent_shape(soliton, group, name, shape, message):
+def test_validate_rejects_an_inconsistent_shape(
+    soliton, group, name, shape, message, soliton_request
+):
     dtype = getattr(getattr(soliton, group), name).dtype
     spoiled = np.zeros(shape, dtype=dtype)
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match=message):
-        corrupt(soliton, group, name, spoiled).validate()
+        validate_run(corrupt(soliton, group, name, spoiled), soliton_request)
 
 
-def test_validate_rejects_a_phi_table_of_the_wrong_value_shape(soliton):
+def test_validate_rejects_a_phi_table_of_the_wrong_value_shape(
+    soliton, soliton_request
+):
     """Whichever representation carries the operator, its value is the state."""
     spoiled = np.zeros((1, 2, 1, 1, 1, 3), dtype=np.complex128)
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="linear carries values"):
-        corrupt(soliton, "linear", "phi_coefficients", spoiled).validate()
+        validate_run(
+            corrupt(soliton, "linear", "phi_coefficients", spoiled), soliton_request
+        )
 
 
-def test_validate_rejects_a_transform_with_the_wrong_mode_count(soliton):
+def test_validate_rejects_a_transform_with_the_wrong_mode_count(
+    soliton, soliton_request
+):
     spoiled = np.zeros((1, 2))
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="transform carries"):
-        corrupt(soliton, "transform", "synthesis", spoiled).validate()
+        validate_run(
+            corrupt(soliton, "transform", "synthesis", spoiled), soliton_request
+        )
 
 
-def test_validate_rejects_a_temporal_rate_of_the_wrong_length(gradient):
+def test_validate_rejects_a_temporal_rate_of_the_wrong_length(
+    gradient, gradient_request
+):
     spoiled = np.zeros(7)
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="temporal_absorber has"):
-        corrupt(gradient, "responses", "temporal_absorber", spoiled).validate()
+        validate_run(
+            corrupt(gradient, "responses", "temporal_absorber", spoiled),
+            gradient_request,
+        )
 
 
-def test_validate_rejects_breakpoints_that_do_not_increase(soliton):
+def test_validate_rejects_breakpoints_that_do_not_increase(soliton, soliton_request):
     spoiled = np.array([0.0, 2.0, 1.0])
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="strictly increasing"):
-        corrupt(soliton, "linear", "phi_breakpoints", spoiled).validate()
+        validate_run(
+            corrupt(soliton, "linear", "phi_breakpoints", spoiled), soliton_request
+        )
 
 
-def test_validate_rejects_a_table_that_does_not_cover_the_run(soliton):
+def test_validate_rejects_a_table_that_does_not_cover_the_run(soliton, soliton_request):
     spoiled = np.array([0.0, 0.5])
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="does not contain the run"):
-        corrupt(soliton, "linear", "phi_breakpoints", spoiled).validate()
+        validate_run(
+            corrupt(soliton, "linear", "phi_breakpoints", spoiled), soliton_request
+        )
 
 
-def test_validate_rejects_a_kink_that_is_not_an_interval_edge(gradient):
+def test_validate_rejects_a_kink_that_is_not_an_interval_edge(
+    gradient, gradient_request
+):
     spoiled = np.array([0.123])
     spoiled.setflags(write=False)
     with pytest.raises(TranslationError, match="is not an interval edge"):
-        corrupt(gradient, "linear", "hard_kinks", spoiled).validate()
+        validate_run(
+            corrupt(gradient, "linear", "hard_kinks", spoiled), gradient_request
+        )
 
 
-def test_validate_rejects_a_profile_table_over_a_different_range(soliton, gradient):
+def test_validate_rejects_a_profile_table_over_a_different_range(
+    soliton, gradient, soliton_request
+):
     with pytest.raises(TranslationError, match="every table along z must span"):
-        corrupt(soliton, "responses", "density", gradient.responses.density).validate()
+        validate_run(
+            corrupt(soliton, "responses", "density", gradient.responses.density),
+            soliton_request,
+        )
 
 
 @pytest.mark.parametrize(
@@ -549,15 +641,17 @@ def test_validate_rejects_a_profile_table_over_a_different_range(soliton, gradie
     ],
     ids=["below zero at its end", "below zero between vacuum ends"],
 )
-def test_validate_still_rejects_a_negative_density(gradient, density):
+def test_validate_still_rejects_a_negative_density(gradient, density, gradient_request):
     start, end = gradient.responses.density.z_span
     path = FromCallable(lambda z: density(z / 0.2), (0.0, 0.2))
     table = profile_table(path, start, end)
     with pytest.raises(TranslationError, match=r"total density must lie in \[0"):
-        corrupt(gradient, "responses", "density", table).validate()
+        validate_run(corrupt(gradient, "responses", "density", table), gradient_request)
 
 
-def test_validate_walks_the_raman_rate_tables_too(raman_soliton, gradient):
+def test_validate_walks_the_raman_rate_tables_too(
+    raman_soliton, gradient, raman_soliton_request
+):
     # The decay-rate tables of a Raman kernel are tables along z like the density, and
     # validate checks their span with the rest; a stale one from another run is refused
     # by name, through the leaf that holds it.
@@ -569,11 +663,14 @@ def test_validate_walks_the_raman_rate_tables_too(raman_soliton, gradient):
         TranslationError,
         match=r"raman_terms\[0\]\.decay_rates\[0\] covers",
     ):
-        corrupt(raman_soliton, "responses", "raman_terms", (stale,)).validate()
+        validate_run(
+            corrupt(raman_soliton, "responses", "raman_terms", (stale,)),
+            raman_soliton_request,
+        )
 
 
 @pytest.fixture(scope="module")
-def raman_soliton(envelope_grid, gnlse):
+def raman_soliton_translation(envelope_grid, gnlse):
     """The soliton problem with a fused-silica Raman response beside its Kerr term."""
     peak = abs(BETA2) / (GAMMA * TAU0**2)
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=peak).build(
@@ -592,18 +689,23 @@ def raman_soliton(envelope_grid, gnlse):
     )
 
 
-def test_validate_accepts_the_compiled_raman_rows(raman_soliton):
+def test_validate_accepts_the_compiled_raman_rows(raman_soliton, raman_soliton_request):
     assert raman_soliton.flags.has_raman
-    assert raman_soliton.validate() is None
+    assert validate_run(raman_soliton, raman_soliton_request) is None
 
 
-def test_validate_rejects_a_kernel_that_is_not_on_the_doubled_grid(raman_soliton):
+def test_validate_rejects_a_kernel_that_is_not_on_the_doubled_grid(
+    raman_soliton, raman_soliton_request
+):
     # The convolution is built from n_to; a kernel of any other length would be
     # convolved against the wrong axis rather than raise.
     leaf = raman_soliton.responses.raman_coefficients
     stale = dataclasses.replace(leaf, undamped=np.zeros((1, raman_soliton.grids.n_to)))
     with pytest.raises(TranslationError, match="on the doubled fine grid"):
-        corrupt(raman_soliton, "responses", "raman_terms", (stale,)).validate()
+        validate_run(
+            corrupt(raman_soliton, "responses", "raman_terms", (stale,)),
+            raman_soliton_request,
+        )
 
 
 def test_the_leaf_refuses_a_kernel_with_no_table_for_a_row(raman_soliton):
@@ -619,7 +721,9 @@ def test_the_leaf_refuses_a_fraction_outside_its_range(raman_soliton, fraction):
         dataclasses.replace(leaf, fraction=fraction)
 
 
-def test_validate_rejects_a_raman_kernel_on_a_vector_problem(raman_soliton):
+def test_validate_rejects_a_raman_kernel_on_a_vector_problem(
+    raman_soliton, raman_soliton_request
+):
     # The vector form needs a tensor kernel no backend can consume, and the
     # compiler refuses it, so only a hand-built problem reaches this guard.
     transform = dataclasses.replace(raman_soliton.transform)
@@ -629,7 +733,7 @@ def test_validate_rejects_a_raman_kernel_on_a_vector_problem(raman_soliton):
     object.__setattr__(route, "transform", transform)
     object.__setattr__(stale, "route", route)
     with pytest.raises(TranslationError, match="tensor"):
-        stale.validate()
+        validate_run(stale, raman_soliton_request)
 
 
 def test_validate_rejects_a_schedule_that_misses_a_save_plane(envelope_grid, gnlse):
@@ -673,16 +777,22 @@ def test_validate_rejects_a_schedule_that_misses_a_hard_kink(field_grid, capilla
         )
 
 
-def test_validate_rejects_a_prefactor_of_the_wrong_value_shape(soliton):
+def test_validate_rejects_a_prefactor_of_the_wrong_value_shape(
+    soliton, soliton_request
+):
     spoiled = dataclasses.replace(
         soliton.responses.prefactor,
         coefficients=soliton.responses.prefactor.coefficients[..., :7],
     )
     with pytest.raises(TranslationError, match="prefactor carries values"):
-        corrupt(soliton, "responses", "prefactor", spoiled).validate()
+        validate_run(
+            corrupt(soliton, "responses", "prefactor", spoiled), soliton_request
+        )
 
 
-def test_validate_rejects_a_prefactor_table_over_a_different_range(soliton):
+def test_validate_rejects_a_prefactor_table_over_a_different_range(
+    soliton, soliton_request
+):
     # The same values over half the run: the shape is right and the span is not.
     edges = np.array([0.0, 0.5])
     edges.setflags(write=False)
@@ -690,29 +800,42 @@ def test_validate_rejects_a_prefactor_table_over_a_different_range(soliton):
         cast("PiecewiseChebyshev", soliton.responses.prefactor), breakpoints=edges
     )
     with pytest.raises(TranslationError, match=r"responses\.prefactor covers"):
-        corrupt(soliton, "responses", "prefactor", short).validate()
+        validate_run(corrupt(soliton, "responses", "prefactor", short), soliton_request)
 
 
-def test_validate_rejects_a_constant_prefactor_beside_a_varying_prefactor(gradient):
+def test_validate_rejects_a_constant_prefactor_beside_a_varying_prefactor(
+    gradient, gradient_request
+):
     """A gradient's prefactor varies, so no array may stand in for it."""
     constant = np.ascontiguousarray(prefactor_at(gradient.responses, 0.0))
     constant.setflags(write=False)
     with pytest.raises(TranslationError, match="fast path is only for a prefactor"):
-        corrupt(gradient, "responses", "prefactor_constant", constant).validate()
+        validate_run(
+            corrupt(gradient, "responses", "prefactor_constant", constant),
+            gradient_request,
+        )
 
 
-def test_validate_rejects_a_constant_prefactor_that_disagrees_with_the_rest(soliton):
+def test_validate_rejects_a_constant_prefactor_that_disagrees_with_the_rest(
+    soliton, soliton_request
+):
     wrong = np.ascontiguousarray(2.0 * prefactor_at(soliton.responses, 0.0))
     wrong.setflags(write=False)
     with pytest.raises(TranslationError, match="does not agree with the prefactor"):
-        corrupt(soliton, "responses", "prefactor_constant", wrong).validate()
+        validate_run(
+            corrupt(soliton, "responses", "prefactor_constant", wrong), soliton_request
+        )
 
 
-def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(soliton):
+def test_validate_allows_a_fixed_fibre_to_go_without_the_fast_path(
+    soliton, soliton_request
+):
     # The fast path is a claim about the prefactor table, not about the operator: a
     # synthetic z-varying Phi on a fixed fibre, or a fixed fibre read through its table,
     # both validate.
-    corrupt(soliton, "responses", "prefactor_constant", None).validate()
+    validate_run(
+        corrupt(soliton, "responses", "prefactor_constant", None), soliton_request
+    )
 
 
 # ------------------------------------------------------------------------ immutability
@@ -906,7 +1029,7 @@ def test_the_initial_group_copies_the_noise():
     assert replaced.noise0 is initial.noise0
 
 
-def test_validate_admits_a_broadcast_initial_state(soliton):
+def test_validate_admits_a_broadcast_initial_state(soliton, soliton_request):
     first = soliton.initial.field0[..., :1]
     broadcast = dataclasses.replace(
         soliton,
@@ -915,7 +1038,7 @@ def test_validate_admits_a_broadcast_initial_state(soliton):
         ),
     )
     assert not broadcast.initial.field0.flags.c_contiguous
-    broadcast.validate()
+    validate_run(broadcast, soliton_request)
 
 
 def test_a_broadcast_free_space_input_runs_as_its_expansion():
@@ -998,16 +1121,18 @@ def test_the_adams_march_refuses_the_controller_settings_it_ignores():
     _stepper(tuned, None)
 
 
-def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton):
+def test_the_stats_request_is_the_catalogue_object(
+    envelope_grid, gnlse, soliton_request
+):
     # Section 8 is solprop.stats.StatsSpec itself, validated against the catalogue at
-    # construction; a problem carries the caller's spec unchanged and an empty one
+    # construction; the request carries the caller's spec unchanged and an empty one
     # otherwise.
-    assert soliton.stats_spec.names == ()
+    assert soliton_request.observation.stats.names == ()
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(
         envelope_grid
     )
     spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=5)
-    problem = assemble(
+    _, run_request = assemble(
         envelope_grid,
         gnlse.mode,
         [gnlse.kerr],
@@ -1019,10 +1144,12 @@ def test_the_stats_request_is_the_catalogue_object(envelope_grid, gnlse, soliton
         stats_spec=spec,
         **GNLSE,
     )
-    assert problem.stats_spec is spec
+    assert run_request.observation.stats is spec
 
 
-def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
+def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(
+    soliton, soliton_request
+):
     """The contract is a dataclass, so a backend test can substitute one group."""
     rebuilt = PropagationProblem(
         grid_kind=soliton.grid_kind,
@@ -1031,7 +1158,8 @@ def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
         grids=soliton.grids,
         linear=dataclasses.replace(
             constant_phi(
-                np.zeros(soliton.shape[2], dtype=complex), soliton.stepper.z_end
+                np.zeros(soliton.shape[2], dtype=complex),
+                soliton_request.stepper.z_end,
             ),
             power_weight_representation=soliton.linear.power_weight_representation,
             power_weight=soliton.linear.power_weight,
@@ -1039,11 +1167,9 @@ def test_a_kernel_problem_can_be_built_by_hand_from_its_groups(soliton):
         ),
         responses=soliton.responses,
         initial=soliton.initial,
-        stepper=soliton.stepper,
-        stats_spec=soliton.stats_spec,
         route=soliton.route,
     )
-    rebuilt.validate()
+    validate_run(rebuilt, soliton_request)
     assert rebuilt.linear.phi_representation == "constant"
     assert math.isclose(rebuilt.linear.z_span[1], 1.05)
 
@@ -1083,7 +1209,7 @@ def test_a_multimode_problem_assembles_with_a_quadrature(field_grid):
             dz_max=0.01,
             dz_init=1e-4,
             quadrature=rule,
-        )
+        ).problem
     assert problem.shape == (3, 1, field_grid.n_omega)
     assert not problem.flags.single_mode
     assert not problem.flags.mode_averaged
@@ -1104,7 +1230,7 @@ def test_the_default_components_are_the_ones_the_modes_point_along(field_grid):
     matrices = mode_matrix(modes, rule, 0.0, components=DEFAULT_COMPONENTS)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = _multimode_problem(field_grid, modes, rule)
+        problem = _multimode_problem(field_grid, modes, rule).problem
     assert DEFAULT_COMPONENTS == ("x",)
     assert (
         np.max(np.abs(mode_matrix(modes, rule, 0.0, components=("y",)).synthesis))
@@ -1123,7 +1249,9 @@ def test_both_components_resolved_gives_a_two_component_transform(field_grid):
     rule = transverse_quadrature(modes, n_r=10, radial_rule="gauss_kronrod")
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = _multimode_problem(field_grid, modes, rule, components=("x", "y"))
+        problem = _multimode_problem(
+            field_grid, modes, rule, components=("x", "y")
+        ).problem
     assert problem.transform.n_pol == 2
     assert problem.transform.n_nodes == rule.n_nodes
     assert problem.transform.synthesis.shape == (2 * rule.n_nodes, 2)
@@ -1140,7 +1268,7 @@ def test_both_components_resolved_gives_a_two_component_transform(field_grid):
 def test_omitted_components_resolve_the_nonzero_union(field_grid, angles, n_components):
     modes = [MarcatiliMode(125e-6, phi=phi, cladding=1.45) for phi in angles]
     rule = transverse_quadrature(modes, n_r=10)
-    problem = _multimode_problem(field_grid, modes, rule)
+    problem = _multimode_problem(field_grid, modes, rule).problem
     assert problem.transform.n_pol == n_components
     assert np.max(np.abs(problem.transform.synthesis)) > 0
 
@@ -1159,7 +1287,9 @@ def test_inferred_vector_rows_require_an_explicit_product_choice(field_grid):
     with pytest.raises(TranslationError, match="carry the transverse components twice"):
         _multimode_problem(field_grid, modes, rule, n_pol=2)
     assert (
-        _multimode_problem(field_grid, modes, rule, components=("y",), n_pol=2).shape[1]
+        _multimode_problem(
+            field_grid, modes, rule, components=("y",), n_pol=2
+        ).problem.shape[1]
         == 2
     )
 
@@ -1227,7 +1357,7 @@ PLASMA_FIELD_RANGE = (1e9, 1e11)  # V/m, the span the rate table covers
 
 
 @pytest.fixture
-def plasma_problem(field_grid):
+def plasma_translation(field_grid):
     """A gradient capillary carrying a compiled plasma response."""
     mode = MarcatiliMode(125e-6, "He", 1.0, cladding=1.45)
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
@@ -1249,19 +1379,31 @@ def plasma_problem(field_grid):
         )
 
 
-def test_a_compiled_plasma_validates_and_flags_itself(plasma_problem):
+@pytest.fixture
+def plasma_problem(plasma_translation):
+    """The plasma capillary's problem."""
+    return plasma_translation.problem
+
+
+@pytest.fixture
+def plasma_request(plasma_translation):
+    """The plasma capillary's run request."""
+    return plasma_translation.request
+
+
+def test_a_compiled_plasma_validates_and_flags_itself(plasma_problem, plasma_request):
     assert plasma_problem.flags.has_plasma
-    plasma_problem.validate()
+    validate_run(plasma_problem, plasma_request)
 
 
-def test_validate_rejects_a_plasma_on_an_envelope_grid(plasma_problem):
+def test_validate_rejects_a_plasma_on_an_envelope_grid(plasma_problem, plasma_request):
     moved = dataclasses.replace(plasma_problem)
     object.__setattr__(moved, "grid_kind", "envelope")
     with pytest.raises(TranslationError, match="requires a 'field' grid"):
-        moved.validate()
+        validate_run(moved, plasma_request)
 
 
-def test_validate_rejects_two_rate_tables(plasma_problem):
+def test_validate_rejects_two_rate_tables(plasma_problem, plasma_request):
     # Frozen, because the array checks run first and a fresh table is writeable.
     built = build_rate_table(adk_oracle(Gas.Ne), PLASMA_FIELD_RANGE)
     frozen = {}
@@ -1272,10 +1414,12 @@ def test_validate_rejects_two_rate_tables(plasma_problem):
     other = dataclasses.replace(built, **frozen)
     spoiled = corrupt(plasma_problem, "responses", "ionisation_table", (other,))
     with pytest.raises(TranslationError, match="is not the rate table"):
-        spoiled.validate()
+        validate_run(spoiled, plasma_request)
 
 
-def test_validate_checks_the_pre_ionisation_table_spans_the_run(plasma_problem):
+def test_validate_checks_the_pre_ionisation_table_spans_the_run(
+    plasma_problem, plasma_request
+):
     plasma = plasma_problem.responses.plasma_coefficients
     assert plasma is not None
     short = dataclasses.replace(plasma)
@@ -1284,7 +1428,7 @@ def test_validate_checks_the_pre_ionisation_table_spans_the_run(plasma_problem):
     )
     spoiled = corrupt(plasma_problem, "responses", "plasma_channels", (short,))
     with pytest.raises(TranslationError, match="preionisation"):
-        spoiled.validate()
+        validate_run(spoiled, plasma_request)
 
 
 def test_the_plasma_group_s_arrays_are_frozen(plasma_problem):
@@ -1308,7 +1452,7 @@ def test_validate_rejects_a_transform_and_a_state_that_both_carry_the_components
     start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=1e-6).build(field_grid)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
-        problem = assemble(
+        problem, run_request = assemble(
             field_grid,
             mode,
             [KerrResponse(chi3=2.2e-52, thg=True)],
@@ -1321,15 +1465,15 @@ def test_validate_rejects_a_transform_and_a_state_that_both_carry_the_components
     assert problem.shape[1] == 2
     doubled = corrupt(problem, "transform", "_n_pol", 2)
     with pytest.raises(TranslationError, match="with_polarisations"):
-        doubled.validate()
+        validate_run(doubled, run_request)
 
 
-def test_validate_rejects_a_carrier_without_a_harmonic_term(soliton):
+def test_validate_rejects_a_carrier_without_a_harmonic_term(soliton, soliton_request):
     """The carrier is present exactly when the term that needs it is compiled."""
     stray = np.ones(soliton.grids.n_to, dtype=np.complex128)
     stray.setflags(write=False)
     with pytest.raises(TranslationError, match="carrier_2w0 must be present"):
-        corrupt(soliton, "grids", "carrier_2w0", stray).validate()
+        validate_run(corrupt(soliton, "grids", "carrier_2w0", stray), soliton_request)
 
 
 def test_validate_rejects_a_harmonic_term_without_its_carrier():
@@ -1339,7 +1483,7 @@ def test_validate_rejects_a_harmonic_term_without_its_carrier():
         [0.0, 0.0, BETA2], omega_ref=grid.omega0, gamma=GAMMA, shock=False
     )
     start = SechPulse(wavelength=WAVELENGTH, width=TAU0, peak_power=1.0).build(grid)
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         gnlse.mode,
         [dataclasses.replace(gnlse.kerr, thg=True)],
@@ -1352,19 +1496,26 @@ def test_validate_rejects_a_harmonic_term_without_its_carrier():
     )
     assert problem.grids.carrier_2w0 is not None
     with pytest.raises(TranslationError, match="carrier_2w0 must be present"):
-        corrupt(problem, "grids", "carrier_2w0", None).validate()
+        validate_run(corrupt(problem, "grids", "carrier_2w0", None), run_request)
 
 
-def test_validate_rejects_a_constant_prefactor_beside_a_varying_expansion(gradient):
+def test_validate_rejects_a_constant_prefactor_beside_a_varying_expansion(
+    gradient, gradient_request
+):
     """The same claim as for a table, made of the representation a gradient gets."""
     assert gradient.responses.prefactor_representation == "expansion"
     constant = np.ascontiguousarray(prefactor_at(gradient.responses, 0.0))
     constant.setflags(write=False)
     with pytest.raises(TranslationError, match="prefactor expansion"):
-        corrupt(gradient, "responses", "prefactor_constant", constant).validate()
+        validate_run(
+            corrupt(gradient, "responses", "prefactor_constant", constant),
+            gradient_request,
+        )
 
 
-def test_validate_rejects_a_constant_prefactor_beside_a_varying_table(gradient):
+def test_validate_rejects_a_constant_prefactor_beside_a_varying_table(
+    gradient, gradient_request
+):
     """The same claim again, of the representation a fallback problem would get.
 
     Nothing this package builds today takes the z table for a capillary's prefactor, so
@@ -1397,11 +1548,13 @@ def test_validate_rejects_a_constant_prefactor_beside_a_varying_table(gradient):
     spoiled = dataclasses.replace(gradient)
     object.__setattr__(spoiled, "responses", responses)
     with pytest.raises(TranslationError, match="prefactor table"):
-        spoiled.validate()
+        validate_run(spoiled, gradient_request)
 
 
 @pytest.mark.parametrize("failure", ["absent", "shape", "positive", "constant"])
-def test_modal_power_weight_refuses_an_inconsistent_row(soliton, failure):
+def test_modal_power_weight_refuses_an_inconsistent_row(
+    soliton, failure, soliton_request
+):
     linear = soliton.linear
     table = linear.power_weight
     assert table is not None
@@ -1431,12 +1584,15 @@ def test_modal_power_weight_refuses_an_inconsistent_row(soliton, failure):
         )
         message = "power_weight_constant must match"
     with pytest.raises(TranslationError, match=message):
-        dataclasses.replace(soliton, linear=changed).validate()
+        validate_run(dataclasses.replace(soliton, linear=changed), soliton_request)
 
 
 @pytest.fixture(scope="module")
 def radial_problem():
-    """A short radial run in uniform argon, translated with its plane measure."""
+    """A short radial run in uniform argon, translated with its plane measure.
+
+    Its problem and its run's request.
+    """
     grid = EnvelopeGrid.from_limits(1e-3, WAVELENGTH, (600e-9, 1.2e-6), 150e-15)
     pulse = SpatialPulse(
         GaussianPulse(wavelength=WAVELENGTH, fwhm=30e-15, energy=1e-9), 60e-6
@@ -1456,16 +1612,17 @@ def radial_problem():
         ),
         noise=None,
     )
-    return simulation.translate()
+    return simulation.translate(), simulation._run_request()
 
 
 def test_validate_pairs_the_plane_measure_with_spatial_geometry(
     soliton, radial_problem
 ):
     """A spatial problem needs its plane measure on its band, and others carry none."""
+    radial_problem, radial_request = radial_problem
     flux = flux_of(radial_problem.route)
     assert flux is not None
-    radial_problem.validate()
+    validate_run(radial_problem, radial_request)
     # The annotation refuses it under the test session's type checks; the route
     # itself does without them.
     with pytest.raises((TranslationError, TypeError), match="flux"):
@@ -1480,6 +1637,10 @@ def test_validate_pairs_the_plane_measure_with_spatial_geometry(
         flux, base=dataclasses.replace(flux.base, active=narrowed)
     )
     with pytest.raises(TranslationError, match="active mask must match"):
-        dataclasses.replace(
-            radial_problem, route=dataclasses.replace(radial_problem.route, flux=stale)
-        ).validate()
+        validate_run(
+            dataclasses.replace(
+                radial_problem,
+                route=dataclasses.replace(radial_problem.route, flux=stale),
+            ),
+            radial_request,
+        )

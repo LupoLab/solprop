@@ -32,8 +32,8 @@ def test_every_exercise_builds_and_translates(name):
     )
     with expected:
         simulation = build(case.configuration("default", 1, "numpy_ref"))
-        problem = simulation.translate()
-    planes = np.asarray(problem.stepper.save_planes)
+        run_request = simulation._run_request()
+    planes = np.asarray(run_request.stepper.save_planes)
     assert planes[-1] == pytest.approx(case.length)
     assert len(planes) == case.planes
 

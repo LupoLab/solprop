@@ -17,6 +17,7 @@ from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.run_request import RunRequest
 
 from solprop_native import NativeBackend, _core
 from solprop_native.backend import (
@@ -25,7 +26,7 @@ from solprop_native.backend import (
 
 
 @pytest.fixture
-def mixture_case() -> tuple[PropagationProblem, FieldGrid]:
+def mixture_case() -> tuple[PropagationProblem, RunRequest, FieldGrid]:
     """Declare nitrogen and oxygen channels with optmat's molecular rates."""
     mixture = Mixture.air(1.0)
     grid = FieldGrid.from_limits(1e-4, 800e-9, (400e-9, 2e-6), 400e-15, ffac=4.0)
@@ -38,7 +39,7 @@ def mixture_case() -> tuple[PropagationProblem, FieldGrid]:
     )
     # optmat's N2, O2 and Ar indices hold from below 200 nm to the static limit,
     # past this grid's collar: SEP 3 qualifies no range warning here.
-    problem = assemble(
+    problem, run_request = assemble(
         grid,
         mode,
         responses,
@@ -49,14 +50,14 @@ def mixture_case() -> tuple[PropagationProblem, FieldGrid]:
         dz_init=grid.length,
         ionisation_field_range=(1e8, 1e11),
     )
-    return problem, grid
+    return problem, run_request, grid
 
 
 def test_species_statistics_preserve_an_inert_component_and_close(
-    mixture_case: tuple[PropagationProblem, FieldGrid],
+    mixture_case: tuple[PropagationProblem, RunRequest, FieldGrid],
 ) -> None:
-    problem, grid = mixture_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = mixture_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(
@@ -88,13 +89,14 @@ def test_species_statistics_preserve_an_inert_component_and_close(
     ],
 )
 def test_native_channel_payload_refusals(
-    mixture_case: tuple[PropagationProblem, FieldGrid], damage: str
+    mixture_case: tuple[PropagationProblem, RunRequest, FieldGrid], damage: str
 ) -> None:
-    problem, grid = mixture_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = mixture_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         payload = _native_problem(
             problem,
+            run_request,
             backend._terms,  # pyright: ignore[reportPrivateUsage] - fixed payload
         )
         parameters = np.array(payload["channel_parameters"], dtype=float, copy=True)
@@ -118,10 +120,10 @@ def test_native_channel_payload_refusals(
 
 
 def test_native_statistics_refuse_channel_preionisation_shape(
-    mixture_case: tuple[PropagationProblem, FieldGrid],
+    mixture_case: tuple[PropagationProblem, RunRequest, FieldGrid],
 ) -> None:
-    problem, grid = mixture_case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = mixture_case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(ValueError, match="channel preionisation"):

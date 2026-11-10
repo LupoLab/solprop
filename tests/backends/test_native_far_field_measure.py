@@ -36,12 +36,12 @@ def separable_case():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
-    return problem_of(grid, space, field, spec_of(holes("tanh"))), grid
+    return (*problem_of(grid, space, field, spec_of(holes("tanh"))), grid)
 
 
 def test_a_foreign_plane_measure_is_refused():
     """A measure on another operator than the run's own: the payload's guard."""
-    problem, grid = separable_case()
+    problem, run_request, grid = separable_case()
     flux = flux_of(problem.route)
     assert flux is not None
     separable = dataclasses.replace(
@@ -54,7 +54,7 @@ def test_a_foreign_plane_measure_is_refused():
         ),
     )
     with pytest.raises(BackendError, match="this plane measure is another"):
-        NativeBackend(foreign, grid=grid)
+        NativeBackend(foreign, run_request, grid=grid)
 
 
 def test_a_missing_plane_measure_is_refused():
@@ -64,10 +64,10 @@ def test_a_missing_plane_measure_is_refused():
     problem without one doesn't reach it: the problem's own check refuses, on either
     backend.
     """
-    problem, grid = separable_case()
+    problem, run_request, grid = separable_case()
     # The route refuses a missing measure on construction; set one past it.
     route = copy.copy(problem.route)
     object.__setattr__(route, "flux", None)
     foreign = dataclasses.replace(problem, route=route)
     with pytest.raises(TranslationError, match="plane measure"):
-        NativeBackend(foreign, grid=grid)
+        NativeBackend(foreign, run_request, grid=grid)

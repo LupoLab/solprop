@@ -46,16 +46,21 @@ def main():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         simulation = constant_fill_m2()
         problem = simulation.translate()
+        run_request = simulation._run_request()
     owner = select(
-        arguments.backend, problem, grid=simulation.grid, modes=simulation.modes
+        arguments.backend,
+        problem,
+        run_request,
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
-    assert problem.stepper.schedule is not None
+    assert run_request.stepper.schedule is not None
     assert problem.initial.noise0 is not None
     assert problem.linear.phi_coefficients is not None
     try:
         owner.set_initial(problem.initial.field0, None)
         history = [owner.observe().require_field().copy()]
-        for position in problem.stepper.schedule.edges[1:11]:
+        for position in run_request.stepper.schedule.edges[1:11]:
             summary = owner.propagate_to(float(position))
             assert summary.n_steps == 1 and summary.n_rejected == 0
             history.append(owner.observe().require_field().copy())

@@ -176,10 +176,10 @@ def test_records_round_trip_and_name_their_differences() -> None:
 
 
 def _payload(case: PhaseACase) -> dict[str, object]:
-    problem, grid = case
-    backend = NativeBackend(problem, grid=grid)
+    problem, run_request, grid = case
+    backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        return _native_problem(problem, backend._terms)  # pyright: ignore[reportPrivateUsage]
+        return _native_problem(problem, run_request, backend._terms)  # pyright: ignore[reportPrivateUsage]
     finally:
         backend.close()
 
@@ -249,10 +249,10 @@ def test_a_state_refuses_a_record_the_native_core_refuses(
 def test_a_backend_given_a_record_builds_with_it_and_records_it(
     phase_a_case: PhaseACase,
 ) -> None:
-    problem, grid = phase_a_case
+    problem, run_request, grid = phase_a_case
     given = native.BUILTIN_EXECUTION.updated({"medium_threads": 2})
-    backend = NativeBackend(problem, grid=grid, cpu_execution=given)
-    default = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, run_request, grid=grid, cpu_execution=given)
+    default = NativeBackend(problem, run_request, grid=grid)
     try:
         calibration = backend.metadata()["calibration"]
         assert isinstance(calibration, dict)
