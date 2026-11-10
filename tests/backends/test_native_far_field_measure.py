@@ -36,7 +36,8 @@ def separable_case():
     grid = time_grid("envelope")
     space = FreeGrid(3e-4, 8, 3e-4, 8, collar_fraction=0)
     field = random_field(space, 1, grid)
-    return (*problem_of(grid, space, field, spec_of(holes("tanh"))), grid)
+    problem, run_request = problem_of(grid, space, field, spec_of(holes("tanh")))
+    return problem, run_request, grid
 
 
 def test_a_foreign_plane_measure_is_refused():

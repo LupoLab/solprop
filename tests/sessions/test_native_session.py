@@ -54,7 +54,7 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import PropagationProblem, assemble
+from solprop.translate.problem import Translation, assemble
 
 native_session = pytest.importorskip("solprop_native.session")
 
@@ -89,7 +89,7 @@ def _case(  # noqa: PLR0913 - one choice per keyword
     controller: PIController | None = None,
     dz_init: float = 1e-3,
     dz_max: float = LENGTH,
-) -> PropagationProblem:
+) -> Translation:
     """Return the soliton of the lifecycle suite with the method and rows chosen.
 
     Parameters
@@ -117,8 +117,8 @@ def _case(  # noqa: PLR0913 - one choice per keyword
 
     Returns
     -------
-    solprop.translate.problem.PropagationProblem
-        The problem.
+    solprop.translate.problem.Translation
+        The problem and its run's request.
     """
     grid = window()
     from sessions.executors import BETA2, GAMMA, TAU0, WAVELENGTH  # noqa: PLC0415

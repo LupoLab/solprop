@@ -14,6 +14,7 @@ files written before it resume (``tests/data/run_request/generate.py``).
 import platform
 import shutil
 import sys
+from collections.abc import Mapping
 from pathlib import Path
 
 import h5py
@@ -98,12 +99,15 @@ def test_a_file_stopped_before_the_change_resumes_from_itself(tmp_path, name, ad
     with open_file(path) as handler:
         assert handler.outcome is not None
         assert handler.outcome.status == "complete"
-        assert handler.metadata.configuration_hash() == stored
+        metadata = handler.metadata
+        assert metadata is not None
+        assert metadata.configuration_hash() == stored
         # The run's five planes, the entrance among them, the stopped ones as written.
         assert handler.n_saved == 5
         assert before < handler.n_saved
         np.testing.assert_array_equal(np.asarray(handler["field"][:before]), kept)
         restart = handler.outcome.execution["restart"]
+    assert isinstance(restart, Mapping)
     if adams:
         # The history the stopped run kept is the one the resumed march continues.
         assert restart["restoration"]["state"] == "restored"

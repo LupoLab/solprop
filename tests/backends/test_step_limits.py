@@ -245,8 +245,8 @@ def test_the_start_up_rule_jumps_from_the_first_step(narrow_grid, soliton_proble
     common = {"save_planes": [LENGTH], "dz_init": dz_init}
     ruled = soliton_problem(narrow_grid, 1, auto_init=True, **common)
     grown = soliton_problem(narrow_grid, 1, **common)
-    _, ruled_steps = history(*ruled, narrow_grid)
-    _, grown_steps = history(*grown, narrow_grid)
+    _, ruled_steps = history(*ruled, grid=narrow_grid)
+    _, grown_steps = history(*grown, grid=narrow_grid)
     assert ruled_steps[0] == grown_steps[0] == dz_init
     # The second step is the deadbeat one, far beyond the 1.1 the cap allows.
     assert ruled_steps[1] > 10 * dz_init

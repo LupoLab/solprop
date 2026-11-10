@@ -375,14 +375,15 @@ def simulation():
 def test_translation_and_coupling_hold_and_restore_the_pool(
     monkeypatch, pools, simulation
 ):
-    original_validate = translation.PropagationProblem.validate
+    # The checks translation runs with the request (`validate_run`, SEP 47 section 5.2).
+    original_validate = translation.PropagationProblem._validate
     observed = []
 
-    def held_validate(problem):
+    def held_validate(problem, run):
         observed.append(widths(pools))
-        return original_validate(problem)
+        return original_validate(problem, run)
 
-    monkeypatch.setattr(translation.PropagationProblem, "validate", held_validate)
+    monkeypatch.setattr(translation.PropagationProblem, "_validate", held_validate)
     simulation.translate()
     assert observed and all(value == [1, 1] for value in observed)
     assert widths(pools) == [32, 32]
@@ -470,7 +471,11 @@ def test_construction_beside_a_live_backend_restores_its_pools(
         pytest.skip(f"the {name} backend is not installed")
     problem = simulation.translate()
     backend = registry.select(
-        name, problem, grid=simulation.grid, modes=simulation.modes
+        name,
+        problem,
+        simulation._run_request(),
+        grid=simulation.grid,
+        modes=simulation.modes,
     )
     try:
         controller = threadpoolctl.ThreadpoolController().select(user_api="blas")

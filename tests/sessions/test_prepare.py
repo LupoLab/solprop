@@ -10,12 +10,15 @@ the native session where it admits the run and the transitional one, with the re
 where it does not, and any other driver the transitional one.
 """
 
+from typing import cast
+
 import pytest
 
 from scripted_driver import ScriptedDriver
 from sessions.executors import fibre, soliton, window
 from solprop.backends.driver_session import DriverPrepared, DriverSession
 from solprop.backends.host.session import HostSession
+from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import PreparedExecution, SessionError, Start
 from solprop.backends.sessions import start_session
@@ -60,7 +63,10 @@ def test_any_other_driver_prepares_the_transitional_session():
 
 @NATIVE
 def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
-    from solprop_native.session import NativeSession  # noqa: PLC0415 - optional
+    from solprop_native.session import (  # noqa: PLC0415 - optional
+        NativePrepared,
+        NativeSession,
+    )
 
     problem, request = soliton()
     backend = _select("native", problem, request)
@@ -68,6 +74,7 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
         prepared = backend.prepare(problem, request)
         with prepared.start(Start.entrance(problem), owns=False) as session:
             assert isinstance(session, NativeSession)
+        assert isinstance(prepared, NativePrepared)
         assert prepared.refused is None
     finally:
         backend.close()
@@ -77,6 +84,8 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
 def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
     monkeypatch,
 ):
+    from solprop_native.session import NativePrepared  # noqa: PLC0415 - optional
+
     problem, request = soliton()
     backend = _select("native", problem, request)
     monkeypatch.setattr(
@@ -90,6 +99,7 @@ def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
             assert type(session) is DriverSession
         with prepared.start(Start.entrance(problem), owns=False):
             pass
+        assert isinstance(prepared, NativePrepared)
         assert prepared.refused == "the test's reason"
     finally:
         backend.close()
@@ -106,8 +116,10 @@ def test_a_preparation_refuses_a_request_its_backend_was_not_built_for():
     other = request.with_stepper(request.stepper)
     with pytest.raises(SessionError, match="integration is not the backend's own"):
         driver.prepare(problem, other)
+    # The script is the march alone (no memory ledger); the refusal comes first.
+    backend = cast("Backend", driver)
     with pytest.raises(SessionError, match="integration is not the backend's own"):
-        start_session(driver, problem, other, Start.entrance(problem), owns=False)
+        start_session(backend, problem, other, Start.entrance(problem), owns=False)
 
 
 @NATIVE
