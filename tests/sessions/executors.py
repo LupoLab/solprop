@@ -238,6 +238,10 @@ class _Outcomes:
     in_flight : bool, optional
         Whether that failure leaves the step in flight, as an in-place low-storage step
         abandoned partway does: the state is then neither end of the step.
+    signal : bool, optional
+        Whether that trial raises ``KeyboardInterrupt`` instead, as a signal handler
+        does that runs between the driver's steps: a failure outside the session,
+        with nothing in flight.
     warn_at : int or None, optional
         The accepted step whose committed endpoint warns with
         :class:`ScriptedWarning`, after the step's statistics row.
@@ -245,7 +249,7 @@ class _Outcomes:
         Passed to :class:`scripted_driver.ScriptedDriver`.
     """
 
-    def __init__(
+    def __init__(  # noqa: PLR0913 - one keyword per scripted outcome
         self,
         problem: PropagationProblem,
         run_request: RunRequest,
@@ -253,6 +257,7 @@ class _Outcomes:
         reject_at: Collection[int] = (),
         fail_at: int | None = None,
         in_flight: bool = False,
+        signal: bool = False,
         warn_at: int | None = None,
         **kwargs: Any,
     ) -> None:
@@ -260,6 +265,7 @@ class _Outcomes:
         self._reject_at = frozenset(reject_at)
         self._fail_at = fail_at
         self._leave_in_flight = in_flight
+        self._signal = signal
         self._warn_at = warn_at
         self.trials = 0
         self.accepted = 0
@@ -269,6 +275,8 @@ class _Outcomes:
         if self.trials == self._fail_at:
             if self._leave_in_flight:
                 self._in_flight = (z, dz)
+            if self._signal:
+                raise KeyboardInterrupt
             msg = f"scripted failure at trial {self.trials}"
             raise ScriptedError(msg)
         norm, state = super()._trial_step(z, dz)  # pyright: ignore[reportAttributeAccessIssue]

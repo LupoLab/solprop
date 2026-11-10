@@ -64,6 +64,8 @@ def test_any_other_driver_prepares_the_transitional_session():
     driver = ScriptedDriver(problem, request, grid=window())
     prepared = driver.prepare(problem, request)
     assert isinstance(prepared, DriverPrepared)
+    # The preparation's execution facts are its driver's.
+    assert prepared.metadata() == driver.metadata()
     with prepared.start(Start.entrance(problem), owns=False) as session:
         assert type(session) is DriverSession
     prepared.close()
@@ -105,6 +107,11 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
             assert isinstance(session, NativeSession)
         assert isinstance(prepared, NativePrepared)
         assert cast("Any", prepared).refused is None
+        # Its execution facts and its retained buffers are the backend's.
+        assert prepared.metadata() == backend.metadata()
+        ledger = prepared.memory_ledger()
+        assert ledger == backend.memory_ledger()
+        assert sum(ledger.values()) > 0
     finally:
         backend.close()
 
