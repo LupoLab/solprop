@@ -34,7 +34,6 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from solprop.backends import sessions
 from solprop.backends.registry import available
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import BoundaryError, BoundaryWarning
@@ -426,7 +425,9 @@ def test_a_plane_the_step_already_read_reduces_nothing_more(
     # resident (`Session::edge_plane` skips the plane), with no reading through Python.
     _require(backend)
     if route == "bridge":
-        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the bridge"
+        )
     packet = REREVIEW
     length = packet.length
     planes = [length / 4, length / 2, length]
