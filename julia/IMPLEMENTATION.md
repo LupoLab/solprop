@@ -431,3 +431,15 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   nineteen real bridge tests pass again in 51.05 seconds on macOS arm64 with two
   Julia threads. This rechecks actual source construction, advance and export after
   the JET corrections and shared lifecycle integration.
+- The common scheduler now resumes warnings at launch, accepted endpoints, plane
+  preparation and finish without repeating numerical work or losing a pending plane
+  or snapshot. Candidate finishing receives the actual landing endpoint between its
+  initial and final masks. The 425-assertion source/march/transport selection passes;
+  independent review adds a seventeen-assertion consecutive-warning witness (442
+  total). Zero warmed no-service advancement allocation is preserved. Combined
+  Aqua/JET passes sixteen checks, analysing all 874 definitions. Real monitor bridge
+  attachment is still pending; this is lifecycle and numerical-hook evidence.
+- The batch at `aaec5e92` is pushed. GitHub's static lane confirms typing but finds
+  missing docstrings on two overload stubs, where Ruff D418 forbids docstrings. Narrow
+  GL08 exceptions explain that boundary and leave the implementation fully checked;
+  both scoped validators now pass. Other full CI lanes are still running.

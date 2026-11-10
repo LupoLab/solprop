@@ -36,6 +36,7 @@ if group == "Core"
     include("composition.jl")
     include("observations.jl")
     include("march.jl")
+    include("march_services.jl")
     include("transfer.jl")
     include("preparation.jl")
     include("environments.jl")

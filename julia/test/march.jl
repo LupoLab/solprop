@@ -176,6 +176,15 @@ struct _FailPlaneServices end
 SolpropJulia._session_launch!(::_FailPlaneServices, session) = nothing
 SolpropJulia._session_accepted!(::_FailPlaneServices, session, dz) = nothing
 SolpropJulia._session_finish!(::_FailPlaneServices, session) = nothing
+SolpropJulia._session_quiet(::_FailPlaneServices, session) = false
+SolpropJulia._session_quiet_interval(::_FailPlaneServices, session) = nothing
+SolpropJulia._session_cap(::_FailPlaneServices, session, proposal) = proposal
+SolpropJulia._session_barrier(::_FailPlaneServices, session) = :none
+SolpropJulia._session_continue!(::_FailPlaneServices, session) = :none
+SolpropJulia._session_acknowledge!(::_FailPlaneServices, session, generation) = nothing
+SolpropJulia._session_finish_candidate!(
+    ::_FailPlaneServices, session, candidate, dz, destination,
+) = nothing
 function SolpropJulia._session_observe!(::_FailPlaneServices, session, kind, plane)
     kind === :plane && throw(ArgumentError("injected observation failure"))
     return nothing

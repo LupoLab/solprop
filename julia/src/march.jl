@@ -124,7 +124,7 @@ function AttemptBuffer(capacity::Int)
     )
 end
 
-"""Identify a fixed session event: launch, plane, step, progress, snapshot or terminal."""
+"""Identify a fixed session observation, yield, warning or terminal barrier."""
 @enum SessionEvent::UInt8 begin
     SESSION_LAUNCH
     SESSION_PLANE
@@ -134,6 +134,8 @@ end
     SESSION_COMPLETED
     SESSION_STOPPED
     SESSION_FAILED
+    SESSION_WARNING
+    SESSION_BOUNDARY_STOP
 end
 
 function _session_event(kind)
@@ -145,6 +147,8 @@ function _session_event(kind)
     kind === :completed && return SESSION_COMPLETED
     kind === :stopped && return SESSION_STOPPED
     kind === :failed && return SESSION_FAILED
+    kind === :warning && return SESSION_WARNING
+    kind === :boundary_stop && return SESSION_BOUNDARY_STOP
     throw(ArgumentError("unknown numerical session event"))
 end
 
@@ -202,12 +206,17 @@ mutable struct _MarchState
     flight_dz::Float64
     failure_code::Symbol
     failure_message::String
+    observation_kind::Symbol
+    observation_plane::Int
+    endpoint_pending::Bool
+    finishing::Bool
 end
 
 function _MarchState(z, proposal, plane, replay)
     return _MarchState(
         z, proposal, plane, replay, 0, 0, 0, 0, 0, 0, 0.0, 0.0, 0.0,
         false, false, false, false, false, false, 0, :none, false, false, z, 0.0, :none, "",
+        :none, -1, false, false,
     )
 end
 
@@ -218,7 +227,9 @@ _session_observe!(::_NoSessionServices, session, kind, plane) = nothing
 _session_finish!(::_NoSessionServices, session) = nothing
 _session_quiet(::_NoSessionServices, session) = false
 _session_cap(::_NoSessionServices, session, proposal::Float64) = proposal
-_session_finish_candidate!(::_NoSessionServices, session, candidate, dz, destination) = nothing
+_session_finish_candidate!(
+    ::_NoSessionServices, session, candidate, dz, destination,
+) = nothing
 _session_quiet_interval(::_NoSessionServices, session) = nothing
 _session_barrier(::_NoSessionServices, session) = :none
 _session_continue!(::_NoSessionServices, session) = :none
@@ -350,7 +361,13 @@ function _march_landing(session)
         searchsortedlast(schedule.breakpoints, z), 1, length(schedule.breakpoints) - 1,
     )
     width = schedule.breakpoints[index + 1] - schedule.breakpoints[index]
-    capped = min(state.proposal, session.control.dz_max, width)
+    proposal = state.proposal
+    interval = _session_quiet_interval(session.services, session)
+    if _session_quiet(session.services, session) && interval !== nothing
+        proposal = min(proposal, interval)
+    end
+    proposal = _session_cap(session.services, session, proposal)
+    capped = min(proposal, session.control.dz_max, width)
     kink = searchsortedfirst(schedule.hard_kinks, z + _march_slack(z, target))
     ahead = kink <= length(schedule.hard_kinks) ?
         min(target, schedule.hard_kinks[kink]) : target
@@ -385,11 +402,9 @@ end
 
 function _march_issue!(session, kind; plane = session.state.plane - 1)
     state = session.state
-    kind in (:launch, :plane, :step) &&
-        _session_observe!(session.services, session, kind, plane)
     state.pending = true
     state.pending_kind = kind
-    state.finished = kind in (:completed, :stopped, :failed)
+    state.finished = kind in (:completed, :stopped, :failed, :boundary_stop)
     state.generation += 1
     accepted = state.plane_attempts - state.plane_rejected
     return SessionReport(
@@ -399,6 +414,38 @@ function _march_issue!(session, kind; plane = session.state.plane - 1)
         accepted == 0 ? 0.0 : state.plane_sum / accepted, state.plane_work,
         state.plane_max <= 1.0, state.poisoned,
     )
+end
+
+function _march_timed_issue!(
+        session, kind, began, previous_work; plane = session.state.plane - 1,
+    )
+    session.state.plane_work = previous_work + (time_ns() - began) * 1.0e-9
+    return _march_issue!(session, kind; plane)
+end
+
+function _march_service_barrier!(session, began, previous_work)
+    barrier = _session_barrier(session.services, session)
+    barrier === :none && return nothing
+    barrier in (:warning, :boundary_stop) ||
+        throw(ArgumentError("unknown numerical observation barrier"))
+    return _march_timed_issue!(session, barrier, began, previous_work)
+end
+
+function _march_observation_done!(session, began, previous_work)
+    state = session.state
+    kind, plane = state.observation_kind, state.observation_plane
+    state.observation_kind = :none
+    kind === :plane && (state.plane += 1)
+    return _march_timed_issue!(session, kind, began, previous_work; plane)
+end
+
+function _march_observation!(session, kind, plane, began, previous_work)
+    state = session.state
+    state.observation_kind, state.observation_plane = kind, plane
+    _session_observe!(session.services, session, kind, plane)
+    barrier = _march_service_barrier!(session, began, previous_work)
+    barrier === nothing || return barrier
+    return _march_observation_done!(session, began, previous_work)
 end
 
 function _march_trial!(session::RungeKuttaSession, began)
@@ -426,6 +473,11 @@ function _march_trial!(session::RungeKuttaSession, began)
         )
     end
     if accepted
+        candidate, active = session.work.candidate, norm.active
+        each!(session.execution, size(candidate)...) do row, column
+            active[row] || (candidate[row, column] = zero(eltype(candidate)))
+        end
+        _session_finish_candidate!(session.services, session, candidate, dz, destination)
         state.in_flight = true
         rk_commit!(session.field, session.work, norm.active, session.execution)
         state.z = destination
@@ -479,51 +531,64 @@ function advance!(
     began = time_ns()
     previous_work = state.plane_work
     try
+        # A warning can interrupt an endpoint between the monitor verdict and its
+        # periodic row, or a plane before its statistics. Complete that numerical
+        # remainder once before any new trial, without repeating its accepted work.
+        _session_continue!(session.services, session)
+        barrier = _march_service_barrier!(session, began, previous_work)
+        barrier === nothing || return barrier
+        if state.observation_kind !== :none
+            return _march_observation_done!(session, began, previous_work)
+        end
         if !state.launched
             state.launched = true
-            return _march_issue!(session, :launch; plane = -1)
+            return _march_observation!(session, :launch, -1, began, previous_work)
         end
         if !state.services_started
-            _session_launch!(session.services, session)
             state.services_started = true
-        end
-        if state.snapshot && state.accepted > 0
-            state.snapshot = false
-            return _march_issue!(session, :snapshot)
-        end
-        if state.plane > length(session.schedule.planes)
-            _session_finish!(session.services, session)
-            return _march_issue!(session, :completed)
+            _session_launch!(session.services, session)
+            barrier = _march_service_barrier!(session, began, previous_work)
+            barrier === nothing || return barrier
         end
         limit = min(work_limit, length(session.attempts.z))
+        worked = false
         while true
-            if stop_requested(session.stop)
-                state.plane_work += (time_ns() - began) * 1.0e-9
-                return _march_issue!(session, :stopped)
-            end
-            accepted = _march_trial!(session, began)
-            if accepted
+            if state.endpoint_pending
+                state.endpoint_pending = false
                 if _session_reached(session, session.schedule.planes[state.plane])
                     plane = state.plane - 1
-                    state.plane += 1
-                    state.plane_work += (time_ns() - began) * 1.0e-9
-                    return _march_issue!(session, :plane; plane)
+                    return _march_observation!(session, :plane, plane, began, previous_work)
                 end
                 if session.schedule.step_planes > 0 &&
                         state.accepted % session.schedule.step_planes == 0
-                    state.plane_work += (time_ns() - began) * 1.0e-9
-                    return _march_issue!(session, :step)
-                end
-                if state.snapshot
-                    state.snapshot = false
-                    state.plane_work += (time_ns() - began) * 1.0e-9
-                    return _march_issue!(session, :snapshot)
+                    return _march_observation!(
+                        session, :step, state.plane - 1, began, previous_work,
+                    )
                 end
             end
-            if session.attempts.count >= limit || (time_ns() - began) * 1.0e-9 >= deadline
-                state.plane_work += (time_ns() - began) * 1.0e-9
-                return _march_issue!(session, :progress)
+            if state.snapshot && state.accepted > 0
+                state.snapshot = false
+                return _march_timed_issue!(session, :snapshot, began, previous_work)
             end
+            if state.plane > length(session.schedule.planes)
+                if !state.finishing
+                    state.finishing = true
+                    _session_finish!(session.services, session)
+                    barrier = _march_service_barrier!(session, began, previous_work)
+                    barrier === nothing || return barrier
+                end
+                return _march_timed_issue!(session, :completed, began, previous_work)
+            end
+            spent = (time_ns() - began) * 1.0e-9 >= deadline
+            if worked && (session.attempts.count >= limit || spent)
+                return _march_timed_issue!(session, :progress, began, previous_work)
+            end
+            stop_requested(session.stop) &&
+                return _march_timed_issue!(session, :stopped, began, previous_work)
+            state.endpoint_pending = _march_trial!(session, began)
+            worked = true
+            barrier = _march_service_barrier!(session, began, previous_work)
+            barrier === nothing || return barrier
         end
     catch error
         # An observation hook can fail after a successful branch accounted its work.
@@ -549,6 +614,7 @@ function acknowledge!(session::_MarchSession, generation::Int)
     state = session.state
     !state.closed && state.pending && generation == state.generation ||
         throw(ArgumentError("the session event generation is stale or not pending"))
+    _session_acknowledge!(session.services, session, generation)
     if state.pending_kind in (:launch, :plane, :step)
         state.plane_attempts = state.plane_rejected = 0
         state.plane_max = state.plane_sum = state.plane_work = 0.0
