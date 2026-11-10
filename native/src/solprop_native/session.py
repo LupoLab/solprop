@@ -139,7 +139,6 @@ from ._statistics import (
     ADMITTED_SPATIAL_STATISTICS,
     ADMITTED_STATISTICS,
     StatisticsLowering,
-    axis_row_refusal,
     lower,
     metric_refusal,
     translated,
@@ -177,7 +176,6 @@ __all__ = [
     "NativePrepared",
     "NativeSession",
     "backend_refusal",
-    "modes_refusal",
     "refusal",
     "session_refusal",
 ]
@@ -548,9 +546,7 @@ class NativeSession:
         try:
             # The built backend's own admission, before the start's field is taken: a
             # march it would step on the host.
-            refused = backend_refusal(backend) or modes_refusal(
-                backend, problem, request
-            )
+            refused = backend_refusal(backend)
             if refused is not None:
                 msg = f"the native session does not run {refused}"
                 raise BackendError(msg)
@@ -2112,42 +2108,7 @@ def session_refusal(
     """
     if type(backend) is not NativeBackend:
         return f"a {type(backend).__name__}, which the native session does not adopt"
-    return (
-        refusal(problem, request, start)
-        or backend_refusal(backend)
-        or modes_refusal(backend, problem, request)
-    )
-
-
-def modes_refusal(
-    backend: NativeBackend, problem: PropagationProblem, request: RunRequest
-) -> str | None:
-    """Return why the session refuses a run for its backend's mode set, or ``None``.
-
-    What only the mode set decides, so neither :func:`refusal` nor
-    :func:`backend_refusal` can: an axis row the plan cannot scan
-    (:func:`~solprop_native._statistics.axis_row_refusal`). Every door that admits a
-    native session or group asks it, so such a run keeps the transitional session.
-
-    Parameters
-    ----------
-    backend : solprop_native.backend.NativeBackend
-        The built backend.
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's request.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None``.
-    """
-    return axis_row_refusal(
-        problem,
-        request.observation.stats.names,
-        backend._modes,  # pyright: ignore[reportPrivateUsage] - the set it was built with
-    )
+    return refusal(problem, request, start) or backend_refusal(backend)
 
 
 class NativePrepared(DriverPrepared):

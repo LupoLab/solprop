@@ -567,9 +567,10 @@ synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad sca
 from the modal state on the fine grid and scanned natively in the first node's buffer by the node
 scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
 read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
-one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope grid
-whose one-component transform has modes with a y field on the axis is the one row it cannot hold, and
-the session leaves it to the transitional session (`_statistics.axis_row_refusal`). The native row
+one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope's scan
+reads the polarisation ellipse, so on a one-component transform whose modes have a y field on the
+axis the two rows go to a row of their own, which the envelope scan reads as a node of two components
+(`populations.envelope_populations` on the host's row). The native row
 agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
 both read a Radau rule's axis node. A group starts through the same shape (SEP 47 §6.7):
 `start_group` checks the group (`check_group`) and asks its first member,
