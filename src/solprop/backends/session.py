@@ -53,7 +53,7 @@ import enum
 import itertools
 import operator
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from types import TracebackType
 from typing import Protocol, SupportsIndex, cast, runtime_checkable
@@ -91,6 +91,7 @@ __all__ = [
     "SnapshotReceipt",
     "Start",
     "StopToken",
+    "check_group",
     "positive_count",
 ]
 
@@ -266,6 +267,52 @@ class ExecutionOptions:
             :attr:`node_chunk`, which construction already made an ``int``.
         """
         return None if self.node_chunk is None else operator.index(self.node_chunk)
+
+
+def check_group(
+    count: int,
+    problems: Sequence[KernelProblem],
+    requests: Sequence[RunRequest],
+    starts: Sequence[Start],
+) -> None:
+    """Refuse a group's inputs that no group implementation starts from.
+
+    A group (:class:`GroupSession`) takes one problem, request and start per member,
+    and starts every member at its entrance, with no method history or monitor record
+    to continue (SEP 47 section 6.7).
+
+    Parameters
+    ----------
+    count : int
+        The members given.
+    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+        Each member's problem.
+    requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
+        Each member's run request.
+    starts : collections.abc.Sequence of Start
+        Each member's start.
+
+    Raises
+    ------
+    SessionError
+        If the sequences differ in length or are empty, or if a start is not a fresh
+        entrance.
+    """
+    if count == 0 or not count == len(problems) == len(requests) == len(starts):
+        msg = (
+            f"a group needs one problem, request and start per member, and got "
+            f"{count} members, {len(problems)} problems, {len(requests)} "
+            f"requests and {len(starts)} starts"
+        )
+        raise SessionError(msg)
+    for start in starts:
+        fresh = start.march is None and start.monitor is None
+        if not fresh or start.plane_index:
+            msg = (
+                "a group starts its members at their entrance, with no method "
+                "history or monitor record to continue"
+            )
+            raise SessionError(msg)
 
 
 def positive_count(name: str, value: object) -> int:

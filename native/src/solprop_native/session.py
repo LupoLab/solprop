@@ -370,11 +370,19 @@ class NativeSession:
     options : solprop.backends.session.ExecutionOptions or None, optional
         The run's execution options, from which the backend plans its node chunk;
         ``None`` for the automatic choice.
+    backend : solprop_native.backend.NativeBackend or None, optional
+        A backend already built for `problem` and holding no state, which the session
+        then owns in place of building its own (a group's member, as a batched scan
+        constructs it: :class:`~solprop_native.group.NativeGroupSession`). Its own
+        time grid, modes, profiles, far-field tables and execution options are used,
+        and `grid`, `modes`, `profiles` and `options` must then be left out. A failed
+        construction leaves it to the caller.
 
     Raises
     ------
     solprop.exceptions.BackendError
-        Naming the feature the prototype refuses, before anything is allocated.
+        Naming the feature the prototype refuses, before anything is allocated; or
+        if `backend` was built for another problem, or with context given beside it.
     """
 
     def __init__(
@@ -389,12 +397,26 @@ class NativeSession:
         stop: StopFlag | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
         options: ExecutionOptions | None = None,
+        backend: NativeBackend | None = None,
     ) -> None:
         """Refuse what the prototype does not admit, then prepare and start it."""
         refused = refusal(problem, request, start)
         if refused is not None:
             msg = f"the native session does not run {refused}"
             raise BackendError(msg)
+        owned = backend is None
+        if backend is not None:
+            adopted = self._driver(backend)
+            if adopted._problem is not problem:
+                msg = "the native session's backend was built for another problem"
+                raise BackendError(msg)
+            if not (grid is modes is profiles is options is None):
+                msg = (
+                    "a native session over a built backend reads the backend's own "
+                    "grid, modes, profiles and execution options"
+                )
+                raise BackendError(msg)
+            grid, modes, profiles = adopted._grid, adopted._modes, adopted._profiles
         self._problem = problem
         self._request = request
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
@@ -420,7 +442,9 @@ class NativeSession:
         # reads the same lowered inputs.
         union = tuple(dict.fromkeys((*spec.names, *self._row_names)))
         # One set of far-field tables, read by the plan and handed to the backend.
-        self._far_field = FarFieldTables(problem)
+        self._far_field = (
+            FarFieldTables(problem) if backend is None else backend._far_field  # pyright: ignore[reportPrivateUsage] - the tables it was built with
+        )
         lowering = self._lower(union, grid, modes, profiles)
         self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
@@ -430,14 +454,15 @@ class NativeSession:
         self._plane_steps = 0
         self._plane_rejected = 0
         self._plane_wall = 0.0
-        backend = NativeBackend(
-            problem,
-            grid=grid,
-            modes=modes,
-            profiles=profiles,
-            far_field=self._far_field,
-            options=options,
-        )
+        if backend is None:
+            backend = NativeBackend(
+                problem,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                far_field=self._far_field,
+                options=options,
+            )
         self._backend: NativeBackend | None = backend
         try:
             kind, state = self._prepare(backend, start)
@@ -445,7 +470,8 @@ class NativeSession:
                 kind, state, self._plan(start), float(start.z)
             )
         except BaseException:
-            backend.close()
+            if owned:
+                backend.close()
             raise
         self._adams = kind == "adams"
         self._low_storage = kind == "low_storage"

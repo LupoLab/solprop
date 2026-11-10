@@ -2,14 +2,22 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""The group protocol over the lockstep runners (SEP 47 section 6.7).
+"""The group protocol (SEP 47 section 6.7), on the reference's group and the native one.
 
 A group advances compatible members through one fixed schedule, one common window per
 save plane, and reports each member's own events. A boundary stop ends its member
 alone; a non-finite norm, a trial exception or an in-flight failure ends the group,
 and each member then reports its own committed position and checkpoint eligibility:
-members are stepped in turn, so one ahead of the failing member has already committed
-the failed step.
+members are stepped in turn, so one ahead of the failing member has already advanced
+past the failed step.
+
+The conformance tests run on both backends: ``numpy_ref``, whose group is the
+transitional one over its lockstep runner
+(:class:`~solprop.backends.driver_session.DriverGroupSession`), and ``native``, whose
+group is the native group session (:class:`solprop_native.group.NativeGroupSession`,
+one native session per member). The failures that reach into the reference's Python
+march to inject a fault are the reference's alone; the native group's own failure
+positions, with natively injected faults, are in ``test_native_group.py``.
 """
 
 from collections.abc import Sequence
@@ -40,7 +48,8 @@ from solprop.backends.session import (
 )
 from solprop.backends.sessions import start_group, start_session
 from solprop.driver import Simulation
-from solprop.exceptions import BackendError, BoundaryError
+from solprop.exceptions import BackendError, BoundaryError, StopRequested
+from solprop.log import StopFlag
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.stats import StatsSpec
 from solprop.stepper.runge_kutta import RungeKutta
@@ -62,26 +71,39 @@ IDENTITY = ExportRecipe(power=False, optics=False)
 
 BACKENDS = ["numpy_ref", "native"]
 
+STRATEGIES = {"numpy_ref": "numpy_stage_arrays", "native": "native_group_session"}
+"""Each backend's group, as its members' execution records name it."""
 
-def member(index: int, backend: str, integrator: Any = None) -> Simulation:
-    """Return one member: a soliton-order pulse on its own fibre, on the schedule."""
+
+def member(
+    index: int, backend: str, integrator: Any = None, **overrides: Any
+) -> Simulation:
+    """Return one member: a soliton-order pulse on its own fibre, on the schedule.
+
+    `overrides` replace any of the member's settings (``Simulation.from_gnlse``).
+    """
+    settings: dict[str, Any] = {
+        "wavelength": 835e-9,
+        "wavelength_limits": (500e-9, 2e-6),
+        "trange": 1e-12,
+        "width": 100e-15,
+        "peak_power": float(index + 1),
+        "shape": "sech",
+        "save_planes": list(PLANES),
+        "schedule": FixedSchedule.uniform(0.0, PLANES[-1], STEP, save_planes=PLANES),
+        "stats": StatsSpec(
+            names=("energy", "peak_power"), periodic=("energy",), period=2
+        ),
+        "noise": None,
+        "backend": backend,
+        "integrator": RungeKutta() if integrator is None else integrator,
+        "absorber": False,
+    }
     return Simulation.from_gnlse(
         0.11 * (index + 1),
         PLANES[-1],
         [0.0, 0.0, -1.183e-26 * (index + 1)],
-        wavelength=835e-9,
-        wavelength_limits=(500e-9, 2e-6),
-        trange=1e-12,
-        width=100e-15,
-        peak_power=float(index + 1),
-        shape="sech",
-        save_planes=list(PLANES),
-        schedule=FixedSchedule.uniform(0.0, PLANES[-1], STEP, save_planes=PLANES),
-        stats=StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=2),
-        noise=None,
-        backend=backend,
-        integrator=RungeKutta() if integrator is None else integrator,
-        absorber=False,
+        **(settings | overrides),
     )
 
 
@@ -103,7 +125,7 @@ def group_of(
     cleanup: ExitStack,
     *,
     monitors: Sequence[BoundaryMonitor | None] | None = None,
-    stop: StopToken | None = None,
+    stop: StopFlag | None = None,
 ) -> tuple[GroupSession, list[Any]]:
     """Start a group of members at their entrances; return it and its members."""
     problems = [one.translate() for one in simulations]
@@ -179,7 +201,9 @@ def test_a_group_reports_each_member_s_planes_as_its_lone_run_does(backend):
             assert status.outcome is Outcome.COMPLETED
             assert status.z == pytest.approx(PLANES[-1])
             assert status.attempts == 4
-            assert group.execution_record(index)["batch_size"] == 2
+            record = group.execution_record(index)
+            assert record["batch_size"] == 2
+            assert record["batch_strategy"] == STRATEGIES[backend]
     assert windows[:3] == [
         [ObservationKind.LAUNCH] * 2,
         [ObservationKind.PLANE] * 2,
@@ -205,9 +229,11 @@ def test_a_group_reports_each_member_s_planes_as_its_lone_run_does(backend):
             assert_within(grouped, solo, FIELD_BOUND, what=f"member {index}")
 
 
-def test_a_group_s_receipts_and_tickets_follow_the_session_lifecycle():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_group_s_receipts_and_tickets_follow_the_session_lifecycle(backend):
+    available(backend)
     with ExitStack() as cleanup:
-        group, _ = group_of([member(index, "numpy_ref") for index in range(2)], cleanup)
+        group, _ = group_of([member(index, backend) for index in range(2)], cleanup)
         launch = group.advance()
         with pytest.raises(SessionError, match="acknowledge the pending batch"):
             group.advance()
@@ -230,8 +256,10 @@ def test_a_group_s_receipts_and_tickets_follow_the_session_lifecycle():
         group.close()
 
 
-def test_a_group_starts_its_members_fresh_and_one_start_each():
-    simulations = [member(index, "numpy_ref") for index in range(2)]
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_group_starts_its_members_fresh_and_one_start_each(backend):
+    available(backend)
+    simulations = [member(index, backend) for index in range(2)]
     problems = [one.translate() for one in simulations]
     with ExitStack() as cleanup:
         owners = [constructed(one, cleanup) for one in simulations]
@@ -246,11 +274,16 @@ def test_a_group_starts_its_members_fresh_and_one_start_each():
             )
 
 
-def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on():
-    # A check strict enough to refuse any launch stops the first member at once, as
-    # the batched scan always attached its monitors before the launch plane; the
-    # second, unwatched, runs the whole schedule (SEP 21).
-    simulations = [member(index, "numpy_ref") for index in range(2)]
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on(backend):
+    # A check strict enough to refuse any launch stops the first member at once; the
+    # second, unwatched, runs the whole schedule (SEP 21). The transitional group
+    # attaches the monitors before the launch plane, as the batched scan always did,
+    # so the stop ends the launch window; a native member commits its launch plane
+    # first and its monitor then judges the launch (SEP 47 section 5.3's start), so
+    # the stop ends the next window, still at the launch.
+    available(backend)
+    simulations = [member(index, backend) for index in range(2)]
     strict = BoundaryCheck(budget=1e-300, stop_factor=1.0)
     with ExitStack() as cleanup:
         group, _ = group_of(
@@ -269,7 +302,7 @@ def test_a_boundary_stop_ends_its_member_alone_and_the_others_go_on():
         assert stopped.outcome is Outcome.FAILED
         assert isinstance(stopped.error, BoundaryError)
         assert stopped.eligibility is Eligibility.ELIGIBLE
-        assert (ended, stopped.z) == (0, 0.0)
+        assert (ended, stopped.z) == (0 if backend == "numpy_ref" else 1, 0.0)
         # The stopped member reports nothing more; the other saves every plane.
         assert all(batch.members[0] == () for batch in batches[ended + 1 :])
         planes = [
@@ -423,11 +456,13 @@ def test_a_window_s_failure_delivers_the_attempts_it_drained(monkeypatch):
         group.acknowledge(ended.receipt)
 
 
-def test_a_group_wide_stop_ends_every_member_at_a_common_endpoint():
+@pytest.mark.parametrize("backend", BACKENDS)
+def test_a_group_wide_stop_ends_every_member_at_a_common_endpoint(backend):
+    available(backend)
     token = StopToken()
     with ExitStack() as cleanup:
         group, _ = group_of(
-            [member(index, "numpy_ref") for index in range(2)], cleanup, stop=token
+            [member(index, backend) for index in range(2)], cleanup, stop=token
         )
         launch = group.advance()
         group.acknowledge(launch.receipt)
@@ -442,3 +477,4 @@ def test_a_group_wide_stop_ends_every_member_at_a_common_endpoint():
         assert terminal.outcome is Outcome.STOPPED
         assert terminal.z == 0.0
         assert terminal.eligibility is Eligibility.ELIGIBLE
+        assert isinstance(terminal.error, StopRequested)

@@ -62,6 +62,7 @@ from solprop.backends.session import (
     SessionStatus,
     SnapshotReceipt,
     Start,
+    check_group,
 )
 from solprop.exceptions import StopRequested
 from solprop.log import NullReporter, PlaneSummary, StopFlag
@@ -1308,22 +1309,8 @@ class DriverGroupSession:
         from solprop.backends.registry import select_batch  # noqa: PLC0415 - cycle
 
         count = len(members)
-        if count == 0 or not count == len(problems) == len(requests) == len(starts):
-            msg = (
-                f"a group needs one problem, request and start per member, and got "
-                f"{count} members, {len(problems)} problems, {len(requests)} "
-                f"requests and {len(starts)} starts"
-            )
-            raise SessionError(msg)
+        check_group(count, problems, requests, starts)
         observation = requests[0].observation
-        for start in starts:
-            fresh = start.march is None and start.monitor is None
-            if not fresh or start.plane_index:
-                msg = (
-                    "a group starts its members at their entrance, with no method "
-                    "history or monitor record to continue"
-                )
-                raise SessionError(msg)
         for member, start in zip(members, starts, strict=True):
             member.set_initial(
                 np.asarray(start.take_field())[np.newaxis],
