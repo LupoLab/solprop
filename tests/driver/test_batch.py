@@ -11,7 +11,7 @@ import pytest
 from jaxtyping import TypeCheckError
 
 from driver.test_scans import build_point
-from runtime_types import requires_typecheck
+from runtime_types import requires_typecheck, unchecked
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import batch as batch_module
@@ -229,3 +229,22 @@ def test_a_group_with_no_members_or_no_guide_has_nothing_to_disagree_about():
     refuse_mixed_guides([])
     ordinary = [member(index).simulation.translate() for index in range(2)]
     refuse_mixed_guides(ordinary)
+
+
+def test_shared_bytes_count_mapped_arrays_once_through_their_views():
+    """A record's mapping of arrays counts each backing allocation once.
+
+    Translated records hold tables in mappings as well as fields and sequences; a
+    view of an array counts as its base, and the same base reached twice once.
+    """
+
+    @dataclasses.dataclass
+    class Record:
+        tables: dict[str, np.ndarray]
+        views: tuple[np.ndarray, ...]
+
+    base = np.zeros(64)
+    other = np.zeros(32)
+    record = Record({"base": base, "slice": base[:8], "other": other}, (base[::2],))
+    counted = unchecked(shared_table_bytes)([record])  # any translated record
+    assert counted == base.nbytes + other.nbytes
