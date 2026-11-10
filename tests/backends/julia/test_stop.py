@@ -52,7 +52,9 @@ def stop_runtime(setup_record):
         StopFlag=Flag,
         stop_setter_address=lambda: ctypes.cast(setter, ctypes.c_void_p).value,
     )
-    runtime = JuliaRuntime(setup_record, 2, None, engine)
+    runtime = JuliaRuntime(
+        setup_record, 2, None, engine, int(engine.stop_setter_address())
+    )
     return runtime, destroyed_on, writes
 
 
@@ -61,7 +63,7 @@ def test_already_set_token_reaches_new_flag(stop_runtime):
     token = StopToken()
     token.set()
     lease = StopLease(runtime, token)
-    assert lease.flag.value == 1
+    assert lease.flag.borrow().value == 1
     assert len(writes) == 1
     lease.close()
     lease.close()
@@ -121,8 +123,8 @@ def test_token_clear_does_not_reset_an_existing_session_flag(stop_runtime):
     token.set()
     token.clear()
     second = StopLease(runtime, token)
-    assert first.flag.value == 1
-    assert second.flag.value == 0
+    assert first.flag.borrow().value == 1
+    assert second.flag.borrow().value == 0
     first.close()
     second.close()
 
@@ -134,9 +136,24 @@ def test_detaching_one_of_two_listeners_never_compares_foreign_flags(stop_runtim
     second = StopLease(runtime, token)
     second.close()
     token.set()
-    assert first.flag.value == 1
+    assert first.flag.borrow().value == 1
     assert len(writes) == 1
     first.close()
+
+
+def test_abandoned_stop_lease_detaches_only_during_main_thread_drain(stop_runtime):
+    runtime, destroyed_on, writes = stop_runtime
+    token = StopToken()
+    leases = [StopLease(runtime, token)]
+    worker = threading.Thread(target=leases.clear)
+    worker.start()
+    worker.join(timeout=5)
+    assert not worker.is_alive()
+    assert destroyed_on == []
+    runtime.owners.drain()
+    token.set()
+    assert writes == []
+    assert destroyed_on == [threading.get_ident()]
 
 
 @pytest.mark.parametrize("forked", [False, True])

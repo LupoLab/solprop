@@ -9,8 +9,8 @@ from __future__ import annotations
 import ctypes
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
 
+from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
 from solprop.backends.session import SessionError, StopToken
 
@@ -46,37 +46,43 @@ class StopLease:
 
     _listener: _Listener | None
     _detach: Callable[[], None] | None
-    _flag: Any  # Opaque borrowed-pointer Julia wrapper, owned only by the lease.
+    _flag: JuliaHandle
 
     def __init__(self, runtime: JuliaRuntime, token: StopToken) -> None:
         """Allocate the flag and compile its setter before attaching the listener."""
         runtime.check()
         storage = ctypes.c_uint8(0)
         address = ctypes.addressof(storage)
-        self._flag = runtime.engine.StopFlag(address)
-        setter_address = int(runtime.engine.stop_setter_address())
         # CFUNCTYPE releases the GIL; its target is a bare atomic store, not a
         # Julia @cfunction trampoline. This cannot adopt a thread or wait for GC.
-        setter = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(setter_address)
+        setter = ctypes.CFUNCTYPE(None, ctypes.c_void_p)(runtime.stop_setter)
         # The process runtime permanently roots the compiled setter. A listener
         # retains only C/Python owners; a captured tuple can outlive this lease.
         self._listener = _Listener(storage, setter, address)
         self._detach = token.attach(self._listener)
+        try:
+            self._flag = runtime.own_call(
+                "StopFlag", address, owners=(storage,), on_release=self._detach
+            )
+        except BaseException:
+            self._detach()
+            raise
 
     @property
-    def flag(self) -> Any:
-        """Return the opaque Julia view while the lease owns its byte.
+    def flag(self) -> JuliaHandle:
+        """Return the owned Julia handle while the lease owns its byte.
 
         Returns
         -------
-        object
-            Julia's borrowed stop flag. Engine reads must finish before lease closure.
+        JuliaHandle
+            The stop flag's identity. Engine reads must finish before lease closure.
 
         Raises
         ------
         SessionError
             If the lease was closed.
         """
+        require_main_thread()
         if self._listener is None:
             raise SessionError("the julia stop lease is closed")
         return self._flag
@@ -87,8 +93,9 @@ class StopLease:
         A session must reject or serialize close while advancement is in flight;
         the borrowed Julia flag itself does not own the byte used by its readers.
         """
+        require_main_thread()
         if self._detach is not None:
             self._detach()
             self._detach = None
         self._listener = None
-        self._flag = None
+        self._flag.close()

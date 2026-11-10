@@ -2228,3 +2228,34 @@ Withdrawn (development-process record, not a design decision).
   the earlier opt-in file are not read. Measured threaded rows stay off by default: a
   plan measured once now costs nothing after, which leaves the policy's threaded-rows
   effort for the maintainer.
+
+## ADR-077 — Python enters the Julia backend only on main
+
+- **Status:** accepted by the maintainer, 2026-11-10; runtime qualification in progress
+  under SEP 48 and [#620](https://github.com/LupoLab/solprop/issues/620).
+- **Context:** Julia 1.13.3 with JuliaCall/PythonCall 0.9.37 can deadlock when a Python
+  worker enters Julia while Python main waits. This occurs in a warmed CPU-only GC
+  probe, not just device package loading, and was reproduced on macOS arm64 and Linux
+  x86-64. A GIL-free call alone does not fix it. Parking main with internal Julia GC
+  APIs fixed one diagnostic but still failed concurrent GIL/GC contention. The pinned
+  bridge offers no qualified supported fix. Its wrappers also enter Julia through
+  destruction, representation, buffer release and exception formatting.
+- **Decision:** every Julia-facing operation belongs to Python main in each process.
+  Refuse Python workers before acquiring runtime locks. Preserve Julia's synchronous
+  internal parallelism and spawned simulation processes. The raw C atomic stop setter
+  remains usable from any Python thread. Setup and status remain Python operations.
+  A process-owned registry retains wrappers and borrowed buffers; handle finalizers
+  enqueue integer identities only. Main releases abandoned owners at a later boundary,
+  and all owners before Julia's shutdown hook. Explicit close is required for prompt
+  resource release. Raw wrappers stay inside narrow bridge helpers, never in public
+  exports or escaping tracebacks. Format engine failures on main, clear their exception
+  graphs and unwound frames there, and raise fresh Python-only exceptions. Guard
+  recursive preparation, bridge entry and owner release.
+- **Consequences:** Python thread pools cannot call the Julia backend directly; spawned
+  workers run on their own main threads. Julia CPU/GPU parallelism is unchanged by this
+  Python ownership rule. Allocating Julia tasks must finish before the bounded call
+  returns; vendor background services need separate qualification. This amends SEP 48
+  Part I §7.2, as recorded in Part II. It does not change the independent SIGTERM policy
+  (#610), physics, floating-point policy or required numerical validation. Future bridge
+  versions may relax the restriction only after the failing probes and full lifecycle
+  tests pass; a version change alone is not evidence of safety.

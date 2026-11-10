@@ -65,10 +65,22 @@ identity through the `setup_id` backend option and record it as execution metada
 
 The first preparation fixes the process's runtime, depot and installed environment
 stack. A different setup, another depot, or a device installed after initialization
-requires a fresh process. Initial preparation must run on Python's main thread before
-worker threads use Julia. Spawn new worker processes; do not fork a process after Julia
-has initialized. An initialization or extension-loading failure also requires a fresh
-process because the runtime cannot be safely unloaded.
+requires a fresh process. Every Julia-facing operation must run on Python's main thread
+in each process, including preparation, device loading, advancement, export and close.
+Calls from Python worker threads refuse before entering Julia. Julia's own parallel
+CPU work remains supported; use spawned processes for concurrent simulations. Setup,
+status and cancellation requests do not enter the embedded runtime and can be used
+from other threads. Do not fork a process after Julia has initialized. An initialization
+or extension-loading failure requires a fresh process because the runtime cannot be
+safely unloaded.
+
+Close each prepared execution and session explicitly on main. Abandoned Julia handles
+are retained until the next main-thread operation or process shutdown, so Python garbage
+collection on another thread cannot destroy Julia objects there. Returned public arrays
+own Python storage, and engine errors are formatted on main before leaving the adapter.
+This restriction avoids a reproduced Julia 1.13.3/PythonCall 0.9.37 garbage-collection
+deadlock on both macOS and Linux; [issue #620](https://github.com/LupoLab/solprop/issues/620)
+records the evidence and the accepted scope change.
 
 ## Offline and cluster use
 

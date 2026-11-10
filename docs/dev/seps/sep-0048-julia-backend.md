@@ -1391,8 +1391,37 @@ records each decision where it applies:
 
 ## Part II — Implementation record
 
+### Runtime ownership amendment — 2026-11-10
+
+The maintainer accepted an implementation amendment to §7.2's subsequent Python
+worker-thread safety requirement: every operation that enters Julia runs on Python's
+main thread in each process. Other Python threads receive a named refusal before any
+runtime call or lock wait. Julia's own synchronous CPU parallelism and spawned worker
+processes remain supported; the raw atomic stop setter still works from any thread.
+Setup and status do not enter the embedded runtime.
+
+The reason is a reproducible Julia 1.13.3/PythonCall 0.9.37 GC deadlock. A warmed pure
+CPU function that allocates and explicitly collects completes on main, but hangs when
+called from a Python worker while main waits. Independent macOS probes reproduced it
+with one and two Julia threads, and a two-thread Linux probe corroborated it. Releasing
+the GIL alone does not fix it. A diagnostic using internal GC-state manipulation fixed
+one package-load case but still deadlocked under concurrent GIL/GC contention; no such
+workaround is adopted. [Issue #620](https://github.com/LupoLab/solprop/issues/620)
+records the evidence. This is separate from the accepted SIGTERM limitation in #610.
+
+The boundary covers destruction and exception formatting as well as explicit calls.
+Process-owned registries retain Julia wrappers and borrowed Python buffers. Foreign
+finalizers enqueue integer identities; main releases them at a later boundary or before
+Julia shutdown. Bridge failures become Python-only exceptions after the original
+exception graph and unwound frames are cleared on main. Public exports own Python
+storage. ADR-077 records the durable design. Qualification is still in progress; this
+amendment does not declare phase 1 complete or claim any numerical/session parity.
+
 ## Part III — History
 
+- 2026-11-10: The maintainer accepted main-thread-only Python entry into Julia after
+  the phase 1 probes reproduced a worker-thread GC deadlock. Part II and ADR-077 record
+  the amendment and ownership requirements; Part I remains the accepted historical text.
 - 2026-11-10: Proposal accepted and merged in PR #609 at `04e72192`, after GitHub CI
   and the required documentation preview passed. Implementation began on the single
   feature branch; its ownership, partial milestones and remaining qualification are

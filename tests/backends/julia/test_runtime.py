@@ -183,7 +183,7 @@ def test_first_worker_refuses_then_main_thread_can_initialize(isolated_runtime):
     assert isolated_runtime.imports == ["juliacall"]
 
 
-def test_worker_waits_for_main_initialization_without_second_import(isolated_runtime):
+def test_worker_refuses_during_main_initialization_without_waiting(isolated_runtime):
     entered = threading.Event()
     results = []
     failures = []
@@ -201,16 +201,75 @@ def test_worker_waits_for_main_initialization_without_second_import(isolated_run
     def load(name):
         worker.start()
         assert entered.wait(timeout=5)
+        worker.join(timeout=5)
+        assert not worker.is_alive()
         assert not results
         return original(name)
 
     isolated_runtime.importer.import_module = load
-    runtime = _runtime.get_runtime()
+    _runtime.get_runtime()
     worker.join(timeout=5)
     assert not worker.is_alive()
-    assert failures == []
-    assert results == [runtime]
+    assert len(failures) == 1 and "main thread" in str(failures[0])
+    assert results == []
     assert isolated_runtime.imports == ["juliacall"]
+
+
+def test_recursive_main_initialization_refuses_without_waiting(isolated_runtime):
+    original = isolated_runtime.importer.import_module
+
+    def load(name):
+        with pytest.raises(BackendError, match="recursive julia runtime"):
+            _runtime.get_runtime()
+        return original(name)
+
+    isolated_runtime.importer.import_module = load
+    runtime = _runtime.get_runtime()
+    assert _runtime.get_runtime() is runtime
+    assert isolated_runtime.imports == ["juliacall"]
+
+
+def test_runtime_wrappers_and_calls_refuse_workers_after_start(isolated_runtime):
+    runtime = _runtime.get_runtime()
+    errors = []
+
+    def worker():
+        for operation in (
+            _runtime.get_runtime,
+            runtime.check,
+            lambda: runtime.namespace,
+            lambda: runtime.engine,
+            lambda: runtime.own_call("StopFlag", 0),
+        ):
+            try:
+                operation()
+            except BackendError as error:
+                errors.append(str(error))
+        repr(runtime)
+
+    thread = threading.Thread(target=worker)
+    thread.start()
+    thread.join(timeout=5)
+    assert not thread.is_alive()
+    assert len(errors) == 5
+    assert all("main thread" in error for error in errors)
+    assert isolated_runtime.imports == ["juliacall"]
+
+
+def test_interrupted_shutdown_hook_registration_roots_and_poisons_startup(
+    isolated_runtime, monkeypatch
+):
+    def interrupted(_):
+        raise KeyboardInterrupt()
+
+    monkeypatch.setattr(_runtime.atexit, "register", interrupted)
+    with pytest.raises(KeyboardInterrupt) as captured:
+        _runtime.get_runtime()
+    assert captured.value.__context__ is None
+    assert _runtime._STATE.runtime is not None
+    assert isinstance(_runtime._STATE.failure, KeyboardInterrupt)
+    with pytest.raises(BackendError, match="previously failed"):
+        _runtime.get_runtime()
 
 
 @pytest.mark.parametrize(
@@ -233,7 +292,9 @@ def test_partial_initialization_poisoning_and_handler_restoration(
     ]
     with pytest.raises(BackendError, match="previously failed"):
         _runtime.get_runtime()
-    assert _runtime._STATE.failure is failure
+    assert _runtime._STATE.failure is not failure
+    assert isinstance(_runtime._STATE.failure, expected)
+    assert _runtime._STATE.failure.__context__ is None
 
 
 @pytest.mark.parametrize(

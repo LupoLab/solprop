@@ -11,6 +11,12 @@ rules apply to every implementing and reviewing agent in this directory.
   statistics, snapshots and export. Python lowers inputs and services events.
 - The PythonCall bridge is a package extension. The engine has no Python dependency
   and tests independently. No host loop drives Julia trials or finishes statistics.
+- All Python entry into Julia is on that process's main thread (ADR-077 and SEP 48
+  Part II). Julia's own synchronous parallel work remains supported. Finish allocating
+  tasks before returning; qualify any vendor background service separately. Keep raw
+  wrappers inside the narrow bridge helper, registry handles in outer Python frames,
+  and returned arrays in owned Python storage. Only the raw atomic stop setter runs
+  on arbitrary Python threads. Destructors and exception formatting also count as entry.
 - Follow SEP 47's merged preparation/session contract. Do not inherit `StepDriver`,
   import native lowering, duplicate policy on the problem, or add legacy dispatch.
 - Admission refuses unsupported routes, responses, methods, precision and options by
@@ -22,6 +28,9 @@ rules apply to every implementing and reviewing agent in this directory.
 - Use explicit imports, concrete or parametric struct fields, and small functions.
   Kernel bodies capture only values and arrays and are generic over the admitted
   scalar and array types. Keep CPU and device behavior in one numerical implementation.
+- Qualify the actual Polyester loop forms at one and multiple threads. Its pinned
+  macro can confuse locals with Base constants (`values` is one); use unambiguous
+  local names or a verified singleton callback. Issue #621 records the reproducer.
 - Use Runic without configuration. Wrap lines at 92 characters manually; Runic does
   not enforce that limit. Aqua and JET error analysis are blocking. `JET.report_opt`
   is advisory; fix straightforward instabilities in changed hot code.

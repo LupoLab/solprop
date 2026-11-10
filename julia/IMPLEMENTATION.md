@@ -10,7 +10,7 @@ The completed implementation is left ready for maintainer review, not auto-merge
 | Phase | Status | Evidence or prerequisite |
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
-| 1: package and runtime | Setup/package integrated; real runtime qualification active | CPU and CPU/Metal installation pass; 220 targeted Python tests pass; subprocess gate remains |
+| 1: package and runtime | Setup/package integrated; accepted main-thread boundary under qualification | macOS and Linux package gates pass; revised subprocess gate remains |
 | 2: CPU binary64 session | Pending | Runtime gate; final SEP 47 signatures available in updated handoff |
 | 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
@@ -46,7 +46,7 @@ for the runtime probes. Numerical source review may proceed independently.
 | Julia package agent | `tests/backends/julia/runtime_probe.py`, `test_runtime_subprocess.py` | Real packaged subprocess qualification; package ownership returned to master |
 | Distribution agent | Private Linux campaign checkout, environment and its own Slurm jobs | DMOG runtime qualification; reviewed CI ownership returned to master |
 | Master | Rules, this record, integrated Julia package/setup, runtime/session/transfer, CI, wheel hooks, CLI and documentation | Integration and phase 2 shared interfaces |
-| Independent reviewer | Read-only reviews and isolated lifecycle/numerical probes | Wheel and CI approved; donor binary64 kernel and ownership audit |
+| Independent reviewer | Read-only reviews and isolated lifecycle/numerical probes | Main-thread ownership boundary review; donor audit complete |
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -63,7 +63,11 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
   manifests identify immutable setups; runtime execution downloads nothing.
 - `SimulationSettings.backend_options` forwards `wide` and `setup_id` through the
   existing execution options. Device/options are outside science and resume hashes.
-- Runtime initialization is main-thread-only and serialized. Preserve actual Python
+- Every Python entry into Julia is main-thread-only; Julia's own synchronous parallel
+  work and spawned worker processes remain supported. The maintainer accepted this
+  amendment after worker GC deadlocks were reproduced on macOS and Linux (#620).
+  ADR-077 and SEP Part II record it. Runtime initialization remains serialized.
+  Preserve actual Python
   SIGINT without restoring Julia's SIGINT thread mask. The maintainer accepts that,
   after Julia starts, SIGTERM may terminate the whole process without final output,
   including with custom or ignored handlers and while no session advances. Keep
@@ -85,6 +89,12 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
 - A loaded foreign `libjulia` is refused before import. Actual Julia load/depot paths,
   active project and thread pools are checked before loading the engine. Failed
   startup or device loading poisons the process; a fork after startup refuses.
+- Registry handles retain Julia wrappers and borrowed Python buffers until main-thread
+  release. Foreign finalizers enqueue integer IDs; shutdown releases every owner before
+  JuliaCall's hook. Raw wrappers stay inside narrow bridge helpers. Error formatting,
+  exception-graph clearing and unwound-frame cleanup happen on main before a fresh
+  Python-only failure escapes. Recursive preparation, bridge entry and owner release
+  refuse. Interrupted startup and cleanup are covered explicitly.
 - Set `PYTHONDONTWRITEBYTECODE=1` before JuliaCall import for Julia precompilation
   children that embed Python. The initialized host's bytecode policy stays unchanged;
   managed PythonCall source trees must remain byte-identical after runtime use.
@@ -107,9 +117,9 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
 
 ## Next actions
 
-1. Resolve and independently review the foreign-thread package-load/GC deadlock before
-   qualifying worker use; retain the failed subprocess evidence.
-2. Run the same runtime gate on the DMOG Linux checkout.
+1. Finish independent review and the real subprocess matrix for the accepted main-thread
+   ownership boundary; retain the original failed worker evidence in #620.
+2. Run the same accepted runtime gate on the DMOG Linux checkout.
 3. Integrate reviewed subprocess tests and publish a batch for the full CI gates.
 4. Pass the phase 1 probes before implementing the complete numerical session against
    the final SEP 47 signatures; integrate its subsequent CI corrections.
@@ -179,6 +189,30 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
   joining it. A GIL-free loader alone also hangs at one and two threads. This is a
   blocking runtime qualification failure, separate from the accepted SIGTERM policy;
   ordinary worker computation/GC and any proposed fix require independent probes.
+- Independent CPU-only GC probes reproduced the same worker deadlock at one and two
+  Julia threads on macOS. Internal main-thread GC parking still deadlocked under GIL
+  contention and is rejected. The maintainer accepted the main-thread boundary; 60
+  targeted owner/runtime/stop tests pass, including failure graphs, interrupted hook
+  registration, recursive entry and cleanup failures. Real runtime requalification
+  remains in progress; no worker support is claimed.
+- The main-thread boundary passed independent code review and its deterministic
+  failure reproductions. All 597 targeted Julia/SEP tests pass, with three expected
+  process-SEP skips; targeted types, formatting, docstrings and spelling pass. The
+  current Sphinx build is blocked by two references in unchanged SEP 47 Part B files
+  (`driver_session.foreign_request` and a malformed `spatial` run-request attribute
+  link), alongside that dependency's outstanding type fixes. No Julia documentation
+  warning remains; integrate the dependency's corrections before qualification.
+- Linux x86-64 package qualification at `83da0ad5` passed fresh installation, native
+  coexistence prerequisites, Runic, 2,328 bounds-enabled Core assertions and 13 Aqua/JET
+  checks. Hardware: AMD EPYC 7513, four physical CPUs with SMT disabled; GCC 16.2.0,
+  x86-64-v3 native target, Julia 1.13.3 with generic cached code. A separate two-thread
+  CPU diagnostic completed its main call in 0.183398 seconds but timed out its worker
+  call after ten seconds, corroborating #620. These are runtime probes, not benchmarks.
+- Polyester 0.7.19's macro can confuse a local `values` argument with `Base.values`:
+  two-thread macOS arm64 execution fails in standalone Julia and JuliaCall. Renaming
+  the local to `buffer`, or using an explicit singleton callback, passes at one and two
+  threads. [#621](https://github.com/LupoLab/solprop/issues/621) records the twelve-case
+  probe matrix and requires a production-loop regression when that wrapper lands.
 - Read-only donor audit reproduced a non-THG multimode Raman out-of-bounds padding
   read under bounds checking. [#613](https://github.com/LupoLab/solprop/issues/613)
   tracks its correction and regression in the production port; the prototype is not
