@@ -144,7 +144,7 @@ def _start(
     """Start one session of `executor`; return it and its timed native object."""
     from solprop.backends.session import Start  # noqa: PLC0415
 
-    start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+    start = Start(field=problem.initial.field0, z=float(problem.initial.z))
     if executor == "native-session":
         from solprop_native.session import NativeSession  # noqa: PLC0415
 

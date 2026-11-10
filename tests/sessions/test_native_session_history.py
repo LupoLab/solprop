@@ -114,7 +114,7 @@ def _entrance(problem) -> Start:
     solprop.backends.session.Start
         The entrance.
     """
-    return Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+    return Start(field=problem.initial.field0, z=float(problem.initial.z))
 
 
 def _snapshots(started: Started) -> list[tuple[MarchSnapshot | None, int | None]]:
@@ -224,7 +224,7 @@ def test_a_snapshot_is_the_state_its_ticket_names():
         assert snapshot is not None
         assert snapshot.z == event.z == snapshot.positions[-1]
         field = np.asarray(session.export(event.ticket, IDENTITY))
-        assert snapshot.state.tobytes() == field[np.newaxis].tobytes()
+        assert snapshot.state.tobytes() == field.tobytes()
         assert session.march_snapshot_nbytes() == snapshot.nbytes
         session.acknowledge(batch.receipt)
         with pytest.raises(SessionError, match="expired"):
@@ -262,7 +262,7 @@ def _resumed(problem, snapshot: MarchSnapshot, ledger: dict[str, object]) -> Sta
     """
     index = int(np.searchsorted(problem.stepper.save_planes, snapshot.z, "right"))
     return Start(
-        field=np.array(snapshot.state[0]),
+        field=np.array(snapshot.state),
         z=snapshot.z,
         plane_index=index,
         plane_pending=False,
@@ -478,7 +478,7 @@ def test_a_signal_during_an_advance_is_raised_with_its_batch_pending(monkeypatch
         snapshot = session.march_snapshot(ticket)
         assert snapshot is not None and snapshot.z == ticket.z
         field = np.asarray(session.export(ticket, IDENTITY))
-        assert snapshot.state.tobytes() == field[np.newaxis].tobytes()
+        assert snapshot.state.tobytes() == field.tobytes()
     finally:
         session.close()
 
@@ -561,7 +561,7 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
     runs = {}
     records = {}
     for kind in ("driver", "native"):
-        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        start = Start(field=problem.initial.field0, z=float(problem.initial.z))
         if kind == "driver":
             session: Any = DriverSession(
                 select("native", problem, **context), problem, request, start
@@ -581,7 +581,7 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
         session.close()
     assert len(phases["native"]) == len(phases["driver"]) > len(PLANES)
     for got, expected in zip(phases["native"], phases["driver"], strict=True):
-        assert got.shape == problem.shape[1:]
+        assert got.shape == problem.shape
         assert got.tobytes() == expected.tobytes()
     assert (records["native"] is None) is not check
     if _one_thread():
@@ -621,7 +621,7 @@ def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
     context = {"grid": simulation.grid, "modes": simulation.modes}
     backend = select("native", problem, **context)
     try:
-        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        start = Start(field=problem.initial.field0, z=float(problem.initial.z))
         with pytest.raises(BackendError, match="'input' noise model on a z table"):
             native_session.NativeSession(problem, request, start, backend=backend)
         assert start.field is not None

@@ -594,7 +594,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
         retention=None if earlier is None else retention_at(earlier.execution, reached),
     )
     exports = _Exports(session, context.metadata.grid.kind)
-    shape = tuple(context.problem.shape[1:])
+    shape = tuple(context.problem.shape)
     current: list[ObservationReady | None] = [None]
 
     def fetch() -> np.ndarray:

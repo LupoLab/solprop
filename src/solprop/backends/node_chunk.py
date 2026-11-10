@@ -264,7 +264,7 @@ def _host_chunk(problem: PropagationProblem, budget: int) -> int:
         # A general modal guide's static matrices are a checked placeholder of one
         # node; its route sizes its own chunk from the same budget.
         return 1
-    n_pol = problem.shape[2]
+    n_pol = problem.shape[1]
     n_to = problem.grids.n_to
     responses = problem.responses
     chunk = _base_chunk(transform, n_pol, n_to, budget)

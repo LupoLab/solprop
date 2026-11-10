@@ -517,7 +517,7 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
 
     problem = _case()
     rng = np.random.default_rng(47)
-    field = np.array(problem.initial.field0[0], dtype=np.complex128, copy=True)
+    field = np.array(problem.initial.field0, dtype=np.complex128, copy=True)
     parts = field.view(np.float64).reshape(*field.shape, 2)  # real, imaginary
     parts[..., ::7, 0] = -0.0
     parts[..., ::5, 1] = -0.0
@@ -595,7 +595,7 @@ def test_a_leased_state_refuses_every_live_use(name):
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
     try:
         with pytest.raises(RuntimeError, match="leased by an execution session"):
-            LEASED_CALLS[name](state, int(np.prod(problem.shape[1:])))
+            LEASED_CALLS[name](state, int(np.prod(problem.shape)))
         assert state.memory_ledger()
         assert state.cpu_execution
         assert "native_session" in session.execution_record()

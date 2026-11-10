@@ -267,7 +267,7 @@ def budget_error(
     spent: int,
     z: float,
     cost: int,
-    field: _State,
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"],
 ) -> ResponseBudgetError:
     """Return the error of an Adams trial the source-call budget cannot pay for.
 
@@ -285,7 +285,7 @@ def budget_error(
     cost : int
         The calls the refused trial needs.
     field : numpy.ndarray
-        The accepted state there, owned by the error.
+        The accepted state there, ``(n_modes, n_pol, n_omega)``, owned by the error.
 
     Returns
     -------

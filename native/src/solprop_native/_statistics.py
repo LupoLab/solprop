@@ -771,8 +771,7 @@ def _shape(problem: PropagationProblem, name: str, n_windows: int, plan: dict) -
     tuple of int
         The shape.
     """
-    modes, pol = problem.shape[1], problem.shape[2]
-    n_omega = problem.shape[-1]
+    modes, pol, n_omega = problem.shape
     apertures = np.asarray(plan["apertures"]).shape[0]
     shapes = {
         "omega0": (modes, pol),
@@ -854,8 +853,8 @@ def lower(
     plan: dict[str, object] = {
         "route": _ROUTES[route],
         "outputs": [STATISTIC_IDS[name] for name in names],
-        "n_modes": int(problem.shape[1]),
-        "n_pol": int(problem.shape[2]),
+        "n_modes": int(problem.shape[0]),
+        "n_pol": int(problem.shape[1]),
         "n_t": int(problem.grids.n_t),
         "n_omega": int(problem.shape[-1]),
         "n_nodes": int(transform.n_nodes),

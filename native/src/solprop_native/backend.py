@@ -3068,8 +3068,7 @@ def native_march_refusal(problem: PropagationProblem) -> str | None:
         route_off = flow is not None and (
             not exponential
             or not bool(np.all(_host_flow(problem).route))  # pyright: ignore[reportOptionalMemberAccess]
-            or problem.shape[1] > ADAMS_MAX_CHANNELS
-            or problem.shape[0] != 1
+            or problem.shape[0] > ADAMS_MAX_CHANNELS
         )
         if not (exponential or fused):
             return "the host engine, which steps a formulation with no resident engine"

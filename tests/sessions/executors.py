@@ -210,7 +210,7 @@ def entrance(problem: PropagationProblem) -> Start:
     solprop.backends.session.Start
         The start at the entrance.
     """
-    return Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+    return Start(field=problem.initial.field0, z=float(problem.initial.z))
 
 
 class ScriptedError(RuntimeError):
