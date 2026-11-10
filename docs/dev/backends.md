@@ -310,7 +310,11 @@ export its own room with `field_destination`: `MemoryOutput` the block row the p
 occupy, allocated with the reserved planes, so a kept field is written once, where it is
 kept; `HDF5Output` none, so the session allocates a new array, which h5py writes into the
 plane's chunk as it is. `save_exported` then stores the plane, which carries no field of
-its own (its noise phase rides beside the field in a `StoredField`). A plane observer reads
+its own (its noise phase rides beside the field in a `StoredField`; a session's
+`noise_phase(ticket)` forms it at the pending plane, from the problem's scalar tables on the
+host, or, when `Phi` took the z table, from the table's slot at the plane, which
+`NativeSession` reads through the native session under its lock, as the backend reads it
+from its state, and a group's member from its own session). A plane observer reads
 the stored field with no fetch, and a terminal checkpoint at the same plane takes the
 internal convention from it by the exact inverse (`spectrum_to_internal`, the store's own
 reader), with no second export or amplitude conversion. An output that is not a plane
@@ -585,7 +589,13 @@ pairwise with its own, within `(n - 1 + ceil(log2 n))u` of it, plus the two `exp
 read's term plus a rounding per read. So the two decisions taken on these readings -- the ramp's band at the launch
 and the ramp's removal at each read, warning or stop -- may differ from solprop's where a share lies within that bound
 of a threshold: a native share a rounding below the stop warns where solprop stops (SEP 47 §4.3, the maintainer's
-decision 4). Every other decision is solprop's on the same readings. `solprop_native._transverse` formats the
+decision 4). Every other decision is solprop's on the same readings. With the input noise, the launch carries the
+draw's readings (`transverse::Noise`): each column's energy, the weighted node energy the noise's allowance takes, the
+weighted columns' energy in the ramp's band, a collar's strip of the draw and the launch's columns without it, formed
+from the draw once, on the host, by solprop's own reductions (`_transverse.noise_readings`), before the session leases
+the state; the noise's share of the ramp's removal per interval is the native reading, as the raw removal is. A noisy
+split run's temporal record holds the floor's share of the split's removal, which the native monitor also sums in
+order (`watch.hpp`). `solprop_native._transverse` formats the
 record and the verdicts with the edge's own texts, which `solprop.transverse_monitor` keeps as module functions.
 
 ## 3. Compiled execution: the design `native` runs
