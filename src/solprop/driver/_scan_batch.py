@@ -82,6 +82,7 @@ def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
     )
     cleanup.callback(owner.close)
     return owner

@@ -21,6 +21,7 @@ from conftest import PhaseACase, RamanCase
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import schedule_key
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError
@@ -927,7 +928,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
         dz_init=1e-5,
         density=1.0,
     )
-    assert problem.transform.node_chunk == problem.transform.n_nodes
+    assert plan_node_chunk(problem).chunk == problem.transform.n_nodes
     eps = np.finfo(float).eps
     # The ladder bound of the paired solprop tests: one fine FFT depth and two
     # length-n_r radial reductions per evaluation.

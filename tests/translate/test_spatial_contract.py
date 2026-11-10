@@ -71,7 +71,7 @@ def geometry(request):
     if request.param == "radial":
         space = RadialGrid(1e-3, 8)
         grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
-        return radial_transform(space, grid, n_pol=1, z_max=grid.length).geometry
+        return radial_transform(space, grid, z_max=grid.length).geometry
     return free_geometry()
 
 
@@ -416,7 +416,6 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
             problem.transform,
             geometry=None,
             kind="modal",
-            node_chunk=1,
             synthesis=np.ones((1, 1)),
             projection=np.ones((1, 1)),
             projection_coarse=np.ones((1, 1)),
@@ -513,7 +512,7 @@ def test_separable_contract_rejects_mismatched_axes_or_mask(free_contract, field
 
 def test_a_cartesian_line_is_the_only_single_sample_axis():
     grid = EnvelopeGrid.from_limits(1e-3, 800e-9, (600e-9, 1.2e-6), 150e-15)
-    line = free_transform(LineGrid(1e-3, 8), grid, n_pol=1, z_max=grid.length).geometry
+    line = free_transform(LineGrid(1e-3, 8), n_pol=1, z_max=grid.length).geometry
     assert line is not None
     assert line.kind == "free" and line.shape == (8, 1)
     with pytest.raises(TranslationError, match="integers of at least 2"):
@@ -524,9 +523,7 @@ def test_a_cartesian_line_is_the_only_single_sample_axis():
         dataclasses.replace(
             line, spectral_axes=(line.spectral_axes[0], np.array([1.0]))
         )
-    radial = radial_transform(
-        RadialGrid(1e-3, 8), grid, n_pol=1, z_max=grid.length
-    ).geometry
+    radial = radial_transform(RadialGrid(1e-3, 8), grid, z_max=grid.length).geometry
     assert radial is not None
     with pytest.raises(TranslationError, match="integers of at least 2"):
         dataclasses.replace(radial, shape=(1,))

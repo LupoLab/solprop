@@ -93,6 +93,7 @@ def test_a_varying_operator_holds_its_pair_or_none():
         backend = NativeBackend(problem, grid=simulation.grid, modes=simulation.modes)
         try:
             ledger = backend.memory_ledger()
+            chunk = backend.node_chunk
         finally:
             backend.close()
         assert ledger["propagators"] == held * field
@@ -105,6 +106,7 @@ def test_a_varying_operator_holds_its_pair_or_none():
             noise=False,
             statistics_weight=0,
             spatial_absorber=0,
+            node_chunk=chunk,
         )
         assert ledger["state"] == reference["state"]
         if mode == "tabulate":

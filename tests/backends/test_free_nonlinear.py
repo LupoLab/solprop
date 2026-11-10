@@ -14,6 +14,7 @@ from backends.test_radial_nonlinear import derivative, make_problem
 from bounds import gamma
 from cartesian_oracles import longitudinal_square
 from solprop import fourier
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
@@ -145,10 +146,9 @@ def test_cartesian_kerr_matches_physical_column_oracle(
     expected = projected * prefactor[:, None, :] * grid.crop_scale * grid.omega_window
     problem = make_problem(grid, space, initial, [response])
     # Force a remainder chunk, independently of the memory-derived default.
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+    actual = derivative(
+        spatial_backend_class, problem, grid, ExecutionOptions(node_chunk=7)
     )
-    actual = derivative(spatial_backend_class, problem, grid)
     defect = np.max(np.abs(actual - expected))
     assert defect < bound, (defect, bound)
     record_metric(

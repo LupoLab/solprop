@@ -1068,9 +1068,9 @@ Everywhere the multipliers move off the nodes, to wherever the route already hol
 - **The embedded rule's products** are projected at every stage and windowed, transformed and
   combined only when a step is accepted, from the last stage's buffers, before the alarm uses the
   embedded spectrum (`finish_coarse`) -- as the envelope currents are.
-- **Node budget.** The translation's node chunk counts the response's buffers: one node buffer for
+- **Node budget.** The backend's node chunk counts the response's buffers: one node buffer for
   a symmetric response beside others, none alone, two for the polynomial; a Cartesian or planar
-  column adds its products and their spectra (`translate/problem.py`, `_dispersive_chunk`). The
+  column adds its products and their spectra (`backends/node_chunk.py`, `_dispersive_chunk`). The
   general modal route's chunk counts two buffers per node and component for each filtered field and
   each product of its workspace (`numpy_ref.general_modal.general_dispersive_buffers`,
   `general_node_chunk`).

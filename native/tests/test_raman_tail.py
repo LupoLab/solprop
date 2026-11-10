@@ -15,6 +15,7 @@ import numpy as np
 import pytest
 from conftest import ComplexArray
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.raman import response_for
@@ -91,7 +92,6 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
     )
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=chunk),
         stepper=dataclasses.replace(
             problem.stepper,
             schedule=FixedSchedule.uniform(0.0, grid.length, grid.length / 8),
@@ -101,7 +101,9 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
         assert problem.transform.n_nodes % chunk != 0
     fields: list[ComplexArray] = []
     for backend_class in (NumpyRefBackend, NativeBackend):
-        backend = backend_class(problem, grid=grid)
+        backend = backend_class(
+            problem, grid=grid, options=ExecutionOptions(node_chunk=chunk)
+        )
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(grid.length)
@@ -156,13 +158,11 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 # Planning another full/tail shape must leave the first state's
                 # live plans usable, even when both consume shared FFTW wisdom.
                 for peer_chunk in (1, 4):
-                    peer_problem = dataclasses.replace(
+                    peer = NativeBackend(
                         problem,
-                        transform=dataclasses.replace(
-                            problem.transform, node_chunk=peer_chunk
-                        ),
+                        grid=grid,
+                        options=ExecutionOptions(node_chunk=peer_chunk),
                     )
-                    peer = NativeBackend(peer_problem, grid=grid)
                     try:
                         peer.set_initial(problem.initial.field0, None)
                         peer.propagate_to(grid.length / 8)

@@ -35,6 +35,7 @@ from solprop.backends.exponential import refuse_carrier_frame, refuse_formulatio
 from solprop.backends.host.driver import HostDriver, refuse_general_leaves
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
+from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.admission import (
     refuse_general_route,
@@ -45,9 +46,8 @@ from solprop.backends.numpy_ref.envelope_plasma import (
 )
 from solprop.backends.numpy_ref.general_modal import (
     GeneralMaps,
-    general_dispersive_buffers,
     general_memory,
-    general_node_chunk,
+    general_planned_chunk,
     general_source,
     node_delayed_maps,
     node_kerr_form,
@@ -59,6 +59,7 @@ from solprop.backends.numpy_ref.tdse import (
     project_atomic_sources,
 )
 from solprop.backends.populations import axis_refusal, population_statistics
+from solprop.backends.session import ExecutionOptions
 from solprop.backends.spatial import (
     FarFieldTables,
     collect_spatial,
@@ -105,7 +106,6 @@ from solprop.translate.coupled import (
     schur_blocks,
 )
 from solprop.translate.linop import power_weight_at
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import _BENCHMARK_GATED
 from solprop.translate.problem import MAX_N_POL, KernelProblem
 from solprop.translate.spatial import separable_values
@@ -226,6 +226,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         tdse_binding: TDSEBinding | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Adopt a validated problem, refuse what this backend does not execute."""
         _refuse_unsupported(problem)
@@ -238,7 +239,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._tdse_last_purpose: TDSEPurpose | None = None
         self._tdse_last_z: float | None = None
         self._tdse_last_projection: dict[str, object] | None = None
-        super().__init__(problem, grid=grid, modes=modes, profiles=profiles)
+        super().__init__(
+            problem, grid=grid, modes=modes, profiles=profiles, options=options
+        )
         self._statistics_power_weight = np.empty(
             problem.shape[1:] if problem.transform.geometry is None else (0,)
         )
@@ -255,7 +258,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._tables = SourceTables.of(problem)
         self._carrier = _harmonic_carrier(problem)
         self._embedded = _embedded_projection(problem)
-        self._general = _general_maps(problem)
+        self._general = _general_maps(problem, self._chunk_plan)
         self._general_responds = self._general is not None and (
             bool(np.any(self._general.tensor)) or self._general.dispersive is not None
         )
@@ -509,6 +512,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                     profiles=self._profiles,
                     tables=tables,
                     operator=self._problem.linear.separable,
+                    node_chunk=self.node_chunk,
                 )
                 for one in state
             ]
@@ -878,7 +882,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 field.reshape(ny, nx, *field.shape[1:]), axes=(0, 1)
             ).reshape(field.shape)
         )
-        chunk = self._problem.transform.node_chunk
+        chunk = self.node_chunk
         for first in range(0, len(physical), chunk):
             yield passes.to_time(
                 physical[first : first + chunk] * grids.pad_scale,
@@ -941,7 +945,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             )
             largest, peak = -1.0, 0.0
             grids = self._problem.grids
-            chunk = self._problem.transform.node_chunk
+            chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 nodes = passes.to_time(
                     physical[first : first + chunk] * grids.pad_scale,
@@ -1109,7 +1113,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         what the budget of ``docs/dev/architecture.md`` section 8 is measured against.
         Every buffer is named even when it is empty.
 
-        The space-domain entries are sized by ``transform.node_chunk`` and not by the
+        The space-domain entries are sized by :attr:`node_chunk` and not by the
         node count, which is the whole point of the chunk loop (``architecture.md``
         section 13): holding ``(n_to, n_pol n_nodes)`` for every node at once would be
         210 MB against 45 MB on the comb-to-continuum target.
@@ -1136,6 +1140,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 noise=self._noise is not None,
                 statistics_weight=self._statistics_power_weight.nbytes,
                 spatial_absorber=self._spatial_absorber.nbytes,
+                node_chunk=self.node_chunk,
             ),
             # The coupled flow's own resident arrays: the frozen block of every
             # section with its Schur factors, the residual's terms, and the one
@@ -1781,7 +1786,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             # and the rate is the same at every node, so it is applied row by row.
             transform = self._problem.transform
             physical = slab_rows(transform, masked[0])
-            chunk = transform.node_chunk
+            chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
                 physical[rows] = passes.apply_temporal_rate(
@@ -1794,7 +1799,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             physical = transforms.ifft2(masked[0].reshape(shape), axes=(0, 1)).reshape(
                 masked.shape[1:]
             )
-            chunk = self._problem.transform.node_chunk
+            chunk = self.node_chunk
             for first in range(0, len(physical), chunk):
                 rows = slice(first, first + chunk)
                 physical[rows] = passes.apply_temporal_rate(
@@ -1894,7 +1899,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
         The pipeline of ``architecture.md`` section 8 for any node count: one batched
         inverse transform of every modal column, then, per chunk of
-        ``transform.node_chunk`` nodes, the synthesis GEMM, the fused response pass and
+        :attr:`node_chunk` nodes, the synthesis GEMM, the fused response pass and
         the projection GEMM accumulated over the chunks, then one batched forward
         transform, the crop and the prefactor. Mode-averaged propagation is the
         one-node, one-column case of exactly this code.
@@ -2220,10 +2225,10 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             problem.shape[1:], dtype=np.result_type(modal_t, np.complex64)
         )
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-        for first in range(0, transform.n_nodes, transform.node_chunk):
+        for first in range(0, transform.n_nodes, self.node_chunk):
             rows = slice(
                 first * transform.n_pol,
-                (first + transform.node_chunk) * transform.n_pol,
+                (first + self.node_chunk) * transform.n_pol,
             )
             field = passes.synthesise(
                 modal_t,
@@ -2287,8 +2292,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 lab[0].reshape(shape), axes=(0, 1), out=scratch.reshape(shape)
             )
             raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
-            for first in range(0, transform.n_nodes, transform.node_chunk):
-                rows = slice(first, first + transform.node_chunk)
+            for first in range(0, transform.n_nodes, self.node_chunk):
+                rows = slice(first, first + self.node_chunk)
                 field_t = grids.pad_scale * passes.to_time(
                     scratch[rows], grids.crop_index, grids.n_to, kind=self._kind
                 )
@@ -2312,8 +2317,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             transforms.fft2(view, axes=(0, 1), out=view)
             data = problem.linear.separable
             assert data is not None
-            for first in range(0, transform.n_nodes, transform.node_chunk):
-                rows = slice(first, first + transform.node_chunk)
+            for first in range(0, transform.n_nodes, self.node_chunk):
+                rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
                 result[0, rows] = (
                     self._rounded(prefactor) * self._tables.omega_window * scratch[rows]
@@ -2326,8 +2331,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             )
             temporal = self._tables.temporal_rate
             timed = temporal is not None and responses.absorber_scheme == "nonlinear"
-            for first in range(0, transform.n_nodes, transform.node_chunk):
-                rows = slice(first, first + transform.node_chunk)
+            for first in range(0, transform.n_nodes, self.node_chunk):
+                rows = slice(first, first + self.node_chunk)
                 rate = self._rounded(geometry.absorber_rate[rows, None, None])
                 if not timed:
                     # A rate of the node alone commutes with the temporal transforms:
@@ -2413,7 +2418,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 np.zeros_like(rows_t) for _ in range(2 if envelope or plasma else 0)
             ]
             # Whole y rows at a time, as many as the node chunk holds.
-            block = max(1, transform.node_chunk // n_x)
+            block = max(1, self.node_chunk // n_x)
             for first in range(0, n_y, block):
                 rows = slice(first * n_p, min(first + block, n_y) * n_p)
                 count = (rows.stop - rows.start) // n_p
@@ -2462,8 +2467,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             columns = slab_columns(transform, spectrum)
             data = problem.linear.separable
             assert data is not None
-            for first in range(0, transform.n_modes, transform.node_chunk):
-                rows = slice(first, first + transform.node_chunk)
+            for first in range(0, transform.n_modes, self.node_chunk):
+                rows = slice(first, first + self.node_chunk)
                 _, prefactor = separable_values(data, rows)
                 result[0, rows] = prefactor * grids.omega_window * columns[rows]
         if self._in_stage_absorber:
@@ -2572,7 +2577,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         """Run the response pass over the quadrature in chunks and project it back.
 
         The chunk loop of ``architecture.md`` section 13: the space-domain buffers are
-        sized by ``transform.node_chunk`` and not by the node count, so a chunk of one
+        sized by :attr:`node_chunk` and not by the node count, so a chunk of one
         and a chunk of every node differ only in round-off. The embedded coarse rule is
         projected in the same loop, from the same node polarisation, because that is
         what makes the quadrature alarm free: the two rules share every node the coarse
@@ -2628,8 +2633,8 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             if bool(responses.plasma_channels) and not self._gated_plasma
             else None
         )
-        for first in range(0, transform.n_nodes, transform.node_chunk):
-            rows = slice(first * n_pol, (first + transform.node_chunk) * n_pol)
+        for first in range(0, transform.n_nodes, self.node_chunk):
+            rows = slice(first * n_pol, (first + self.node_chunk) * n_pol)
             field_t = passes.synthesise(
                 modal_t, self._tables.synthesis[rows], taper, n_pol
             )
@@ -3025,19 +3030,22 @@ def _refuse_inadmissible(problem: KernelProblem, spec: StatsSpec) -> None:
         raise BackendError(refusal)
 
 
-def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
+def _general_maps(
+    problem: KernelProblem, plan: NodeChunkPlan | None = None
+) -> GeneralMaps | None:
     """Derive the general modal route's maps, or return ``None`` for another route.
 
     The maps are read out of the leaves once, here, because the route propagates
     constant geometry: one interval of one Chebyshev degree along z, so there is
     nothing to evaluate per stage. The chunk is the backend's own memory strategy
-    and not a contract field -- ``transform.node_chunk`` is the checked placeholder
-    of the static matrices this route replaces.
+    within the plan's budget, or the plan's exact chunk when one was forced.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         A validated problem this backend has already admitted.
+    plan : solprop.backends.node_chunk.NodeChunkPlan or None, optional
+        The backend's node-chunk plan; ``None`` plans the automatic one.
 
     Returns
     -------
@@ -3048,12 +3056,8 @@ def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
     if tables is None:
         return None
     assert tables.synthesis is not None and tables.projection is not None
-    chunk = general_node_chunk(
-        int(tables.electric.shape[2]),
-        problem.grids.n_to,
-        int(tables.omega_fine.size),
-        DEFAULT_NODE_BUDGET,
-        dispersive=general_dispersive_buffers(problem.responses.dispersive_kerr),
+    chunk = general_planned_chunk(
+        problem, plan_node_chunk(problem) if plan is None else plan
     )
     regional = problem.responses.regional_responses
     owner, delayed_tensor, delayed_spectrum = node_delayed_maps(tables, regional)
@@ -3063,7 +3067,7 @@ def _general_maps(problem: KernelProblem) -> GeneralMaps | None:
         tables.projection[0, 0],
         node_kerr_tensor(tables, regional),
         tables.source_frequency_factor,
-        min(chunk, int(tables.region_index.size)),
+        chunk,
         node_kerr_form(regional),
         owner,
         delayed_tensor,

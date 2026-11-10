@@ -219,11 +219,9 @@ def test_spatial_species_energy_uses_the_geometry_measure(geometry):
 
     _, grid, _, _, original = mixture_case()
     transform = (
-        radial_transform(RadialGrid(1e-3, 8), grid, n_pol=1, z_max=grid.length)
+        radial_transform(RadialGrid(1e-3, 8), grid, z_max=grid.length)
         if geometry == "radial"
-        else free_transform(
-            FreeGrid(1e-3, 4, 1e-3, 4), grid, n_pol=1, z_max=grid.length
-        )
+        else free_transform(FreeGrid(1e-3, 4, 1e-3, 4), n_pol=1, z_max=grid.length)
     )
     problem = dataclasses.replace(original, transform=transform)
     fractions = np.full((2, transform.n_nodes), 0.25)

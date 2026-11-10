@@ -51,12 +51,12 @@ from solprop.backends.multistep import (
     source_absent,
     trial_tables,
 )
+from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.numpy_ref import QUADRATURE_ALARM
 from solprop.backends.numpy_ref.admission import refuse_general_route
 from solprop.backends.numpy_ref.general_modal import (
     DELAYED_TERMS,
-    general_dispersive_buffers,
-    general_node_chunk,
+    general_planned_chunk,
     node_delayed_maps,
     node_kerr_form,
     node_kerr_tensor,
@@ -66,6 +66,7 @@ from solprop.backends.populations import (
     axis_row_matrix,
     axis_row_populations,
 )
+from solprop.backends.session import ExecutionOptions
 from solprop.backends.spatial import (
     FarFieldTables,
     far_field_partials,
@@ -131,7 +132,6 @@ from solprop.translate.coupled import (
     schur_eigenbasis,
 )
 from solprop.translate.linop import power_weight_at, rate_weights
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_source import (
     _BENCHMARK_GATED,  # pyright: ignore[reportPrivateUsage] - refuse the private NumPy benchmark hook
 )
@@ -340,6 +340,7 @@ class NativeBackend(StepDriver[_core.State]):
         cpu_execution: ExecutionRecord | None = None,
         fft_planning: Mapping[str, object] | None = None,
         far_field: FarFieldTables | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         if _BENCHMARK_GATED.get():
             raise BackendError("the gated plasma benchmark requires numpy_ref")
@@ -350,7 +351,19 @@ class NativeBackend(StepDriver[_core.State]):
         # build refuses it, naming the table's size and the CPU backends.
         if not problem.device_ready and _on_device():
             require_device_ready(problem, "native")
-        super().__init__(problem, grid=grid, modes=modes, profiles=profiles)
+        super().__init__(
+            problem, grid=grid, modes=modes, profiles=profiles, options=options
+        )
+        # solprop SEP 47 section 6.5: this backend's lowering of the host plan, and
+        # the general route's own chunk at the plan's budget.
+        self._node_chunk = native_node_chunk(
+            problem, self.chunk_plan, device=_on_device()
+        )
+        self._general_chunk = (
+            None
+            if problem.transform.modal_tables is None
+            else general_planned_chunk(problem, self.chunk_plan)
+        )
         self._z_tables = None if problem.device_ready else _ZTables(problem)
         self._flow = _host_flow(problem)
         # solprop SEP 45 phase 2: the staged Runge-Kutta rows, decided on first use.
@@ -389,7 +402,14 @@ class NativeBackend(StepDriver[_core.State]):
             _package.EXECUTION_SOURCE if cpu_execution is None else "given"
         )
         self._native_state = _core.State(
-            _native_problem(problem, self._terms, self._flow, self._z_tables)
+            _native_problem(
+                problem,
+                self._terms,
+                self._flow,
+                self._z_tables,
+                node_chunk=self._node_chunk,
+                general_chunk=self._general_chunk,
+            )
             | _low_storage_payload(problem, device=_on_device())
             | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
             | _planning_payload(fft_planning, stored)
@@ -405,7 +425,14 @@ class NativeBackend(StepDriver[_core.State]):
                 stored |= _keep_plans(self._native_state, wisdom)
                 self._native_state.close()
                 self._native_state = _core.State(
-                    _native_problem(problem, self._terms, self._flow, self._z_tables)
+                    _native_problem(
+                        problem,
+                        self._terms,
+                        self._flow,
+                        self._z_tables,
+                        node_chunk=self._node_chunk,
+                        general_chunk=self._general_chunk,
+                    )
                     | _low_storage_payload(problem, device=_on_device())
                     | {"cpu_execution": refined[0].native()}
                     | _planning_payload(fft_planning, stored)
@@ -2050,6 +2077,11 @@ class NativeBackend(StepDriver[_core.State]):
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
             work["statistics_tables"] = dict(self._statistics_tables)
+        if self._general_chunk is not None:
+            work["general_node_chunk"] = self._general_chunk
+        work["node_chunk_rule"] = (
+            "device" if _on_device() and self.chunk_plan.automatic else "host"
+        )
         return {
             **work,
             **facts.info,
@@ -2105,6 +2137,17 @@ class NativeBackend(StepDriver[_core.State]):
             ),
             "device_reduction_size": facts.device_reduction_size,
         }
+
+    @property
+    def node_chunk(self) -> int:
+        """Return the nodes a native response pass holds at once.
+
+        Returns
+        -------
+        int
+            The host plan lowered by :func:`native_node_chunk`.
+        """
+        return self._node_chunk
 
     def available_device_memory(self) -> int | None:
         """Return free accelerator bytes, or None for a host build.
@@ -2776,6 +2819,68 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
 def _on_device() -> bool:
     """Return whether the installed build executes on an accelerator."""
     return _build_facts().info["device_backend"] != "none"
+
+
+def device_node_chunk(problem: KernelProblem, planned: int) -> int:
+    """Return the node chunk a device build takes when no budget or chunk is given.
+
+    solprop issue #361: on a device a node chunk is a kernel launch, and SEP 46's phase
+    6 measured 6-25 % from larger chunks on H200 spatial routes. No larger default is
+    qualified yet, so this keeps the host plan's chunk, today's device behaviour. A
+    changed rule lands here, once its benefit, memory cost and CUDA and HIP timing are
+    qualified (SEP 47 section 11, phase 4). It is consulted only for an automatic plan:
+    an explicit budget or chunk always wins. It runs at backend construction, after the
+    translation, so no device runtime starts before a scan forks.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The validated problem.
+    planned : int
+        The host plan's chunk at the default budget
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+    Returns
+    -------
+    int
+        The device's chunk, between 1 and the node count.
+    """
+    del problem
+    return planned
+
+
+def native_node_chunk(
+    problem: KernelProblem, plan: NodeChunkPlan, *, device: bool
+) -> int:
+    """Lower the host node-chunk plan to the chunk this backend executes.
+
+    A device build's automatic plan goes through :func:`device_node_chunk`. The chunk
+    is then bounded by the node count, and on the hybrid planar kind made whole y rows,
+    as many as it holds and at least one, which is solprop's reference's own blocking.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The validated problem.
+    plan : solprop.backends.node_chunk.NodeChunkPlan
+        The host plan.
+    device : bool
+        Whether this build executes on an accelerator.
+
+    Returns
+    -------
+    int
+        The chunk the native problem is built with.
+    """
+    chunk = plan.chunk
+    if device and plan.automatic:
+        chunk = device_node_chunk(problem, chunk)
+    chunk = min(chunk, problem.transform.n_nodes)
+    geometry = problem.transform.geometry
+    if geometry is not None and geometry.kind == "slab":
+        n_x, n_y = geometry.shape
+        chunk = min(n_y, max(1, chunk // n_x)) * n_x
+    return chunk
 
 
 def _low_storage_payload(problem: KernelProblem, *, device: bool) -> dict[str, object]:
@@ -4753,7 +4858,18 @@ def _native_problem(
     fixed: StageTerms,
     flow: _HostFlow | None = None,
     tables: _ZTables | None = None,
+    *,
+    node_chunk: int | None = None,
+    general_chunk: int | None = None,
 ) -> dict[str, object]:
+    # The constructor hands its lowered chunks; a direct caller takes the automatic
+    # plan's (solprop SEP 47 section 6.5).
+    if node_chunk is None:
+        node_chunk = native_node_chunk(
+            problem, plan_node_chunk(problem), device=_on_device()
+        )
+    if general_chunk is None and problem.transform.modal_tables is not None:
+        general_chunk = general_planned_chunk(problem, plan_node_chunk(problem))
     kerr = problem.responses.kerr_coefficients
     dispersive = problem.responses.dispersive_kerr
     # solprop SEP 6's number-conserving sector is formed on analytic signals, of the
@@ -4827,7 +4943,6 @@ def _native_problem(
     spatial_absorption = bool(spatial_absorber.size) or (
         free and geometry is not None and bool(np.any(geometry.absorber_rate))
     )
-    node_chunk = min(problem.transform.node_chunk, problem.transform.n_nodes)
     coarse_matrix = coarse
     spatial_data: dict[str, object] = {}
     if free and geometry is not None and spatial is not None:
@@ -4860,10 +4975,6 @@ def _native_problem(
             }
         if geometry.kind == "slab":
             spatial_data |= _slab_payload(problem)
-            n_x, n_y = geometry.shape
-            # Whole y rows per chunk, as many as the node chunk holds (at least one),
-            # which is solprop's reference's own blocking.
-            node_chunk = min(n_y, max(1, problem.transform.node_chunk // n_x)) * n_x
             # The reference scores no quadrature alarm on this kind, so no embedded
             # Kronrod projection is packed.
             coarse_matrix = np.empty(0, dtype=np.float64)
@@ -4899,7 +5010,7 @@ def _native_problem(
         **spatial_data,
         **_channel_payload(problem),
         **_envelope_payload(problem),
-        **_general_payload(problem),
+        **_general_payload(problem, general_chunk),
         **_flow_payload(flow),
         **_dispersive_payload(problem),
         **_flux_payload(problem),
@@ -4911,6 +5022,8 @@ def _native_problem(
         "n_pol_state": problem.shape[2],
         "n_pol_transform": problem.transform.n_pol,
         "n_nodes": problem.transform.n_nodes,
+        # solprop SEP 47 section 6.5: the backend's execution choice, lowered by
+        # `native_node_chunk`.
         "node_chunk": node_chunk,
         "family": family,
         "nonlinear": kerr is not None,
@@ -5215,14 +5328,15 @@ def _slab_payload(problem: KernelProblem) -> dict[str, object]:
     }
 
 
-def _general_payload(problem: KernelProblem) -> dict[str, object]:
+def _general_payload(problem: KernelProblem, chunk: int | None) -> dict[str, object]:
     """Pack the general modal route's maps, derived as ``numpy_ref`` derives them.
 
     The per-node tensor, the form and the delayed maps come from solprop's own
     public derivations (``solprop.backends.numpy_ref.general_modal``), so this
     backend executes exactly the arrays the reference executes; the chunk is the
-    reference's own memory strategy at the same budget. Nothing is packed for a
-    problem without ``transform.modal_tables``.
+    reference's own memory strategy at the same budget
+    (:func:`solprop.backends.numpy_ref.general_modal.general_planned_chunk`), given as
+    `chunk`. Nothing is packed for a problem without ``transform.modal_tables``.
     """
     tables = problem.transform.modal_tables
     if tables is None:
@@ -5232,15 +5346,7 @@ def _general_payload(problem: KernelProblem) -> dict[str, object]:
     regional = problem.responses.regional_responses
     components = int(tables.electric.shape[2])
     nodes = int(tables.region_index.size)
-    # The reference's chunk, which counts SEP 6's dispersive buffers as both
-    # compiled backends hold them.
-    chunk = general_node_chunk(
-        components,
-        problem.grids.n_to,
-        int(tables.omega_fine.size),
-        DEFAULT_NODE_BUDGET,
-        dispersive=general_dispersive_buffers(problem.responses.dispersive_kerr),
-    )
+    assert chunk is not None
     owner, delayed_tensor, delayed_spectrum = node_delayed_maps(tables, regional)
     terms = 0 if delayed_tensor is None else int(delayed_tensor.shape[1])
     intervals, n_deg = (int(one) for one in tables.synthesis.shape[:2])
@@ -5254,7 +5360,7 @@ def _general_payload(problem: KernelProblem) -> dict[str, object]:
         "general_map_n_deg": n_deg,
         "general_components": components,
         "general_nodes": nodes,
-        "general_node_chunk": min(chunk, nodes),
+        "general_node_chunk": chunk,
         "general_responses": 0 if delayed_tensor is None else delayed_tensor.shape[0],
         "general_terms": terms,
         "general_pad_scale": float(problem.grids.pad_scale),

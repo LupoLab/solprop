@@ -64,6 +64,7 @@ from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
     DEFAULT_WORK_LIMIT,
+    ExecutionOptions,
     SessionError,
     SessionState,
     SessionStatus,
@@ -315,6 +316,9 @@ class NativeSession:
         Called with each attempt's end, length and acceptance. A per-attempt listener is
         a requested external service: the session then yields after every attempt and
         calls it before returning the batch (SEP 47 section 7.3). It observes only.
+    options : solprop.backends.session.ExecutionOptions or None, optional
+        The run's execution options, from which the backend plans its node chunk;
+        ``None`` for the automatic choice.
 
     Raises
     ------
@@ -333,6 +337,7 @@ class NativeSession:
         profiles: Mapping[str, ZProfile] | None = None,
         stop: StopFlag | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Refuse what the prototype does not admit, then prepare and start it."""
         refused = refusal(problem, request, start)
@@ -377,6 +382,7 @@ class NativeSession:
             modes=modes,
             profiles=profiles,
             far_field=self._far_field,
+            options=options,
         )
         self._backend: NativeBackend | None = backend
         try:

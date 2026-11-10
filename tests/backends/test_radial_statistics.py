@@ -215,7 +215,7 @@ def test_empty_spatial_widths_and_intensities(case, spatial_backend_class):
 
 def test_spatial_statistics_require_geometry_and_named_dependencies(case):
     grid, space = case
-    transform = radial_transform(space, grid, n_pol=1, z_max=grid.length)
+    transform = radial_transform(space, grid, z_max=grid.length)
     state = np.zeros((space.n_r, 1, grid.n_omega), dtype=np.complex128)
     spec = StatsSpec(names=("density",))
     with pytest.raises(BackendError, match="spatial geometry"):

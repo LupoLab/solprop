@@ -9,7 +9,7 @@ import dataclasses
 import numpy as np
 import pytest
 
-from backends.test_band_plasma_parity import CASES, bound, case
+from backends.test_band_plasma_parity import CASES, bound, case, options_for
 from backends.test_radial_nonlinear import derivative
 from gated_source import _gated_source
 from solprop.backends.numpy_ref import NumpyRefBackend
@@ -41,13 +41,14 @@ def test_current_assembly_and_ledger_on_each_route(name, rule):
     # its independent budget is fixed before evaluating the native source.
     allowance = bound(problem, grid, "native", 0)
     assert allowance > 0
-    expected = derivative(NumpyRefBackend, problem, grid)
-    actual = derivative(native.NativeBackend, problem, grid)
+    options = options_for(name)
+    expected = derivative(NumpyRefBackend, problem, grid, options)
+    actual = derivative(native.NativeBackend, problem, grid, options)
     scale = float(np.max(abs(expected)))
     assert scale > 0
     np.testing.assert_allclose(actual, expected, rtol=0, atol=allowance * scale)
     assert np.count_nonzero(actual[..., ~grid.active_mask]) == 0
-    backend = native.NativeBackend(problem, grid=grid)
+    backend = native.NativeBackend(problem, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
         backend.set_initial(problem.initial.field0, None)

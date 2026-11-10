@@ -28,6 +28,7 @@ from backends.test_radial_nonlinear import (
 )
 from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, LineGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
 from solprop.nonlinear.responses import KerrResponse, PlasmaResponse
@@ -39,6 +40,10 @@ from solprop.translate.ionisation import build_rate_table
 # Ten steps is the qualification scope's propagation (AGENTS.md); zero is one
 # nonlinear evaluation, one is a single step.
 STEPS = (0, 1, 10)
+
+
+REMAINDER = ExecutionOptions(node_chunk=7)
+"""A remainder chunk, independently of the memory-derived default."""
 
 
 @pytest.fixture(
@@ -102,8 +107,6 @@ def line_case(request):
     )
     problem = dataclasses.replace(
         problem,
-        # Force a remainder chunk, independently of the memory-derived default.
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
     )
     return family, grid, space, problem
@@ -128,8 +131,8 @@ def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
     bound = amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
     assert bound > 0
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(spatial_backend_class, problem, grid)
+        reference = derivative(NumpyRefBackend, problem, grid, REMAINDER)
+        actual = derivative(spatial_backend_class, problem, grid, REMAINDER)
     else:
         schedule = problem.stepper.schedule
         assert schedule is not None
@@ -142,7 +145,7 @@ def test_line_nonlinear_ladder(line_case, spatial_backend_class, steps):
         )
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
-            backend = implementation(problem, grid=grid)
+            backend = implementation(problem, grid=grid, options=REMAINDER)
             try:
                 backend.set_initial(problem.initial.field0, None)
                 backend.propagate_to(LENGTH)
@@ -175,7 +178,7 @@ def test_line_statistics_fresh_and_cached(line_case, spatial_backend_class, step
     spec = StatsSpec(names=names)
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:

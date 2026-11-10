@@ -780,6 +780,7 @@ class _Work:
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            options=simulation.settings.execution_options(),
         )
         try:
             statistics = launch_statistics(backend, simulation.translate())

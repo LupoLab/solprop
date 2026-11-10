@@ -54,6 +54,7 @@ from jaxtyping import Complex, Float, Inexact, Num
 from solprop.backends.numpy_ref import passes, transforms
 from solprop.backends.numpy_ref.backend import NumpyRefBackend, SourceTables
 from solprop.backends.numpy_ref.envelope_plasma import envelope_sources
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0
 from solprop.exceptions import BackendError, ConvergenceError, TranslationError
 from solprop.fourier import GridKind
@@ -151,6 +152,7 @@ class NumpySingleBackend(NumpyRefBackend):
         modes: Sequence[Mode] | None = None,
         profiles: Mapping[str, ZProfile] | None = None,
         tdse_binding: TDSEBinding | None = None,
+        options: ExecutionOptions | None = None,
     ) -> None:
         """Adopt a single-precision problem and narrow its tables."""
         if not problem.precision.single:
@@ -174,6 +176,7 @@ class NumpySingleBackend(NumpyRefBackend):
             modes=modes,
             profiles=profiles,
             tdse_binding=tdse_binding,
+            options=options,
         )
         self._real = np.dtype(np.float32)
         self._complex = np.dtype(np.complex64)

@@ -37,7 +37,7 @@ from backends.low_storage_cases import assert_compiled as compiled_against_refer
 from backends.low_storage_cases import assert_parity as parity_against_reference
 from backends.matched import native_thread_fields
 from backends.planar_cases import planar_case
-from backends.test_low_storage import MARCH, cartesian_march, marched
+from backends.test_low_storage import CARTESIAN_CHUNK, MARCH, cartesian_march, marched
 from backends.test_radial_nonlinear import CHI3, QuadraticRate
 from backends.test_radial_nonlinear import LENGTH as RADIAL_LENGTH
 from backends.test_radial_nonlinear import make_problem as radial_problem
@@ -50,6 +50,7 @@ from solprop.backends.memory import (
     low_storage_stage_register,
 )
 from solprop.backends.numpy_ref.backend import _general_maps
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import Absorber, absorber
 from solprop.constants import C
 from solprop.driver import Simulation
@@ -303,7 +304,13 @@ def test_a_cartesian_kerr_beam_agrees(mode, collar, noisy):
                 field0=pulse.build(grid, space, medium=SpatialMedium())[None],
             ),
         )
-    assert_parity(problem, grid, noise=noise, transverse=problem.transform.n_nodes)
+    assert_parity(
+        problem,
+        grid,
+        noise=noise,
+        options=CARTESIAN_CHUNK,
+        transverse=problem.transform.n_nodes,
+    )
 
 
 def test_a_recomputed_flow_keeps_a_small_loss():
@@ -402,10 +409,13 @@ def test_a_line_beam_agrees(family):
                 problem.responses, absorber_scheme="nonlinear"
             ),
         )
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+    assert_parity(
+        problem,
+        grid,
+        options=CARTESIAN_CHUNK,
+        transverse=problem.transform.n_nodes,
+        depth=depth,
     )
-    assert_parity(problem, grid, transverse=problem.transform.n_nodes, depth=depth)
 
 
 PLANAR = (
@@ -427,13 +437,19 @@ PLANAR = (
 @pytest.mark.parametrize("name", PLANAR)
 def test_a_planar_beam_agrees(name):
     """The hybrid planar kind: both halves of the column volume folded at once."""
-    grid, _, problem = planar_case(name, steps=STEPS, node_chunk=2)
+    grid, _, problem = planar_case(name, steps=STEPS)
     problem = marched(problem, problem.stepper.schedule)
     depth = grid.n_to if "plasma" in name else 0
     geometry = problem.transform.geometry
     assert geometry is not None
     n_y = geometry.shape[1]
-    assert_parity(problem, grid, transverse=n_y, depth=depth)
+    assert_parity(
+        problem,
+        grid,
+        options=ExecutionOptions(node_chunk=2),
+        transverse=n_y,
+        depth=depth,
+    )
 
 
 # --- the remaining branches of each route -------------------------------------------
@@ -453,7 +469,7 @@ def test_a_linear_cartesian_beam_agrees():
     )
     assert len(problem.responses.response_order) == 1
     assert low_storage_stage_register(problem, "native")
-    assert_parity(problem, grid, growth=1.0)
+    assert_parity(problem, grid, options=CARTESIAN_CHUNK, growth=1.0)
 
 
 @pytest.mark.medium
@@ -554,7 +570,7 @@ def test_the_native_state_holds_the_registers_and_no_runge_kutta_view(mode, coll
     """
     problem, grid, _ = cartesian_march(mode, collar=collar)
     field = 16 * math.prod(problem.shape)
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(float(problem.stepper.save_planes[-1]))
     ledger = backend.memory_ledger()
@@ -623,7 +639,7 @@ def test_a_loaded_state_is_not_held_after_the_load(monkeypatch, model):
         )
     )
     problem, grid, _ = cartesian_march("tabulate", noise=noise)
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     loaded: list[weakref.ref[np.ndarray]] = []
     apply_mask = backend._apply_mask
 
@@ -657,7 +673,7 @@ def test_a_native_exception_leaves_the_backend_refusing(monkeypatch):
     """Section 6.2's guard: a step that raises after its passes stays in flight."""
     problem, grid, _ = cartesian_march("tabulate")
     end = float(problem.stepper.save_planes[-1])
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -699,7 +715,7 @@ def test_a_signal_during_the_native_step_waits_for_its_commit(monkeypatch):
     """
     problem, grid, _ = cartesian_march("tabulate")
     end = float(problem.stepper.save_planes[-1])
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     assert backend._low_storage is not None
     engine = backend._low_storage.engine
@@ -779,7 +795,7 @@ def test_the_march_agrees_across_thread_counts(tmp_path):
 def test_a_trial_step_on_a_low_storage_state_is_refused_by_name():
     # #492: this state allocates none of the views the trial step writes to.
     problem, grid, _ = cartesian_march("tabulate")
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     try:
         backend.set_initial(problem.initial.field0, None)
         with pytest.raises(RuntimeError, match=r"low-storage state .* no Runge-Kutta"):

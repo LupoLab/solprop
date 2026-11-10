@@ -28,6 +28,7 @@ import numpy as np
 from bounds import gamma
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from modal_provider_cases import GENERAL_Z_END, WAVELENGTH, general_grid
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import SolpropWarning
@@ -180,9 +181,14 @@ def raman(thg: bool) -> object:
 # --- the measurements ------------------------------------------------------------
 
 
-def source(backend_class: type, problem: KernelProblem, grid: TimeGrid) -> np.ndarray:
+def source(
+    backend_class: type,
+    problem: KernelProblem,
+    grid: TimeGrid,
+    options: ExecutionOptions | None = None,
+) -> np.ndarray:
     """Return one evaluation of the source at the launch, in the lab frame."""
-    backend = backend_class(problem, grid=grid)
+    backend = backend_class(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         return np.array(backend._adams_lab_source(problem.initial.field0, 0.0))

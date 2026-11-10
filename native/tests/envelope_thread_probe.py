@@ -21,7 +21,7 @@ import solprop_native
 import numpy as np
 
 from solprop.exceptions import MaterialRangeWarning
-from test_envelope_plasma import NAMES, ROUTES, envelope_case
+from test_envelope_plasma import NAMES, ROUTES, envelope_case, envelope_options
 
 arrays: dict[str, np.ndarray] = {}
 steps: list[int] = []
@@ -30,7 +30,9 @@ for route in ROUTES:
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
         problem, grid = envelope_case(route, 2)
-    owner = solprop_native.NativeBackend(problem, grid=grid)
+    owner = solprop_native.NativeBackend(
+        problem, grid=grid, options=envelope_options(route)
+    )
     try:
         owner.set_initial(problem.initial.field0, None)
         summary = owner.propagate_to(grid.length)
