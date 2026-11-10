@@ -56,6 +56,22 @@ def test_a_skip_for_a_missing_native_fails_and_names_the_test(tmp_path, capsys):
     assert "solprop-native is not installed" in out
 
 
+def test_julia_opt_in_is_expected_but_missing_runtime_is_not(tmp_path):
+    path = junit(
+        tmp_path,
+        (
+            "opt_in",
+            skip("the packaged Julia runtime lane requires SOLPROP_TEST_JULIA=1"),
+        ),
+        ("missing_runtime", skip("Julia is not installed")),
+        ("missing_setup", skip("the Julia setup is unavailable")),
+    )
+    assert check_skips.unexpected_skips(path) == [
+        ("tests.test_x::test_missing_runtime", "Julia is not installed"),
+        ("tests.test_x::test_missing_setup", "the Julia setup is unavailable"),
+    ]
+
+
 def test_pytest_s_prefix_doesn_t_hide_a_reason(tmp_path):
     path = junit(tmp_path, ("a", skip("Skipped: POSIX SIGKILL")))
     assert check_skips.unexpected_skips(path) == []

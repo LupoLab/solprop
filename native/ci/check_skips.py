@@ -40,6 +40,9 @@ EXPECTED: tuple[str, ...] = (
     r"the real Windows query",
     # Other backends and packages a lane doesn't install.
     r"Pyroraptor at the pinned revision is not installed",
+    # Julia's real subprocess matrix runs in its dedicated opt-in jobs, whose
+    # runner requires zero skips. Missing runtimes in those jobs still fail.
+    r"the packaged Julia runtime lane requires SOLPROP_TEST_JULIA=1",
     # A lane on native has its wheel; these are the no-native lane's.
     r"solprop-native is installed",
     # Parametrized cases that apply to one backend's route only.
