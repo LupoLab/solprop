@@ -31,7 +31,7 @@ import warnings
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from benchmarks.records import (
     Record,
@@ -254,10 +254,11 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     """
     import numpy as np  # noqa: PLC0415
 
-    from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.driver.run import run_problem  # noqa: PLC0415
     from solprop.output import MemoryOutput, SnapshotController  # noqa: PLC0415
     from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
+
+    Start = _session_start()  # noqa: N806 - the class, or None before SEP 47
 
     if (output == "hdf5" or snapshots is not None) and scratch is None:
         raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
@@ -273,24 +274,34 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
             scratch / "snapshots", max_snapshots=SNAPSHOT_CAPACITY
         )
         progress = Requests(controller, snapshots)
-    loaded = _Loaded(engine)
-    with loaded:
-        run_problem(
-            problem,
-            engine,
-            handler,
-            start=Start.entrance(problem),
-            metadata=simulation.metadata(),
-            stats_spec=problem.stats_spec,
-            progress="none" if progress is None else progress,
-            resume_history=simulation.settings.resume_history,
-            fields=retention.fields,
-            field_planes=retention.field_planes,
-            snapshots=controller,
-            boundary_monitor=monitor,
-        )
-    seconds = (time.perf_counter_ns() - loaded.ended) * 1e-9
-    before, after = loaded.calls, source_calls(engine)
+    observed: dict[str, Any] = {
+        "metadata": simulation.metadata(),
+        "stats_spec": problem.stats_spec,
+        "progress": "none" if progress is None else progress,
+        "resume_history": simulation.settings.resume_history,
+        "fields": retention.fields,
+        "field_planes": retention.field_planes,
+        "snapshots": controller,
+        "boundary_monitor": monitor,
+    }
+    began = time.perf_counter_ns()
+    if Start is None:
+        # A build from before SEP 47's sessions: run_problem takes a loaded backend,
+        # so the load comes first and the window starts after it, as it did then.
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        before = source_calls(engine)
+        loaded_at = time.perf_counter_ns()
+        run_problem(problem, engine, handler, **observed)
+    else:
+        loaded = _Loaded(engine)
+        with loaded:
+            run_problem(
+                problem, engine, handler, start=Start.entrance(problem), **observed
+            )
+        before, loaded_at = loaded.calls, loaded.ended
+    ended = time.perf_counter_ns()
+    seconds = (ended - loaded_at) * 1e-9
+    after = source_calls(engine)
     if isinstance(handler, HDF5Output) and path is not None:
         handler = open_file(path)
     try:
@@ -304,6 +315,10 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
             else after - before,
             "z": float(handler["z"][-1]),
             "planes": handler.n_saved,
+            # The whole run_problem call, the load and any session preparation
+            # before it included, for an end-to-end comparison across the change.
+            "wall_seconds": (ended - began) * 1e-9,
+            "rows": _periodic_rows(handler),
         }
         if controller is not None and scratch is not None:
             record["snapshots"] = sum(
@@ -322,6 +337,29 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     finally:
         handler.close()
     return record, final
+
+
+def _session_start() -> Any:
+    """Return ``solprop.backends.session.Start``, or ``None`` on a build without it.
+
+    A build from before SEP 47 has no sessions: its ``run_problem`` takes a backend
+    already loaded, and a warm-up drives the backend directly. The A/B harness runs
+    such a build as the baseline of SEP 47's attribution (section 7.2).
+    """
+    try:
+        return importlib.import_module("solprop.backends.session").Start
+    except ImportError:
+        return None
+
+
+def _periodic_rows(handler: Output) -> int:
+    """Count the periodic statistics rows a run recorded (``0`` with none)."""
+    import numpy as np  # noqa: PLC0415
+
+    try:
+        return int(np.asarray(handler["step_stats/z"]).size)
+    except KeyError, ValueError:
+        return 0
 
 
 def _finite_statistics(handler: Output) -> bool | None:
@@ -457,9 +495,17 @@ def warm_up(engine: Backend, problem: KernelProblem, until: float) -> None:
     yield's work. The backend stays open for the timed runs, each of which starts
     from the launch again.
     """
+    Start = _session_start()  # noqa: N806 - the class, or None before SEP 47
+    if Start is None:
+        # Before SEP 47: load, march and observe the backend directly.
+        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        if until > problem.initial.z:
+            engine.propagate_to(until)
+        engine.observe(field=True)
+        engine.stats(problem.stats_spec)
+        return
     from solprop.backends.events import ObservationReady  # noqa: PLC0415
     from solprop.backends.export import ExportRecipe  # noqa: PLC0415
-    from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.backends.sessions import start_session  # noqa: PLC0415
     from solprop.translate.run_request import describe_run  # noqa: PLC0415
 
@@ -534,6 +580,13 @@ def measure(
     construction = time.perf_counter() - started
     single = CASES[configuration["case"]].workload == "run"
     started = time.perf_counter()
+    # SOLPROP_BENCH_NODE_BUDGET reaches the backend through its options, on a build
+    # whose settings make them (as Simulation.run passes them).
+    options: dict[str, Any] = (
+        {"options": simulation.settings.execution_options()}
+        if hasattr(simulation.settings, "execution_options")
+        else {}
+    )
     engine = (
         select(
             configuration["backend"],
@@ -541,8 +594,7 @@ def measure(
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
-            # SOLPROP_BENCH_NODE_BUDGET reaches the backend through its options.
-            options=simulation.settings.execution_options(),
+            **options,
         )
         if single
         else None
