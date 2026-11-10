@@ -409,6 +409,7 @@ An error budget for `φ0` is not automatically an error budget for every `φk`.
 
 Suppose `Eprev` bounds the absolute error of `φ(k−1)`, `C` bounds the error of
 `c = 1/(k−1)!`, and `V` bounds error in a computed reciprocal `v = 1/z`.
+Here `Eprev`, `C`, `V`, `Et` and `Ek` are absolute complex one-norm error bounds.
 For exact `t = φ(k−1)−c`, the numerator error is bounded in the one-norm by
 
 $$E_t\le(1+a)(E_{\mathrm{prev}}+C)+a\|t\|_1.$$

@@ -117,6 +117,8 @@ scm.git.describe_command = ["git", "describe", "--dirty", "--tags", "--long", "-
 
 [tool.hatch.metadata.hooks.custom]
 
+[tool.hatch.build.hooks.custom]
+
 [tool.hatch.build.targets.wheel]
 packages = ["src/solprop"]
 
@@ -133,6 +135,7 @@ include = [
     "/tests",
     "/docs",
     "/benchmarks",
+    "/julia",
     "/tools",
     "/changelog.d",
     "/LICENSES",
@@ -289,6 +292,8 @@ faulthandler_timeout = 900
 [tool.coverage.run]
 source = ["solprop"]
 branch = true
+# SEP 48's explicit Tier 3 omission; the separate Julia lane qualifies this adapter.
+omit = ["*/solprop/backends/julia/*"]
 
 [tool.coverage.report]
 fail_under = 100

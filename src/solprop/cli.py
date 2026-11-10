@@ -95,6 +95,14 @@ def _parser() -> argparse.ArgumentParser:
     from solprop.calibration.command import add_arguments  # noqa: PLC0415 - lazy
 
     add_arguments(calibrate)
+    julia = commands.add_parser(
+        "julia", help="prepare or inspect the optional Julia backend"
+    )
+    from solprop.backends.julia.command import (  # noqa: PLC0415 - no runtime import
+        add_arguments as julia_arguments,
+    )
+
+    julia_arguments(julia)
     return parser
 
 
@@ -340,6 +348,12 @@ def _command(args: argparse.Namespace) -> int:
         from solprop.calibration.command import run  # noqa: PLC0415 - reads the store
 
         return run(args)
+    if args.command == "julia":
+        from solprop.backends.julia.command import (  # noqa: PLC0415 - explicit setup
+            run as julia_command,
+        )
+
+        return julia_command(args)
     from solprop.recipe import Recipe  # noqa: PLC0415 - imports the physics
 
     sys.stdout.write(Recipe.load(args.recipe).to_python(args.output))

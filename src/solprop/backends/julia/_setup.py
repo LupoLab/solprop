@@ -342,7 +342,7 @@ def _request(
 
 
 def _check_manifest_bridge(bundle: Path, devices: tuple[str, ...], bridge: str) -> None:
-    """Require every selected application manifest to pin the paired bridge.
+    """Require the CPU bridge pin and validate any repeated vendor bridge entry.
 
     Parameters
     ----------
@@ -359,6 +359,10 @@ def _check_manifest_bridge(bundle: Path, devices: tuple[str, ...], bridge: str) 
             manifest = mapping(tomllib.load(stream), "manifest")
         deps = mapping(manifest.get("deps"), "manifest dependencies")
         entries = deps.get("PythonCall")
+        # The CPU environment owns the bridge. A dependency-closed vendor
+        # environment need not include the engine's weak PythonCall dependency.
+        if entries is None and device != "cpu":
+            continue
         if not isinstance(entries, list) or len(entries) != 1:
             raise BackendError(
                 f"the julia {device} manifest must pin exactly one PythonCall"

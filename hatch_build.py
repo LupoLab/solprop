@@ -12,13 +12,17 @@ dynamic rather than a pin over a static list: a wheel built from the sdist runs 
 hooks, and reads only dynamic fields from the sdist's metadata.
 """
 
+import runpy
+import tempfile
+from pathlib import Path
 from typing import Any
 
+from hatchling.builders.hooks.plugin.interface import BuildHookInterface
 from hatchling.metadata.plugin.interface import MetadataHookInterface
 
 
 class NativePinHook(MetadataHookInterface):
-    """Write the dependencies, with native pinned, and the two extras."""
+    """Write the dependencies, with native pinned, and the optional extras."""
 
     PLUGIN_NAME = "custom"
 
@@ -68,3 +72,64 @@ class NativePinHook(MetadataHookInterface):
         extras = metadata.setdefault("optional-dependencies", {})
         # The desktop front end, from gui/ at this same version.
         extras["gui"] = [f"solprop-gui=={metadata['version']}"]
+        # PythonCall in the prepared Julia environments must match exactly. The
+        # base distribution never imports or installs this optional bridge.
+        extras["julia"] = ["juliacall==0.9.37"]
+
+
+class JuliaBundleHook(BuildHookInterface):
+    """Ship the engine and its build-time digest without importing solprop."""
+
+    PLUGIN_NAME = "custom"
+    _temporary: tempfile.TemporaryDirectory[str] | None = None
+
+    def initialize(self, version: str, build_data: dict[str, Any]) -> None:
+        """Add the Julia sources, environment inputs and exact digest to a wheel.
+
+        Parameters
+        ----------
+        version : str
+            Hatch's build version, including ``editable``.
+        build_data : dict
+            Hatch's mutable build configuration.
+        """
+        del version
+        if self.target_name != "wheel":
+            return
+        root = Path(self.root)
+        bundle = root / "julia"
+        source = runpy.run_path(str(root / "src/solprop/backends/julia/_source.py"))
+        digest = source["engine_digest"](bundle)
+        self._temporary = tempfile.TemporaryDirectory(prefix="solprop-julia-build-")
+        digest_file = Path(self._temporary.name) / "_engine_digest.txt"
+        digest_file.write_text(digest + "\n", encoding="utf-8")
+        target = "solprop/backends/julia"
+        force_include = build_data.setdefault("force_include", {})
+        force_include[str(digest_file)] = f"{target}/_engine_digest.txt"
+        # An explicit source inventory excludes developer records, caches and
+        # local evidence, including when building from a worktree or an sdist.
+        files = set(source["engine_files"](bundle))
+        files.update((bundle / "environments").rglob("*.toml"))
+        files.update(path for path in (bundle / "scripts").rglob("*") if path.is_file())
+        for path in sorted(files):
+            relative = path.relative_to(bundle).as_posix()
+            force_include[str(path)] = f"{target}/_bundle/{relative}"
+
+    def finalize(
+        self, version: str, build_data: dict[str, Any], artifact_path: str
+    ) -> None:
+        """Remove only the temporary digest after Hatch has copied it.
+
+        Parameters
+        ----------
+        version : str
+            Hatch's build version.
+        build_data : dict
+            The completed build configuration.
+        artifact_path : str
+            The resulting wheel or source archive.
+        """
+        del version, build_data, artifact_path
+        if self._temporary is not None:
+            self._temporary.cleanup()
+            self._temporary = None

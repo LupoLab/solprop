@@ -351,7 +351,8 @@ def test_altered_record_fails_identity_check(prepared):
     data["cpu_target"] = "generic"
     _write(path, json.dumps(data))
     assert status()[0].record is None
-    assert "identity" in status()[0].reason
+    reason = status()[0].reason
+    assert reason is not None and "identity" in reason
 
 
 def test_unknown_and_missing_device_refuse(prepared):
@@ -839,7 +840,8 @@ def test_missing_vendor_package_is_reported_from_retained_manifest(prepared):
         path.read_text(encoding="utf-8").replace("[[deps.CUDA]]", "[[deps.Unrelated]]"),
     )
     setup(devices=("cuda",))
-    assert "must pin one CUDA" in status()[0].reason
+    reason = status()[0].reason
+    assert reason is not None and "must pin one CUDA" in reason
 
 
 def test_setup_wraps_filesystem_and_runtime_timeout_errors(prepared, monkeypatch):
@@ -875,6 +877,26 @@ def test_manifest_requires_one_paired_bridge(prepared):
     _write(path, "[deps]\n")
     with pytest.raises(BackendError, match="exactly one PythonCall"):
         setup()
+
+
+@pytest.mark.parametrize("device", ["cuda", "rocm", "metal"])
+def test_vendor_closure_may_omit_the_cpu_owned_bridge(prepared, device):
+    path = prepared.bundle / "environments" / device / "Manifest.toml"
+    vendor = {"cuda": "CUDA", "rocm": "AMDGPU", "metal": "Metal"}[device]
+    _write(path, f'[[deps.{vendor}]]\nversion = "1.2.3"\n')
+    _setup._check_manifest_bridge(
+        prepared.bundle, ("cpu", device), _platforms.BRIDGE_VERSION
+    )
+
+
+@pytest.mark.parametrize("device", ["cuda", "rocm", "metal"])
+def test_repeated_vendor_bridge_must_still_match(prepared, device):
+    path = prepared.bundle / "environments" / device / "Manifest.toml"
+    _write(path, '[[deps.PythonCall]]\nversion = "0.0.1"\n')
+    with pytest.raises(BackendError, match="pins PythonCall"):
+        _setup._check_manifest_bridge(
+            prepared.bundle, ("cpu", device), _platforms.BRIDGE_VERSION
+        )
 
 
 def test_missing_bridge_package_metadata_is_actionable(monkeypatch):

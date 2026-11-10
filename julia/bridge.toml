@@ -1,0 +1,27 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# Hash this contract with the engine sources. It identifies the bridge's ownership
+# and array promises without introducing a kernel-seam version (ADR-068).
+engine = "SolpropJulia"
+python_extension = "SolpropJuliaPythonCallExt"
+
+[ownership]
+prepared_inputs = "owned-copy"
+mutable_state = "julia-session"
+python_role = "lower-inputs-and-service-events"
+
+[export]
+dtype = "complex128"
+axes = ["n_modes", "n_pol", "n_omega"]
+memory_order = "C"
+writable = true
+
+[stop]
+setter_abi = "void (uint8_t *)"
+setter_order = "release"
+reader_order = "acquire"
+owner_lifetime = "through-every-captured-listener-invocation"
+listener_owners = "python-and-c-only"
+reader_lifetime = "close-refuses-or-waits-for-in-flight-advancement"

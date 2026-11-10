@@ -20,6 +20,9 @@ import Polyester
 import PrecompileTools
 
 public copy_preparation
+public StopFlag, stop_address, stop_requested, stop_setter_address
+
+include("cancellation.jl")
 
 """
     copy_preparation(values::AbstractArray)

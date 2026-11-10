@@ -8,6 +8,7 @@ group = get(ENV, "GROUP", "Core")
 group in ("Core", "Quality") || throw(ArgumentError("unknown Julia test GROUP: $group"))
 
 if group == "Core"
+    include("cancellation.jl")
     include("preparation.jl")
     include("environments.jl")
     include("inventory.jl")

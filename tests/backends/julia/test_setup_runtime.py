@@ -81,6 +81,7 @@ def test_rocm_requires_all_system_libraries_without_loading_them(tmp_path, monke
 
     monkeypatch.setattr(Path, "glob", isolated)
     refusal = _platforms.device_refusal("rocm", "linux-x86_64")
+    assert refusal is not None
     assert "rocblas" in refusal
     assert "rocfft" in refusal
     for name in ("amdhip64", "hsa-runtime64", "rocblas", "rocfft"):

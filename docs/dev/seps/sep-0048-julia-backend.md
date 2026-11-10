@@ -6,7 +6,7 @@
 | **Title** | A Julia backend: one engine for CPUs and GPUs, in both precisions |
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5; GPT-6 (acceptance revisions, 2026-11-10) |
-| **Status** | Accepted |
+| **Status** | In progress |
 | **Review status** | Reviewed |
 | **Reviewers** | John Travers (human); GPT-6 (AI) |
 | **Type** | Feature |
@@ -15,8 +15,8 @@
 | **Requires** | SEPs 25, 33, 46 and 47 |
 | **Supersedes** | — |
 | **Superseded-by** | — |
-| **Implementation** | — |
-| **Manual pages** | — |
+| **Implementation** | `feature/sep-0048-julia-backend`; one draft implementation PR |
+| **Manual pages** | [Julia backend](../../guide/performance/julia.md) |
 
 ## Part I — Proposal
 
@@ -1393,6 +1393,11 @@ records each decision where it applies:
 
 ## Part III — History
 
+- 2026-11-10: Proposal accepted and merged in PR #609 at `04e72192`, after GitHub CI
+  and the required documentation preview passed. Implementation began on the single
+  feature branch; its ownership, partial milestones and remaining qualification are
+  recorded in `julia/IMPLEMENTATION.md`. No implementation phase is declared complete
+  by the package foundation alone.
 - 2026-11-10: Drafted by Opus 5.5 for John Travers, after a feasibility analysis of
   PR #559. The maintainer chose an explicit setup over a first-use install, all three
   GPU vendors and binary32 at merge, and Runic, Aqua and JET as the blocking Julia tools.
