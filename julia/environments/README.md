@@ -88,7 +88,14 @@ precompilation process. This does not change an already running host Python
 interpreter's bytecode policy.
 
 Only after artifact checks and strict precompilation succeed does the script
-atomically write a deterministic TOML inventory. Schema version 1 contains:
+atomically write a deterministic TOML inventory. During precompilation only, the
+active environment moves to the front of the installed stack: Julia's parallel
+precompiler otherwise cannot locate some weak dependencies present only in a
+device manifest. Effective preferences must remain identical, and the installer
+restores the runtime order even after a failure. Artifact selection and normal
+runtime loading use the CPU-first stack described above.
+
+Schema version 1 contains:
 
 - `schema_version`, `complete`, `project`, and the host `platform` triplet;
 - SHA256 of the exact `Project.toml` and `Manifest.toml` bytes;

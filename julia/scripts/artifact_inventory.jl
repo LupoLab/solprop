@@ -183,6 +183,9 @@ function validate_context(engine_root)
     expected_names = [name for name in ENVIRONMENT_NAMES if name in selected_names]
     first(selected_names) == "cpu" && selected_names == expected_names ||
         throw(ArgumentError("setup LOAD_PATH must be a unique CPU-first device stack"))
+    basename(directory) in selected_names || throw(
+        ArgumentError("setup LOAD_PATH must include its active environment"),
+    )
     context = Pkg.Types.Context()
     manifest_file = context.env.manifest_file
     isfile(manifest_file) || throw(ArgumentError("missing setup manifest: $manifest_file"))
@@ -204,6 +207,43 @@ function selected_artifacts(path, uuid, platform, local_cuda)
         )
     end
     return selected
+end
+
+function effective_preferences()
+    uuids = Set([ENGINE_UUID])
+    for project in filter(isfile, Base.load_path())
+        manifest = Base.project_file_manifest_path(project)
+        manifest === nothing && continue
+        union!(uuids, keys(Pkg.Types.read_manifest(manifest)))
+    end
+    # UUID filtering ignores preference tables in projects that do not depend on
+    # that package. A comparison of name tables alone can miss a changed value.
+    by_uuid = Dict(uuid => Base.get_preferences(uuid) for uuid in uuids)
+    return Base.get_preferences(), by_uuid
+end
+
+function with_precompile_stack(action, directory)
+    runtime_stack = copy(LOAD_PATH)
+    preferences = effective_preferences()
+    active_directory = realpath(directory)
+    try
+        # Pkg's parallel extension precompiler stops dependency lookup at the
+        # parent's first environment. Normal extension loading searches the stack.
+        # Put this closed manifest first while compiling its optional extensions.
+        others = filter(runtime_stack) do entry
+            entry == "@stdlib" ||
+                realpath(entry == "@" ? directory : entry) != active_directory
+        end
+        empty!(LOAD_PATH)
+        append!(LOAD_PATH, [directory; others])
+        effective_preferences() == preferences || throw(
+            ArgumentError("precompilation would change effective runtime preferences"),
+        )
+        return action()
+    finally
+        empty!(LOAD_PATH)
+        append!(LOAD_PATH, runtime_stack)
+    end
 end
 
 function build_inventory(engine_root)
@@ -287,7 +327,9 @@ function build_inventory(engine_root)
         end
         sort!(package["selected_artifacts"])
     end
-    Pkg.precompile(; strict = true)
+    with_precompile_stack(directory) do
+        Pkg.precompile(; strict = true)
+    end
     refuse_overrides(depot)
     unchanged = file_sha256(project_file) == project_hash &&
         file_sha256(manifest_file) == manifest_hash
