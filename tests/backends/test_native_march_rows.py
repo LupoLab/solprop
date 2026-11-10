@@ -26,8 +26,11 @@ pytestmark = pytest.mark.skipif(
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
 
 
-def rows(march: str):
-    """Return each plane's statistics rows on `march`, rows every third step."""
+def rows(march: str, monkeypatch: pytest.MonkeyPatch):
+    """Return each plane's statistics rows on `march`, rows every third step.
+
+    The Python march is the backend's test interface (``_ADAMS_MARCH``).
+    """
     simulation = ROUTES["gnlse"](None)
     simulation.settings = dataclasses.replace(
         simulation.settings, integrator=Multistep()
@@ -36,9 +39,9 @@ def rows(march: str):
     run_request = simulation._run_request().for_run(
         stats=StatsSpec(names=("energy",), periodic=("energy",), period=3)
     )
-    backend = NativeBackend(
-        problem, run_request, grid=simulation.grid, adams_march=march
-    )
+    with monkeypatch.context() as patch:
+        patch.setattr("solprop_native.backend._ADAMS_MARCH", march)
+        backend = NativeBackend(problem, run_request, grid=simulation.grid)
     try:
         assert backend._adams.native == (march == "native")
         backend.set_initial(problem.initial.field0, None)
@@ -51,8 +54,8 @@ def rows(march: str):
         backend.close()
 
 
-def test_rows_every_third_step_are_the_python_march_s():
-    native, host = rows("native"), rows("host")
+def test_rows_every_third_step_are_the_python_march_s(monkeypatch):
+    native, host = rows("native", monkeypatch), rows("host", monkeypatch)
     assert sum(one.n_rows for one in native) > 0
     for found, expected in zip(native, host, strict=True):
         np.testing.assert_array_equal(found.step, expected.step)

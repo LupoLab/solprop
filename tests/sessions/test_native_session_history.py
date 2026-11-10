@@ -489,7 +489,7 @@ def test_a_signal_during_an_advance_is_raised_with_its_batch_pending(monkeypatch
 
 
 def test_a_backend_that_steps_on_the_host_is_served_by_the_driver(monkeypatch):
-    """A backend whose own march would step on the host (here the private switch) is
+    """A backend whose own march would step on the host (here its test interface) is
     served by the transitional session over that march, decided before the start's
     field is taken; otherwise production runs on the native session.
     """

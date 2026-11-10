@@ -1796,8 +1796,15 @@ monitor and holds the march's predictions to (`BackendError` on a difference). T
 so that they round as solprop's do; within one build the two marches take the same
 steps. A configuration it does not cover runs solprop's march on the same engine with a
 `HostMarchWarning`, and the metadata's `adams_march` says which stepped a run. The
-private environment variable `SOLPROP_ADAMS_MARCH=host`, read at import, selects
-solprop's march for an A/B comparison.
+host marches are no longer production modes ([SEP 47](seps/sep-0047-run-ownership.md)
+§6.3): the environment variables `SOLPROP_ADAMS_MARCH`, `SOLPROP_RK_MARCH` and
+`SOLPROP_RK_ROWS` and the backend's `adams_march` keyword are gone, and only a test or
+a diagnostic benchmark arm (`benchmarks.adams_host --host-march`) selects solprop's
+march, through the module's test interface (`_ADAMS_MARCH`, `_RK_MARCH`, `_RK_ROWS`),
+which sends the run to the transitional bridge. Every representation the translation
+forms is read by the native stage tables (a z table on CPU builds only, which device
+builds refuse), so no admitted run has stage rows the host forms; a problem stripped of
+its representation's leaves is refused by name at admission (`host_rows_refusal`).
 
 **Resident Adams storage.** `native` allocates dense-output storage only when
 `interpolate_planes=True`. For maximum predictor order `q`, its ordinary resident

@@ -8,12 +8,15 @@ The native march steps ``Multistep()`` in either formulation, and the one-order-
 PEC comparisons, adaptive or replayed, on the routes whose trial is one bundle of stage
 rows; any other configuration runs solprop's Python march on the same
 resident engine, with a ``HostMarchWarning`` that names the reason, and the run's
-metadata records which march stepped it. The private switch the benchmark harness uses
-selects the Python march without a warning. The other comparison variants are the
+metadata records which march stepped it. The backend's test interface
+(``solprop_native.backend._ADAMS_MARCH``, no longer an environment variable or a
+constructor keyword: solprop SEP 47 section 6.3) selects the Python march without a
+warning. The other comparison variants are the
 reference's alone (solprop SEP 47 section 6.3): the backend refuses them by name before
 it allocates anything.
 """
 
+import copy
 import dataclasses
 import warnings
 
@@ -140,6 +143,35 @@ def test_a_comparison_variant_s_general_path_is_refused_before_allocation(
     assert built_states == []
 
 
+@pytest.mark.parametrize("leaf", ["operator", "prefactor"])
+def test_a_representation_the_stage_tables_do_not_read_is_refused_at_admission(
+    leaf, monkeypatch
+):
+    # solprop SEP 47 section 6.3: every representation the translation forms is read
+    # by the native stage tables, and the problem's own invariants keep each
+    # representation's leaves present, so no built-in configuration reaches a row
+    # the host forms. A problem stripped of its leaves anyway is refused by name at
+    # admission, before the native state is built, not stepped on host rows.
+    simulation = on_route("gnlse", Multistep())
+    problem = simulation.translate()
+    request = simulation._run_request()
+    owner = copy.copy(problem.linear if leaf == "operator" else problem.responses)
+    object.__setattr__(
+        owner, "phi_constant" if leaf == "operator" else "prefactor_constant", None
+    )
+    stripped = copy.copy(problem)
+    object.__setattr__(stripped, "linear" if leaf == "operator" else "responses", owner)
+    assert not backend_module.stage_tables_available(stripped)
+    built_states = []
+    monkeypatch.setattr(
+        backend_module._core, "State", lambda *args: built_states.append(args)
+    )
+    with pytest.raises(BackendError, match="does not read") as refused:
+        NativeBackend(stripped, request, grid=simulation.grid, modes=simulation.modes)
+    assert f"the {leaf}'s 'constant' representation" in str(refused.value)
+    assert built_states == []
+
+
 @pytest.mark.parametrize(
     "route", ["general guide (moving)", "capillary (coherent wall)", "radial"]
 )
@@ -170,8 +202,8 @@ def test_the_host_engine_takes_the_host_march(monkeypatch):
     reason="device builds refuse the carrier frame by name",
 )
 def test_the_carrier_frame_is_native():
-    # The chord of a constant or an expanded operator is formed natively; a z table's
-    # stays solprop's.
+    # The chord of a constant, an expanded or a tabulated operator is formed natively
+    # (tests/sessions/test_native_session_carrier_table.py for the z table's).
     from backends.test_carrier_frame import (  # noqa: PLC0415 - a heavy module
         SCALAR,
         capillary,
@@ -187,13 +219,14 @@ def test_the_carrier_frame_is_native():
         backend.close()
 
 
-def test_the_private_switch_takes_the_host_march_quietly():
+def test_the_test_interface_takes_the_host_march_quietly(monkeypatch):
+    monkeypatch.setattr("solprop_native.backend._ADAMS_MARCH", "host")
     with warnings.catch_warnings():
         warnings.simplefilter("error", HostMarchWarning)
-        backend = built(on_route("gnlse", Multistep()), adams_march="host")
+        backend = built(on_route("gnlse", Multistep()))
     try:
         assert not backend._adams.native
-        assert backend._adams.refusal == "the private switch asked for it"
+        assert backend._adams.refusal == "the test interface asked for it"
         assert backend.metadata()["adams_march"] == "host"
     finally:
         backend.close()

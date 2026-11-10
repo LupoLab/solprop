@@ -22,10 +22,18 @@ required; ``--stepper rk`` times a Runge-Kutta run, which has no host figure.
 ``--host-stages`` has the host form a trial's stage rows and tables, as before SEP 39's
 phase 1, and ``--host-march`` steps an admitted run with solprop's Python march
 instead of the native one (phase 2), so that each phase is compared with its own
-build. ``--step-planes N`` adds a natural stop every N accepted steps and
-``--row-period N`` an energy row every N accepted steps (``StatsSpec.periodic``): with
-N = 1 each is a host event at every step, the frequent-event shapes of SEP 39 section
-7.6 (#273). A busy boundary monitor is `argon_blueshift_envelope`'s own.
+build. Both are diagnostic arms, not production modes (SEP 47 section 6.3 retired the
+``SOLPROP_ADAMS_MARCH`` switch and the backend's ``adams_march`` keyword): they set the
+native backend's test interface in this process (``_ADAMS_MARCH``, ``_stage_tables``),
+which the native execution session refuses, so those runs step on the transitional
+bridge over the backend's own march, removed with it in SEP 47's phase 5. Without
+either, a run is the native session's, whose march is not ``_NativeAdamsMarch``'s
+``march_to``, so the record has no host figure; its ``wall_seconds`` and the session's
+counters (``benchmarks.native_session``) are the comparison. ``--step-planes N`` adds
+a natural stop every N accepted steps and ``--row-period N`` an energy row every N
+accepted steps (``StatsSpec.periodic``): with N = 1 each is a host event at every step,
+the frequent-event shapes of SEP 39 section 7.6 (#273). A busy boundary monitor is
+`argon_blueshift_envelope`'s own.
 """
 
 from __future__ import annotations
@@ -143,6 +151,7 @@ def _run(  # noqa: PLR0913
     from solprop.stats import StatsSpec  # noqa: PLC0415
 
     totals = install()
+    # The backend's test interface: diagnostic arms on the transitional bridge.
     if host_march:
         solprop_native.backend._ADAMS_MARCH = "host"
     if host_stages:
