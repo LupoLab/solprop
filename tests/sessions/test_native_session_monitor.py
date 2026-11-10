@@ -30,7 +30,7 @@ from typing import Any
 import numpy as np
 import pytest
 
-from sessions.executors import Run, trace
+from sessions.executors import Run, skip_device_refused, trace
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import (
     EventBatch,
@@ -172,6 +172,7 @@ def _start(
     if kind == "driver":
         driver = select("native", problem, **context)
         return DriverSession(driver, problem, request, start)
+    skip_device_refused(problem, request)
     return native_session.NativeSession(problem, request, start, **context)
 
 

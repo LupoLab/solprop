@@ -18,7 +18,9 @@ only, and the native session is an explicit opt-in here and in the tests.
 Each run reports its wall time, the time inside the native calls it makes (the march
 calls and exports of the driver's backend, the native session's ``advance`` and
 ``export``) and the Python time outside them, its returns to Python by cause, the
-field bytes it exported and its peak traced Python memory. Run it pinned, once per
+field bytes it exported, the bytes through the state's crossings each way (a device
+build's transfers) and its peak traced Python memory. On a device build both sessions
+run on the device (SEP 47 phase 3's representative path). Run it pinned, once per
 thread setting (threads are read at import)::
 
     SOLPROP_THREADS=1 taskset -c CPUS python -m benchmarks.native_session \\
@@ -232,7 +234,13 @@ def _once(
     finally:
         if counters is not None:
             _counters.disable()
+    # The field bytes through the state's crossings, each way (SEP 44), on either
+    # session: a device's plane exports and loads, or a host build's copies.
+    state = session._backend._native_state if executor == "native-session" else timed
+    to_host, from_host = state.crossed_bytes()
     record: dict[str, Any] = {
+        "crossed_to_host": int(to_host),
+        "crossed_from_host": int(from_host),
         "seconds": seconds,
         "native_seconds": timed.seconds,
         "python_seconds": seconds - timed.seconds,
@@ -302,8 +310,11 @@ def measure(
         order = executors if index % 2 == 0 else executors[::-1]
         for executor in order:
             runs[executor].append(_once(executor, simulation, problem, request))
+    from solprop_native import build_info  # noqa: PLC0415
+
     result: dict[str, Any] = {
         "case": name,
+        "device_backend": build_info().device_backend,
         "fraction": fraction,
         "repeats": repeats,
         "admitted": admitted,

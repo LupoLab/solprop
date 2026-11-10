@@ -33,7 +33,7 @@ import numpy as np
 import pytest
 
 from backends.test_transverse_backends import radial_collar
-from sessions.executors import trace
+from sessions.executors import device_build, trace
 from sessions.test_native_session_monitor import IDENTITY, Served, _identity, _serve
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.events import ObservationReady, Outcome, ServiceRequired
@@ -48,6 +48,14 @@ from solprop.translate.run_request import describe_run
 from test_transverse_reads import REREVIEW, packet_run
 
 native_session = pytest.importorskip("solprop_native.session")
+
+pytestmark = pytest.mark.skipif(
+    device_build(),
+    reason=(
+        "the native session refuses a spatial route and its transverse edge on a "
+        "device build (SEP 47 phase 4)"
+    ),
+)
 _counters = pytest.importorskip("solprop_native._counters")
 
 U = 2.0**-53

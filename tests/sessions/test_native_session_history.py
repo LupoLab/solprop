@@ -24,7 +24,15 @@ from typing import Any
 import numpy as np
 import pytest
 
-from sessions.executors import IDENTITY, PLANES, Started, drive, fibre, window
+from sessions.executors import (
+    IDENTITY,
+    PLANES,
+    Started,
+    drive,
+    fibre,
+    skip_device_refused,
+    window,
+)
 from sessions.test_native_session import _case, _driver_session, _one_thread
 from solprop._interrupts import handled
 from solprop.backends.driver_session import DriverSession
@@ -87,6 +95,7 @@ def _native(problem, request, start, **controls) -> Any:
     solprop_native.session.NativeSession
         The session.
     """
+    skip_device_refused(problem, request)
     return native_session.NativeSession(
         problem, request, start, grid=window(), modes=[fibre().mode], **controls
     )
@@ -545,6 +554,7 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
     problem = simulation.translate()
     assert problem.initial.noise_model == noise
     request = describe_run(problem, monitor=simulation._boundary_monitor())
+    skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
     phases: dict[str, list[np.ndarray]] = {"driver": [], "native": []}
@@ -606,6 +616,7 @@ def test_a_noisy_run_on_a_z_table_is_refused_once_the_backend_is_built():
     )  # fmt: skip
     problem = simulation.translate()
     request = describe_run(problem)
+    skip_device_refused(problem, request)
     assert native_session.refusal(problem, request) is None
     context = {"grid": simulation.grid, "modes": simulation.modes}
     backend = select("native", problem, **context)
@@ -714,6 +725,7 @@ def test_production_selects_the_session_and_a_field_restart_continues_as_the_dri
     """
     problem = _case(step_planes=0, **RESTARTED[case])
     request = describe_run(problem)
+    skip_device_refused(problem, request)
     backend = select("native", problem, grid=window(), modes=[fibre().mode])
     session = start_session(backend, problem, request, _entrance(problem))
     assert isinstance(session, native_session.NativeSession)

@@ -31,6 +31,7 @@ from sessions.executors import (
     WAVELENGTH,
     Run,
     Started,
+    device_build,
     drive,
     entrance,
     fibre,
@@ -51,6 +52,14 @@ from solprop.translate.problem import KernelProblem, assemble
 from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
+
+pytestmark = pytest.mark.skipif(
+    device_build(),
+    reason=(
+        "the native session refuses the low-storage replay on a device "
+        "build (SEP 47 phase 4)"
+    ),
+)
 _counters = pytest.importorskip("solprop_native._counters")
 
 LENGTH = PLANES[-1]
