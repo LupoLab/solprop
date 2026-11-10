@@ -16,12 +16,18 @@ import pytest
 
 from scripted_driver import ScriptedDriver
 from sessions.executors import fibre, soliton, window
-from solprop.backends.driver_session import DriverPrepared, DriverSession
+from solprop.backends.driver import StepDriver
+from solprop.backends.driver_session import (
+    DriverPrepared,
+    DriverPreparedGroup,
+    DriverSession,
+)
 from solprop.backends.host.session import HostSession
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import (
     PreparedExecution,
+    PreparedGroup,
     SessionError,
     Start,
     check_group,
@@ -65,6 +71,23 @@ def test_any_other_driver_prepares_the_transitional_session():
     assert driver.closed
     with pytest.raises(SessionError, match="closed"):
         prepared.start(Start.entrance(problem))
+
+
+def test_any_other_driver_prepares_the_transitional_group():
+    """SEP 47 section 6.7: a step driver's group is the transitional one.
+
+    Only the native backend runs a step driver in a group, and it prepares its own;
+    the base's preparation is asked here of a reference member, unbound.
+    """
+    problem, request = soliton()
+    backend = _select("numpy_ref", problem, request)
+    try:
+        prepared = StepDriver.prepare_group(backend, [backend], [problem], [request])  # pyright: ignore[reportArgumentType] - any driver
+        assert isinstance(prepared, DriverPreparedGroup)
+        assert isinstance(prepared, PreparedGroup)
+        assert prepared.backend == "numpy_ref"
+    finally:
+        backend.close()
 
 
 @NATIVE
