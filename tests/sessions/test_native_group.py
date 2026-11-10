@@ -20,7 +20,7 @@ import os
 import warnings
 from collections.abc import Mapping, Sequence
 from contextlib import ExitStack
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -38,12 +38,13 @@ from sessions.test_group import (
 from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
     Eligibility,
+    EventBatch,
     GroupBatch,
     ObservationReady,
     Outcome,
     Terminal,
 )
-from solprop.backends.session import Start
+from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_group
 from solprop.exceptions import BackendError, BoundaryWarning, StopRequested
 from solprop.monitor import BoundaryCheck, BoundaryMonitor
@@ -489,3 +490,186 @@ def test_a_group_the_native_group_refuses_runs_in_the_transitional_group():
         owners = [constructed(one, cleanup) for one in simulations]
         with pytest.raises(BackendError, match="fixed schedule"):
             start_group(owners, problems, requests, starts)
+
+
+def _terminals(batch: GroupBatch) -> list[Terminal]:
+    """Return each member's one event of a batch that ended the group, checked typed.
+
+    Parameters
+    ----------
+    batch : solprop.backends.events.GroupBatch
+        The batch.
+
+    Returns
+    -------
+    list of solprop.backends.events.Terminal
+        Each member's terminal event.
+    """
+    terminals = []
+    for events in batch.members:
+        (terminal,) = events
+        assert isinstance(terminal, Terminal)
+        terminals.append(terminal)
+    return terminals
+
+
+def _steps(terminal: Terminal) -> int:
+    """Return the attempts a terminal event delivers."""
+    assert terminal.history is not None
+    return terminal.history.n_steps
+
+
+class _ManufacturedError(RuntimeError):
+    """What a patched member session raises or reports."""
+
+
+def _failing_at_launch(session: Any, error: BaseException) -> Any:
+    """Return a member session's ``advance`` whose launch reports a failure.
+
+    Parameters
+    ----------
+    session : solprop_native.session.NativeSession
+        The member's session.
+    error : BaseException
+        The failure its launch reports.
+
+    Returns
+    -------
+    callable
+        The patched ``advance``: the launch batch, its observation replaced by a
+        failed terminal event at the entrance, eligible, with the launch's ticket.
+    """
+    advance = session.advance
+
+    def failed(**limits: Any) -> EventBatch:
+        batch = advance(**limits)
+        (launch,) = batch.events
+        assert isinstance(launch, ObservationReady)
+        return EventBatch(
+            batch.receipt,
+            (
+                Terminal(
+                    Outcome.FAILED,
+                    launch.z,
+                    Eligibility.ELIGIBLE,
+                    error,
+                    launch.ticket,
+                    launch.history,
+                    launch.step_stats,
+                ),
+            ),
+        )
+
+    return failed
+
+
+def test_a_failure_at_launch_poisons_the_members_that_never_launched(monkeypatch):
+    """The second of three members fails at its launch: the first launched and can be
+    checkpointed at its entrance; the third never launched, holds no batch of its own
+    to export from, and so claims no checkpoint (a terminal event without a ticket is
+    poisoned).
+    """
+    error = _ManufacturedError("a manufactured launch failure")
+    with ExitStack() as cleanup:
+        group, _ = group_of([member(index, "native") for index in range(3)], cleanup)
+        session = cast("Any", group)._sessions[1]
+        monkeypatch.setattr(session, "advance", _failing_at_launch(session, error))
+        ended = group.advance()
+        assert ended.outcome is Outcome.FAILED
+        assert ended.error is error
+        terminals = _terminals(ended)
+        assert all(terminal.error is error for terminal in terminals)
+        assert all(terminal.z == 0.0 for terminal in terminals)
+        assert [terminal.eligibility for terminal in terminals] == [
+            Eligibility.ELIGIBLE,
+            Eligibility.ELIGIBLE,
+            Eligibility.POISONED,
+        ]
+        for index, terminal in enumerate(terminals):
+            assert (terminal.ticket is None) is (index == 2)
+            if terminal.ticket is not None:
+                assert terminal.ticket.member == index
+                field = group.export(index, terminal.ticket, IDENTITY)
+                assert np.all(np.isfinite(field))
+        group.acknowledge(ended.receipt)
+        assert group.finished
+
+
+class _Raising:
+    """A member session's ``advance`` that raises on its `call`-th call.
+
+    Parameters
+    ----------
+    session : solprop_native.session.NativeSession
+        The member's session.
+    call : int
+        The call that raises.
+    error : BaseException
+        What it raises.
+    """
+
+    def __init__(self, session: Any, call: int, error: BaseException) -> None:
+        self.advance = session.advance
+        self.call = call
+        self.error = error
+        self.calls = 0
+
+    def __call__(self, **limits: Any) -> EventBatch:
+        """Advance the session, or raise on the chosen call."""
+        self.calls += 1
+        if self.calls == self.call:
+            raise self.error
+        return self.advance(**limits)
+
+
+@pytest.mark.parametrize("kind", ["exception", "interrupt"])
+def test_an_exception_escaping_a_member_ends_the_group_with_its_chunks(
+    monkeypatch, kind
+):
+    """With rounds of one step, the second member's call raises in the window's second
+    round, after it acknowledged its batch: the group ends failed, delivering each
+    member's attempts so far. The first member reached the plane, the third stands one
+    step in; the second has no batch of its own pending, so claims no checkpoint. An
+    interrupt propagates, the group's failed batch left pending: it advances no more.
+    """
+    # Made here, not in the parameters: a raised exception's traceback holds the
+    # group's frames, which must not outlive the test.
+    error: BaseException = (
+        _ManufacturedError("escaped") if kind == "exception" else KeyboardInterrupt()
+    )
+    monkeypatch.setattr(group_module, "ROUND_STEPS", 1)
+    with ExitStack() as cleanup:
+        group, _ = group_of([member(index, "native") for index in range(3)], cleanup)
+        session = cast("Any", group)._sessions[1]
+        # The launch, the window's first step, then the failing call.
+        monkeypatch.setattr(session, "advance", _Raising(session, 3, error))
+        launch = group.advance()
+        group.acknowledge(launch.receipt)
+        if isinstance(error, KeyboardInterrupt):
+            with pytest.raises(KeyboardInterrupt):
+                group.advance()
+            with pytest.raises(SessionError, match="acknowledge the pending batch"):
+                group.advance()
+            return
+        ended = group.advance()
+        assert ended.outcome is Outcome.FAILED
+        assert ended.error is error
+        terminals = _terminals(ended)
+        assert all(terminal.error is error for terminal in terminals)
+        assert [terminal.z for terminal in terminals] == pytest.approx(
+            [PLANES[0], STEP, STEP]
+        )
+        assert [_steps(terminal) for terminal in terminals] == [2, 1, 1]
+        assert [terminal.eligibility for terminal in terminals] == [
+            Eligibility.ELIGIBLE,
+            Eligibility.POISONED,
+            Eligibility.ELIGIBLE,
+        ]
+        for index in (0, 2):
+            ticket = terminals[index].ticket
+            assert ticket is not None
+            assert np.all(np.isfinite(group.export(index, ticket, IDENTITY)))
+        group.acknowledge(ended.receipt)
+        assert group.finished
+        with pytest.raises(SessionError, match="has ended"):
+            group.advance()

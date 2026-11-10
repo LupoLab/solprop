@@ -35,7 +35,13 @@ attempts since its previous event in its terminal event, and no observation.
 **Tickets.** Each member's latest native batch stays pending until that member's next
 turn (acknowledging the group's batch releases the group's tickets only), so a member
 the group ended before its turn can still be exported at its committed state, and a
-group ticket is served by that member's own pending ticket.
+group ticket -- which names its member, since every member's shares one batch and
+generation -- is served by that member's own pending ticket. A member with no batch of
+its own pending when the group ends (one that never launched, or whose own advance
+raised) has nothing to export, and its terminal event is poisoned. An exception that
+escapes a member's advance ends the group failed like a member's own failure, the
+chunks drained so far delivered; an interrupt then propagates, the group's failed batch
+left pending.
 
 **Numerics.** A member's trajectory is its lone native session's: the march, the
 monitor, the statistics and the export are the native session's own, so a member's
@@ -80,6 +86,7 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     check_group,
+    check_member_ticket,
 )
 from solprop.exceptions import BackendError, BoundaryError, StopRequested
 
@@ -224,7 +231,7 @@ def _same_group(
     )
 
 
-def _bound(event: Event, receipt: Receipt) -> Event:
+def _bound(event: Event, receipt: Receipt, member: int) -> Event:
     """Return a member's event with its ticket, if any, rebound to the group's batch.
 
     Parameters
@@ -233,11 +240,14 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         The member's event, its ticket the member session's.
     receipt : solprop.backends.events.Receipt
         The group batch's receipt.
+    member : int
+        The member's position, which the group's ticket names.
 
     Returns
     -------
     solprop.backends.events.Event
-        The event, its ticket naming the group's batch; the same event without one.
+        The event, its ticket naming the group's batch and the member; the same event
+        without one.
     """
     ticket = cast("ExportTicket | None", getattr(event, "ticket", None))
     if ticket is None:
@@ -246,7 +256,7 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         "Event",
         dataclasses.replace(
             cast("Any", event),
-            ticket=ExportTicket(receipt, ticket.generation, ticket.z),
+            ticket=ExportTicket(receipt, ticket.generation, ticket.z, member),
         ),
     )
 
@@ -450,7 +460,8 @@ class NativeGroupSession:
             If the ticket expired, or is not one of this member's.
         """
         self._ledger.check_ticket(ticket)
-        held = self._tickets.get(self._member(member))
+        check_member_ticket(ticket, self._member(member))
+        held = self._tickets.get(member)
         if held is None or held.generation != ticket.generation:
             msg = (
                 f"the export ticket for z = {ticket.z!r} m is not one of member "
@@ -475,7 +486,7 @@ class NativeGroupSession:
             No noise phase.
         """
         self._ledger.check_ticket(ticket)
-        self._member(member)
+        check_member_ticket(ticket, self._member(member))
 
     def member_status(self, member: int) -> SessionStatus:
         """Return one member's committed position, counters and outcome.
@@ -610,8 +621,9 @@ class NativeGroupSession:
         Parameters
         ----------
         stepping : bool
-            Whether the window takes common steps (a save plane's), between whose
-            rounds the stop token is polled; the launch and the completion take none.
+            Whether the window takes common steps (a save plane's): the stop token is
+            polled before its first round. The launch and the completion take none;
+            any later round of any window is polled too.
         final : bool
             Whether it is the completion, which ends the group.
 
@@ -625,14 +637,28 @@ class NativeGroupSession:
             for index, outcome in enumerate(self._outcomes)
             if outcome is None
         }
-        while active := [i for i, window in windows.items() if window.event is None]:
-            stop = self._stop
-            if stepping and stop is not None and stop.is_set():
-                return self._ended(Outcome.STOPPED, StopRequested(stop), windows)
-            for index in active:
-                error = self._turn(index, windows[index])
-                if error is not None:
-                    return self._ended(Outcome.FAILED, error, windows)
+        try:
+            rounds = 0
+            while active := [i for i, w in windows.items() if w.event is None]:
+                # Before every round that may step: a save plane's first, and any
+                # later round of any window, which only steps can have made necessary.
+                stop = self._stop
+                if (stepping or rounds) and stop is not None and stop.is_set():
+                    return self._ended(Outcome.STOPPED, StopRequested(stop), windows)
+                rounds += 1
+                for index in active:
+                    error = self._turn(index, windows[index])
+                    if error is not None:
+                        return self._ended(Outcome.FAILED, error, windows)
+        except BaseException as escaped:
+            # A failure outside a member's own terminal event -- the session refusing
+            # a call, an exception a warning's display raised, an interrupt -- ends
+            # the group with the chunks drained so far delivered; an interrupt then
+            # propagates, the group's failed batch pending, so it advances no more.
+            ended = self._ended(Outcome.FAILED, escaped, windows)
+            if isinstance(escaped, Exception):
+                return ended
+            raise
         events: list[tuple[Event, ...]] = [()] * len(self._sessions)
         steps = 0
         for index, window in windows.items():
@@ -667,6 +693,7 @@ class NativeGroupSession:
             receipt = self._pending[index]
             if receipt is not None:
                 session.acknowledge(receipt)
+                self._pending[index] = None
             batch = session.advance(work_limit=ROUND_STEPS - made)
             self._pending[index] = batch.receipt
             (event,) = batch.events
@@ -765,13 +792,16 @@ class NativeGroupSession:
                 if isinstance(ended, ObservationReady)
                 else window.joined()
             )
+            # A member holds an exportable state only while a batch of its own is
+            # pending: one that never launched, or whose own advance raised, has
+            # none, and claims no checkpoint.
             ticket = self._sessions[index].pending_ticket()
             self._outcomes[index] = outcome
             events[index] = (
                 Terminal(
                     outcome,
                     self._sessions[index].status().z,
-                    Eligibility.ELIGIBLE,
+                    Eligibility.POISONED if ticket is None else Eligibility.ELIGIBLE,
                     error,
                     ticket,
                     history,
@@ -810,7 +840,8 @@ class NativeGroupSession:
                 if ticket is not None:
                     self._tickets[index] = ticket
         bound = tuple(
-            tuple(_bound(event, receipt) for event in events) for events in members
+            tuple(_bound(event, receipt, index) for event in events)
+            for index, events in enumerate(members)
         )
         return GroupBatch(receipt, bound, outcome, error)
 

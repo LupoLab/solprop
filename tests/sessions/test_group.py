@@ -292,6 +292,15 @@ def test_a_group_s_receipts_and_tickets_follow_the_session_lifecycle(backend):
         assert isinstance(plane, ObservationReady)
         with pytest.raises(SessionError, match="not a member 2"):
             group.export(2, plane.ticket, IDENTITY)
+        # Every member's ticket names one batch and one generation: each names its
+        # member too, and another member's is refused.
+        (other,) = batch.members[1]
+        assert isinstance(other, ObservationReady)
+        assert (plane.ticket.member, other.ticket.member) == (0, 1)
+        with pytest.raises(SessionError, match="member 0's, not member 1's"):
+            group.export(1, plane.ticket, IDENTITY)
+        with pytest.raises(SessionError, match="member 1's, not member 0's"):
+            group.noise_phase(0, other.ticket)
         group.acknowledge(batch.receipt)
         group.close()
         assert group.closed
@@ -315,6 +324,41 @@ def test_a_group_starts_its_members_fresh_and_one_start_each(backend):
             start_group(
                 owners, problems, requests, [Start.entrance(problems[0]), resumed]
             )
+        # The launch plane is owed: a start that has observed it is not an entrance.
+        observed = Start.entrance(problems[1])
+        observed.plane_pending = False
+        with pytest.raises(SessionError, match="its launch plane owed"):
+            start_group(
+                owners, problems, requests, [Start.entrance(problems[0]), observed]
+            )
+
+
+@pytest.mark.parametrize("backend", GROUPS)
+def test_a_schedule_past_the_last_plane_completes_without_a_step(backend):
+    # The completion takes no step, whatever the schedule holds beyond the last plane,
+    # so a stop requested after the last plane finds no step to stop at: the members
+    # complete there, as each would run alone.
+    available(backend)
+    schedule = FixedSchedule.uniform(0.0, 2 * PLANES[-1], STEP, save_planes=PLANES)
+    simulations = [member(index, backend, schedule=schedule) for index in range(2)]
+    token = StopToken()
+    with ExitStack() as cleanup:
+        group, _ = group_of(simulations, cleanup, stop=token)
+        for _ in range(len(PLANES) + 1):
+            window = group.advance()
+            group.acknowledge(window.receipt)
+        token.set()
+        completion = group.advance()
+        group.acknowledge(completion.receipt)
+        assert group.finished
+    assert completion.outcome is Outcome.COMPLETED
+    for events in completion.members:
+        (terminal,) = events
+        assert isinstance(terminal, Terminal)
+        assert terminal.outcome is Outcome.COMPLETED
+        assert terminal.z == pytest.approx(PLANES[-1])
+        assert terminal.history is not None
+        assert terminal.history.n_steps == 0
 
 
 @pytest.mark.parametrize("backend", GROUPS)

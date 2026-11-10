@@ -92,6 +92,7 @@ __all__ = [
     "Start",
     "StopToken",
     "check_group",
+    "check_member_ticket",
     "positive_count",
 ]
 
@@ -296,7 +297,7 @@ def check_group(
     ------
     SessionError
         If the sequences differ in length or are empty, or if a start is not a fresh
-        entrance.
+        entrance whose launch plane is owed.
     """
     if count == 0 or not count == len(problems) == len(requests) == len(starts):
         msg = (
@@ -307,12 +308,35 @@ def check_group(
         raise SessionError(msg)
     for start in starts:
         fresh = start.march is None and start.monitor is None
-        if not fresh or start.plane_index:
+        if not fresh or start.plane_index or not start.plane_pending:
             msg = (
-                "a group starts its members at their entrance, with no method "
-                "history or monitor record to continue"
+                "a group starts its members at their entrance, its launch plane owed, "
+                "with no method history or monitor record to continue"
             )
             raise SessionError(msg)
+
+
+def check_member_ticket(ticket: ExportTicket, member: int) -> None:
+    """Refuse a group ticket presented for another member than the one it names.
+
+    Parameters
+    ----------
+    ticket : solprop.backends.events.ExportTicket
+        A ticket of a group's pending batch.
+    member : int
+        The member it is presented for.
+
+    Raises
+    ------
+    SessionError
+        If the ticket names another member, or none.
+    """
+    if ticket.member != member:
+        msg = (
+            f"the export ticket for z = {ticket.z!r} m is member {ticket.member}'s, "
+            f"not member {member}'s"
+        )
+        raise SessionError(msg)
 
 
 def positive_count(name: str, value: object) -> int:
