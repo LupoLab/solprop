@@ -7,8 +7,8 @@
 | **Author** | John Travers |
 | **Drafting agent** | Opus 5.5 (2026-11-10) |
 | **Status** | Draft |
-| **Review status** | Not reviewed |
-| **Reviewers** | — |
+| **Review status** | In review |
+| **Reviewers** | GPT-6 (AI) |
 | **Type** | Feature |
 | **Created** | 2026-11-10 |
 | **Resolution** | — |
@@ -989,3 +989,185 @@ records each decision where it applies:
 - 2026-11-10: The maintainer settled Q1–Q7 (§12). Q2 changed the design: the device is
   a per-run setting, with GPU packages loaded on demand from stacked environments of
   one joint resolution, in place of a process-wide variable.
+
+### AI review — 2026-11-10
+
+Reviewer: **GPT-6 (AI)**. Reviewed all of Part I at PR #609 head `742857093`,
+against SEPs 25, 33 and 47, the current design and precision code, the session contract
+on PR #607 at `83c333464`, and the experiment at the cited `b84d3ab8`.
+This review changes only the review metadata and this record; Part I is unchanged.
+The comments belong to the work tracked by [#608](https://github.com/LupoLab/solprop/issues/608).
+
+The optional Tier 3 engine and the backend-owned session boundary are coherent choices.
+The points below need responses before acceptance, particularly the numerical bounds,
+the reproducible installation contract and Python signal handling. They do not reopen
+the maintainer's Q1–Q7 decisions. **High** identifies a correctness or usability contract
+that is presently contradicted or unsupported; **Medium** identifies a scope correction
+or a question whose implementation and qualification need to be specified. No point
+records a maintainer decision.
+
+1. **R1 — High: distinguish adaptive accuracy from matched-history rounding
+   (§§4, 7.1).** Section 4 promises agreement to rounding without limiting that promise
+   to matched discrete histories; §7.1 then requires independent adaptive runs to take
+   the same accepted steps and bounds every field and statistic by summation counts.
+   [SEP 47 §4.3](sep-0047-run-ownership.md)
+   explicitly permits different accepted counts when numerical readings differ.
+   [SEP 25 §§4.3–4.4](archive/sep-0025-rounding-level-reproducibility.md)
+   also requires conditioning and propagated sensitivity in rounding budgets, and a
+   tighter or converged reference for independent adaptive runs and ordinary replay.
+
+   **Requested change:** separate matched-method/history comparisons, independent
+   adaptive accuracy envelopes and exact controller/monitor traces fed identical
+   recorded readings. Give resume, groups and repeat runs the appropriate class rather
+   than requiring equal adaptive work. Preserve exact accounting for the work each
+   actually performs. This confirms and extends the
+   [existing automated finding](https://github.com/LupoLab/solprop/pull/609#discussion_r4524812132),
+   rather than treating it as a second independent discovery.
+
+2. **R2 — High: state the actual double-float error bounds (§§4, 7.3).** The two
+   definitions of the putative unit roundoff disagree:
+   $(2^{-24})^2/2 = 2^{-49}$, not $2^{-48}$. More fundamentally, the precision of a
+   two-word representation is not one error bound shared by its addition,
+   multiplication, division and transcendental implementations. Name the algorithms
+   and the applicable bounds and hypotheses from reference [3], including protection
+   against reassociation, the required fused operation and underflow conditions.
+
+   The experiment's cited test also does **not** assert an unqualified $2^{-36}$
+   error for the $\varphi_k$. At `b84d3ab8`,
+   [`test_julia_double_float_phi_is_binary64s`](https://github.com/LupoLab/solprop/blob/b84d3ab81df863669e57aeca6c0ac3abaf6820ac/tests/backends/test_julia.py#L843)
+   uses $2^{-36}\max(1,|\operatorname{Im}x|)|\varphi_k(x)|+10^{-300}$.
+   The adjacent propagator test uses $8u_{32}|e^{\pm z}|$, a relative complex-error
+   budget, rather than componentwise ulps.
+
+   **Requested change:** quote these witnesses accurately, define absolute versus
+   relative errors near zeros, and derive the production bounds over the actual
+   argument and order domain. A passing sample is evidence for that domain, not a
+   proof for all admitted inputs.
+
+3. **R3 — High: connect the wide-type domain to admission (§§4, 5.2, 6.4, 7.3).**
+   The text says choosing `df32` cannot change the admitted problem, but only records
+   the propagator bound through $10^6$ rad. The shared single-precision admission does
+   not impose that phase limit; its exponent guard concerns the real part and overflow.
+   The experiment's `reduce_phase` uses a two-word approximation to $2\pi$ and a
+   binary32 turn count, so the error grows with the unreduced phase.
+
+   **Probe run:** using only the cited `julia/src/dfloat.jl`, Julia 1.13.3 on macOS
+   arm64, and a 256-bit `BigFloat` reference for $e^{i\theta}$, the forward pair's
+   absolute error was $1.14\times10^{-6}$ at $\theta=10^{10}$ and
+   $1.56\times10^{-3}$ at $10^{12}$; $8u_{32}=4.77\times10^{-7}$. This is outside
+   the recorded qualification range, not a failure of its existing test.
+
+   **Question for the maintainer:** must double-float support the entire binary64-wide
+   domain? If so, require range reduction and conditioning bounds that establish it.
+   Otherwise specify named refusal or a qualified alternative for out-of-domain
+   arguments, especially on Metal. Include cancellation in the assembled exponent,
+   large imaginary phases and the $\varphi_k$ branch boundaries in qualification.
+
+4. **R4 — High: bind the Python bridge to the committed environment (§§5.1, 6.5,
+   6.10).** A tested range of `juliacall` versions can select a different release from
+   the PythonCall.jl pinned in the shared manifest. With the two override variables,
+   juliapkg will not reconcile them. The upstream
+   [existing-environment contract](https://juliapy.github.io/PythonCall.jl/stable/juliacall/#Using-existing-environments)
+   requires matching versions; otherwise preparation can fail after successful setup.
+
+   **Requested change:** pin matching pairs, check compatibility before startup, and
+   test mismatches across virtual environments sharing one setup.
+
+5. **R5 — High: make offline GPU setup establish artifact completeness (§§5.1,
+   6.5, 11 phase 1).** Instantiating manifests and precompiling on a login node does
+   not by itself establish that GPU runtime artifacts exist. Julia's
+   [lazy artifacts](https://pkgdocs.julialang.org/v1/artifacts/#Artifact-types-and-properties)
+   can download on first use. CUDA.jl specifically documents that
+   [precompiling without a driver](https://cuda.juliagpu.org/stable/installation/overview/#Precompiling-CUDA.jl-without-CUDA)
+   requires an explicit runtime selection to fetch the runtime/compiler artifacts.
+   The proposed workflow otherwise risks its first network access or failure on the
+   offline compute node.
+
+   **Requested change:** define how setup selects the target toolkit and materialises
+   every required artifact without a GPU, and when it records setup as complete. Test
+   a first real GPU run with networking disabled after setup on a node without a GPU.
+   Missing artifacts must produce the promised setup refusal, not a download attempt.
+
+6. **R6 — Medium: correct the AMD installation prerequisite (§§2, 6.5, 8).** The
+   general claim that Julia's GPU packages supply their runtime libraries and need
+   only a driver is true of the documented CUDA route, but is not the documented
+   AMDGPU route. The experiment pins AMDGPU 2.11.0; the upstream
+   [requirements](https://amdgpu.juliagpu.org/stable/#Requirements) and
+   [installation guidance](https://amdgpu.juliagpu.org/stable/install_tips)
+   require ROCm and describe discovery of system libraries, including rocBLAS and
+   rocFFT.
+
+   **Requested change:** state vendor-specific prerequisites and check them in setup
+   or status. If a different pinned AMDGPU release is intended to supply all required
+   libraries, identify and demonstrate that route on a host with only the driver.
+   An already provisioned ROCm image does not establish the driver-only claim.
+
+7. **R7 — Medium: define what a shared setup owns and identifies (§§3.2, 5.1,
+   5.2, 6.5).** The source-digest check is explicitly not carried over, availability
+   checks only for this solprop version, and the environment's reference to the engine
+   shipped in the Python wheel is unspecified. Two editable trees can share a version
+   while their Julia sources or adapter differ. A shared environment pointing into one
+   virtual environment can also break when that environment is removed. Matching only
+   the Julia minor version contradicts the later promise of an exact patch pin.
+
+   **Requested change:** define immutable setup identity and engine-source ownership,
+   covering the engine/adapter contract, manifests, exact Julia patch and bridge pair.
+   Clarify the treatment of machine-dependent preferences such as `--cuda-local` and
+   the CPU target; a manifest digest alone does not identify them. Record effective
+   toolkit/preferences in execution metadata. Specify concurrent setup locking and
+   atomic publication so availability cannot accept a partial environment. Test a
+   removed originating virtual environment, differing editable sources, an interrupted
+   setup and a second setup with different preferences.
+
+8. **R8 — High: resolve threaded Julia's signal policy before adopting the session
+   contract (§§5.4, 6.2, 7.2, 11).**
+   [JuliaCall's signal caveat](https://juliapy.github.io/PythonCall.jl/stable/juliacall/#Caveat:-Signal-handling)
+   recommends `PYTHON_JULIACALL_HANDLE_SIGNALS=yes` for threaded GC safety, but says
+   this interferes with Python signal handling, including `KeyboardInterrupt`.
+   The experiment sets that option. SEP 47 §5.5 instead relies on Python signals at
+   bounded returns and introduces no process-wide native signal handler. Releasing
+   the GIL does not settle this conflict.
+
+   **Requested change:** prove threaded GC safety, Ctrl-C and thread-issued cancellation
+   in phase 1. Specify token ownership, GIL-free polling and signal handlers. Preserve
+   SEP 47's bounded returns; any signal-policy change needs a maintainer decision.
+   Threaded bridge and signal probes were not run in this review.
+
+9. **R9 — Medium: qualify the capability table and restart promises (§§5.3, 7.1–7.4).**
+   “Tapers” and “multimode” appear admitted while coupled flows are refused. A varying
+   multimode capillary normally carries the coupling by default
+   ([taper guide](../../guide/waveguides/taper-coupling.md)); only its explicit
+   `taper_coupling=False` alternative fits this backend. Similarly, “snapshots and
+   resume” must preserve SEP 47's distinction between field restart and portable
+   Adams history, including the existing RK continuation deferral, rather than imply
+   full history continuation for every admitted method.
+
+   **Requested change:** state these intersections and test the default coupled-taper
+   refusal plus the explicitly uncoupled case. Name which same-precision cross-backend
+   and cross-wide-type field/history resumes are admitted, which reset history, and
+   their warnings and comparison classes. Confirm that GPU qualification includes the
+   session conformance cases, not only kernel parity selected by `-m gpu`.
+
+10. **R10 — Medium: reconcile the qualification workload and merge checklist
+    (§§7.3–7.6, 11).** Section 7.5 says its records are not merge gates but §7.6 requires
+    all of them, including two whole runs per machine. It also requests binary64 on
+    every GPU even though Metal refuses it. Section 7.3 imports SEP 33's survival
+    studies without saying whether their original full-length runs must be repeated;
+    some took hours. The current `AGENTS.md` qualification rule is about ten steps or
+    seconds, with complete release tracking a separately invoked activity.
+
+    **Requested change:** identify short qualification windows and stored converged
+    witnesses for the survival comparisons; distinguish them from any separately
+    authorised full-run study. State which performance/start-up records are mandatory
+    while leaving performance ratios non-blocking, and mark binary64 Metal timings
+    inapplicable. This lets an implementer follow the merge checklist without guessing
+    which workload rule wins.
+
+**Evidence and limits.** Read the experiment's implementation, tests and benchmark
+ledger; its reported performance was not re-measured. The only new numerical execution
+was R3's isolated scalar propagator probe, with no propagation or GPU run. The JuliaCall,
+Julia artifact and AMDGPU documentation linked above was checked on 2026-11-10. No
+installation, multithreaded bridge, CUDA/ROCm/Metal or restart qualification was run.
+Reference [3]'s full paper could not be retrieved; its algorithm-specific theorems
+remain to be checked, rather than claimed verified here. All R1–R10 remain open for the
+drafting agent's point-by-point response and the maintainer's decisions.
