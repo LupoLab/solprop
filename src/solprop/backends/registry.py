@@ -401,8 +401,9 @@ def _baseline_probe(source: Path) -> ModuleType:
     return module
 
 
+# Ruff D418 forbids overload docstrings; the implementation owns the public contract.
 @overload
-def select(
+def select(  # numpydoc ignore=GL08
     name: Literal["auto", "native", "numpy_ref"],
     problem: PropagationProblem,
     request: RunRequest,
@@ -415,8 +416,9 @@ def select(
 ) -> Backend: ...
 
 
+# The same D418/GL08 boundary applies to the general execution-owner overload.
 @overload
-def select(
+def select(  # numpydoc ignore=GL08
     name: str,
     problem: PropagationProblem,
     request: RunRequest,
