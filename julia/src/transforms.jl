@@ -11,10 +11,12 @@ public apply_weights!, linear_map!, synthesize!, project!
 
 Prepare raw forward and normalized inverse temporal transforms along matrix rows.
 
-`time_buffer` has shape `(n_time, n_columns)`, with real elements for a field and
+`time_buffer` is a dense `Matrix` with shape `(n_time, n_columns)`, real for a field and
 complex elements for an envelope. `spectrum_buffer` has matching complex precision
 and shape `(n_time ÷ 2 + 1, n_columns)` or `(n_time, n_columns)`, respectively.
-The buffers are disjoint caller-owned work arrays. Plans preserve their inputs.
+Both buffers are disjoint caller-owned dense matrices. Plans preserve their inputs.
+Views are refused during preparation: FFTW's out-of-place plans choose dense outputs,
+which cannot in general match a view's strides or alignment in both directions.
 The internal forward sign is negative; no physical units or Fourier conventions change.
 
 CPU plans use one FFTW thread, staying inside every positive execution budget. The
@@ -35,8 +37,8 @@ struct TemporalFFT{F, I, T}
 end
 
 function TemporalFFT(
-        execution::KernelExecution, time_buffer::StridedMatrix{T},
-        spectrum_buffer::StridedMatrix{Complex{R}},
+        execution::KernelExecution, time_buffer::Matrix{T},
+        spectrum_buffer::Matrix{Complex{R}},
     ) where {T, R <: Union{Float32, Float64}}
     oncpu(execution) || throw(ArgumentError("this backend has no qualified FFT planner"))
     real_signal = T === R
@@ -62,7 +64,7 @@ function TemporalFFT(
 end
 
 function TemporalFFT(execution::KernelExecution, time_buffer, spectrum_buffer)
-    throw(ArgumentError("temporal FFT buffers require matching binary32/binary64 storage"))
+    throw(ArgumentError("temporal FFTs require matching dense binary32/binary64 matrices"))
 end
 
 """

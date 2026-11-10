@@ -125,6 +125,24 @@ end
     )
     shared = zeros(ComplexF64, 8, 2)
     @test_throws ArgumentError SolpropJulia.TemporalFFT(ex, shared, shared)
+    for T in (Float64, ComplexF64)
+        n_frequency = T === Float64 ? 5 : 8
+        time_owner = ones(T, 16, 2)
+        spectral_owner = zeros(ComplexF64, 2n_frequency, 2)
+        @test_throws ArgumentError SolpropJulia.TemporalFFT(
+            ex, view(time_owner, 1:2:16, :), zeros(ComplexF64, n_frequency, 2),
+        )
+        @test_throws ArgumentError SolpropJulia.TemporalFFT(
+            ex, ones(T, 8, 2), view(spectral_owner, 1:2:(2n_frequency), :),
+        )
+        # A contiguous view can still have a different FFTW alignment at its offset.
+        @test_throws ArgumentError SolpropJulia.TemporalFFT(
+            ex, reshape(view(vec(time_owner), 2:17), 8, 2),
+            zeros(ComplexF64, n_frequency, 2),
+        )
+        @test time_owner == ones(T, 16, 2)
+        @test iszero(spectral_owner)
+    end
 end
 
 @testset "Authoritative padding and inactive columns" begin
