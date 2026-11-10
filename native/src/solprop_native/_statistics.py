@@ -85,7 +85,6 @@ __all__ = [
     "STATISTIC_IDS",
     "ZDW_TOLERANCE",
     "StatisticsLowering",
-    "axis_row_refusal",
     "lower",
     "metric_refusal",
     "translated",
@@ -881,50 +880,6 @@ def _on_axis(modes: Sequence[Mode]) -> np.ndarray:
     """
     rule = on_axis_rule(modes[0].dimlimits(0.0)[0])
     return mode_matrix(modes, rule, 0.0, components=("x", "y")).synthesis
-
-
-def axis_row_refusal(
-    problem: PropagationProblem, names: Sequence[str], modes: Sequence[Mode] | None
-) -> str | None:
-    """Return why the plan cannot scan a problem's axis row, naming it, or ``None``.
-
-    The native scan reads the axis row through the node scan's buffers, whose
-    components are the transform's. A one-component scan on a field grid takes the
-    magnitude ``hypot(E_x, E_y)`` of both rows, which is all it reads, and a y row of
-    zeros is dropped; an envelope's scan reads the polarisation ellipse, so an envelope
-    grid whose one-component transform has modes with a y field on the axis is
-    refused (the transitional session scans it on the host).
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The problem.
-    names : sequence of str
-        The statistics asked for.
-    modes : sequence of Mode or None
-        The mode set; without it :func:`lower` refuses the statistics itself.
-
-    Returns
-    -------
-    str or None
-        The refusal, or ``None``.
-    """
-    asked = [name for name in names if name in ON_AXIS_PLASMA_STATISTICS]
-    if (
-        not asked
-        or modes is None
-        or problem.responses.envelope_plasma is None
-        or problem.shape[1] != 1
-        or problem.transform.n_pol != 1
-        or axis_refusal(problem, asked) is not None
-    ):
-        return None
-    if not np.any(_on_axis(modes)[1]):
-        return None
-    return (
-        f"the on-axis plasma statistics {asked!r} of an envelope grid whose "
-        "one-component transform has modes with a y field on the axis"
-    )
 
 
 def metric_refusal(problem: PropagationProblem, names: Sequence[str]) -> str | None:

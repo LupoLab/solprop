@@ -2689,10 +2689,13 @@ public:
 #endif
   }
   void held_radial_projection(std::size_t first_node, std::size_t node_count);
-  void envelope_cycle(std::size_t channel, std::size_t node_count);
+  void envelope_cycle(std::size_t channel, std::size_t node_count,
+                      const ComplexView2& field_rows, std::size_t n_pol);
+  void envelope_statistics(std::size_t channel, std::size_t first_node,
+                           std::size_t node_count, const RealView2& statistics,
+                           const ComplexView2& field, std::size_t n_pol);
   void envelope_population(std::size_t channel, std::size_t stage,
-                           std::size_t first_node, std::size_t node_count,
-                           const RealView2& statistics);
+                           std::size_t node_count);
   void envelope_response(std::size_t stage, std::size_t first_node,
                          std::size_t node_count,
                          const TransverseChunk* chunk = nullptr);
@@ -2941,6 +2944,9 @@ public:
   RealView2 spatial_statistics_partials_;
   RealView statistics_total_power_;
   RealView statistics_on_axis_, statistics_packed_;
+  // An envelope's on-axis row on a one-component node scan, its x and y components
+  // (`axis_populations`), allocated by the first statistics call that needs it.
+  ComplexView2 statistics_axis_row_;
   // solprop SEP 47: a general modal basis's whitened columns, the metric's square
   // root at one position and their sums, allocated by the first statistics call that
   // needs them (outside any trial step).
@@ -12983,9 +12989,14 @@ void GeneralWorkspace::finish_raman_products(const std::size_t stage,
   Kokkos::Profiling::popRegion();
 }
 
+// One channel's cycle-averaged rates at each node and their running integral, from
+// the polarisation ellipse of `field_rows`' `n_pol` rows per node: the node buffer
+// with its components, or an envelope's on-axis row (`axis_populations`).
 void GeneralWorkspace::envelope_cycle(const std::size_t channel,
-                                      const std::size_t node_count) {
-  const auto field = node_complex_;
+                                      const std::size_t node_count,
+                                      const ComplexView2& field_rows,
+                                      const std::size_t n_pol) {
+  const auto field = field_rows;
   const auto parameters = channel_parameters_;
   const auto coefficients = channel_coefficients_;
   const auto nodes =
@@ -12995,7 +13006,6 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
   const auto moments = envelope_moments_;
   const auto rates = envelope_rates_;
   const auto failures = envelope_failures_;
-  const auto n_pol = problem_.effective_node_pol();
   const auto n_to = problem_.n_to;
   launch::parallel_for(
       "solprop_native.envelope.cycle_moments",
@@ -13074,29 +13084,38 @@ void GeneralWorkspace::envelope_cycle(const std::size_t channel,
       Kokkos::subview(envelope_exposure_, rows, Kokkos::ALL()), problem_.dt_fine);
 }
 
-void GeneralWorkspace::envelope_population(const std::size_t channel,
-                                           const std::size_t stage,
+// One channel's exposure and peak cycle-averaged rate at each node of `field`
+// (`envelope_cycle`), into the rows of `statistics` from `first_node`.
+void GeneralWorkspace::envelope_statistics(const std::size_t channel,
                                            const std::size_t first_node,
                                            const std::size_t node_count,
-                                           const RealView2& statistics) {
-  envelope_cycle(channel, node_count);
+                                           const RealView2& statistics,
+                                           const ComplexView2& field,
+                                           const std::size_t n_pol) {
+  envelope_cycle(channel, node_count, field, n_pol);
   const auto rates = envelope_rates_;
   const auto exposure = envelope_exposure_;
   const auto n_to = problem_.n_to;
-  if (!statistics.empty()) {
-    launch::parallel_for(
-        "solprop_native.envelope.population_statistics",
-        Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
-                                            node_count),
-        KOKKOS_LAMBDA(const std::size_t node) {
-          double peak = 0.0;
-          for (std::size_t time = 0; time < n_to; ++time)
-            peak = Kokkos::max(peak, rates(node, time));
-          statistics(first_node + node, 2 * channel) = exposure(node, n_to - 1);
-          statistics(first_node + node, 2 * channel + 1) = peak;
-        });
-    return;
-  }
+  launch::parallel_for(
+      "solprop_native.envelope.population_statistics",
+      Kokkos::RangePolicy<ExecutionSpace>(response_space_for(node_count), 0,
+                                          node_count),
+      KOKKOS_LAMBDA(const std::size_t node) {
+        double peak = 0.0;
+        for (std::size_t time = 0; time < n_to; ++time)
+          peak = Kokkos::max(peak, rates(node, time));
+        statistics(first_node + node, 2 * channel) = exposure(node, n_to - 1);
+        statistics(first_node + node, 2 * channel + 1) = peak;
+      });
+}
+
+void GeneralWorkspace::envelope_population(const std::size_t channel,
+                                           const std::size_t stage,
+                                           const std::size_t node_count) {
+  const auto n_pol = problem_.effective_node_pol();
+  envelope_cycle(channel, node_count, node_complex_, n_pol);
+  const auto exposure = envelope_exposure_;
+  const auto n_to = problem_.n_to;
   const auto parameters = channel_parameters_;
   const auto densities = stage_channel_density_;
   const auto initials = stage_channel_preionisation_;
@@ -13105,7 +13124,6 @@ void GeneralWorkspace::envelope_population(const std::size_t channel,
   const auto window = time_window_;
   const auto drive = envelope_streams_[0].node;
   const auto loss = envelope_streams_[1].node;
-  const auto n_pol = problem_.effective_node_pol();
   launch::parallel_for(
       "solprop_native.envelope.currents",
       Range2(response_space_for(node_count), {0, 0}, {node_count, n_to}),
@@ -13141,7 +13159,7 @@ void GeneralWorkspace::envelope_response(const std::size_t stage,
                                          const std::size_t node_count,
                                          const TransverseChunk* chunk) {
   for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
-    envelope_population(channel, stage, first_node, node_count, {});
+    envelope_population(channel, stage, node_count);
   for (auto& stream : envelope_streams_) {
     if (problem_.slab_geometry()) {
       // As the polarisation: the chunk's y rows, zero beyond a final partial chunk.
@@ -13941,7 +13959,8 @@ void GeneralWorkspace::scan_plasma_statistics(const std::size_t first_node,
                                   "field-grid plasma column, and this problem "
                                   "carries none");
     for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
-      envelope_population(channel, 0, first_node, node_count, output);
+      envelope_statistics(channel, first_node, node_count, output, node_complex_,
+                          problem_.effective_node_pol());
     return;
   }
   // solprop SEP 18: the band rule's statistics, and every problem's run diagnostics,
@@ -15343,7 +15362,9 @@ void GeneralWorkspace::statistics_modal_time() {
 // tables and running-integral rule. Returns each channel's final fraction and peak
 // rate, `(n_channels, 2)`. Two components on a one-component node buffer are the
 // field's magnitude, `hypot(E_x, E_y)`, which is all a field grid's scan reads; an
-// envelope's scan reads its polarisation ellipse, so it takes no such pair.
+// envelope's scan reads their polarisation ellipse, so they go to a row of their own
+// and the envelope scan reads it as a node of two components
+// (`solprop.backends.populations.envelope_populations` on the host's row).
 std::vector<double>
 GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
                                    const std::vector<double>& channel_preionisation) {
@@ -15370,13 +15391,19 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
                   [](const double value) { return value == 0.0; }))
     rows = 1;
   const auto components = rows * n_pol_state;
-  const bool combine = components == 2 && node_pol == 1;
-  if (components != node_pol && !combine)
+  const bool pair = components == 2 && node_pol == 1;
+  if (components != node_pol && !pair)
     throw std::invalid_argument(
         "an on-axis row has one component on each of the node scan's");
-  if (combine && problem_.envelope_plasma)
-    throw std::invalid_argument("an envelope's on-axis row with a y component needs "
-                                "the node scan's two components");
+  // A pair on a field grid is combined into its magnitude in the node buffer; an
+  // envelope's is kept, x and y, in its own row.
+  const bool ellipse = pair && problem_.envelope_plasma;
+  const bool combine = pair && !ellipse;
+  if (ellipse && statistics_axis_row_.extent(0) == 0) {
+    execution_space_.fence("solprop_native on-axis row allocation");
+    statistics_axis_row_ =
+        ComplexView2("solprop_native.statistics.axis_row", 2, problem_.n_to);
+  }
   require_extent(channel_preionisation.size(), problem_.n_channels,
                  "on-axis channel preionisation");
   for (const double value : channel_preionisation)
@@ -15398,6 +15425,7 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
   const auto modal_complex = modal_complex_;
   const auto node_real = node_real_;
   const auto node_complex = node_complex_;
+  const auto axis_row = statistics_axis_row_;
   const bool real_family = problem_.family == FieldFamily::field_real;
   const auto written = combine ? std::size_t{1} : components;
   launch::parallel_for(
@@ -15421,7 +15449,9 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
         };
         const auto row = component / n_pol_state;
         const auto pol = component % n_pol_state;
-        if (combine) {
+        if (ellipse) {
+          axis_row(component, time) = sum_complex(row, pol);
+        } else if (combine) {
           // Both rows on a scalar state: the magnitude the scan would form.
           if (real_family)
             node_real(0, time) = Kokkos::hypot(sum_real(0, 0), sum_real(1, 0));
@@ -15435,7 +15465,11 @@ GeneralWorkspace::axis_populations(const std::vector<double>& matrix,
         }
       });
   const auto source = plasma_statistics_scratch_;
-  scan_plasma_statistics(0, 1, source, false, channel_preionisation[0]);
+  if (ellipse)
+    for (std::size_t channel = 0; channel < problem_.n_channels; ++channel)
+      envelope_statistics(channel, 0, 1, source, statistics_axis_row_, 2);
+  else
+    scan_plasma_statistics(0, 1, source, false, channel_preionisation[0]);
   const auto channels = problem_.n_channels;
   const auto packed_size = 2 * channels;
   if (statistics_packed_.size() < packed_size) {
@@ -17372,7 +17406,8 @@ std::map<std::string, std::size_t> GeneralWorkspace::base_memory_ledger() const 
       {"transverse_edge", edge_bytes()},
       {"statistics_outputs", (statistics_total_power_.size() +
                               statistics_on_axis_.size() + statistics_packed_.size()) *
-                                 real_bytes},
+                                     real_bytes +
+                                 statistics_axis_row_.size() * complex_bytes},
       {"fft_plan_heap_growth", plan_heap_growth_ + edge_plan_heap},
       {"fft_plan_device_growth", plan_device_growth_ + edge_plan_device},
   };
@@ -17619,6 +17654,7 @@ void GeneralWorkspace::close() noexcept {
   statistics_total_power_ = {};
   statistics_on_axis_ = {};
   statistics_packed_ = {};
+  statistics_axis_row_ = {};
   monitor_bound_ = false;
   monitor_weights_ = {};
   monitor_column_weights_ = {};

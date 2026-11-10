@@ -11,8 +11,10 @@ read when the evaluation scans the nodes anyway, and the species reduction is fi
 natively. The transitional session (the bridge) scans the same row on the host
 (:func:`solprop.backends.populations.axis_row_populations`), so the two agree to the
 node scans' parity tolerance rather than bit for bit, except where both read the
-native node scan of a Radau rule's axis node. Each run is also held to the NumPy
-reference on the session's exported field at every observation.
+native node scan of a Radau rule's axis node. An envelope's scan reads the polarisation
+ellipse, so on a one-component transform whose modes have a y field on the axis the
+session scans the row's two components as one node of two. Each run is also held to
+the NumPy reference on the session's exported field at every observation.
 """
 
 import dataclasses
@@ -104,6 +106,15 @@ def _mixture():
     return grid, [mode], problem, request
 
 
+def _envelope_y_row():
+    """``envelope-rotated-x`` over four equal steps and two saved planes."""
+    return _entrance_problem(
+        "envelope-rotated-x",
+        schedule=FixedSchedule.uniform(0.0, 0.02, 0.005),
+        save_planes=(0.01, 0.02),
+    )
+
+
 CASES = {
     # A rule with no node on the axis: the session scans the axis row.
     "row": (lambda: _capillary("gauss_kronrod", 32), ON_AXIS_PLASMA_STATISTICS),
@@ -114,6 +125,8 @@ CASES = {
     ),
     # Two species, each its own channel: the species forms and their sum.
     "mixture": (_mixture, ("energy", *ON_AXIS_PLASMA_STATISTICS)),
+    # An envelope's y row on a one-component transform: the ellipse of both rows.
+    "envelope-rotated-x": (_envelope_y_row, ON_AXIS_PLASMA_STATISTICS),
 }
 
 
@@ -298,12 +311,12 @@ def test_the_session_s_axis_statistics_are_the_bridge_s_and_the_reference_s(
 # --- the plan's axis row at the entrance, on every kind of row ----------------------
 
 
-def _entrance_problem(kind, schedule=None):
+def _entrance_problem(kind, schedule=None, save_planes=(0.02,)):
     """An argon capillary of one or two modes at its entrance, built for one row kind.
 
     ``rotated-x`` carries modes with a y field on the axis on a transform resolving x
     alone, so a field grid's one-component scan reads the magnitude of both rows;
-    ``envelope-rotated-x`` is the envelope form, which the plan refuses.
+    ``envelope-rotated-x`` is the envelope form, whose scan reads both rows' ellipse.
     """
     from solprop.grid import EnvelopeGrid  # noqa: PLC0415
     from solprop.nonlinear import EnvelopePlasmaResponse  # noqa: PLC0415
@@ -342,7 +355,7 @@ def _entrance_problem(kind, schedule=None):
             [KerrResponse(chi3=2.2e-52, thg=not envelope), plasma],
             start,
             controller=PIController(rtol=1e-8, atol=1e-16),
-            save_planes=[0.02],
+            save_planes=list(save_planes),
             dz_max=0.002,
             dz_init=1e-4,
             schedule=schedule,
@@ -354,25 +367,33 @@ def _entrance_problem(kind, schedule=None):
     return grid, modes, problem, request
 
 
-ENTRANCE_KINDS = ("rotated-x", "band", "envelope", "envelope-two-modes")
+ENTRANCE_KINDS = (
+    "rotated-x",
+    "envelope-rotated-x",
+    "band",
+    "envelope",
+    "envelope-two-modes",
+)
 
 
 @pytest.mark.parametrize("kind", ENTRANCE_KINDS)
 def test_the_plan_s_axis_row_is_the_bridge_s_and_the_reference_s(kind):
     """The plan's native row scan, at the entrance, on each kind of row and scan.
 
-    A field grid's one-component scan of two rows (their magnitude), the band rule's
-    filtered exposure, and an envelope's cycle-averaged scan of one and two modes.
+    A field grid's one-component scan of two rows (their magnitude), an envelope's
+    one-component scan of two rows (their ellipse), the band rule's filtered exposure,
+    and an envelope's cycle-averaged scan of one and two modes.
     """
-    from solprop_native._statistics import axis_row_refusal, lower  # noqa: PLC0415
+    from solprop_native._statistics import _on_axis, lower  # noqa: PLC0415
 
     grid, modes, problem, request = _entrance_problem(kind)
     names = ON_AXIS_PLASMA_STATISTICS
     spec = StatsSpec(names=names)
     run = request.for_run(stats=spec)
-    assert axis_row_refusal(problem, names, modes) is None
-    if kind == "rotated-x":
+    if kind.endswith("rotated-x"):
+        # A y field on the axis, on a transform resolving x alone.
         assert problem.transform.n_pol == 1
+        assert np.any(_on_axis(modes)[1])
     values = {}
     for name in ("numpy_ref", "native"):
         with closing(select(name, problem, run, grid=grid, modes=modes)) as backend:
@@ -391,60 +412,81 @@ def test_the_plan_s_axis_row_is_the_bridge_s_and_the_reference_s(kind):
         _within(got[name], bridge, f"{kind} {name} (bridge)")
 
 
-def test_an_envelope_s_y_row_on_a_one_component_scan_is_left_to_the_bridge():
-    """An envelope's scan reads the polarisation ellipse, which a one-component scan
-    cannot hold: the plan refuses the row by name and the bridge, which scans it on
-    the host, runs it, as before."""
-    from solprop_native._statistics import axis_row_refusal, lower  # noqa: PLC0415
-
+def test_an_envelope_s_y_row_on_a_one_component_scan_opens_the_native_session():
+    """The ellipse of both rows is scanned natively, so nothing sends the run to the
+    bridge (SEP 47 phase 4)."""
     grid, modes, problem, request = _entrance_problem("envelope-rotated-x")
-    names = ON_AXIS_PLASMA_STATISTICS
-    run = request.for_run(stats=StatsSpec(names=names))
-    reason = axis_row_refusal(problem, names, modes)
-    assert reason is not None
-    assert "y field on the axis" in reason
+    run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
+    skip_device_refused(problem, run)
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         prepared = backend.prepare(problem, run)
         with prepared.start(entrance(problem), owns=False) as session:
-            assert type(session) is DriverSession
-        assert cast("Any", prepared).refused == reason
-        backend.set_initial(problem.initial.field0, None)
-        lowering = lower(
-            problem, run.observation.stats, names, grid=grid, modes=modes, z_end=0.02
-        )
-        state = backend._native_state  # pyright: ignore[reportAttributeAccessIssue]
-        with pytest.raises(ValueError, match="needs the node scan's two components"):
-            state.planned_statistics(lowering.plan, 0.0)
+            assert type(session) is native_session.NativeSession
+        assert cast("Any", prepared).refused is None
+
+
+def _group_planes(group):
+    """Drive a group to its end; return each member's observations."""
+    planes = [[] for _ in range(group.n_members)]
+    while not group.finished:
+        batch = group.advance()
+        for index, events in enumerate(batch.members):
+            for event in events:
+                if isinstance(event, ObservationReady):
+                    field = np.array(group.export(index, event.ticket, RAW))
+                    stats = {k: np.asarray(v) for k, v in event.stats.items()}
+                    planes[index].append(_Seen(event.z, stats, field))
+                elif isinstance(event, Terminal):
+                    assert event.error is None, event.error
+        group.acknowledge(batch.receipt)
+    return planes
 
 
 @pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
-def test_an_envelope_s_y_row_keeps_a_group_transitional():
-    """The mode set decides it, so every door asks: a group of such members falls back
-    to the transitional group, and the native group refuses it by name."""
+def test_a_native_group_scans_an_envelope_s_y_row():
+    """A group of such members opens the native group, whose members' statistics are
+    the transitional group's, which scans the row on the host, and the reference's to
+    the node scans' parity tolerance."""
     from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.backends.sessions import start_group  # noqa: PLC0415
 
     group_module = pytest.importorskip("solprop_native.group")
     names = ON_AXIS_PLASMA_STATISTICS
-    built = [
-        _entrance_problem(
-            "envelope-rotated-x", schedule=FixedSchedule.uniform(0.0, 0.02, 0.005)
-        )
-        for _ in range(2)
-    ]
+    built = [_envelope_y_row() for _ in range(2)]
     problems = [problem for _, _, problem, _ in built]
     requests = [request.for_run(stats=StatsSpec(names=names)) for *_, request in built]
-    starts = [Start.entrance(problem) for problem in problems]
-    with ExitStack() as cleanup:
-        owners = [
-            cleanup.enter_context(
-                closing(select("native", problem, run, grid=grid, modes=modes))
+    recorded = []
+    for door in (start_group, DriverGroupSession):
+        # A start is handed to one session.
+        starts = [Start.entrance(problem) for problem in problems]
+        with ExitStack() as cleanup:
+            owners = [
+                cleanup.enter_context(
+                    closing(select("native", problem, run, grid=grid, modes=modes))
+                )
+                for (grid, modes, problem, _), run in zip(built, requests, strict=True)
+            ]
+            assert group_module.refusal(problems, requests, starts) is None
+            group = door(owners, problems, requests, starts)
+            cleanup.callback(group.close)
+            expected = (
+                group_module.NativeGroupSession
+                if door is start_group
+                else DriverGroupSession
             )
-            for (grid, modes, problem, _), run in zip(built, requests, strict=True)
-        ]
-        assert group_module.refusal(problems, requests, starts) is None
-        group = start_group(owners, problems, requests, starts)
-        cleanup.callback(group.close)
-        assert type(group) is DriverGroupSession
-        with pytest.raises(BackendError, match=r"y field on the axis.*\(member 0\)"):
-            group_module.NativeGroupSession(owners, problems, requests, starts)
+            assert type(group) is expected
+            recorded.append(_group_planes(group))
+    same_field = EXECUTORS["native-session"].deterministic
+    for index, (ours, theirs) in enumerate(zip(*recorded, strict=True)):
+        grid, modes, problem, request = built[index]
+        reference = _reference(grid, modes, problem, request, names, ours)
+        assert len(ours) == len(theirs) == 3
+        for mine, other, want in zip(ours, theirs, reference, strict=True):
+            assert mine.z == other.z
+            if same_field:
+                np.testing.assert_array_equal(mine.field, other.field)
+            for name in names:
+                what = f"member {index} {name} at {mine.z}"
+                got = mine.stats[name]
+                _within(got, np.asarray(other.stats[name]), f"{what} (bridge)")
+                _within(got, want[name], f"{what} (numpy_ref)")
