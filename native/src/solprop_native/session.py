@@ -72,6 +72,7 @@ from solprop.backends.events import (
     ServiceRequired,
     Terminal,
 )
+from solprop.backends.export import destination_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -1205,16 +1206,9 @@ class NativeSession:
         solprop.exceptions.BackendError
             Naming the mismatch.
         """
-        if out.shape != self._shape:
-            msg = f"an export destination has shape {out.shape}, expected {self._shape}"
-            raise BackendError(msg)
-        if (
-            out.dtype != np.complex128
-            or not out.flags.c_contiguous
-            or not out.flags.writeable
-        ):
-            msg = "an export destination must be writeable, C-contiguous complex128"
-            raise BackendError(msg)
+        refusal = destination_refusal(out, self._shape)
+        if refusal is not None:
+            raise BackendError(refusal)
 
     def _plane_stats(self, batch: _core.SessionBatch) -> dict[str, np.ndarray]:
         """Return a batch's plane statistics by name.

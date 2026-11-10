@@ -292,8 +292,9 @@ def test_an_unfit_export_destination_is_refused(start):
     """SEP 47 section 5.4: a destination is validated before the session fills it.
 
     Wrong shape, wrong dtype, a strided or read-only array and one whose elements
-    overlap each other are refused; so is writing into an array the session lent
-    rather than handed over. A refusal changes nothing the session exports next.
+    overlap each other are refused, each by what is wrong with it; so is writing into
+    an array the session lent rather than handed over. A refusal changes nothing the
+    session exports next.
     """
     session = start(soliton()).session
     _, plane = _past_launch(session)
@@ -301,24 +302,32 @@ def test_an_unfit_export_destination_is_refused(start):
     shape = expected.shape
     readonly = np.empty(shape, np.complex128)
     readonly.setflags(write=False)
-    unfit = {
-        "shape": np.empty((*shape[:-1], shape[-1] + 1), np.complex128),
-        "dtype": np.empty(shape, np.complex64),
-        "strided": np.empty((*shape[:-1], 2 * shape[-1]), np.complex128)[..., ::2],
-        "readonly": readonly,
-        "overlapping": np.lib.stride_tricks.as_strided(
-            np.zeros(1, np.complex128), shape=shape, strides=(0,) * len(shape)
+    # Each unfit destination, with what its refusal names.
+    unfit = [
+        ("has shape", np.empty((*shape[:-1], shape[-1] + 1), np.complex128)),
+        ("has dtype complex64", np.empty(shape, np.complex64)),
+        (
+            "C-contiguous",
+            np.empty((*shape[:-1], 2 * shape[-1]), np.complex128)[..., ::2],
         ),
-    }
+        ("read-only", readonly),
+        # Elements that overlap one another are not contiguous either.
+        (
+            "C-contiguous",
+            np.lib.stride_tricks.as_strided(
+                np.zeros(1, np.complex128), shape=shape, strides=(0,) * len(shape)
+            ),
+        ),
+    ]
     for recipe in (IDENTITY, STORED):
-        for name, out in unfit.items():
-            with pytest.raises(BackendError):
+        for named, out in unfit:
+            with pytest.raises(BackendError, match=named):
                 session.export(plane.ticket, recipe, out=out)
-                pytest.fail(f"a {name} destination was accepted")
+                pytest.fail(f"a destination that {named} was accepted")
     held = session.export(plane.ticket, IDENTITY)
     if not held.flags.writeable:
         # The session lent its own array: it is not a destination.
-        with pytest.raises(BackendError):
+        with pytest.raises(BackendError, match="read-only"):
             session.export(plane.ticket, STORED, out=held)
     assert session.export(plane.ticket, IDENTITY).tobytes() == expected.tobytes()
 
