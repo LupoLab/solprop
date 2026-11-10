@@ -53,7 +53,9 @@ The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` 
 `5264160b`. Julia package commits `28fb628e` and `201d91d5` were independently reviewed
 and integrated as `ea847fcd` and `773bd539`. Updated main is merged at `e2df6c7c`.
 Issue [#610](https://github.com/LupoLab/solprop/issues/610)
-remains a follow-up, not a blocker under the maintainer's revised signal policy.
+tracks the accepted signal-handler limitation. A newly observed SIGTERM-during-GC
+shutdown hang is under investigation and remains a qualification blocker; no timeout
+has been accepted as a passing result.
 
 ## Decisions
 
@@ -225,3 +227,10 @@ remains a follow-up, not a blocker under the maintainer's revised signal policy.
   and DWDivDW3. The last algorithm's naming typo is resolved by its formal proof;
   underflow/overflow guards and transcendental bounds still need qualification.
 - No propagation or GPU qualification is claimed yet.
+- Main-thread runtime milestone `fda416dc` is committed. Independently reviewed
+  subprocess probes `2fedad6b` were integrated as `a01efd1f`; their 48-case matrix keeps
+  every requirement active. The first revised macOS run passed 18 cases before a
+  one-thread, ignored-SIGTERM-during-GC case hung for 180 seconds and needed supervisor
+  SIGKILL. The failure remains visible while plain-JuliaCall and Linux controls run.
+  Julia's pinned fatal-signal source explicitly anticipates asynchronous shutdown
+  stalls; this has not silently extended the maintainer's accepted signal policy.
