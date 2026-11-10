@@ -997,7 +997,13 @@ class Section(NamedTuple):
     """The `RunRequest` members it documents: the run's policy, beside the problem."""
 
     def label(self) -> str:
-        """Return the box's first line: the section and the fields it documents."""
+        """Return the box's first line: the section and the fields it documents.
+
+        Returns
+        -------
+        str
+            The section number, then its problem fields and request members.
+        """
         names = (*self.fields, *(f"request.{name}" for name in self.request))
         return f"§{self.number}   {' · '.join(names)}"
 
