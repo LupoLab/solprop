@@ -12,7 +12,10 @@ its host package (``solprop.backends.host``) to that: no import of a legacy cont
 module or class, at module level or inside a function; no legacy class among their
 module globals or in a reference backend's ancestry; the reference's marches and its
 group are the host copies; and the run layer serves a reference backend with the host
-session.
+session and a reference group with the host group session. The bridge's transitional
+sessions (:mod:`solprop.backends.driver_session`) are legacy control too: the
+reference composes the parts every Python session shares
+(:mod:`solprop.backends.session_core`) instead.
 """
 
 import ast
@@ -31,11 +34,12 @@ import pytest
 import solprop.backends.host
 import solprop.backends.numpy_ref
 from scripted_driver import ScriptedDriver
-from solprop.backends import batch, driver, low_storage, multistep
+from solprop.backends import batch, driver, driver_session, low_storage, multistep
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
+from solprop.backends.host.group_session import HostGroupSession
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.host.session import HostSession
 from solprop.backends.multistep import HostHistory
@@ -43,7 +47,7 @@ from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.numpy_ref.single import NumpySingleBackend
 from solprop.backends.session import Start
-from solprop.backends.sessions import start_session
+from solprop.backends.sessions import start_group, start_session
 from solprop.exceptions import BackendError
 from solprop.stepper import FixedSchedule, LowStorageRungeKutta, Multistep
 from solprop.stepper.multistep import ComparisonMultistep
@@ -54,8 +58,10 @@ PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
 LEGACY_MODULES = (
     "solprop.backends.driver",
     "solprop.backends.batch",
+    "solprop.backends.driver_session",
 )
-"""The native bridge's control modules, which hold nothing else."""
+"""The native bridge's control modules and transitional sessions, which hold nothing
+else."""
 
 LEGACY_NAMES = {
     "solprop.backends.multistep": {"AdamsMarch"},
@@ -64,7 +70,17 @@ LEGACY_NAMES = {
 """The bridge's classes in modules whose other contents are shared numerical code."""
 
 LEGACY_CLASS_NAMES = frozenset(
-    {"StepDriver", "AdamsMarch", "GeneralPath", "LowStorageMarch", "LockstepRunner"}
+    {
+        "StepDriver",
+        "AdamsMarch",
+        "GeneralPath",
+        "LowStorageMarch",
+        "LockstepRunner",
+        "DriverSession",
+        "DriverPrepared",
+        "DriverGroupSession",
+        "DriverPreparedGroup",
+    }
 )
 """The bridge's control classes by name: no identifier of the reference may be one,
 whatever route reached it -- an import, an alias, or a module attribute."""
@@ -74,6 +90,10 @@ LEGACY_CLASSES = (
     multistep.AdamsMarch,
     low_storage.LowStorageMarch,
     batch.LockstepRunner,
+    driver_session.DriverSession,
+    driver_session.DriverPrepared,
+    driver_session.DriverGroupSession,
+    driver_session.DriverPreparedGroup,
 )
 """The bridge's control classes."""
 
@@ -141,6 +161,7 @@ def test_the_packages_are_found():
     assert "solprop.backends.numpy_ref.backend" in MODULES
     assert "solprop.backends.host.driver" in MODULES
     assert "solprop.backends.host.session" in MODULES
+    assert "solprop.backends.host.group_session" in MODULES
 
 
 @pytest.mark.parametrize("name", MODULES)
@@ -186,6 +207,7 @@ def test_importing_the_reference_loads_no_legacy_driver():
         "import solprop.backends.numpy_ref, solprop.backends.numpy_ref.batch\n"
         "import solprop.backends.numpy_ref.single, solprop.backends.host.session\n"
         "import solprop.backends.host.adams, solprop.backends.host.group\n"
+        "import solprop.backends.host.group_session\n"
         "import solprop.backends.sessions\n"
         f"watched = {{*{list(LEGACY_MODULES)!r}, 'solprop_native'}}\n"
         "print(','.join(sorted(set(sys.modules) & watched)))\n"
@@ -266,6 +288,27 @@ def test_the_run_layer_serves_the_reference_with_the_host_session(
     scripted = cast("Any", ScriptedDriver(problem, run_request, grid=narrow_grid))
     with start_session(scripted, problem, request, Start.entrance(problem)) as session:
         assert type(session) is DriverSession
+
+
+def test_the_run_layer_serves_a_reference_group_with_the_host_group_session(
+    soliton_problem, narrow_grid
+):
+    length = 1e-3
+    schedule = FixedSchedule.uniform(0.0, length, length / 4, save_planes=[length])
+    problem, run_request = soliton_problem(
+        narrow_grid,
+        1,
+        save_planes=[length],
+        schedule=schedule,
+        dz_max=length / 4,
+        dz_init=length / 4,
+    )
+    members = [NumpyRefBackend(problem, run_request, grid=narrow_grid)]
+    with start_group(
+        members, [problem], [run_request], [Start.entrance(problem)]
+    ) as group:
+        assert type(group) is HostGroupSession
+        assert isinstance(getattr(group, "_runner"), NumpyBatchBackend)  # noqa: B009
 
 
 def test_the_host_session_refuses_a_bridge_driver(soliton_problem, narrow_grid):

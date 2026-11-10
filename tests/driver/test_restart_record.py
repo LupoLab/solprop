@@ -26,6 +26,7 @@ from driver.test_resume import run_until
 from driver.test_resume_history import AFRESH, soliton
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.host.driver import HostDriver
+from solprop.backends.host.session import HostSession
 from solprop.backends.session import SessionError
 from solprop.exceptions import SolpropWarning
 from solprop.output import (
@@ -321,8 +322,9 @@ def test_a_history_write_cut_short_warns_once_on_resume(
     )
 
 
-def test_a_monitor_continuation_is_given_once_and_before_it_watches():
-    session = object.__new__(DriverSession)
+@pytest.mark.parametrize("kind", [HostSession, DriverSession])
+def test_a_monitor_continuation_is_given_once_and_before_it_watches(kind):
+    session = object.__new__(kind)
     session._attached = False
     given = {"record": None, "plane": True, "unwatched": ()}
     session._monitor_resume = given

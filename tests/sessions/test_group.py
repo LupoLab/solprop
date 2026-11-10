@@ -11,13 +11,13 @@ and each member then reports its own committed position and checkpoint eligibili
 members are stepped in turn, so one ahead of the failing member has already advanced
 past the failed step.
 
-The conformance tests run on both backends: ``numpy_ref``, whose group is the
-transitional one over its lockstep runner
-(:class:`~solprop.backends.driver_session.DriverGroupSession`), and ``native``, whose
-group is the native group session (:class:`solprop_native.group.NativeGroupSession`,
-one native session per member). The failures that reach into the reference's Python
-march to inject a fault are the reference's alone; the native group's own failure
-positions, with natively injected faults, are in ``test_native_group.py``.
+The conformance tests run on both backends: ``numpy_ref``, whose group is its own over
+its lockstep runner (:class:`~solprop.backends.host.group_session.HostGroupSession`),
+and ``native``, whose group is the native group session
+(:class:`solprop_native.group.NativeGroupSession`, one native session per member).
+The failures that reach into the reference's Python march to inject a fault are the
+reference's alone; the native group's own failure positions, with natively injected
+faults, are in ``test_native_group.py``.
 """
 
 import sys

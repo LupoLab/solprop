@@ -26,8 +26,9 @@ backend chooses its group and nothing here names one either. The native backend'
 (``solprop_native.group.NativeGroupSession``, one native session per member) whenever
 it admits the group, and the transitional group over the lockstep runners
 (:class:`solprop.backends.driver_session.DriverGroupSession`) for what it refuses by
-name (``solprop_native.group.refusal``); every other driver's, the reference's among
-them, opens the transitional group
+name (``solprop_native.group.refusal``); the reference's opens its own group
+(:class:`solprop.backends.host.group_session.HostGroupSession`), and any other step
+driver's the transitional group
 (:class:`solprop.backends.driver_session.DriverPreparedGroup`).
 """
 
@@ -36,8 +37,8 @@ from __future__ import annotations
 from collections.abc import Callable, Sequence
 from typing import TYPE_CHECKING
 
-from solprop.backends.driver_session import AttemptListener
 from solprop.backends.session import GroupSession, RunSession, Start, check_group
+from solprop.backends.session_core import AttemptListener
 from solprop.log import StopFlag
 from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
@@ -126,8 +127,9 @@ def start_group(
     -------
     solprop.backends.session.GroupSession
         The group the backend's prepared group opens
-        (:meth:`~solprop.backends.protocol.Backend.prepare_group`): the native group
-        session for native members it admits, the transitional group otherwise.
+        (:meth:`~solprop.backends.protocol.Backend.prepare_group`): the reference's
+        own group for reference members, the native group session for native members
+        it admits, and the transitional group otherwise.
 
     Raises
     ------

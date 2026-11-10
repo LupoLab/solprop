@@ -22,7 +22,8 @@ from solprop.backends.driver_session import (
     DriverPreparedGroup,
     DriverSession,
 )
-from solprop.backends.host.session import HostSession
+from solprop.backends.host.group_session import HostPreparedGroup
+from solprop.backends.host.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import available, select
 from solprop.backends.session import (
@@ -50,11 +51,38 @@ def test_the_reference_prepares_its_own_session():
     try:
         prepared = backend.prepare(problem, request)
         assert isinstance(prepared, PreparedExecution)
+        assert type(prepared) is HostPrepared
         assert prepared.backend == "numpy_ref"
         with start_session(
             backend, problem, request, Start.entrance(problem), owns=False
         ) as session:
-            assert isinstance(session, HostSession)
+            assert type(session) is HostSession
+        # The preparation's execution facts and retained buffers are its backend's.
+        assert prepared.metadata() == backend.metadata()
+        assert prepared.memory_ledger() == backend.memory_ledger()
+    finally:
+        backend.close()
+
+
+def test_a_closed_reference_preparation_closes_its_backend_and_refuses_to_start():
+    problem, request = soliton()
+    backend = _select("numpy_ref", problem, request)
+    prepared = backend.prepare(problem, request)
+    prepared.close()
+    prepared.close()  # idempotent
+    assert backend.closed
+    with pytest.raises(SessionError, match="closed"):
+        prepared.start(Start.entrance(problem))
+
+
+def test_the_reference_prepares_its_own_group():
+    problem, request = soliton()
+    backend = _select("numpy_ref", problem, request)
+    try:
+        prepared = backend.prepare_group([backend], [problem], [request])
+        assert type(prepared) is HostPreparedGroup
+        assert isinstance(prepared, PreparedGroup)
+        assert prepared.backend == "numpy_ref"
     finally:
         backend.close()
 
