@@ -315,6 +315,12 @@ class NativeSession:
         Called with each attempt's end, length and acceptance. A per-attempt listener is
         a requested external service: the session then yields after every attempt and
         calls it before returning the batch (SEP 47 section 7.3). It observes only.
+    backend : solprop_native.backend.NativeBackend or None, optional
+        A backend already built for `problem`, holding no run, to run on; by default the
+        session builds its own from `grid`, `modes` and `profiles`.
+    owns : bool, optional
+        Whether closing the session closes `backend`: false for a runner's backend
+        reused across runs. A backend the session built is always its own.
 
     Raises
     ------
@@ -333,6 +339,8 @@ class NativeSession:
         profiles: Mapping[str, ZProfile] | None = None,
         stop: StopFlag | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
+        backend: NativeBackend | None = None,
+        owns: bool = True,
     ) -> None:
         """Refuse what the prototype does not admit, then prepare and start it."""
         refused = refusal(problem, request, start)
@@ -361,7 +369,13 @@ class NativeSession:
         # reads the same lowered inputs.
         union = tuple(dict.fromkeys((*spec.names, *self._row_names)))
         # One set of far-field tables, read by the plan and handed to the backend.
-        self._far_field = FarFieldTables(problem)
+        if backend is not None:
+            grid, modes, profiles = backend._grid, backend._modes, backend._profiles  # pyright: ignore[reportPrivateUsage]
+            self._far_field = backend._far_field  # pyright: ignore[reportPrivateUsage]
+        else:
+            self._far_field = FarFieldTables(problem)
+            owns = True
+        self._owns = owns
         lowering = self._lower(union, grid, modes, profiles)
         self._statistics_tables = lowering.tables
         self._plane_lowering = lowering.subset(spec.names)
@@ -371,13 +385,14 @@ class NativeSession:
         self._plane_steps = 0
         self._plane_rejected = 0
         self._plane_wall = 0.0
-        backend = NativeBackend(
-            problem,
-            grid=grid,
-            modes=modes,
-            profiles=profiles,
-            far_field=self._far_field,
-        )
+        if backend is None:
+            backend = NativeBackend(
+                problem,
+                grid=grid,
+                modes=modes,
+                profiles=profiles,
+                far_field=self._far_field,
+            )
         self._backend: NativeBackend | None = backend
         try:
             kind, state = self._prepare(backend, start)
@@ -385,7 +400,8 @@ class NativeSession:
                 kind, state, self._plan(start), float(start.z)
             )
         except BaseException:
-            backend.close()
+            if self._owns:
+                backend.close()
             raise
         self._adams = kind == "adams"
         attach = getattr(stop, "attach", None)
@@ -1015,7 +1031,8 @@ class NativeSession:
         self._native.close()
         self._exports.clear()
         if self._backend is not None:
-            self._backend.close()
+            if self._owns:
+                self._backend.close()
             self._backend = None
 
     def __enter__(self) -> "NativeSession":  # noqa: UP037 - runtime type hook

@@ -551,7 +551,6 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
         problem,
         request,
         start,
-        listener=reporter.step,
         started=reporter.started,
         stop=stop,
         owns=False,

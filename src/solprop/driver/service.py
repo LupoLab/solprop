@@ -23,7 +23,7 @@ from __future__ import annotations
 import dataclasses
 import logging
 import time
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 import numpy as np
@@ -280,12 +280,23 @@ class _Chunks:
     includes them without consuming them; a terminal checkpoint includes them.
     """
 
-    def __init__(self) -> None:
-        """Start with nothing held."""
+    def __init__(self, step: Callable[[float, float, bool], None]) -> None:
+        """Start with nothing held.
+
+        Parameters
+        ----------
+        step : callable
+            The progress reporter's per-attempt call, made with each attempt's end,
+            length and acceptance as its chunk arrives.
+        """
         self._chunks: list[_Chunk] = []
+        self._step = step
 
     def add(self, history: BackendHistory | None, rows: BackendRows | None) -> None:
-        """Hold one event's chunk.
+        """Hold one event's chunk, and report its attempts.
+
+        Every attempt arrives exactly once, so the reporter hears each once, in order,
+        at the cadence of the session's yields rather than from inside its march.
 
         Parameters
         ----------
@@ -295,6 +306,14 @@ class _Chunks:
             Its periodic rows, without a batch axis.
         """
         self._chunks.append((history, rows))
+        if history is not None:
+            for z, dz, accepted in zip(
+                history.z.tolist(),
+                history.dz.tolist(),
+                history.accepted.tolist(),
+                strict=True,
+            ):
+                self._step(z, dz, accepted)
 
     def joined(self) -> tuple[BackendHistory, BackendRows]:
         """Return every chunk held, assembled, without consuming them.
@@ -458,7 +477,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     snapshots = context.snapshots
     snapshots_started = False
     terminal_rows: tuple[object, object] = (None, None)
-    chunks = _Chunks()
+    chunks = _Chunks(reporter.step)
     failure: BaseException | None = None
     adams = isinstance(context.request.integration.method, Multistep)
     try:

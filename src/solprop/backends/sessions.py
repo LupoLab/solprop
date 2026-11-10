@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING
 from solprop.backends.driver_session import AttemptListener, DriverSession
 from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.session import HostSession
-from solprop.backends.session import Start
+from solprop.backends.session import RunSession, Start
 from solprop.log import StopFlag
 from solprop.translate.problem import KernelProblem
 from solprop.translate.run_request import RunRequest
@@ -43,7 +43,7 @@ def start_session(  # noqa: PLR0913 - the session context
     started: Callable[[float, float, int], None] | None = None,
     stop: StopFlag | None = None,
     owns: bool = True,
-) -> DriverSession:
+) -> RunSession:
     """Start the session that serves `backend` for one run.
 
     Parameters
@@ -69,10 +69,25 @@ def start_session(  # noqa: PLR0913 - the session context
 
     Returns
     -------
-    solprop.backends.driver_session.DriverSession
-        A :class:`~solprop.backends.host.session.HostSession` for a reference
-        backend, or the transitional session for any other.
+    solprop.backends.session.RunSession
+        The native session (:class:`solprop_native.session.NativeSession`) for a
+        native CPU backend whenever it admits the run; a
+        :class:`~solprop.backends.host.session.HostSession` for a reference backend;
+        otherwise the transitional session over the legacy driver, which serves what
+        the native session does not run yet (SEP 47 Part II).
     """
+    native = _native_session(
+        backend,
+        problem,
+        request,
+        start,
+        listener=listener,
+        started=started,
+        stop=stop,
+        owns=owns,
+    )
+    if native is not None:
+        return native
     session = HostSession if isinstance(backend, HostDriver) else DriverSession
     return session(
         backend,
@@ -84,3 +99,73 @@ def start_session(  # noqa: PLR0913 - the session context
         stop=stop,
         owns=owns,
     )
+
+
+def _native_session(  # noqa: PLR0913 - the session context
+    backend: Backend,
+    problem: KernelProblem,
+    request: RunRequest,
+    start: Start | None,
+    *,
+    listener: AttemptListener | None,
+    started: Callable[[float, float, int], None] | None,
+    stop: StopFlag | None,
+    owns: bool,
+) -> RunSession | None:
+    """Return the native session for `backend`, or ``None`` when it does not serve it.
+
+    The native distribution is imported only for its own backend, so a reference run
+    loads none of it.
+
+    Parameters
+    ----------
+    backend : solprop.backends.protocol.Backend
+        The loaded backend.
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+    start : solprop.backends.session.Start or None
+        Where the run starts.
+    listener : callable or None
+        Called with each attempt as it is made; the native session then yields after
+        every attempt, so the service loop reports progress from the delivered
+        attempts instead.
+    started : callable or None
+        Called with the start, the end and the plane count when propagation begins.
+    stop : solprop.log.StopFlag or None
+        The run's stop token.
+    owns : bool
+        Whether closing the session closes the backend.
+
+    Returns
+    -------
+    solprop.backends.session.RunSession or None
+        The native session, or ``None`` for any other backend, a start the caller
+        already loaded, or a run the native session refuses.
+    """
+    if start is None or type(backend).__module__ != "solprop_native.backend":
+        return None
+    from solprop_native.backend import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeBackend,
+    )
+    from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
+        NativeSession,
+        refusal,
+    )
+
+    if type(backend) is not NativeBackend or refusal(problem, request, start):
+        return None
+    session = NativeSession(
+        problem,
+        request,
+        start,
+        stop=stop,
+        listener=listener,
+        backend=backend,
+        owns=owns,
+    )
+    settings = problem.stepper
+    if started is not None and start.z < settings.z_end:
+        started(float(start.z), settings.z_end, len(settings.save_planes))
+    return session
