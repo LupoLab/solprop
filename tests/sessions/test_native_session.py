@@ -17,10 +17,8 @@ structural counter of section 7.3 -- no return to Python caused by periodic rows
 a stop from another thread reaching a march in progress.
 """
 
-import dataclasses
 import threading
 import time
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -35,8 +33,6 @@ from sessions.executors import (
     drive,
     entrance,
     fibre,
-    soliton,
-    spy_monitor,
     window,
 )
 from solprop.backends.driver_session import DriverSession
@@ -362,17 +358,6 @@ def _refused(problem, request, name, monkeypatch) -> None:
         )
 
 
-def _edged() -> Any:
-    """Return a spy monitor carrying a transverse edge, which the session refuses.
-
-    Returns
-    -------
-    sessions.executors.SpyMonitor
-        The monitor; its edge is a placeholder, read only for its presence.
-    """
-    return dataclasses.replace(spy_monitor([]), transverse=cast("Any", object()))
-
-
 class _OwnAccept(PIController):
     """A controller that overrides a decision: a reference-only experiment."""
 
@@ -384,7 +369,6 @@ class _OwnAccept(PIController):
 @pytest.mark.parametrize(
     ("build", "name"),
     [
-        (lambda: (soliton(), {"monitor": _edged()}), "transverse edge"),
         (lambda: (_case(interpolate=True), {}), "dense output"),
         (
             lambda: (
@@ -413,7 +397,6 @@ class _OwnAccept(PIController):
         ),
     ],
     ids=[
-        "transverse-edge",
         "dense",
         "low-storage",
         "comparison",

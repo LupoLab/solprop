@@ -31,12 +31,14 @@ from sessions.executors import (
     RECIPES,
     STATISTICS,
     STORED,
+    TRANSVERSE,
     Executor,
     Run,
     ScriptedError,
     ScriptedWarning,
     assert_same_run,
     drive,
+    edged,
     soliton,
     spy_monitor,
     window,
@@ -60,7 +62,8 @@ from solprop.backends.session import (
     SnapshotReceipt,
     StopToken,
 )
-from solprop.exceptions import BackendError, StopRequested
+from solprop.exceptions import BackendError, BoundaryError, StopRequested
+from solprop.monitor import BoundaryCheck
 from solprop.stats import StatsSpec
 from solprop.translate.run_request import describe_run
 
@@ -373,6 +376,66 @@ def test_events_follow_the_committed_order(start, executor):
     assert record["planes"]["z"] == observed
 
     _assert_committed_order(run)
+
+
+@pytest.mark.parametrize(
+    ("check", "outcome"),
+    [
+        (BoundaryCheck(transverse_budget=10.0), Outcome.COMPLETED),
+        (BoundaryCheck(), Outcome.FAILED),
+    ],
+    ids=["relaxed", "stopped"],
+)
+def test_a_transverse_edge_is_read_in_the_committed_order(
+    start, executor, check, outcome
+):
+    """SEP 47 section 5.3 with SEP 40 section 5.3: a free-space run's transverse edge.
+
+    The edge is launched after the launch plane and read where its spacing falls due,
+    the steps held to that spacing; it is read at every plane it has not read, and its
+    record joins the monitor's. Relaxed, the re-review's packet is read to the end at
+    most a quarter of the run apart (the backstop's largest); under the default budget
+    the edge stops it at a read, a failure at that committed endpoint naming the edge.
+    """
+    executor.require(TRANSVERSE)
+    problem, request, context = edged(check)
+    started = start(problem, request, context=context)
+    launch = started.session.advance()
+    (first,) = launch.events
+    assert isinstance(first, ObservationReady)
+    assert first.kind is ObservationKind.LAUNCH
+    if executor.native_monitor:
+        record = started.session.monitor_record()
+        assert record is not None
+        assert record["transverse"]["launch_energy"] is None, (
+            "the edge was launched before the launch plane was committed"
+        )
+    started.session.acknowledge(launch.receipt)
+    rest = drive(started)
+    run = Run([launch, *rest.batches], [], rest.status)
+    record = started.session.monitor_record()
+    assert record is not None
+    edge = record["transverse"]
+    assert edge["launch_energy"] is not None and edge["reads"] > 0
+    assert run.terminal.outcome is outcome
+    length = problem.stepper.save_planes[-1]
+    if outcome is Outcome.COMPLETED:
+        assert edge["transverse_status"] == "clear"
+        assert edge["largest_gap"] <= length / 4 * (1 + 1e-9)
+        planes = [e for e in run.observations if e.kind is ObservationKind.PLANE]
+        assert [event.z for event in planes] == list(problem.stepper.save_planes)
+    else:
+        assert edge["transverse_status"] == "stopped"
+        assert isinstance(run.terminal.error, BoundaryError)
+        assert "reached the transverse edge" in str(run.terminal.error)
+        assert run.terminal.eligibility is Eligibility.ELIGIBLE
+        assert run.terminal.z < length
+    for batch in run.batches:
+        assert (
+            sum(getattr(event, "ticket", None) is not None for event in batch.events)
+            <= 1
+        )
+    assert run.attempts == run.status.attempts > 0
 
 
 def test_events_follow_the_committed_order_without_a_monitor(start):
