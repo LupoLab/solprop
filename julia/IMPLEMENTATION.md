@@ -44,8 +44,8 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`; corresponding tests; dependency declarations/generated environments and module imports | CPU execution, transforms and represented operators; separate worktree |
-| Numerical response agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`; corresponding new Julia tests | Kerr, Raman and plasma kernels; separate worktree |
+| Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`; corresponding tests; dependency declarations/generated environments and module imports | Reviewed transforms; binary64 exponential Adams and represented operator rates next |
+| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`; corresponding Julia tests | Reviewed responses integrated; statistics and monitors next |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
 | Independent reviewer | Read-only reviews and numerical probes | Reviews each implementation package and shared interfaces |
 
@@ -117,15 +117,27 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   history, over the complete represented operator interval.
 - Numerical comparisons use SEP 25/33 classes, never blanket cross-backend bit identity.
   Export structure and exact controller decisions retain their exact contracts.
+- Statistics consume explicit numerical inputs for the actual committed or dense field;
+  they never reuse an unrelated RHS trial. Fixed packed output and notice buffers belong
+  to the session. Spectral centroid and Parseval weights remain separate. In addition to
+  the periodic-capable catalogue, support exactly the existing spatial plane defaults
+  `beam_radius`, `fwhm_r` and `on_axis_spectrum`, preserving their plane-only eligibility.
+  This small scope clarification avoids refusing ordinary admitted spatial defaults.
+- Binary64 Adams coefficients and transported compensation are generated in Julia.
+  History retains actual predictor samples and their represented operator rates. Rate
+  evaluation differentiates the same cumulative operator with explicit knot-side choice.
+  The Adams norm scales by the old state; it reuses only the protected sum-of-squares
+  primitives from the Runge–Kutta leaf. Carrier-frame and interaction formulations remain
+  subject to the accepted admission table; no additional route is inferred from kernels.
 - Measure preparation-inclusive `wall_seconds` beside kernel-window timing. Full
   gates run in CI; local qualification uses targeted, short-window tests.
 
 ## Next actions
 
-1. Owned execution options and recipe metadata are integrated at `d1feaa15`.
-   Integrate the independently reviewed execution-owner/group factory milestone.
-2. Implement and review CPU transforms/operators and response kernels in parallel;
-   the shared boundaries are recorded in `SESSION_DESIGN.md`.
+1. Owned execution options and recipe metadata are integrated at `d1feaa15`; execution
+   ownership and transactional groups are integrated at `a6f30aba`.
+2. Integrate reviewed transforms, responses and Runge–Kutta leaves. Implement binary64
+   Adams and statistics/monitors in parallel, using `SESSION_DESIGN.md`.
 3. Build the complete Julia-owned session against SEP 47 Part B and integrate its CI
    corrections. Reuse reviewed experimental kernels without its Python march adapter.
 4. Revisit deferred runtime issues after core implementation; preserve all failed
@@ -265,3 +277,26 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
 - The historical Linux packaged runtime job at `a01efd1f` completed with 273 passed,
   23 failed and zero skipped tests. Logs and XML are retained; remaining runtime
   investigation is deferred as directed. No additional runtime job was submitted.
+- CPU execution and packed-array protections are integrated at `3cfd932b`,
+  `d93590f9` and `ba7bee7a`; transforms/tables/operators at `92b81eba` and `037f20e8`.
+  Independent review approved their one/four-thread bounds checks, reference DFTs,
+  polynomial/operator witnesses and zero warmed allocations. Issues #624 and #626
+  record the packed-storage and temporal-buffer corrections.
+- Reviewed Kerr/Raman/plasma leaves are integrated at `94803513` through `fd313d8f`.
+  Their 282 assertions passed at one/two threads; independent actual NumPy comparisons
+  passed 23 assertions with maximum scaled difference 2.73e-16. Response quality passed
+  12 Aqua/JET availability checks and nine concrete JET error analyses. The Raman
+  padding and plasma scratch regressions address #613 and #622.
+- The independently reviewed binary64 Runge–Kutta leaf passes 163 bounds-enabled
+  assertions at two threads, including convergence, stable norms and zero allocations.
+  Scalar control passes 55 unit assertions and 418 same-host exact recorded-reading
+  assertions, including all three transactional floor failures. History restoration
+  now retains its total accepted count explicitly.
+- The first constant scalar envelope source composition passes independent DFT and
+  short nonlinear-phase convergence witnesses, with zero warmed allocations. Independent
+  review also compared the actual NumPy passes at one/two threads with fourfold padding,
+  two modes, three nodes, nonunit folded taper and Kerr density: 40 assertions pass.
+  This composition alone does not admit the remaining routes or session services.
+- Integrated package Aqua/JET passes 13 checks using the prepared shared dependency
+  cache. Earlier attempts with an incomplete isolated cache failed to load matching
+  dependency/stdlib images; these were tooling failures, not suppressed quality findings.

@@ -9,6 +9,16 @@ group in ("Core", "Quality") || throw(ArgumentError("unknown Julia test GROUP: $
 
 if group == "Core"
     include("cancellation.jl")
+    include("execution.jl")
+    include("transforms.jl")
+    include("tables.jl")
+    include("operators.jl")
+    include("runge_kutta.jl")
+    include("control.jl")
+    include("responses.jl")
+    include("raman.jl")
+    include("plasma.jl")
+    include("source.jl")
     include("preparation.jl")
     include("environments.jl")
     include("inventory.jl")

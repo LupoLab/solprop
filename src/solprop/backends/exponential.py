@@ -18,14 +18,14 @@ Adams weights (:func:`solprop.stepper.multistep.integrated_weights`).
 
 The phi functions are evaluated by two algorithms, each where it is stable:
 
-- **near zero** (``|x| <= 8``): scale to ``y = x / 2**s`` with ``|y| <= 1/2``, sum the
+- **near zero** (``|x| <= 3``): scale to ``y = x / 2**s`` with ``|y| <= 1/2``, sum the
   Taylor series of the highest function to a fixed number of terms, recur down with
   ``phi_k(y) = 1/k! + y phi_{k+1}(y)``, which contracts an error by ``|y|`` and never
   divides by ``y``, and undo the scaling by the doubling identity
   ``phi_k(2y) = [exp(y) phi_k(y) + sum_{j=1}^k phi_j(y) / (k - j)!] / 2**k``, obtained
   by splitting the defining integral at one half [1]_ [2]_;
-- **away from zero** (``|x| > 8``): recur up from ``phi_0 = exp(x)``,
-  ``phi_k(x) = (phi_{k-1}(x) - 1/(k-1)!) / x``, whose division by ``|x| > 8`` contracts
+- **away from zero** (``|x| > 3``): recur up from ``phi_0 = exp(x)``,
+  ``phi_k(x) = (phi_{k-1}(x) - 1/(k-1)!) / x``, whose division by ``|x| > 3`` contracts
   the error of every earlier function.
 
 Both are checked against augmented matrix exponentials and independent quadrature in

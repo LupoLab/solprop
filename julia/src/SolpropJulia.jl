@@ -25,6 +25,16 @@ public copy_preparation
 public StopFlag, stop_address, stop_requested, stop_setter_address
 
 include("cancellation.jl")
+include("execution.jl")
+include("transforms.jl")
+include("tables.jl")
+include("operators.jl")
+include("runge_kutta.jl")
+include("control.jl")
+include("responses.jl")
+include("raman.jl")
+include("plasma.jl")
+include("source.jl")
 
 """
     copy_preparation(values::AbstractArray)

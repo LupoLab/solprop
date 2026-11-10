@@ -25,6 +25,8 @@ _CHECKS = ("metadata", "setup", "format", "core", "quality", "python")
 _RUNTIME_TESTS = (
     "tests/backends/julia/test_runtime_subprocess.py",
     "tests/backends/julia/runtime_probe.py",
+    "tests/backends/julia/test_control_oracle.py",
+    "julia/test/control_oracle.jl",
 )
 
 

@@ -47,6 +47,27 @@ not interchangeable. The stage count comes from the method, never a fixed seven.
 
 ## Session and Python boundary
 
+The binary64 exponential Adams leaf owns history, coefficient and trial workspaces.
+`adams_trial!` takes source, exponent and rate callables: `source!(out,state,z)`,
+`exponent!(out,z0,z1)` and `rate!(out,z,before::Bool)`. Each returns `nothing` or throws
+outside a leaf kernel. The master owns order/slot selection, acceptance, masks, collars
+and session failure accounting. Source history retains the actual predictor sample;
+compensation uses its sampled rate and the derivative of the represented cumulative
+operator. All coefficient generation and dense interpolation execute in Julia.
+Protected sum-of-squares helpers are shared with Runge–Kutta, but Adams uses its own
+old-state norm scaling. CPU binary64 qualification does not qualify DF32 bounds.
+
+Statistics use fixed `StatisticSlot` tuples, an immutable selection/grid, explicit
+prepared numerical inputs, and owned workspaces. `statistics!` fills a packed output
+without growing storage or returning to Python. The master constructs the inputs from
+the actual committed or dense field using shared transforms; no stale RHS buffers are
+implicit inputs. Plane-only spatial defaults add `beam_radius`, `fwhm_r` and
+`on_axis_spectrum`; other out-of-scope plane-only families refuse by name.
+Monitor reductions produce concrete readings; scalar state transitions consume those
+readings in reference operation order. Temporal/transverse continuation is explicit.
+Fixed notices and plane rows are returned to session-owned buffers; Python formats and
+services already-decided events. Neither statistics nor monitors own delivery cursors.
+
 The master owns immutable transfer records, their pure-Python lowering, and the
 Julia-owned mutable session. Lowering imports no native backend. The package core
 has no Python dependency; the PythonCall extension converts boundary records once.

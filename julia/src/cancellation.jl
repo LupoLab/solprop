@@ -58,7 +58,7 @@ end
 """
     stop_setter_address()
 
-Return a compiled C `void (uint8_t *)` leaf that atomically stores one with release ordering.
+Return a compiled C `void (uint8_t *)` leaf that stores one atomically with release ordering.
 
 Compile this function during preparation, never from the listener. Retain the engine
 and flag owners for the listener's lifetime. The leaf makes no Julia runtime entry,
