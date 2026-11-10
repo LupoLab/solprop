@@ -199,7 +199,7 @@ def _native_session(  # noqa: PLR0913 - the session context
         or backend_refusal(backend)
     ):
         return None
-    session = NativeSession(
+    return NativeSession(
         problem,
         request,
         start,
@@ -207,8 +207,5 @@ def _native_session(  # noqa: PLR0913 - the session context
         listener=listener,
         backend=backend,
         owns=owns,
+        started=started,
     )
-    settings = problem.stepper
-    if started is not None and start.z < settings.z_end:
-        started(float(start.z), settings.z_end, len(settings.save_planes))
-    return session

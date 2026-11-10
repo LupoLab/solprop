@@ -365,6 +365,10 @@ class NativeSession:
     backend : solprop_native.backend.NativeBackend or None, optional
         A backend already built for `problem`, holding no run, to run on; by default the
         session builds its own from `grid`, `modes` and `profiles`.
+    started : callable or None, optional
+        Called with the start, the end and the plane count when propagation begins:
+        before the first advance past an owed launch plane, as the backend's own march
+        announces it at its first propagation, and never for a start at the end.
     owns : bool, optional
         Whether closing the session closes `backend`: false for a runner's backend
         reused across runs. A backend the session built is always its own.
@@ -388,6 +392,7 @@ class NativeSession:
         listener: Callable[[float, float, bool], None] | None = None,
         backend: NativeBackend | None = None,
         owns: bool = True,
+        started: Callable[[float, float, int], None] | None = None,
     ) -> None:
         """Refuse what the prototype does not admit, then prepare and start it."""
         refused = refusal(problem, request, start)
@@ -401,6 +406,9 @@ class NativeSession:
         self._sequence = 0
         self._id = next(_SESSION_IDS)
         self._listener = listener
+        self._started = started
+        self._launch_owed = bool(start.plane_pending)
+        self._start_z = float(start.z)
         self._stop = stop
         self._detach: Callable[[], None] | None = None
         self._exports: dict[tuple[int, int, object], np.ndarray] = {}
@@ -789,6 +797,7 @@ class NativeSession:
         solprop.backends.session.SessionError
             Across a pending batch, after the terminal event or once closed.
         """
+        self._announce()
         stop = self._stop
         if stop is not None and stop.is_set():
             self._native.request_stop()
@@ -819,6 +828,19 @@ class NativeSession:
                 self._listener(end, dz, bool(accepted))
         self._held = None
         return EventBatch(receipt, (event,))
+
+    def _announce(self) -> None:
+        """Announce the propagation once, before the first advance that may step."""
+        if self._started is None:
+            return
+        if self._launch_owed:
+            # This advance commits the launch plane alone.
+            self._launch_owed = False
+            return
+        announce, self._started = self._started, None
+        settings = self._problem.stepper
+        if self._start_z < settings.z_end:
+            announce(self._start_z, settings.z_end, len(settings.save_planes))
 
     def acknowledge(self, receipt: Receipt) -> None:
         """Release the pending batch and allow advancing across its barrier.
