@@ -656,3 +656,30 @@ end
         SolpropJulia.TransverseState(tables), collar_policy, tables, reading, 0.0, notices
     )
 end
+
+@testset "Transverse face metadata must match the prepared state" begin
+    two = _transverse_tables()
+    faces = copy(two.faces)
+    faces[:, 2] .= 0.0
+    one = SolpropJulia.TransverseTables(
+        faces, two.clip, two.totals, two.column_weights, two.kappa, two.order,
+        two.ramp_rates; face_ranks = (1,), noise_face_share = 0.25, noise_modes = 16
+    )
+    reading, policy = _transverse_reading(), _transverse_policy()
+    notices = SolpropJulia.MonitorNotices(8)
+    for (prepared, mismatched) in ((one, two), (two, one))
+        state = SolpropJulia.TransverseState(prepared)
+        @test_throws DimensionMismatch SolpropJulia.transverse_launch!(
+            state, policy, mismatched, reading, 0.0, notices
+        )
+        @test isnan(state.launch) && all(iszero, state.last_columns)
+        SolpropJulia.transverse_launch!(state, policy, prepared, reading, 0.0, notices)
+        retained = SolpropJulia.transverse_continuation(state)
+        previous = copy(state.last_columns)
+        @test_throws DimensionMismatch SolpropJulia.transverse_read!(
+            state, policy, mismatched, reading, 0.25, notices
+        )
+        @test isequal(SolpropJulia.transverse_continuation(state), retained)
+        @test state.last_z == 0.0 && state.last_columns == previous
+    end
+end

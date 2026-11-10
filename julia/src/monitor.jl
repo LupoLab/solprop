@@ -1334,6 +1334,8 @@ struct TransverseContinuation{N}
 end
 
 function _transverse_check(state, tables, reading; full = false)
+    length(state.baseline) == length(tables.face_ranks) ||
+        throw(DimensionMismatch("transverse state and table face counts disagree"))
     reading.has_faces && (!full || reading.full) ||
         throw(ArgumentError("transverse observation is missing fresh node reductions"))
     length(state.last_columns) == length(state.noise_columns) ==
