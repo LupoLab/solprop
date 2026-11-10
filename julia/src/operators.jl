@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 public DiagonalOperator, operator_exponent!, propagate!, propagator_pair!, linear_increment!
-public RepresentedOperator, ExpansionOperator
+public RepresentedOperator, ExpansionOperator, operator_rate!
 
 """
     DiagonalOperator(execution, rate)
@@ -143,6 +143,68 @@ function operator_exponent!(
         throw(ArgumentError("expansion terms, exponent and weight work must be disjoint"))
     end
     difference_table!(work, operator.cumulative_weights, z0, z1, execution)
+    neutral = zero(eltype(output))
+    n_terms = size(terms, 3)
+    each!(execution, size(output)...) do row, column
+        total = neutral
+        for term in 1:n_terms
+            total += terms[row, column, term] * work[term]
+        end
+        output[row, column] = total
+    end
+    return output
+end
+
+"""
+    operator_rate!(output, operator, position, execution; before=false, work=nothing)
+
+Write the derivative of the represented cumulative operator in inverse metres.
+
+`output` has the operator's spectral matrix shape. At interior knots, `before=true`
+uses the interval ending at `position`; the default uses the interval starting there.
+Constant generators simply copy their rates. Expansion operators require an explicit
+real `work` vector with one entry per fixed term. No independently sampled physical
+generator substitutes for the derivative of cumulative Phi. Return `output`.
+"""
+function operator_rate!(
+        output, operator::DiagonalOperator, position::Real, execution::KernelExecution;
+        before::Bool = false, work = nothing,
+    )
+    size(output) == size(operator.rate) ||
+        throw(DimensionMismatch("the rate buffer must match the diagonal generator"))
+    Base.mightalias(output, operator.rate) &&
+        throw(ArgumentError("the rate output must not overwrite its generator"))
+    isfinite(position) || throw(ArgumentError("operator positions must be finite"))
+    rate = operator.rate
+    each!(execution, size(output)...) do row, column
+        output[row, column] = rate[row, column]
+    end
+    return output
+end
+
+function operator_rate!(
+        output, operator::RepresentedOperator, position::Real, execution::KernelExecution;
+        before::Bool = false, work = nothing,
+    )
+    size(output) == (operator.n_frequency, operator.n_columns) ||
+        throw(DimensionMismatch("the rate buffer does not match represented Phi"))
+    return derivative_table!(output, operator.cumulative, position, execution; before)
+end
+
+function operator_rate!(
+        output, operator::ExpansionOperator, position::Real, execution::KernelExecution;
+        before::Bool = false, work,
+    )
+    terms = operator.terms
+    size(output) == (size(terms, 1), size(terms, 2)) ||
+        throw(DimensionMismatch("the rate buffer does not match expansion terms"))
+    work isa AbstractVector && length(work) == size(terms, 3) ||
+        throw(DimensionMismatch("an expansion needs one weight derivative per fixed term"))
+    if Base.mightalias(output, terms) || Base.mightalias(output, work) ||
+            Base.mightalias(work, terms)
+        throw(ArgumentError("expansion terms, rate and weight work must be disjoint"))
+    end
+    derivative_table!(work, operator.cumulative_weights, position, execution; before)
     neutral = zero(eltype(output))
     n_terms = size(terms, 3)
     each!(execution, size(output)...) do row, column

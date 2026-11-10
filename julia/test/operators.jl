@@ -9,6 +9,52 @@ function operator_cycle!(output, inverse, exponent, state, operator, execution)
     return nothing
 end
 
+function rate_cycle!(output, operator, work, execution)
+    SolpropJulia.operator_rate!(output, operator, 1.0, execution; before = true, work)
+    return nothing
+end
+
+@testset "Represented operator rates and knot sides" begin
+    ex = SolpropJulia.KernelExecution(
+        SolpropJulia.KernelAbstractions.CPU(), Threads.nthreads(:default), true,
+    )
+    rate = reshape(ComplexF64[-2im, -1 + im], 2, 1)
+    constant = SolpropJulia.DiagonalOperator(ex, rate)
+    table = SolpropJulia.ChebyshevTable(
+        ex, [0.0, 1.0, 2.0], reshape([0.5, 0.5, 2.0, 1.0], 1, 2, 2),
+    )
+    expansion = SolpropJulia.ExpansionOperator(ex, reshape(rate, 2, 1, 1), table)
+    cumulative = zeros(ComplexF64, 2, 2, 2)
+    for interval in 1:2, degree in 1:2, row in 1:2
+        cumulative[row, degree, interval] =
+            rate[row] * table.coefficients[1, degree, interval]
+    end
+    represented = SolpropJulia.RepresentedOperator(
+        ex, SolpropJulia.ChebyshevTable(ex, table.breakpoints, cumulative), 2, 1,
+    )
+    output = similar(rate)
+    for operator in (constant, expansion, represented)
+        work = operator isa SolpropJulia.ExpansionOperator ? zeros(1) : nothing
+        rate_cycle!(output, operator, work, ex)
+        @test output == rate
+        @test @allocated(rate_cycle!(output, operator, work, ex)) == 0
+        SolpropJulia.operator_rate!(output, operator, 1.0, ex; work)
+        @test output == (operator === constant ? rate : 2rate)
+        @test_throws DimensionMismatch SolpropJulia.operator_rate!(
+            zeros(ComplexF64, 3, 1), operator, 1.0, ex; work,
+        )
+        @test_throws ArgumentError SolpropJulia.operator_rate!(
+            output, operator, NaN, ex; work,
+        )
+    end
+    @test_throws ArgumentError SolpropJulia.operator_rate!(
+        constant.rate, constant, 0.0, ex,
+    )
+    @test_throws DimensionMismatch SolpropJulia.operator_rate!(
+        output, expansion, 0.0, ex; work = zeros(2),
+    )
+end
+
 function represented_cycle!(output, operator, work, execution)
     SolpropJulia.operator_exponent!(output, operator, 0.25, 1.75, execution; work)
     return nothing

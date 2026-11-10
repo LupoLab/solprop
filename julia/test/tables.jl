@@ -7,6 +7,62 @@ function table_cycle!(output, difference, table, positions, execution)
     return nothing
 end
 
+function derivative_cycle!(output, table, execution)
+    SolpropJulia.derivative_table!(output, table, 0.25, execution)
+    return nothing
+end
+
+@testset "Derivative of the same cumulative representation" begin
+    ex = SolpropJulia.KernelExecution(
+        SolpropJulia.KernelAbstractions.CPU(), Threads.nthreads(:default), true,
+    )
+    output = zeros(ComplexF64, 2)
+    coefficients = zeros(ComplexF64, 2, 5, 2)
+    coefficients[1, :, 1] = [1, 2, 3, 4, 5]
+    coefficients[1, :, 2] = [2, 3, 4, 5, 6]
+    coefficients[2, :, :] = im .* coefficients[1, :, :]
+    table = SolpropJulia.ChebyshevTable(ex, [-1.0, 1.0, 5.0], coefficients)
+    for (position, interval, coordinate, scale) in (
+            (-1.0, 1, -1.0, 1.0), (-0.3, 1, -0.3, 1.0),
+            (1.0, 2, -1.0, 0.5), (2.0, 2, -0.5, 0.5), (5.0, 2, 1.0, 0.5),
+        )
+        SolpropJulia.derivative_table!(output, table, position, ex)
+        a, b, c, d = coefficients[1, 2:5, interval]
+        expected = scale * (
+            a + 4b * coordinate + c * (12coordinate^2 - 3) +
+                d * (32coordinate^3 - 16coordinate)
+        )
+        # Differentiated degree-four monomials versus Clenshaw: bound by 128eps
+        # times the absolute polynomial contributions, including cancellation.
+        bound = 128eps(Float64) * scale *
+            (
+            abs(a) + 4abs(b * coordinate) + abs(c) * (12coordinate^2 + 3) +
+                abs(d) * (32abs(coordinate)^3 + 16abs(coordinate))
+        )
+        @test maximum(abs, output - [expected, im * expected]) <= bound
+    end
+    SolpropJulia.derivative_table!(output, table, 1.0, ex; before = true)
+    @test output == [2 + 12 + 36 + 80, im * (2 + 12 + 36 + 80)]
+    derivative_cycle!(output, table, ex)
+    @test @allocated(derivative_cycle!(output, table, ex)) == 0
+    saved = copy(output)
+    @test_throws ArgumentError SolpropJulia.derivative_table!(output, table, Inf, ex)
+    @test output == saved
+    @test_throws DimensionMismatch SolpropJulia.derivative_table!(zeros(3), table, 0.0, ex)
+    @test_throws ArgumentError SolpropJulia.derivative_table!(
+        view(table.coefficients, :, 1, 1), table, 0.0, ex,
+    )
+    for count in 1:2
+        simple = SolpropJulia.ChebyshevTable(
+            ex, [0.0, 2.0], ones(2, count, 1); lower = -1.0e-10,
+        )
+        for position in (-1.0e-11, 0.0, 2.0), before in (false, true)
+            SolpropJulia.derivative_table!(output, simple, position, ex; before)
+            @test output == fill(count - 1, 2)
+        end
+    end
+end
+
 @testset "Owned represented profiles" begin
     ex = SolpropJulia.KernelExecution(
         SolpropJulia.KernelAbstractions.CPU(), Threads.nthreads(:default), true,

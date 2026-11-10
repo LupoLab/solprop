@@ -1,7 +1,7 @@
 # SPDX-FileCopyrightText: 2026 John C. Travers and contributors
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-public ChebyshevTable, evaluate_table!, difference_table!
+public ChebyshevTable, evaluate_table!, difference_table!, derivative_table!
 
 """
     ChebyshevTable(execution, breakpoints, coefficients;
@@ -69,17 +69,71 @@ end
     return nothing
 end
 
-@inline function _table_interval(edges, position)
+@inline function _table_interval(edges, position, before::Bool = false)
     low, high = 1, length(edges) + 1
     while low < high
         middle = low + div(high - low, 2)
-        if middle <= length(edges) && edges[middle] <= position
+        if middle <= length(edges) &&
+                (before ? edges[middle] < position : edges[middle] <= position)
             low = middle + 1
         else
             high = middle
         end
     end
     return clamp(low - 1, 1, length(edges) - 1)
+end
+
+@inline function _table_derivative(coefficients, edges, value_index, position, before)
+    interval = _table_interval(edges, position, before)
+    lower, upper = edges[interval], edges[interval + 1]
+    coordinate = (2 * position - lower - upper) / (upper - lower)
+    count = size(coefficients, 2)
+    count == 1 && return zero(eltype(coefficients))
+    count == 2 && return coefficients[value_index, 2, interval] * (2 / (upper - lower))
+    previous = coefficients[value_index, count - 1, interval]
+    current = coefficients[value_index, count, interval]
+    dprevious = zero(previous)
+    dcurrent = zero(current)
+    twice_coordinate = 2 * coordinate
+    # Differentiate the same represented Clenshaw polynomial, not a separately
+    # sampled physical rate. The exact knot coordinate stays unchanged on either side.
+    for index in (count - 2):-1:1
+        saved, dsaved = previous, dprevious
+        previous = coefficients[value_index, index, interval] - current
+        dprevious = -dcurrent
+        dcurrent = dsaved + dcurrent * twice_coordinate + 2 * current
+        current = saved + current * twice_coordinate
+    end
+    return (dprevious + dcurrent * coordinate + current) * (2 / (upper - lower))
+end
+
+"""
+    derivative_table!(output, table::ChebyshevTable, position, execution; before=false)
+
+Differentiate the represented polynomial into a caller-owned array of `n_values`.
+
+`position` is in metres within the admitted span; derivatives have profile units per
+metre. At an interior breakpoint `before=true` selects the interval ending there,
+otherwise the interval starting there. Neither policy perturbs the evaluation point.
+The endpoint intervals also cover admitted slack. This differentiates the same
+cumulative representation used by `difference_table!`, as required by SEP 16's
+transported compensation. Return `output` after synchronous completion.
+"""
+function derivative_table!(
+        output, table::ChebyshevTable, position::Real, execution::KernelExecution;
+        before::Bool = false,
+    )
+    length(output) == size(table.coefficients, 1) ||
+        throw(DimensionMismatch("profile derivative has the wrong value count"))
+    Base.mightalias(output, table.coefficients) &&
+        throw(ArgumentError("profile outputs must be disjoint from their coefficients"))
+    _check_table_position(table, position)
+    coefficients, edges = table.coefficients, table.breakpoints
+    each!(execution, length(output), 1) do value_index, unused
+        output[value_index] =
+            _table_derivative(coefficients, edges, value_index, position, before)
+    end
+    return output
 end
 
 @inline function _table_value(coefficients, edges, value_index, position)
