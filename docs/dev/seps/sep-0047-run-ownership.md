@@ -1651,8 +1651,28 @@ Intel Xeon Gold 6240 under shared load:
   §6.3's inventory. The maintainer decided on 2026-11-09 that it is ported natively in
   phase 3, together with Adams dense output, after which the refusal of snapshots with
   dense output is lifted. Until then that combination stays refused.
-- The descriptor rename and route union (§6.2) and the removal of nominal `n_batch`
-  land at the end of this milestone. The record that follows them describes them.
+- **Descriptor contract (§6.2): landed, with one part deferred.**
+  - *Landed:*
+    - `KernelProblem` is renamed `PropagationProblem`, with no alias.
+    - The route-wide optional-field bag is a closed union (`translate/routes.py`):
+      `ModalRoute` (with the reference-only `TDSESource` extension), `GeneralRoute`,
+      and `SpatialRoute` with the kinds radial, cartesian, planar and line. Each
+      validates itself, and both backends `match` it at admission, refusing by name
+      before allocation.
+    - Nominal `n_batch` is gone from the single-trajectory boundary: problem shape,
+      state import, observations, statistics and rows. Drivers keep a private leading
+      axis of one.
+    - `MarchSnapshot` files keep their schema: old files are read, and a size-one axis
+      is stripped.
+    - Results are bitwise identical on eleven representative cases on both CPU
+      backends.
+    - The route variant for general guides is named `GeneralRoute`, because
+      `GeneralModalRoute` is already a public input record.
+  - *Deferred:* `stepper` and `stats_spec` still live on the problem as well as in
+    `RunRequest`. Moving them out means `PropagationProblem.validate()` and every
+    backend constructor take the request, about fifty modules. That is its own window,
+    scheduled with milestone 2's preparation work (`Backend.prepare(problem,
+    request)`). The kernel contract §7 records them as run policy.
 - `ExecutionOptions` carries the node budget. The backends plan the node chunk itself
   in milestone 2 (#361).
 
