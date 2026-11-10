@@ -77,6 +77,23 @@ def test_pytest_s_prefix_doesn_t_hide_a_reason(tmp_path):
     assert check_skips.unexpected_skips(path) == []
 
 
+def test_platform_and_unsupported_session_cases_have_exact_reasons(tmp_path):
+    reasons = (
+        "creating symlinks needs Windows privileges",
+        "CI change detection runs in Linux Bash",
+        "this executor replays every problem by the low-storage march",
+        "the translation refuses dense output beside the modified noise",
+    )
+    path = junit(
+        tmp_path,
+        *((str(index), skip(reason)) for index, reason in enumerate(reasons)),
+        ("unqualified", skip("the Julia numerical tests failed")),
+    )
+    assert check_skips.unexpected_skips(path) == [
+        ("tests.test_x::test_unqualified", "the Julia numerical tests failed")
+    ]
+
+
 def test_an_expected_failure_isn_t_a_skip(tmp_path):
     xfail = '<skipped type="pytest.xfail" message="anything at all"/>'
     assert check_skips.unexpected_skips(junit(tmp_path, ("a", xfail))) == []

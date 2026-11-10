@@ -21,6 +21,7 @@ The helper is loaded by path, the pattern `tests/test_accuracy_figures.py` uses 
 
 import dataclasses
 import importlib.util
+import inspect
 import re
 import sys
 from pathlib import Path
@@ -153,8 +154,9 @@ def test_the_seam_figure_draws_the_whole_protocol():
     """A method added to the protocol has to reach the figure."""
     declared = {
         name
-        for name in vars(Backend)
-        if not name.startswith("_") and callable(vars(Backend)[name])
+        for base in inspect.getmro(Backend)
+        for name, value in vars(base).items()
+        if not name.startswith("_") and callable(value)
     }
     assert declared == {name for name, _ in build.SEAM_METHODS}
 

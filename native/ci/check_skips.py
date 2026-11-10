@@ -36,6 +36,8 @@ EXPECTED: tuple[str, ...] = (
     r"Slurm is faked with POSIX shell scripts",
     r"a machine's setup script runs in a POSIX shell",
     r"a machine's helper hosts its kernel on Linux and macOS, not Windows",
+    r"creating symlinks needs Windows privileges",
+    r"CI change detection runs in Linux Bash",
     # A platform's own branch, on the other platforms.
     r"the real Windows query",
     # Other backends and packages a lane doesn't install.
@@ -54,9 +56,11 @@ EXPECTED: tuple[str, ...] = (
     # A session conformance executor asked for what it does not run
     # (tests/sessions/executors.py): the scripted drivers run no Adams march.
     r"a scripted driver runs no Adams march",
+    r"this executor replays every problem by the low-storage march",
     r"the [a-z-]+ executor does not run an? [a-z -]+",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
+    r"the translation refuses dense output beside the modified noise",
     r"this case took the expansion",
     r"this case took the constant fast path",
     r"a process SEP is structured by its subject",

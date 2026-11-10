@@ -751,6 +751,7 @@ MODULES = {
                 "tdse",
             ),
         ),
+        Module("backends/julia/", ("backend", "command")),
     ),
     "D": (
         Module("log.py"),
@@ -1209,6 +1210,7 @@ TABLEAU = (
 
 SEAM_METHODS = (
     ("prepare", "bind a problem and its run request; each start opens a session"),
+    ("start_group", "open member sessions on one compatible fixed schedule"),
     ("set_initial", "the state and the noise realisation, host to device, once"),
     ("set_progress", "the observer each attempted step reports to; never an input"),
     ("set_stop", "the flag polled between trials, or none"),
@@ -2599,10 +2601,10 @@ def backends() -> drawsvg.Drawing:
         "host arrays; its buffers, layout and plans are private."
     )
     footer = (
-        "Three things every backend owes beyond the methods: deterministic "
-        "reductions, the device form of the stage, and the driver's bookkeeping. The "
-        "error norm is control flow, so a sum whose association depends on the thread "
-        "count forks the trajectory."
+        "Backends own their numerical state, execution and exact work accounting. "
+        "Independent reductions and adaptive trajectories may differ within their "
+        "derived numerical bounds (SEP 25); controller decisions on identical "
+        "recorded readings remain exact."
     )
     top = header_height(subtitle) + 20
     gap = 44.0

@@ -65,6 +65,8 @@ def _worker(
     modes: int | None,
     period: int,
 ) -> None:
+    if backend_name not in ("native", "numpy_ref"):
+        raise SystemExit("statistics_cost requires native or numpy_ref")
     blas_backend = "not applicable"
     blas_threads: int | str = "not applicable"
     fftw_threads = 1

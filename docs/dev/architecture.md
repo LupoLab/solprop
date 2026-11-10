@@ -220,6 +220,7 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `translate/` | Validated `PropagationProblem` and its route union (`translate/routes.py`); parameter expansions and z tables; modal/radial/Cartesian transforms and the hybrid planar one (slab modes in x × FFT in y, `translate/planar.py`); dense tracked modal tables, the general modal route and the coupled-flow and metric records (`translate/general.py`, `translate/coupled.py`); the spatial plane measure (`translate/flux.py`, the `FluxPlan` of schema 35); the persisted frame integral and the filled input port of a problem's entrance (`translate/coupling.py`); response tables, masks and stage bundles | T |
 | `backends/` | Registry and protocols, shared step and batch drivers, scalar bodies, spatial and population statistics | B |
 | `backends/numpy_ref/` | Reference execution | B |
+| `backends/julia/` | Optional Julia setup, owned descriptor lowering and session adapter; Julia owns numerical marching and buffers (SEP 48 implementation in progress) | B |
 | `backends/host/` | The reference's own step driver, Adams and low-storage marches, fixed-schedule group and run session ([SEP 47](seps/sep-0047-run-ownership.md) phase 2); the inherited drivers in `backends/` remain the native bridge's until its session replaces them | B |
 | `stepper/`, `log.py`, `stats.py` | Tableaux, controllers, schedules, progress reporters and statistics specifications | D |
 | `driver/`, `driver/executors/`, `scan.py` | Simulation and convenience interfaces, scan/batch orchestration, Local/Pool/Queue/Slurm execution and scan CLI | D |
@@ -227,6 +228,11 @@ against `src/solprop` by `tests/test_structure_figures.py`.
 | `output/` | Memory and HDF5 outputs, provenance/resume, scan storage and artifacts | D |
 | `processing/`, `plotting/`, `sol.py` | Field, spectrum, time, coherence, compression, mixture and scan analysis; a saved plane read back as a field plane or a fluence map (`processing/planes.py`), and a field plane's file form (`processing/plane_file.py`); propagation/statistics plots and spectrograms; the interactive session namespace, the one module whose import has side effects | X |
 | `service/` | Front-end support, above every other layer: the messages between a front end and solprop, the kernel process that answers a front end's checks, previews and readings of a results file as plain data, each run as a job that keeps its record in its folder, and the helper and connection that reach a machine's runs over SSH ([the front end's design](gui/design.md), sections 13.3 and 13.4). Not part of the user API and outside the stability promise; nothing else in solprop imports it | X |
+
+CLI argument registration uses standard-library-only helpers, including
+`_julia_cli.py`; an unrelated help or calibration command does not import the
+backend package or numerical libraries. Julia setup/status implementation is imported
+only when the dispatcher executes that command.
 
 `solprop-native` is the backend's second distribution, built from `native/` in this
 repository at solprop's own version, and a required dependency of solprop pinned to that

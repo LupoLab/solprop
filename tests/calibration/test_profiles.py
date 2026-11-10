@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -286,15 +287,28 @@ def test_the_command_does_not_load_the_native_extension(tmp_path: Path) -> None:
 
     script = (
         "import sys; from solprop.cli import main; main(['calibrate', '--show']); "
+        "forbidden = {'numpy', 'scipy', 'h5py', 'solprop.backends', 'juliacall'}; "
+        "assert not forbidden.intersection(sys.modules), "
+        "sorted(forbidden.intersection(sys.modules)); "
         "print('solprop_native._core' in sys.modules, file=sys.stderr)"
     )
+    environment = {
+        "SOLPROP_CACHE_DIR": str(tmp_path),
+        "PATH": "",
+        "HOME": str(tmp_path),
+    }
+    # Python's subprocess contract requires SystemRoot for Windows assemblies.
+    # Keep the management command otherwise isolated from user configuration.
+    if "SYSTEMROOT" in os.environ:
+        environment["SYSTEMROOT"] = os.environ["SYSTEMROOT"]
     completed = subprocess.run(
         [sys.executable, "-c", script],
         capture_output=True,
         text=True,
-        check=True,
-        env={"SOLPROP_CACHE_DIR": str(tmp_path), "PATH": "", "HOME": str(tmp_path)},
+        check=False,
+        env=environment,
     )
+    assert completed.returncode == 0, completed.stderr
     assert completed.stderr.strip().splitlines()[-1] == "False"
 
 

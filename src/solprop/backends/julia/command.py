@@ -8,43 +8,12 @@ from __future__ import annotations
 
 import argparse
 import sys
-from pathlib import Path
 
+from solprop._julia_cli import add_arguments
 from solprop.backends.julia import setup, status
 from solprop.backends.julia._setup import depot_directory
 
 __all__ = ["add_arguments", "describe", "run"]
-
-
-def add_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add Julia setup and status subcommands to a parser.
-
-    Parameters
-    ----------
-    parser : argparse.ArgumentParser
-        The parser for ``solprop julia``.
-    """
-    actions = parser.add_subparsers(dest="julia_action", required=True)
-    install = actions.add_parser(
-        "setup", help="install and verify an optional Julia stack"
-    )
-    install.add_argument(
-        "--device",
-        action="append",
-        choices=("cpu", "cuda", "rocm", "metal"),
-        default=[],
-    )
-    install.add_argument("--julia", type=Path, help="use an installed Julia executable")
-    install.add_argument(
-        "--cpu-target", default="native", help="Julia target for compiled code"
-    )
-    install.add_argument(
-        "--cuda-runtime", help="CUDA runtime release to prepare without a GPU"
-    )
-    install.add_argument(
-        "--cuda-local", action="store_true", help="use the system CUDA toolkit"
-    )
-    actions.add_parser("status", help="inspect published setups without starting Julia")
 
 
 def describe() -> str:

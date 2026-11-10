@@ -52,9 +52,10 @@ problem, run_request = assemble(
     shock=False,
     prefactor_index=1.0,
 )
-backend = select(
-    sys.argv[2] if len(sys.argv) > 2 else "native", problem, run_request, grid=grid
-)
+selected = sys.argv[2] if len(sys.argv) > 2 else "native"
+if selected not in ("native", "numpy_ref"):
+    raise SystemExit("thread_probe requires native or numpy_ref")
+backend = select(selected, problem, run_request, grid=grid)
 try:
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(LENGTH)

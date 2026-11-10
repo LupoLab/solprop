@@ -4,11 +4,28 @@
 
 """Exercise Julia management through the shared solprop command dispatcher."""
 
+import subprocess
 import sys
 
 from solprop.backends.julia import command
 from solprop.cli import main
 from solprop.exceptions import BackendError
+
+
+def test_parser_registration_imports_no_numerical_backend():
+    script = (
+        "import sys; from solprop.cli import _parser; "
+        "parser = _parser(); "
+        "assert parser.parse_args(['julia', 'status']).julia_action == 'status'; "
+        "forbidden = {'numpy', 'scipy', 'h5py', 'solprop.backends', "
+        "'solprop_native', 'juliacall'}; "
+        "assert not forbidden.intersection(sys.modules), "
+        "sorted(forbidden.intersection(sys.modules))"
+    )
+    completed = subprocess.run(
+        [sys.executable, "-c", script], capture_output=True, text=True, check=False
+    )
+    assert completed.returncode == 0, completed.stderr
 
 
 def test_status_routes_without_creating_a_depot_or_importing_julia(

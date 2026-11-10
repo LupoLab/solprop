@@ -98,7 +98,7 @@ def _parser() -> argparse.ArgumentParser:
     julia = commands.add_parser(
         "julia", help="prepare or inspect the optional Julia backend"
     )
-    from solprop.backends.julia.command import (  # noqa: PLC0415 - no runtime import
+    from solprop._julia_cli import (  # noqa: PLC0415 - standard-library-only registration
         add_arguments as julia_arguments,
     )
 
