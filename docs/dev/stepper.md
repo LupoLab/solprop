@@ -463,7 +463,9 @@ reading through the monitor at its own step. The Python march is the reference -
 configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
 wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
-carrier frame), with a `HostMarchWarning` naming the reason. Lockstep batches replay on the host (`replay_step`).
+carrier frame), with a `HostMarchWarning` naming the reason. The transitional lockstep
+batches replay on the host (`replay_step`); a native CPU group the native group session
+admits replays each member in its own native session instead (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and
 `load_rows` to install them) lets `HostAdamsMarch.snapshot` (and `AdamsMarch.snapshot`

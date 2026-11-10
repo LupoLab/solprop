@@ -27,3 +27,6 @@ Backend and storage interfaces below are mainly for contributors extending an ex
 - {mod}`solprop.backends.host.group` and {mod}`solprop.backends.batch`: the backend
   side of a batch — the NumPy reference's group and the native backend's lockstep
   runner — in which every member takes the same fixed steps and is observed on its own.
+  On the native CPU build a batch runs instead in the native group session
+  (`solprop_native.group`), one native execution session per member, whenever that
+  session admits it.

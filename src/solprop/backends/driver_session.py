@@ -62,6 +62,8 @@ from solprop.backends.session import (
     SessionStatus,
     SnapshotReceipt,
     Start,
+    check_group,
+    check_member_ticket,
 )
 from solprop.exceptions import StopRequested
 from solprop.log import NullReporter, StopFlag
@@ -1201,7 +1203,7 @@ class DriverSession:
         return field[0]
 
 
-def _bound(event: Event, receipt: Receipt) -> Event:
+def _bound(event: Event, receipt: Receipt, member: int | None = None) -> Event:
     """Return an event with its ticket bound to the batch that delivers it.
 
     Parameters
@@ -1210,6 +1212,8 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         An event, with an unbound ticket or none.
     receipt : solprop.backends.events.Receipt
         The batch's receipt.
+    member : int or None, optional
+        The group member the ticket names; ``None`` for a lone session.
 
     Returns
     -------
@@ -1221,7 +1225,7 @@ def _bound(event: Event, receipt: Receipt) -> Event:
         return event
     return dataclasses.replace(
         event,  # pyright: ignore[reportArgumentType]
-        ticket=dataclasses.replace(ticket, receipt=receipt),
+        ticket=dataclasses.replace(ticket, receipt=receipt, member=member),
     )
 
 
@@ -1281,22 +1285,8 @@ class DriverGroupSession:
         from solprop.backends.registry import select_batch  # noqa: PLC0415 - cycle
 
         count = len(members)
-        if count == 0 or not count == len(problems) == len(requests) == len(starts):
-            msg = (
-                f"a group needs one problem, request and start per member, and got "
-                f"{count} members, {len(problems)} problems, {len(requests)} "
-                f"requests and {len(starts)} starts"
-            )
-            raise SessionError(msg)
+        check_group(count, problems, requests, starts)
         observation = requests[0].observation
-        for start in starts:
-            fresh = start.march is None and start.monitor is None
-            if not fresh or start.plane_index:
-                msg = (
-                    "a group starts its members at their entrance, with no method "
-                    "history or monitor record to continue"
-                )
-                raise SessionError(msg)
         for member, start in zip(members, starts, strict=True):
             member.set_initial(
                 np.asarray(start.take_field())[np.newaxis],
@@ -1425,7 +1415,8 @@ class DriverGroupSession:
             The member's converted field.
         """
         self._ledger.check_ticket(ticket)
-        problem = self._problems[self._member(member)]
+        check_member_ticket(ticket, self._member(member))
+        problem = self._problems[member]
         if recipe.power and problem.transform.geometry is not None:
             # A spatial route's field measure is already the stored quantity.
             recipe = dataclasses.replace(recipe, power=False)
@@ -1450,7 +1441,8 @@ class DriverGroupSession:
             The phase, shape ``(n_modes, n_pol, n_omega)``, or ``None`` without noise.
         """
         self._ledger.check_ticket(ticket)
-        phase = self._fielded(ticket, self._member(member)).noise_phase
+        check_member_ticket(ticket, self._member(member))
+        phase = self._fielded(ticket, member).noise_phase
         return None if phase is None else np.array(phase[0])
 
     def member_status(self, member: int) -> SessionStatus:
@@ -1889,7 +1881,8 @@ class DriverGroupSession:
         # Every drained attempt is delivered by this batch.
         self._drained = {}
         bound = tuple(
-            tuple(_bound(event, receipt) for event in events) for events in members
+            tuple(_bound(event, receipt, index) for event in events)
+            for index, events in enumerate(members)
         )
         return GroupBatch(receipt, bound, outcome, error)
 

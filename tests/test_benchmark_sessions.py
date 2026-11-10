@@ -7,7 +7,7 @@
 Each case of the ``sep47`` set runs once, briefly, with the native adapter's structural
 counters on (``benchmarks.worker.measure(count_events=True)``), and its counts must show
 the events it was declared for: a statistics row at every accepted step, snapshots
-serviced, a group's lockstep steps, the native or host march of a coupled flow.
+serviced, a group's common steps, the native or host march of a coupled flow.
 """
 
 import warnings
@@ -155,8 +155,15 @@ def test_repeated_inputs_scans_and_groups_run_their_members(tmp_path):
     assert schedule.settings.schedule is not None
     steps = schedule.settings.schedule.n_steps
     assert counts["group_steps"] == steps > 1
-    assert counts["native_returns"] == {"group_step": steps}
-    assert counts["host_attempts"] == counts["accepted"] == 4 * steps
+    # The native group session: each member's native session returns at its launch,
+    # at each plane and at its end, its steps native.
+    planes = len(schedule.settings.save_planes)
+    assert counts["native_returns"] == {
+        "session_observation": 4 * (planes + 1),
+        "session_terminal": 4,
+    }
+    assert counts["attempts"] == counts["accepted"] == 4 * steps
+    assert counts["host_attempts"] == 0
     # Batch watches no point's run: its steps are uncounted, not zero.
     assert (run["accepted"], run["rejected"], run["finite"]) == (None, None, True)
 
