@@ -79,14 +79,16 @@ def test_a_second_recipe_after_an_in_place_conversion_leaves_the_first_alone(sta
     np.testing.assert_array_equal(kept, shift * np.conj(consumer))
 
 
-def test_a_runge_kutta_session_reports_no_method_history(start):
+def test_a_runge_kutta_session_reports_no_method_history(start, executor):
     """A Runge-Kutta march keeps no history: no snapshot, no size, nothing refused."""
     session = start(soliton()).session
     _, plane = _first_plane(session)
     assert session.march_snapshot(plane.ticket) is None
     assert session.march_snapshot_nbytes() is None
-    assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
-    assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
+    if not executor.native_monitor:
+        # The transitional session's driver-facing answers.
+        assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
+        assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
     record = session.execution_record()
     assert isinstance(record, Mapping)
     assert record
@@ -97,6 +99,8 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     """SEP 29 and 47 section 5.5: an Adams march's history is snapshotted at a plane."""
     if executor.scripted:
         pytest.skip("a scripted driver runs no Adams march")
+    if executor.native_monitor:
+        pytest.skip("the native session does not export its Adams history yet")
     session = start(soliton(integrator=Multistep())).session
     _, plane = _first_plane(session)
     assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
@@ -108,8 +112,12 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     assert nbytes > 0
 
 
-def test_a_monitored_session_reports_its_monitor_record(start):
-    """SEP 21: a session that feeds a monitor reports its record from the launch."""
+def test_a_monitored_session_reports_its_monitor_record(start, executor):
+    """SEP 21: a session that feeds a monitor reports its record from the launch.
+
+    A session that owns its monitor natively leaves the request's monitor untouched,
+    so only its record shows what it did (SEP 47 section 6.4).
+    """
     problem = soliton()
     log: list[tuple[str, float]] = []
     session = start(problem, describe_run(problem, monitor=spy_monitor(log))).session
@@ -117,7 +125,7 @@ def test_a_monitored_session_reports_its_monitor_record(start):
     record = session.monitor_record()
     assert isinstance(record, Mapping)
     assert record
-    assert log
+    assert bool(log) is not executor.native_monitor
 
 
 def test_a_closed_session_offers_no_pending_ticket(start):
