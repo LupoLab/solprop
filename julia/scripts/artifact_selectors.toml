@@ -1,0 +1,33 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# These pinned selectors were audited to include all matching lazy artifacts.
+# Re-audit both selector and augmentation before accepting a package update.
+
+# LLVMExtra_jll 0.0.56+0
+[selectors."dad2f222-ce93-54a1-a47d-0025e8a3acab"]
+tree_hash = "39def0b4521e0ef2bf26960d8965729f496bb4ec"
+[selectors."dad2f222-ce93-54a1-a47d-0025e8a3acab".files]
+".pkg/platform_augmentation.jl" = "062484782c9f82688d15ef81ccd944270b8bd5648d56533ea54bbe470bc81215"
+".pkg/select_artifacts.jl" = "9c73a992519620fe0db778648e63db811f894ac630b3ed1f00cc958a2e1883e1"
+
+# CUDA_Driver_jll 13.5.0+0
+[selectors."4ee394cb-3365-5eb0-8335-949819d2adfc"]
+tree_hash = "8794abb9272b6c0791863549ab3aa32eee29bf7d"
+[selectors."4ee394cb-3365-5eb0-8335-949819d2adfc".files]
+".pkg/platform_augmentation.jl" = "c30b18d524238a1a69fef744d5f58e96d13169b9525844dedd92a2f6fae2490d"
+".pkg/select_artifacts.jl" = "9c73a992519620fe0db778648e63db811f894ac630b3ed1f00cc958a2e1883e1"
+
+# CUDA_Runtime_jll 0.25.0+3
+[selectors."76a88914-d11a-5bdc-97e0-2f5a05c973a2"]
+tree_hash = "6269b71d191c0081b8fb3ff5945c2a57f16231d4"
+[selectors."76a88914-d11a-5bdc-97e0-2f5a05c973a2".files]
+".pkg/platform_augmentation.jl" = "ed6814c6275616599084800149dd5ed02711df26f42e0aba8b4eac21ce0e43fa"
+".pkg/select_artifacts.jl" = "9c73a992519620fe0db778648e63db811f894ac630b3ed1f00cc958a2e1883e1"
+
+# CUDA_Compiler_jll 0.6.4+0
+[selectors."d1e2174e-dfdc-576e-b43e-73b79eb1aca8"]
+tree_hash = "d25781968aff72a9d8d5bd979b7805d154ab45a0"
+[selectors."d1e2174e-dfdc-576e-b43e-73b79eb1aca8".files]
+".pkg/platform_augmentation.jl" = "3e4f00bd9dcd526ff6f3b10944e3b7f14c6b90ab68867ad908fd137a8da5b533"
+".pkg/select_artifacts.jl" = "9c73a992519620fe0db778648e63db811f894ac630b3ed1f00cc958a2e1883e1"

@@ -1,0 +1,5 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+# The pinned Runtime and Compiler packages both provide this toolkit minor release.
+cuda_runtime = "13.4"

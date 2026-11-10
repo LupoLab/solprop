@@ -1,0 +1,49 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+"""
+    SolpropJulia
+
+Execute translated propagation data in a Julia-owned engine.
+
+The engine uses SI units and the internal Fourier convention defined in solprop's
+developer conventions. Python objects enter only through the optional PythonCall extension.
+"""
+module SolpropJulia
+
+import AcceleratedKernels
+import Atomix
+import FFTW
+import KernelAbstractions
+import LinearAlgebra
+import Polyester
+import PrecompileTools
+
+public copy_preparation
+
+"""
+    copy_preparation(values::AbstractArray)
+
+Copy translated numerical data into independently owned Julia storage.
+
+# Arguments
+- `values`: An array of fixed-size numerical values, of any dimension, in the translated
+  input's units. Dimensions, element type and values are preserved; no unit conversion or
+  propagation admission is performed.
+
+# Returns
+An `Array` with the same size and element type. The result retains no input reference.
+
+# Throws
+- `ArgumentError`: If the element type is not a fixed-size subtype of `Number`.
+"""
+function copy_preparation(values::AbstractArray{T, N}) where {T, N}
+    if !(isbitstype(T) && T <: Number)
+        throw(ArgumentError("preparation arrays require fixed-size numerical elements"))
+    end
+    owned = Array{T, N}(undef, size(values))
+    copyto!(owned, values)
+    return owned
+end
+
+end
