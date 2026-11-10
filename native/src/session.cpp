@@ -298,6 +298,10 @@ void Session::absorb(const march::Result& result, const Clock::time_point starte
       ++generation_;
     }
   }
+  // `_synchronise`: the call ledger's orders, one per accepted step.
+  if (auto* adams = std::get_if<AdamsMethod>(&method_))
+    for (const std::size_t order : result.orders)
+      adams->orders.push_back(static_cast<std::uint8_t>(order));
   publish();
 }
 
@@ -784,6 +788,36 @@ void Session::continue_monitor(const watch::Resumption& record, const bool plane
   plan_.monitor->record = record;
   plan_.monitor->plane = plane;
   plan_.monitor->unwatched = unwatched;
+}
+
+void Session::read(const std::uint64_t sequence, const std::uint64_t generation,
+                   const std::function<void(const Method&, Resident&)>& reader) {
+  const std::scoped_lock lock(mutex_);
+  require_open();
+  if (sequence != 0 &&
+      (!pending_ || sequence != sequence_ || generation != pending_generation_))
+    throw LifecycleError("the ticket has expired: its batch was acknowledged, or it "
+                         "belongs to another session");
+  reader(method_, *resident_);
+}
+
+std::uint64_t Session::fail_outside() {
+  const std::scoped_lock lock(mutex_);
+  if (closed() || state_.load() == State::finished)
+    return 0;
+  if (!pending_) {
+    // Nothing advanced since the last acknowledgment: the chunk is empty, and the
+    // committed state is the last batch's, eligible.
+    Failure failure;
+    failure.reason = march::Reason::error;
+    failure.category = march::Category::backend;
+    failure.message = "the run failed outside its session";
+    failure.cursor = cursor();
+    Batch batch;
+    terminal(batch, Outcome::failed, std::move(failure));
+    static_cast<void>(issue(std::move(batch), Outcome::failed));
+  }
+  return sequence_;
 }
 
 std::optional<watch::Record> Session::monitor_record() const {

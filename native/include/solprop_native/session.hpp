@@ -9,6 +9,7 @@
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -133,12 +134,15 @@ struct MonitorPlan {
   std::vector<std::array<double, 2>> unwatched;
 };
 
-/** The Adams march a session runs: its policy, state, replayed schedule and engine. */
+/** The Adams march a session runs: its policy, state, replayed schedule and engine,
+    and the predictor order of each step it accepted, in order (the call ledger's
+    `orders`, which the state's counters leave out). */
 struct AdamsMethod {
   march::Policy policy;
   march::State state;
   march::Schedule schedule;
   std::unique_ptr<march::Engine> engine;
+  std::vector<std::uint8_t> orders;
 };
 
 /** The Runge-Kutta march a session runs. */
@@ -336,6 +340,17 @@ public:
       session's lock; refused once the monitor watches. */
   void continue_monitor(const watch::Resumption& record, bool plane,
                         const std::vector<std::array<double, 2>>& unwatched);
+  /** Call `reader` with the march and the state it leases, under the session's lock:
+      between advances when `sequence` is zero, or else while the pending batch
+      `sequence` holds the committed state at `generation` (an export's ticket), for a
+      method-history snapshot (SEP 47 section 5.4) or the call ledger. */
+  void read(std::uint64_t sequence, std::uint64_t generation,
+            const std::function<void(const Method&, Resident&)>& reader);
+  /** Issue a failed terminal batch at the committed state when none is pending, so
+      that a failure outside the session can still checkpoint that state
+      (`DriverSession.pending_ticket`); return the pending batch's sequence, or zero
+      once the session has ended or closed. Takes the session's lock. */
+  std::uint64_t fail_outside();
   /** Release the engine, the leased state and every buffer; idempotent. Returns
       whether the session is closed: false only when its lock could not be taken, and
       then nothing was released. Waits for an advance in hand. */

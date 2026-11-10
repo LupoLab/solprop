@@ -179,8 +179,8 @@ def _native_session(  # noqa: PLR0913 - the session context
     Returns
     -------
     solprop.backends.session.RunSession or None
-        The native session, or ``None`` for any other backend or a run the native
-        session refuses.
+        The native session, or ``None`` for any other backend, a run the native
+        session refuses, or one the built backend would step on the host.
     """
     if type(backend).__module__ != "solprop_native.backend":
         return None
@@ -189,10 +189,15 @@ def _native_session(  # noqa: PLR0913 - the session context
     )
     from solprop_native.session import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         NativeSession,
+        backend_refusal,
         refusal,
     )
 
-    if type(backend) is not NativeBackend or refusal(problem, request, start):
+    if (
+        type(backend) is not NativeBackend
+        or refusal(problem, request, start)
+        or backend_refusal(backend)
+    ):
         return None
     session = NativeSession(
         problem,

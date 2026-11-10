@@ -620,6 +620,18 @@ class Session:
     def continue_monitor(
         self, record: dict[str, object], plane: bool, unwatched: list[list[float]]
     ) -> None: ...
+    def march_state(self, since: int) -> dict[str, Any] | None: ...
+    def march_snapshot(
+        self, sequence: int, generation: int
+    ) -> (
+        tuple[
+            dict[str, Any],
+            npt.NDArray[np.complex128],
+            dict[str, npt.NDArray[np.complex128]],
+        ]
+        | None
+    ): ...
+    def fail_outside(self) -> int: ...
     def close(self) -> None: ...
 
 class Monitor:

@@ -16,10 +16,11 @@ lowering (the native problem, the stage tables and the CPU execution record), tu
 each batch's compact records into :mod:`solprop.backends.events` types, and fills
 export destinations through the native recipe. It keeps no numerical state.
 
-This is SEP 47's phase 1 prototype, selected only by tests and by an explicit
-benchmark opt-in; production runs still use
-:class:`~solprop.backends.driver_session.DriverSession`. It admits a subset and refuses
-every other feature by name before allocating anything (:func:`refusal`):
+Production runs on a native CPU backend use it whenever it admits the run
+(:func:`solprop.backends.sessions.start_session`); what it refuses runs on
+:class:`~solprop.backends.driver_session.DriverSession` over the backend's own march.
+It admits a subset and refuses every other feature by name before allocating anything
+(:func:`refusal`, and :func:`backend_refusal` once the backend is built):
 
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
@@ -33,8 +34,12 @@ every other feature by name before allocating anything (:func:`refusal`):
   its every decision and record are native, a warning is a
   :class:`~solprop.backends.events.ServiceRequired` barrier and a stop a terminal
   failure, and a monitored resume continues the record natively;
+- resumed runs: a field restart, restored call ledgers and the Adams method history
+  (:class:`~solprop.output.schema.MarchSnapshot`), which the session exports at every
+  accepted endpoint a ticket names and installs from its start, as the backend's own
+  march does;
 - no transverse edge, dense output, low-storage replay, comparison method, custom
-  controller, group, noise model, TDSE, resumed run or method-history snapshot.
+  controller, group, noise model or TDSE.
 """
 
 from __future__ import annotations
@@ -47,6 +52,7 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 import numpy.typing as npt
+from solprop._interrupts import committing
 from solprop.backends.events import (
     Eligibility,
     EventBatch,
@@ -60,6 +66,7 @@ from solprop.backends.events import (
     ServiceRequired,
     Terminal,
 )
+from solprop.backends.multistep import CallLedger, budget_error
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -79,6 +86,7 @@ from solprop.output.capability import (
     refusal_for,
     withheld_accessors,
 )
+from solprop.output.schema import MarchSnapshot
 from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -96,6 +104,7 @@ from ._statistics import (
     uncovered,
 )
 from .backend import (
+    _BUDGET,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
@@ -113,7 +122,6 @@ if TYPE_CHECKING:
     from solprop.log import StopFlag
     from solprop.modes.protocol import Mode
     from solprop.monitor import BoundaryMonitor
-    from solprop.output.schema import MarchSnapshot
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
     from solprop.translate.problem import KernelProblem
@@ -124,6 +132,7 @@ __all__ = [
     "ADMITTED_SPATIAL_STATISTICS",
     "ADMITTED_STATISTICS",
     "NativeSession",
+    "backend_refusal",
     "refusal",
 ]
 
@@ -164,6 +173,19 @@ _OVERRIDES = (
     "equivalent_norm",
 )
 _EMPTY = np.empty(0, dtype=np.float64)
+_NO_ORDERS = 1 << 62
+"""An order index past any run's, to read the march's state without its orders."""
+_LEDGER_COUNTERS = (
+    "startup",
+    "predictor",
+    "rejected",
+    "accepted_steps",
+    "rejected_steps",
+    "restarts",
+    "failure_restarts",
+    "dense_observations",
+)
+"""The call ledger's counters the native Adams march keeps (``_MARCH_COUNTERS``)."""
 
 
 def refusal(
@@ -217,19 +239,38 @@ def refusal(
         return f"the {problem.initial.noise_model!r} noise model"
     if problem.tdse is not None:
         return "a TDSE response"
-    if start is not None:
-        if start.march is not None:
-            return "a method-history resume (MarchSnapshot)"
-        if start.ledgers is not None:
-            return "restored call ledgers"
-        if start.resume:
-            return "a resumed run"
-        if start.noise is not None:
-            return "a noise realisation"
+    if start is not None and start.noise is not None:
+        return "a noise realisation"
     march = native_march_refusal(problem)
     if march is not None:
         return march
     return _statistics_refusal(problem, request.observation.stats)
+
+
+def backend_refusal(backend: NativeBackend) -> str | None:
+    """Return why a built backend would step its march on the host, or ``None``.
+
+    :func:`refusal` decides before the backend is built; the backend's own march
+    adapter decides once it is, from the engine it was given and the private host
+    switches (``SOLPROP_ADAMS_MARCH``, ``SOLPROP_RK_MARCH``). A run either refuses is
+    served by the transitional session over the backend's own march, never by this
+    one. Nothing is loaded or changed.
+
+    Parameters
+    ----------
+    backend : solprop_native.backend.NativeBackend
+        The backend, built for the run's problem.
+
+    Returns
+    -------
+    str or None
+        The reason, or ``None`` when the native session can run the march.
+    """
+    driver = NativeSession._driver(backend)
+    if isinstance(driver._problem.stepper.integrator, Multistep):
+        return cast("str | None", driver._adams.refusal)
+    refused, _ = _NativeRungeKuttaMarch.refusal(backend)
+    return refused
 
 
 def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
@@ -357,6 +398,17 @@ class NativeSession:
         self._stop = stop
         self._detach: Callable[[], None] | None = None
         self._exports: dict[tuple[int, int, object], np.ndarray] = {}
+        # The last batch's chunk until the batch is returned: a signal raised as its
+        # advance ends leaves it to `undelivered`, for the failure's checkpoint.
+        self._held: tuple[int, BackendHistory, StepStats] | None = None
+        # The Adams march's call ledger as the record states it: the restored counts
+        # and orders, then the native march's (`_sync_calls`).
+        self._calls: CallLedger | None = None
+        self._orders_seen = 0
+        self._march_refusal: str | None = None
+        self._method: Multistep | None = None
+        self._max_calls: int | None = None
+        self._rows_nbytes = 0
         self._spatial = problem.transform.geometry is not None
         self._shape = tuple(problem.shape[1:])
         spec = request.observation.stats
@@ -487,8 +539,16 @@ class NativeSession:
             np.asarray(start.take_field())[np.newaxis],
             None,
             z=float(start.z),
-            resume=False,
+            resume=start.resume,
         )
+        # A resume's ledgers, then its method history after the field, which resets
+        # it (`DriverSession`): the march's state below is the restored one.
+        if start.ledgers is not None:
+            driver.restore_call_ledgers(
+                start.ledgers.get("logical", {}), start.ledgers.get("atomic", {})
+            )
+        if start.march is not None:
+            self._march_refusal = driver.restore_march(start.march)
         if isinstance(integrator, Multistep):
             march = driver._adams
             refused = march.refusal
@@ -514,6 +574,13 @@ class NativeSession:
                     crossing=self._problem.split_crossing if monitor.split else None,
                 )
             )
+        if isinstance(integrator, Multistep):
+            ledger = march.ledger
+            self._calls = dataclasses.replace(ledger, orders=list(ledger.orders))
+            self._method = march._method
+            self._max_calls = march._policy.max_calls
+            # The history's persistent rows, sized while the state is not leased.
+            self._rows_nbytes = int(march._engine.snapshot_nbytes())
         kind = "adams" if isinstance(integrator, Multistep) else "runge_kutta"
         return kind, march._state(False)
 
@@ -714,14 +781,22 @@ class NativeSession:
         if stop is not None and stop.is_set():
             self._native.request_stop()
         limit = 1 if self._listener is not None else max(int(work_limit), 1)
-        try:
-            batch = self._native.advance(limit, float(deadline))
-        except _core.SessionLifecycleError as error:
-            raise SessionError(str(error)) from None
-        receipt = Receipt(self._id, batch.sequence)
-        self._sequence = batch.sequence
-        # Each batch is one event and the chunk since the previous one, delivered once.
-        chunk = self._history(batch.attempts)
+        # A signal arriving during the native call is raised as this block ends, with
+        # the batch pending and its chunk held (SEP 47 section 5.5): the failure's
+        # checkpoint exports the batch's state and includes the chunk, once.
+        with committing():
+            try:
+                batch = self._native.advance(limit, float(deadline))
+            except _core.SessionLifecycleError as error:
+                raise SessionError(str(error)) from None
+            receipt = Receipt(self._id, batch.sequence)
+            self._sequence = batch.sequence
+            # Each batch is one event and the chunk since the previous one, delivered
+            # once.
+            chunk = self._history(batch.attempts)
+            rows = self._chunk_rows(batch)
+            self._held = (batch.sequence, chunk, rows)
+            event = self._event(batch, receipt, chunk, rows)
         if self._listener is not None:
             for end, dz, accepted in zip(
                 chunk.z.tolist(),
@@ -730,8 +805,8 @@ class NativeSession:
                 strict=True,
             ):
                 self._listener(end, dz, bool(accepted))
-        rows = self._chunk_rows(batch)
-        return EventBatch(receipt, (self._event(batch, receipt, chunk, rows),))
+        self._held = None
+        return EventBatch(receipt, (event,))
 
     def acknowledge(self, receipt: Receipt) -> None:
         """Release the pending batch and allow advancing across its barrier.
@@ -876,29 +951,103 @@ class NativeSession:
         return SnapshotReceipt(request, coalesced)
 
     def march_snapshot(self, ticket: ExportTicket) -> MarchSnapshot | None:
-        """Return ``None``: the prototype keeps no method-history snapshot.
+        """Return the Adams method history at a pending ticket's committed state.
+
+        The native session copies the march's state, the accepted field as the state
+        holds it and every persistent history row once, losslessly, as
+        :meth:`solprop.backends.multistep.AdamsMarch.snapshot` lays them out for the
+        backend's own march (SEP 47 section 5.4).
 
         Parameters
         ----------
         ticket : solprop.backends.events.ExportTicket
-            The pending observation's ticket.
+            A ticket of the pending batch.
 
         Returns
         -------
-        None
-            No snapshot.
+        solprop.output.schema.MarchSnapshot or None
+            The snapshot, or ``None`` for a Runge-Kutta march, which keeps no history,
+            and before the Adams march holds any.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the ticket expired or belongs to another session.
         """
-        del ticket
+        if not self._adams:
+            return None
+        if self.closed or ticket.receipt.session != self._id:
+            msg = f"the ticket for z = {ticket.z!r} m has expired"
+            raise SessionError(msg)
+        try:
+            taken = self._native.march_snapshot(
+                ticket.receipt.sequence, ticket.generation
+            )
+        except _core.SessionLifecycleError as error:
+            raise SessionError(str(error)) from None
+        if taken is None:
+            return None
+        state, field, rows = taken
+        method = self._method
+        assert method is not None
+        shape = tuple(self._problem.shape)
+        history = state["history"]
+        return MarchSnapshot(
+            z=float(state["z"]),
+            state=field.reshape(shape),
+            proposal=float(state["proposal"]),
+            method=repr(method),
+            order=int(state["order"]),
+            rejections=int(state["rejections"]),
+            last_rejected=bool(state["last_rejected"]),
+            positions=np.array([entry[0] for entry in history], dtype=np.float64),
+            identities=tuple(
+                "predicted" if entry[1] else "accepted" for entry in history
+            ),
+            slots=np.array([entry[2] for entry in history], dtype=np.int64),
+            rows={name: row.reshape(len(row), *shape) for name, row in rows.items()},
+            collar_was_quiet=bool(state["collar_was_quiet"]),
+            history_key=method.history_key,
+        )
 
     def march_snapshot_nbytes(self) -> int | None:
-        """Return ``None``: the prototype keeps no method-history snapshot.
+        """Return the bytes :meth:`march_snapshot` would copy now, copying nothing.
+
+        Returns
+        -------
+        int or None
+            The state and every history row, or ``None`` where a snapshot would be
+            ``None``.
+        """
+        if not self._adams or self.closed:
+            return None
+        state = self._native.march_state(_NO_ORDERS)
+        if state is None or not state["history"]:
+            return None
+        return math.prod(self._problem.shape) * 16 + self._rows_nbytes
+
+    def march_export_refusal(self) -> str | None:
+        """Return ``None``: the session exports the history of every march it admits.
 
         Returns
         -------
         None
-            No snapshot.
+            The resident Adams engine exports and installs its rows; a Runge-Kutta
+            march keeps no history to refuse.
         """
         return None
+
+    @property
+    def march_refusal(self) -> str | None:
+        """Return why the start's method history was not installed, or ``None``.
+
+        Returns
+        -------
+        str or None
+            The backend march's reason (:meth:`~solprop.backends.driver.StepDriver.
+            restore_march`), or ``None`` when it was installed or none was given.
+        """
+        return self._march_refusal
 
     def execution_record(self) -> Mapping[str, object]:
         """Return the session's execution facts.
@@ -912,6 +1061,10 @@ class NativeSession:
         record: dict[str, object] = {}
         if self._backend is not None and not self.closed:
             record.update(self._backend.metadata())
+        calls = self._sync_calls()
+        if calls is not None:
+            # The march's ledger is the session's, not the backend's (SEP 47 5.2).
+            record["response_calls"] = calls.to_record()
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
             record["statistics_tables"] = dict(self._statistics_tables)
@@ -928,6 +1081,31 @@ class NativeSession:
             # Where the driver's record carries its monitor's (`StepDriver.metadata`).
             record["boundary_monitor"] = monitor
         return record
+
+    def _sync_calls(self) -> CallLedger | None:
+        """Bring the Adams call ledger up to the native march's, and return it.
+
+        The counters are the native march's, cumulative from the restored ones; the
+        orders of the steps accepted since the last call are appended, so that the
+        record's run-length encoding is extended rather than redone.
+
+        Returns
+        -------
+        solprop.backends.multistep.CallLedger or None
+            The ledger, or ``None`` for a Runge-Kutta march.
+        """
+        calls = self._calls
+        if calls is None or self.closed:
+            return calls
+        state = self._native.march_state(self._orders_seen)
+        if state is None:
+            return calls
+        for name in _LEDGER_COUNTERS:
+            setattr(calls, name, int(state["ledger"][name]))
+        orders = [int(order) for order in state["orders"]]
+        calls.orders.extend(orders)
+        self._orders_seen += len(orders)
+        return calls
 
     def monitor_record(self) -> Mapping[str, object] | None:
         """Return the boundary monitor's record, which the native session keeps.
@@ -972,11 +1150,11 @@ class NativeSession:
             raise SessionError(str(error)) from None
 
     def undelivered(self, ticket: ExportTicket) -> tuple[BackendHistory, StepStats]:
-        """Return the attempts and rows made since the previous event: none.
+        """Return the attempts and rows made since the previous event, once.
 
         Every native batch delivers its whole chunk with its event (SEP 47 section
-        5.3), and nothing advances between batches, so no attempt is ever left
-        undelivered.
+        5.3), and nothing advances between batches; only a batch whose advance a signal
+        or a listener's exception ended before it was returned leaves its chunk here.
 
         Parameters
         ----------
@@ -996,18 +1174,31 @@ class NativeSession:
         if ticket.receipt.session != self._id:
             msg = f"the ticket for z = {ticket.z!r} m belongs to another session"
             raise SessionError(msg)
+        held, self._held = self._held, None
+        if held is not None and held[0] == ticket.receipt.sequence:
+            return held[1], held[2]
         return self._history(np.empty((0, 5))), self._no_rows()
 
     def pending_ticket(self) -> ExportTicket | None:
-        """Return a ticket for the committed state while a batch is pending.
+        """Return a ticket for the committed state after a failure outside the session.
+
+        When a batch is pending, the ticket is bound to it; otherwise the native
+        session issues a failed terminal batch at its committed state, so that the
+        state can be exported for a terminal checkpoint and nothing advances again
+        (as :meth:`solprop.backends.driver_session.DriverSession.pending_ticket`).
 
         Returns
         -------
         solprop.backends.events.ExportTicket or None
-            A ticket bound to the pending batch, or ``None`` when none is pending or
-            the session is closed: the native state exports only while its batch is.
+            The ticket, or ``None`` once the session ended or closed: the native state
+            exports only while a batch is pending.
         """
+        if self.closed:
+            return None
         status = self._native.status()
+        if _STATES[status.state] is SessionState.READY:
+            self._sequence = self._native.fail_outside()
+            status = self._native.status()
         if _STATES[status.state] is not SessionState.PENDING or self._sequence == 0:
             return None
         return ExportTicket(
@@ -1319,6 +1510,35 @@ class NativeSession:
             rows,
         )
 
+    def _budget_error(self, event: _core.SessionEvent) -> BaseException:
+        """Return the error of a trial the call budget could not pay for.
+
+        Formed from the session's own ledger, position and committed field, as the
+        backend's march forms it from its own (:func:`~solprop.backends.multistep.
+        budget_error`).
+
+        Parameters
+        ----------
+        event : solprop_native._core.SessionEvent
+            The terminal record, its batch pending.
+
+        Returns
+        -------
+        BaseException
+            The budget's error.
+        """
+        calls = self._sync_calls()
+        assert calls is not None
+        field = np.empty(self._shape, dtype=np.complex128)
+        self._native.export(self._sequence, event.generation, False, False, None, field)
+        return budget_error(
+            self._max_calls,
+            calls.total,
+            float(event.z),
+            int(event.cost),
+            field[np.newaxis],
+        )
+
     def _log_finish(self) -> None:
         """Log the monitor's removal and guard peaks once, at the end (D5)."""
         if self._finish_logged or self._monitor is None:
@@ -1376,6 +1596,8 @@ class NativeSession:
             "message": event.message,
             "category": event.category,
         }
+        if self._adams and int(event.reason) == _BUDGET:
+            return self._budget_error(event)
         driver = self._driver(self._backend)
         if self._adams:
             march = driver._adams
