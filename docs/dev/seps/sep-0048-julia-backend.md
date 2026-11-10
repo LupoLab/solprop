@@ -207,8 +207,12 @@ carrier frame, interpolated planes and binary64 on Metal.
 
 #### 3.3 Issues
 
-- **To resolve first:** #588 (SEP 47). This SEP builds on its session contract and
-  descriptors, and needs at least its native-session milestone merged.
+- **To resolve first:** #588 (SEP 47), whose dependencies differ by phase (§11):
+  - phase 1 needs nothing from it;
+  - phase 2 needs its session contract, descriptors and conformance suite, which merged
+    with #605;
+  - phases 2 and 4 are better begun once its native-session milestone, #607, has
+    merged.
 - **Fixed or closed by this SEP:**
   - #368, the prototype's record: closed when this SEP is Final.
   - PR #559, the experiment: closed in favour of this SEP's implementation PR.
@@ -1137,10 +1141,24 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
 ### 11. Phases
 
 The SEP is implemented on one branch, `feature/sep-0048-julia-backend`, in one draft
-pull request (SEP 0). The branch starts from main once SEP 47's native-session milestone
-has merged, or stacks on that pull request if it is still open. The engine's numerical
-code is moved from the experiment's branch and reshaped to §6.7. Its adapter is
-rewritten.
+pull request (SEP 0). The branch starts from main, without stacking on any open pull
+request. The engine's numerical code is moved from the experiment's branch and reshaped
+to §6.7. Its adapter is rewritten.
+
+What each phase needs from SEP 47:
+
+- **Phase 1** needs nothing, and starts as soon as this SEP is accepted.
+- **Phase 2** needs SEP 47's contract: `RunSession`, the events, `RunRequest`, the route
+  union and the conformance suite. They merged with #605.
+- **Phase 2 is better begun once #607 has merged.** #607 is SEP 47's native session,
+  the source from which the session's control logic is transcribed: the monitor, the
+  transverse edge and the statistics plans. Until it merges, its branch can be read but
+  not built on.
+- **Phase 4** waits for #607 in any case, because `SimulationSettings.device` and the
+  registry change files that SEP 47 is still editing.
+- **SEP 47's later phases** may still change the contract. While `julia` is at Tier 3,
+  each such change keeps the Julia lane green or refuses the affected case by name
+  (§6.8). That cost is smallest while the Julia session is small.
 
 1. **Package, distribution and rules.**
    - **Deliverables:**
@@ -1272,6 +1290,9 @@ records each decision where it applies:
   matching finding on §7.1. The maintainer decided R3, R8 and R10. Opus 5.5 answered
   every point and revised Part I (§§2, 4, 5.1–5.4, 6.5, 6.10, 7, 11 and the
   references). The SEP stays Draft, In review.
+- 2026-11-10: §§3.3 and 11 state what each phase needs from SEP 47. Phase 1 needs
+  nothing, phase 2 needs #605 (merged), and phases 2 and 4 are better begun after #607.
+  The branch starts from main rather than stacking.
 
 ### AI review — 2026-11-10
 
