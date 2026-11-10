@@ -25,6 +25,7 @@ from solprop.noise import NoiseRealisation
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
+from solprop.translate.routes import transverse_of
 from solprop.transverse_monitor import TransverseEdge
 
 LENGTH = 2e-3
@@ -89,9 +90,9 @@ def test_a_resume_with_no_monitor_record_judges_the_launch_without_its_draw(
     monkeypatch.setattr(TransverseEdge, "_judge_ramp_band", seen)
     simulation = _line()
     problem = simulation.translate()
-    assert problem.transverse is not None
+    assert transverse_of(problem.route) is not None
     rng = np.random.default_rng(113)
-    shape = problem.shape[1:]
+    shape = problem.shape
     # Inside the active band, so the mask the load applies leaves the draw whole.
     spectrum = 1e-9 * (rng.standard_normal(shape) + 1j * rng.standard_normal(shape))
     spectrum = spectrum * problem.grids.active_mask
@@ -99,7 +100,7 @@ def test_a_resume_with_no_monitor_record_judges_the_launch_without_its_draw(
     field0 = np.asarray(problem.initial.field0)
     _judged(simulation, field0, draw, resume=False)
     # The resumed state carries the draw it was launched with.
-    _judged(simulation, field0 + spectrum[np.newaxis], draw, resume=True)
+    _judged(simulation, field0 + spectrum, draw, resume=True)
     assert len(judged) == 2
     fresh, resumed = judged
     assert np.max(fresh) > 0.0

@@ -163,7 +163,7 @@ def _start(
     """Start a session of `kind` on a simulation's fresh monitored run."""
     problem, request = _prepared(simulation, period) if prepared is None else prepared
     if start is None:
-        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        start = Start(field=problem.initial.field0, z=float(problem.initial.z))
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,

@@ -70,7 +70,7 @@ from solprop.log import NullReporter, StopFlag
 from solprop.monitor import BoundaryMonitor
 from solprop.output.schema import MarchSnapshot
 from solprop.translate.linop import power_weight_at
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
@@ -160,40 +160,6 @@ def _hook(driver: object, name: str, *arguments: object) -> None:
     hook = getattr(driver, name, None)
     if hook is not None:
         hook(*arguments)
-
-
-def _strip(values: Mapping[str, np.ndarray]) -> dict[str, np.ndarray]:
-    """Drop the leading batch axis a driver's plane statistics carry.
-
-    Parameters
-    ----------
-    values : collections.abc.Mapping
-        Statistics with a leading batch axis of one.
-
-    Returns
-    -------
-    dict
-        The same statistics without it.
-    """
-    return {name: np.asarray(value[0]) for name, value in values.items()}
-
-
-def _rows(rows: StepStats) -> StepStats:
-    """Drop the batch axis a driver's periodic rows carry after their row axis.
-
-    Parameters
-    ----------
-    rows : solprop.backends.protocol.StepStats
-        Rows shaped ``(n_rows, 1, ...)``.
-
-    Returns
-    -------
-    solprop.backends.protocol.StepStats
-        The same rows shaped ``(n_rows, ...)``.
-    """
-    return StepStats(
-        rows.z, rows.step, {name: value[:, 0] for name, value in rows.values.items()}
-    )
 
 
 def _recorded(driver: Backend, z: float) -> Observation:
@@ -297,7 +263,7 @@ class DriverSession:
         The driver, constructed for `problem`. A driver reused from an earlier run is
         loaded again from `start`, which restores everything its march reads. The
         session closes it with itself when `owns` is set.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -319,7 +285,7 @@ class DriverSession:
     def __init__(  # noqa: PLR0913 - the session context
         self,
         driver: Backend,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,
@@ -377,7 +343,7 @@ class DriverSession:
         driver.set_progress(_Attempts(counted, started))
         driver.set_stop(stop)
         driver.set_initial(
-            np.asarray(start.take_field())[np.newaxis],
+            np.asarray(start.take_field()),
             start.noise,
             z=float(start.z),
             resume=start.resume,
@@ -598,16 +564,14 @@ class DriverSession:
             # The driver made this array for this session alone, which hands out only
             # the export: convert it where it is (SEP 47 section 5.4).
             self._converted = recipe
-            # The flag is the observation's own array's; `state` is its member view.
+            # The flag is the observation's own array's, which `state` is.
             whole = observed.require_field()
             whole.setflags(write=True)
             try:
-                member = whole[0]
-                apply_recipe(member, recipe, weight=weight, out=member)
+                apply_recipe(whole, recipe, weight=weight, out=whole)
             finally:
                 whole.setflags(write=False)
-            member.setflags(write=False)
-            return member
+            return whole
         return apply_recipe(state, recipe, weight=weight, out=out)
 
     def noise_phase(self, ticket: ExportTicket) -> np.ndarray | None:
@@ -626,7 +590,7 @@ class DriverSession:
         self._ledger.check_ticket(ticket)
         observed = self._fielded(ticket)
         phase = observed.noise_phase
-        return None if phase is None else np.array(phase[0])
+        return None if phase is None else np.array(phase)
 
     def pending_ticket(self) -> ExportTicket | None:
         """Return a ticket for the committed state after a failure outside the session.
@@ -911,7 +875,7 @@ class DriverSession:
             if self._driver.in_flight is not None
             else self._drain(field=False)
         )
-        chunks = [*self._undelivered, (drained.step_history, _rows(drained.step_stats))]
+        chunks = [*self._undelivered, (drained.step_history, drained.step_stats)]
         self._undelivered = []
         return join_attempts(chunks)
 
@@ -1050,7 +1014,7 @@ class DriverSession:
         history, rows = self._chunk()
         self._observed = None
         try:
-            stats = _strip(self._driver.stats(self._request.observation.stats))
+            stats = dict(self._driver.stats(self._request.observation.stats))
         except Exception as error:
             return self._terminal(Outcome.FAILED, error, (history, rows))
         event = ObservationReady(
@@ -1176,9 +1140,7 @@ class DriverSession:
             observed = self._drain(field=True)
             if observed.n_steps or observed.step_stats.n_rows:
                 # Attempts a field fetch drained belong to the next event's chunk.
-                self._undelivered.append(
-                    (observed.step_history, _rows(observed.step_stats))
-                )
+                self._undelivered.append((observed.step_history, observed.step_stats))
             self._observed = observed
             self._observed_generation = ticket.generation
             self._converted = None
@@ -1200,7 +1162,9 @@ class DriverSession:
         """
         field = self._fielded(ticket).field
         assert field is not None  # observed with its field
-        return field[0]
+        # A view of its own, as every fetch has handed out: a destination a caller
+        # passes back is then never taken for the source and is checked as one.
+        return field.view()
 
 
 def _bound(event: Event, receipt: Receipt, member: int | None = None) -> Event:
@@ -1251,7 +1215,7 @@ class DriverGroupSession:
         One constructed backend per member, all of one backend. Once the group is
         constructed it owns them and closes them with itself; a construction that
         fails leaves them to the caller.
-    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor; their save
@@ -1275,7 +1239,7 @@ class DriverGroupSession:
     def __init__(
         self,
         members: Sequence[Backend],
-        problems: Sequence[KernelProblem],
+        problems: Sequence[PropagationProblem],
         requests: Sequence[RunRequest],
         starts: Sequence[Start],
         *,
@@ -1289,7 +1253,7 @@ class DriverGroupSession:
         observation = requests[0].observation
         for member, start in zip(members, starts, strict=True):
             member.set_initial(
-                np.asarray(start.take_field())[np.newaxis],
+                np.asarray(start.take_field()),
                 start.noise,
                 z=float(start.z),
                 resume=start.resume,
@@ -1423,7 +1387,7 @@ class DriverGroupSession:
         weight = power_weight_at(problem, ticket.z) if recipe.power else None
         field = self._fielded(ticket, member).field
         assert field is not None  # observed with its field
-        return apply_recipe(field[0], recipe, weight=weight, out=out)
+        return apply_recipe(field, recipe, weight=weight, out=out)
 
     def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
         """Return one member's noise phase at a pending ticket.
@@ -1443,7 +1407,7 @@ class DriverGroupSession:
         self._ledger.check_ticket(ticket)
         check_member_ticket(ticket, self._member(member))
         phase = self._fielded(ticket, member).noise_phase
-        return None if phase is None else np.array(phase[0])
+        return None if phase is None else np.array(phase)
 
     def member_status(self, member: int) -> SessionStatus:
         """Return one member's committed position, counters and outcome.
@@ -1612,7 +1576,7 @@ class DriverGroupSession:
             self._rejected[index] += observation.n_rejected
             self._drained[index] = (
                 observation.step_history,
-                _rows(observation.step_stats),
+                observation.step_stats,
             )
             chunks.append(self._drained[index])
         return chunks
@@ -1644,7 +1608,7 @@ class DriverGroupSession:
             return None
         self._attempts[index] += observed.n_steps
         self._rejected[index] += observed.n_rejected
-        return observed.step_history, _rows(observed.step_stats)
+        return observed.step_history, observed.step_stats
 
     def _ticket(self, z: float | None = None) -> ExportTicket:
         """Return an unbound ticket for a committed state of the current generation.

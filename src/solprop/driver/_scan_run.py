@@ -59,7 +59,8 @@ from solprop.output.schema import (
     field_retention_refusal,
 )
 from solprop.processing.scans import Reduction, ScanOutput, _Builtin, _provenance
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_of
 from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
@@ -96,7 +97,7 @@ class _Job:
 
 
 def launch_statistics(
-    backend: Backend, problem: KernelProblem
+    backend: Backend, problem: PropagationProblem
 ) -> Mapping[str, np.ndarray]:
     """Load a probed backend at its problem's entrance and return the launch statistics.
 
@@ -110,7 +111,7 @@ def launch_statistics(
     ----------
     backend : solprop.backends.protocol.Backend
         The constructed backend.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Its problem.
 
     Returns
@@ -213,7 +214,7 @@ class _Capture(MemoryOutput):
         self.options = options
         self.count = len(simulation.settings.save_planes) + 1
         problem = simulation.translate()
-        self._field_shape = tuple(problem.shape[1:])
+        self._field_shape = tuple(problem.shape)
         self.selected = (
             set(range(self.count))
             if options.fields == "all"
@@ -609,7 +610,7 @@ class _Work:
         """
         if (
             not self.keeps_backend
-            or simulation.translate().tdse is not None
+            or tdse_of(simulation.translate().route) is not None
             or not _device_build(simulation.settings.backend)
         ):
             self.close()
@@ -836,7 +837,7 @@ class _Work:
                 {_plane_index(index, count) for index in self.options.field_planes}
             )
         )
-        field_bytes = math.prod(simulation.translate().shape[1:]) * 16 * selected
+        field_bytes = math.prod(simulation.translate().shape) * 16 * selected
         if simulation.noise is not None:
             field_bytes *= 2
         keep = self.options.stats
@@ -869,7 +870,7 @@ class _Work:
         metadata = dataclasses.replace(
             simulation.metadata(),
             configuration=dict(simulation.metadata().configuration)
-            | {"scan_field_shape": simulation.translate().shape[1:]},
+            | {"scan_field_shape": simulation.translate().shape},
         )
         reduced_bytes = sum(
             math.prod(reduction.shape(metadata)) * reduction.dtype.itemsize

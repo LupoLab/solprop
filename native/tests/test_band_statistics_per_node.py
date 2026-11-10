@@ -43,7 +43,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
 from solprop.translate.plasma_integration import design_running_integral
 from solprop.translate.ionisation import RateTable
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from solprop_native import NativeBackend
 from bounds import UNIT_ROUNDOFF
@@ -91,7 +91,7 @@ def launch(amplitude: float) -> npt.NDArray[np.float64]:
     return amplitude * np.exp(-((t / 4e-15) ** 2)) * np.cos(2.35e15 * t)
 
 
-def problem_for(amplitude: float, rule: RunningIntegral) -> KernelProblem:
+def problem_for(amplitude: float, rule: RunningIntegral) -> PropagationProblem:
     """Return a one-node argon problem whose launch synthesises to :func:`launch`."""
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -130,7 +130,9 @@ def problem_for(amplitude: float, rule: RunningIntegral) -> KernelProblem:
     )
 
 
-def fields_of(problem: KernelProblem, field: npt.NDArray[np.complex128]) -> np.ndarray:
+def fields_of(
+    problem: PropagationProblem, field: npt.NDArray[np.complex128]
+) -> np.ndarray:
     """Return the reference's node fields for the state `field`."""
     reference = NumpyRefBackend(problem, grid=GRID)
     try:
@@ -147,7 +149,7 @@ def fields_of(problem: KernelProblem, field: npt.NDArray[np.complex128]) -> np.n
 
 def statistics(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
-    problem: KernelProblem,
+    problem: PropagationProblem,
 ) -> dict[str, np.ndarray]:
     """Return the launch's statistics."""
     backend = implementation(problem, grid=GRID)
@@ -159,7 +161,7 @@ def statistics(
 
 
 def node_fields_and_error(
-    problem: KernelProblem, grid: FieldGrid
+    problem: PropagationProblem, grid: FieldGrid
 ) -> tuple[np.ndarray, np.ndarray]:
     """Return the reference's launch node fields and their error between syntheses."""
     reference = NumpyRefBackend(problem, grid=grid)
@@ -229,50 +231,48 @@ def test_the_node_s_statistics_are_the_reference_s(name: str, amplitude: float) 
     actual = statistics(NativeBackend, problem)
     # The fraction and the largest rate: the original's budget, plus the synthesis.
     neutral = float(problem.responses.density(0.0))
-    fraction = float(expected["electron_density"][0]) / neutral
+    fraction = float(expected["electron_density"]) / neutral
     assert fraction > PREIONISATION
     assert (
-        abs(float(actual["electron_density"][0]) / neutral - fraction)
+        abs(float(actual["electron_density"]) / neutral - fraction)
         <= budget * fraction + final_error
     )
-    rate = float(expected["peak_ionisation_rate"][0])
+    rate = float(expected["peak_ionisation_rate"])
     assert rate == pytest.approx(peak_rate, rel=budget)
-    assert abs(float(actual["peak_ionisation_rate"][0]) - rate) <= (
-        budget * rate + spread
-    )
+    assert abs(float(actual["peak_ionisation_rate"]) - rate) <= (budget * rate + spread)
     # The diagnostics are ratios of two parts. The undershoot's parts are differences of
     # a cumulative sum on one side, so 1e-9 each in the original; the exposure's steps
     # also move by the rate's spread, relative to the rise. At K = 0 the steps of a
     # trapezoid of a positive rate never dip, on either side: an exact zero.
-    undershoot = float(expected["plasma_undershoot"][0])
+    undershoot = float(expected["plasma_undershoot"])
     if name == "K=0":
         assert undershoot == 0.0
-        assert float(actual["plasma_undershoot"][0]) == 0.0
+        assert float(actual["plasma_undershoot"]) == 0.0
     else:
         assert undershoot > 0.0
-        assert abs(float(actual["plasma_undershoot"][0]) - undershoot) <= (
+        assert abs(float(actual["plasma_undershoot"]) - undershoot) <= (
             2e-9 * undershoot + 2 * spread / peak_rate
         )
     # The work defect's parts sum in another order: 1e-3 relative or 1e-15 absolute of
     # the defect in the original, over the freed share, which moves by the fraction's
     # error on top.
     freed = fraction - PREIONISATION
-    defect = float(expected["plasma_work_defect"][0])
+    defect = float(expected["plasma_work_defect"])
     assert defect > 0.0
-    assert abs(float(actual["plasma_work_defect"][0]) - defect) <= (
+    assert abs(float(actual["plasma_work_defect"]) - defect) <= (
         (1e-3 + 2 * budget) * defect + (1e-15 + 2 * final_error) / freed
     )
     # The boundary level is the fraction times the field at the window's first samples,
     # against the largest of that, formed by one product each. Those first samples are
     # the pulse's tail, so the field's own absolute error is what moves it: ``delta``
     # over the peak. At K = 0 it reads no samples at all, an exact zero.
-    boundary = float(expected["plasma_boundary_level"][0])
+    boundary = float(expected["plasma_boundary_level"])
     if name == "K=0":
         assert boundary == 0.0
-        assert float(actual["plasma_boundary_level"][0]) == 0.0
+        assert float(actual["plasma_boundary_level"]) == 0.0
     else:
         assert boundary > 0.0
-        assert abs(float(actual["plasma_boundary_level"][0]) - boundary) <= (
+        assert abs(float(actual["plasma_boundary_level"]) - boundary) <= (
             2 * budget * boundary + 2 * float(np.max(delta) / np.max(magnitude))
         )
 
@@ -316,10 +316,10 @@ def test_each_channel_s_fraction_is_the_reference_s() -> None:
 
     expected = launch_ionisation(NumpyRefBackend)
     actual = launch_ionisation(NativeBackend)
-    # One row: (nodes kept, channels, components kept), a largest over this one node.
-    assert expected.shape == actual.shape == (1, 2, 1)
-    assert expected[0, 0, 0] > 0.0
-    assert expected[0, 1, 0] > 0.01
+    # One row per channel, a largest over this one node.
+    assert expected.shape == actual.shape == (2, 1)
+    assert expected[0, 0] > 0.0
+    assert expected[1, 0] > 0.01
     for channel, initial, want, got in zip(
         channels, (0.0, 0.01), expected.ravel(), actual.ravel(), strict=True
     ):

@@ -516,8 +516,8 @@ _PREIONISATION_PROBES = 65
 The same count the density paths of a :class:`Component` are sampled at. The probe is
 a guard at construction, not a proof. The translation layer then checks the compiled
 table of every plasma channel at its endpoints and stationary points on every interval
-(``KernelProblem._check_plasma``), so a table that leaves ``[0, 1]`` is refused; but a
-feature narrower than the table resolves between its samples is not seen by either
+(``PropagationProblem._check_plasma``), so a table that leaves ``[0, 1]`` is refused;
+but a feature narrower than the table resolves between its samples is not seen by either
 check, and must be declared as breakpoints of the path.
 """
 

@@ -286,7 +286,7 @@ class ModalMetricTables(Displayed):
         The canonical coarse angular frequencies in rad/s, shape ``(n_omega,)``,
         increasing and non-negative. A problem's leaf carries ``grids.omega``
         itself, whose first bin is zero on a field grid
-        (:meth:`solprop.translate.problem.KernelProblem.validate`).
+        (:meth:`solprop.translate.problem.PropagationProblem.validate`).
     z_edges : numpy.ndarray
         Stored positions in m, shape ``(n_edges,)``, increasing. The
         interval-indexed arrays are counted by :func:`interval_count`.
@@ -586,7 +586,7 @@ class CoupledFlowTables(Displayed):
         The canonical coarse angular frequencies in rad/s, shape ``(n_omega,)``,
         increasing and non-negative. A problem's leaf carries ``grids.omega``
         itself, whose first bin is zero on a field grid
-        (:meth:`solprop.translate.problem.KernelProblem.validate`).
+        (:meth:`solprop.translate.problem.PropagationProblem.validate`).
     z_edges : numpy.ndarray
         Interval edges in m, shape ``(n_edges,)``, increasing.
     generator : numpy.ndarray or None
@@ -1992,7 +1992,7 @@ def flow_edge_slack(flow: CoupledFlowTables) -> float:
     breakpoints to -- makes the section a stage is evaluated on depend on the
     schedule's intent rather than on its last bits.
 
-    It is also what ``KernelProblem._check_schedule`` of
+    It is also what ``PropagationProblem._check_schedule`` of
     :mod:`solprop.translate.problem` holds a **fixed** schedule to beside a coupled
     flow. That check's own window is
     wider (``1e-9`` of the run, which is 1e-9 m for anything under a metre), and a

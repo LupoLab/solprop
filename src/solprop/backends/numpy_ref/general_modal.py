@@ -91,7 +91,7 @@ from solprop.constants import EPS0
 from solprop.exceptions import BackendError
 from solprop.nonlinear.responses import dispersive_cubic
 from solprop.translate.modal_tables import ModalTransformTables
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.responses import (
     DELAYED_MODEL_ID,
     KERR_MODEL_FORMS,
@@ -919,7 +919,7 @@ def general_node_chunk(
     return int(max(1, budget // per_node))
 
 
-def general_planned_chunk(problem: KernelProblem, plan: NodeChunkPlan) -> int:
+def general_planned_chunk(problem: PropagationProblem, plan: NodeChunkPlan) -> int:
     """Return the general route's node chunk under a backend's node-chunk plan.
 
     The route's own rule (:func:`general_node_chunk`) within the plan's budget -- the
@@ -929,7 +929,7 @@ def general_planned_chunk(problem: KernelProblem, plan: NodeChunkPlan) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A problem that carries ``transform.modal_tables``.
     plan : solprop.backends.node_chunk.NodeChunkPlan
         The backend's plan (:func:`solprop.backends.node_chunk.plan_node_chunk`).

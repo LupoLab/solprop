@@ -48,7 +48,7 @@ def test_benchmark_identity_and_both_resume_doors(
     path = tmp_path / "gated.h5"
     with HDF5Output(path) as output:
         output.open(historical)
-        output.save(SavedPlane(z=0.0, field=problem.initial.field0[0]))
+        output.save(SavedPlane(z=0.0, field=problem.initial.field0))
     with pytest.raises(OutputError, match="gated plasma benchmark"):
         check_cache(path, historical)
     with pytest.raises(OutputError, match="gated plasma benchmark"):
@@ -94,7 +94,7 @@ def test_certificate_refuses_zero_gate_and_nonpositive_active_frequency(
     active = masks.active_mask.copy()
     active[0] = True
     # The standalone certificate validates the contract even when called before
-    # KernelProblem's general mask checks.
+    # PropagationProblem's general mask checks.
     broken = dataclasses.replace(masks, active_mask=active)
     with pytest.raises(TranslationError, match="positive active frequencies"):
         plasma_source_record(broken)

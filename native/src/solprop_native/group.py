@@ -104,7 +104,7 @@ if TYPE_CHECKING:
     from solprop.backends.protocol import BackendHistory, StepStats
     from solprop.backends.session import Start
     from solprop.log import StopFlag
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
 __all__ = ["ROUND_STEPS", "NativeGroupSession", "refusal"]
@@ -121,7 +121,7 @@ _Chunk = tuple["BackendHistory | None", "StepStats | None"]
 
 
 def refusal(
-    problems: Sequence[KernelProblem],
+    problems: Sequence[PropagationProblem],
     requests: Sequence[RunRequest],
     starts: Sequence[Start],
 ) -> str | None:
@@ -135,7 +135,7 @@ def refusal(
 
     Parameters
     ----------
-    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's translated problem, at least one.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, in member order.
@@ -196,20 +196,20 @@ def _member_refusal(request: RunRequest) -> str | None:
 
 
 def _same_group(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     request: RunRequest,
-    first_problem: KernelProblem,
+    first_problem: PropagationProblem,
     first: RunRequest,
 ) -> bool:
     """Return whether a member shares member 0's schedule, planes, method and spec.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The member's problem.
     request : solprop.translate.run_request.RunRequest
         The member's request, which replays a schedule.
-    first_problem : solprop.translate.problem.KernelProblem
+    first_problem : solprop.translate.problem.PropagationProblem
         Member 0's problem.
     first : solprop.translate.run_request.RunRequest
         Member 0's request, which replays a schedule.
@@ -304,7 +304,7 @@ class NativeGroupSession:
         state. Once the group is constructed it owns them, each through its member's
         native session, and closes them with itself; a construction that fails closes
         the sessions it started.
-    problems : collections.abc.Sequence of solprop.translate.problem.KernelProblem
+    problems : collections.abc.Sequence of solprop.translate.problem.PropagationProblem
         Each member's independently translated problem.
     requests : collections.abc.Sequence of solprop.translate.run_request.RunRequest
         Each member's run request, with its own fresh boundary monitor; their schedule,
@@ -327,7 +327,7 @@ class NativeGroupSession:
     def __init__(
         self,
         members: Sequence[NativeBackend],
-        problems: Sequence[KernelProblem],
+        problems: Sequence[PropagationProblem],
         requests: Sequence[RunRequest],
         starts: Sequence[Start],
         *,

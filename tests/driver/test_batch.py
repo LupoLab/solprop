@@ -13,7 +13,6 @@ from jaxtyping import TypeCheckError
 from driver.test_scans import build_point
 from runtime_types import requires_typecheck
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
-from solprop.backends.protocol import BackendHistory, Observation, StepStats
 from solprop.backends.session import ExecutionOptions
 from solprop.driver import batch as batch_module
 from solprop.driver.batch import (
@@ -22,7 +21,6 @@ from solprop.driver.batch import (
     compatible_groups,
     refuse_mixed_guides,
     shared_table_bytes,
-    split_observation,
 )
 from solprop.driver.scan import Scan
 from solprop.driver.simulation import Simulation
@@ -151,16 +149,6 @@ def test_batch_refuses_implicit_adaptive_execution():
         list(compatible_groups([member(0, fixed=False)], 2))
 
 
-def test_batch_refuses_an_already_batched_input_contract():
-    point = member(0, backend="numpy_ref")
-    problem = point.simulation.translate()
-    point.simulation._problem = dataclasses.replace(
-        problem, shape=(2, *problem.shape[1:])
-    )
-    with pytest.raises(DriverError, match="independently translated singletons"):
-        list(compatible_groups([point], 2))
-
-
 def test_batch_refuses_spatial_geometry_before_selecting_a_backend():
     base = member(0, backend="numpy_ref").simulation
     simulation = Simulation.from_radial(
@@ -215,12 +203,12 @@ def test_batch_size_rejects_fractional_type(size):
 def test_batch_memory_counts_shared_tables_once():
     simulation = member(0).simulation
     first = simulation.translate()
-    field = first.initial.field0[0] * 1.25
+    field = first.initial.field0 * 1.25
     second = simulation.with_input(field).translate()
     single = shared_table_bytes([first])
     assert shared_table_bytes([first, first]) == single
     assert shared_table_bytes([first, second]) == single + field.nbytes
-    np.testing.assert_array_equal(second.initial.field0[0], field)
+    np.testing.assert_array_equal(second.initial.field0, field)
 
 
 def test_named_table_layouts_ignore_values_but_preserve_names_and_shapes():
@@ -229,111 +217,6 @@ def test_named_table_layouts_ignore_values_but_preserve_names_and_shapes():
     assert _structure(first) == _structure(second)
     assert _structure(first) != _structure({"rate": np.ones(4), "enabled": True})
     assert _structure(first) != _structure({"other_rate": np.zeros(3), "enabled": True})
-
-
-def test_batch_memory_includes_parameter_arrays_and_shared_views():
-    problem = member(0).simulation.translate()
-    storage = np.arange(8, dtype=float)
-    first = dataclasses.replace(
-        problem,
-        initial=dataclasses.replace(
-            problem.initial, batch_params={"parameter": storage[:1]}
-        ),
-    )
-    second = dataclasses.replace(
-        problem,
-        initial=dataclasses.replace(
-            problem.initial, batch_params={"parameter": storage[1:2]}
-        ),
-    )
-    # The problems share every table but the parameters, each the problem's own copy
-    # of its entry, never a view of the caller's storage.
-    assert (
-        shared_table_bytes([first, second])
-        == shared_table_bytes([problem]) + 2 * storage.itemsize
-    )
-
-
-@pytest.fixture
-def observed_batch():
-    histories = tuple(
-        BackendHistory(
-            z=np.array([0.25, 0.5]),
-            dz=np.array([0.25, 0.25]),
-            error_norm=np.array([0.125, 0.25]) * (index + 1),
-            accepted=np.ones(2, dtype=bool),
-            wall_time=np.array([0.5, 1.0]),
-        )
-        for index in range(3)
-    )
-    observation = Observation(
-        z=0.5,
-        field=np.arange(24).reshape(3, 2, 1, 4).astype(complex),
-        noise_phase=np.arange(24, dtype=float).reshape(3, 2, 1, 4),
-        step_history=histories[-1],
-        n_steps=2,
-        n_rejected=0,
-        step_stats=StepStats(
-            z=np.array([0.25, 0.5]),
-            step=np.array([0, 1]),
-            values={"populations": np.arange(30).reshape(2, 3, 5)},
-        ),
-    )
-    statistics = {"energy": np.arange(6).reshape(3, 2, 1)}
-    return observation, statistics, histories
-
-
-def test_batch_split_preserves_member_fields_noise_statistics_and_norms(observed_batch):
-    observation, statistics, histories = observed_batch
-    planes = split_observation(observation, statistics, histories=histories)
-    assert len(planes) == 3
-    for index, plane in enumerate(planes):
-        assert plane.field is not None
-        assert plane.field.shape == (2, 1, 4)
-        np.testing.assert_array_equal(plane.field, observation.field[index])
-        np.testing.assert_array_equal(plane.noise_phase, observation.noise_phase[index])
-        np.testing.assert_array_equal(
-            plane.stats["energy"], statistics["energy"][index]
-        )
-        np.testing.assert_array_equal(
-            plane.step_stats.values["populations"],
-            observation.step_stats.values["populations"][:, index],
-        )
-        np.testing.assert_array_equal(
-            plane.step_history.norm, histories[index].error_norm
-        )
-        np.testing.assert_array_equal(plane.step_history.z, np.array([0.0, 0.25]))
-
-
-def test_batch_split_requires_every_member_history(observed_batch):
-    observation, statistics, histories = observed_batch
-    with pytest.raises(DriverError, match="3 members but 2 histories"):
-        split_observation(observation, statistics, histories=histories[:-1])
-
-
-def test_batch_split_refuses_member_with_different_itinerary(observed_batch):
-    observation, statistics, histories = observed_batch
-    different = dataclasses.replace(histories[-1], dz=np.array([0.25, 0.125]))
-    with pytest.raises(DriverError, match=r"member 2.*different step itinerary"):
-        split_observation(
-            observation, statistics, histories=(*histories[:-1], different)
-        )
-
-
-@pytest.mark.parametrize("value", [np.ones(2), np.asarray(1.0)])
-def test_batch_split_refuses_wrong_statistic_member_axis(observed_batch, value):
-    observation, _, histories = observed_batch
-    with pytest.raises(DriverError, match=r"energy.*3 members"):
-        split_observation(observation, {"energy": value}, histories=histories)
-
-
-@pytest.mark.parametrize("value", [np.ones((2, 2, 5)), np.ones(2)])
-def test_batch_split_refuses_wrong_periodic_member_axis(observed_batch, value):
-    observation, statistics, histories = observed_batch
-    rows = dataclasses.replace(observation.step_stats, values={"populations": value})
-    observation = dataclasses.replace(observation, step_stats=rows)
-    with pytest.raises(DriverError, match=r"periodic statistic.*3 members"):
-        split_observation(observation, statistics, histories=histories)
 
 
 def test_a_group_with_no_members_or_no_guide_has_nothing_to_disagree_about():

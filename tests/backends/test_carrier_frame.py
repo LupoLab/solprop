@@ -830,7 +830,7 @@ def launched(roll: int, mode: int):
     def prepare(problem):
         start = problem.initial.field0
         moved = np.zeros_like(start)
-        moved[:, mode] = np.roll(start[:, 0], roll, axis=-1)
+        moved[mode] = np.roll(start[0], roll, axis=-1)
         moved = moved * problem.grids.active_mask
         initial = dataclasses.replace(problem.initial, field0=moved)
         return dataclasses.replace(problem, initial=initial)

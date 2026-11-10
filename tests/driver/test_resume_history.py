@@ -402,7 +402,7 @@ def march(**changes):
     """Return a small hand-built march snapshot at z = 0.25 m, with `changes`."""
     fields = {
         "z": 0.25,
-        "state": np.ones((1, 1, 1, 4), complex),
+        "state": np.ones((1, 1, 4), complex),
         "proposal": 0.1,
         "method": "M()",
         "order": 2,
@@ -438,7 +438,7 @@ def saved_with(path, *snapshots):
         # check before validation; the identities are a tuple, which it cannot see.
         ({"identities": ("accepted",)}, "disagree in number"),
         ({"positions": np.array([0.2, np.nan])}, "must be finite"),
-        ({"state": np.full((1, 1, 1, 4), np.inf, complex)}, "must be finite"),
+        ({"state": np.full((1, 1, 4), np.inf, complex)}, "must be finite"),
         ({"z": math.inf}, "must be finite"),
         ({"proposal": math.nan}, "must be finite"),
     ],

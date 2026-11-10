@@ -55,7 +55,7 @@ from solprop.translate.responses import ResponseStage
 
 if TYPE_CHECKING:
     from solprop.translate.modal import Transform
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.responses import CompiledResponses
 
 __all__ = [
@@ -188,13 +188,13 @@ def default_node_budget(transform: Transform) -> int:
 
 
 def plan_node_chunk(
-    problem: KernelProblem, options: ExecutionOptions | None = None
+    problem: PropagationProblem, options: ExecutionOptions | None = None
 ) -> NodeChunkPlan:
     """Plan a problem's node chunk on the host rule, before anything is allocated.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated problem.
     options : solprop.backends.session.ExecutionOptions or None, optional
         The run's execution options; ``None`` for the defaults.
@@ -244,12 +244,12 @@ def plan_node_chunk(
     return NodeChunkPlan(_host_chunk(problem, budget), budget, source)
 
 
-def _host_chunk(problem: KernelProblem, budget: int) -> int:
+def _host_chunk(problem: PropagationProblem, budget: int) -> int:
     """Return the host rule's chunk within `budget`: the base chunk, then admissions.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The validated problem.
     budget : int
         Node workspace budget, bytes, positive.
@@ -264,7 +264,7 @@ def _host_chunk(problem: KernelProblem, budget: int) -> int:
         # A general modal guide's static matrices are a checked placeholder of one
         # node; its route sizes its own chunk from the same budget.
         return 1
-    n_pol = problem.shape[2]
+    n_pol = problem.shape[1]
     n_to = problem.grids.n_to
     responses = problem.responses
     chunk = _base_chunk(transform, n_pol, n_to, budget)

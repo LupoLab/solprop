@@ -102,26 +102,26 @@ def problem_of(  # noqa: PLR0913 - one state and what it is measured under
 
 
 def held_state(owner, problem):
-    """The state a native backend holds, one member, copied to the host."""
+    """The state a native backend holds, copied to the host."""
     native = owner._native_state
-    return native.field_to_host().reshape(problem.shape)[0]
+    return native.field_to_host().reshape(problem.shape)
 
 
 def native_stats(problem, grid, field, names):
-    """The native backend's statistics of `field`, without the batch axis.
+    """The native backend's statistics of `field`.
 
     Returns them with the state the backend holds, which loading masks to the
     problem's band: the state every other backend is compared on.
     """
     owner = NativeBackend(problem, grid=grid)
     try:
-        owner.set_initial(np.ascontiguousarray(field[None]), None)
+        owner.set_initial(np.ascontiguousarray(field), None)
         spec = dataclasses.replace(problem.stats_spec, names=tuple(names), periodic=())
         values = owner.stats(spec)
         held = held_state(owner, problem)
     finally:
         owner.close()
-    return {name: value[0] for name, value in values.items()}, held
+    return values, held
 
 
 def case(kind, n_pol, profile, weighting):
@@ -640,8 +640,8 @@ def test_on_axis_intensity_reads_the_native_axis_slots():
         assert owner.memory_ledger()["far_field_partials"] == held
     finally:
         owner.close()
-    assert values["on_axis_intensity"].shape == (1,)
-    assert values["beam_spectrum"].shape == (1, grid.n_omega)
+    assert values["on_axis_intensity"].shape == ()
+    assert values["beam_spectrum"].shape == (grid.n_omega,)
 
 
 def test_declared_apertures_leave_a_request_without_them_unchanged():
@@ -713,7 +713,7 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
     owner = NativeBackend(bare, grid=grid)
     try:
         assert owner.memory_ledger()["far_field_partials"] == 0
-        owner.set_initial(np.ascontiguousarray(field[None]), None)
+        owner.set_initial(np.ascontiguousarray(field), None)
         spec = spec_of(holes("rcos"))
         values = owner.stats(spec)
         assert owner.memory_ledger()["far_field_partials"] > 0
@@ -722,7 +722,7 @@ def test_a_native_request_beyond_the_held_partials_grows_them():
         owner.close()
     tables = aperture_tables(spec, grid, space)
     assert_matches(
-        {name: value[0] for name, value in values.items()},
+        values,
         reference(spec.names, grid, bare, field, tables),
         magnitudes(spec.names, grid, bare, field, tables),
         bare,
@@ -789,7 +789,7 @@ def test_a_native_run_forms_the_statistics_at_planes_and_between_them():
     # The entrance plane: one state, two passes, within the rounding bound of its
     # magnitudes (a Gaussian's terms are positive but for the amplitudes' phases).
     problem = simulation.translate()
-    field = problem.initial.field0[0]
+    field = problem.initial.field0
     tables = aperture_tables(spec, problem.grids, problem.transform.geometry)
     absolute = magnitudes(WITH_AXIS, grid, problem, field, tables)
     for name in WITH_AXIS:
@@ -816,7 +816,7 @@ def test_the_native_refusals_name_what_is_missing():
     problem = problem_of(grid, space, field, spec_of(holes("tanh")))
     owner = NativeBackend(problem, grid=grid)
     try:
-        owner.set_initial(np.ascontiguousarray(field[None]), None)
+        owner.set_initial(np.ascontiguousarray(field), None)
         native = owner._native_state
         apertures = np.zeros((1, NATIVE_CONSTANTS + grid.n_omega))
         unknown = apertures.copy()

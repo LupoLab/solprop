@@ -124,8 +124,8 @@ def test_every_statistic_matches_the_reference(field_grid):
         )
     # A mode-averaged run's rule has no embedded pair, so the difference of the two
     # projections is identically zero; both report that as nothing.
-    assert math.isnan(float(ours["quadrature_error"][0]))
-    assert math.isnan(float(theirs["quadrature_error"][0]))
+    assert math.isnan(float(ours["quadrature_error"]))
+    assert math.isnan(float(theirs["quadrature_error"]))
 
 
 def test_the_trapezoid_statistics_are_the_reference_scan(field_grid):

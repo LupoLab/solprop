@@ -170,7 +170,7 @@ def modal_and_planar(family):
     space = PlanarGrid(modes, 1e-3, n_y, collar_fraction=0.0, n_x=n_r)
     # A field uniform in y is its k_y = 0 column alone, n_y times the row value.
     field0 = np.zeros((space.n_columns, 1, grid.n_omega), complex)
-    field0[: space.n_p] = modal.initial.field0[0] * n_y
+    field0[: space.n_p] = modal.initial.field0 * n_y
     settings = dataclasses.replace(
         simulation.settings, quadrature=None, components=None, stats=None
     )
@@ -204,7 +204,7 @@ def field_peak_rate_allowance(problem, reference, field_bound, n_y):
     """
     grids, transform = problem.grids, problem.transform
     synthesis = abs(transform.synthesis)
-    assert problem.shape[2] == transform.n_pol == 1
+    assert problem.shape[1] == transform.n_pol == 1
     assert not grids.active_mask[0] and not grids.active_mask[-1]
     spectral_error = field_bound * float(np.max(abs(reference)))
     error = (
@@ -212,15 +212,13 @@ def field_peak_rate_allowance(problem, reference, field_bound, n_y):
         * (2 * np.count_nonzero(grids.active_mask) / grids.n_to)
         * float(np.max(np.sum(synthesis, axis=1)))
     )
-    absolute_modes = 2 * np.sum(abs(reference[0, :, 0]), axis=-1) / grids.n_to
+    absolute_modes = 2 * np.sum(abs(reference[:, 0]), axis=-1) / grids.n_to
     error += (
         2
-        * (fft_bound(grids.n_to) + fft_bound(n_y) + gamma(problem.shape[1]))
+        * (fft_bound(grids.n_to) + fft_bound(n_y) + gamma(problem.shape[0]))
         * float(np.max(synthesis @ absolute_modes))
     )
-    modal_time = passes.to_time(
-        reference[0], grids.crop_index, grids.n_to, kind="field"
-    )
+    modal_time = passes.to_time(reference, grids.crop_index, grids.n_to, kind="field")
     peak = float(
         np.max(abs(passes.synthesise(modal_time, transform.synthesis, 1.0, 1)))
     )
@@ -300,15 +298,15 @@ def test_a_field_uniform_in_y_is_the_slab_mode_set(family):
     )
     actual, planar_stats = run(planar, grid, names)
     scale = float(np.max(np.abs(reference)))
-    uniform = actual[0, : space.n_p] / space.n_y
-    assert np.max(np.abs(uniform - reference[0])) <= bound * scale
+    uniform = actual[: space.n_p] / space.n_y
+    assert np.max(np.abs(uniform - reference)) <= bound * scale
     # Nothing leaves k_y = 0: the rows stay equal to the rounding of the y transform
     # and of the responses node by node, 64 eps n_y per stage evaluation. Measured
     # exactly zero: equal rows give equal sources, and a DFT of length 2 or 4 has
     # exact twiddles; the bound is for a length whose twiddles round.
-    assert np.max(np.abs(actual[0, space.n_p :])) <= leak * scale
+    assert np.max(np.abs(actual[space.n_p :])) <= leak * scale
     # The pulse did change, so the comparison is not of two copies of the input.
-    assert np.max(np.abs(reference[0] - modal.initial.field0[0])) > 0.1 * scale
+    assert np.max(np.abs(reference - modal.initial.field0)) > 0.1 * scale
     for name in names:
         if rate_allowance is not None and name.endswith("peak_ionisation_rate"):
             # Approved SEP 27 correction: the peak rate inherits the accepted
@@ -394,10 +392,10 @@ def test_a_linear_beam_diffracts_in_y_and_decays_as_each_slab_mode():
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
-        final = backend.observe().require_field()[0, :, 0, 0]
+        final = backend.observe().require_field()[:, 0, 0]
     finally:
         backend.close()
-    start = problem.initial.field0[0, :, 0, 0]
+    start = problem.initial.field0[:, 0, 0]
     rows0 = np.fft.ifft(start.reshape(space.n_y, 2), axis=0)
     rows = np.fft.ifft(final.reshape(space.n_y, 2), axis=0)
     ratio = length / rayleigh
@@ -482,7 +480,7 @@ def test_the_kerr_phase_at_the_beam_centre_is_the_closed_form_b_integral():
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            final = backend.observe().require_field()[0, :, 0, :]
+            final = backend.observe().require_field()[:, 0, :]
         finally:
             backend.close()
         centre = np.fft.ifft(final.reshape(space.n_y, -1), axis=0)[space.n_y // 2]
@@ -548,7 +546,7 @@ def test_the_planar_launch_carries_the_coupled_share_of_the_incident_energy():
     # envelope: each mode's energy is weighed by its own Re n_eff, the incident
     # beam's by the k_x-averaged bulk admittance (SEP 34 section 4.3), which
     # differ by about (kappa_p / k)**2 / 2 ~ 5e-6 for this argon gap.
-    assert_allclose(float(values["energy"][0]), 1e-3 * float(np.sum(shares)), rtol=1e-5)
+    assert_allclose(float(values["energy"]), 1e-3 * float(np.sum(shares)), rtol=1e-5)
     # The fluence integrated across the gap is Gaussian in y of 1/e^2 half-width w.
     moment, radius = np.ravel(values["beam_radius"])
     assert_allclose([moment, radius], [500e-6, 500e-6], rtol=2e-3)
@@ -610,7 +608,7 @@ def test_a_modulation_in_y_grows_at_the_modulational_instability_rate():
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(length)
-            finals.append(backend.observe().require_field()[0, :, 0, :].copy())
+            finals.append(backend.observe().require_field()[:, 0, :].copy())
         finally:
             backend.close()
     kerr_run, linear_run = finals

@@ -239,7 +239,7 @@ def test_the_windows_time_the_run_s_own_node_chunk(profiled: Path) -> None:
     simulation = problems.build("line")
     problem = simulation.translate()
     automatic = plan_node_chunk(problem).chunk
-    budget = 20 * 16 * problem.shape[2] * problem.grids.n_to * 3
+    budget = 20 * 16 * problem.shape[1] * problem.grids.n_to * 3
     simulation.settings = dataclasses.replace(simulation.settings, node_budget=budget)
     expected = plan_node_chunk(problem, simulation.settings.execution_options()).chunk
     assert expected < automatic

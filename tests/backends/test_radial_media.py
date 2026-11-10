@@ -146,7 +146,7 @@ def test_radial_medium_flows_match_an_independent_cumulative_oracle(
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
-        actual = backend.observe().require_field()[0]
+        actual = backend.observe().require_field()
         assert np.max(np.abs(actual - expected)) <= absolute_bound
         record_metric(
             request,
@@ -205,7 +205,7 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
     finally:
         backend.close()
     entrance = admittance(0.0) * np.abs(initial[:, 0][:, grid.active_mask]) ** 2
-    exit_flux = admittance(length) * np.abs(straight[0, :, 0][:, grid.active_mask]) ** 2
+    exit_flux = admittance(length) * np.abs(straight[:, 0][:, grid.active_mask]) ** 2
     # Lossless argon: Y_z |E|^2 is invariant under the represented flow up to twice
     # the endpoint term's representation error (relative 1e-9 of a log-ratio below
     # 2e-5 here) and the eight diagonal steps' rounding, 256 units on |E|^2.
@@ -217,6 +217,6 @@ def test_radial_gradient_flow_conserves_axial_flux_and_resumes(spatial_backend_c
     # ends where the straight one does, to the rounding of four diagonal steps.
     assert np.max(np.abs(resumed - straight)) <= gamma(64) * np.max(np.abs(straight))
     # Without the endpoint factor, |E|^2 itself would be conserved; it is not.
-    plain = np.abs(straight[0, :, 0][:, grid.active_mask]) ** 2
+    plain = np.abs(straight[:, 0][:, grid.active_mask]) ** 2
     entrance_plain = np.abs(initial[:, 0][:, grid.active_mask]) ** 2
     assert np.max(np.abs(plain - entrance_plain)) > 100 * budget

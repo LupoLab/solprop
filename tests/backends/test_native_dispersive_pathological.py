@@ -93,7 +93,7 @@ def source_at(backend_class, problem, grid, z):
     backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0, z))
+        return np.array(backend._adams_lab_source(problem.initial.field0[None], z))
     finally:
         backend.close()
 

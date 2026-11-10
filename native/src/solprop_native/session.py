@@ -122,6 +122,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
+from solprop.translate.routes import tdse_descriptor
 
 from . import _core, _counters, _transverse, _watch
 from ._statistics import (
@@ -158,7 +159,7 @@ if TYPE_CHECKING:
     from solprop.monitor import BoundaryMonitor
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
     from solprop.translate.run_request import RunRequest
 
 __all__ = [
@@ -226,7 +227,7 @@ _LEDGER_COUNTERS = (
 
 
 def refusal(
-    problem: KernelProblem, request: RunRequest, start: Start | None = None
+    problem: PropagationProblem, request: RunRequest, start: Start | None = None
 ) -> str | None:
     """Return why the prototype session refuses a run, naming the feature, or ``None``.
 
@@ -236,7 +237,7 @@ def refusal(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -252,8 +253,6 @@ def refusal(
         refused = device_refusal(problem, request)
         if refused is not None:
             return refused
-    if problem.shape[0] != 1:
-        return f"a group of {problem.shape[0]} members (one trajectory a session)"
     method = request.integration.method
     if isinstance(method, ComparisonMultistep):
         return f"the comparison method {method.name}"
@@ -267,7 +266,7 @@ def refusal(
     ]
     if overridden:
         return "a controller with its own " + ", ".join(overridden)
-    if problem.tdse is not None:
+    if tdse_descriptor(problem.route) is not None:
         return "a TDSE response"
     monitor = request.boundary.monitor
     if (
@@ -292,7 +291,7 @@ def _device_backend() -> str:
     return str(_build_facts().info["device_backend"])
 
 
-def device_refusal(problem: KernelProblem, request: RunRequest) -> str | None:
+def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
     """Return why the session refuses a run on a device build, naming it, or ``None``.
 
     SEP 47 phase 3's representative device path: Adams and the embedded Runge-Kutta
@@ -305,7 +304,7 @@ def device_refusal(problem: KernelProblem, request: RunRequest) -> str | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -381,7 +380,7 @@ def backend_refusal(backend: NativeBackend) -> str | None:
 
 
 def _diverged(
-    name: str, problem: KernelProblem, event: _core.SessionEvent
+    name: str, problem: PropagationProblem, event: _core.SessionEvent
 ) -> ConvergenceError:
     """Return the error of a low-storage step that ended in a non-finite state.
 
@@ -392,7 +391,7 @@ def _diverged(
     ----------
     name : str
         The backend's name.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem, whose method names the march.
     event : solprop_native._core.SessionEvent
         The terminal record: where the step started and its length.
@@ -413,7 +412,7 @@ def _diverged(
     )
 
 
-def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
+def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | None:
     """Return why the session refuses a run's statistics, naming them, or ``None``.
 
     Every statistic the native plan evaluates on the route is admitted, plane and
@@ -422,7 +421,7 @@ def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     spec : solprop.stats.StatsSpec
         The plane statistics and their periodic subset.
@@ -477,7 +476,7 @@ class NativeSession:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -526,7 +525,7 @@ class NativeSession:
 
     def __init__(
         self,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,
@@ -591,7 +590,7 @@ class NativeSession:
         self._max_calls: int | None = None
         self._rows_nbytes = 0
         self._spatial = problem.transform.geometry is not None
-        self._shape = tuple(problem.shape[1:])
+        self._shape = tuple(problem.shape)
         spec = request.observation.stats
         self._row_names = tuple(spec.periodic)
         self._spec = spec
@@ -728,7 +727,7 @@ class NativeSession:
         driver = self._driver(backend)
         integrator = self._problem.stepper.integrator
         backend.set_initial(
-            np.asarray(start.take_field())[np.newaxis],
+            np.asarray(start.take_field()),
             start.noise,
             z=float(start.z),
             resume=start.resume,
@@ -1248,7 +1247,8 @@ class NativeSession:
         driver = self._driver(self._backend)
         z = float(ticket.z)
         phase = driver._unitary_phase(driver._stage_scalars(z, z))
-        return np.array(np.broadcast_to(phase, self._problem.shape)[0])
+        # The phase keeps the operator table's leading axis of one.
+        return np.array(np.broadcast_to(phase, (1, *self._problem.shape))[0])
 
     def request_snapshot(self) -> SnapshotReceipt:
         """Latch a snapshot for the next eligible accepted endpoint.
@@ -1321,6 +1321,8 @@ class NativeSession:
         history = state["history"]
         return MarchSnapshot(
             z=float(state["z"]),
+            # The trajectory's state; the history rows keep the engine's layout, a
+            # leading axis of one after the row axis (solprop SEP 47 section 6.7).
             state=field.reshape(shape),
             proposal=float(state["proposal"]),
             method=repr(method),
@@ -1332,7 +1334,7 @@ class NativeSession:
                 "predicted" if entry[1] else "accepted" for entry in history
             ),
             slots=np.array([entry[2] for entry in history], dtype=np.int64),
-            rows={name: row.reshape(len(row), *shape) for name, row in rows.items()},
+            rows={name: row.reshape(len(row), 1, *shape) for name, row in rows.items()},
             collar_was_quiet=bool(state["collar_was_quiet"]),
             history_key=method.history_key,
         )
@@ -1956,7 +1958,7 @@ class NativeSession:
             calls.total,
             float(event.z),
             int(event.cost),
-            field[np.newaxis],
+            field,
         )
 
     def _abandoned_step(self, event: _core.SessionEvent) -> float:

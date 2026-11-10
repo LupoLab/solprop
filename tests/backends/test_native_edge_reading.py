@@ -97,7 +97,7 @@ def _read_both(
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=full)
-        host = edge.reduction.reading(state[0], full=full)
+        host = edge.reduction.reading(state, full=full)
     finally:
         backend.close()
     return native, host, state
@@ -107,7 +107,7 @@ def _read_both(
 @pytest.mark.parametrize("route", ROUTES)
 def test_native_reads_what_the_host_reads(route: str, full: bool) -> None:
     native, host, state = _read_both(route, full=full)
-    samples = state.shape[1] * state.shape[3]
+    samples = state.shape[0] * state.shape[2]
     budget = 4 * fft_bound(samples)
     assert native.faces is not None and host.faces is not None
     assert native.columns is not None and host.columns is not None
@@ -166,11 +166,11 @@ def test_one_lit_node_reaches_only_its_own_faces(
     y = np.arange(space.n_y)[:, None]
     x = np.arange(space.n_x)[None, :]
     phase = np.exp(-2j * np.pi * (y * node[0] / space.n_y + x * node[1] / space.n_x))
-    state[0, :, 0, int(np.nonzero(active)[0][0])] = phase.reshape(-1)
+    state[:, 0, int(np.nonzero(active)[0][0])] = phase.reshape(-1)
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
-        host = edge.reduction.reading(state[0], full=True)
+        host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
     assert native.faces is not None
@@ -220,17 +220,17 @@ def test_two_polarisations_read_as_the_host_reads(route: str) -> None:
     # A column is `mode * n_pol + pol`, so a mode's energy has to gather both.
     simulation = _polarised(route)
     problem = simulation.translate()
-    assert problem.shape[2] == 2
+    assert problem.shape[1] == 2
     state = _noise_state(problem.shape, np.asarray(problem.grids.active_mask), 47)
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
-        host = edge.reduction.reading(state[0], full=True)
+        host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
     assert native.columns is not None and host.columns is not None
     assert native.faces is not None and host.faces is not None
-    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    budget = 4 * fft_bound(state.shape[0] * state.shape[2])
     np.testing.assert_allclose(native.columns, host.columns, rtol=budget)
     np.testing.assert_allclose(native.faces, host.faces, rtol=budget)
 
@@ -356,8 +356,8 @@ def test_each_region_reads_what_its_definition_says(route: str) -> None:
         backend.close()
     assert native.faces is not None and native.totals is not None
     weights, masks = _direct_faces(edge.space)
-    energies = _direct_node_energies(edge.space, state[0])
-    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    energies = _direct_node_energies(edge.space, state)
+    budget = 4 * fft_bound(state.shape[0] * state.shape[2])
     expected = np.zeros(4)
     for index, mask in enumerate(masks):
         expected[index] = np.sum((weights * energies)[mask])
@@ -383,7 +383,7 @@ def test_the_grids_total_is_its_columns_by_parseval(route: str) -> None:
         backend.close()
     assert native.totals is not None and native.columns is not None
     spectral = np.asarray(edge.space.spectral_weights)
-    budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+    budget = 4 * fft_bound(state.shape[0] * state.shape[2])
     if isinstance(edge.space, RadialGrid):
         # An FFT is unitary to rounding and a discrete Hankel transform isn't: its
         # columns are orthogonal only as far as its own matrix says, the largest
@@ -414,17 +414,17 @@ def test_a_nearly_cancelling_radial_read_stays_within_its_absolute_budget() -> N
     narrow = np.exp(-((r / (0.1 * space.radius)) ** 2)).astype(complex)
     beam = space.hankel.forward(narrow)
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, :, 0, :] = beam[:, None] * active[None, :]
+    state[:, 0, :] = beam[:, None] * active[None, :]
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
     finally:
         backend.close()
     assert native.faces is not None
-    host = edge.reduction.reading(state[0], full=True)
+    host = edge.reduction.reading(state, full=True)
     assert host.faces is not None
     synthesis = np.asarray(edge.reduction.synthesis())
-    flat = state[0].reshape(state.shape[1], -1)
+    flat = state.reshape(state.shape[0], -1)
     weights, masks = _direct_faces(space)
     terms = np.abs(synthesis) @ np.abs(flat)
     values = np.abs(synthesis @ flat)
@@ -463,7 +463,7 @@ def test_a_runner_reads_its_next_input_as_a_new_runner_would_after_a_stop() -> N
         0.0, REREVIEW.length, REREVIEW.length / 16, save_planes=[REREVIEW.length]
     )
     base = packet_run(REREVIEW, schedule=schedule, backend="native")
-    leaving = np.asarray(base.translate().initial.field0)[0]
+    leaving = np.asarray(base.translate().initial.field0)
     space = LineGrid(REREVIEW.half, REREVIEW.samples)
     staying_physical = dataclasses.replace(REREVIEW, velocity=0.0).physical(space)
     moving_physical = REREVIEW.physical(space)
@@ -494,7 +494,7 @@ def test_a_field_free_default_run_crosses_no_state(
         simulation.settings, fields="none", backend="native"
     )
     problem = simulation.translate()
-    field = np.asarray(problem.initial.field0)[0]
+    field = np.asarray(problem.initial.field0)
     with simulation.runner() as runner:
         output = runner.run(field, progress="none")
         assert isinstance(runner.backend, NativeBackend)
@@ -546,7 +546,7 @@ def test_the_edge_holds_memory_only_once_a_monitor_binds_it(route: str) -> None:
         assert monitor is not None
         assert monitor.transverse is not None
         backend._bind_monitor(monitor)
-        _, _, n_pol, n_omega = problem.shape
+        _, n_pol, n_omega = problem.shape
         expected = _transverse_edge_bytes(
             monitor.transverse.space, monitor.transverse.design, n_pol, n_omega
         )
@@ -600,7 +600,7 @@ def test_a_launch_with_noise_judges_as_the_host_does_with_no_transfer(
     # of the state to subtract the noise from. Against the same launch read on the host.
     def launch() -> tuple[dict[str, Any], tuple[int, int]]:
         simulation = _with_noise(route, model, ramp=ramp)
-        field = np.asarray(simulation.translate().initial.field0)[0]
+        field = np.asarray(simulation.translate().initial.field0)
         with simulation.runner() as runner, warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             output = cast("Any", runner.run(field, progress="none"))
@@ -666,10 +666,10 @@ def test_a_field_grid_reads_as_the_host_does() -> None:
         backend, edge = _attached(simulation, state)
         try:
             native = backend._edge_reading(backend._require_state(), edge, full=True)
-            host = edge.reduction.reading(state[0], full=True)
+            host = edge.reduction.reading(state, full=True)
         finally:
             backend.close()
-        budget = 4 * fft_bound(state.shape[1] * state.shape[3])
+        budget = 4 * fft_bound(state.shape[0] * state.shape[2])
         np.testing.assert_allclose(native.faces, host.faces, rtol=budget)
         np.testing.assert_allclose(native.columns, host.columns, rtol=budget)
 
@@ -690,21 +690,21 @@ def test_energy_in_one_extreme_bin_reads_as_the_host_does(where: str) -> None:
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     state = np.zeros(problem.shape, dtype=np.complex128)
     if where == "last_bin":
-        state[0, 5, 0, active[-1]] = 1.0
+        state[5, 0, active[-1]] = 1.0
     elif where == "dc_column":
-        state[0, 0, 0, active[0]] = 1.0
+        state[0, 0, active[0]] = 1.0
     elif where == "inactive_bin":
         # The load masks it, so a read sees only the lit bin beside it.
-        state[0, 5, 0, active[0]] = 1.0
-        state[0, 7, 0, np.nonzero(~np.asarray(problem.grids.active_mask))[0][0]] = 1.0
+        state[5, 0, active[0]] = 1.0
+        state[7, 0, np.nonzero(~np.asarray(problem.grids.active_mask))[0][0]] = 1.0
     else:
         nyquist = (space.n_y // 2) * space.n_x + space.n_x // 2
-        state[0, nyquist, 0, active[0]] = 1.0
+        state[nyquist, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
         held = backend.observe(field=True).require_field()
-        host = edge.reduction.reading(held[0], full=True)
+        host = edge.reduction.reading(held, full=True)
     finally:
         backend.close()
     budget = 4 * fft_bound(space.n_y * space.n_x)
@@ -727,14 +727,14 @@ def test_a_planar_channel_above_the_first_reads_its_own_column() -> None:
     active = np.nonzero(np.asarray(problem.grids.active_mask))[0]
     column = 1 * space.n_p + 1  # y row 1, channel 1
     state = np.zeros(problem.shape, dtype=np.complex128)
-    state[0, column, 0, active[0]] = 1.0
+    state[column, 0, active[0]] = 1.0
     backend, edge = _attached(simulation, state)
     try:
         native = backend._edge_reading(backend._require_state(), edge, full=True)
-        host = edge.reduction.reading(state[0], full=True)
+        host = edge.reduction.reading(state, full=True)
     finally:
         backend.close()
-    expected = np.zeros(problem.shape[1])
+    expected = np.zeros(problem.shape[0])
     expected[column] = 1.0
     np.testing.assert_array_equal(native.columns, expected)
     budget = 4 * fft_bound(space.n_y)

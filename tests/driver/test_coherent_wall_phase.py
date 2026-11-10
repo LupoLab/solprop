@@ -62,8 +62,8 @@ def pair_launch(problem, grid, sign):
     """Return the problem launched into ``(HE_11 + sign HE_12) / sqrt(2)``, one bin."""
     index = int(np.argmin(abs(grid.omega - grid.omega0)))
     state = np.zeros_like(problem.initial.field0)
-    state[0, 0, 0, index] = AMPLITUDE / np.sqrt(2.0)
-    state[0, 1, 0, index] = sign * AMPLITUDE / np.sqrt(2.0)
+    state[0, 0, index] = AMPLITUDE / np.sqrt(2.0)
+    state[1, 0, index] = sign * AMPLITUDE / np.sqrt(2.0)
     return index, replace(
         problem, initial=replace(problem.initial, field0=state, noise0=None)
     )
@@ -72,8 +72,8 @@ def pair_launch(problem, grid, sign):
 def transmitted(problem, grid, sign):
     """Return the fraction of the launched true power that reaches the end."""
     index, launched = pair_launch(problem, grid, sign)
-    start = launched.initial.field0[0, :, 0, index]
-    final = propagated(launched, grid)[0, :, 0, index]
+    start = launched.initial.field0[:, 0, index]
+    final = propagated(launched, grid)[:, 0, index]
     weights = [power_weight_at(problem, z)[:, 0, index] for z in (0.0, LENGTH)]
     return float(
         np.sum(weights[1] * abs(final) ** 2) / np.sum(weights[0] * abs(start) ** 2)

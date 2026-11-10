@@ -404,6 +404,6 @@ def test_the_observation_hook_is_the_identity_on_the_reference(
         backend.set_initial(problem.initial.field0, None)
         state = backend._require_state()
         assert backend._observed_field(state) is state
-        assert np.array_equal(backend.observe().require_field(), state)
+        assert np.array_equal(backend.observe().require_field(), state[0])
     finally:
         backend.close()

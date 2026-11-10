@@ -38,7 +38,7 @@ from solprop.stepper import PIController
 from solprop.translate.chebyshev import PiecewiseChebyshev, build
 from solprop.translate.ionisation import build_rate_table
 from solprop.translate.linop import delta_phi, unitary_phase
-from solprop.translate.problem import Flags, KernelProblem, assemble
+from solprop.translate.problem import Flags, PropagationProblem, assemble
 from solprop.translate.responses import prefactor_at
 from solprop.translate.stage import (
     anchor,
@@ -422,7 +422,7 @@ def tabulated():
         prefactor_expansion=None,
         prefactor_constant=None,
     )
-    rebuilt = KernelProblem(
+    rebuilt = PropagationProblem(
         grid_kind=problem.grid_kind,
         shape=problem.shape,
         flags=Flags.from_content(
@@ -430,11 +430,11 @@ def tabulated():
         ),
         grids=problem.grids,
         linear=linear,
-        transform=problem.transform,
         responses=responses,
         initial=problem.initial,
         stepper=problem.stepper,
         stats_spec=problem.stats_spec,
+        route=problem.route,
     )
     rebuilt.validate()
     return rebuilt

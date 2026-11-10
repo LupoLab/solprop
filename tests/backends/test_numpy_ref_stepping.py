@@ -230,9 +230,9 @@ def spm_phase(backend_class, problem, grid, kind, distance):
     """
     _, observations = run(backend_class, problem, grid, [distance])
     start = envelope_of(
-        problem.initial.field0[0, 0, 0] * problem.grids.active_mask, grid, kind
+        problem.initial.field0[0, 0] * problem.grids.active_mask, grid, kind
     )
-    end = envelope_of(observations[0].field[0, 0, 0], grid, kind)
+    end = envelope_of(observations[0].field[0, 0], grid, kind)
     power = np.abs(start) ** 2
     core = power > 1e-3 * np.max(power)
     measured = np.zeros_like(power)
@@ -356,9 +356,9 @@ def test_one_step_matches_an_independent_integrator_at_the_scheme_s_order(
             prefactor_index=1.0,
         )
         _, observations = run(backend_class, problem, grid, [dz])
-        masked = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+        masked = problem.initial.field0[0, 0] * problem.grids.active_mask
         oracle = reference_step(fibre, grid, problem, masked, dz)
-        errors.append(float(np.max(np.abs(observations[0].field[0, 0, 0] - oracle))))
+        errors.append(float(np.max(np.abs(observations[0].field[0, 0] - oracle))))
     scale = float(np.max(np.abs(start)))
     orders = [
         observed_order(errors[index], errors[index + 1])

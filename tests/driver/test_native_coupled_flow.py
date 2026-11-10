@@ -69,7 +69,7 @@ from solprop.grid import TimeGrid
 from solprop.modes.capillary import CoherentWall
 from solprop.modes.guide import ModalGuide
 from solprop.modes.material import MaterialKerr
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -100,7 +100,7 @@ what makes the source carried back through the flow a measurable part of the ste
 class Case:
     """One coupled-flow problem, its grid and the length it is run to."""
 
-    problem: KernelProblem
+    problem: PropagationProblem
     grid: TimeGrid
     length: float
 
@@ -260,7 +260,7 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
     flow = problem.linear.coupled_flow
     assert flow is not None
     eps = float(np.finfo(float).eps)
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     tables = problem.transform.modal_tables
     nodes = (
         problem.transform.n_nodes if tables is None else int(tables.region_index.size)
@@ -463,7 +463,7 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
         ledger = backend.memory_ledger()
     finally:
         backend.close()
-    _, channels, _, bins = case.problem.shape
+    channels, _, bins = case.problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
     stages = case.problem.stepper.tableau.n_stages
     block = active * channels * channels * 16

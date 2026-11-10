@@ -30,7 +30,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.session import Start
 from solprop.exceptions import BackendError
 from solprop.log import StopFlag
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.run_request import RunRequest
 
 if TYPE_CHECKING:
@@ -49,7 +49,7 @@ class HostSession(DriverSession):
         The reference backend (a :class:`~solprop.backends.host.driver.HostDriver`),
         constructed for `problem`. The session closes it with itself when `owns` is
         set.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     request : solprop.translate.run_request.RunRequest
         The run's policies.
@@ -75,7 +75,7 @@ class HostSession(DriverSession):
     def __init__(  # noqa: PLR0913 - the session context
         self,
         driver: Backend,
-        problem: KernelProblem,
+        problem: PropagationProblem,
         request: RunRequest,
         start: Start,
         *,

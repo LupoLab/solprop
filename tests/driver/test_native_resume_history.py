@@ -191,7 +191,8 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
     try:
         engine = first._adams._engine
         assert type(engine).__name__ == "_ResidentAdams"
-        shape = (engine.n_slots, *problem.shape)
+        # The engine's own layout keeps a leading axis of one after the row axis.
+        shape = (engine.n_slots, 1, *problem.shape)
         first.propagate_to(planes[0])
         stored = first.march_snapshot()
     finally:

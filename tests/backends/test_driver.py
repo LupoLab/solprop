@@ -16,6 +16,7 @@ import dataclasses
 import inspect
 import io
 import logging
+import typing
 
 import numpy as np
 import pytest
@@ -39,7 +40,9 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
+from solprop.translate import routes
 from solprop.translate.linop import LinearOperator, delta_phi
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.spatial import SeparableOperator
 from solprop.translate.stage import StageScalars, StageTerms, scalars
 
@@ -105,7 +108,7 @@ def test_a_rejected_step_is_recorded_and_not_kept(driver):
     # 5.0 is far above the controller's threshold of one, so the first step is refused
     # and the second, from the same position, is taken.
     made = driver(norms=[5.0, 0.1], factor=2.0)
-    before = present(made._state).copy()
+    before = present(made._state)[0].copy()
     made.propagate_to(LENGTH)
     observed = made.observe()
     assert not bool(observed.step_history.accepted[0])
@@ -289,8 +292,8 @@ def test_the_input_noise_model_adds_its_realisation_once(
     resumed = scripted(problem, grid=narrow_grid)
     resumed.set_initial(problem.initial.field0, None, z=LENGTH / 2)
     masked = problem.initial.field0 * problem.grids.active_mask
-    assert not np.array_equal(present(entrance._state), masked)
-    assert np.array_equal(present(resumed._state), masked)
+    assert not np.array_equal(present(entrance._state)[0], masked)
+    assert np.array_equal(present(resumed._state)[0], masked)
     assert entrance._noise is None
 
 
@@ -307,7 +310,7 @@ def test_the_modified_noise_model_keeps_its_realisation_apart(
     made = scripted(problem, grid=narrow_grid)
     made.set_initial(problem.initial.field0, None)
     assert np.array_equal(
-        present(made._state), problem.initial.field0 * problem.grids.active_mask
+        present(made._state)[0], problem.initial.field0 * problem.grids.active_mask
     )
     drawn = present(made._noise)
     advanced = present(made._noise_at(made._stage_scalars(0.0, LENGTH / 2)))
@@ -354,7 +357,7 @@ def test_the_guards_refuse_what_cannot_be_done(
     with pytest.raises(BackendError, match="no initial state"):
         empty.propagate_to(LENGTH)
     with pytest.raises(BackendError, match="expected"):
-        empty.set_initial(np.zeros((1, 1, 1, 3), dtype=complex), None)
+        empty.set_initial(np.zeros((1, 1, 3), dtype=complex), None)
     with pytest.raises(BackendError, match="inside the operator table"):
         empty.set_initial(problem.initial.field0, None, z=2 * LENGTH)
 
@@ -441,7 +444,7 @@ def test_started_is_announced_once_per_load_and_a_resume_announces_it_again(driv
     assert reporter.order.count("started") == 1
     assert reporter.extent == (0.0, LENGTH, 2)
 
-    made.set_initial(present(made._state), None, z=LENGTH / 2)
+    made.set_initial(present(made._state)[0], None, z=LENGTH / 2)
     made.propagate_to(LENGTH)
     assert reporter.order.count("started") == 2
     assert reporter.extent == (LENGTH / 2, LENGTH, 2)
@@ -816,7 +819,7 @@ FIELD = "jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega']"
 
 DRIVER_SURFACE = {
     "__init__": (
-        "(self, problem: solprop.translate.problem.KernelProblem, *, "
+        "(self, problem: solprop.translate.problem.PropagationProblem, *, "
         "grid: solprop.grid.TimeGrid | None = None, "
         "modes: collections.abc.Sequence[solprop.modes.protocol.Mode] | None = None, "
         "profiles: collections.abc.Mapping[str, solprop.profiles.ZProfile] | None = "
@@ -921,7 +924,7 @@ DRIVER_SURFACE = {
     ),
     "observe": "(self, *, field: bool = True) -> solprop.backends.protocol.Observation",
     "set_initial": (
-        "(self, field: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'], "
+        "(self, field: jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega'], "
         "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
         "resume: bool = False) -> None"
     ),
@@ -1230,7 +1233,7 @@ HOST_SURFACE: dict[str, str] = {
     ),
     "set_initial": (
         "(self, field: jaxtyping.Complex[ndarray, "
-        "'n_batch n_modes n_pol n_omega'], "
+        "'n_modes n_pol n_omega'], "
         "noise: solprop.noise.NoiseRealisation | None, *, z: float = 0.0, "
         "resume: bool = False) -> None"
     ),
@@ -1319,3 +1322,60 @@ def test_the_adams_and_dense_hooks_default_to_refusal(driver):
     np.testing.assert_allclose(
         propagator.reshape(-1), np.broadcast_to(expected, propagator.shape).reshape(-1)
     )
+
+
+# --- the descriptor (SEP 47 section 6.2) -------------------------------------------
+
+PROPAGATION_PROBLEM_FIELDS = (
+    "grid_kind",
+    "shape",
+    "flags",
+    "grids",
+    "linear",
+    "responses",
+    "initial",
+    "stepper",
+    "stats_spec",
+    "route",
+    "precision",
+    "split_crossing",
+)
+"""The fields of the one descriptor that crosses into a backend, in order."""
+
+ROUTE_VARIANT_FIELDS = {
+    "ModalRoute": ("transform", "tdse"),
+    "GeneralRoute": ("transform",),
+    "SpatialRoute": ("kind", "transform", "flux", "transverse"),
+}
+"""The closed route union: each variant and its fields, in order.
+
+A route is added or changed here, in `kernel-contract.md` and in native's
+`ROUTE_FIELDS` together (the contract's extension procedure, section 10)."""
+
+TDSE_SOURCE_FIELDS = ("descriptor", "current_numerator")
+SPATIAL_KINDS = ("radial", "cartesian", "planar", "line")
+
+
+def test_the_descriptor_and_its_route_union_are_frozen():
+    assert (
+        tuple(field.name for field in dataclasses.fields(PropagationProblem))
+        == PROPAGATION_PROBLEM_FIELDS
+    )
+    assert typing.get_args(routes.Route.__value__) == tuple(
+        getattr(routes, name) for name in ROUTE_VARIANT_FIELDS
+    )
+    for name, expected in ROUTE_VARIANT_FIELDS.items():
+        variant = getattr(routes, name)
+        assert tuple(field.name for field in dataclasses.fields(variant)) == expected
+    assert (
+        tuple(field.name for field in dataclasses.fields(routes.TDSESource))
+        == TDSE_SOURCE_FIELDS
+    )
+    assert routes.SPATIAL_KINDS == SPATIAL_KINDS
+
+
+def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
+    native = pytest.importorskip("solprop_native")
+    assert set(native.PROBLEM_FIELDS) <= set(PROPAGATION_PROBLEM_FIELDS)
+    for name, fields in native.ROUTE_FIELDS.items():
+        assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])

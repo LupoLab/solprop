@@ -49,7 +49,7 @@ def source():
         grid,
         [replace(mode, mixture=mixture)],
         [*responses, raman],
-        problem.initial.field0[0],
+        problem.initial.field0,
         settings=SimulationSettings(
             controller=problem.stepper.controller,
             save_planes=[grid.length],

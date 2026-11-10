@@ -229,7 +229,11 @@ def _write_march(group: h5py.Group, snapshot: MarchSnapshot) -> None:
         The snapshot.
     """
     group.attrs["z"] = math.nan
-    _overwrite(group, "state", np.asarray(snapshot.state, dtype=np.complex128))
+    # The dataset keeps the leading axis of one it has always had, so that every
+    # reader of the format reads it (SEP 47 section 6.7).
+    _overwrite(
+        group, "state", np.asarray(snapshot.state, dtype=np.complex128)[np.newaxis]
+    )
     _overwrite(group, "positions", np.asarray(snapshot.positions, dtype=np.float64))
     _overwrite(group, "slots", np.asarray(snapshot.slots, dtype=np.int64))
     rows = group.require_group("rows")
@@ -277,7 +281,7 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
         rows = _group(group, "rows")
         return MarchSnapshot(
             z=stored,
-            state=np.asarray(_dataset(group, "state")[()]),
+            state=_trajectory_state(np.asarray(_dataset(group, "state")[()])),
             proposal=float(np.asarray(group.attrs["proposal"])),
             method=str(group.attrs["method"]),
             order=int(np.asarray(group.attrs["order"])),
@@ -299,6 +303,39 @@ def _read_march(file: h5py.File, z: float) -> MarchSnapshot | None:
     except (KeyError, ValueError, OutputError) as error:
         logger.warning("ignoring the unreadable march snapshot in the file: %s", error)
         return None
+
+
+def _trajectory_state(
+    stored: Complex[np.ndarray, "*shape"],
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
+    """Return a stored march state without the leading axis of one its file keeps.
+
+    Parameters
+    ----------
+    stored : numpy.ndarray
+        The ``state`` dataset: ``(1, n_modes, n_pol, n_omega)`` as every file has
+        written it, or ``(n_modes, n_pol, n_omega)``.
+
+    Returns
+    -------
+    numpy.ndarray
+        The trajectory's state, ``(n_modes, n_pol, n_omega)``.
+
+    Raises
+    ------
+    OutputError
+        If the state has neither layout: a leading axis longer than one is a stacked
+        group, which a single trajectory's snapshot never is, and is never squeezed.
+    """
+    if stored.ndim == 4 and stored.shape[0] == 1:
+        return stored[0]
+    if stored.ndim == 3:
+        return stored
+    msg = (
+        f"the march snapshot's state has shape {stored.shape}, expected one "
+        "trajectory's (1, n_modes, n_pol, n_omega)"
+    )
+    raise OutputError(msg)
 
 
 def _write_checkpoint(

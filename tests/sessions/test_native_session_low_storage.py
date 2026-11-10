@@ -48,7 +48,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
@@ -84,7 +84,7 @@ def _one_thread() -> bool:
     }
 
 
-def _replayed(scale: float = 1.0) -> KernelProblem:
+def _replayed(scale: float = 1.0) -> PropagationProblem:
     """Return the soliton replayed by the low-storage march, a row every step.
 
     Parameters
@@ -94,7 +94,7 @@ def _replayed(scale: float = 1.0) -> KernelProblem:
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem.
     """
     grid = window()
@@ -145,12 +145,12 @@ class _Faulted(native_session.NativeSession):
         return prepared
 
 
-def _native(problem: KernelProblem, *, after: int | None = None) -> Any:
+def _native(problem: PropagationProblem, *, after: int | None = None) -> Any:
     """Start a native session on a problem, failing partway through a step if asked.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     after : int or None, optional
         The steps that complete before a failing one; ``None`` for no failure.
@@ -174,12 +174,14 @@ class _AbandonedError(RuntimeError):
     """What the driver's engine raises partway through a step."""
 
 
-def _driver(problem: KernelProblem, *, failing: int | None = None) -> DriverSession:
+def _driver(
+    problem: PropagationProblem, *, failing: int | None = None
+) -> DriverSession:
     """Start the driver session over the native backend, failing a step if asked.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     failing : int or None, optional
         The step whose native passes complete and whose engine then raises, as the

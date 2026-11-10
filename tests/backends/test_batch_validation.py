@@ -116,7 +116,7 @@ def test_batch_rejects_incompatible_or_advanced_members(runner, name, changed):
                 initial=dataclasses.replace(
                     problem.initial, field0=np.repeat(problem.initial.field0, 2, axis=0)
                 ),
-            )
+            )  # two modes where the first member has one
         else:
             second.propagate_to(0.0005)
         with pytest.raises(BackendError, match=r"mask|shapes|entrance"):

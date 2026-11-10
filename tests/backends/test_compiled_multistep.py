@@ -220,7 +220,7 @@ def assert_sources_the_reference(backend_class, route):
     for evaluating in (NumpyRefBackend, backend_class):
         backend = evaluating(problem, grid=simulation.grid, modes=simulation.modes)
         backend.set_initial(start, None)
-        source, back = backend._adams_source(lab, 0.0, 1e-3)
+        source, back = backend._adams_source(lab[None], 0.0, 1e-3)
         found.append((np.array(source), np.array(back)))
         backend.close()
     (reference, reference_back), (source, back) = found

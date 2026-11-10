@@ -31,6 +31,7 @@ from solprop.nonlinear.tdse import (
 from solprop.output import MemoryOutput, open_file, resume
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse import AtomicCallBudget, TDSEResult, waveform_identity
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -166,8 +167,8 @@ FORMULATIONS = pytest.mark.parametrize(
 def test_fused_predictor_failure_charges_both_ledgers_before_invocation(formulation):
     simulation = _atomic_simulation(method=Multistep(formulation=formulation))
     problem = simulation.translate()
-    assert problem.tdse is not None
-    binding = _Binding(problem.tdse, 20, fail_at=3)
+    assert tdse_descriptor(problem.route) is not None
+    binding = _Binding(tdse_descriptor(problem.route), 20, fail_at=3)
     backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
@@ -199,7 +200,7 @@ def test_corrected_provider_failure_checkpoints_the_previous_accepted_state(
 ):
     method = ComparisonMultistep(order=1, corrector="pece", corrector_order=2)
     simulation = _atomic_simulation(method=method)
-    descriptor = simulation.translate().tdse
+    descriptor = tdse_descriptor(simulation.translate().route)
     assert descriptor is not None
     binding = _Binding(descriptor, 20, fail_at=5)
     monkeypatch.setattr(

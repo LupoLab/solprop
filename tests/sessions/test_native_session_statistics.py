@@ -93,7 +93,7 @@ def _run(problem, names, *, grid, modes=None, profiles=None, windows=None):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     names : tuple of str
         The plane statistics; their periodic-capable subset is periodic.
@@ -155,7 +155,7 @@ def _reference(problem, spec, seen, *, grid, modes=None, profiles=None):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     spec : solprop.stats.StatsSpec
         The plane statistics.
@@ -174,11 +174,9 @@ def _reference(problem, spec, seen, *, grid, modes=None, profiles=None):
     out = []
     try:
         for record in seen:
-            backend.set_initial(
-                record.field[np.newaxis], None, z=record.z, resume=record.z > start
-            )
+            backend.set_initial(record.field, None, z=record.z, resume=record.z > start)
             values = backend.stats(spec)
-            out.append({name: np.asarray(value)[0] for name, value in values.items()})
+            out.append({name: np.asarray(value) for name, value in values.items()})
     finally:
         backend.close()
     return out
@@ -231,7 +229,7 @@ def _scalar_bound(problem, reference):
 
     ``gamma(256 (n_columns + n_to))`` relative to the statistic's largest value.
     """
-    relative = gamma(256 * (problem.shape[1] * problem.shape[2] + problem.grids.n_to))
+    relative = gamma(256 * (problem.shape[0] * problem.shape[1] + problem.grids.n_to))
     return relative * float(np.max(np.abs(reference), initial=0.0))
 
 

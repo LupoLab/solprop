@@ -49,7 +49,7 @@ from solprop.grid import FieldGrid
 from solprop.pulses import GaussianPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 from legacy_geometry import LEGACY_GRID
 from test_band_plasma import (
@@ -75,7 +75,7 @@ WIDTHS = (1, 4, 8, 12, 18)
 """The retired test's thread counts, oversubscribed where a machine has fewer."""
 
 
-def _burst(steps: int, energy: float) -> tuple[FieldGrid, KernelProblem]:
+def _burst(steps: int, energy: float) -> tuple[FieldGrid, PropagationProblem]:
     rate = QuadraticRate(2e10, THRESHOLD)
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", MaterialRangeWarning)
@@ -110,7 +110,7 @@ def _burst(steps: int, energy: float) -> tuple[FieldGrid, KernelProblem]:
     return grid, dataclasses.replace(problem, stats_spec=StatsSpec(names=STATISTICS))
 
 
-def burst(steps: int) -> tuple[FieldGrid, KernelProblem]:
+def burst(steps: int) -> tuple[FieldGrid, PropagationProblem]:
     """Return a one-node argon column whose rate is nonzero on a few cycle peaks alone.
 
     The energy is scaled, as ``near_threshold``'s is, to put the launch's peak field

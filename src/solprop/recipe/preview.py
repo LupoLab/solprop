@@ -480,8 +480,8 @@ def preview_input(recipe: "Recipe") -> InputPreview:  # noqa: UP037 - run time
     simulation = quiet.build()
     problem = simulation.translate()
     z = float(problem.initial.z)
-    # The launched state's one batch member, as a run stores its entrance.
-    field = np.asarray(problem.initial.field0)[0]
+    # The launched state, as a run stores its entrance.
+    field = np.asarray(problem.initial.field0)
     plane = SavedPlane(z=z, field=field, stats={}, noise_phase=None)
     view = PlaneView(plane, 0, simulation.metadata(), None, ObserverSpend())
     try:

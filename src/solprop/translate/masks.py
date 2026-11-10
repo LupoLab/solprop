@@ -433,22 +433,21 @@ def temporal_rates(
 
 
 def noise_spectrum(
-    noise: NoiseRealisation, shape: tuple[int, int, int, int]
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    noise: NoiseRealisation, shape: tuple[int, int, int]
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Put a shot-noise realisation into the canonical state layout.
 
     The realisation is drawn as ``(n_modes, n_pol, n_omega)``
-    (:mod:`solprop.noise`); the kernel state carries a leading batch axis
-    (``conventions.md`` section 6). A realisation with one mode or one polarisation is
-    broadcast over the requested shape, so a batch of members shares one draw and stays
-    reproducible from its seed.
+    (:mod:`solprop.noise`), the layout of the state (``conventions.md`` section 6). A
+    realisation with one mode or one polarisation is broadcast over the requested
+    shape, so that it stays reproducible from its seed.
 
     Parameters
     ----------
     noise : solprop.noise.NoiseRealisation
         The realisation, in the internal FFT convention.
     shape : tuple of int
-        Target ``(n_batch, n_modes, n_pol, n_omega)``.
+        Target ``(n_modes, n_pol, n_omega)``.
 
     Returns
     -------
@@ -468,11 +467,11 @@ def noise_spectrum(
     >>> from solprop.translate.masks import noise_spectrum
     >>> grid = EnvelopeGrid.from_limits(1.0, 835e-9, (500e-9, 2e-6), 4e-12)
     >>> draw = modified_noise(grid, np.random.default_rng(7))
-    >>> noise_spectrum(draw, (1, 1, 1, grid.n_omega)).shape
-    (1, 1, 1, 3072)
+    >>> noise_spectrum(draw, (1, 1, grid.n_omega)).shape
+    (1, 1, 3072)
     """
     try:
-        values = np.broadcast_to(noise.spectrum[np.newaxis], shape)
+        values = np.broadcast_to(noise.spectrum, shape)
     except ValueError as error:
         msg = (
             f"noise0: a realisation of shape {noise.spectrum.shape} does not fit the "

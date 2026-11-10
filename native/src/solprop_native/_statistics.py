@@ -59,7 +59,7 @@ if TYPE_CHECKING:
     from solprop.modes.protocol import Mode
     from solprop.profiles import ZProfile
     from solprop.stats import StatsSpec
-    from solprop.translate.problem import KernelProblem
+    from solprop.translate.problem import PropagationProblem
 
 __all__ = [
     "ADMITTED_GENERAL_STATISTICS",
@@ -281,12 +281,12 @@ def translated(error: BaseException) -> BaseException:
     return error
 
 
-def _route(problem: KernelProblem) -> str:
+def _route(problem: PropagationProblem) -> str:
     """Return the route a problem's statistics read.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -301,12 +301,12 @@ def _route(problem: KernelProblem) -> str:
     return "modal"
 
 
-def _metric_varies(problem: KernelProblem) -> bool:
+def _metric_varies(problem: PropagationProblem) -> bool:
     """Return whether a basis's metric varies inside one of its intervals.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
 
     Returns
@@ -320,12 +320,12 @@ def _metric_varies(problem: KernelProblem) -> bool:
     return metric.dense.shape[1] > 1
 
 
-def uncovered(problem: KernelProblem, names: Sequence[str]) -> tuple[str, ...]:
+def uncovered(problem: PropagationProblem, names: Sequence[str]) -> tuple[str, ...]:
     """Return the names the native plan does not evaluate on this problem's route.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     names : sequence of str
         Requested statistics.
@@ -513,7 +513,7 @@ def _root(metric: np.ndarray) -> np.ndarray:
     )
 
 
-def _root_table(problem: KernelProblem) -> dict[str, object] | None:
+def _root_table(problem: PropagationProblem) -> dict[str, object] | None:
     """Lower a general modal basis's metric root, or ``None`` for the identity.
 
     The metric is constant on each interval (:func:`uncovered` leaves any other to
@@ -523,7 +523,7 @@ def _root_table(problem: KernelProblem) -> dict[str, object] | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The general modal problem.
 
     Returns
@@ -642,7 +642,7 @@ def _covers(table: PiecewiseChebyshev, start: float, end: float) -> bool:
 
 
 _PROFILE_TABLES: weakref.WeakKeyDictionary[
-    KernelProblem,
+    PropagationProblem,
     dict[str, tuple[ZProfile, PiecewiseChebyshev, dict[str, object]]],
 ] = weakref.WeakKeyDictionary()
 """Each problem's profile tables and their records, by statistic, while it lives.
@@ -654,13 +654,13 @@ them once.
 
 
 def _profile_table(
-    problem: KernelProblem, name: str, profile: ZProfile
+    problem: PropagationProblem, name: str, profile: ZProfile
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and its record, lowered once per problem.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     name : str
         The statistic.
@@ -681,7 +681,7 @@ def _profile_table(
 
 
 def _lowered_profile_table(
-    problem: KernelProblem, name: str, profile: ZProfile
+    problem: PropagationProblem, name: str, profile: ZProfile
 ) -> tuple[PiecewiseChebyshev, dict[str, object]]:
     """Return a profile statistic's table and the record of its measured error.
 
@@ -693,7 +693,7 @@ def _lowered_profile_table(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     name : str
         The statistic.
@@ -752,12 +752,12 @@ def _lowered_profile_table(
     raise BackendError(msg)
 
 
-def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tuple:
+def _shape(problem: PropagationProblem, name: str, n_windows: int, plan: dict) -> tuple:
     """Return an output's shape on this problem, without a batch axis.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     name : str
         The output.
@@ -771,8 +771,7 @@ def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tup
     tuple of int
         The shape.
     """
-    modes, pol = problem.shape[1], problem.shape[2]
-    n_omega = problem.shape[-1]
+    modes, pol, n_omega = problem.shape
     apertures = np.asarray(plan["apertures"]).shape[0]
     shapes = {
         "omega0": (modes, pol),
@@ -798,7 +797,7 @@ def _shape(problem: KernelProblem, name: str, n_windows: int, plan: dict) -> tup
 
 
 def lower(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     spec: StatsSpec,
     names: Sequence[str],
     *,
@@ -812,7 +811,7 @@ def lower(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     spec : solprop.stats.StatsSpec
         The windows the names read.
@@ -854,8 +853,8 @@ def lower(
     plan: dict[str, object] = {
         "route": _ROUTES[route],
         "outputs": [STATISTIC_IDS[name] for name in names],
-        "n_modes": int(problem.shape[1]),
-        "n_pol": int(problem.shape[2]),
+        "n_modes": int(problem.shape[0]),
+        "n_pol": int(problem.shape[1]),
         "n_t": int(problem.grids.n_t),
         "n_omega": int(problem.shape[-1]),
         "n_nodes": int(transform.n_nodes),

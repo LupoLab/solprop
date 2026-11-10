@@ -90,7 +90,8 @@ from solprop.output.tdse_archive import TDSEArchiveWriter
 from solprop.stats import StatsSpec
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
+from solprop.translate.routes import tdse_descriptor, transverse_of
 from solprop.translate.tdse import TDSEBinding
 
 __all__ = [
@@ -165,14 +166,12 @@ def plane_from_observation(
     observation: Observation,
     stats: Mapping[str, np.ndarray] | None = None,
     *,
-    member: int = 0,
     field: bool = True,
 ) -> SavedPlane:
     """Turn one observation and its statistics into the plane an output handler stores.
 
-    The only shape change on the way: the seam's arrays carry a leading batch axis and a
-    stored plane does not, so one member is taken from the field, the noise phase and
-    every statistic (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
+    The seam's arrays are one trajectory's, as a stored plane is, so no shape changes
+    on the way (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
     the field stays in the internal FFT convention, and the handler converts it on the
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
@@ -187,15 +186,7 @@ def plane_from_observation(
         :meth:`solprop.backends.protocol.Backend.observe`.
     stats : collections.abc.Mapping, optional
         What :meth:`solprop.backends.protocol.Backend.stats` returned there, keyed by
-        statistic name, each with a leading batch axis. Empty when omitted.
-
-        The observation's between-planes rows are taken across the same way: their
-        batch axis is the one *after* the row axis, so the member is taken from axis
-        one rather than axis zero.
-    member : int, optional
-        Which batch member to store; 0, the only member of an unbatched run, by
-        default. :func:`solprop.driver.batch.split_observation` stores each member of
-        a lockstep batch in turn.
+        statistic name. Empty when omitted.
     field : bool, optional
         Whether the plane keeps the field and its noise phase; ``False``, or an
         observation that carries no field, builds a field-free plane (SEP 22), which
@@ -213,9 +204,8 @@ def plane_from_observation(
     >>> from solprop.driver.run import plane_from_observation
     >>> history = BackendHistory(np.array([0.5]), np.array([0.5]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
-    >>> observation = Observation(0.5, np.ones((1, 1, 1, 4), complex), None, history,
-    ...                           1, 0)
-    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1, 1))})
+    >>> observation = Observation(0.5, np.ones((1, 1, 4), complex), None, history, 1, 0)
+    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1))})
     >>> plane.z, plane.shape, plane.stats["energy"].shape
     (0.5, (1, 1, 4), (1, 1))
     """
@@ -223,22 +213,11 @@ def plane_from_observation(
     rows = observation.step_stats
     return SavedPlane(
         z=observation.z,
-        field=observation.field[member]
-        if field and observation.field is not None
-        else None,
-        stats={name: np.asarray(value[member]) for name, value in values.items()},
+        field=observation.field if field else None,
+        stats={name: np.asarray(value) for name, value in values.items()},
         step_history=_history_of(observation.step_history),
-        step_stats=StepStats(
-            z=rows.z,
-            step=rows.step,
-            values={
-                name: np.asarray(value[:, member])
-                for name, value in rows.values.items()
-            },
-        ),
-        noise_phase=None
-        if observation.noise_phase is None or not field
-        else observation.noise_phase[member],
+        step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
+        noise_phase=observation.noise_phase if field else None,
     )
 
 
@@ -336,7 +315,7 @@ class SessionFacts:
 
 @handled()  # SIGTERM and Ctrl-C stop a run between its commits
 def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
-    problem: KernelProblem,
+    problem: PropagationProblem,
     backend: Backend,
     output: Output,
     *,
@@ -376,7 +355,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.save_planes`` is the itinerary.
     backend : solprop.backends.protocol.Backend
         The backend stepping it, constructed for `problem`. The run loads `start` into
@@ -463,8 +442,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     ------
     DriverError
         If the statistics given here disagree with the problem's own about the
-        between-planes channel; if the problem carries a batch axis, which the output
-        schema has no room for yet; if the record and the problem disagree about
+        between-planes channel; if the record and the problem disagree about
         whether this is a general modal run; if the start's ``plane_index`` is not a
         plane of this problem; or if the field retention is not valid, names a plane
         outside the run, asks for ``fields='planes'`` beside ``step_planes`` (whose
@@ -511,7 +489,9 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     retention = field_retention(problem, fields, field_planes)
     _check_retainable(output, retention)
     check_snapshot_request(problem, output, snapshots, resume_history, fields)
-    if problem.tdse is not None and not isinstance(output, CheckpointOutput):
+    if tdse_descriptor(problem.route) is not None and not isinstance(
+        output, CheckpointOutput
+    ):
         raise DriverError(
             "TDSE output must support terminal checkpoints and call ledgers"
         )
@@ -626,7 +606,7 @@ def _restored(
 
 
 def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
-    problem: KernelProblem,
+    problem: PropagationProblem,
     metadata: RunMetadata,
     backend: Backend | SessionFacts,
     output: Output,
@@ -639,7 +619,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
     metadata : solprop.output.schema.RunMetadata
         The run's record.
@@ -680,7 +660,7 @@ def _announce(  # noqa: PLR0913 - the run's parts, each a distinct object
 
 
 def check_snapshot_request(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     output: Output,
     snapshots: SnapshotController | None,
     resume_history: bool | None,
@@ -694,7 +674,7 @@ def check_snapshot_request(
 
     Parameters
     ----------
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated run and observation policy.
     output : Output
         Requested optical writer.
@@ -720,8 +700,6 @@ def check_snapshot_request(
     # A snapshot is taken at the next accepted endpoint, persisted as a running
     # checkpoint when no plane is saved there, so it needs no step planes (SEP 47
     # section 5.5).
-    if problem.shape[0] != 1:
-        raise DriverError("snapshots require an unbatched run")
     # Interpolated output is admitted: every session takes a snapshot at an accepted
     # endpoint only, once the planes its step crossed are observed, so a checkpoint
     # never needs the step's extension to reconstruct a plane (SEP 47 section 5.5).
@@ -734,7 +712,7 @@ def check_snapshot_request(
 
 
 def field_retention(
-    problem: KernelProblem, fields: object, field_planes: Sequence[int]
+    problem: PropagationProblem, fields: object, field_planes: Sequence[int]
 ) -> FieldRetention:
     """Return a run's field retention, resolved against its saved planes.
 
@@ -744,7 +722,7 @@ def field_retention(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem: its save planes, and the entrance, are the planes.
     fields : object
         ``"all"``, ``"planes"`` or ``"none"``.
@@ -840,7 +818,9 @@ def _check_retainable(output: Output, retention: FieldRetention) -> None:
 
 
 def _resume_position(
-    output: Output, checkpoint_output: CheckpointOutput | None, problem: KernelProblem
+    output: Output,
+    checkpoint_output: CheckpointOutput | None,
+    problem: PropagationProblem,
 ) -> tuple[float, bool]:
     """Resolve the actual checkpoint position and any scheduled observation owed.
 
@@ -850,7 +830,7 @@ def _resume_position(
         Open handler containing the regular saved observations.
     checkpoint_output : CheckpointOutput or None
         Checkpoint-capable handler, if available, holding any terminal state.
-    problem : KernelProblem
+    problem : PropagationProblem
         Translated problem with absolute launch and scheduled save positions, m.
 
     Returns
@@ -875,7 +855,7 @@ def _resume_position(
 
 
 def _refuse_unread_collar(
-    problem: KernelProblem, backend: Backend | SessionFacts
+    problem: PropagationProblem, backend: Backend | SessionFacts
 ) -> None:
     """Refuse a requested collar on a backend that does not read its return (SEP 40).
 
@@ -886,7 +866,7 @@ def _refuse_unread_collar(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The run's problem.
     backend : solprop.backends.protocol.Backend
         The selected backend.
@@ -896,7 +876,7 @@ def _refuse_unread_collar(
     BackendError
         If the problem has a requested collar and the backend does not read the edge.
     """
-    design = problem.transverse
+    design = transverse_of(problem.route)
     if design is None or not design.has_collar:
         return
     if backend.reads_transverse_edge:
@@ -1054,12 +1034,14 @@ unknown, never as a reason (``retention_at``).
 """
 
 
-def _method_history(problem: KernelProblem) -> Literal["adams", "rk", "low_storage"]:
+def _method_history(
+    problem: PropagationProblem,
+) -> Literal["adams", "rk", "low_storage"]:
     """Return which kind of method history a problem's march keeps.
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -1471,7 +1453,7 @@ def _record_execution(  # noqa: PLR0913 - the record's parts
     )
 
 
-def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
+def _replayed_steps(problem: PropagationProblem, start_plane: int) -> int | None:
     """Return the step count a replayed schedule will take, when it is knowable.
 
     A fixed schedule knows how many steps are left, which is a better ETA than any rate
@@ -1483,7 +1465,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem, whose ``stepper.schedule`` is the schedule if there is
         one.
     start_plane : int
@@ -1501,7 +1483,7 @@ def _replayed_steps(problem: KernelProblem, start_plane: int) -> int | None:
 
 
 def _refuse_a_record_that_misnames_the_basis(
-    problem: KernelProblem, metadata: RunMetadata
+    problem: PropagationProblem, metadata: RunMetadata
 ) -> None:
     """Refuse a run whose record and problem disagree about the basis, by name.
 
@@ -1524,7 +1506,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     metadata : solprop.output.schema.RunMetadata
         The record about to be written.
@@ -1556,7 +1538,7 @@ def _refuse_a_record_that_misnames_the_basis(
 
 
 def _refuse_unrunnable(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     spec: StatsSpec,
     start_plane: int,
     n_planes: int,
@@ -1567,7 +1549,7 @@ def _refuse_unrunnable(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem about to be run.
     spec : solprop.stats.StatsSpec
         The statistics asked for. A ``periodic`` subset is accepted -- the seam carries
@@ -1597,14 +1579,6 @@ def _refuse_unrunnable(
             f"{list(channel.periodic)} every {channel.period}; the between-planes "
             "channel is armed when the backend is built, from the problem's own spec, "
             "so the two would disagree -- pass the problem's spec, or translate again"
-        )
-        raise DriverError(msg)
-    if problem.shape[0] != 1:
-        msg = (
-            f"this problem carries a batch axis of {problem.shape[0]} and a stored "
-            "plane has no batch axis; run a batch through "
-            "solprop.driver.scan.run_scan with executor=solprop.driver.executors."
-            "Batch(...), which stores each member separately"
         )
         raise DriverError(msg)
     if not 0 <= start_plane <= n_planes:

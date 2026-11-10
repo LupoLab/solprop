@@ -102,7 +102,7 @@ def run(problem, grid, noise=None):
         backend.propagate_to(float(plane))
         observed = backend.observe()
         steps += list(observed.step_history.dz)
-        field = observed.require_field()[0, 0, 0]
+        field = observed.require_field()[0, 0]
     march = backend._adams
     backend.close()
     assert field is not None
@@ -154,7 +154,7 @@ def test_exponential_is_the_exact_linear_flow_without_a_source(
         integrator=EXPONENTIAL,
     )
     field, march, _ = run(problem, narrow_grid)
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
     # A zero source leaves the flows' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
@@ -340,7 +340,7 @@ def test_exponential_dense_observation_matches_landing(narrow_grid, soliton_prob
         fields = []
         for plane in planes:
             backend.propagate_to(float(plane))
-            fields.append(backend.observe().require_field()[0, 0, 0])
+            fields.append(backend.observe().require_field()[0, 0])
         ledger = ledger_of(backend._adams)
         backend.close()
         return np.array(fields), ledger
@@ -368,9 +368,9 @@ def test_exponential_dense_observation_is_the_linear_flow_without_a_source(
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(planes[0])
-    observed = backend.observe().require_field()[0, 0, 0]
+    observed = backend.observe().require_field()[0, 0]
     backend.close()
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, planes[0]))[0, 0, 0] * start
     np.testing.assert_allclose(
         observed, exact, rtol=0, atol=1e-12 * np.abs(start).max()
@@ -485,7 +485,7 @@ def test_a_lockstep_batch_steps_each_member_with_its_own_history(
     # A member and its single run: one fixed-order method on one schedule.
     bound = replay_bound(problem_of(1), 11)
     for observation, single in zip(observed, singles, strict=True):
-        assert_within(observation.require_field()[0, 0, 0], single, bound)
+        assert_within(observation.require_field()[0, 0], single, bound)
 
 
 @pytest.mark.parametrize("method", FORMULATIONS, ids=["interaction", "exponential"])

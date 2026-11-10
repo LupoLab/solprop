@@ -125,7 +125,7 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
     grid: TimeGrid,
     modes: Sequence[Mode],
     *,
-    shape: tuple[int, int, int, int],
+    shape: tuple[int, int, int],
     quadrature: TransverseQuadrature | None,
     integrator: Multistep | LowStorageRungeKutta | None,
     modified_noise: bool,
@@ -144,7 +144,7 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
     modes : sequence of Mode
         Propagated modes in state order.
     shape : tuple of int
-        Canonical state dimensions, batch, mode, polarisation and frequency.
+        Canonical state dimensions: mode, polarisation and frequency.
     quadrature : TransverseQuadrature or None
         Declared transverse integration rule.
     integrator : Multistep or LowStorageRungeKutta or None
@@ -181,8 +181,8 @@ def admit_tdse(  # noqa: PLR0913 - admission checks the declared route together.
             "TDSE owns the complete electronic response: duplicate Kerr, plasma "
             "or other response declarations are unsupported"
         )
-    if not isinstance(grid, FieldGrid) or shape[:3] != (1, 1, 1):
-        raise TranslationError("TDSE requires an unbatched scalar one-mode field grid")
+    if not isinstance(grid, FieldGrid) or shape[:2] != (1, 1):
+        raise TranslationError("TDSE requires a scalar one-mode field grid")
     if len(modes) != 1 or not isinstance(modes[0], MarcatiliMode):
         raise TranslationError("TDSE requires the resolved HE_11 capillary mode")
     mode = modes[0]

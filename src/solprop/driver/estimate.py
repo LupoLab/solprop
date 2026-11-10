@@ -27,7 +27,7 @@ from solprop.grid import FreeGrid, RadialGrid
 from solprop.modes.slab import PlanarGrid
 from solprop.stats import CATALOGUE
 from solprop.stepper import LowStorageRungeKutta, Multistep
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 
 if TYPE_CHECKING:
     from solprop.driver.simulation import Simulation
@@ -49,7 +49,7 @@ class RunEstimate:
     Attributes
     ----------
     shape : tuple of int
-        The state's shape: batch, modes or transverse columns, polarisations and
+        The state's shape: modes or transverse columns, polarisations and
         frequencies.
     n_planes : int
         The planes the run saves, the entrance included.
@@ -101,7 +101,7 @@ class RunEstimate:
 
 
 def _timed_step(
-    backend: Backend, problem: KernelProblem
+    backend: Backend, problem: PropagationProblem
 ) -> tuple[Callable[[], object], int]:
     """Load a run's entrance and return the step to time, and its evaluations.
 
@@ -113,7 +113,7 @@ def _timed_step(
     ----------
     backend : solprop.backends.protocol.Backend
         The constructed backend, holding no state yet; closed by the caller.
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -255,7 +255,7 @@ def output_bytes(simulation: "Simulation") -> int:  # noqa: UP037 - checked at r
     return n_planes * plane_bytes(problem) - (n_planes - kept) * field_bytes(problem)
 
 
-def plane_bytes(problem: KernelProblem) -> int:
+def plane_bytes(problem: PropagationProblem) -> int:
     """Return the bytes one saved plane occupies in an in-memory store.
 
     The field (complex128), the noise phase (float64) when the run carries a noise
@@ -265,7 +265,7 @@ def plane_bytes(problem: KernelProblem) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -286,7 +286,7 @@ def plane_bytes(problem: KernelProblem) -> int:
     >>> plane_bytes(problem) >= 16 * problem.shape[-1]
     True
     """
-    _, n_modes, n_pol, n_omega = problem.shape
+    n_modes, n_pol, n_omega = problem.shape
     entries = n_modes * n_pol * n_omega
     total = 16 * entries + 8 * _COUNTED_PER_PLANE
     if problem.initial.noise_model != "none":
@@ -306,14 +306,14 @@ def plane_bytes(problem: KernelProblem) -> int:
     return total
 
 
-def field_bytes(problem: KernelProblem) -> int:
+def field_bytes(problem: PropagationProblem) -> int:
     """Return the bytes of one plane's field, and its noise phase, in a memory store.
 
     The part of :func:`plane_bytes` a plane that keeps no field does not hold (SEP 22).
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -333,7 +333,7 @@ def field_bytes(problem: KernelProblem) -> int:
     >>> field_bytes(simulation.translate()) == 16 * simulation.translate().shape[-1]
     True
     """
-    entries = math.prod(problem.shape[1:])
+    entries = math.prod(problem.shape)
     return (16 + (8 if problem.initial.noise_model != "none" else 0)) * entries
 
 

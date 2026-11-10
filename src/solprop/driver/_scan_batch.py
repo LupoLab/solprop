@@ -435,7 +435,7 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                 )
                 capture.retain(
                     _field_retention(capture).resolved(capture.count),
-                    tuple(problems[index].shape[1:]),
+                    tuple(problems[index].shape),
                 )
                 captures.append(capture)
             # One scan's options and one group's planes: one rule for all its members.

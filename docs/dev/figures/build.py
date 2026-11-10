@@ -670,6 +670,7 @@ MODULES = {
             "translate/",
             (
                 "problem",
+                "routes",
                 "stage",
                 "linop",
                 "expansion",
@@ -934,7 +935,7 @@ RUN_STAGES = (
         "D",
         "Simulation(...)",
         (
-            "translate.assemble(...)  →  KernelProblem",
+            "translate.assemble(...)  →  PropagationProblem",
             "backends.select(name, problem, grid=, modes=, profiles=)",
         ),
         "validated arrays",
@@ -977,7 +978,7 @@ class Section(NamedTuple):
     """Its heading there."""
 
     fields: tuple[str, ...]
-    """The `KernelProblem` fields it documents."""
+    """The `PropagationProblem` fields it documents."""
 
     leaf: str
     """The dataclass that carries them, as the contract names it."""
@@ -1014,7 +1015,7 @@ CONTRACT_SECTIONS = (
     Section(
         3,
         "linear operator",
-        ("linear", "flux", "transverse"),
+        ("linear",),
         "translate.linop.LinearOperator",
         ("linear.py", "modes/", "profiles.py"),
         "P",
@@ -1023,7 +1024,7 @@ CONTRACT_SECTIONS = (
     Section(
         4,
         "multimode transform",
-        ("transform",),
+        ("route",),
         "translate.modal.Transform",
         ("modes.quadrature", "modes.collection"),
         "P",
@@ -1032,7 +1033,7 @@ CONTRACT_SECTIONS = (
     Section(
         5,
         "responses and the prefactor",
-        ("responses", "tdse", "current_numerator"),
+        ("responses",),
         "translate.responses.CompiledResponses",
         ("nonlinear/", "physdata/", "boundaries.py"),
         "P",
@@ -1751,7 +1752,7 @@ RUN_ARTEFACTS = (
     ),
     (
         "T",
-        "KernelProblem",
+        "PropagationProblem",
         ("plain arrays, frozen, validated",),
     ),
     ("B", "StepSummary", ("z, n_steps, n_rejected, max_norm, mean_norm, wall_time",)),
@@ -1980,10 +1981,10 @@ CONTRACT_LEFT = 296.0
 """Width of the column of modules that feed the contract, in user units."""
 
 CONTRACT_MIDDLE = 420.0
-"""Width of the `KernelProblem` column, in user units."""
+"""Width of the `PropagationProblem` column, in user units."""
 
 CONTRACT_GAP = 58.0
-"""Space either side of the `KernelProblem` column, in user units."""
+"""Space either side of the `PropagationProblem` column, in user units."""
 
 
 def kernel_contract() -> drawsvg.Drawing:
@@ -2011,9 +2012,10 @@ def kernel_contract() -> drawsvg.Drawing:
     ]
     gap = 12.0
     subtitle = (
-        "kernel-contract.md §1 to §8. KernelProblem is the only object that crosses "
-        "into a backend: eleven fields, frozen, validated, versioned. On the left, "
-        "what builds each section; on the right, what a backend does with it."
+        "kernel-contract.md §1 to §8. PropagationProblem is the only object that "
+        "crosses into a backend: one trajectory, its route a closed union, frozen and "
+        "validated. On the left, what builds each section; on the right, what a "
+        "backend does with it."
     )
     top = header_height(subtitle) + 30
     inset = inset_height()
@@ -2025,7 +2027,7 @@ def kernel_contract() -> drawsvg.Drawing:
     _text(drawing, "built by", MARGIN, label_y, size=SMALL_SIZE, klass="bold dim")
     _text(
         drawing,
-        "translate.problem.KernelProblem",
+        "translate.problem.PropagationProblem",
         middle_x,
         label_y,
         size=SMALL_SIZE,
@@ -2580,8 +2582,8 @@ def backends() -> drawsvg.Drawing:
     subtitle = (
         "backends.md §1: the protocol is drawn at the level of operations on the "
         "propagated state, never at the array-namespace level. A backend is "
-        "constructed from a validated KernelProblem and host arrays and returns host "
-        "arrays; its buffers, layout and plans are private."
+        "constructed from a validated PropagationProblem and host arrays and returns "
+        "host arrays; its buffers, layout and plans are private."
     )
     footer = (
         "Three things every backend owes beyond the methods: deterministic "

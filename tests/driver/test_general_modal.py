@@ -402,11 +402,11 @@ def test_the_launch_is_the_pulses_own_amplitude_bit_for_bit(guide, grid):
     ).build(grid)
     problem = simulation.translate()
     assert np.array_equal(simulation._field0[0], built[0])
-    assert np.array_equal(problem.initial.field0[0, 0], built[0])
+    assert np.array_equal(problem.initial.field0[0], built[0])
     assert np.all(problem.linear.power_weight_constant == 1.0)
     # And the launched true-power energy is the pulse's.
     assert_allclose(
-        float(energy(grid, problem.initial.field0[0])[0, 0]),
+        float(energy(grid, problem.initial.field0)[0, 0]),
         PULSE["energy"],
         rtol=1e-12,
         atol=0.0,
@@ -640,7 +640,7 @@ def test_an_incident_launch_keeps_what_the_channels_capture_under_the_runs_metri
     metric = metric_at(problem.linear.modal_metric, 0.0)
     assert (metric is None) == (kind == "identity")
     assert_allclose(
-        float(physical_energy(grid, problem.initial.field0[0], metric=metric)),
+        float(physical_energy(grid, problem.initial.field0, metric=metric)),
         report.launched_energy,
         # The statistic whitens by an eigendecomposition per bin and the report
         # forms the quadratic form directly: rounding over the 65-bin reduction.
@@ -924,8 +924,8 @@ def test_a_multichannel_input_is_refused_by_the_launch(pair_guide, grid):
     # Both rows reach the seam, unchanged: the power weight is the constant one,
     # so `_power_initial` divides by exactly 1.0.
     problem = carried.translate()
-    assert np.array_equal(problem.initial.field0[0], both)
-    assert np.any(problem.initial.field0[0, 1])
+    assert np.array_equal(problem.initial.field0, both)
+    assert np.any(problem.initial.field0[1])
     with pytest.raises(DriverError, match="places one pulse in one channel"):
         _in_channel(both, pair_guide, None)
 
@@ -955,7 +955,7 @@ def test_the_same_seed_gives_the_same_realisation_and_the_same_run(guide, grid):
     # The launch carries it: the seam's noise0 is the realisation unchanged.
     problem = first.translate()
     assert problem.initial.noise0 is not None
-    assert np.array_equal(problem.initial.noise0[0], first.noise.spectrum)
+    assert np.array_equal(problem.initial.noise0, first.noise.spectrum)
     assert problem.initial.noise_model == "input"
     exits = [
         cast("MemoryOutput", run.run(progress="none")).planes()[-1].field
@@ -1292,7 +1292,7 @@ def test_a_general_guide_batch_is_what_its_members_run_alone(
             for name, value in owner.stats(spec).items():
                 assert_matched(
                     batched_stats[name][index],
-                    value[0],
+                    value,
                     STATISTIC_FACTOR * bound,
                     what=name,
                 )

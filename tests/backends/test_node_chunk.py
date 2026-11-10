@@ -307,7 +307,7 @@ def test_the_default_budgets_are_stated_in_bytes():
 def test_a_cartesian_column_charges_twenty_buffers():
     """The conservative inventory stays (#349): a budget buys the chunk it did."""
     problem = BUILDERS["collar-free"]()
-    column = 20 * 16 * problem.shape[2] * problem.grids.n_to
+    column = 20 * 16 * problem.shape[1] * problem.grids.n_to
     assert plan_node_chunk(problem, ExecutionOptions(node_budget=7 * column)).chunk == 7
     with pytest.raises(BackendError, match="Cartesian node_budget cannot hold"):
         plan_node_chunk(problem, ExecutionOptions(node_budget=column - 1))

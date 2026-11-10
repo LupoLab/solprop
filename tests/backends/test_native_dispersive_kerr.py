@@ -58,7 +58,7 @@ from solprop.physdata import MaterialSelection, Mixture
 from solprop.profiles import Linear
 from solprop.stats import StatsSpec
 from solprop.stepper import FixedSchedule, RungeKutta
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.stage import scalars
 
 solprop_native = pytest.importorskip("solprop_native")
@@ -71,12 +71,12 @@ host_only = pytest.mark.skipif(
 )
 
 
-def evaluation_bound(problem: KernelProblem) -> float:
+def evaluation_bound(problem: PropagationProblem) -> float:
     """The CPU bound, or on a device build the predeclared device envelope."""
     return dispersive_device_bound(cpu_evaluation_bound(problem), problem)
 
 
-def steps_bound(problem: KernelProblem) -> float:
+def steps_bound(problem: PropagationProblem) -> float:
     """Bound a replayed window of fixed steps: every evaluation's rounding, added."""
     return STEPS * step_evaluations(problem) * evaluation_bound(problem)
 
@@ -98,7 +98,7 @@ DISPERSIVE_ROWS = (
 # --- the measurements ------------------------------------------------------------
 
 
-def embedded(problem: KernelProblem) -> bool:
+def embedded(problem: PropagationProblem) -> bool:
     """Return whether the quadrature has an embedded rule of its own, as packed."""
     transform = problem.transform
     return transform.n_nodes > 1 and not np.array_equal(
@@ -107,7 +107,7 @@ def embedded(problem: KernelProblem) -> bool:
 
 
 def native_evaluation(
-    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+    problem: PropagationProblem, grid: Any, options: ExecutionOptions | None = None
 ) -> Evaluation:
     """Evaluate the source once at the launch and return the native projected spectra.
 
@@ -118,7 +118,7 @@ def native_evaluation(
     backend = NativeBackend(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0, 0.0)
+        backend._adams_lab_source(problem.initial.field0[None], 0.0)
         native = backend._native_state
         return Evaluation(
             native.projected_to_host(False),
@@ -137,7 +137,7 @@ def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
 
 
 def assert_one_evaluation(
-    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+    problem: PropagationProblem, grid: Any, options: ExecutionOptions | None = None
 ) -> None:
     """One evaluation, both rules, against the reference."""
     ours = native_evaluation(problem, grid, options)
@@ -146,17 +146,17 @@ def assert_one_evaluation(
     assert_close(ours, reference_evaluation(problem, grid, options), bound)
 
 
-def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray:
+def source(backend_class: type, problem: PropagationProblem, grid: Any) -> np.ndarray:
     """Return one evaluation's whole stage source at the launch."""
     backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0, 0.0))
+        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
         backend.close()
 
 
-def assert_steps(problem: KernelProblem, grid: Any) -> None:
+def assert_steps(problem: PropagationProblem, grid: Any) -> None:
     """A replayed window of fixed steps, the same steps, against the reference."""
     ours, summary = run(NativeBackend, problem, grid)
     bound = steps_bound(problem)
@@ -166,7 +166,7 @@ def assert_steps(problem: KernelProblem, grid: Any) -> None:
     assert disagreement(ours, theirs) < bound
 
 
-def path_of(problem: KernelProblem, grid: Any) -> dict[str, bool] | None:
+def path_of(problem: PropagationProblem, grid: Any) -> dict[str, bool] | None:
     """Return how the native response runs: alone, in place, borrowed."""
     backend = NativeBackend(problem, grid=grid)
     try:
@@ -265,7 +265,7 @@ def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            alarms.append(float(backend.stats(spec)["quadrature_error"][0]))
+            alarms.append(float(backend.stats(spec)["quadrature_error"]))
         finally:
             backend.close()
     ours, theirs = alarms
@@ -329,7 +329,7 @@ def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
 def test_a_two_component_field_matches_the_reference(case, evaluator):
     """The isotropic Kleinman contraction of an elliptical launch, on the quadrature."""
     problem, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
-    assert problem.transform.n_pol * problem.shape[2] == 2
+    assert problem.transform.n_pol * problem.shape[1] == 2
     assert_one_evaluation(problem, grid)
     assert_steps(problem, grid)
 
@@ -424,7 +424,7 @@ def test_species_with_one_leg_bound_share_their_derivative_fields(case):
         held = ledger.memory_ledger()
     finally:
         ledger.close()
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     item = 8 if case == "field full" else 16
     # Two filtered fields and three products: one group.
     assert held["dispersive_filtered_time"] == 2 * n_columns * n_to * item
@@ -557,7 +557,7 @@ def test_one_thread_and_four_agree(tmp_path):
 
 
 def ledger_of(
-    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+    problem: PropagationProblem, grid: Any, options: ExecutionOptions | None = None
 ) -> dict[str, int]:
     """Return the backend's ledger and check its rows are released on close."""
     backend = NativeBackend(problem, grid=grid, options=options)
@@ -604,7 +604,7 @@ def test_a_lone_symmetric_response_beside_the_collar_holds_one_field():
     problem = simulation.translate()
     assert problem.responses.absorber_scheme == "nonlinear"
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_filtered_time"] == n_columns * n_to * 8
     for row in ("dispersive_node_fields", "dispersive_products"):
         assert ledger[row] == 0, row
@@ -616,7 +616,7 @@ def test_the_polynomial_holds_two_derivative_fields_and_its_products():
     simulation = capillary("polynomial", thg=False)
     problem = simulation.translate()
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     field = n_columns * n_to * 16  # the analytic family: complex fields
     assert ledger["dispersive_filtered_time"] == 2 * field
     assert ledger["dispersive_products"] == 3 * field
@@ -632,7 +632,7 @@ def test_a_response_beside_raman_holds_its_own_node_field_and_products():
     simulation = capillary("symmetric", gas="N2", raman=True, thg=False)
     problem = simulation.translate()
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_node_fields"] == ledger["node_field"]
     assert ledger["dispersive_products"] == n_columns * n_to * 16
     assert ledger["dispersive_product_spectra"] == n_columns * n_to * 16
@@ -644,7 +644,7 @@ def test_chunked_nodes_pack_their_projections():
     problem = simulation.translate()
     ledger = ledger_of(problem, simulation.grid, ExecutionOptions(node_chunk=8))
     chunks = -(-problem.transform.n_nodes // 8)
-    per_rule = chunks * problem.shape[1] * 8 * problem.transform.n_pol * 8
+    per_rule = chunks * problem.shape[0] * 8 * problem.transform.n_pol * 8
     assert ledger["dispersive_projection_chunks"] == 2 * per_rule
 
 

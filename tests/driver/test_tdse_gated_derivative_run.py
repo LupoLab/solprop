@@ -44,6 +44,7 @@ from solprop.nonlinear.tdse import (
 from solprop.output import open_file, resume
 from solprop.stats import StatsSpec
 from solprop.stepper.multistep import Multistep
+from solprop.translate.routes import tdse_descriptor
 from solprop.translate.tdse_source import STEADY_CURRENT_CERTIFICATE_LIMIT
 
 pytestmark = [
@@ -221,8 +222,8 @@ def test_the_fake_drift_keeps_its_rise_and_reports_its_edge_ratio(bindings):
 def test_the_edge_entry_is_the_last_evaluation_and_keeps_no_history(bindings):
     simulation = _sae(TDSEAtomicWindow(40e-15, 5e-15))
     problem = simulation.translate()
-    assert problem.tdse is not None
-    binding = ManufacturedBinding(problem.tdse, 1000, _drift)
+    assert tdse_descriptor(problem.route) is not None
+    binding = ManufacturedBinding(tdse_descriptor(problem.route), 1000, _drift)
     backend = NumpyRefBackend(problem, grid=simulation.grid, tdse_binding=binding)
     try:
         backend.set_initial(problem.initial.field0, None, z=problem.initial.z)

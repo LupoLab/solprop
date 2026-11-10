@@ -152,7 +152,7 @@ def derivative(backend_class, case: Case) -> np.ndarray:
             return backend._nonlinear(
                 backend._require_state(),
                 backend._stage_scalars(0.0, 0.0),
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         backend._trial_step(0.0, 0.0)
         values = (
@@ -160,7 +160,7 @@ def derivative(backend_class, case: Case) -> np.ndarray:
             if backend.name == "native"
             else backend._stages[0].copy()
         )
-        return values.reshape(problem.shape[1:])
+        return values.reshape(problem.shape)
     finally:
         backend.close()
 
@@ -173,7 +173,7 @@ def _march(backend_class, case: Case, field, edges):
         states = []
         for edge in edges:
             backend.propagate_to(float(edge))
-            states.append(backend.observe().require_field()[0].copy())
+            states.append(backend.observe().require_field().copy())
         statistics = backend.stats(case.problem.stats_spec)
         return states, {name: np.asarray(v) for name, v in statistics.items()}
     finally:
@@ -196,7 +196,7 @@ def _complete_run(backend_name: str, case: Case):
             planes, statistics, steps = [], {}, 0
             for plane in problem.stepper.save_planes:
                 steps += backend.propagate_to(float(plane)).n_steps
-                planes.append(backend.observe().require_field()[0].copy())
+                planes.append(backend.observe().require_field().copy())
                 for name, value in backend.stats(problem.stats_spec).items():
                     statistics.setdefault(name, []).append(np.asarray(value))
             return (
@@ -274,7 +274,7 @@ def stage_bound(case: Case) -> float:
 
 def growth(case: Case, reference: Ladder, length: float) -> float:
     """Return ``exp(Phi)``, ``Phi = length ||N(a_0)|| / ||a_0||`` on the reference."""
-    launch = case.problem.initial.field0[0]
+    launch = case.problem.initial.field0
     phi = length * float(np.linalg.norm(reference.nonlinear) / np.linalg.norm(launch))
     return math.exp(phi)
 

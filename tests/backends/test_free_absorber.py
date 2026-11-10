@@ -24,6 +24,7 @@ from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.responses import KerrResponse
+from solprop.translate.routes import transverse_of
 from spatial_records import record_metric
 
 COLLAR = SpatialAbsorber(kappa=11.5e3, attenuation=400.0)
@@ -66,9 +67,8 @@ def free_absorber(request):
     responses = (
         [KerrResponse(0.0, thg=False)] if request.param == "field_analytic" else []
     )
-    design = problem_for(
-        (grid, space, boundary, start, index, None, None, responses), 8
-    ).transverse
+    case = (grid, space, boundary, start, index, None, None, responses)
+    design = transverse_of(problem_for(case, 8).route)
     assert design is not None and design.has_collar
     # Build the DFT from its geometric sums, independently of FFT calls in
     # either backend, so the matrix exponential is a distinct absorber oracle.
@@ -124,11 +124,12 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
 ):
     grid, space, _, start, index, absorption, phase, _ = free_absorber
     problem = problem_for(free_absorber, steps)
-    assert problem.transverse is not None
+    design = transverse_of(problem.route)
+    assert design is not None
     linear_norm = np.max(np.abs(phase))
     # The physical absorber is unitarily similar to diag(-alpha/2), so its
     # spectral norm is known without measuring a matrix norm.
-    absorber_norm = 0.5 * problem.transverse.alpha0
+    absorber_norm = 0.5 * design.alpha0
     bound = rk_bound(linear_norm, absorber_norm, steps)
     bound += gamma(256 * (space.n_columns + grid.n_to)) * steps
     bound += gamma(64) * LENGTH * grid.omega[index] / C
@@ -138,7 +139,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     try:
         backend.set_initial(problem.initial.field0, None)
         result = backend.propagate_to(LENGTH)
-        actual = backend.observe().require_field()[0]
+        actual = backend.observe().require_field()
         defect = np.linalg.norm(actual[:, :, index] - expected) / np.linalg.norm(
             start[:, :, index]
         )
@@ -231,7 +232,7 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
             backend._native_state.finish(dz)
             actual = backend._native_state.field_to_host().reshape(start.shape)
         else:
-            actual = backend._finish(problem.initial.field0.copy(), dz)[0]
+            actual = backend._finish(problem.initial.field0[None].copy(), dz)[0]
         assert np.max(np.abs(actual - expected)) < bound
         record_metric(
             request,

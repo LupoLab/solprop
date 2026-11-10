@@ -54,7 +54,7 @@ from solprop.stepper import PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.schedule import FixedSchedule
-from solprop.translate.problem import KernelProblem, assemble
+from solprop.translate.problem import PropagationProblem, assemble
 from solprop.translate.run_request import describe_run
 
 native_session = pytest.importorskip("solprop_native.session")
@@ -90,7 +90,7 @@ def _case(  # noqa: PLR0913 - one choice per keyword
     controller: PIController | None = None,
     dz_init: float = 1e-3,
     dz_max: float = LENGTH,
-) -> KernelProblem:
+) -> PropagationProblem:
     """Return the soliton of the lifecycle suite with the method and rows chosen.
 
     Parameters
@@ -118,7 +118,7 @@ def _case(  # noqa: PLR0913 - one choice per keyword
 
     Returns
     -------
-    solprop.translate.problem.KernelProblem
+    solprop.translate.problem.PropagationProblem
         The problem.
     """
     grid = window()
@@ -158,7 +158,7 @@ def _driver_session(problem, request, **controls) -> Started:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -181,7 +181,7 @@ def _make_native(problem, request, **controls):
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -209,7 +209,7 @@ def _native_session(problem, request, **controls) -> Started:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -360,7 +360,7 @@ def _refused(problem, request, name, monkeypatch) -> None:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem.
     request : solprop.translate.run_request.RunRequest
         Its run request.
@@ -517,7 +517,7 @@ def test_the_native_export_is_apply_recipe_to_the_bit():
 
     problem = _case()
     rng = np.random.default_rng(47)
-    field = np.array(problem.initial.field0[0], dtype=np.complex128, copy=True)
+    field = np.array(problem.initial.field0, dtype=np.complex128, copy=True)
     parts = field.view(np.float64).reshape(*field.shape, 2)  # real, imaginary
     parts[..., ::7, 0] = -0.0
     parts[..., ::5, 1] = -0.0
@@ -595,7 +595,7 @@ def test_a_leased_state_refuses_every_live_use(name):
     state = backend._native_state  # pyright: ignore[reportPrivateUsage]
     try:
         with pytest.raises(RuntimeError, match="leased by an execution session"):
-            LEASED_CALLS[name](state, int(np.prod(problem.shape[1:])))
+            LEASED_CALLS[name](state, int(np.prod(problem.shape)))
         assert state.memory_ledger()
         assert state.cpu_execution
         assert "native_session" in session.execution_record()

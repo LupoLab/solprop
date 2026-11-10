@@ -70,7 +70,9 @@ it is qualified, [backends.md](backends.md); for the current seam,
 
 ## ADR-003 — Kernel state layout `(n_batch, n_modes, n_pol, n_omega)`
 
-- **Status:** accepted
+- **Status:** accepted; amended by [SEP 47](seps/sep-0047-run-ownership.md) §6.2, which
+  removes the nominal `n_batch` from the single-trajectory seam: the state is
+  `(n_modes, n_pol, n_omega)` and a group is a sequence of member problems
 - **Context:** Luna has different array shapes per geometry and special code paths for scalar
   vs vector polarisation and for mode-averaged vs modal propagation. Polarisation support must
   not slow single-polarisation runs; batch mode must be a first-class leading axis.
@@ -403,7 +405,7 @@ Withdrawn (development-process record, not a design decision).
   **conditionally stable**: the collar's ceiling rate is an eigenvalue of the linearised
   problem, so an explicit method needs `h·α/2` inside its stability region (DOPRI5: 3.3
   on the negative real axis). `boundaries.stable_step` returns the limit and
-  `KernelProblem.validate` warns for the two configurations that cannot find it for
+  `PropagationProblem.validate` warns for the two configurations that cannot find it for
   themselves — a replayed schedule and a step floor already past it. With the bounded
   profile the limit binds only on runs shorter than about `2·boundary_N` steps, and the
   step count matches the split factor's (456 against 459 on the reduced multimode RDW

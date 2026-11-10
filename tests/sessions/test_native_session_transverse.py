@@ -84,7 +84,7 @@ def _start(
     assert request.boundary.monitor is not None
     assert request.boundary.monitor.transverse is not None
     if start is None:
-        start = Start(field=problem.initial.field0[0], z=float(problem.initial.z))
+        start = Start(field=problem.initial.field0, z=float(problem.initial.z))
     context = {
         "grid": simulation.grid,
         "modes": simulation.modes,

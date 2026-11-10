@@ -30,7 +30,7 @@ from solprop.spatial import (
 )
 from solprop.stats import PROFILE_STATISTICS, StatsSpec, analytic_field, profile_value
 from solprop.translate.modal import Transform
-from solprop.translate.problem import KernelProblem
+from solprop.translate.problem import PropagationProblem
 from solprop.translate.spatial import (
     FluxPlan,
     SeparableOperator,
@@ -64,7 +64,7 @@ __all__ = [
 
 
 def collar_field_fraction(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     *,
     node_chunk: int | None = None,
@@ -78,7 +78,7 @@ def collar_field_fraction(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         Plain geometry, temporal scaling and scalar synthesis data.
     field : numpy.ndarray
         One internal spatial spectrum, with the problem's state dimensions.
@@ -130,7 +130,7 @@ def collar_field_fraction(
     return collar / total if total > 0 else 0.0
 
 
-def collar_block(problem: KernelProblem, node_chunk: int | None = None) -> int:
+def collar_block(problem: PropagationProblem, node_chunk: int | None = None) -> int:
     """Return how many frequency bins the collar diagnostic reconstructs at a time.
 
     A block of the physical field on every node holds at most as many complex samples,
@@ -141,7 +141,7 @@ def collar_block(problem: KernelProblem, node_chunk: int | None = None) -> int:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A Cartesian or planar problem.
     node_chunk : int or None, optional
         The backend's node chunk; ``None`` takes the host plan's automatic chunk
@@ -153,15 +153,15 @@ def collar_block(problem: KernelProblem, node_chunk: int | None = None) -> int:
         Bins per block, at least one and at most ``n_omega``.
     """
     transform = problem.transform
-    n_pol = problem.shape[2]
+    n_pol = problem.shape[1]
     chunk = plan_node_chunk(problem).chunk if node_chunk is None else node_chunk
     budget = chunk * n_pol * problem.grids.n_to
     per_bin = 3 * transform.n_nodes * n_pol
-    return int(min(problem.shape[3], max(1, budget // per_bin)))
+    return int(min(problem.shape[2], max(1, budget // per_bin)))
 
 
 def _blockwise_fluence(
-    problem: KernelProblem,
+    problem: PropagationProblem,
     field: Complex[np.ndarray, "n_modes n_pol n_omega"],
     dt: float,
     node_chunk: int,
@@ -170,7 +170,7 @@ def _blockwise_fluence(
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         A Cartesian or planar problem.
     field : numpy.ndarray
         One internal spatial spectrum.
@@ -403,7 +403,7 @@ def far_field_bands(n_x: int, n_y: int, n_slots: int, n_omega: int) -> np.ndarra
     return np.minimum(units * unit, n_columns)
 
 
-def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
+def far_field_partials(problem: PropagationProblem) -> tuple[int, int]:
     """Return the slots and bands a compiled far-field pass holds for a problem.
 
     Sized from the problem's own request at construction: its names, tables and
@@ -412,7 +412,7 @@ def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The translated problem.
 
     Returns
@@ -430,12 +430,12 @@ def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
         spec.names,
         n_apertures=spec.n_apertures,
         n_regions=spec.n_regions,
-        n_pol=problem.shape[2],
+        n_pol=problem.shape[1],
     )
     if layout is None:
         return 0, 0
     n_x, n_y = geometry.shape
-    edges = far_field_bands(n_x, n_y, layout.n_slots, problem.shape[3])
+    edges = far_field_bands(n_x, n_y, layout.n_slots, problem.shape[2])
     return layout.n_slots, edges.size - 1
 
 
@@ -452,7 +452,7 @@ class FarFieldTables:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem the backend executes.
 
     Raises
@@ -462,7 +462,7 @@ class FarFieldTables:
         admit (:func:`solprop.translate.spatial.aperture_tables`).
     """
 
-    def __init__(self, problem: KernelProblem) -> None:
+    def __init__(self, problem: PropagationProblem) -> None:
         """Form the problem's own tables once."""
         self._problem = problem
         self._spec = problem.stats_spec
@@ -552,7 +552,7 @@ def collect_spatial(  # noqa: PLR0913 - statistics context plus borrowed FFT wor
     Returns
     -------
     dict
-        Scalar or small array values, without the backend's batch axis.
+        Scalar or small array values, one trajectory's.
 
     Raises
     ------

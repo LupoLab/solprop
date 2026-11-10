@@ -100,7 +100,7 @@ def propagate(spatial_backend_class, grid, space, start, distance):
         backend.set_initial(problem.initial.field0, None)
         if distance:
             backend.propagate_to(distance)
-        return backend.observe().require_field()[0]
+        return backend.observe().require_field()
     finally:
         backend.close()
 

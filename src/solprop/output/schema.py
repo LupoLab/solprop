@@ -2011,8 +2011,7 @@ class StepStats(Displayed):
         attempts, so this is not ``row * period``.
     values : dict
         The statistics, keyed by catalogue name, each shaped ``(n_rows, *shape)`` with
-        the statistic's own shape after the row axis -- the batch axis a backend
-        carries is dropped here, as it is for the plane statistics.
+        the statistic's own shape after the row axis, as the backend's rows are.
 
     Raises
     ------
@@ -2591,8 +2590,9 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     z : float
         The accepted position, m.
     state : numpy.ndarray
-        The accepted state in the canonical layout and the internal FFT convention,
-        exactly as the backend held it.
+        The accepted state, shape ``(n_modes, n_pol, n_omega)``, in the internal FFT
+        convention, exactly as the backend held it. A file stores it with a leading
+        axis of one, the layout it has always had (SEP 47 section 6.7).
     proposal : float
         The step the controller proposed next, m.
     method : str
@@ -2612,7 +2612,8 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     rows : collections.abc.Mapping
         The engine's rows by name: the samples (``"store"``) and, for a compensated
         exponential march, the sampled states and rates and each sample's flow
-        weights.
+        weights, in the engine's own layout, which keeps a leading axis of one after
+        the row axis.
     collar_was_quiet : bool
         Whether the in-stage collar was left out, quiet, at the last attempt, which
         holds the first step after it returns to its stable step (SEP 39 section
@@ -2633,7 +2634,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     >>> import numpy as np
     >>> from solprop.output.schema import MarchSnapshot
     >>> snapshot = MarchSnapshot(
-    ...     z=0.5, state=np.ones((1, 1, 1, 4), complex), proposal=0.1, method="M()",
+    ...     z=0.5, state=np.ones((1, 1, 4), complex), proposal=0.1, method="M()",
     ...     order=2, rejections=0, last_rejected=False,
     ...     positions=np.array([0.4, 0.5]), identities=("accepted", "predicted"),
     ...     slots=np.array([0, 1]), rows={"store": np.zeros((4, 1, 1, 1, 4), complex)},
@@ -2643,7 +2644,7 @@ class MarchSnapshot:  # numpydoc ignore=PR02
     """
 
     z: float
-    state: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]
+    state: Complex[np.ndarray, "n_modes n_pol n_omega"]
     proposal: float
     method: str
     order: int

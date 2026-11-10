@@ -39,7 +39,7 @@ class _Scripted:
 
     Parameters
     ----------
-    problem : solprop.translate.problem.KernelProblem
+    problem : solprop.translate.problem.PropagationProblem
         The problem whose grid, planes and controller the march uses.
     norms : sequence of float, optional
         The error norms of the first trials, in order; later trials score
