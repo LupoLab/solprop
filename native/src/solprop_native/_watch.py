@@ -73,6 +73,9 @@ class NoticeKind(enum.IntEnum):
         The split found nothing where the state holds light.
     DIVISION : int
         Light after a launch that held none, which solprop's monitor divides by.
+    TRANSVERSE : int
+        The transverse edge's verdict, which :mod:`solprop_native._transverse`
+        formats.
     """
 
     NONE = 0
@@ -81,6 +84,7 @@ class NoticeKind(enum.IntEnum):
     CROSSING = 3
     READING = 4
     DIVISION = 5
+    TRANSVERSE = 6
 
 
 PLANE_COLUMNS = ("z", "collar_occupancy", "guard_low", "guard_high", "removed_fraction")

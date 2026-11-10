@@ -193,6 +193,45 @@ SNAPSHOT_CAPACITY = 100_000
 """Snapshot generations a repetition's store holds: every one a case asks for."""
 
 
+class _Loaded:
+    """Note when a run's session finishes loading its backend, and the counts then.
+
+    The run's session loads the launch inside ``run_problem`` (SEP 47), and the load
+    resets the backend's counters and masks and uploads the state. The timed window
+    and the counted evaluations start where they always did: once the state is
+    loaded, before the output opens and the launch plane is saved. Within the block
+    the backend's ``set_initial`` is wrapped to read the clock and the counter as it
+    returns; it is restored on exit.
+
+    Attributes
+    ----------
+    ended : int
+        ``time.perf_counter_ns()`` when the load returned.
+    calls : int or None
+        The backend's source evaluations just after the load (:func:`source_calls`).
+    """
+
+    def __init__(self, engine: Backend) -> None:
+        self._engine = engine
+        self.ended = 0
+        self.calls: int | None = None
+
+    def _load(self, *args: object, **keywords: object) -> None:
+        type(self._engine).set_initial(self._engine, *args, **keywords)  # pyright: ignore[reportArgumentType]
+        self.calls = source_calls(self._engine)
+        self.ended = time.perf_counter_ns()
+
+    def __enter__(self) -> _Loaded:
+        self._engine.set_initial = self._load  # type: ignore[method-assign]  # pyright: ignore[reportAttributeAccessIssue]
+        return self
+
+    def __exit__(self, kind: type[BaseException] | None, *rest: object) -> None:
+        del self._engine.set_initial  # pyright: ignore[reportAttributeAccessIssue]
+        if kind is None and not self.ended:
+            msg = "the run never loaded its backend, so nothing was timed"
+            raise SuiteError(msg)
+
+
 def timed_run(  # noqa: PLR0913 - the run and how it is observed
     simulation: Simulation,
     problem: KernelProblem,
@@ -215,13 +254,13 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
     """
     import numpy as np  # noqa: PLC0415
 
+    from solprop.backends.session import Start  # noqa: PLC0415
     from solprop.driver.run import run_problem  # noqa: PLC0415
     from solprop.output import MemoryOutput, SnapshotController  # noqa: PLC0415
     from solprop.output.hdf5 import HDF5Output, open_file  # noqa: PLC0415
 
     if (output == "hdf5" or snapshots is not None) and scratch is None:
         raise SuiteError("a run to HDF5 or with snapshots needs a scratch directory")
-    engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
     path = None if scratch is None else scratch / "run.h5"
     handler: Output = (
         HDF5Output(path) if output == "hdf5" and path is not None else MemoryOutput()
@@ -234,23 +273,24 @@ def timed_run(  # noqa: PLR0913 - the run and how it is observed
             scratch / "snapshots", max_snapshots=SNAPSHOT_CAPACITY
         )
         progress = Requests(controller, snapshots)
-    before = source_calls(engine)
-    started = time.perf_counter_ns()
-    run_problem(
-        problem,
-        engine,
-        handler,
-        metadata=simulation.metadata(),
-        stats_spec=problem.stats_spec,
-        progress="none" if progress is None else progress,
-        resume_history=simulation.settings.resume_history,
-        fields=retention.fields,
-        field_planes=retention.field_planes,
-        snapshots=controller,
-        boundary_monitor=monitor,
-    )
-    seconds = (time.perf_counter_ns() - started) * 1e-9
-    after = source_calls(engine)
+    loaded = _Loaded(engine)
+    with loaded:
+        run_problem(
+            problem,
+            engine,
+            handler,
+            start=Start.entrance(problem),
+            metadata=simulation.metadata(),
+            stats_spec=problem.stats_spec,
+            progress="none" if progress is None else progress,
+            resume_history=simulation.settings.resume_history,
+            fields=retention.fields,
+            field_planes=retention.field_planes,
+            snapshots=controller,
+            boundary_monitor=monitor,
+        )
+    seconds = (time.perf_counter_ns() - loaded.ended) * 1e-9
+    before, after = loaded.calls, source_calls(engine)
     if isinstance(handler, HDF5Output) and path is not None:
         handler = open_file(path)
     try:
@@ -404,13 +444,39 @@ def _warm(
     if engine is None:
         _repetition(configuration, simulation, problem, engine, retention, root)
     else:
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        if configuration["warmup"]:
-            engine.propagate_to(configuration["warmup"] * configuration["stop"])
-        # Observe once, so that the observation path's first use is warm too.
-        engine.observe(field=True)
-        engine.stats(problem.stats_spec)
+        warm_up(engine, problem, configuration["warmup"] * configuration["stop"])
     return time.perf_counter() - started
+
+
+def warm_up(engine: Backend, problem: KernelProblem, until: float) -> None:
+    """Warm a backend up, untimed, through a session from the problem's launch.
+
+    The session observes the launch plane, with its statistics and its field, so that
+    the observation path's first use is warm too, and propagates until its first
+    bounded yield or plane at or past `until`, m: a little past it, by at most one
+    yield's work. The backend stays open for the timed runs, each of which starts
+    from the launch again.
+    """
+    from solprop.backends.events import ObservationReady  # noqa: PLC0415
+    from solprop.backends.export import ExportRecipe  # noqa: PLC0415
+    from solprop.backends.session import Start  # noqa: PLC0415
+    from solprop.backends.sessions import start_session  # noqa: PLC0415
+    from solprop.translate.run_request import describe_run  # noqa: PLC0415
+
+    session = start_session(
+        engine, problem, describe_run(problem), Start.entrance(problem), owns=False
+    )
+    try:
+        while not session.finished:
+            batch = session.advance()
+            for event in batch.events:
+                if isinstance(event, ObservationReady):
+                    session.export(event.ticket, ExportRecipe(power=True, optics=False))
+            session.acknowledge(batch.receipt)
+            if session.status().z >= until:
+                break
+    finally:
+        session.close()
 
 
 def _repeat_difference(finals: list[np.ndarray]) -> float | None:
@@ -475,6 +541,8 @@ def measure(
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            # SOLPROP_BENCH_NODE_BUDGET reaches the backend through its options.
+            options=simulation.settings.execution_options(),
         )
         if single
         else None

@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 
-def reference_base_memory(
+def reference_base_memory(  # noqa: PLR0913 - the problem and the backend's own sizes
     problem: KernelProblem,
     *,
     tabulating: bool,
@@ -36,12 +36,13 @@ def reference_base_memory(
     noise: bool,
     statistics_weight: int,
     spatial_absorber: int,
+    node_chunk: int,
 ) -> dict[str, int]:
     """Return the reference backend's rows outside the general route and the flow.
 
     ``numpy_ref``'s ``memory_ledger`` returns these rows. What one step has resident at
     its peak (the reference allocates its buffers per pass); the space-domain rows are
-    sized by ``transform.node_chunk``, not by the node count.
+    sized by the backend's node chunk, not by the node count.
 
     **Method-aware** (SEP 24 section 6.5). The Runge-Kutta march holds the tableau's
     stage rows, two accumulators and the propagator pair or the six fractions' pairs.
@@ -66,6 +67,9 @@ def reference_base_memory(
         Bytes of the statistics power weight, non-negative.
     spatial_absorber : int
         Bytes of the composed radial absorber matrix, non-negative.
+    node_chunk : int
+        Nodes the backend's response pass holds at once
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`), positive.
 
     Returns
     -------
@@ -77,7 +81,7 @@ def reference_base_memory(
     stepping = _stepping_rows(problem, field_bytes, tabulating=tabulating)
     transform = problem.transform
     n_to = problem.grids.n_to
-    chunk_columns = transform.node_chunk * transform.n_pol * n_pol
+    chunk_columns = node_chunk * transform.n_pol * n_pol
     n_omega_fine = n_omega_for(n_to, problem.grid_kind)
     element = 8 if problem.grid_kind == "field" else 16
     free = problem.linear.separable is not None
@@ -91,9 +95,9 @@ def reference_base_memory(
         and any(np.any(c.tensor_weights[:, 1]) for c in problem.responses.raman_terms)
         else 1
     )
-    raman_columns = transform.node_chunk * (3 if raman_kernels == 2 else 1)
+    raman_columns = node_chunk * (3 if raman_kernels == 2 else 1)
     flags = problem.flags
-    plasma_nodes = flags.n_channels * transform.node_chunk * n_to * 8
+    plasma_nodes = flags.n_channels * node_chunk * n_to * 8
     held = bool(problem.responses.plasma_channels)
     radial = transform.geometry is not None and transform.geometry.kind == "radial"
     held_columns = chunk_columns if free or radial else n_modes * n_pol
@@ -125,7 +129,7 @@ def reference_base_memory(
         "held_current_spectra": 2 * held_columns * n_omega_fine * 16 if held else 0,
         "held_current_derivative": n_to * 8 if held else 0,
         "envelope_source_streams": 2 * chunk_columns * n_to * 16 if envelope else 0,
-        "envelope_histories": 5 * transform.node_chunk * n_to * 8 if envelope else 0,
+        "envelope_histories": 5 * node_chunk * n_to * 8 if envelope else 0,
         "envelope_current_scratch": chunk_columns * n_to * 16 if envelope else 0,
         "envelope_projected": 2 * modal_time if envelope else 0,
         "envelope_embedded_projected": 2 * modal_time if envelope and embedded else 0,
@@ -161,7 +165,7 @@ def reference_base_memory(
         "node_ionisation_rate": plasma_nodes if flags.has_plasma else 0,
         "node_fraction": plasma_nodes if flags.has_plasma else 0,
         "plasma_channel_scalars": 2 * flags.n_channels * 8,
-        "plasma_weighted_sums": 3 * transform.node_chunk * n_to * 8
+        "plasma_weighted_sums": 3 * node_chunk * n_to * 8
         if flags.n_channels > 1
         else 0,
         "node_free_current": chunk_columns * n_to * 8 if flags.has_plasma else 0,

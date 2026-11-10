@@ -794,7 +794,6 @@ def test_a_vector_state_or_a_noise_draw_refuses_a_wall_beside_it():
         loss=DEFAULT_LOSS_POLICY,
         margin=0.05,
         tol=1e-10,
-        node_budget=1,
         has_noise=False,
         dz_max=1e-5,
         reuse=None,

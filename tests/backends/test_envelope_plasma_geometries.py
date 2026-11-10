@@ -11,11 +11,17 @@ import numpy as np
 import pytest
 
 from backends.forced_threads import assert_threaded
-from backends.host_cases_envelope_plasma import build_envelope_mixture, geometry_case
+from backends.host_cases_envelope_plasma import (
+    build_envelope_mixture,
+    geometry_case,
+    geometry_options,
+)
 from backends.matched import native_thread_fields
 from bounds import assert_within, device_backend
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.backends.numpy_ref.envelope_plasma import envelope_populations
+from solprop.backends.session import ExecutionOptions
 from solprop.modes import MarcatiliMode, ModeCollection, transverse_quadrature
 from solprop.nonlinear import EnvelopePlasmaResponse
 from solprop.profiles import Linear
@@ -31,8 +37,8 @@ def envelope_mixture():
     return build_envelope_mixture()
 
 
-def run(backend_class, problem, grid):
-    backend = backend_class(problem, grid=grid)
+def run(backend_class, problem, grid, options=None):
+    backend = backend_class(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)
@@ -49,13 +55,14 @@ def test_two_population_host_geometries_and_partial_chunks(
     thread_budget_lifted, envelope_mixture, geometry, n_pol, equivalence_backend_class
 ):
     problem, grid = geometry_case(envelope_mixture, geometry, n_pol)
-    reference, ledger = run(NumpyRefBackend, problem, grid)
-    actual, _ = run(equivalence_backend_class, problem, grid)
+    options = geometry_options(geometry)
+    reference, ledger = run(NumpyRefBackend, problem, grid, options)
+    actual, _ = run(equivalence_backend_class, problem, grid, options)
     assert problem.flags.n_channels == 2
     assert np.all(np.isfinite(actual))
-    assert ledger["envelope_source_streams"] == (
-        2 * problem.transform.node_chunk * n_pol * grid.n_to * 16
-    )
+    chunk = plan_node_chunk(problem, options).chunk
+    assert chunk == (problem.transform.n_nodes if options is None else 3)
+    assert ledger["envelope_source_streams"] == 2 * chunk * n_pol * grid.n_to * 16
     # The polynomial rate's integrals converge to rounding; FFTs, two-channel
     # scans and projections contribute < 128 eps per sample per RK stage.
     bound = 128 * grid.n_to * 7 * 2 * np.finfo(float).eps
@@ -120,8 +127,7 @@ def test_vector_mode_rows_match_state_polarisation(
             dz_max=grid.length / 2,
             schedule=original.stepper.schedule,
         )
-        problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
-        result, _ = run(backend_class, problem, grid)
+        result, _ = run(backend_class, problem, grid, ExecutionOptions(node_chunk=3))
         results.append(result.reshape(2, -1))
     # The two representations sum identical Cartesian sources with different
     # matrix strides; the bound covers all temporal and quadrature reductions.
@@ -205,7 +211,7 @@ def test_envelope_statistics_use_cycle_rates_on_all_host_geometries(
     problem = replace(problem, stats_spec=spec)
     results = []
     for cls in (NumpyRefBackend, equivalence_backend_class):
-        backend = cls(problem, grid=grid)
+        backend = cls(problem, grid=grid, options=geometry_options(geometry))
         try:
             backend.set_initial(problem.initial.field0, None)
             initial = backend.stats(spec)

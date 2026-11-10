@@ -137,7 +137,7 @@ def _run(  # noqa: PLR0913
 
     from benchmarks.builders import build  # noqa: PLC0415
     from benchmarks.registry import CASES  # noqa: PLC0415
-    from benchmarks.worker import timed_run  # noqa: PLC0415
+    from benchmarks.worker import timed_run, warm_up  # noqa: PLC0415
     from solprop.backends import select  # noqa: PLC0415
     from solprop.driver.run import field_retention  # noqa: PLC0415
     from solprop.stats import StatsSpec  # noqa: PLC0415
@@ -170,13 +170,13 @@ def _run(  # noqa: PLR0913
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
     )
     try:
         retention = field_retention(
             problem, simulation.settings.fields, simulation.settings.field_planes
         )
-        engine.set_initial(problem.initial.field0, None, z=problem.initial.z)
-        engine.propagate_to(configuration["warmup"] * configuration["stop"])
+        warm_up(engine, problem, configuration["warmup"] * configuration["stop"])
         totals.march = totals.native = 0.0
         record, _ = timed_run(simulation, problem, engine, retention)
     finally:

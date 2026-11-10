@@ -123,6 +123,8 @@ class _Session:
                 NativeBackend,
             )
 
+            from solprop.backends.session import Start  # noqa: PLC0415
+
             simulation, problem = self.problems[name]
             execution: ExecutionRecord | None = (
                 None if record is None else ExecutionRecord.from_native(record)
@@ -134,9 +136,9 @@ class _Session:
                 profiles=simulation.profiles,
                 cpu_execution=execution,
                 fft_planning=planning,
+                options=simulation.settings.execution_options(),
             )
-            backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
-            step = backend.timed_step()
+            step = backend.timing_probe(Start.entrance(problem)).trial
             step()
             self.backends[key] = (backend, step)
         return self.backends[key][1]
@@ -315,6 +317,7 @@ class _Session:
                     "capture_effort": effort,
                     "time_limit": each,
                 },
+                options=simulation.settings.execution_options(),
             )
             try:
                 found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]

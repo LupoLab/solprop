@@ -90,3 +90,20 @@ def test_each_repeat_checks_the_boundaries_with_a_monitor_of_its_own(monkeypatch
     assert len(monitors) == 2
     assert all(monitor is not None for monitor in monitors)
     assert monitors[0] is not monitors[1]
+
+
+@pytest.mark.medium
+def test_each_repeat_counts_its_own_source_evaluations():
+    # The run's session loads the launch, which resets the backend's counters: each
+    # repeat counts what its own propagation evaluated, the warm-up's not included,
+    # and the same steps evaluate the same number of times.
+    configuration = CASES["smoke"].configuration("default", 1, "numpy_ref")
+    result = measure(configuration, 2, None)
+    first, second = result["repetitions"]
+    assert (first["accepted"], first["rejected"]) == (
+        second["accepted"],
+        second["rejected"],
+    )
+    assert first["source_evaluations"] == second["source_evaluations"]
+    assert first["source_evaluations"] > 0
+    assert first["seconds"] > 0.0

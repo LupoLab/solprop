@@ -232,6 +232,24 @@ def test_the_real_windows_time_and_compare_trial_steps(profiled: Path) -> None:
         serial.close()
 
 
+def test_the_windows_time_the_run_s_own_node_chunk(profiled: Path) -> None:
+    """A user's node budget reaches the timed workspaces (SEP 47 section 6.5)."""
+    from solprop.backends.node_chunk import plan_node_chunk  # noqa: PLC0415
+
+    simulation = problems.build("line")
+    problem = simulation.translate()
+    automatic = plan_node_chunk(problem).chunk
+    budget = 20 * 16 * problem.shape[2] * problem.grids.n_to * 3
+    simulation.settings = dataclasses.replace(simulation.settings, node_budget=budget)
+    expected = plan_node_chunk(problem, simulation.settings.execution_options()).chunk
+    assert expected < automatic
+    window = _Windows(simulation, None)
+    try:
+        assert window.backend.node_chunk == expected
+    finally:
+        window.close()
+
+
 def test_the_report_describes_a_kept_refinement() -> None:
     text = RefinementReport("kept", "abc", reason="none won").describe()
     assert text.startswith("refinement: kept in 0.0 s (abc)")

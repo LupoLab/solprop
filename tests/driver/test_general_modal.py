@@ -51,6 +51,7 @@ from solprop import fourier
 from solprop.backends import select
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
+from solprop.backends.session import Start
 from solprop.constants import ROOM_TEMPERATURE, C
 from solprop.coupling import CouplingModel, CouplingReport
 from solprop.driver import Simulation, prop_gnlse, prop_waveguide
@@ -1182,6 +1183,7 @@ def test_a_record_that_misnames_the_basis_is_refused_at_the_run_loop(
             problem,
             NullBackend(shape=problem.shape),
             MemoryOutput(),
+            start=Start.entrance(problem),
             metadata=metadata,
         )
 

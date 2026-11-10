@@ -102,7 +102,8 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         first = self._members[0]
         # The members read the transverse edge, or not; the runner speaks for them.
         self.reads_transverse_edge = first.reads_transverse_edge
-        super().__init__(first._problem)
+        # The members' own execution options, so the runner plans the chunk they do.
+        super().__init__(first._problem, options=first._options)
         self.name = first.name
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)
@@ -191,12 +192,19 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
             self._poll_stop()
             dz = float(schedule.steps[self._schedule_index])
             end = float(edges[self._schedule_index + 1])
-            self._member_norms = tuple(
-                march.replay_step(dz, end, slack)
-                for march in marches
-                if march is not None
-            )
+            norms: list[float] = []
+            for member, march in zip(self._members, marches, strict=True):
+                assert march is not None  # one integrator: every member has a march
+                norms.append(march.replay_step(dz, end, slack))
+                # Stepped, but neither validated nor recorded: until the common step
+                # is, this member's state is neither end of its record, so a later
+                # member's failure or a refused norm leaves it in flight, not
+                # resumable (SEP 47 section 6.7).
+                member._in_flight = (self._z, dz)
+            self._member_norms = tuple(norms)
             _refuse_invalid_norm(self._member_norms, "lockstep")
+            for member in self._members:
+                member._in_flight = None
             self._state = tuple(member._require_state() for member in self._members)
             self._schedule_index += 1
             self._z = end

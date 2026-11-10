@@ -38,7 +38,7 @@ from backends.dispersive_route_cases import run as march
 from backends.dispersive_route_cases import source as launch_source
 from bounds import assert_within, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
-from solprop.backends.numpy_ref import backend as numpy_ref_backend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import GeneralModalBasisWarning, MaterialRangeWarning
 from solprop.physdata import MaterialSelection, Mixture
@@ -142,13 +142,12 @@ def test_a_vacuum_has_exactly_no_source(evaluator):
     f"ignore::{GeneralModalBasisWarning.__module__}.{GeneralModalBasisWarning.__name__}"
 )
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
-def test_a_general_chunk_without_a_gas_node_adds_nothing(monkeypatch, evaluator):
+def test_a_general_chunk_without_a_gas_node_adds_nothing(evaluator):
     """A chunk of the solid core's nodes alone, on native as on the reference.
 
-    The original's construction, the chunk cut at the first gas node; native reads it
-    from the same function through its own import, so both are patched. With no
-    regional tensor in the core, the chunk's polarisation is zero and the evaluation
-    still agrees.
+    The original's construction, the chunk cut at the first gas node, an exact chunk
+    both backends are prepared with. With no regional tensor in the core, the chunk's
+    polarisation is zero and the evaluation still agrees.
     """
     problem, grid = general_problem(strand(ARGON_FILL), evaluator, "real")
     tables = problem.transform.modal_tables
@@ -157,9 +156,8 @@ def test_a_general_chunk_without_a_gas_node_adds_nothing(monkeypatch, evaluator)
     first_gas = int(np.flatnonzero(region == 1)[0])
     assert first_gas >= 1
     assert np.all(region[:first_gas] != 1)
-    for module in (numpy_ref_backend, native_backend):
-        monkeypatch.setattr(module, "general_node_chunk", lambda *_, **__: first_gas)
-    ours = launch_source(NativeBackend, problem, grid)
-    theirs = launch_source(NumpyRefBackend, problem, grid)
+    options = ExecutionOptions(node_chunk=first_gas)
+    ours = launch_source(NativeBackend, problem, grid, options)
+    theirs = launch_source(NumpyRefBackend, problem, grid, options)
     assert np.any(theirs)
     assert disagreement(ours, theirs) < evaluation_bound(problem)

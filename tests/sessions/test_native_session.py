@@ -17,10 +17,8 @@ structural counter of section 7.3 -- no return to Python caused by periodic rows
 a stop from another thread reaching a march in progress.
 """
 
-import dataclasses
 import threading
 import time
-from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -37,8 +35,6 @@ from sessions.executors import (
     drive,
     entrance,
     fibre,
-    soliton,
-    spy_monitor,
     window,
 )
 from solprop.backends.driver_session import DriverSession
@@ -249,6 +245,10 @@ CASES = {
         "integrator": Multistep(),
         "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
     },
+    "low-storage": {
+        "integrator": LowStorageRungeKutta(),
+        "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
+    },
     "adams-dense": {"integrator": Multistep(), "interpolate": True},
     "adams-interaction-dense": {
         "integrator": Multistep(formulation="interaction"),
@@ -257,10 +257,11 @@ CASES = {
         "rtol": 1e-8,
     },
 }
-"""Adams and Runge-Kutta, adaptive and replayed, with periodic rows and step planes;
-every temporal statistic, whose native plan the driver's backend also reads; and the
-Adams march's planes interpolated in both formulations, which the driver also
-interpolates natively, from weights its Python forms by the same native basis."""
+"""Adams and Runge-Kutta, adaptive and replayed, and the low-storage replay, with
+periodic rows and step planes; every temporal statistic, whose native plan the
+driver's backend also reads; and the Adams march's planes interpolated in both
+formulations, which the driver also interpolates natively, from weights its Python
+forms by the same native basis."""
 
 
 @pytest.mark.parametrize("recipe", [CONSUMER, STORED], ids=["consumer", "stored"])
@@ -379,17 +380,6 @@ def _refused(problem, request, name, monkeypatch) -> None:
         )
 
 
-def _edged() -> Any:
-    """Return a spy monitor carrying a transverse edge, which the session refuses.
-
-    Returns
-    -------
-    sessions.executors.SpyMonitor
-        The monitor; its edge is a placeholder, read only for its presence.
-    """
-    return dataclasses.replace(spy_monitor([]), transverse=cast("Any", object()))
-
-
 class _OwnAccept(PIController):
     """A controller that overrides a decision: a reference-only experiment."""
 
@@ -401,17 +391,6 @@ class _OwnAccept(PIController):
 @pytest.mark.parametrize(
     ("build", "name"),
     [
-        (lambda: (soliton(), {"monitor": _edged()}), "transverse edge"),
-        (
-            lambda: (
-                _case(
-                    integrator=LowStorageRungeKutta(),
-                    schedule=FixedSchedule(np.full(40, LENGTH / 40)),
-                ),
-                {},
-            ),
-            "the low-storage replay",
-        ),
         (
             lambda: (
                 _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
@@ -429,8 +408,6 @@ class _OwnAccept(PIController):
         ),
     ],
     ids=[
-        "transverse-edge",
-        "low-storage",
         "comparison",
         "controller",
         "statistic",
@@ -532,6 +509,9 @@ LEASED_CALLS = {
     "adams_march_run": lambda state, n: state.adams_march_run({}, {}),
     "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
     "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
+    "low_storage_configure": lambda state, n: state.low_storage_configure(
+        1, False, 0.0
+    ),
     "flow_guard_configure": lambda state, n: state.flow_guard_configure(
         [1.0], [1.0], 1.0, 1, 1.0
     ),

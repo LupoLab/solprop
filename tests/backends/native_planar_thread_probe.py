@@ -25,7 +25,13 @@ import numpy as np
 if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
-from backends.test_planar_native import native_class, planar_case, propagate, with_steps
+from backends.test_planar_native import (
+    chunked,
+    native_class,
+    planar_case,
+    propagate,
+    with_steps,
+)
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the fields.
@@ -45,8 +51,8 @@ if __name__ == "__main__":
     warnings.simplefilter("ignore")
     fields = {}
     for index, name in enumerate(sys.argv[2:]):
-        grid, _, problem = planar_case(name)
+        grid, space, problem = planar_case(name)
         fields[f"case{index}"], _ = propagate(
-            with_steps(problem, 10), grid, native_class()
+            with_steps(problem, 10), grid, native_class(), options=chunked(space)
         )
     np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

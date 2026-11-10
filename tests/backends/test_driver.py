@@ -820,7 +820,8 @@ DRIVER_SURFACE = {
         "grid: solprop.grid.TimeGrid | None = None, "
         "modes: collections.abc.Sequence[solprop.modes.protocol.Mode] | None = None, "
         "profiles: collections.abc.Mapping[str, solprop.profiles.ZProfile] | None = "
-        "None"
+        "None, "
+        "options: solprop.backends.session.ExecutionOptions | None = None"
         ") -> None"
     ),
     "_trial_step": "(self, z: float, dz: float) -> tuple[float, _StateT]",
@@ -976,7 +977,10 @@ DRIVER_SURFACE = {
         "(self, snapshot: solprop.output.schema.MarchSnapshot) -> str | None"
     ),
     "set_stop": "(self, flag: solprop.log.StopFlag | None) -> None",
-    "timed_step": "(self) -> collections.abc.Callable[[], object]",
+    "timing_probe": (
+        "(self, start: solprop.backends.session.Start) -> "
+        "solprop.backends.protocol.TimingProbe"
+    ),
 }
 """Every ``StepDriver`` method a subclass overrides or calls, or the run layer calls.
 
@@ -989,6 +993,10 @@ holds inside this one).
 
 DRIVER_ATTRIBUTES = (
     "_adams",
+    "_chunk_plan",
+    "_options",
+    "chunk_plan",
+    "node_chunk",
     "_low_storage",
     "_in_flight",
     "_problem",

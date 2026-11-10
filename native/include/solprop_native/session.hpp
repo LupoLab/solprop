@@ -14,6 +14,7 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <utility>
 #include <variant>
 #include <vector>
 
@@ -21,6 +22,7 @@
 #include "solprop_native/dense.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/statistics_plan.hpp"
+#include "solprop_native/transverse.hpp"
 #include "solprop_native/watch.hpp"
 
 /*
@@ -46,7 +48,11 @@
  * step, and the session takes the launch, plane and final checks, in the order of
  * section 5.3. A warning is a service barrier that remembers where it was: once the
  * caller allows it, the next advance does the rest of that point's work, once; a stop
- * is a terminal failure at the committed endpoint.
+ * is a terminal failure at the committed endpoint. A free-space run's transverse edge
+ * is the session's too (`transverse::Edge`): launched after the temporal launch, read
+ * after each committed step's temporal check where it falls due and at each plane, its
+ * collar's current taken at every committed step from the resident state. A point that
+ * raises several warnings serves each as its own barrier, in order.
  *
  * The field arithmetic and the statistics stay where the state lives, behind
  * `Resident`. Python-free and Kokkos-free: host code only.
@@ -120,6 +126,15 @@ public:
   virtual void set_collar_quiet(bool /*quiet*/) {
     throw std::logic_error("this state cannot rest its collar");
   }
+  /** The committed state's transverse edge reading (`state.edge_reading`, SEP 44): the
+      faces' sums and the columns when `faces`, with the clip and totals of every node
+      when `whole`, the totals when `totals`, a collar's strip when `strip` and its
+      current when `current`. */
+  virtual transverse::Reading edge_reading(bool /*faces*/, bool /*whole*/,
+                                           bool /*totals*/, bool /*strip*/,
+                                           bool /*current*/) {
+    throw std::logic_error("this state takes no transverse edge readings");
+  }
 };
 
 /** The boundary monitor a session owns (SEP 47 section 6.4): its configuration and,
@@ -132,6 +147,9 @@ struct MonitorPlan {
   /** Whether it resumes at a saved plane, and the stretches run since unwatched, m. */
   bool plane = false;
   std::vector<std::array<double, 2>> unwatched;
+  /** A free-space run's transverse edge, and the `transverse` record it continues. */
+  std::optional<transverse::Config> edge;
+  transverse::Resumption edge_record;
 };
 
 /** The Adams march a session runs: its policy, state, replayed schedule and engine,
@@ -192,12 +210,13 @@ struct Plan {
 struct Notice {
   enum class Kind : int {
     none = 0,
-    guard = 1,    ///< a guard occupancy (`_judge`), at the launch or at a check
-    removal = 2,  ///< the collar's removal at the end of a run (`finish`)
-    crossing = 3, ///< a replay's step passes the split collar's cap
-    reading = 4,  ///< the split found nothing where the state holds light (`_found`)
-    division = 5, ///< light after a launch that held none, where solprop's monitor
-                  ///< divides by the launch energy (`ZeroDivisionError`)
+    guard = 1,      ///< a guard occupancy (`_judge`), at the launch or at a check
+    removal = 2,    ///< the collar's removal at the end of a run (`finish`)
+    crossing = 3,   ///< a replay's step passes the split collar's cap
+    reading = 4,    ///< the split found nothing where the state holds light (`_found`)
+    division = 5,   ///< light after a launch that held none, where solprop's monitor
+                    ///< divides by the launch energy (`ZeroDivisionError`)
+    transverse = 6, ///< the transverse edge's verdict, `edge`
   };
   Kind kind = Kind::none;
   /** For a guard: whether it is the launch's judgement. */
@@ -209,6 +228,8 @@ struct Notice {
   /** A crossing: the cap and the longest step before the next check, m. */
   double cap = 0.0;
   double step = 0.0;
+  /** The transverse edge's verdict. */
+  transverse::Notice edge;
 };
 
 /** The failure a terminal event reports: the march's return and its diagnostics, which
@@ -334,12 +355,17 @@ public:
   /** The boundary monitor's record (`BoundaryMonitor.summary`'s numbers), or none
       without a monitor; takes the session's lock. */
   [[nodiscard]] std::optional<watch::Record> monitor_record() const;
+  /** The transverse edge's record (`TransverseEdge.summary`'s numbers) and its finish,
+      or none without an edge; takes the session's lock. */
+  [[nodiscard]] std::optional<std::pair<transverse::Record, transverse::Finish>>
+  edge_record() const;
   /** Continue a resumed run's monitor record before the monitor watches the run
       (`DriverSession.continue_monitor`): a continuation the plan already holds is
       kept, and a session without a monitor has nothing to continue. Takes the
       session's lock; refused once the monitor watches. */
   void continue_monitor(const watch::Resumption& record, bool plane,
-                        const std::vector<std::array<double, 2>>& unwatched);
+                        const std::vector<std::array<double, 2>>& unwatched,
+                        const transverse::Resumption& edge_record = {});
   /** Release the engine, the leased state and every buffer; idempotent. Returns
       whether the session is closed: false only when its lock could not be taken, and
       then nothing was released. Waits for an advance in hand. */
@@ -360,6 +386,8 @@ private:
   [[nodiscard]] std::uint64_t host_step() const;
   [[nodiscard]] bool at_endpoint() const;
   [[nodiscard]] bool snapshot_latched() const noexcept;
+  /** Whether the march left a step in flight in the state, which is then poisoned. */
+  [[nodiscard]] bool poisoned() const noexcept;
   [[nodiscard]] std::size_t chunk_attempts() const noexcept;
   [[nodiscard]] bool chunk_full() const noexcept;
   void take_row();
@@ -379,7 +407,7 @@ private:
   bool judged(Batch& batch, const watch::Judgement& judgement);
   bool refused_crossing(Batch& batch);
   bool attach(Batch& batch);
-  bool endpoint(Batch& batch, double target);
+  bool endpoint(Batch& batch, double target, bool edge = true);
   bool observe_plane(Batch& batch, Observation kind, std::int64_t plane, bool next);
   bool plane_rest(Batch& batch);
   bool observe_inside(Batch& batch, double target);
@@ -453,6 +481,7 @@ private:
   // The boundary monitor, whether it was attached after the launch plane, whether the
   // stages rest the collar, and where a warning barrier left the point it arose at.
   std::unique_ptr<watch::Monitor> monitor_;
+  std::unique_ptr<transverse::Edge> edge_;
   bool attached_ = false;
   bool collar_quiet_ = false;
   enum class Continuation : int {
@@ -460,12 +489,28 @@ private:
     attach = 1,
     endpoint = 2,
     plane = 3,
-    finish = 4
+    finish = 4,
+    // The transverse edge warned at the launch, an endpoint or a plane.
+    edge_launch = 5,
+    edge_endpoint = 6,
+    edge_plane = 7
   };
   Continuation continuation_ = Continuation::none;
   Observation continued_kind_ = Observation::plane;
   std::int64_t continued_plane_ = -1;
   bool continued_next_ = false;
+
+  // The transverse edge's actions (session_edge.cpp), in the same manner: a warning
+  // sets `continued` as the continuation, and `edge_proceed` serves the rest of its
+  // point up to the next.
+  [[nodiscard]] double next_step() const;
+  transverse::Reading edge_reading(bool faces, bool whole, bool current);
+  bool edge_judged(Batch& batch, const transverse::Notice& notice,
+                   Continuation continued);
+  bool edge_launch(Batch& batch);
+  bool edge_endpoint(Batch& batch);
+  bool edge_plane(Batch& batch);
+  bool edge_proceed(Batch& batch, Continuation continued);
 };
 
 // The scheduler's decisions, strict (session.cpp).

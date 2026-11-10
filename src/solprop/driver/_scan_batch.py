@@ -2,7 +2,12 @@
 #
 # SPDX-License-Identifier: GPL-3.0-or-later
 
-"""Coordinate backend-preserving batches and ordinary per-point scan captures."""
+"""Coordinate backend-preserving batches and ordinary per-point scan captures.
+
+A batch of compatible points runs as one group (SEP 47 section 6.7): this module is the
+group's service loop. It advances the group one common window at a time and saves each
+member's planes to that member's own capture, under the ordinary single-point schema.
+"""
 
 import dataclasses
 import logging
@@ -16,20 +21,29 @@ from itertools import batched
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
-from solprop.backends import select, select_batch
-from solprop.backends.protocol import Backend, BatchBackend
-from solprop.driver._scan_run import _Capture, _field_retention, _Job, _Work
+from solprop.backends import select
+from solprop.backends.events import GroupBatch, ObservationReady, Terminal
+from solprop.backends.export import ExportRecipe
+from solprop.backends.protocol import Backend
+from solprop.backends.session import GroupSession, Start
+from solprop.backends.sessions import start_group
+from solprop.driver._scan_run import (
+    _Capture,
+    _field_retention,
+    _Job,
+    _Work,
+    launch_statistics,
+)
 from solprop.driver.batch import BatchMember, compatible_groups, shared_table_bytes
 from solprop.driver.executors.batch import Batch
 from solprop.driver.executors.pool import _memory_limit, peak_rss
-from solprop.driver.run import _power_observation, plane_from_observation
+from solprop.driver.run import _history_of
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
 from solprop.output.scan import PointResult
-from solprop.output.schema import BackendRecord, RunMetadata
+from solprop.output.schema import BackendRecord, RunMetadata, SavedPlane, StepStats
 from solprop.processing.scans import _provenance
-from solprop.stats import StatsSpec
-from solprop.translate.problem import KernelProblem
+from solprop.translate.run_request import describe_run
 
 logger = logging.getLogger(__name__)
 
@@ -43,31 +57,34 @@ class _Prepared:
     metadata: RunMetadata
 
 
-def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
-    """Construct a selected backend with cleanup registered before initialisation.
+_CONSUMER = ExportRecipe(power=True, optics=False)
+"""The field a capture stores: output amplitudes in the internal FFT convention."""
+
+
+def _construct(simulation: Simulation, cleanup: ExitStack) -> Backend:
+    """Construct a member's selected backend with its cleanup registered.
 
     Parameters
     ----------
     simulation : Simulation
         Independently translated member.
     cleanup : contextlib.ExitStack
-        Owner of the backend's lifetime.
+        Owner of the backend's lifetime until a group takes it over.
 
     Returns
     -------
     solprop.backends.protocol.Backend
-        Loaded backend retaining the member's noise and parameter tables.
+        The backend, holding the member's parameter tables and no state yet.
     """
-    problem = simulation.translate()
     owner = select(
         simulation.settings.backend,
-        problem,
+        simulation.translate(),
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
     )
     cleanup.callback(owner.close)
-    owner.set_initial(problem.initial.field0, None)
     return owner
 
 
@@ -145,11 +162,10 @@ def _admit(group: Sequence[_Prepared], work: _Work, executor: Batch) -> int:
         simulation = member.simulation
         problem = simulation.translate()
         with ExitStack() as cleanup:
-            owner = _load(simulation, cleanup)
+            owner = _construct(simulation, cleanup)
+            statistics = launch_statistics(owner, problem)
             ledger = max(ledger, sum(owner.memory_ledger().values()))
-            output = max(
-                output, work._output_bytes(simulation, owner.stats(problem.stats_spec))
-            )
+            output = max(output, work._output_bytes(simulation, statistics))
             free = owner.available_device_memory()
             if free is not None:
                 device_free = free if device_free is None else min(device_free, free)
@@ -208,63 +224,119 @@ def _admit(group: Sequence[_Prepared], work: _Work, executor: Batch) -> int:
     return count
 
 
-def _save(
-    runner: BatchBackend,
+def _plane(
+    session: GroupSession,
+    member: int,
+    event: ObservationReady,
+    *,
+    keep: bool,
+) -> SavedPlane:
+    """Build the plane a member's capture stores from its observation.
+
+    Parameters
+    ----------
+    session : solprop.backends.session.GroupSession
+        The group, its batch pending.
+    member : int
+        The member's position.
+    event : solprop.backends.events.ObservationReady
+        The member's observation.
+    keep : bool
+        Whether the scan reads this plane's field. Otherwise no field crosses.
+
+    Returns
+    -------
+    solprop.output.schema.SavedPlane
+        The plane, its field in true-power amplitudes and the internal convention.
+    """
+    rows = event.step_stats
+    return SavedPlane(
+        z=event.z,
+        field=session.export(member, event.ticket, _CONSUMER) if keep else None,
+        stats=dict(event.stats),
+        step_history=_history_of(event.history),
+        step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
+        noise_phase=session.noise_phase(member, event.ticket) if keep else None,
+    )
+
+
+def _service(
+    session: GroupSession,
+    batch: GroupBatch,
     captures: Sequence[_Capture],
     errors: list[str],
-    spec: StatsSpec,
-    problems: Sequence[KernelProblem],
     *,
     keep: bool,
 ) -> None:
-    """Split observations into the existing singleton saved-plane schema.
+    """Save each running member's plane, and fail each member whose watch stopped it.
+
+    A boundary stop ends its member alone, as a lone run of it would fail (SEP 21);
+    a group-wide failure is raised, and fails every member.
 
     Parameters
     ----------
-    runner : solprop.backends.protocol.BatchBackend
-        Backend at a shared save position.
+    session : solprop.backends.session.GroupSession
+        The group, its batch pending.
+    batch : solprop.backends.events.GroupBatch
+        One common window's events.
     captures : sequence of _Capture
         Independent member outputs in dispatch order.
     errors : list of str
-        Per-member capture failures; failed captures receive no further planes.
-    spec : solprop.stats.StatsSpec
-        Shared names and windows evaluated independently for each member.
-    problems : sequence of solprop.translate.problem.KernelProblem
-        Independent member tables for the true-power output conversion.
+        Per-member failures; a failed member receives no further planes.
     keep : bool
-        Whether the scan reads this plane's field. Otherwise no member's field crosses.
+        Whether the scan reads this plane's field.
+
+    Raises
+    ------
+    BaseException
+        The group-wide failure, when the window ended the group.
     """
-    observations = runner.observe_members(field=keep)
-    statistics = runner.stats(spec)
-    planes = tuple(
-        plane_from_observation(
-            _power_observation(problems[index], observation),
-            {name: value[index : index + 1] for name, value in statistics.items()},
-        )
-        for index, observation in enumerate(observations)
+    if batch.error is not None:
+        raise batch.error
+    summary = next(
+        (
+            event.summary
+            for event in _observations(batch)
+            if not event.summary.met_tolerance
+        ),
+        None,
     )
-    for index, (capture, plane) in enumerate(zip(captures, planes, strict=True)):
-        if not errors[index]:
-            try:
-                capture.save(plane)
-            except Exception:
-                errors[index] = traceback.format_exc()
+    if summary is not None:
+        logger.warning(
+            "a batch step was too coarse for its scaled tolerance at "
+            "z = %.6e m: maximum member error norm %.3e against 1.0",
+            summary.z,
+            summary.max_norm,
+        )
+    for index, events in enumerate(batch.members):
+        for event in events:
+            if isinstance(event, Terminal) and event.error is not None:
+                if not errors[index]:
+                    errors[index] = "".join(traceback.format_exception(event.error))
+            elif isinstance(event, ObservationReady) and not errors[index]:
+                try:
+                    captures[index].save(_plane(session, index, event, keep=keep))
+                except Exception:
+                    errors[index] = traceback.format_exc()
 
 
-def _stopped(runner: BatchBackend, errors: list[str]) -> None:
-    """Fail each member whose boundary monitor stopped it, as a lone run would fail.
+def _observations(batch: GroupBatch) -> Iterator[ObservationReady]:
+    """Yield the save-plane observations of a window, in member order.
 
     Parameters
     ----------
-    runner : solprop.backends.protocol.BatchBackend
-        The batch, whose members each watch their own window (SEP 21).
-    errors : list of str
-        Per-member failures; a stopped member's becomes its stop's traceback, and it
-        receives no further planes.
+    batch : solprop.backends.events.GroupBatch
+        The window's events.
+
+    Yields
+    ------
+    solprop.backends.events.ObservationReady
+        Each member's plane, the launch excluded.
     """
-    for index, stop in enumerate(runner.member_stops):
-        if stop is not None and not errors[index]:
-            errors[index] = "".join(traceback.format_exception(stop))
+    for events in batch.members:
+        for event in events:
+            if isinstance(event, ObservationReady) and event.plane_index >= 0:
+                yield event
 
 
 def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
@@ -329,21 +401,26 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
 
     try:
         with ExitStack() as cleanup:
-            owners = [_load(member.simulation, cleanup) for member in group]
-            runner = select_batch(owners)
-            spec = group[0].simulation.translate().stats_spec
-            cleanup.callback(runner.close)
+            problems = [member.simulation.translate() for member in group]
+            owners = [_construct(member.simulation, cleanup) for member in group]
             # Each point watches its own window, as it would run alone (SEP 21).
-            runner.attach_monitors(
-                [member.simulation._boundary_monitor() for member in group]
+            session = start_group(
+                owners,
+                problems,
+                [
+                    describe_run(problem, monitor=member.simulation._boundary_monitor())
+                    for member, problem in zip(group, problems, strict=True)
+                ],
+                [Start.entrance(problem) for problem in problems],
             )
-            _stopped(runner, errors)
-            for member, attached in zip(group, runner.member_metadata(), strict=True):
+            cleanup.callback(session.close)
+            launch = session.advance()
+            for index, member in enumerate(group):
                 # The monitors were attached first, so the record holds the launch's
                 # zeros; the point keeps the closing record instead.
                 backend = {
                     name: value
-                    for name, value in attached.items()
+                    for name, value in session.execution_record(index).items()
                     if name != "boundary_monitor"
                 }
                 scratch = cleanup.enter_context(
@@ -358,42 +435,26 @@ def _run(group: Sequence[_Prepared], work: _Work) -> Iterator[PointResult]:
                 )
                 capture.retain(
                     _field_retention(capture).resolved(capture.count),
-                    tuple(member.simulation.translate().shape[1:]),
+                    tuple(problems[index].shape[1:]),
                 )
                 captures.append(capture)
             # One scan's options and one group's planes: one rule for all its members.
-            _save(
-                runner,
-                captures,
-                errors,
-                spec,
-                [member.simulation.translate() for member in group],
-                keep=captures[0].retention.keeps(0),
-            )
-            for plane, target in enumerate(
-                group[0].simulation.settings.save_planes, start=1
-            ):
-                summary = runner.propagate_to(float(target))
-                if not summary.met_tolerance:
-                    logger.warning(
-                        "a batch step was too coarse for its scaled tolerance at "
-                        "z = %.6e m: maximum member error norm %.3e against 1.0",
-                        target,
-                        summary.max_norm,
-                    )
-                _stopped(runner, errors)
-                _save(
-                    runner,
+            batch = launch
+            plane = 0
+            while True:
+                _service(
+                    session,
+                    batch,
                     captures,
                     errors,
-                    spec,
-                    [member.simulation.translate() for member in group],
                     keep=captures[0].retention.keeps(plane),
                 )
-            runner.finish_monitors()
-            # A warning raised as an error at the end fails its member alone.
-            _stopped(runner, errors)
-            records = runner.member_records
+                session.acknowledge(batch.receipt)
+                if session.finished:
+                    break
+                batch = session.advance()
+                plane += 1
+            records = [session.monitor_record(index) for index in range(len(group))]
             for index, (member, capture, error) in enumerate(
                 zip(group, captures, errors, strict=True)
             ):

@@ -38,7 +38,7 @@ import warnings
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, Protocol, cast
+from typing import TYPE_CHECKING, Final, Literal, Protocol, SupportsIndex, cast
 
 import numpy as np
 from jaxtyping import Complex, Float, Shaped
@@ -50,6 +50,7 @@ from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
 from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import resolve_name, select
+from solprop.backends.session import ExecutionOptions, Start, positive_count
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -118,6 +119,7 @@ from solprop.driver.run import (
 )
 from solprop.exceptions import (
     AdiabaticTaperWarning,
+    BackendError,
     BoundaryWarning,
     CouplingError,
     DriverError,
@@ -232,6 +234,7 @@ from solprop.output.schema import (
     FieldRetention,
     FieldsChoice,
     GridRecord,
+    MarchSnapshot,
     ModeRecord,
     NoiseRecord,
     NoiseResolution,
@@ -321,7 +324,6 @@ from solprop.translate.masks import (
     AbsorberScheme,
     noise_spectrum,
 )
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_integration import (
     integration_record,
 )
@@ -450,8 +452,40 @@ _RECIPE_EXECUTION = ("fields", "field_planes", "resume_history")
 """The settings a recipe's ``[execution]`` table holds: a change of any other one drops
 the recipe, which would no longer describe the run (SEP 41, S2)."""
 
+
+def _held_budget(value: SupportsIndex | None) -> int | None:
+    """Return a settings node budget as an ``int``, refused before translation.
+
+    Any integral budget, a NumPy integer among them, is held as an ``int``, and a
+    budget that is not one is refused when the settings are made, rather than when the
+    backend is built after the output has opened.
+
+    Parameters
+    ----------
+    value : int or None
+        The budget given, bytes.
+
+    Returns
+    -------
+    int or None
+        The budget, or ``None`` for the backend's automatic choice.
+
+    Raises
+    ------
+    solprop.exceptions.DriverError
+        If the budget is not a positive integer.
+    """
+    if value is None:
+        return None
+    try:
+        return positive_count("node_budget", value)
+    except BackendError as error:
+        raise DriverError(str(error), parameter="node_budget") from None
+
+
 _EXECUTION_SETTINGS = (
     "backend",
+    "node_budget",
     "resume_history",
     "tdse_execution",
     "fields",
@@ -682,10 +716,13 @@ class SimulationSettings(Displayed):
         low is a silent clip.
     node_budget : int or None
         Bytes of node-chunk buffers a response pass may hold
-        (``docs/dev/architecture.md`` section 13). ``None``, the default, takes 1 GiB
-        on a free-space, line or planar grid and 64 MiB otherwise
-        (:data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET`,
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET`).
+        (``docs/dev/architecture.md`` section 13). An execution setting, outside the
+        resume key: the backend plans its node chunk from it when it is prepared, and
+        it may change after translation. ``None``, the default, leaves the choice to
+        the backend, which takes 1 GiB on a free-space, line or planar grid and 64 MiB
+        otherwise (:data:`~solprop.backends.node_chunk.DEFAULT_SPATIAL_NODE_BUDGET`,
+        :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET`); an explicit budget
+        is authoritative.
     stats : solprop.stats.StatsSpec or None
         Which statistics to collect at every saved plane; ``None`` collects none.
     polarisation_taper : bool
@@ -811,7 +848,7 @@ class SimulationSettings(Displayed):
     quadrature: TransverseQuadrature | None = None
     components: Sequence[str] | None = None
     ionisation_field_range: tuple[float, float] | None = None
-    node_budget: int | None = None
+    node_budget: int | SupportsIndex | None = None
     stats: StatsSpec | None = None
     polarisation_taper: bool = False
     backend: str = "auto"
@@ -965,6 +1002,7 @@ class SimulationSettings(Displayed):
         if refusal is not None:
             raise DriverError(refusal, parameter=("fields", "field_planes"))
         object.__setattr__(self, "field_planes", tuple(self.field_planes))
+        object.__setattr__(self, "node_budget", _held_budget(self.node_budget))
         precision = _precision(self.precision)
         self._resolve_defaults(precision)
         # A backend "auto" chose is marked, so a copy in the other precision chooses
@@ -1096,6 +1134,26 @@ class SimulationSettings(Displayed):
             False when :attr:`absorber_scheme` is the route's default.
         """
         return not isinstance(self.absorber_scheme, _Defaulted)
+
+    def execution_options(self) -> ExecutionOptions:
+        """Return the execution options a backend is prepared with (SEP 47).
+
+        The node budget is an execution choice, not part of the scientific problem:
+        the translation records none, and the backend plans its node chunk from it
+        when it is prepared (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+        Returns
+        -------
+        solprop.backends.session.ExecutionOptions
+            The explicit :attr:`node_budget`, or the backend's automatic choice.
+
+        Examples
+        --------
+        >>> from solprop.driver import SimulationSettings
+        >>> SimulationSettings(node_budget=2**26).execution_options().node_budget
+        67108864
+        """
+        return ExecutionOptions(node_budget=self.node_budget)
 
     def defaults_resolution(self) -> DefaultsResolution:
         """Return which stepping choices took the route's default (#87, SEP 41).
@@ -2490,7 +2548,6 @@ class Simulation(Displayed):
                     ionisation_field_range=(
                         settings.ionisation_field_range if self._reuse is None else None
                     ),
-                    node_budget=settings.node_budget,
                     stats_spec=settings.stats,
                     shock=settings.shock,
                     prefactor_index=settings.prefactor_index,
@@ -3690,9 +3747,10 @@ class Simulation(Displayed):
                     modes=self.modes,
                     profiles=self.profiles,
                     tdse_binding=binding,
+                    options=self.settings.execution_options(),
                 )
                 restoration: dict[str, object] = {}
-                start_plane = self._prime(
+                start = self._start(
                     backend,
                     problem,
                     state,
@@ -3704,11 +3762,11 @@ class Simulation(Displayed):
                     problem,
                     backend,
                     handler,
+                    start=start,
                     metadata=metadata,
                     stats_spec=problem.stats_spec,
                     progress=progress,
                     progress_period=progress_period,
-                    start_plane=start_plane,
                     tdse_binding=binding,
                     resume_history=self.settings.resume_history,
                     fields=retention.fields,
@@ -4057,7 +4115,7 @@ class Simulation(Displayed):
                 stored.seed,
             )
 
-    def _prime(
+    def _start(
         self,
         backend: Backend,
         problem: KernelProblem,
@@ -4065,13 +4123,17 @@ class Simulation(Displayed):
         *,
         kept: bool = False,
         restoration: dict[str, object] | None = None,
-    ) -> int:
-        """Load the backend with the state the run starts from, and say where that is.
+    ) -> Start:
+        """Return where the run starts: the entrance, or the state a file resumes.
+
+        The run's session loads it (SEP 47): the field, the noise, a resume's call
+        ledgers and the method history this run continues.
 
         Parameters
         ----------
         backend : solprop.backends.protocol.Backend
-            The backend about to step.
+            The backend about to step, asked only whether its march can carry a
+            method history.
         problem : solprop.translate.problem.KernelProblem
             The translated problem, which carries the initial state.
         state : solprop.output.hdf5.ResumeState or None
@@ -4086,16 +4148,14 @@ class Simulation(Displayed):
 
         Returns
         -------
-        int
-            Index of the first save plane still to propagate to.
+        solprop.backends.session.Start
+            The start, whose ``plane_index`` is the first save plane still to propagate
+            to.
         """
         if state is None:
-            backend.set_initial(
-                problem.initial.field0,
-                _realisation(problem) if kept else None,
-                z=problem.initial.z,
+            return Start.entrance(
+                problem, noise=_realisation(problem) if kept else None
             )
-            return 0
         next_plane = _validate_resume(problem, state, self.settings.tdse_execution)
         logger.info(
             "resuming at z = %.6e m, plane %d of %d",
@@ -4105,18 +4165,13 @@ class Simulation(Displayed):
         )
         # A field-free plane resumes only a finished run, which never gets here.
         assert state.plane.field is not None
-        field = state.plane.field[np.newaxis]
+        field = state.plane.field
         if problem.transform.geometry is None:
             field = power_amplitude(
-                field, power_weight_at(problem, state.plane.z), inverse=True
-            )
-        backend.set_initial(field, None, z=state.plane.z, resume=True)
-        if state.outcome is not None:
-            backend.restore_call_ledgers(
-                state.outcome.logical_calls, state.outcome.atomic_calls
-            )
+                field[np.newaxis], power_weight_at(problem, state.plane.z), inverse=True
+            )[0]
         integrator = problem.stepper.integrator
-        record = self._continue_march(
+        record, march = self._continue_march(
             backend,
             state,
             adams=isinstance(integrator, Multistep),
@@ -4124,28 +4179,42 @@ class Simulation(Displayed):
         )
         if restoration is not None:
             restoration.update(record)
-        return next_plane
+        return Start(
+            field=field,
+            z=float(state.plane.z),
+            plane_index=next_plane,
+            march=march,
+            ledgers=None
+            if state.outcome is None
+            else {
+                "logical": state.outcome.logical_calls,
+                "atomic": state.outcome.atomic_calls,
+            },
+            resume=True,
+        )
 
-    def _continue_march(  # noqa: PLR0911 - one return per restoration
+    def _continue_march(
         self,
         backend: Backend,
         state: ResumeState,
         *,
         adams: bool = True,
         low_storage: bool = False,
-    ) -> dict[str, object]:
-        """Continue the Adams history from the file's snapshot, where one fits.
+    ) -> tuple[dict[str, object], MarchSnapshot | None]:
+        """Decide whether the Adams history continues from the file's snapshot.
 
-        Says what was restored, for the resumed execution record (SEP 47 section
-        5.5), and warns once when an Adams history the run expected is not restored:
-        omitted by the automatic size limit, or kept but not installable here. A
-        history set aside on request (``resume_history=False``) is recorded without a
-        warning.
+        Says what is restored, for the resumed execution record (SEP 47 section 5.5),
+        and warns once when an Adams history the run expected is not restored:
+        omitted by the automatic size limit, or kept where this backend's march
+        cannot carry it. A history set aside on request (``resume_history=False``) is
+        recorded without a warning. A history handed on is installed by the run's
+        session, which warns and records a reset if it cannot
+        (:func:`solprop.driver.run.run_problem`).
 
         Parameters
         ----------
         backend : solprop.backends.protocol.Backend
-            The backend, loaded at the resume position.
+            The backend, asked whether its march can carry a history.
         state : solprop.output.hdf5.ResumeState
             What the file holds.
         adams : bool, optional
@@ -4157,18 +4226,21 @@ class Simulation(Displayed):
 
         Returns
         -------
-        dict
+        record : dict
             ``"state"`` (``"restored"``, ``"reset"`` or ``"not_applicable"``),
             ``"reason"`` and ``"z"``, m; for an Adams method also ``"retention"``, what
             the file states it kept there, ``{"state": "unknown"}`` where it states
             nothing.
+        march : solprop.output.schema.MarchSnapshot or None
+            The history the run's session is to install, or ``None``.
         """
         z = state.plane.z
         if low_storage:
-            return {"state": "not_applicable", "reason": "no_method_history", "z": z}
+            record = {"state": "not_applicable", "reason": "no_method_history", "z": z}
+            return record, None
         if not adams:
             # The proposal and the norm memory start afresh (issue #596).
-            return {"state": "reset", "reason": "unsupported_method", "z": z}
+            return {"state": "reset", "reason": "unsupported_method", "z": z}, None
         execution = None if state.outcome is None else state.outcome.execution
         recorded = retention_at(execution, z)
         retention: dict[str, object] = (
@@ -4202,7 +4274,7 @@ class Simulation(Displayed):
         if self.settings.resume_history is False:
             if state.march is not None:
                 logger.info("the Adams history starts afresh: resume_history=False")
-            return reset("explicit_policy")
+            return reset("explicit_policy"), None
         # A march that cannot carry its history restarts it without having been asked
         # to: say so once, as a warning (SEP 29 section 6.6).
         refusal = backend.march_export_refusal()
@@ -4212,31 +4284,16 @@ class Simulation(Displayed):
                 SolpropWarning,
                 stacklevel=2,
             )
-            return reset("incompatible_representation")
+            return reset("incompatible_representation"), None
         if state.march is None:
-            return self._missing_history(retention, reset)
-        reason = backend.restore_march(state.march)
-        if reason is None:
-            logger.info(
-                "continuing the Adams history at order %d, %d samples",
-                state.march.order,
-                len(state.march.identities),
-            )
-            return {
-                "state": "restored",
-                "reason": "retained_history",
-                "z": z,
-                "retention": retention,
-            }
-        # Asked to continue a history this backend cannot install (another
-        # engine's rows, another build's shapes): the run is still correct to the
-        # integrator's tolerance, but it does less than was asked, so say so.
-        warnings.warn(
-            f"the Adams history starts afresh: {reason}",
-            SolpropWarning,
-            stacklevel=2,
-        )
-        return reset("incompatible_representation")
+            return self._missing_history(retention, reset), None
+        restored: dict[str, object] = {
+            "state": "restored",
+            "reason": "retained_history",
+            "z": z,
+            "retention": retention,
+        }
+        return restored, state.march
 
     @staticmethod
     def _missing_history(
@@ -5147,7 +5204,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -5439,8 +5496,9 @@ class Simulation(Displayed):
             taper costs a systematic error of the size of the field's content in the
             collar, and the rate absorber acts either way
             (``docs/guide/numerics/boundaries.md``).
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -5636,7 +5694,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -5966,8 +6024,9 @@ class Simulation(Displayed):
             taper costs a systematic error of the size of the field's content in the
             collar, and the rate absorber acts either way
             (``docs/guide/numerics/boundaries.md``).
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -6529,7 +6588,7 @@ class Simulation(Displayed):
         n_save: int | None = None,
         stats: StatsSpec | None = None,
         polarisation_taper: bool = False,
-        node_budget: int = DEFAULT_NODE_BUDGET,
+        node_budget: int | None = None,
         backend: str = "auto",
         precision: PrecisionName = "double",
         polarisation: str | float | None = None,
@@ -6810,8 +6869,9 @@ class Simulation(Displayed):
             only a backend can compute.
         polarisation_taper : bool, optional
             Whether the spectral collar tapers the nonlinear polarisation.
-        node_budget : int, optional
-            Bytes of node-chunk buffers the response pass may hold.
+        node_budget : int or None, optional
+            Bytes of node-chunk buffers the response pass may hold, an execution
+            setting; ``None``, the default, leaves the backend's automatic choice.
         backend : str, optional
             Registry name, or ``"auto"`` (the default) for ``native``, which refuses if
             it isn't installed or this processor is below its baseline. There is no
@@ -7201,12 +7261,15 @@ class Simulation(Displayed):
 
 @dataclasses.dataclass(frozen=True)
 class _LoadedRun:
-    """What a runner's march needs once its input is in the backend, and nothing more.
+    """What a runner's march needs, its input held by its start alone.
 
     Attributes
     ----------
     problem : solprop.translate.problem.KernelProblem
         The derived problem, without its input (:func:`_without_input`).
+    start : solprop.backends.session.Start
+        The input's start. The run's session takes its field, so that nothing holds
+        the input through the march (issue #447).
     handler : solprop.output.schema.Output
         Where the planes go.
     metadata : solprop.output.schema.RunMetadata
@@ -7220,6 +7283,7 @@ class _LoadedRun:
     """
 
     problem: KernelProblem
+    start: Start
     handler: Output
     metadata: RunMetadata
     retention: FieldRetention
@@ -7304,6 +7368,7 @@ class SimulationRunner(Displayed):
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
+                options=settings.execution_options(),
             )
 
     def __repr__(self) -> str:
@@ -7465,8 +7530,9 @@ class SimulationRunner(Displayed):
                 noise=noise,
                 input_identity=input_identity,
             )
-            # The load is the last to read the input, and every frame that saw it has
-            # returned but this one: the march holds no volume for it (issue #447).
+            # The start holds the input, and every frame that saw it has returned but
+            # this one; the session takes it from the start, so the march holds no
+            # volume for it (issue #447).
             del initial
             return self._march(
                 loaded, progress=progress, progress_period=progress_period
@@ -7537,11 +7603,11 @@ class SimulationRunner(Displayed):
         noise: NoiseRealisation | Literal["keep"] | None,
         input_identity: str | None,
     ) -> _LoadedRun:
-        """Derive one input's run, open its handler and load the input into the backend.
+        """Derive one input's run, open its handler and build the input's start.
 
-        The derived simulation and its problem are this frame's alone: they, the
-        converted launch of a modal route and the view of the input all go when it
-        returns.
+        The derived simulation and its problem are this frame's alone: they go when it
+        returns, and the start alone holds the converted launch of a modal route or the
+        view of the input, until the run's session takes it.
 
         Parameters
         ----------
@@ -7575,13 +7641,12 @@ class SimulationRunner(Displayed):
             handler, _ = _open_output(output, metadata, resume=False)
             retention = field_retention(problem, settings.fields, settings.field_planes)
             monitor = derived._boundary_monitor()
-            self._backend.set_initial(
-                problem.initial.field0,
-                None if isinstance(noise, str) else _realisation(problem),
-                z=problem.initial.z,
+            start = Start.entrance(
+                problem, noise=None if isinstance(noise, str) else _realisation(problem)
             )
         return _LoadedRun(
             _without_input(problem),
+            start,
             handler,
             metadata,
             retention,
@@ -7619,6 +7684,7 @@ class SimulationRunner(Displayed):
                 problem,
                 self._backend,
                 handler,
+                start=loaded.start,
                 metadata=loaded.metadata,
                 stats_spec=problem.stats_spec,
                 progress=progress,
@@ -11389,7 +11455,7 @@ _GAS_KEYWORD_DEFAULTS: Mapping[str, object] = {
     "ionisation_field_range": None,
     "polarisation": None,
     "envelope": False,
-    "node_budget": DEFAULT_NODE_BUDGET,
+    "node_budget": None,
     "taper_coupling": True,
 }
 """Every gas-filled `from_waveguide` keyword, with the value that means "not given".

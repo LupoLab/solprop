@@ -67,7 +67,7 @@ def test_species_statistics_preserve_an_inert_component_and_close(
         np.testing.assert_array_equal(values["species_ionisation"][:, 2], 0.0)
         assert np.all(values["species_density"] > 0.0)
         ledger = backend.memory_ledger()
-        assert ledger["channel_scratch"] == 2 * problem.transform.node_chunk * 4 * 8
+        assert ledger["channel_scratch"] == 2 * backend.node_chunk * 4 * 8
         assert ledger["plasma_statistics_scratch"] == problem.transform.n_nodes * 5 * 8
         assert backend.metadata()["plasma_channels"] == 2
     finally:

@@ -30,6 +30,7 @@ import numpy as np
 
 from bounds import gamma
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -191,14 +192,16 @@ class Evaluation:
     coarse: np.ndarray | None
 
 
-def reference_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
+def reference_evaluation(
+    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+) -> Evaluation:
     """Evaluate the reference's source once at the launch: its projected spectra.
 
     The reference keeps both rules' projections of its last evaluation in time; their
     unnormalised transforms are what a compiled backend's stage holds in frequency,
     where the response joins every other's.
     """
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, grid=grid, options=options)
     forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
     try:
         backend.set_initial(problem.initial.field0, None)

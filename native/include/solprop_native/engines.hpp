@@ -119,6 +119,8 @@ public:
                                  double z) override;
   std::vector<double> boundary_reading() override;
   void set_collar_quiet(bool quiet) override;
+  transverse::Reading edge_reading(bool faces, bool whole, bool totals, bool strip,
+                                   bool current) override;
 
 private:
   GeneralState& state_;

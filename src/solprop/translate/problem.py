@@ -138,9 +138,6 @@ from solprop.translate.masks import (
     noise_spectrum,
 )
 from solprop.translate.modal import (
-    BUFFERS_PER_NODE,
-    DEFAULT_NODE_BUDGET,
-    DEFAULT_SPATIAL_NODE_BUDGET,
     Transform,
     general_modal_transform,
     mode_averaged_transform,
@@ -156,7 +153,6 @@ from solprop.translate.radial import (
 )
 from solprop.translate.responses import (
     CompiledResponses,
-    ResponseStage,
     compile_responses,
     declares_harmonic_carrier,
     dispersive_regions,
@@ -200,7 +196,6 @@ __all__ = [
     "TranslationReuse",
     "assemble",
     "debug_summary",
-    "dispersive_node_buffers",
     "validate_coupled_flow",
 ]
 
@@ -2576,7 +2571,6 @@ class _Assembly:
     loss: LossPolicy
     margin: float
     tol: float
-    node_budget: int
     has_noise: bool
     dz_max: float
     reuse: "TranslationReuse | None"  # noqa: UP037 - bound after this class body
@@ -2731,7 +2725,6 @@ def _spatial_assembly(
                 z_max=build.z_max,
                 n_pol=build.n_pol,
                 collar_rate=collar_rate,
-                node_budget=build.node_budget,
                 margin=build.margin,
             )
         )
@@ -2757,11 +2750,9 @@ def _spatial_assembly(
             if reuse is not None
             else free_transform(
                 spatial_grid,
-                grid,
                 z_max=build.z_max,
                 n_pol=build.n_pol,
                 collar_rate=collar_rate,
-                node_budget=build.node_budget,
                 margin=build.margin,
             )
         )
@@ -2806,9 +2797,7 @@ def _spatial_assembly(
             spatial_grid,
             grid,
             z_max=build.z_max,
-            n_pol=build.n_pol,
             collar_rate=collar_rate,
-            node_budget=build.node_budget,
             margin=build.margin,
         )
     )
@@ -5419,389 +5408,6 @@ def _walk_tables(problem: KernelProblem) -> list[tuple[str, PiecewiseChebyshev]]
     return [(name, table) for name, table in candidates if table is not None]
 
 
-def _even_chunk(count: int, limit: int) -> int:
-    """Return the smallest chunk that covers `count` items in as few passes as `limit`.
-
-    Parameters
-    ----------
-    count : int
-        Items to cover (positive).
-    limit : int
-        Largest admitted chunk (positive).
-
-    Returns
-    -------
-    int
-        ``ceil(count / ceil(count / limit))``, at most `limit` and `count`.
-
-    Examples
-    --------
-    >>> _even_chunk(33, 32), _even_chunk(33, 33), _even_chunk(100, 30)
-    (17, 33, 25)
-    """
-    passes = -(-count // limit)
-    return -(-count // passes)
-
-
-def _balanced_chunk(transform: Transform) -> Transform:
-    """Spread the nodes evenly over the passes the admitted chunk already needs.
-
-    The budget admissions each take ``budget // per_node``, which can leave a
-    last pass of a node or two: 33 RDW nodes under a limit of 32 ran a whole
-    32-node pass and then a one-node tail on one thread, about 1.6 times the cost
-    of one 33-node pass. The same number of passes of near-equal size (17 and 16)
-    never exceeds the admitted chunk, so every budget still holds. A planar chunk
-    of whole transverse rows stays whole rows; one shorter than a row is kept.
-
-    Parameters
-    ----------
-    transform : Transform
-        Transform with its admitted chunk.
-
-    Returns
-    -------
-    Transform
-        The transform, with the smallest chunk that needs no more passes.
-    """
-    row_nodes = (
-        transform.geometry.shape[0]
-        if transform.geometry is not None and transform.geometry.kind == "slab"
-        else 1
-    )
-    rows = transform.n_nodes // row_nodes
-    rows_per_chunk, partial = divmod(transform.node_chunk, row_nodes)
-    if partial or rows_per_chunk >= rows:
-        return transform
-    chunk = _even_chunk(rows, rows_per_chunk) * row_nodes
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-def _envelope_chunk(
-    transform: Transform, n_pol: int, n_to: int, budget: int, *, enabled: bool
-) -> Transform:
-    """Include current streams and histories in envelope plasma chunk admission.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk size.
-    n_pol : int
-        State polarisation components.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
-    enabled : bool
-        Whether the compiled problem carries envelope plasma sources.
-
-    Returns
-    -------
-    Transform
-        Transform with a bounded chunk. Modal projected arrays are accounted
-        separately by backend ledgers because they do not scale with chunk nodes.
-
-    Raises
-    ------
-    TranslationError
-        If one complete node history and its sources do not fit.
-    """
-    if not enabled:
-        return transform
-    components = transform.n_pol * n_pol
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    baseline = (20 if free else 3) * 16 * components
-    # Bound both host and device storage: two complex sources, up to six float
-    # histories, per-sample angular status, and fixed256 scan totals/carries.
-    # Cartesian chunks also own projected spectra and projection scratch.
-    extra = 32 * components + 56 + (80 * components if free else 0)
-    per_node = n_to * (baseline + extra) + 16 * ((n_to + 255) // 256) + 8
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one envelope plasma source history"
-        )
-    return replace(transform, node_chunk=min(transform.node_chunk, budget // per_node))
-
-
-def _held_current_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit complete held-current histories and their nodal transforms.
-
-    Modal projected streams do not scale with the node chunk and belong to
-    total-memory admission. The allowance here includes the largest nodal
-    transform layout (radial), the band scan, Raman and dispersive buffers
-    together, so a mixed response cannot consume the same budget twice.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing spatial or modal transform and its current chunk limit.
-    responses : CompiledResponses
-        Compiled sources; unchanged when no field plasma is present.
-    n_pol : int
-        State components.
-    n_to : int
-        Fine temporal samples.
-    budget : int
-        Node workspace budget, bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with all node-dependent source buffers admitted.
-
-    Raises
-    ------
-    TranslationError
-        If one complete node, or planar transverse row, does not fit.
-    """
-    if not responses.plasma_channels:
-        return transform
-    spatial = transform.geometry is not None
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    components = transform.n_pol * n_pol
-    baseline = _FREE_COLUMN_BUFFERS if free else BUFFERS_PER_NODE
-    planar = transform.geometry is not None and transform.geometry.kind == "slab"
-    # J and its two products; three real FFT inputs and spectra; cropped nodal
-    # output. Each complex FFT row is bounded by n_to complex values, including
-    # the DC/Nyquist pair. The device band's three scalar and three component
-    # histories bound the host layouts too; tiled prefixes need one total per
-    # component per minimum-size tile. Channels reuse those histories.
-    source_bytes = (
-        components * n_to * (3 * 8 + (3 * 8 + 4 * 16 if spatial and not planar else 0))
-    )
-    histories = (
-        (3 + 3 * components) * n_to * 8
-        + components * math.ceil(n_to / 256) * 8
-        + len(responses.plasma_channels) * 4 * 8
-    )
-    radial_projection = (
-        transform.n_modes * transform.n_pol * 8 if spatial and not free else 0
-    )
-    raman = (3 * (48 * n_to + 16)) if responses.raman_terms else 0
-    dispersive = dispersive_node_buffers(responses, spatial=free)
-    per_node = (
-        (baseline + dispersive) * components * n_to * 16
-        + source_bytes
-        + histories
-        + radial_projection
-        + raman
-    )
-    row_nodes = (
-        transform.geometry.shape[0]
-        if transform.geometry is not None and transform.geometry.kind == "slab"
-        else 1
-    )
-    # A planar row contracts n_x physical nodes to n_p modal columns before its
-    # temporal FFT. Charge the two projected sources and spectra, plus a shared
-    # projection scratch, per modal column rather than per physical node.
-    # This matters when a full row is the smallest possible chunk.
-    projected_row = (
-        transform.synthesis.shape[1]
-        * components
-        * (3 * n_to * 8 + 2 * (n_to // 2 + 1) * 16)
-        if planar
-        else 0
-    )
-    per_row = per_node * row_nodes + projected_row
-    if budget < per_row:
-        raise TranslationError(
-            "node_budget cannot hold one held plasma current history"
-            " (one full transverse row for a planar grid)"
-        )
-    # Planar projection contracts complete x rows. Admit the rounded row here,
-    # before a backend would otherwise have to increase a sub-row allocation.
-    chunk = (
-        min(max(1, transform.node_chunk // row_nodes), budget // per_row) * row_nodes
-    )
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-def _raman_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit complete Raman histories, including combined envelope plasma storage.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk limit.
-    responses : CompiledResponses
-        Declared convolution channels and optional plasma streams.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per physical node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with a complete-node chunk within the workspace budget.
-    """
-    if not responses.raman_terms:
-        return transform
-    components = transform.n_pol * n_pol
-    drives = (
-        3
-        if components == 2
-        and any(np.any(term.tensor_weights[:, 1]) for term in responses.raman_terms)
-        else 1
-    )
-    free = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    # Cartesian admission already reserves three complex-equivalent Raman rows
-    # per component. Replace that allowance by the selected real drive layout.
-    baseline = (17 if free else 3) * 16 * components * n_to
-    extra = (48 * n_to + 16) * drives
-    if responses.envelope_plasma is not None:
-        extra += n_to * (32 * components + 56 + (80 * components if free else 0))
-        extra += 16 * ((n_to + 255) // 256) + 8
-    per_node = baseline + extra
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one complete Raman node history"
-        )
-    # Full and actual-width tail plans share these arrays. Opaque provider plan
-    # storage and node-independent kernels appear separately in backend ledgers.
-    chunk = min(transform.node_chunk, budget // per_node)
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
-_FREE_COLUMN_BUFFERS = 20
-"""Complex-equivalent buffers per component a Cartesian or planar column holds.
-
-The count ``free_transform`` and ``planar_transform`` admit a column by
-(``translate/free.py``); the dispersive admission adds its own to it.
-"""
-
-
-def dispersive_node_buffers(responses: CompiledResponses, *, spatial: bool) -> int:
-    """Return the buffers per node and component SEP 6's dispersive response adds.
-
-    On the fused node path a backend forms the response's products at the nodes:
-    one node buffer beside other responses for the symmetric evaluator, which a lone
-    one shares with the bare field, and two for the polynomial, whose cube and
-    derivative products take them in turn. A Cartesian or planar column also holds
-    its filtered fields and products in time and their spectra: two buffers per
-    product, the symmetric evaluator's one (a mixture's under its mixture filter) and
-    the polynomial's ``1 + 2 G`` for ``G`` groups of equal leg bound
-    (:meth:`~solprop.translate.responses.DispersiveKerrTerms.groups`), and the planar
-    nodes' one or two besides.
-
-    Parameters
-    ----------
-    responses : CompiledResponses
-        The compiled responses, with or without the dispersive leaf.
-    spatial : bool
-        Whether the route's nodes are Cartesian or planar columns.
-
-    Returns
-    -------
-    int
-        Complex-equivalent buffers per node and component; zero without the leaf.
-    """
-    leaf = responses.dispersive_kerr
-    if leaf is None:
-        return 0
-    symmetric = leaf.evaluator == "symmetric"
-    alone = (
-        set(responses.response_order) - {ResponseStage.ACCUMULATE}
-        == {ResponseStage.DISPERSIVE_KERR}
-        and responses.envelope_plasma is None
-    )
-    groups = len(leaf.groups())
-    nodes = (0 if alone and groups == 1 else 1) if symmetric else 2
-    if not spatial:
-        return nodes
-    products = groups if symmetric else 1 + 2 * groups
-    return nodes + 2 * products
-
-
-def _dispersive_chunk(
-    transform: Transform,
-    responses: CompiledResponses,
-    n_pol: int,
-    n_to: int,
-    budget: int,
-) -> Transform:
-    """Admit the dispersive response's node buffers into the chunk's budget.
-
-    Parameters
-    ----------
-    transform : Transform
-        Existing transform and baseline chunk limit.
-    responses : CompiledResponses
-        The compiled responses; nothing changes without the dispersive leaf.
-    n_pol : int
-        State polarisation components, one or two.
-    n_to : int
-        Fine temporal samples per node.
-    budget : int
-        Node workspace budget in bytes.
-
-    Returns
-    -------
-    Transform
-        Transform with a chunk whose every buffer fits the budget. A general modal
-        guide sizes its own chunk from its maps and is returned unchanged.
-
-    Raises
-    ------
-    TranslationError
-        If one node and the response's buffers do not fit.
-    """
-    if responses.dispersive_kerr is None or transform.modal_tables is not None:
-        return transform
-    spatial = transform.geometry is not None and transform.geometry.kind in (
-        "free",
-        "slab",
-    )
-    components = transform.n_pol * n_pol
-    baseline = _FREE_COLUMN_BUFFERS if spatial else BUFFERS_PER_NODE
-    extra = dispersive_node_buffers(responses, spatial=spatial)
-    per_node = (baseline + extra) * components * n_to * 16
-    if budget < per_node:
-        raise TranslationError(
-            "node_budget cannot hold one node of the dispersive electronic response"
-        )
-    chunk = min(transform.node_chunk, budget // per_node)
-    return (
-        transform
-        if chunk == transform.node_chunk
-        else replace(transform, node_chunk=chunk)
-    )
-
-
 def _state(
     field0: Complex[np.ndarray, "*shape"],
     n_omega: int,
@@ -6216,7 +5822,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     shock: bool = True,
     prefactor_index: float | None = None,
     ionisation_field_range: tuple[float, float] | None = None,
-    node_budget: int | None = None,
     spatial_grid: RadialGrid | FreeGrid | PlanarGrid | None = None,
     medium: SpatialMedium | None = None,
     margin: float = DEFAULT_MARGIN,
@@ -6341,11 +5946,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         The GNLSE passes 1.0, leaving its power normalisation and Phi unchanged.
     ionisation_field_range : tuple of float or None, optional
         Field amplitudes in V/m a plasma response's rate table must cover.
-    node_budget : int or None, optional
-        Bytes of node-chunk buffers a multimode response pass may hold. ``None``
-        takes :data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET` on a
-        free-space, line or planar grid and
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET` otherwise.
     spatial_grid : RadialGrid, FreeGrid, PlanarGrid or None, optional
         Radial or Cartesian geometry, or the hybrid planar grid
         (:class:`solprop.modes.slab.PlanarGrid`); requires ``modes=None`` and a bulk
@@ -6450,12 +6050,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     >>> problem.flags.single_mode, problem.linear.n_intervals
     (True, 1)
     """
-    if node_budget is None:
-        node_budget = (
-            DEFAULT_SPATIAL_NODE_BUDGET
-            if isinstance(spatial_grid, FreeGrid | PlanarGrid)
-            else DEFAULT_NODE_BUDGET
-        )
     _refuse_a_wall_off_the_capillary_route(
         wall,
         general=general is not None,
@@ -6545,7 +6139,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
         loss=loss,
         margin=margin,
         tol=tol,
-        node_budget=node_budget,
         has_noise=noise is not None,
         noise_model="none" if noise is None else noise.model,
         dz_max=dz_max,
@@ -6585,7 +6178,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
                     z_max=z_max,
                     n_pol=n_pol,
                     components=components,
-                    node_budget=node_budget,
                     margin=margin,
                     tol=tol,
                 )
@@ -6631,23 +6223,6 @@ def assemble(  # noqa: PLR0913, PLR0915 - one keyword per physics object of a ru
     # SEP 6, section 4.10: classified once, at translation, on the whole active band;
     # a field reaching beyond a gas's support is logged here and never refused.
     dispersive_regions(responses, grid, vector=transform.n_pol * n_pol > 1)
-    transform = _envelope_chunk(
-        transform,
-        n_pol,
-        grid.n_to,
-        node_budget,
-        enabled=compiled.envelope_plasma is not None,
-    )
-    transform = _dispersive_chunk(
-        _raman_chunk(transform, compiled, n_pol, grid.n_to, node_budget),
-        compiled,
-        n_pol,
-        grid.n_to,
-        node_budget,
-    )
-    transform = _balanced_chunk(
-        _held_current_chunk(transform, compiled, n_pol, grid.n_to, node_budget)
-    )
     initial = _power_initial(
         Initial(
             field0=state,
@@ -7011,7 +6586,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
     z_max: float,
     n_pol: int,
     components: Sequence[str] | None,
-    node_budget: int,
     margin: float,
     tol: float,
 ) -> Transform:
@@ -7032,8 +6606,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
     components : sequence of str or None
         The transverse components the rule resolves, or ``None`` for the union of
         the modes' nonzero components at the entrance (:func:`_components`).
-    node_budget : int
-        Bytes of node-chunk buffers a multimode response pass may hold.
     margin : float
         Fraction of `z_max` the tables extend beyond the end.
     tol : float
@@ -7089,7 +6661,6 @@ def _transform(  # noqa: PLR0913 - one call site, and each argument is a distinc
             grid,
             z_max=z_max,
             components=resolved,
-            node_budget=node_budget,
             margin=margin,
             tol=tol,
         )

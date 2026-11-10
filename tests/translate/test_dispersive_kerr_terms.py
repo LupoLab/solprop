@@ -16,7 +16,12 @@ import logging
 import numpy as np
 import pytest
 
-from solprop.exceptions import TranslationError
+from solprop.backends.node_chunk import (
+    BUFFERS_PER_NODE,
+    _dispersive_chunk,
+    dispersive_node_buffers,
+)
+from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.raman import response_for
@@ -27,12 +32,7 @@ from solprop.profiles import Constant
 from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import PIController
-from solprop.translate.modal import BUFFERS_PER_NODE
-from solprop.translate.problem import (
-    _dispersive_chunk,
-    assemble,
-    dispersive_node_buffers,
-)
+from solprop.translate.problem import assemble
 from solprop.translate.responses import ResponseStage, compile_responses
 from solprop.translate.stage import scalars
 
@@ -323,25 +323,26 @@ def test_node_admission_counts_the_dispersive_node_buffers(
         quadrature=transverse_quadrature([mode], n_r=8),
         density=Constant(2.5e25),
     )
-    transform = dataclasses.replace(
-        problem.transform, node_chunk=problem.transform.n_nodes
-    )
-    assert transform.n_nodes > 2
+    transform = problem.transform
+    whole = transform.n_nodes
+    assert whole > 2
     per_node = (BUFFERS_PER_NODE + extra) * field_grid.n_to * 16
     assert (
         _dispersive_chunk(
-            transform, problem.responses, 1, field_grid.n_to, 2 * per_node
-        ).node_chunk
+            whole, transform, problem.responses, 1, field_grid.n_to, 2 * per_node
+        )
         == 2
     )
-    with pytest.raises(TranslationError, match="dispersive electronic response"):
+    with pytest.raises(BackendError, match="dispersive electronic response"):
         _dispersive_chunk(
-            transform, problem.responses, 1, field_grid.n_to, per_node - 1
+            whole, transform, problem.responses, 1, field_grid.n_to, per_node - 1
         )
     without = problem_for(field_grid, mode, [KerrResponse(1e-51)])
     assert (
-        _dispersive_chunk(without.transform, without.responses, 1, field_grid.n_to, 1)
-        is without.transform
+        _dispersive_chunk(
+            whole, without.transform, without.responses, 1, field_grid.n_to, 1
+        )
+        == whole
     )
 
 
@@ -377,14 +378,15 @@ def test_node_admission_counts_a_symmetric_mixture_as_one_product(
         dz_init=1e-3,
         quadrature=transverse_quadrature([mode], n_r=8),
     )
-    transform = dataclasses.replace(
-        problem.transform, node_chunk=problem.transform.n_nodes
-    )
+    transform = problem.transform
+    whole = transform.n_nodes
     per_node = (BUFFERS_PER_NODE + extra) * field_grid.n_to * 16
-    admitted = _dispersive_chunk(transform, compiled, 1, field_grid.n_to, 2 * per_node)
-    assert admitted.node_chunk == 2
-    with pytest.raises(TranslationError, match="dispersive electronic response"):
-        _dispersive_chunk(transform, compiled, 1, field_grid.n_to, per_node - 1)
+    admitted = _dispersive_chunk(
+        whole, transform, compiled, 1, field_grid.n_to, 2 * per_node
+    )
+    assert admitted == 2
+    with pytest.raises(BackendError, match="dispersive electronic response"):
+        _dispersive_chunk(whole, transform, compiled, 1, field_grid.n_to, per_node - 1)
 
 
 @pytest.mark.parametrize(
@@ -412,10 +414,16 @@ def test_a_free_column_holds_the_products_in_time_and_frequency(evaluator, produ
     )
     nodes = 0 if evaluator == "symmetric" else 2
     per_column = (20 + nodes + 2 * products) * grid.n_to * 16
+    transform = problem.transform
     assert (
         _dispersive_chunk(
-            problem.transform, problem.responses, 1, grid.n_to, 3 * per_column
-        ).node_chunk
+            transform.n_nodes,
+            transform,
+            problem.responses,
+            1,
+            grid.n_to,
+            3 * per_column,
+        )
         == 3
     )
 

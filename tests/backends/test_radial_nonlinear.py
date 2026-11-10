@@ -18,6 +18,7 @@ from backends.test_polarised_runs import plasma_work_bound
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import EPS0, C
 from solprop.exceptions import BackendError, TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, RadialGrid
@@ -105,8 +106,8 @@ LENGTH = 1e-4
 CHI3 = 1e-22
 
 
-def derivative(spatial_backend_class, problem, grid):
-    backend = spatial_backend_class(problem, grid=grid)
+def derivative(spatial_backend_class, problem, grid, options=None):
+    backend = spatial_backend_class(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         if isinstance(backend, NumpyRefBackend):
@@ -512,16 +513,15 @@ def test_radial_chunked_nonlinear_transform_matches_the_full_rule(
 ):
     _, grid, space, start, responses, density = nonlinear_case
     problem = make_problem(grid, space, start, responses, density=density)
-    chunked = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
-    )
     # Repartitioning changes the reduction association only; its two dense sums
     # and temporal transforms are bounded before either derivative is evaluated.
     bound = ladder_bound(
         spatial_backend_class.name, gamma(64 * space.n_r + 32 * grid.n_to), grid.n_to, 1
     )
     reference = derivative(spatial_backend_class, problem, grid)
-    actual = derivative(spatial_backend_class, chunked, grid)
+    actual = derivative(
+        spatial_backend_class, problem, grid, ExecutionOptions(node_chunk=chunk)
+    )
     assert_allclose(actual, reference, rtol=0, atol=bound * np.max(np.abs(reference)))
     record_metric(
         request,

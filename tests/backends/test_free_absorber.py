@@ -18,6 +18,7 @@ from scipy.linalg import expm
 from backends.test_radial_absorber import LENGTH, assembled, rk_bound
 from backends.test_radial_nonlinear import derivative
 from bounds import gamma
+from solprop.backends.session import ExecutionOptions
 from solprop.backends.spatial import collar_field_fraction
 from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.constants import C
@@ -103,10 +104,9 @@ def test_cartesian_absorber_is_the_physical_multiplication_rate(
     )
     expected = absorption @ start[:, :, index]
     problem = problem_for(free_absorber, 8)
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+    actual = derivative(
+        spatial_backend_class, problem, grid, ExecutionOptions(node_chunk=7)
     )
-    actual = derivative(spatial_backend_class, problem, grid)
     assert np.max(np.abs(actual[:, :, index] - expected)) < bound
     record_metric(
         request,
@@ -199,7 +199,6 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
     problem = dataclasses.replace(
         problem,
         responses=dataclasses.replace(problem.responses, absorber_scheme="split_step"),
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
     )
     dz = LENGTH / 8
     bound = gamma(128 * (space.n_columns + grid.n_t)) * np.max(np.abs(start))
@@ -220,7 +219,9 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
     expected = (
         np.fft.fft2(temporal, axes=(0, 1)).reshape(start.shape) * grid.active_mask
     )
-    backend = spatial_backend_class(problem, grid=grid)
+    backend = spatial_backend_class(
+        problem, grid=grid, options=ExecutionOptions(node_chunk=7)
+    )
     try:
         backend.set_initial(problem.initial.field0, None)
         if backend.name == "native":

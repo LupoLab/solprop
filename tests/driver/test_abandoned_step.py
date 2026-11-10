@@ -21,6 +21,7 @@ from march_bounds import assert_matched, march_bound
 from solprop.backends.driver import StepDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.driver.run import run_problem
 from solprop.exceptions import DriverError, StopRequested
@@ -184,11 +185,11 @@ def test_a_stop_without_a_checkpoint_does_not_say_one_was_written(caplog):
         simulation.runner() as runner,
     ):
         backend = runner.backend
-        backend.set_initial(simulation.translate().initial.field0, None)
         run_problem(
             simulation.translate(),
             backend,
             _NoCheckpoints(),
+            start=Start.entrance(simulation.translate()),
             metadata=simulation.metadata(),
             progress=StopAtTheFirstPlane(),
             fields="none",

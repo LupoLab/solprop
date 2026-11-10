@@ -21,20 +21,27 @@ the same tests.
   native backend owns the run, its boundary monitor included, whose decisions and
   record are native (:attr:`Executor.native_monitor`); it evaluates every
   periodic-capable statistic natively.
+- ``native-session-low-storage`` is the native execution session replaying the same
+  problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
+  low-storage march (SEP 47 section 6.3), whose loop the native session owns.
 - ``scripted-host`` is the same script on the reference's own driver, in the
   reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
   failures, in-flight failures and warnings are chosen by the test.
 
 The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` on its
-768-bin window, over 2 cm in four planes: a few dozen attempts on any executor.
+768-bin window, over 2 cm in four planes: a few dozen attempts on any executor. A
+free-space run's transverse edge (SEP 40 section 5.3) is the re-review's tilted packet
+on its periodic line (:func:`edged`), which an executor starts with that run's grid
+(``context``).
 """
 
+import dataclasses
 import functools
 import os
 import warnings
-from collections.abc import Callable, Collection
-from dataclasses import dataclass, field
+from collections.abc import Callable, Collection, Mapping
+from dataclasses import dataclass, field, replace
 from typing import Any, Protocol
 
 import numpy as np
@@ -62,14 +69,22 @@ from solprop.backends.session import (
     Start,
 )
 from solprop.grid import EnvelopeGrid
-from solprop.monitor import BoundaryMonitor
+from solprop.monitor import BoundaryCheck, BoundaryMonitor
 from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import Multistep
+from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import KernelProblem, assemble
-from solprop.translate.run_request import RunRequest
+from solprop.translate.run_request import (
+    IntegrationSpec,
+    MethodKind,
+    ReplaySpec,
+    RunRequest,
+    describe_run,
+)
 
 BETA2 = -11.83e-27  # s^2/m, as tests/backends/conftest.py
 GAMMA = 0.11  # 1/(W m)
@@ -81,6 +96,9 @@ LENGTH = 0.02
 
 PLANES = (LENGTH / 4, LENGTH / 2, 3 * LENGTH / 4, LENGTH)
 """The save planes, m."""
+
+LOW_STORAGE_STEPS = 40
+"""The steps of the low-storage executor's uniform schedule over :data:`LENGTH`."""
 
 FACTOR = 2.0
 """What a scripted trial multiplies the state by: a power of two, so the field after
@@ -305,9 +323,11 @@ class Factory(Protocol):
         *,
         stop: object | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
+        context: Mapping[str, Any] | None = None,
         **script: Any,
     ) -> Started:
-        """Return a started session; `script` is for the scripted executor alone."""
+        """Return a started session; `script` is for the scripted executor alone, and
+        `context` (the grid and modes) for a problem other than the soliton."""
         ...
 
 
@@ -331,8 +351,10 @@ def _over_driver(
         The factory.
     """
 
-    def start_session(problem, request, start, *, stop=None, listener=None, **script):
-        driver = make(problem, **script)
+    def start_session(
+        problem, request, start, *, stop=None, listener=None, context=None, **script
+    ):
+        driver = make(problem, context=context, **script)
         reads = [0]
         observe = driver.observe
 
@@ -365,19 +387,36 @@ def _selected(name: str) -> Callable[..., Any]:
         The constructor; it takes no script.
     """
 
-    def make(problem: KernelProblem) -> Any:
-        return select(name, problem, grid=window(), modes=[fibre().mode])
+    def make(problem: KernelProblem, *, context: Mapping[str, Any] | None) -> Any:
+        return select(
+            name, problem, **(_soliton_context() if context is None else context)
+        )
 
     return make
 
 
-def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
+def _soliton_context() -> dict[str, Any]:
+    """Return the soliton's grid and mode, as a backend takes them.
+
+    Returns
+    -------
+    dict
+        ``grid`` and ``modes``.
+    """
+    return {"grid": window(), "modes": [fibre().mode]}
+
+
+def _host_scripted(
+    problem: KernelProblem, *, context: Mapping[str, Any] | None, **script: Any
+) -> HostSessionScript:
     """Return a scripted driver on the reference's own driver for a problem.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The problem.
+    context : collections.abc.Mapping or None
+        Refused: a script runs the soliton alone.
     **script
         The outcomes, as :class:`SessionScript` takes them.
 
@@ -386,16 +425,21 @@ def _host_scripted(problem: KernelProblem, **script: Any) -> HostSessionScript:
     HostSessionScript
         The driver.
     """
+    assert context is None, "a script runs the soliton alone"
     return HostSessionScript(problem, grid=window(), **script)
 
 
-def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
+def _scripted(
+    problem: KernelProblem, *, context: Mapping[str, Any] | None, **script: Any
+) -> SessionScript:
     """Return a scripted driver for a problem.
 
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
         The problem.
+    context : collections.abc.Mapping or None
+        Refused: a script runs the soliton alone.
     **script
         The outcomes, as :class:`SessionScript` takes them.
 
@@ -404,10 +448,13 @@ def _scripted(problem: KernelProblem, **script: Any) -> SessionScript:
     SessionScript
         The driver.
     """
+    assert context is None, "a script runs the soliton alone"
     return SessionScript(problem, grid=window(), **script)
 
 
-def _native_session(problem, request, start, *, stop=None, listener=None, **script):
+def _native_session(
+    problem, request, start, *, stop=None, listener=None, context=None, **script
+):
     """Start a native execution session (SEP 47's prototype) for a problem.
 
     Parameters
@@ -422,6 +469,8 @@ def _native_session(problem, request, start, *, stop=None, listener=None, **scri
         The stop token.
     listener : callable or None, optional
         The attempt listener.
+    context : collections.abc.Mapping or None, optional
+        The grid and modes of a problem other than the soliton.
     **script
         Refused: the native session's outcomes are not scripted.
 
@@ -437,12 +486,84 @@ def _native_session(problem, request, start, *, stop=None, listener=None, **scri
         problem,
         request,
         start,
-        grid=window(),
-        modes=[fibre().mode],
         stop=stop,
         listener=listener,
+        **(_soliton_context() if context is None else context),
     )
     return Started(session, field_reads=lambda: session.native.status().exports)
+
+
+def low_storage(
+    problem: KernelProblem, request: RunRequest
+) -> tuple[KernelProblem, RunRequest]:
+    """Return a problem and its request replayed by the low-storage march.
+
+    The same problem and policies, its planes replayed on a uniform schedule of
+    :data:`LOW_STORAGE_STEPS` steps over :data:`LENGTH` with
+    :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+
+    Returns
+    -------
+    tuple
+        The replayed problem and its request.
+    """
+    stepper = problem.stepper
+    schedule = FixedSchedule.uniform(
+        float(problem.initial.z),
+        stepper.z_end,
+        LENGTH / LOW_STORAGE_STEPS,
+        save_planes=list(stepper.save_planes),
+    )
+    method = LowStorageRungeKutta()
+    replayed = dataclasses.replace(
+        problem,
+        stepper=dataclasses.replace(stepper, integrator=method, schedule=schedule),
+    )
+    integration = IntegrationSpec(
+        kind=MethodKind.LOW_STORAGE,
+        tableau=request.integration.tableau,
+        method=method,
+        propagator_mode=request.integration.propagator_mode,
+    )
+    return replayed, dataclasses.replace(
+        request, integration=integration, replay=ReplaySpec(schedule)
+    )
+
+
+def _native_low_storage(problem, request, start, *, stop=None, listener=None, **script):
+    """Start a native execution session replaying a problem by the low-storage march.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem, whose planes the replay lands on (:func:`low_storage`).
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    stop : object or None, optional
+        The stop token.
+    listener : callable or None, optional
+        The attempt listener.
+    **script
+        Refused: the native session's outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        The session, counting the fields it exports natively.
+    """
+    replayed, policies = low_storage(problem, request)
+    return _native_session(
+        replayed, policies, start, stop=stop, listener=listener, **script
+    )
 
 
 MONITOR = "monitor"
@@ -453,12 +574,48 @@ STATISTICS = "statistics"
 every periodic-capable one as a periodic row (SEP 47 section 6.4); a scripted driver
 reports positions in their place."""
 
+TRANSVERSE = "transverse"
+"""The capability of watching a free-space run's transverse edge (SEP 40 section 5.3):
+its reads on their spacing, held on the steps, and its judgement (:func:`edged`)."""
+
 DENSE = "dense output"
 """The capability of interpolating save planes inside the steps that cross them (SEP 14
-phase 3); a scripted driver's trials hold no stages to interpolate."""
+phase 3); a scripted driver's trials hold no stages to interpolate, and a replay lands
+on its planes."""
 
-CAPABILITIES = frozenset({MONITOR, STATISTICS, DENSE})
+CAPABILITIES = frozenset({MONITOR, STATISTICS, TRANSVERSE, DENSE})
 """Every capability a test may need of an executor."""
+
+
+def edged(check: BoundaryCheck) -> tuple[KernelProblem, RunRequest, dict[str, Any]]:
+    """Return the re-review's tilted packet, edged, with its context.
+
+    The packet of ``tests/test_transverse_reads.py`` on its 256-sample periodic line,
+    marched by Runge-Kutta over 1 mm in two planes; under the default budget the edge
+    stops it, and a relaxed one reads it to the end.
+
+    Parameters
+    ----------
+    check : solprop.monitor.BoundaryCheck
+        The run's thresholds.
+
+    Returns
+    -------
+    tuple
+        The problem, without statistics, its monitored request, and the grid and modes
+        an executor starts it with.
+    """
+    from test_transverse_reads import REREVIEW, packet_run  # noqa: PLC0415
+
+    simulation = packet_run(
+        REREVIEW,
+        check=check,
+        planes=[REREVIEW.length / 2, REREVIEW.length],
+        backend="numpy_ref",
+    )
+    problem = replace(simulation.translate(), stats_spec=StatsSpec())
+    request = describe_run(problem, monitor=simulation._boundary_monitor())
+    return problem, request, {"grid": simulation.grid, "modes": simulation.modes}
 
 
 def _one_thread() -> bool:
@@ -556,11 +713,18 @@ EXECUTORS: dict[str, Executor] = {
         requires="solprop_native",
         native_monitor=True,
     ),
+    "native-session-low-storage": Executor(
+        "native-session-low-storage",
+        _native_low_storage,
+        requires="solprop_native",
+        capabilities=CAPABILITIES - {DENSE},
+        native_monitor=True,
+    ),
     "scripted-host": Executor(
         "scripted-host",
         _over_driver(_host_scripted, host_state=True, session=HostSession),
         scripted=True,
-        capabilities=CAPABILITIES - {DENSE},
+        capabilities=frozenset({MONITOR, STATISTICS}),
     ),
 }
 """Every executor of the suite, by name."""

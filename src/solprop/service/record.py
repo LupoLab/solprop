@@ -24,6 +24,8 @@ it, and whoever can write there can stop it. Its state is read from these files
 (:func:`summary`), never kept by a daemon.
 """
 
+from __future__ import annotations
+
 import contextlib
 import os
 import queue
@@ -35,10 +37,15 @@ import time
 from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, Final
+from typing import TYPE_CHECKING, Any, Final
 
 from solprop.service.frames import encode, split_frames
 from solprop.service.messages import TERMINAL, Event, ServiceError
+
+if TYPE_CHECKING:
+    # Only named here: this module stays light (no propagation imports), and the
+    # worker that runs the propagation makes the token.
+    from solprop.backends.session import StopToken
 
 __all__ = [
     "EVENTS",
@@ -469,7 +476,7 @@ def clear_stop(folder: Path) -> None:
 
 def watch_stop(
     folder: Path,
-    stop: threading.Event,
+    stop: StopToken,
     done: threading.Event,
     *,
     owner: tuple[int, str | None] | None = None,
@@ -480,8 +487,10 @@ def watch_stop(
     ----------
     folder : pathlib.Path
         The run's folder.
-    stop : threading.Event
-        The run's stop flag (solprop's ``stop=``).
+    stop : solprop.backends.session.StopToken
+        The run's stop token (solprop's ``stop=``). Setting it from this thread
+        reaches the run's session through the token's listeners at its next safe
+        boundary.
     done : threading.Event
         Set when the run ends, which ends the watch.
     owner : tuple or None, optional

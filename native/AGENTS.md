@@ -135,13 +135,14 @@ the gate.
   the loops that need it. No umbrella fast-math, `nnan`/`ninf`, `nsz`, approximate
   functions or reciprocals, or flush-to-zero; the `__FAST_MATH__` refusal stays.
   The marches' and the session's strict files (`adams_march.cpp`, `watch.cpp`,
-  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `dense.cpp`) are
-  compiled with `-ffp-contract=off` and carry `#pragma GCC optimize("fp-contract=off")`,
-  so that GCC never inlines them into a contracting caller. Their probes are checked in
-  the installed build and the wheel's disassembly is scanned for a fused instruction
+  `rk_march.cpp`, `session.cpp`, `session_statistics.cpp`, `low_storage.cpp`,
+  `transverse.cpp`, `session_edge.cpp`, `dense.cpp`) are compiled with
+  `-ffp-contract=off` and carry `#pragma GCC optimize("fp-contract=off")`, so that GCC
+  never inlines them into a contracting caller. Their probes are checked in the
+  installed build and the wheel's disassembly is scanned for a fused instruction
   (`ci/check_strict_fma.py`, solprop #135): a new strict function goes in one of those
-  files' namespaces (`march::`, `watch::`, `rk::`, `session::`, `statistics::`,
-  `dense::`) to be covered.
+  files' namespaces (`march::`, `watch::`, `rk::` with `rk::low_storage::`,
+  `session::`, `statistics::`, `transverse::`, `dense::`) to be covered.
   CUDA and HIP builds leave the strict blocks empty and follow their compilers'
   contraction defaults, held to the measured device envelopes (solprop's ADR-049,
   amended) until device round-to-nearest helpers land.

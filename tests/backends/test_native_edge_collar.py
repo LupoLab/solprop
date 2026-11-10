@@ -23,6 +23,7 @@ from bounds import fft_bound
 from solprop import transverse_monitor
 from solprop.backends.driver import StepDriver
 from solprop.backends.memory import low_storage_stage_register
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.registry import available, select
 from solprop.boundaries import SpatialAbsorber
 from solprop.driver import Simulation, SimulationSettings
@@ -171,9 +172,11 @@ def _case(
     )
 
 
-def node_chunk(problem: Any) -> int:
-    """Return how many nodes a pass of a problem's march takes at once."""
-    return int(problem.transform.node_chunk)
+def node_chunk(simulation: Simulation) -> int:
+    """Return how many nodes a pass of a simulation's march takes at once."""
+    return plan_node_chunk(
+        simulation.translate(), simulation.settings.execution_options()
+    ).chunk
 
 
 def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
@@ -187,6 +190,7 @@ def _attached(simulation: Simulation, state: np.ndarray) -> tuple[Any, Any]:
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            options=simulation.settings.execution_options(),
         ),
     )
     backend.set_initial(state, None)
@@ -657,7 +661,7 @@ def test_the_smallest_node_chunk_reads_what_the_default_reads(route: str) -> Non
         backend.close()
     budget = 20 * 16 * problem.shape[2] * problem.grids.n_to
     small = _case(route, node_budget=budget)
-    assert node_chunk(small.translate()) < node_chunk(problem)
+    assert node_chunk(small) < node_chunk(simulation)
     backend, edge = _attached(small, state)
     try:
         read = backend._edge_reading(

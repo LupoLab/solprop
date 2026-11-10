@@ -108,6 +108,9 @@ public:
   virtual void extend(double /*z*/, double /*dz*/) {
     throw std::logic_error("this engine holds no dense extension");
   }
+  /** Whether a step that overwrites the state in place was left partway: the committed
+      state is then lost (the low-storage march, solprop SEP 47 section 5.5). */
+  [[nodiscard]] virtual bool in_flight() const noexcept { return false; }
 };
 
 /** Where the floor stopped a march (SEP 45 section 4.3). */
