@@ -550,7 +550,8 @@ private:
 [[nodiscard]] std::uint64_t steps_to_next(std::uint64_t period, std::uint64_t count);
 /** `solprop.backends.export.apply_recipe` over `n` elements of `n_omega` bins: `out`
     from `state`, both interleaved, the weight's square root when `scale`, then
-    `(-1)^k conj` when `optics`. */
+    `(-1)^k conj` when `optics`. Each element is read before it is written, so `out`
+    may be `state` itself (a device export converts in place). */
 void apply_recipe(const double* state, std::size_t n, std::size_t n_omega,
                   const double* weight, bool scale, bool optics, double* out);
 /** `a b + c` as this translation unit rounds it (solprop #135's witness); never

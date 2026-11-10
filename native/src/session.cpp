@@ -985,12 +985,11 @@ void Session::export_field(const std::uint64_t sequence, const std::uint64_t gen
       throw std::domain_error("power weights must be positive and finite");
   }
   const double* state = resident_->host_field();
-  std::vector<double> staged;
   if (state == nullptr) {
-    // A device state crosses to the host first; the recipe follows in place.
-    staged.resize(2 * n);
-    resident_->field_to_host(staged.data());
-    state = staged.data();
+    // A device state crosses once, into the destination itself, and the recipe then
+    // converts it there in place: no state-sized host staging buffer per export.
+    resident_->field_to_host(out);
+    state = out;
   } else {
     resident_->count_to_host(2 * n * sizeof(double));
   }

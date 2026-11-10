@@ -16,7 +16,7 @@ lowering (the native problem, the stage tables and the CPU execution record), tu
 each batch's compact records into :mod:`solprop.backends.events` types, and fills
 export destinations through the native recipe. It keeps no numerical state.
 
-Production runs on a native CPU backend use it whenever it admits the run
+Production runs on a native backend use it whenever it admits the run
 (:func:`solprop.backends.sessions.start_session`); what it refuses runs on
 :class:`~solprop.backends.driver_session.DriverSession` over the backend's own march.
 It admits a subset and refuses every other feature by name before allocating anything
@@ -25,6 +25,14 @@ It admits a subset and refuses every other feature by name before allocating any
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
+- on a device build (CUDA or HIP), SEP 47 phase 3's representative device path
+  (:func:`device_refusal`): the same marches on a modal route, with planes, periodic
+  rows, the temporal monitor, the Adams history and host export. The session's own
+  code is host code over the resident state wherever it lives: its decisions are made
+  on the host from the device's reductions, and an export crosses the field to the
+  destination once and converts it there. A spatial route, the low-storage replay,
+  dense output, a transverse edge and a noise model are refused by name on a device
+  until phase 4 ports them;
 - the low-storage replay (``LowStorageRungeKutta``, SEP 47 section 6.3) on the
   diagonal-flow routes whose stage rows the native state reads from its tables: every
   step one in-place native step, its scalars formed natively, the replay loop the
@@ -157,6 +165,7 @@ __all__ = [
     "ADMITTED_STATISTICS",
     "NativeSession",
     "backend_refusal",
+    "device_refusal",
     "refusal",
 ]
 
@@ -236,7 +245,9 @@ def refusal(
         The reason, or ``None`` when the session admits the run.
     """
     if _on_device():
-        return "a device build: the native session prototype runs on the CPU build only"
+        refused = device_refusal(problem, request)
+        if refused is not None:
+            return refused
     if problem.shape[0] != 1:
         return f"a group of {problem.shape[0]} members (one trajectory a session)"
     method = request.integration.method
@@ -270,6 +281,51 @@ def refusal(
         if march is not None:
             return march
     return _statistics_refusal(problem, request.observation.stats)
+
+
+def device_refusal(problem: KernelProblem, request: RunRequest) -> str | None:
+    """Return why the session refuses a run on a device build, naming it, or ``None``.
+
+    SEP 47 phase 3's representative device path: Adams and the embedded Runge-Kutta
+    tableaux on a modal route, with planes, periodic statistics rows, the temporal
+    boundary monitor, the Adams history and host export. The device matrix's other
+    features are refused by name until phase 4 ports and qualifies them; the session
+    then leaves them to the backend's own march, which runs them on the device today.
+    Everything :func:`refusal` refuses on the CPU build is refused here too.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The translated problem.
+    request : solprop.translate.run_request.RunRequest
+        The run's policies.
+
+    Returns
+    -------
+    str or None
+        The reason, or ``None`` when the device path admits the run.
+    """
+    monitor = request.boundary.monitor
+    refused = (
+        (problem.transform.geometry is not None, "a spatial route"),
+        (
+            isinstance(request.integration.method, LowStorageRungeKutta),
+            "the low-storage replay",
+        ),
+        (request.observation.dense, "dense output"),
+        (
+            monitor is not None and monitor.transverse is not None,
+            "a boundary monitor's transverse edge",
+        ),
+        (
+            problem.initial.noise_model != "none",
+            f"the {problem.initial.noise_model!r} noise model",
+        ),
+    )
+    for failed, name in refused:
+        if failed:
+            return f"{name} on a device build"
+    return None
 
 
 def backend_refusal(backend: NativeBackend) -> str | None:
@@ -692,7 +748,7 @@ class NativeSession:
             kind = "low_storage"
             # The flows `_ResidentLowStorage` holds, and the operator's origin, from
             # which a constant operator's table is built.
-            payload = _low_storage_payload(self._problem, device=False)
+            payload = _low_storage_payload(self._problem, device=_on_device())
             backend._native_state.low_storage_configure(  # pyright: ignore[reportPrivateUsage]
                 int(cast("int", payload["low_storage_flows"])),
                 driver._terms.separable is not None,
