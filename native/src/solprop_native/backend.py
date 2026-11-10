@@ -230,10 +230,12 @@ class _envelope_errors:
 
 
 ADAMS_MAX_CHANNELS = 16
-"""The most channels of a coupled block the resident Adams engine steps.
+"""The most channels of a coupled block the resident Adams engine steps on a device.
 
-The native ``adams_max_channels``: the engine's per-bin passes hold a block's channel
-vectors in registers; a larger block takes solprop's host engine.
+The native ``adams_max_channels``: a device build's resident engine is qualified up to
+it, and a larger block takes solprop's host engine there. A CPU build steps any width:
+its per-bin passes hold a block's channel vectors on the stack up to it and in a row
+per bin beyond (solprop SEP 47 phase 4).
 """
 
 _SPATIAL_STAT_FLAGS = {
@@ -637,15 +639,10 @@ class NativeBackend(StepDriver[_core.State]):
         paths take solprop's host engine over this backend's hooks.
         """
         # Beside a coupled flow the exponential formulation's matrix passes are
-        # resident (solprop SEP 16 phase 6) when every bin of every section is on the
-        # flow's eigenbasis route and the block has at most `ADAMS_MAX_CHANNELS`
-        # channels; otherwise solprop's host engine runs them over this backend's hooks.
+        # resident (solprop SEP 16 phase 6) except where `_flow_on_host` says
+        # otherwise; there solprop's host engine runs them over this backend's hooks.
         flow = self._flow
-        if flow is not None and (
-            method.formulation != "exponential"
-            or not bool(np.all(flow.route))
-            or self._problem.shape[0] > ADAMS_MAX_CHANNELS
-        ):
+        if _flow_on_host(self._problem, method.formulation == "exponential"):
             return None
         # A varying operator's exponential formulation carries the transported
         # compensation natively, as does a frozen-residual flow's residual, whatever
@@ -3106,15 +3103,9 @@ def native_march_refusal(
                 for order in range(1, integrator.order + 1)
             )
         )
-        flow = problem.linear.coupled_flow
-        route_off = flow is not None and (
-            not exponential
-            or not bool(np.all(_host_flow(problem).route))  # pyright: ignore[reportOptionalMemberAccess]
-            or problem.shape[0] > ADAMS_MAX_CHANNELS
-        )
         if not (exponential or fused):
             return "the host engine, which steps a formulation with no resident engine"
-        if route_off:
+        if _flow_on_host(problem, exponential):
             return (
                 "the host engine, which steps a coupled flow off the eigenbasis "
                 "route or wider than 16 channels"
@@ -3133,6 +3124,26 @@ def native_march_refusal(
     if _RK_MARCH == "host" or _RK_ROWS == "host" or not staged:
         return "a trial whose stage rows the host forms"
     return None
+
+
+def _flow_on_host(problem: PropagationProblem, exponential: bool) -> bool:
+    """Return whether solprop's host engine steps an Adams run beside a coupled flow.
+
+    The resident engine steps the exponential formulation beside a coupled flow
+    (solprop SEP 16 phase 6) whatever its width on a CPU build (SEP 47 phase 4); a
+    device build steps a block of at most :data:`ADAMS_MAX_CHANNELS` channels. Every
+    build needs every bin of every section on the flow's eigenbasis route. ``False``
+    without a coupled flow.
+    """
+    if problem.linear.coupled_flow is None:
+        return False
+    if not exponential:
+        return True
+    if _on_device() and problem.shape[0] > ADAMS_MAX_CHANNELS:
+        return True
+    flow = _host_flow(problem)
+    assert flow is not None
+    return not bool(np.all(flow.route))
 
 
 class _MarchRunner(Protocol):
