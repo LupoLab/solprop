@@ -48,13 +48,6 @@ from test_transverse_reads import REREVIEW, packet_run
 
 native_session = pytest.importorskip("solprop_native.session")
 
-pytestmark = pytest.mark.skipif(
-    device_build(),
-    reason=(
-        "the native session refuses a spatial route and its transverse edge on a "
-        "device build (SEP 47 phase 4)"
-    ),
-)
 _counters = pytest.importorskip("solprop_native._counters")
 
 U = 2.0**-53
@@ -295,7 +288,10 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
     """The input draw's readings -- its allowance, its columns in the reach and the
     ramp, a collar's strip floor -- are formed on the host once, as solprop's edge
     forms them at its launch, and carried by the native launch: the run is the
-    driver's, its record too but for the ramp's sums (above).
+    driver's, its record too but for the ramp's sums (above). On a device build the
+    split floor's share (:data:`SPLIT_FLOOR`) is held to its bound too: the native
+    monitor sums it in order and solprop pairwise, which a device's readings round
+    apart in the last bit where a CPU build's happen to agree.
     """
 
     def simulation() -> Simulation:
@@ -305,7 +301,8 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
     assert problem.initial.noise_model == "input"
     assert native_session.refusal(problem, request) is None
     driver, native = _both(simulation)
-    _compare(driver, native, 48)
+    samples = _samples(simulation()) if device_build() else None
+    _compare(driver, native, 48, samples=samples)
     assert native.record is not None
     edge = native.record["transverse"]
     assert edge["noise_allowance"] > 0.0

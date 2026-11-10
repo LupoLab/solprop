@@ -12,22 +12,21 @@ execution opens its own session
 :class:`solprop.backends.host.driver.HostDriver`); a native backend's
 (``solprop_native.session.NativePrepared``) opens the native execution session
 (``solprop_native.session.NativeSession``) whenever it admits the run, before the
-start is loaded -- on a device build, SEP 47 phase 3's representative device path
-(``solprop_native.session.device_refusal``) -- and the transitional session over the
-inherited driver (:class:`solprop.backends.driver_session.DriverSession`) for what it
-refuses by name, the reason logged at debug level; any other driver's opens the
-transitional one.
+start is loaded, on a CPU or a device build alike (SEP 47 phase 4), and the
+transitional session over the inherited driver
+(:class:`solprop.backends.driver_session.DriverSession`) for what it refuses by name,
+the reason logged at debug level; any other driver's opens the transitional one.
 
 :func:`start_group` is the door for a group of compatible members (SEP 47 section
 6.7), through the same shape: the group's first member prepares the group,
 ``members[0].prepare_group(members, problems, requests).start(starts, ...)``, so a
 backend chooses its group and nothing here names one either. The native backend's
 (``solprop_native.group.NativePreparedGroup``) opens the native group session
-(``solprop_native.group.NativeGroupSession``, one native session per member) whenever
-it admits the group, and the transitional group over the lockstep runners
-(:class:`solprop.backends.driver_session.DriverGroupSession`) for what it refuses by
-name (``solprop_native.group.refusal``); every other driver's, the reference's among
-them, opens the transitional group
+(``solprop_native.group.NativeGroupSession``, one native session per member), on a CPU
+or a device build, whenever it admits the group, and the transitional group over the
+lockstep runners (:class:`solprop.backends.driver_session.DriverGroupSession`) for
+what it refuses by name (``solprop_native.group.refusal``); every other driver's, the
+reference's among them, opens the transitional group
 (:class:`solprop.backends.driver_session.DriverPreparedGroup`).
 """
 

@@ -22,6 +22,7 @@ is exported. Three things are checked on each:
 
 import dataclasses
 import math
+import re
 
 import numpy as np
 import pytest
@@ -30,6 +31,7 @@ from bounds import gamma
 from optmat_parity import INTEGRATION_AGREEMENT
 from sessions.executors import (
     PLANES,
+    device_build,
     entrance,
     fibre,
     skip_device_refused,
@@ -128,7 +130,7 @@ def _run(  # noqa: PLR0913 - the problem, its request and the backend's context
     request = dataclasses.replace(
         request, observation=dataclasses.replace(request.observation, step_planes=1)
     )
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )
@@ -546,7 +548,7 @@ def test_the_profile_statistics_read_tables_with_a_recorded_error(radius):
                 <= tables["core_radius"]["max_error"]
             )
     # The record reaches the session's execution record.
-    skip_device_refused(problem, run_request.for_run(stats=spec))
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem,
         run_request.for_run(stats=spec),
@@ -729,7 +731,7 @@ def test_rows_of_every_family_cause_no_return_to_python():
     grid, problem, run_request, modes, profiles = _capillary()
     spec = StatsSpec(names=CAPILLARY, periodic=_periodic(CAPILLARY), period=1)
     request = run_request.for_run(stats=spec)
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     session = native_session.NativeSession(
         problem, request, entrance(problem), grid=grid, modes=modes, profiles=profiles
     )
@@ -953,7 +955,15 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
         session.close()
     assert len(errors) == 1
     assert type(errors[0]) is BackendError
-    assert str(errors[0]) == str(want.value)
+    got, expected = str(errors[0]), str(want.value)
+    if device_build():
+        # Two of the lobe's nodes hold the same flux to the message's four digits
+        # (measured on an NVIDIA A40): which one a device's rounding takes beyond the
+        # budget first is the device's transform's, not the session's.
+        got, expected = (
+            re.sub(r"at node \d+", "at node N", one) for one in (got, expected)
+        )
+    assert got == expected
 
 
 # --- a metric that varies inside an interval: refused by name on native ------------

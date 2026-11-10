@@ -464,14 +464,14 @@ what either waits for. The driver books the call's attempts through
 reading through the monitor at its own step. The Python march is the reference --
 `HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
 configuration the native march does not cover (a coupled flow on the host engine, beside
-the interaction formulation, and on a device build off the eigenbasis route or wider than
-16 channels), with a `HostMarchWarning` naming the reason. The comparison methods
+the interaction formulation, and on a device build off the eigenbasis route), with a
+`HostMarchWarning` naming the reason. The comparison methods
 (`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
 overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). The
 transitional lockstep
-batches replay on the host (`replay_step`); a native CPU group the native group session
+batches replay on the host (`replay_step`); a native group the native group session
 admits replays each member in its own native session instead (`solprop_native.group`).
 
 **Resume** (ADR-046): an engine that can export its rows (`snapshot_rows`, and

@@ -6411,12 +6411,10 @@ void GeneralWorkspace::adams_allocate(const std::size_t slots, const bool compen
     if (columns != problem_.n_modes)
       throw std::logic_error("the resident Adams engine steps a coupled block of one "
                              "batch row");
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
-    if (problem_.n_modes > adams_max_channels)
-      throw std::logic_error("the resident Adams engine steps a coupled block of at "
-                             "most 16 channels on a device");
-#else
-    // A wider block's host passes hold its channel vectors in a row per bin.
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    // A wider block's host passes hold its channel vectors in a row per bin; a
+    // device's passes take a thread per (bin, channel) and hold none, at any width
+    // (solprop SEP 47 phase 4).
     const std::size_t width = problem_.n_modes > adams_max_channels
                                   ? (adams_max_samples + 1) * problem_.n_modes
                                   : 0;

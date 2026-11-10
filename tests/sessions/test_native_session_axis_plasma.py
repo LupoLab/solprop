@@ -26,9 +26,7 @@ import pytest
 
 from rate_oracles import adk_oracle
 from sessions.executors import (
-    DEVICE_GROUP,
     EXECUTORS,
-    device_build,
     entrance,
     skip_device_refused,
 )
@@ -184,7 +182,7 @@ def test_a_run_asking_for_them_opens_the_native_session():
     """SEP 47 phase 4: nothing about the on-axis plasma statistics needs the bridge."""
     grid, modes, problem, request = _capillary("gauss_kronrod", 32)
     run = request.for_run(stats=StatsSpec(names=ON_AXIS_PLASMA_STATISTICS))
-    skip_device_refused(problem, run)
+    skip_device_refused(problem)
     assert native_session.refusal(problem, run, entrance(problem)) is None
     with closing(select("native", problem, run, grid=grid, modes=modes)) as backend:
         prepared = backend.prepare(problem, run)
@@ -262,7 +260,7 @@ def test_the_session_s_axis_statistics_are_the_bridge_s_and_the_reference_s(
     """
     build, names = CASES[case]
     grid, modes, problem, request = build()
-    skip_device_refused(problem, request.for_run(stats=StatsSpec(names=names)))
+    skip_device_refused(problem)
     built = (grid, modes, problem, request)
     session = _run(built, names, monkeypatch, bridge=False)
     bridge = _run(built, names, monkeypatch, bridge=True)
@@ -417,7 +415,6 @@ def test_an_envelope_s_y_row_on_a_one_component_scan_is_left_to_the_bridge():
             state.planned_statistics(lowering.plan, 0.0)
 
 
-@pytest.mark.skipif(device_build(), reason=DEVICE_GROUP)
 def test_an_envelope_s_y_row_keeps_a_group_transitional():
     """The mode set decides it, so every door asks: a group of such members falls back
     to the transitional group, and the native group refuses it by name."""

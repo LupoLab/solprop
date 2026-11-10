@@ -717,7 +717,8 @@ inline constexpr std::size_t adams_max_norms = 3;
  * The most channels of a coupled block whose channel vectors a host task of the
  * resident Adams engine holds on its stack (solprop SEP 16 phase 6). A wider block's
  * host passes hold them in a scratch row per bin, allocated with the history (solprop
- * SEP 47 phase 4); a device build steps at most this many channels.
+ * SEP 47 phase 4). A device build's passes take a thread per (bin, channel) and
+ * hold no channel vectors, so it steps any width.
  */
 inline constexpr std::size_t adams_max_channels = 16;
 

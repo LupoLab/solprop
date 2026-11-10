@@ -607,7 +607,7 @@ def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatc
     """Solprop's host engine reads the state on the host, one volume in the ledger.
 
     A coupled flow the host engine steps (``_flow_on_host``: on a device build off
-    the eigenbasis route or wider than 16 channels) is what takes that engine
+    the eigenbasis route) is what takes that engine
     (``_adams_engine``); the test asks for it on any build.
     """
     pytest.importorskip("solprop_native")

@@ -681,10 +681,10 @@ chooses its own group: `start_group` asks the first member to prepare it,
 `PreparedGroup`, naming no backend. Two groups serve it:
 
 - **The native group session** (`solprop_native.group.NativeGroupSession`) serves
-  native CPU members whenever it admits the group. It owns one native execution session
-  per member (`solprop_native.session.NativeSession`, adopting the member backend the
-  scan built), so each member's march, events, attempts, statistics rows, tickets and
-  boundary monitor are its own session's, and the group only orders the members'
+  native members, on a CPU or a device build, whenever it admits the group. It owns
+  one native execution session per member (`solprop_native.session.NativeSession`,
+  adopting the member backend the scan built), so each member's march, events,
+  attempts, statistics rows, tickets and boundary monitor are its own session's, and the group only orders the members'
   advances. Within a window the members take turns in rounds of at most 256 common
   steps (`ROUND_STEPS`), each turn native from end to end, and each member's noise
   realisation and the noise phase its planes store are its own session's. The running members stand
@@ -692,10 +692,10 @@ chooses its own group: `start_group` asks the first member to prepare it,
   trajectory is its lone native session's, bit for bit at one thread, and so is the
   transitional lockstep group's. The members share the schedule and nothing mutable: no
   fused kernel, because the native marches own each whole step. Its refusals
-  (`solprop_native.group.refusal`) are named and made before allocation: a device
-  build, a run the native session refuses, an adaptive member, step or interpolated
-  planes, or members that do not share the schedule, save planes, method, field shape
-  and statistics request.
+  (`solprop_native.group.refusal`) are named and made before allocation: a run the
+  native session refuses, an adaptive member, step or interpolated planes, or members
+  that do not share the schedule, save planes, method, field shape and statistics
+  request.
 - **The transitional group** (`solprop.backends.driver_session.DriverGroupSession`,
   prepared by `DriverPreparedGroup`) serves every other group: the reference's, and
   native groups the native group refuses (`solprop_native.group.NativePreparedGroup`

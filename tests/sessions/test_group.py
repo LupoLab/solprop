@@ -33,7 +33,6 @@ import pytest
 from bounds import assert_within
 from driver.test_field_free_planes import cartesian
 from march_bounds import FIXED_ORDER
-from sessions.executors import DEVICE_GROUP, device_build
 from solprop.backends import select
 from solprop.backends.driver_session import DriverGroupSession
 from solprop.backends.events import (
@@ -108,15 +107,9 @@ def simulated(backend: str) -> str:
 
 @pytest.fixture(autouse=True)
 def _lockstep(request: pytest.FixtureRequest, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Start the transitional group in place of the door's for ``native-lockstep``.
-
-    The native group session refuses a device build, where the door starts the
-    transitional group: ``native`` is then ``native-lockstep``, and skips.
-    """
+    """Start the transitional group in place of the door's for ``native-lockstep``."""
     callspec = getattr(request.node, "callspec", None)
     backend = None if callspec is None else callspec.params.get("backend")
-    if backend == "native" and device_build():
-        pytest.skip(DEVICE_GROUP)
     if backend == "native-lockstep":
         monkeypatch.setattr(sys.modules[__name__], "LOCKSTEP", True)
 

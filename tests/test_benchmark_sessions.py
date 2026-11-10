@@ -326,20 +326,14 @@ def test_unchecked_work_and_fields_are_never_a_match():
 
 @pytest.mark.slow
 def test_a_narrow_and_a_wide_flow_march_natively(tmp_path):
-    # Both keep the wall tutorials' walk-off absorber and its warning. A CPU build
+    # Both keep the wall tutorials' walk-off absorber and its warning. Either build
     # steps a block of any width on the native Adams march, in the native session
-    # (SEP 47 phase 4); a device build keeps the host march past 16 channels.
-    device = pytest.importorskip("solprop_native").build_info().device_backend
+    # (SEP 47 phase 4).
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         _, _, narrow = counted("taper_flow_4", tmp_path, fraction=1.0)
-        found = {type(item.message) for item in caught}
-        assert HostMarchWarning not in found
         _, _, wide = counted("taper_flow_17", tmp_path / "wide", fraction=1.0)
-    hosted = HostMarchWarning in {type(item.message) for item in caught}
-    for counts in (narrow, *(() if device != "none" else (wide,))):
+    assert HostMarchWarning not in {type(item.message) for item in caught}
+    for counts in (narrow, wide):
         assert counts["march_calls"].get("session_adams", 0) > 0
         assert counts["host_attempts"] == 0
-    assert hosted == (device != "none")
-    if device != "none":
-        assert wide["host_attempts"] == wide["native_returns"]["host_attempt"] > 0

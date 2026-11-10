@@ -192,7 +192,7 @@ def _make_native(problem, request, **controls):
     solprop_native.session.NativeSession
         The session.
     """
-    skip_device_refused(problem, request)
+    skip_device_refused(problem)
     return native_session.NativeSession(
         problem,
         request,
@@ -457,43 +457,6 @@ def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
         assert name in str(refused.value)
         assert "backend='numpy_ref'" in str(refused.value)
     assert built_states == []
-
-
-@pytest.mark.parametrize(
-    ("options", "name"),
-    [
-        (
-            {
-                "integrator": LowStorageRungeKutta(),
-                "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
-            },
-            "the low-storage replay on a device build",
-        ),
-        ({"interpolate": True}, "dense output on a device build"),
-    ],
-    ids=["low-storage", "dense"],
-)
-def test_a_device_build_refuses_by_name_what_phase_3_does_not_admit(
-    options, name, monkeypatch
-):
-    """SEP 47 phase 3: the representative device path refuses the rest by name.
-
-    The decision is the problem's and the request's alone, so it is checked here on
-    any build, the device patched in; a device build's own lane runs what it admits.
-    """
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    problem, run_request = _case(**options)
-    _refused(problem, run_request, name, monkeypatch)
-
-
-@pytest.mark.parametrize("case", ["rk", "adams", "adams-period-3", "rk-replay"])
-def test_a_device_build_admits_the_representative_path(case, monkeypatch):
-    """SEP 47 phase 3: Runge-Kutta and Adams on the modal route, with planes, periodic
-    rows and step planes, are the device path's; its monitor is admitted too
-    (``test_native_session_monitor``)."""
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    problem, run_request = _case(**CASES[case])
-    assert native_session.refusal(problem, run_request) is None
 
 
 def test_a_session_leases_its_state_exclusively():

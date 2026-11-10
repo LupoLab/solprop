@@ -20,7 +20,7 @@ calls and exports of the driver's backend, the native session's ``advance`` and
 ``export``) and the Python time outside them, its returns to Python by cause, the
 field bytes it exported, the bytes through the state's crossings each way (a device
 build's transfers) and its peak traced Python memory. On a device build both sessions
-run on the device (SEP 47 phase 3's representative path). Run it pinned, once per
+run on the device (SEP 47 phase 4's device matrix). Run it pinned, once per
 thread setting (threads are read at import)::
 
     SOLPROP_THREADS=1 taskset -c CPUS python -m benchmarks.native_session \\

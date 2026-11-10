@@ -28,14 +28,13 @@ It admits a subset and refuses every other feature by name before allocating any
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
-- on a device build (CUDA or HIP), SEP 47 phase 3's representative device path
-  (:func:`device_refusal`): the same marches on a modal route, with planes, periodic
-  rows, the temporal monitor, the Adams history and host export. The session's own
-  code is host code over the resident state wherever it lives: its decisions are made
-  on the host from the device's reductions, and an export crosses the field to the
-  destination once and converts it there. A spatial route, the low-storage replay,
-  dense output, a transverse edge and a noise model are refused by name on a device
-  until phase 4 ports them;
+- on a device build (CUDA or HIP), the same (SEP 47 phase 4):
+  the session's own code is host code over the resident state wherever it lives, its
+  decisions made on the host from the device's reductions, and an export crosses the
+  field to the destination once and converts it there; a coupled flow with bins off
+  its eigenbasis route, which the device steps on solprop's host engine, is refused,
+  and the backend refuses a carrier frame and a z table that is not device-ready by
+  name;
 - the low-storage replay (``LowStorageRungeKutta``, SEP 47 section 6.3) on the
   diagonal-flow routes whose stage rows the native state reads from its tables: every
   step one in-place native step, its scalars formed natively, the replay loop the
@@ -178,7 +177,6 @@ __all__ = [
     "NativePrepared",
     "NativeSession",
     "backend_refusal",
-    "device_refusal",
     "modes_refusal",
     "refusal",
     "session_refusal",
@@ -259,61 +257,11 @@ def refusal(
     str or None
         The reason, or ``None`` when the session admits the run.
     """
-    if _on_device():
-        refused = device_refusal(problem, request)
-        if refused is not None:
-            return refused
     if not isinstance(request.integration.method, LowStorageRungeKutta):
         march = native_march_refusal(problem, request.stepper)
         if march is not None:
             return march
     return _statistics_refusal(problem, request.observation.stats)
-
-
-def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
-    """Return why the session refuses a run on a device build, naming it, or ``None``.
-
-    SEP 47 phase 3's representative device path: Adams and the embedded Runge-Kutta
-    tableaux on a modal route, with planes, periodic statistics rows, the temporal
-    boundary monitor, the Adams history and host export. The device matrix's other
-    features are refused by name until phase 4 ports and qualifies them; the session
-    then leaves them to the backend's own march, which runs them on the device today.
-    :func:`refusal` asks it first on a device build; its own refusals apply on every
-    build.
-
-    Parameters
-    ----------
-    problem : solprop.translate.problem.PropagationProblem
-        The translated problem.
-    request : solprop.translate.run_request.RunRequest
-        The run's policies.
-
-    Returns
-    -------
-    str or None
-        The reason, or ``None`` when the device path admits the run.
-    """
-    monitor = request.boundary.monitor
-    refused = (
-        (problem.transform.geometry is not None, "a spatial route"),
-        (
-            isinstance(request.integration.method, LowStorageRungeKutta),
-            "the low-storage replay",
-        ),
-        (request.observation.dense, "dense output"),
-        (
-            monitor is not None and monitor.transverse is not None,
-            "a boundary monitor's transverse edge",
-        ),
-        (
-            problem.initial.noise_model != "none",
-            f"the {problem.initial.noise_model!r} noise model",
-        ),
-    )
-    for failed, name in refused:
-        if failed:
-            return f"{name} on a device build"
-    return None
 
 
 def backend_refusal(backend: NativeBackend) -> str | None:
