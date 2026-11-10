@@ -94,7 +94,7 @@ def _worker(
     field = SechPulse(wavelength=wavelength, width=tau0, peak_power=peak_power).build(
         grid
     )
-    problem = assemble(
+    problem, request = assemble(
         grid,
         model.mode,
         [model.kerr],
@@ -107,12 +107,12 @@ def _worker(
         shock=False,
         prefactor_index=1.0,
     )
-    backend: Any = select(backend_name, problem, grid=grid)
+    backend: Any = select(backend_name, problem, request, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         if warmup:
             if mode == "trial":
-                backend._trial_step(0.0, problem.stepper.dz_init)
+                backend._trial_step(0.0, request.stepper.dz_init)
             else:
                 backend.propagate_to(min(target, 1e-4 * period))
             backend.set_initial(problem.initial.field0, None)
@@ -121,10 +121,10 @@ def _worker(
         started = time.perf_counter()
         if mode == "trial":
             for _ in range(trial_count):
-                backend._trial_step(0.0, problem.stepper.dz_init)
+                backend._trial_step(0.0, request.stepper.dz_init)
             seconds = time.perf_counter() - started
-            _, candidate = backend._trial_step(0.0, problem.stepper.dz_init)
-            backend._finish(candidate, problem.stepper.dz_init)
+            _, candidate = backend._trial_step(0.0, request.stepper.dz_init)
+            backend._finish(candidate, request.stepper.dz_init)
             accepted = 0
             rejected = 0
             trials = trial_count

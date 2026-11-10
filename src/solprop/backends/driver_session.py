@@ -1173,6 +1173,52 @@ class DriverSession:
         return field.view()
 
 
+def foreign_request(own: RunRequest, request: RunRequest) -> str | None:
+    """Return why `request` is not a run of `own`, or ``None`` when it is.
+
+    A backend lowers its method, error control, replay and itinerary where it is
+    built (SEP 47 section 5.2), so a run it serves may differ from its own request
+    only where :meth:`~solprop.translate.run_request.RunRequest.for_run` changes it:
+    the start, retention, statistics, monitor, history and snapshots. ``for_run``
+    keeps the other sections by identity, which is what is checked.
+
+    Parameters
+    ----------
+    own : solprop.translate.run_request.RunRequest
+        The request the backend was built for.
+    request : solprop.translate.run_request.RunRequest
+        The request one run asks it to serve.
+
+    Returns
+    -------
+    str or None
+        The first section that differs, named, or ``None``.
+
+    Examples
+    --------
+    >>> from solprop.stepper import DOPRI5, PIController
+    >>> from solprop.translate.problem import StepperSettings
+    >>> from solprop.translate.run_request import describe_run
+    >>> settings = StepperSettings(DOPRI5, PIController(rtol=1e-8, atol=1e-14),
+    ...                            1e-9, 0.1, 1e-3, 1.1, None, [0.5, 1.0], "auto")
+    >>> own = describe_run(settings)
+    >>> foreign_request(own, own.for_run(start_plane=1)) is None
+    True
+    >>> foreign_request(own, describe_run(settings))
+    "the run's integration is not the backend's own"
+    """
+    sections = (
+        ("integration", own.integration, request.integration),
+        ("error control", own.error_control, request.error_control),
+        ("replay", own.replay, request.replay),
+        ("planes", own.observation.save_planes, request.observation.save_planes),
+    )
+    for name, mine, theirs in sections:
+        if mine is not theirs:
+            return f"the run's {name} is not the backend's own"
+    return None
+
+
 class DriverPrepared:
     """A prepared execution over a constructed driver (SEP 47 section 5.2).
 
@@ -1203,7 +1249,17 @@ class DriverPrepared:
         *,
         session: type[DriverSession] | None = None,
     ) -> None:
-        """Bind the problem and the request to the driver."""
+        """Bind the problem and the request to the driver.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If the request is not one run of the driver's own (:func:`foreign_request`).
+        """
+        foreign = foreign_request(driver.request, request)
+        if foreign is not None:
+            msg = f"{driver.name} cannot prepare this run: {foreign}"
+            raise SessionError(msg)
         self._driver = driver
         self._problem = problem
         self._request = request

@@ -136,7 +136,9 @@ def run(
         driver.close()
 
 
-def _formation_bound(problem: PropagationProblem, run_request, dz: float) -> float:
+def _formation_bound(
+    problem: PropagationProblem, run_request: RunRequest, dz: float
+) -> float:
     """Return the actions' formation bound, relative to each action; before any run.
 
     solprop's derivation (``tests/flow_parity.py``), restated: each
@@ -253,7 +255,7 @@ def _parity_bound(
 def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> None:
     case = CASES[name]()
     problem = case.translate()
-    run_request = case._run_request()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     grid = cast(FieldGrid, case.grid)
     expected = run(NumpyRefBackend, problem, run_request, grid)
     actual = run(NativeBackend, problem, run_request, grid)
@@ -268,10 +270,10 @@ def test_ten_steps_of_the_flow_are_the_reference_within_the_bound(name: str) -> 
 def test_cf4_and_a_batch_are_refused_by_name() -> None:
     case = simulation(radius=taper(), wall=CoherentWall(method="cf4"))
     with pytest.raises(BackendError, match=r"native does not execute a 'cf4' section"):
-        NativeBackend(case.translate(), case._run_request(), grid=case.grid)
+        NativeBackend(case.translate(), case._run_request(), grid=case.grid)  # pyright: ignore[reportPrivateUsage]
     constant = CASES["scalar_wall"]()
     problem = constant.translate()
-    run_request = constant._run_request()
+    run_request = constant._run_request()  # pyright: ignore[reportPrivateUsage]
     members = [
         NativeBackend(problem, run_request, grid=constant.grid) for _ in range(2)
     ]
@@ -291,7 +293,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
     # default exponential formulation acts forward only and does not measure it.
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    run_request = case._run_request()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     flow = problem.linear.coupled_flow
     assert flow is not None
     shrunk = dataclasses.replace(
@@ -316,7 +318,7 @@ def test_a_step_beyond_the_certificate_is_refused_by_name() -> None:
 def test_the_flow_ledger_counts_its_views() -> None:
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
@@ -342,7 +344,7 @@ def test_a_length_needing_too_many_squarings_is_refused_by_name() -> None:
     """
     case = CASES["scalar_wall"]()
     problem = case.translate()
-    run_request = case._run_request()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     backend = NativeBackend(problem, run_request, grid=case.grid)
     try:
         backend.set_initial(problem.initial.field0, None)
@@ -368,7 +370,7 @@ def test_the_engine_forms_the_reference_s_actions_within_the_formation_bound() -
     """
     case = CASES["taper_gradient"]()
     problem = case.translate()
-    run_request = case._run_request()
+    run_request = case._run_request()  # pyright: ignore[reportPrivateUsage]
     reference = _coupled_flow_maps(problem)
     assert reference is not None
     dz = LENGTH / STEPS

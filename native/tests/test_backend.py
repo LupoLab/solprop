@@ -835,6 +835,29 @@ def test_build_refuses_a_renamed_general_modal_leaf(
         solprop_native.check_build()
 
 
+def test_build_refuses_a_renamed_request_section_member(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A renamed member of a request section is named by `check_build`."""
+    sections = dict(solprop_native.REQUEST_SECTION_FIELDS)
+    sections["ObservationRequest"] = (*sections["ObservationRequest"], "renamed_leaf")
+    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
+    with pytest.raises(BackendError, match=r"has no ObservationRequest\.renamed_leaf"):
+        solprop_native.check_build()
+
+
+def test_build_refuses_a_missing_request_section(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A request section solprop no longer defines is named by `check_build`."""
+    sections = {**solprop_native.REQUEST_SECTION_FIELDS, "RenamedSpec": ("method",)}
+    monkeypatch.setattr(solprop_native, "REQUEST_SECTION_FIELDS", sections)
+    with pytest.raises(
+        BackendError, match=r"solprop\.translate\.run_request\.RenamedSpec"
+    ):
+        solprop_native.check_build()
+
+
 def test_the_leaf_member_tuples_name_what_the_installed_solprop_has() -> None:
     """Each nested member the adapter reads exists as a field or property today.
 
@@ -1071,7 +1094,9 @@ def test_the_plasma_stash_is_off_under_modified_noise(
     problem = simulation.translate()
     assert problem.responses.plasma_channels
     payload = _native_problem(  # pyright: ignore[reportPrivateUsage]
-        problem, simulation._run_request(), terms(problem)
+        problem,
+        simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+        terms(problem),
     )
     assert payload["stash_plasma"] is stashed
 
@@ -1109,7 +1134,9 @@ def test_the_plasma_stash_is_off_under_the_split_step_absorber() -> None:
         )
         problem = simulation.translate()
         payloads[scheme] = _native_problem(  # pyright: ignore[reportPrivateUsage]
-            problem, simulation._run_request(), terms(problem)
+            problem,
+            simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+            terms(problem),
         )
     assert payloads["nonlinear"]["stash_plasma"] is True
     assert payloads["split_step"]["split_step_absorber"] is True

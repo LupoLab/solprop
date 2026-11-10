@@ -15,7 +15,8 @@ execution opens its own session
 start is loaded -- on a device build, SEP 47 phase 3's representative device path
 (``solprop_native.session.device_refusal``) -- and the transitional session over the
 inherited driver (:class:`solprop.backends.driver_session.DriverSession`) for what it
-refuses by name, the reason recorded; any other driver's opens the transitional one.
+refuses by name, the reason logged at debug level; any other driver's opens the
+transitional one.
 
 :func:`start_group` is the door for a group of compatible members (SEP 47 section
 6.7): native CPU members run in the native group session

@@ -206,7 +206,8 @@ def _case(
         simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
         problem = simulation.translate()
     run_request = _prescribed(
-        simulation._run_request(), FixedSchedule(np.full(STEPS, Z_END / STEPS))
+        simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+        FixedSchedule(np.full(STEPS, Z_END / STEPS)),
     )
     state = np.array(problem.initial.field0, copy=True)
     if mix is not None:
@@ -636,7 +637,8 @@ def _moving_grin() -> tuple[Simulation, PropagationProblem, RunRequest]:
         simulation,
         problem,
         _prescribed(
-            simulation._run_request(), FixedSchedule(np.full(STEPS, FIBRE / STEPS))
+            simulation._run_request(),  # pyright: ignore[reportPrivateUsage]
+            FixedSchedule(np.full(STEPS, FIBRE / STEPS)),
         ),
     )
 

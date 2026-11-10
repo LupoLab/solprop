@@ -160,7 +160,7 @@ def _worker(
             backend=backend_name,
         )
         problem = simulation.translate()
-        request = simulation._run_request()
+        request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
 
     construction_started = time.perf_counter()
     backend: Any = select(
@@ -198,7 +198,7 @@ def _worker(
             trials = trial_count
         else:
             backend.observe()
-            backend.stats(request.stats)
+            backend.stats(request.observation.stats)
             attempts = 0
             rejected = 0
             for target in request.stepper.save_planes:
@@ -206,7 +206,7 @@ def _worker(
                 attempts += summary.n_steps
                 rejected += summary.n_rejected
                 backend.observe()
-                backend.stats(request.stats)
+                backend.stats(request.observation.stats)
             seconds = time.perf_counter() - started
             trials = attempts
         load_end = os.getloadavg()[0]

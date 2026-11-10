@@ -21,7 +21,7 @@ prepared execution (:class:`NativePrepared`, from ``NativeBackend.prepare``, whi
 :func:`solprop.backends.sessions.start_session` starts) opens a :class:`NativeSession`
 then, and what it refuses runs on
 :class:`~solprop.backends.driver_session.DriverSession` over the backend's own march,
-the reason recorded (:func:`session_refusal`).
+the reason logged at debug level (:func:`session_refusal`).
 It admits a subset and refuses every other feature by name before allocating anything
 (:func:`refusal`, and :func:`backend_refusal` once the backend is built):
 
@@ -2147,7 +2147,7 @@ class NativePrepared(DriverPrepared):
     Each start opens a :class:`NativeSession` over the backend whenever it admits the
     run, and the transitional
     :class:`~solprop.backends.driver_session.DriverSession` over the backend's own
-    march otherwise; the reason is kept as :attr:`refused` and logged.
+    march otherwise; the reason is kept as :attr:`refused` and logged at debug level.
 
     Parameters
     ----------
@@ -2202,7 +2202,15 @@ class NativePrepared(DriverPrepared):
         -------
         solprop.backends.session.RunSession
             The session.
+
+        Raises
+        ------
+        solprop.backends.session.SessionError
+            If this preparation is closed.
         """
+        if self._closed:
+            msg = "the prepared execution is closed"
+            raise SessionError(msg)
         refused = session_refusal(
             self._native_backend, self._problem, self._request, start
         )

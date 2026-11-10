@@ -512,15 +512,17 @@ problem by name.
 **Selection.** `backends/registry.py`: `available()` detects with
 `importlib.util.find_spec` and never caches; `select(name, problem, request, *, grid,
 modes, profiles)` builds one, for the problem and the request it is run with: the
-request's method, error control, itinerary, planes and statistics are lowered once, here,
-and a run's session serves that request adapted to one run (`RunRequest.for_run`). A run
+request's method, error control, itinerary and planes are lowered once, here (the native
+session lowers its statistics as it starts, from profile tables cached per problem), and
+a run's session serves that request adapted to one run (`RunRequest.for_run`); a
+preparation refuses any other request by name (`driver_session.foreign_request`). A run
 starts through the backend's own preparation shape (SEP 47 §5.2):
 `backend.prepare(problem, request)` returns a `PreparedExecution` whose
 `start(start, *, listener, started, stop, owns)` opens the backend's session, and
 `backends.sessions.start_session` does nothing else, so a backend chooses its session
 without the run layer naming it. The reference's opens `HostSession`; the native
 backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
-the run and the transitional `DriverSession` otherwise, keeping the reason
+the run and the transitional `DriverSession` otherwise, logging the reason at debug level
 (`session_refusal`, which a test replaces to force the bridge); any other driver's
 (`backends.driver_session.DriverPrepared`) opens `DriverSession`. Groups start through
 `start_group`. The

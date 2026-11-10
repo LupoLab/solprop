@@ -71,6 +71,7 @@ def test_public_surface_is_exact() -> None:
         "PROBLEM_FIELDS",
         "REGIONAL_RESPONSE_FIELDS",
         "REQUEST_FIELDS",
+        "REQUEST_SECTION_FIELDS",
         "RESPONSE_FIELDS",
         "ROUTE_FIELDS",
         "SEPARABLE_OPERATOR_FIELDS",

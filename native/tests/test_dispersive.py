@@ -77,7 +77,7 @@ def capillary(
             thg=thg,
             noise=None,
         )
-        return simulation.translate(), simulation._run_request()
+        return simulation.translate(), simulation._run_request()  # pyright: ignore[reportPrivateUsage]
 
 
 def averaged(

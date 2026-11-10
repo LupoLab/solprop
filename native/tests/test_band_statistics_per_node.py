@@ -121,7 +121,7 @@ def problem_for(
             simulation.settings, quadrature=None, components=None
         )
         problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
     spectrum = np.fft.rfft(launch(amplitude))[np.asarray(GRID.crop_index)]
     field = spectrum.reshape(problem.shape)
     unit = fields_of(problem, run_request, field)

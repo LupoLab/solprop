@@ -148,7 +148,7 @@ def capillary(
     grid = simulation.grid
     assert isinstance(grid, FieldGrid)
     statistics = StatsSpec(names=STATISTICS)
-    return grid, problem, simulation._run_request().for_run(stats=statistics)
+    return grid, problem, simulation._run_request().for_run(stats=statistics)  # pyright: ignore[reportPrivateUsage]
 
 
 def vector(steps: int) -> tuple[FieldGrid, PropagationProblem, RunRequest]:

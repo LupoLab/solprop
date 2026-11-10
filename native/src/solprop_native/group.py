@@ -93,7 +93,7 @@ from solprop.exceptions import BackendError, BoundaryError, StopRequested
 from . import _counters
 from .backend import NativeBackend, _on_device  # pyright: ignore[reportPrivateUsage]
 from .session import NativeSession
-from .session import refusal as session_refusal
+from .session import refusal as member_session_refusal
 
 if TYPE_CHECKING:
     from types import TracebackType
@@ -156,7 +156,8 @@ def refusal(
             # The group exports no noise phase, which a noisy plane stores.
             f"the {problem.initial.noise_model!r} noise model"
             if problem.initial.noise_model != "none"
-            else session_refusal(problem, request, start) or _member_refusal(request)
+            else member_session_refusal(problem, request, start)
+            or _member_refusal(request)
         )
         if refused is not None:
             return f"{refused} (member {index})"

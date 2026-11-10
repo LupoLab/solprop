@@ -140,6 +140,7 @@ __all__ = [
     "PROBLEM_FIELDS",
     "REGIONAL_RESPONSE_FIELDS",
     "REQUEST_FIELDS",
+    "REQUEST_SECTION_FIELDS",
     "RESPONSE_FIELDS",
     "ROUTE_FIELDS",
     "SEPARABLE_OPERATOR_FIELDS",
@@ -321,6 +322,7 @@ DRIVER_SURFACE: tuple[str, ...] = (
     "_watched_step",
     "available_device_memory",
     "metadata",
+    "prepare",
     "set_initial",
     "stats",
 )
@@ -488,6 +490,18 @@ REQUEST_FIELDS: tuple[str, ...] = (
 The method, error control, itinerary, observation, boundary and history policies a
 backend is built and a session started with, and ``stepper``, the stepping policy
 gathered into one record, which the march reads."""
+
+REQUEST_SECTION_FIELDS: dict[str, tuple[str, ...]] = {
+    "IntegrationSpec": ("method",),
+    "ErrorControlSpec": ("controller",),
+    "ReplaySpec": ("schedule",),
+    "ObservationRequest": ("save_planes", "dense", "stats"),
+    "BoundaryRequest": ("monitor",),
+}
+"""Members of the ``RunRequest`` sections this backend reads, by section class.
+
+Checked at :func:`check_build` as :data:`ROUTE_FIELDS` is, so a solprop that renamed
+one is named there rather than failing inside the adapter."""
 
 ROUTE_FIELDS: dict[str, tuple[str, ...]] = {
     "ModalRoute": ("transform", "tdse"),
@@ -1005,7 +1019,8 @@ def check_build() -> None:
         (:data:`DRIVER_SURFACE`, :data:`ADAMS_MARCH_SURFACE`,
         :data:`MARCH_POLICY_FIELDS`, :data:`STAGE_TERMS_FIELDS`,
         :data:`STAGE_SCALARS_FIELDS`, :data:`SEPARABLE_OPERATOR_FIELDS`,
-        :data:`PROBLEM_FIELDS`, :data:`REQUEST_FIELDS`, :data:`ROUTE_FIELDS`,
+        :data:`PROBLEM_FIELDS`, :data:`REQUEST_FIELDS`, :data:`REQUEST_SECTION_FIELDS`,
+        :data:`ROUTE_FIELDS`,
         :data:`LINEAR_OPERATOR_FIELDS`, :data:`TRANSFORM_FIELDS`,
         :data:`RESPONSE_FIELDS`, or the leaves' members in :data:`MODAL_TABLES_FIELDS`,
         :data:`REGIONAL_RESPONSE_FIELDS`, :data:`COUPLED_FLOW_FIELDS` and
@@ -1091,6 +1106,7 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
     from solprop.backends.protocol import BatchBackend
     from solprop.stepper.multistep import MarchPolicy
     from solprop.translate import routes
+    from solprop.translate import run_request as run_requests
     from solprop.translate.coupled import CoupledFlowTables
     from solprop.translate.linop import LinearOperator
     from solprop.translate.masks import Grids
@@ -1144,6 +1160,13 @@ def _check_seam(info: BuildInfo, error: type[Exception]) -> None:
         for name in REQUEST_FIELDS
         if name not in request and not hasattr(RunRequest, name)
     )
+    for section, wanted in REQUEST_SECTION_FIELDS.items():
+        spec = getattr(run_requests, section, None)
+        if spec is None:
+            missing.append(f"solprop.translate.run_request.{section}")
+            continue
+        present = {field.name for field in _dataclasses.fields(spec)}
+        missing.extend(f"{section}.{name}" for name in wanted if name not in present)
     for variant, wanted in ROUTE_FIELDS.items():
         route = getattr(routes, variant, None)
         if route is None:

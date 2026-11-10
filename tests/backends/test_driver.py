@@ -41,6 +41,7 @@ from solprop.stepper import PIController
 from solprop.stepper.multistep import MarchPolicy
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate import routes
+from solprop.translate import run_request as run_requests
 from solprop.translate.linop import LinearOperator, delta_phi
 from solprop.translate.problem import PropagationProblem, Translation
 from solprop.translate.run_request import RunRequest
@@ -1427,3 +1428,6 @@ def test_the_native_descriptor_manifest_is_inside_the_frozen_one():
     assert set(native.REQUEST_FIELDS) <= {*RUN_REQUEST_FIELDS, "stepper"}
     for name, fields in native.ROUTE_FIELDS.items():
         assert set(fields) <= set(ROUTE_VARIANT_FIELDS[name])
+    for name, fields in native.REQUEST_SECTION_FIELDS.items():
+        section = getattr(run_requests, name)
+        assert set(fields) <= {field.name for field in dataclasses.fields(section)}

@@ -13,7 +13,9 @@ expose it as `Backend.request`. A run starts through the backend's preparation:
 `Backend.prepare(problem, request)` returns a `PreparedExecution` whose `start(...)`
 opens the backend's own session, the reference's `HostSession`, the native backend's
 `NativeSession` where it admits the run and the transitional session otherwise, and
-`solprop.backends.sessions.start_session` only starts it. `PropagationProblem.validate()` now checks what the problem
+`solprop.backends.sessions.start_session` only starts it; a preparation refuses a
+request that is not one run of the backend's own (`RunRequest.for_run` of it).
+`PropagationProblem.validate()` now checks what the problem
 promises alone; `validate_run` adds the checks that read the run's policy, with the same
 refusals and messages, and `validate_launch(request)` takes the request.
 `describe_run` now takes a `StepperSettings`; `RunRequest.for_run(...)` gives one run's

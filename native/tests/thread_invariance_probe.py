@@ -69,7 +69,7 @@ with warnings.catch_warnings():
         noise=None,
     )
     problem = simulation.translate()
-    run_request = simulation._run_request()
+    run_request = simulation._run_request()  # pyright: ignore[reportPrivateUsage]
 
 backend = select(
     "native",

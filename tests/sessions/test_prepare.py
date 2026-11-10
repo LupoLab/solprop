@@ -93,3 +93,28 @@ def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
         assert prepared.refused == "the test's reason"
     finally:
         backend.close()
+
+
+def test_a_preparation_refuses_a_request_its_backend_was_not_built_for():
+    """A backend lowered its method, error control and planes where it was built, so
+    a run may change only what ``RunRequest.for_run`` changes."""
+    problem, request = soliton()
+    driver = ScriptedDriver(problem, request, grid=window())
+    assert isinstance(
+        driver.prepare(problem, request.for_run(start_plane=1)), DriverPrepared
+    )
+    other = request.with_stepper(request.stepper)
+    with pytest.raises(SessionError, match="integration is not the backend's own"):
+        driver.prepare(problem, other)
+    with pytest.raises(SessionError, match="integration is not the backend's own"):
+        start_session(driver, problem, other, Start.entrance(problem), owns=False)
+
+
+@NATIVE
+def test_a_closed_native_preparation_refuses_to_start():
+    problem, request = soliton()
+    backend = _select("native", problem, request)
+    prepared = backend.prepare(problem, request)
+    prepared.close()
+    with pytest.raises(SessionError, match="closed"):
+        prepared.start(Start.entrance(problem))
