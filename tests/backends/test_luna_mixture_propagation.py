@@ -171,7 +171,7 @@ def problem_for(tag, steps):
         # internal amplitude so the archived coefficient witness keeps its scope.
         initial=dataclasses.replace(
             problem.initial,
-            field0=spectrum(tag + "_INITIAL")[None, None, None, :],
+            field0=spectrum(tag + "_INITIAL")[None, None, :],
         ),
         grids=dataclasses.replace(problem.grids, t_window_fine=fine_window),
     )

@@ -49,7 +49,7 @@ class RunEstimate:
     Attributes
     ----------
     shape : tuple of int
-        The state's shape: batch, modes or transverse columns, polarisations and
+        The state's shape: modes or transverse columns, polarisations and
         frequencies.
     n_planes : int
         The planes the run saves, the entrance included.
@@ -285,7 +285,7 @@ def plane_bytes(problem: KernelProblem) -> int:
     >>> plane_bytes(problem) >= 16 * problem.shape[-1]
     True
     """
-    _, n_modes, n_pol, n_omega = problem.shape
+    n_modes, n_pol, n_omega = problem.shape
     entries = n_modes * n_pol * n_omega
     total = 16 * entries + 8 * _COUNTED_PER_PLANE
     if problem.initial.noise_model != "none":
@@ -332,7 +332,7 @@ def field_bytes(problem: KernelProblem) -> int:
     >>> field_bytes(simulation.translate()) == 16 * simulation.translate().shape[-1]
     True
     """
-    entries = math.prod(problem.shape[1:])
+    entries = math.prod(problem.shape)
     return (16 + (8 if problem.initial.noise_model != "none" else 0)) * entries
 
 

@@ -436,9 +436,9 @@ def test_spatial_contract_checks_geometry_before_spatial_execution(free_contract
             prefactor_representation="constant",
             separable=None,
             prefactor=tabulate(
-                lambda z: np.zeros((len(z), *problem.shape[1:]), complex), 0.0, 1e-3
+                lambda z: np.zeros((len(z), *problem.shape), complex), 0.0, 1e-3
             ),
-            prefactor_constant=np.zeros(problem.shape[1:], complex),
+            prefactor_constant=np.zeros(problem.shape, complex),
         ),
     )
     with pytest.raises(TranslationError, match="constant separable"):

@@ -105,11 +105,11 @@ def _profile(name, x, y):
 
 
 def _state(problem, grid, name):
-    """Return one member's internal spectrum, with the launch's own temporal shape."""
+    """Return an internal spectrum, with the launch's own temporal shape."""
     geometry = problem.transform.geometry
     launch = np.asarray(problem.initial.field0)
     n_y, n_x = geometry.axes[1].size, geometry.axes[0].size
-    n_pol, n_omega = problem.shape[2], problem.shape[3]
+    n_pol, n_omega = problem.shape[1], problem.shape[2]
     # The launch's own bins, weighted by polarisation, and a chirp-like phase, so that
     # the bins interfere in time and the temporal sum is not trivially the spectral one.
     rng = np.random.default_rng(34)
@@ -128,7 +128,7 @@ def _state(problem, grid, name):
     else:
         x, y = np.meshgrid(geometry.axes[0], geometry.axes[1])
         columns = np.fft.fft2(_profile(name, x, y)).ravel()
-    field = np.einsum("r,pw->rpw", columns, spectrum)[None]
+    field = np.einsum("r,pw->rpw", columns, spectrum)
     return field * (1e3 / np.max(np.abs(field)))
 
 
@@ -149,7 +149,7 @@ def _width_budget(grid, problem):
     sums ``n_pol * n_t`` products. A width interpolates a fluence whose relative slope
     is of order one at its crossing, which a factor of eight covers.
     """
-    n_columns, n_pol = problem.shape[1], problem.shape[2]
+    n_columns, n_pol = problem.shape[0], problem.shape[1]
     return gamma(8 * 16 * (n_columns + n_pol * grid.n_t + 64 * int(np.log2(grid.n_t))))
 
 
@@ -195,7 +195,7 @@ def _check_plane(kind, n_pol, state):
     # Unequal samples and spacings: the rule's dx, dy and its y-first order.
     space = FreeGrid(3e-4, 32, 4e-4, 24)
     grid, problem = _simulation(kind, space, n_pol)
-    assert problem.shape[2] == n_pol
+    assert problem.shape[1] == n_pol
     field = _state(problem, grid, state)
     spec = StatsSpec(names=(*WIDTHS, "on_axis_intensity", "peak_intensity"))
     want = _measure("numpy_ref", grid, problem, field, spec)
@@ -267,7 +267,7 @@ def _field_for(route, grid, problem):
     # The bins and the columns interfere at the nodes, so every node's cross terms and
     # every bin's weight enter its fluence.
     field = field * np.exp(1j * rng.uniform(-0.3, 0.3, field.shape[-1]))
-    return field * np.exp(1j * rng.uniform(-0.3, 0.3, (1, field.shape[1], 1, 1)))
+    return field * np.exp(1j * rng.uniform(-0.3, 0.3, (field.shape[0], 1, 1)))
 
 
 def _check_fluence(monkeypatch, route, kind):
@@ -294,7 +294,7 @@ def _check_fluence(monkeypatch, route, kind):
     fluence, axis, largest = packed[:n_nodes], packed[n_nodes], packed[n_nodes + 1]
     # A separable route leaves the axis to a radial width alone.
     assert math.isnan(axis)
-    n_terms = problem.shape[2] * grid.n_t + problem.transform.n_modes
+    n_terms = problem.shape[1] * grid.n_t + problem.transform.n_modes
     budget = fluence_budget(np.full(n_nodes, largest), n_terms)
     # Cauchy-Schwarz bounds the reference's magnitude by the native one, to the rounding
     # of the two sums.
@@ -481,12 +481,12 @@ def test_a_negative_lobe_is_refused_on_both():
     """
     space = FreeGrid(6e-6, 24, 6e-6, 24)
     grid, problem = _simulation("envelope", space, 1, SpatialMedium(1.45), waist=2e-6)
-    columns = np.zeros(problem.shape[1], complex)
+    columns = np.zeros(problem.shape[0], complex)
     columns[0] = 0.9
     columns[12] = 1.0
-    spectrum = np.zeros((1, problem.shape[3]), complex)
+    spectrum = np.zeros((1, problem.shape[2]), complex)
     spectrum[0, 0] = 1.0
-    field = np.einsum("r,pw->rpw", columns, spectrum)[None] * 1e6
+    field = np.einsum("r,pw->rpw", columns, spectrum) * 1e6
     spec = StatsSpec(names=WIDTHS)
     for backend in ("numpy_ref", "native"):
         with pytest.raises(BackendError, match="nonnegative fluence profile"):

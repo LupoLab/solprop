@@ -274,7 +274,7 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
@@ -285,7 +285,7 @@ def test_one_evaluation_matches_the_reference(kind: str) -> None:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         actual = np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -367,8 +367,8 @@ def test_the_launch_exposure_is_within_its_scan_bound(kind: str) -> None:
     expected = launch_statistics(NumpyRefBackend, problem, grid)
     actual = launch_statistics(NativeBackend, problem, grid)
     neutral = float(responses.density(0.0))
-    density = float(expected["electron_density"][0])
-    error = abs(float(actual["electron_density"][0]) - density)
+    density = float(expected["electron_density"])
+    error = abs(float(actual["electron_density"]) - density)
     assert error <= neutral * worst, (error, neutral * worst)
     if kind != "preionised_quiet":
         assert density > 0.0

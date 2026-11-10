@@ -267,7 +267,7 @@ class Start:
         Parameters
         ----------
         problem : solprop.translate.problem.KernelProblem
-            The translated problem, whose initial state has one member.
+            The translated problem.
         noise : solprop.noise.NoiseRealisation or None, optional
             A realisation to carry instead of the one the problem was assembled with.
 
@@ -276,19 +276,10 @@ class Start:
         Start
             The start at ``problem.initial.z``, before the first save plane.
 
-        Raises
-        ------
-        solprop.exceptions.BackendError
-            If the problem's initial state has more than one member.
         """
-        field0 = problem.initial.field0
-        if field0.shape[0] != 1:
-            msg = (
-                f"a session starts one trajectory, and this problem's initial state "
-                f"has {field0.shape[0]} members"
-            )
-            raise BackendError(msg)
-        return cls(field=field0[0], z=float(problem.initial.z), noise=noise)
+        return cls(
+            field=problem.initial.field0, z=float(problem.initial.z), noise=noise
+        )
 
     def take_field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Hand the field to the session starting here, and forget it.

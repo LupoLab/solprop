@@ -79,7 +79,7 @@ class StageTerms:
     Attributes
     ----------
     phi : numpy.ndarray or None
-        The terms of ``Phi``, complex128, shape ``(n_phi_terms, n_batch_or_1, n_modes,
+        The terms of ``Phi``, complex128, shape ``(n_phi_terms, 1, n_modes,
         n_pol, n_omega)``. One term for a constant operator, ``n_terms`` for an
         expansion, and ``None`` for the z table, which has no such form.
     prefactor : numpy.ndarray or None
@@ -419,7 +419,7 @@ def _phi_terms(
     Returns
     -------
     numpy.ndarray or None
-        Shape ``(n_phi_terms, n_batch_or_1, n_modes, n_pol, n_omega)``.
+        Shape ``(n_phi_terms, 1, n_modes, n_pol, n_omega)``.
     """
     if linear.phi_constant is not None:
         return linear.phi_constant[np.newaxis]

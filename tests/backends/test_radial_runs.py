@@ -145,7 +145,7 @@ def test_radial_linear_propagation_on_each_backend(
     try:
         backend.set_initial(problem.initial.field0, None)
         summary = backend.propagate_to(grid.length)
-        actual = backend.observe().require_field()[0]
+        actual = backend.observe().require_field()
         assert summary.n_steps == steps
         assert_allclose(actual, expected, rtol=0, atol=bound * np.max(np.abs(expected)))
     finally:

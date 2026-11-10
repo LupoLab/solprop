@@ -911,14 +911,14 @@ def test_a_modal_reference_beside_spatial_geometry_is_refused(strand, strand_gri
 
 def test_a_modal_reference_needs_a_single_polarisation(furnished):
     problem = replace(furnished)
-    object.__setattr__(problem, "shape", (1, 1, 2, furnished.shape[-1]))
+    object.__setattr__(problem, "shape", (1, 2, furnished.shape[-1]))
     with pytest.raises(TranslationError, match="keeps n_pol = 1"):
         problem._check_modal_leaves()
 
 
 def test_a_modal_reference_counts_the_states_channels(furnished):
     problem = replace(furnished)
-    object.__setattr__(problem, "shape", (1, 3, 1, furnished.shape[-1]))
+    object.__setattr__(problem, "shape", (3, 1, furnished.shape[-1]))
     with pytest.raises(TranslationError, match="describes 1 channel"):
         problem._check_modal_leaves()
 

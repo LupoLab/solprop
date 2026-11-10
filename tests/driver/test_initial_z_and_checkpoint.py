@@ -162,7 +162,8 @@ def test_a_replaced_modal_input_is_copied_once_by_its_conversion(state_copies):
     field = np.array(simulation._field0)
     problem = simulation.with_input(field).translate()
     assert problem.transform.geometry is None
-    assert problem.shape not in state_copies
+    # The one copy is the replaced input's; the translation takes no other.
+    assert state_copies == [field.shape]
     launch = problem.initial.field0.copy()
     field[...] = 0.0
     assert_array_equal(problem.initial.field0, launch)
@@ -201,7 +202,7 @@ def test_a_built_in_pulse_is_held_without_a_copy(state_copies):
     )
     spatial = free.translate()
     assert state_copies == []
-    assert spatial.initial.field0.base is free._field0
+    assert spatial.initial.field0 is free._field0
     assert not modal._field0.flags.writeable
     assert not problem.initial.field0.flags.writeable
 
@@ -412,7 +413,7 @@ def test_interior_input_uses_actual_z_modal_weight():
     # The independently sampled effective index and its Chebyshev table agree to
     # the table fit accuracy; zero-position normalization differs by much more.
     assert_allclose(
-        launch.translate().initial.field0[0][..., mask], expected, rtol=1e-9, atol=0
+        launch.translate().initial.field0[..., mask], expected, rtol=1e-9, atol=0
     )
     rebuilt = Simulation(
         simulation.grid,
@@ -1193,7 +1194,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
     backend = select("numpy_ref", problem, grid=grid, modes=simulation.modes)
     try:
         backend.set_initial(problem.initial.field0, None)
-        field = backend.observe().require_field()[0].copy()
+        field = backend.observe().require_field().copy()
         state = ResumeState(
             simulation.metadata(),
             SavedPlane(z=5e-6, field=field),
@@ -1210,7 +1211,7 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
         )
         restored = backend.observe()
         assert restored.z == state.plane.z
-        assert_array_equal(restored.require_field()[0], field)
+        assert_array_equal(restored.require_field(), field)
     finally:
         backend.close()
 

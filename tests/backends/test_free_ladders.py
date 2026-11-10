@@ -324,7 +324,7 @@ def test_cartesian_field_envelope_and_scalar_vector_parity(
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            state = backend.observe().require_field()[0]
+            state = backend.observe().require_field()
             if n_pol == 2:
                 np.testing.assert_array_equal(state[:, 1], np.zeros_like(state[:, 1]))
             indices = np.rint((grid.omega - carrier) / grid.d_omega).astype(int)

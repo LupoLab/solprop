@@ -146,9 +146,9 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     **Refusals.** A problem is refused by name, with
     :class:`solprop.exceptions.BackendError`, when its flags declare a spectral
-    response, when a Raman kernel meets two polarisation components, when the transform
-    and the state would both carry the transverse components, or when its batch axis is
-    larger than one. A term silently dropped would run, converge and be wrong.
+    response, when a Raman kernel meets two polarisation components, or when the
+    transform and the state would both carry the transverse components. A term
+    silently dropped would run, converge and be wrong.
 
     **Convention.** Every array held or returned is in the FFT convention of
     ``docs/dev/conventions.md`` section 2; the backend never conjugates. The
@@ -240,7 +240,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         self._tdse_last_projection: dict[str, object] | None = None
         super().__init__(problem, grid=grid, modes=modes, profiles=profiles)
         self._statistics_power_weight = np.empty(
-            problem.shape[1:] if problem.transform.geometry is None else (0,)
+            problem.shape if problem.transform.geometry is None else (0,)
         )
         # Formed once, so a geometry the far-field statistics refuse is refused here,
         # before any step (SEP 23 section 6).
@@ -310,7 +310,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         # The lab-frame source's unit "propagator": one element broadcast to the state's
         # shape, so it holds no volume beside the state.
         self._lab_frame = np.broadcast_to(
-            np.ones((), dtype=np.complex128), problem.shape
+            np.ones((), dtype=np.complex128), (1, *problem.shape)
         )
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(
@@ -450,9 +450,31 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
         """Collect the requested statistics at the current position.
 
+        The trajectory's statistics, without the leading axis of one the march holds
+        its state with (SEP 47 section 6.2): :meth:`_stacked_statistics` evaluates
+        them.
+
+        Parameters
+        ----------
+        spec : solprop.stats.StatsSpec
+            Which statistics and which windows.
+
+        Returns
+        -------
+        dict
+            Small host arrays keyed by statistic name.
+        """
+        return {
+            name: np.asarray(value[0])
+            for name, value in self._stacked_statistics(spec).items()
+        }
+
+    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
+        """Collect the statistics with the leading axis of one of the held state.
+
         The statistics of the saved field go to :func:`solprop.stats.collect`, one call
-        per batch member, stacked along the leading batch axis the protocol promises;
-        there is exactly one definition of each in the package and that is it. The
+        per row of the held state, stacked along its leading axis; there is exactly one
+        definition of each in the package and that is it. The
         statistics :class:`solprop.stats.StatDefinition` marks ``backend`` are of
         quantities a saved plane does not carry -- the electron density, the peak
         ionisation rate, the on-axis intensity, the quadrature error -- and are formed
@@ -466,7 +488,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, each with a leading axis of one.
 
         Raises
         ------
@@ -1197,7 +1219,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -1208,7 +1230,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout.
+            The state, shape ``(n_modes, n_pol, n_omega)``.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry, or ``None`` for the problem's own.
         z : float, optional
@@ -1260,7 +1282,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
                 f"at z = {self._z:.6g} m ({error.calls} charged); "
                 "the run stops at its last accepted step, unfinished",
                 z=self._z,
-                field=self._adams_state().copy(),
+                field=self._adams_state()[0].copy(),
                 calls=error.calls,
             ) from None
 
@@ -2216,9 +2238,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         problem = self._problem
         transform, grids = problem.transform, problem.grids
         # The field's own precision: complex128, or complex64 under SEP 33.
-        spectrum = np.zeros(
-            problem.shape[1:], dtype=np.result_type(modal_t, np.complex64)
-        )
+        spectrum = np.zeros(problem.shape, dtype=np.result_type(modal_t, np.complex64))
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         for first in range(0, transform.n_nodes, transform.node_chunk):
             rows = slice(
@@ -2603,7 +2623,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
         raman = self._raman_spectrum(bundle.raman_rates, bundle.raman_densities)
         n_pol = transform.n_pol
         projected = np.zeros(
-            (transform.n_modes, self._problem.shape[2], grids.n_to),
+            (transform.n_modes, self._problem.shape[1], grids.n_to),
             dtype=modal_t.dtype,
         )
         coarse = None if self._embedded is None else np.zeros_like(projected)
@@ -2717,7 +2737,7 @@ class NumpyRefBackend(HostDriver[Complex[np.ndarray, "n_batch n_modes n_pol n_om
             or self._raman_rates != rates
             or self._raman_densities != amplitudes
         ):
-            if self._problem.transform.n_pol * self._problem.shape[2] == 2:
+            if self._problem.transform.n_pol * self._problem.shape[1] == 2:
                 self._raman_kernel = passes.tensor_raman_spectrum(
                     components,
                     rates,
@@ -2927,7 +2947,7 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(msg)
     if (
         problem.flags.has_raman
-        and problem.transform.n_pol * problem.shape[2] > 1
+        and problem.transform.n_pol * problem.shape[1] > 1
         and (
             not problem.responses.raman_terms
             or not all(term.tensor_capable for term in problem.responses.raman_terms)
@@ -2936,19 +2956,12 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
         raise BackendError(
             "vector Raman requires tensor-capable terms; found scalar_only"
         )
-    n_batch, _, n_pol, _ = problem.shape
+    _, n_pol, _ = problem.shape
     if problem.transform.n_pol * n_pol > MAX_N_POL:
         msg = (
             f"the transform resolves {problem.transform.n_pol} transverse components "
             f"and the state carries {n_pol}; the components belong to one of the two "
             "and not to both, so this problem would count them twice"
-        )
-        raise BackendError(msg)
-    if n_batch != NumpyRefBackend.max_batch:
-        msg = (
-            f"numpy_ref steps one problem at a time (max_batch = "
-            f"{NumpyRefBackend.max_batch}) and this problem has a batch axis of "
-            f"{n_batch}"
         )
         raise BackendError(msg)
 

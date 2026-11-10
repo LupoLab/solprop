@@ -176,10 +176,10 @@ def test_a_plane_built_by_hand_copies_what_it_is_given():
     assert not plane.field.flags.writeable and field.flags.writeable
 
 
-def test_the_public_observation_route_copies_a_member():
-    """A member of a batch stays a copy, or its view would pin the batch."""
-    observation = _observation(np.ones((2, 1, 1, 4), dtype=np.complex128))
-    plane = plane_from_observation(observation, member=1)
+def test_the_public_observation_route_copies_the_field():
+    """A plane built from an observation stays a copy, or its view would pin it."""
+    observation = _observation(np.ones((1, 1, 4), dtype=np.complex128))
+    plane = plane_from_observation(observation)
     assert plane.field is not None
     assert not np.shares_memory(plane.field, observation.require_field())
 
@@ -195,7 +195,7 @@ def test_an_adopted_array_is_taken_as_it_is_and_checked():
 
 
 def _observation(field: np.ndarray) -> Observation:
-    """Return an observation of a batch that took no step."""
+    """Return an observation that took no step."""
     empty = np.empty(0)
     return Observation(
         0.0,
@@ -272,7 +272,7 @@ def test_a_stored_field_has_the_bits_of_the_conversion_in_two_steps(
             # Both of the run's modal routes are exercised: weights of one and others.
             assert bool(np.all(weight == 1.0)) is (case == "single-mode")
             field = power_amplitude(observed, weight)
-        expected = fourier.spectrum_to_optics(field[0], kind=kind)
+        expected = fourier.spectrum_to_optics(field, kind=kind)
         assert expected.tobytes() == stored[index].tobytes()
 
 
@@ -316,7 +316,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend,
         stepping,
         problem,
         describe_run(problem),
-        Start(field=problem.initial.field0[0], z=float(problem.initial.z)),
+        Start(field=problem.initial.field0, z=float(problem.initial.z)),
     )
     try:
         session.acknowledge(session.advance().receipt)  # the launch plane
@@ -329,7 +329,7 @@ def test_an_observed_field_is_converted_in_place_only_where_it_is_owned(backend,
         held = session.export(event.ticket, ExportRecipe(power=True, optics=False))
         owned = backend == "native"
         assert seen[-1].field_owned is owned
-        expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))[0]
+        expected = power_amplitude(raws[-1], power_weight_at(problem, event.z))
         assert held.tobytes() == expected.tobytes()
         # The observation's own array stays frozen; a fresh export is the caller's.
         assert held.flags.writeable is not owned

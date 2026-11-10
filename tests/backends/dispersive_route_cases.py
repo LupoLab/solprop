@@ -185,7 +185,7 @@ def source(backend_class: type, problem: KernelProblem, grid: TimeGrid) -> np.nd
     backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0, 0.0))
+        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
         backend.close()
 
@@ -218,7 +218,7 @@ def evaluation_bound(problem: KernelProblem) -> float:
     groups = len({row.tobytes() for row in np.ascontiguousarray(leaf.filters)})
     products = leaf.n_channels if leaf.evaluator == "symmetric" else 1 + 2 * groups
     temporal = 8 * EPS * math.ceil(math.log2(problem.grids.n_to))
-    columns = problem.shape[1] * problem.shape[2]
+    columns = problem.shape[0] * problem.shape[1]
     transverse = 8 * EPS * math.ceil(math.log2(max(2, columns)))
     sums = gamma(max(2, problem.transform.n_nodes))
     response = products * (2 * temporal + 2 * sums)
@@ -288,10 +288,8 @@ def general_problem(
         kerr_form=form,
         selection=MaterialSelection(electronic=POLICIES[evaluator]),
     )
-    state = np.zeros((1, 1, 1, grid.n_omega), complex)
-    state[0, 0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(
-        grid
-    )
+    state = np.zeros((1, 1, grid.n_omega), complex)
+    state[0, 0] = GaussianPulse(wavelength=835e-9, fwhm=40e-15, energy=2e-9).build(grid)
     problem = assemble(
         grid,
         list(guide.mode_collection),

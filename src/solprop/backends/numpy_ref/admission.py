@@ -13,8 +13,8 @@ drift between copies.
 
 What a backend has not built is said with `flow_methods`: the section methods of
 ``linear.coupled_flow`` it executes. A section method outside them is refused by name
-before anything is allocated. Everything else -- the batch axis, a backend's own
-kernels' limits -- stays with the backend that has the limit.
+before anything is allocated. Everything else -- a backend's own kernels' limits --
+stays with the backend that has the limit.
 
 The list runs **before** :meth:`solprop.translate.problem.KernelProblem.validate` and
 before any buffer is allocated, and repeats checks the translation layer also makes,
@@ -268,9 +268,6 @@ def _refuse_flow_problem(problem: KernelProblem, *, backend: str) -> None:
     ``TM_0m`` or ``EH`` set synthesises E_x and E_y): the synthesis
     is read by the responses alone, never by the flow, so it is not refused.
 
-    A batch axis is refused for every problem by each backend's own ``max_batch = 1``
-    before anything reaches here, and is **not** repeated.
-
     Parameters
     ----------
     problem : solprop.translate.problem.KernelProblem
@@ -283,7 +280,7 @@ def _refuse_flow_problem(problem: KernelProblem, *, backend: str) -> None:
     BackendError
         Naming what the problem carries beside the flow.
     """
-    _, _, n_pol, _ = problem.shape
+    _, n_pol, _ = problem.shape
     if n_pol != 1:
         msg = (
             f"{backend} executes a coupled flow only for a scalar state, and this "
@@ -567,25 +564,7 @@ def _refuse_modal_route(
             f"{problem.linear.power_weight_representation}"
         )
         raise BackendError(msg)
-    n_batch = problem.shape[0]
-    if n_batch != 1:
-        # A **fused** batch axis, which is not what a general-guide batch is. The
-        # stage passes `lab[0]` to the source pass, so a fused axis would propagate
-        # member zero's polarisation for every member and nothing downstream would
-        # say so. A general-guide batch is instead a lockstep group of singleton
-        # workspaces, one per member, each handed its own row by
-        # `NumpyBatchBackend`, so
-        # this refusal stands and is never reached on that path.
-        msg = (
-            f"{backend} executes a general modal guide one member at a time and "
-            f"this problem carries a batch axis of {n_batch}: the source pass "
-            "evaluates the polarisation of member zero only. A general-guide "
-            "batch is a lockstep group of singleton members sharing one guide, "
-            "which solprop.driver.batch builds; a fused batch axis is not "
-            "implemented. Run each launch on its own"
-        )
-        raise BackendError(msg)
-    n_pol = problem.shape[2]
+    n_pol = problem.shape[1]
     if n_pol != 1:
         # Without this the pass would return a one-wide source and `stage_output`
         # would broadcast it onto a two-wide prefactor: two polarisations driven by

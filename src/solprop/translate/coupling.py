@@ -252,7 +252,7 @@ def input_port(  # noqa: PLR0913 - the problem and each part of the entrance it 
             models = ("same_basis", "scalar_paraxial")
             if profiles.family == "step_index":
                 contrast = _scalar_contrast(profiles, index)
-    shape = cast("tuple[int, int, int]", tuple(int(one) for one in problem.shape[1:]))
+    shape = cast("tuple[int, int, int]", tuple(int(one) for one in problem.shape))
     return InputPort(
         route,
         grid,

@@ -310,7 +310,7 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     specification: SpatialAbsorber,
     space: RadialGrid | FreeGrid | PlanarGrid,
     dispersion: SpatialDispersion,
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     z_max: float,
 ) -> SpatialAbsorberDesign:
     """Resolve a specification into the run's immutable design (SEP 40 section 5.2).
@@ -332,7 +332,7 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     dispersion : solprop.spatial.SpatialDispersion
         The medium and the temporal grid.
     field0 : numpy.ndarray
-        The noise-free launch in the canonical layout, spectral columns.
+        The noise-free launch, spectral columns, shape ``(n_modes, n_pol, n_omega)``.
     z_max : float
         The run's length, m.
 
@@ -351,7 +351,9 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     grid = dispersion.grid
     k, omega = band_wavenumbers(space, dispersion, z_max)
     mask = grid.inband_mask & grid.active_mask
-    power = _column_power(space, field0, mask)
+    # The column reductions read a leading axis of one, a view.
+    launch = np.asarray(field0)[np.newaxis]
+    power = _column_power(space, launch, mask)
     attenuation = specification.attenuation
     axes = _axes(space)
     collar = specification.real_space
@@ -473,7 +475,7 @@ def resolve_transverse(  # noqa: PLR0912, PLR0915 - one resolution, in order
     # What would come back from the intermediate band, kappa_p < |k| < kappa_s,
     # weighted by the launch's spectrum: a report, judged by the monitor (4.4).
     intermediate = _intermediate_return(
-        axes, kappa_p, widths, starts, alpha0, field0, space, grid, k
+        axes, kappa_p, widths, starts, alpha0, launch, space, grid, k
     )
     notes |= {
         "kappa_p_band": tuple(
@@ -603,7 +605,7 @@ def checked_design(
     design: SpatialAbsorberDesign,
     space: RadialGrid | FreeGrid | PlanarGrid,
     dispersion: SpatialDispersion,
-    field0: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+    field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     z_max: float,
 ) -> SpatialAbsorberDesign:
     """Run the design check on a collar's design and refuse a failing one by name.
@@ -621,7 +623,7 @@ def checked_design(
     dispersion : solprop.spatial.SpatialDispersion
         The medium and the temporal grid.
     field0 : numpy.ndarray
-        The noise-free launch, canonical layout.
+        The noise-free launch, shape ``(n_modes, n_pol, n_omega)``.
     z_max : float
         The run's length, m.
 
@@ -639,8 +641,10 @@ def checked_design(
     if not design.has_collar:
         return design
     assert design.collar_rate is not None
+    # The check and the trial launches read a leading axis of one, a view.
+    held = np.asarray(field0)[np.newaxis]
     result = design_check(
-        space, design.collar_rate, field0, dispersion, z_max, min(design.width)
+        space, design.collar_rate, held, dispersion, z_max, min(design.width)
     )
     checked = dataclasses.replace(design, check=result.record())
     if result.status in ("passed", "pending"):
@@ -650,10 +654,10 @@ def checked_design(
         if fraction <= float(space.collar_fraction):
             continue
         trial = _trial_grid(space, fraction)
-        launch = _relaunched(space, trial, field0)
+        launch = _relaunched(space, trial, held)
         try:
             candidate = resolve_transverse(
-                design.specification, trial, dispersion, launch, z_max
+                design.specification, trial, dispersion, launch[0], z_max
             )
         except TranslationError:
             continue

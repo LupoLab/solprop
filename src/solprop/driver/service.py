@@ -389,7 +389,7 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
     reserve = getattr(output, "reserve", None)
     if reserve is not None:
         reserve(planes.size + 1)
-    _retain(output, context.retention, problem.shape[1:])
+    _retain(output, context.retention, problem.shape)
     reached, missing_current_save = _resume_position(output, checkpoint_output, problem)
     _refuse_unread_collar(problem, backend)
     monitor = session.monitor

@@ -28,7 +28,7 @@ simulation = Simulation.from_gnlse(
     n_save=3,
 )
 problem = simulation.translate()
-problem.shape  # (1, 1, 1, 768): batch, modes, polarisation, frequency
+problem.shape  # (1, 1, 768): modes, polarisation, frequency
 problem.flags  # single_mode=True, constant_linop=True, ...
 problem.linear.phi_representation  # 'constant': how the linear operator was stored
 ```
@@ -56,7 +56,7 @@ contract:
 | `linear` | the cumulative operator $\Phi(\omega, z)$ as a Chebyshev expansion in the mode set's scalar paths, or as a table along z where that is not available, plus its hard kinks and the frame quantities |
 | `transform` | synthesis and projection between modal amplitudes and the field at quadrature nodes, and their rescaling along z |
 | `responses` | the compiled nonlinear term: the Kerr coefficients, the ionisation table, the plasma and Raman leaves, the density path, the prefactor, the temporal absorber |
-| `initial` | the initial state, the noise realisation and the per-member batch parameters |
+| `initial` | the initial state and the noise realisation of the one trajectory the problem describes |
 | `stepper` | the tableau, the controller, the step caps, the save planes and any fixed schedule |
 | `stats_spec` | which statistics to collect |
 | `flux` | a spatial run's plane measure: the axial admittance of the medium at any plane, from which every spatial statistic is weighted ([SEP 34](seps/archive/sep-0034-medium-flux.md), version 35) |
@@ -140,7 +140,7 @@ the operator.
 
 ## The flags are derived, never declared
 
-The ten booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
+The nine booleans of section 1 — `single_mode`, `has_raman`, `constant_linop` and the rest —
 are computed by {meth}`solprop.translate.problem.Flags.from_content` from the arrays that
 were actually built. A caller cannot set them, so a flag cannot disagree with what it
 describes, which is the failure mode a kernel specialising on them would find hardest to
@@ -259,9 +259,9 @@ kernel has to do: the operator does not propagate what is not there, and the pre
 not create it. Between the two, the assembled problem reports
 
 ```
-shape          (1, 1, 1, 4096)
+shape          (1, 1, 4096)
 grid_kind      'envelope'
-flags          single_mode, scalar_pol, single_batch, constant_linop, mode_averaged
+flags          single_mode, scalar_pol, constant_linop, mode_averaged
 Phi table      1 interval of degree 1, 128 kB
 save planes    [0.5, 1.0]
 ```

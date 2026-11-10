@@ -138,7 +138,7 @@ def test_cartesian_absorber_has_no_per_step_window_loss(
     try:
         backend.set_initial(problem.initial.field0, None)
         result = backend.propagate_to(LENGTH)
-        actual = backend.observe().require_field()[0]
+        actual = backend.observe().require_field()
         defect = np.linalg.norm(actual[:, :, index] - expected) / np.linalg.norm(
             start[:, :, index]
         )
@@ -230,7 +230,7 @@ def test_cartesian_split_step_temporal_absorber_reconstructs_physical_field(
             backend._native_state.finish(dz)
             actual = backend._native_state.field_to_host().reshape(start.shape)
         else:
-            actual = backend._finish(problem.initial.field0.copy(), dz)[0]
+            actual = backend._finish(problem.initial.field0[None].copy(), dz)[0]
         assert np.max(np.abs(actual - expected)) < bound
         record_metric(
             request,

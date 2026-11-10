@@ -3274,7 +3274,7 @@ class Simulation(Displayed):
         leaf = None
         if any(isinstance(one, DispersiveKerrResponse) for one in self.responses):
             problem = self.translate()
-            vector = problem.transform.n_pol * problem.shape[2] > 1
+            vector = problem.transform.n_pol * problem.shape[1] > 1
             leaf = problem.responses.dispersive_kerr
         elif vector:
             leaf = self.translate().responses.dispersive_kerr
@@ -7720,7 +7720,7 @@ def _realisation(problem: KernelProblem) -> NoiseRealisation | None:
     if initial.noise0 is None or initial.noise_model == "none":
         return None
     return NoiseRealisation(
-        spectrum=initial.noise0[0], seed=None, model=initial.noise_model
+        spectrum=initial.noise0, seed=None, model=initial.noise_model
     )
 
 
@@ -7767,7 +7767,7 @@ def check_derived_problem(constructed: KernelProblem, derived: KernelProblem) ->
     ...     width=100e-15, peak_power=9.8, shape="sech",
     ... )
     >>> problem = simulation.translate()
-    >>> derived = simulation.with_input(problem.initial.field0[0]).translate()
+    >>> derived = simulation.with_input(problem.initial.field0).translate()
     >>> check_derived_problem(problem, derived) is None
     True
     """
@@ -8874,7 +8874,7 @@ def _replaced_launch(
     original: KernelProblem,
     field0: Complex[np.ndarray, "n_modes n_pol n_omega"],
     launch_z: float,
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
     """Return a replaced input as the derived problem's launch, without a further copy.
 
     On a free-space or spatial route the launch is a view of the derived simulation's
@@ -8893,14 +8893,14 @@ def _replaced_launch(
     Returns
     -------
     numpy.ndarray
-        The launch with its batch axis, which :class:`~solprop.translate.problem.
-        Initial` takes without a further copy.
+        The launch, which :class:`~solprop.translate.problem.Initial` takes without a
+        further copy.
     """
     if original.transform.geometry is not None:
         return _state(field0, original.shape[-1])
     # The conversion is a new array, held as it is rather than copied again.
     converted = power_amplitude(
-        field0[np.newaxis], power_weight_at(original, launch_z), inverse=True
+        field0, power_weight_at(original, launch_z), inverse=True
     )
     return _hold(np.asarray(converted, dtype=np.complex128))
 
@@ -9873,8 +9873,8 @@ def _rechecked(
     medium = simulation.medium
     assert isinstance(space, RadialGrid | FreeGrid | PlanarGrid)
     assert medium is not None
-    old = np.asarray(original.initial.field0[:1])
-    new = np.asarray(derived.initial.field0[:1])
+    old = np.asarray(original.initial.field0)
+    new = np.asarray(derived.initial.field0)
     reference = float(np.vdot(old, old).real)
     if reference > 0.0:
         scale = np.vdot(old, new) / reference

@@ -227,10 +227,11 @@ class LinearOperator:
         the schedule read the same field either way.
     phi_coefficients : numpy.ndarray or None
         Chebyshev coefficients of ``Phi``, complex128, shape ``(n_intervals, n_deg,
-        n_batch_or_1, n_modes, n_pol, n_omega)``, present when `phi_representation` is
+        1, n_modes, n_pol, n_omega)``, present when `phi_representation` is
         ``"table"`` and also for ``"constant"``, whose one interval of degree 1 is
-        exact; absent for ``"expansion"``. The batch axis is 1 when the members share a
-        fibre. Units are dimensionless: ``Phi`` is an exponent.
+        exact; absent for ``"expansion"``. The axis of one is the value layout the
+        native build reads; the state has none. Units are dimensionless: ``Phi`` is an
+        exponent.
     phi_degrees : numpy.ndarray
         Degree used on each interval, ``numpy.intp``, shape ``(n_intervals,)``.
         Diagnostic: the zero padding makes it unnecessary for evaluation.
@@ -239,7 +240,7 @@ class LinearOperator:
         Steps land on them; the far more numerous split edges are not tracked
         here and nothing lands on those.
     phi_constant : numpy.ndarray or None
-        ``D`` itself, complex128, shape ``(n_batch_or_1, n_modes, n_pol, n_omega)``,
+        ``D`` itself, complex128, shape ``(1, n_modes, n_pol, n_omega)``,
         present exactly when `phi_representation` is ``"constant"``, so that
         :func:`delta_phi` returns ``D (z2 - z1)`` to the last bit rather than the
         difference of two Clenshaw sums.
@@ -459,7 +460,7 @@ class LinearOperator:
         Returns
         -------
         tuple of int
-            ``(n_batch_or_1, n_modes, n_pol, n_omega)``, whichever representation
+            ``(1, n_modes, n_pol, n_omega)``, whichever representation
             carries it.
 
         Examples
@@ -610,13 +611,17 @@ class LinearOperator:
 
 def _value_shape(
     operator: Complex[np.ndarray, "*value n_omega"], n_pol: int
-) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
-    """Bring an operator to the canonical ``(n_batch, n_modes, n_pol, n_omega)`` shape.
+) -> Complex[np.ndarray, "1 n_modes n_pol n_omega"]:
+    """Bring an operator to the value layout ``(1, n_modes, n_pol, n_omega)``.
+
+    The operator's values keep a leading broadcast axis of one, the layout the native
+    build reads; the state itself has none (SEP 47 section 6.2).
 
     Parameters
     ----------
     operator : numpy.ndarray
-        ``D`` as ``(n_omega,)`` or already in the canonical layout.
+        ``D`` as ``(n_omega,)``, in the state's ``(n_modes, n_pol, n_omega)`` or
+        already in the value layout.
     n_pol : int
         Polarisation components to broadcast a one-dimensional operator over.
 
@@ -628,15 +633,17 @@ def _value_shape(
     Raises
     ------
     TranslationError
-        If the array has neither one nor four axes, or `n_pol` is not 1 or 2.
+        If the array has neither one, three nor four axes, or `n_pol` is not 1 or 2.
     """
     values = np.asarray(operator)
     if values.ndim == 4:
         return values
+    if values.ndim == 3:
+        return values[np.newaxis]
     if values.ndim != 1:
         msg = (
-            f"the operator must have shape (n_omega,) or (n_batch, n_modes, n_pol, "
-            f"n_omega), got {values.shape}"
+            "the operator must have shape (n_omega,), (n_modes, n_pol, n_omega) or "
+            f"(1, n_modes, n_pol, n_omega), got {values.shape}"
         )
         raise TranslationError(msg)
     if n_pol not in (1, 2):

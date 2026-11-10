@@ -62,7 +62,7 @@ def run(problem, grid):
     backend = NumpyRefBackend(problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(float(problem.stepper.save_planes[-1]))
-    field = backend.observe().require_field()[0, 0, 0]
+    field = backend.observe().require_field()[0, 0]
     ledger = None if backend._adams is None else backend._adams.ledger
     backend.close()
     return field, ledger
@@ -103,7 +103,7 @@ def test_adams_is_the_exact_linear_flow_without_a_source(narrow_grid, linear_pro
     length = 0.5
     problem = linear_problem(narrow_grid, save_planes=[length], integrator=PECE4)
     field, ledger = run(problem, narrow_grid)
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     exact = np.exp(delta_phi(problem.linear, 0.0, length))[0, 0, 0] * start
     # A zero source leaves only the propagators' products: round-off per step.
     np.testing.assert_allclose(field, exact, rtol=0, atol=1e-12 * np.abs(start).max())
@@ -203,10 +203,10 @@ def test_dense_observation_is_the_exact_linear_flow_without_a_source(
     )
     backend = NumpyRefBackend(problem, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
-    start = problem.initial.field0[0, 0, 0] * problem.grids.active_mask
+    start = problem.initial.field0[0, 0] * problem.grids.active_mask
     for plane in planes:
         backend.propagate_to(plane)
-        field = backend.observe().require_field()[0, 0, 0]
+        field = backend.observe().require_field()[0, 0]
         exact = np.exp(delta_phi(problem.linear, 0.0, plane))[0, 0, 0] * start
         # With no source the interaction variable is constant across the step, so
         # every interpolant reproduces it: round-off in the propagators only.
@@ -238,7 +238,7 @@ def test_dense_observation_matches_landing(narrow_grid, soliton_problem, dense):
         observed = []
         for plane in planes:
             backend.propagate_to(plane)
-            observed.append(backend.observe().require_field()[0, 0, 0])
+            observed.append(backend.observe().require_field()[0, 0])
         ledger = backend._adams.ledger if backend._adams is not None else None
         backend.close()
         return np.array(observed), ledger
@@ -303,7 +303,7 @@ def test_call_budget_stops_before_overspending(narrow_grid, soliton_problem):
     # PECE needs two calls a trial: the stop leaves at most one unspent.
     assert budget - ledger.total < 2
     assert 0.0 < caught.value.z < SOLITON_PERIOD
-    np.testing.assert_array_equal(caught.value.field, backend._state)
+    np.testing.assert_array_equal(caught.value.field, backend._state[0])
     backend.close()
 
 

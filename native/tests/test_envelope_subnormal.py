@@ -110,13 +110,13 @@ def evaluate(
             backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
             stage = np.asarray(
                 backend._native_state.stage_to_host(0)  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownArgumentType, reportUnknownMemberType]
-            ).reshape(problem.shape[1:])
+            ).reshape(problem.shape)
         else:
             backend._hoist(0.0)  # pyright: ignore[reportPrivateUsage] - oracle probe
             stage = backend._nonlinear(  # pyright: ignore[reportAttributeAccessIssue, reportPrivateUsage, reportUnknownMemberType, reportUnknownVariableType]
                 backend._require_state(),  # pyright: ignore[reportArgumentType, reportPrivateUsage]
                 backend._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         return stage, statistics  # pyright: ignore[reportUnknownVariableType]
     finally:

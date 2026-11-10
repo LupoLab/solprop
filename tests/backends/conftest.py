@@ -411,24 +411,6 @@ def expanded_prefactor():
 
 
 @pytest.fixture(scope="session")
-def batched_problem(gnlse, narrow_grid):
-    """A two-member batch, which the reference backend refuses (``max_batch = 1``)."""
-    start = soliton_field(narrow_grid, 1)
-    return assemble(
-        narrow_grid,
-        gnlse.mode,
-        [gnlse.kerr],
-        np.concatenate([start[np.newaxis], start[np.newaxis]]),
-        controller=PIController(rtol=1e-8, atol=1e-18),
-        save_planes=[0.01],
-        dz_max=0.01,
-        dz_init=1e-4,
-        batch_params={"member": np.array([0.0, 1.0])},
-        **GNLSE_SETTINGS,
-    )
-
-
-@pytest.fixture(scope="session")
 def thg_grid():
     """An envelope grid oversampled six times, which resolves the third harmonic."""
     return EnvelopeGrid.from_limits(1.0, WAVELENGTH, (500e-9, 2e-6), 1e-12, thg=True)

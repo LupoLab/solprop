@@ -101,7 +101,8 @@ def test_one_trial_matches_numpy_within_sixteen_epsilon(
         bound = _phase_factor(16, problem.grids.n_to, 7) * float(
             np.max(np.abs(expected))
         )
-        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
+        # The trial's state keeps the backend's private leading axis of one.
+        np.testing.assert_allclose(actual, expected[0], rtol=0.0, atol=bound)
     finally:
         reference.close()
         backend.close()
@@ -300,7 +301,8 @@ def test_one_complete_raman_response_matches_the_reference(
         bound = max(established, device if DEVICE_BUILD else 0.0) * max(
             1.0, float(np.max(np.abs(expected)))
         )
-        np.testing.assert_allclose(actual, expected, rtol=0.0, atol=bound)
+        # The trial's state keeps the backend's private leading axis of one.
+        np.testing.assert_allclose(actual, expected[0], rtol=0.0, atol=bound)
     finally:
         reference.close()
         backend.close()

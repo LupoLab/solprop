@@ -309,7 +309,7 @@ def test_an_interior_launch_plane_resumes_without_a_second_draw(
     def interior():
         base = build_simulation(noise=None, backend="numpy_ref", rtol=rtol)
         return base.with_input(
-            np.asarray(base.translate().initial.field0[0]),
+            np.asarray(base.translate().initial.field0),
             initial_z=base.grid.length / 2,
             noise=build_simulation(noise="input", seed=17).noise,
         )
@@ -359,10 +359,13 @@ def test_the_input_draw_is_added_at_a_launch_and_not_to_a_resumed_state(
             rtol=0.0,
             atol=1e-12 * np.linalg.norm(draw),
         )
-        assert engine._input_floor is draw
+        # The floor is the draw itself, behind the march's private axis of one.
+        assert engine._input_floor is not None
+        assert engine._input_floor.base is draw
         engine.set_initial(launched, None, z=0.0, resume=True)
         np.testing.assert_array_equal(engine.observe().require_field(), launched)
-        assert engine._input_floor is draw
+        assert engine._input_floor is not None
+        assert engine._input_floor.base is draw
     finally:
         engine.close()
 

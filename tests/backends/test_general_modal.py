@@ -94,7 +94,7 @@ def leaf_value(name, problem):
     and it fires before ``validate`` ever looks inside.
     """
     n_omega = problem.shape[-1]
-    n_modes = problem.shape[1]
+    n_modes = problem.shape[0]
     omega = np.linspace(1.0e15, 2.0e15, n_omega)
     if name == "coupled_flow":
         return CoupledFlowTables(
@@ -543,7 +543,7 @@ def test_a_millimetre_of_one_channel_accumulates_the_self_phase(
     backend = NumpyRefBackend(problem, grid=case.grid)
     backend.set_initial(problem.initial.field0, None)
     summary = backend.propagate_to(length)
-    final = backend.observe().require_field()[0, 0, 0, index]
+    final = backend.observe().require_field()[0, 0, index]
     backend.close()
     assert summary.met_tolerance
 
@@ -643,13 +643,13 @@ def test_the_reference_executes_a_dense_metric_of_a_declared_basis(circular_stra
         for name in values
     }
     for name, value in values.items():
-        assert float(value[0]) != plain[name]
-        assert_allclose(float(value[0]), plain[name], rtol=2 * departure, atol=0.0)
+        assert float(value) != plain[name]
+        assert_allclose(float(value), plain[name], rtol=2 * departure, atol=0.0)
     # The unlaunched partner carries only the whitening's rounding, so it has no
     # centroid to report: the guard is relative to the plane, not to zero.
     centroid = backend.stats(StatsSpec(names=("omega0",)))["omega0"]
-    assert np.isfinite(centroid[0, 0, 0])
-    assert np.isnan(centroid[0, 1, 0])
+    assert np.isfinite(centroid[0, 0])
+    assert np.isnan(centroid[1, 0])
     backend.close()
 
 
@@ -758,7 +758,7 @@ def test_the_reference_refuses_a_power_weight_that_is_not_one(strand):
     _, state = continuous_wave(strand, [1.0])
     problem = general_problem(strand, state)
     linear = dataclasses.replace(problem.linear)
-    object.__setattr__(linear, "power_weight_constant", np.full(problem.shape[1:], 1.5))
+    object.__setattr__(linear, "power_weight_constant", np.full(problem.shape, 1.5))
     spoiled = dataclasses.replace(problem, linear=linear)
     with pytest.raises(BackendError, match="constant one"):
         NumpyRefBackend(spoiled, grid=strand.grid)
@@ -834,7 +834,7 @@ def test_a_general_statistic_under_a_weight_that_is_not_one_is_refused(strand, n
     try:
         built.set_initial(problem.initial.field0, None)
         object.__setattr__(
-            problem.linear, "power_weight_constant", np.full(problem.shape[1:], 1.5)
+            problem.linear, "power_weight_constant", np.full(problem.shape, 1.5)
         )
         # Sorted, so a spec asking for both is refused by the first of the two.
         for asked, names in (
@@ -921,25 +921,9 @@ def test_the_reference_refuses_a_state_with_a_polarisation_axis(strand):
     """
     _, state = continuous_wave(strand, [1.0])
     problem = general_problem(strand, state)
-    n_batch, n_modes, _, n_omega = problem.shape
-    spoiled = dataclasses.replace(problem, shape=(n_batch, n_modes, 2, n_omega))
+    n_modes, _, n_omega = problem.shape
+    spoiled = dataclasses.replace(problem, shape=(n_modes, 2, n_omega))
     with pytest.raises(BackendError, match="n_pol = 1, and this problem carries 2"):
-        NumpyRefBackend(spoiled, grid=strand.grid)
-
-
-def test_the_reference_refuses_a_state_with_a_batch_axis(strand):
-    """One member at a time: the stage evaluates the polarisation of member zero.
-
-    `_general_stage` passes `lab[0]` to the source pass, because a general guide's
-    execution maps are one immutable table and the pass is written for one state.
-    Without this refusal a batch of two launches would propagate one member's
-    polarisation for both and nothing downstream would say so.
-    """
-    _, state = continuous_wave(strand, [1.0])
-    problem = general_problem(strand, state)
-    _, n_modes, n_pol, n_omega = problem.shape
-    spoiled = dataclasses.replace(problem, shape=(2, n_modes, n_pol, n_omega))
-    with pytest.raises(BackendError, match="one member at a time"):
         NumpyRefBackend(spoiled, grid=strand.grid)
 
 
@@ -1343,7 +1327,7 @@ def test_the_route_carries_the_in_stage_absorber(strand):
         backend = NumpyRefBackend(problem, grid=case.grid)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(plane)
-        field = backend.observe().require_field()[0, 0, 0]
+        field = backend.observe().require_field()[0, 0]
         backend.close()
         traces[scheme] = np.abs(fourier.inverse(field[None], kind="field")[0])
     middle = len(traces[None]) // 2

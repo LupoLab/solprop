@@ -225,7 +225,7 @@ def _parity_bound(
     flow = problem.linear.coupled_flow
     assert flow is not None
     assert flow.generator is not None
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     kappa = float(np.max(flow.inverse_condition_bound))
     scale = float(np.max(np.abs(problem.initial.field0)))
     rho = float(np.max(np.abs(expected - linear))) / scale / STEPS
@@ -312,7 +312,7 @@ def test_the_flow_ledger_counts_its_views() -> None:
         ledger = backend.memory_ledger()
     finally:
         backend.close()
-    _, channels, _, bins = problem.shape
+    channels, _, bins = problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
     block = active * channels * channels * 16
     stages = problem.stepper.tableau.n_stages

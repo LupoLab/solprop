@@ -210,7 +210,7 @@ def run_fixed(case, state, steps, backend="numpy_ref"):
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(FWM_LENGTH)
-        return np.array(owner.observe().require_field()[0, :, 0, :])
+        return np.array(owner.observe().require_field()[:, 0, :])
     finally:
         owner.close()
 
@@ -627,7 +627,7 @@ def grin_exit_energies(elements, trange, steps):
     try:
         owner.set_initial(problem.initial.field0, None)
         owner.propagate_to(GRIN_LENGTH)
-        final = owner.observe().require_field()[0]
+        final = owner.observe().require_field()
     finally:
         owner.close()
     return energy(grid, final)[:, 0]

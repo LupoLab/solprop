@@ -313,7 +313,7 @@ def _line(
     omega0 = 2 * math.pi * C / 800e-9
     spectrum = np.exp(-(((grid.omega - omega0) / (0.1 * omega0)) ** 2))
     columns = np.fft.fft(np.exp(-((np.asarray(space.x) / waist) ** 2)))
-    launch = columns[None, :, None, None] * spectrum[None, None, None, :]
+    launch = columns[:, None, None] * spectrum[None, None, :]
     return space, dispersion, launch.astype(complex)
 
 
@@ -347,8 +347,14 @@ def test_a_refined_estimate_that_disagrees_is_inconclusive() -> None:
         SpatialAbsorber(kappa=0.45 * top), space, dispersion, launch, 2e-3
     )
     assert design.collar_rate is not None
+    # The check reads the launch behind a leading axis of one, as checked_design does.
     result = design_check(
-        space, 0.1 * design.collar_rate, launch, dispersion, 2e-3, min(design.width)
+        space,
+        0.1 * design.collar_rate,
+        launch[np.newaxis],
+        dispersion,
+        2e-3,
+        min(design.width),
     )
     assert result.refined
     assert result.status == "inconclusive"
@@ -358,9 +364,9 @@ def test_a_refined_estimate_that_disagrees_is_inconclusive() -> None:
 def test_a_polarisation_that_carries_nothing_changes_nothing() -> None:
     space, dispersion, launch = _line(68, 5e-3, 20e-6)
     rate = 1e3 * (1 - np.asarray(space.window))
-    one = design_check(space, rate, launch, dispersion, 5e-3, 100e-6)
-    both = np.concatenate([launch, np.zeros_like(launch)], axis=2)
-    two = design_check(space, rate, both, dispersion, 5e-3, 100e-6)
+    one = design_check(space, rate, launch[np.newaxis], dispersion, 5e-3, 100e-6)
+    both = np.concatenate([launch, np.zeros_like(launch)], axis=1)
+    two = design_check(space, rate, both[np.newaxis], dispersion, 5e-3, 100e-6)
     assert two.returned == pytest.approx(one.returned, rel=1e-12)
     assert two.status == one.status == "passed"
 
@@ -372,7 +378,9 @@ def test_a_launch_with_nothing_in_the_requested_band_returns_nothing() -> None:
     band = dispersion.grid.inband_mask & dispersion.grid.active_mask
     outside = np.where(band, 0.0, 1.0) * np.abs(launch).max()
     rate = 1e3 * (1 - np.asarray(space.window))
-    result = design_check(space, rate, launch * 0 + outside, dispersion, 5e-3, 1e-4)
+    result = design_check(
+        space, rate, (launch * 0 + outside)[np.newaxis], dispersion, 5e-3, 1e-4
+    )
     assert result.status == "passed"
     assert result.returned == 0.0
 

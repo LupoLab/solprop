@@ -62,9 +62,9 @@ def test_species_statistics_preserve_an_inert_component_and_close(
         values = backend.stats(
             StatsSpec(names=("species_ionisation", "species_density"))
         )
-        assert values["species_ionisation"].shape == (1, 3, 1)
+        assert values["species_ionisation"].shape == (3, 1)
         # Exact: the inert component has no rate, so nothing ever ionises it.
-        np.testing.assert_array_equal(values["species_ionisation"][:, 2], 0.0)
+        np.testing.assert_array_equal(values["species_ionisation"][2], 0.0)
         assert np.all(values["species_density"] > 0.0)
         ledger = backend.memory_ledger()
         assert ledger["channel_scratch"] == 2 * problem.transform.node_chunk * 4 * 8

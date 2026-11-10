@@ -179,7 +179,7 @@ def source_of_reference(problem: KernelProblem, grid: FieldGrid) -> ComplexArray
         return reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
@@ -193,7 +193,7 @@ def source_of_native(problem: KernelProblem, grid: FieldGrid) -> ComplexArray:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         return np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
 
@@ -402,12 +402,12 @@ def test_the_launch_statistics_match_the_reference(
     expected = launch_statistics(NumpyRefBackend, problem, grid)
     actual = launch_statistics(NativeBackend, problem, grid)
     assert_statistics_agree(actual, expected, bound)
-    assert float(expected["peak_ionisation_rate"][0]) == pytest.approx(RATE, rel=1e-6)
+    assert float(expected["peak_ionisation_rate"]) == pytest.approx(RATE, rel=1e-6)
     if preionisation == 1.0:
         # All of it ionised already: no survivors for rounding to act on. Exact.
         neutral = float(problem.responses.density(0.0))
-        assert float(actual["electron_density"][0]) == neutral
-        assert float(expected["electron_density"][0]) == neutral
+        assert float(actual["electron_density"]) == neutral
+        assert float(expected["electron_density"]) == neutral
 
 
 @pytest.mark.parametrize(
@@ -450,8 +450,8 @@ def test_the_knot_index_is_clamped_at_both_ends_of_the_table(
     assert_source_agrees(problem, grid, evaluation_bound(problem, grid))
     expected = launch_statistics(NumpyRefBackend, problem, grid)
     actual = launch_statistics(NativeBackend, problem, grid)
-    assert float(expected["electron_density"][0]) > 0.0
-    assert float(expected["peak_ionisation_rate"][0]) > 1e10
+    assert float(expected["electron_density"]) > 0.0
+    assert float(expected["peak_ionisation_rate"]) > 1e10
     assert_statistics_agree(actual, expected, evaluation_bound(problem, grid))
 
 
@@ -461,7 +461,7 @@ def test_a_two_component_row_with_an_exactly_zero_component_matches_the_referenc
     launch = np.asarray(problem.initial.field0)
     field = np.zeros(problem.shape, complex)
     # The launch's radial shape, every radial node's row the same comb in time.
-    field[0, :, 0, grid.n_to // 8] = np.max(np.abs(launch[0, :, 0, :]), axis=-1)
+    field[:, 0, grid.n_to // 8] = np.max(np.abs(launch[:, 0, :]), axis=-1)
     field *= LIVE / np.max(np.abs(synthesised(problem, grid, field)))
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=field)

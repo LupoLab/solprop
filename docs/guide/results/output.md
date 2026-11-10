@@ -260,7 +260,7 @@ For a modal run:
   step_stats/<name>     already available periodic statistics
 /march_snapshot/       optional; attrs: z (NaN while being written), method, order,
                        rejections, last_rejected, proposal, identities (JSON)
-  state                 (n_batch, n_modes, n_pol, n_omega)  the accepted state, internal
+  state                 (1, n_modes, n_pol, n_omega)        the accepted state, internal
   positions, slots      (n_entries,)                        the history's entries
   rows/<name>           (n_slots, ...)                      the engine's rows
 ```

@@ -159,7 +159,7 @@ def test_gaussian_width_gouy_and_axis_intensity_include_nonparaxial_error(
         backend.set_initial(problem.initial.field0, None)
         if distance:
             backend.propagate_to(distance)
-        state = backend.observe().require_field()[0]
+        state = backend.observe().require_field()
         radial_spectrum = state[:, 0, index] * math.sqrt(n_pol)
         measured = space.hankel.inverse(radial_spectrum)
         assert np.all(np.abs(measured - profile) <= error)

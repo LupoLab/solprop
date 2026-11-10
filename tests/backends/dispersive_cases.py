@@ -202,7 +202,7 @@ def reference_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
     forward = np.fft.rfft if problem.grid_kind == "field" else np.fft.fft
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0, 0.0)
+        backend._adams_lab_source(problem.initial.field0[None], 0.0)
         coarse = backend._last_coarse
         return Evaluation(
             forward(np.asarray(backend._last_projected), axis=-1),

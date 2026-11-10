@@ -161,7 +161,7 @@ def general_runs(strand):
             owner.set_initial(one.initial.field0, None)
             summary = owner.propagate_to(LENGTH)
             runs[name] = (
-                np.array(owner.observe().require_field()[0, 0, 0]),
+                np.array(owner.observe().require_field()[0, 0]),
                 summary.n_steps,
             )
         finally:

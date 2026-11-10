@@ -115,7 +115,7 @@ def test_numpy_species_statistics_match_the_independent_node_scans():
     # The same scans by two routes: the plasma ladder's running-sum budget, 4 n eps.
     bound = 4 * grid.n_to * np.finfo(float).eps
     for name in names:
-        assert_allclose(values[name][0], expected[name], rtol=bound, err_msg=name)
+        assert_allclose(values[name], expected[name], rtol=bound, err_msg=name)
     backend.close()
 
 
@@ -153,10 +153,10 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
     try:
         backend.set_initial(problem.initial.field0, None)
         values = backend.stats(StatsSpec(names=names))
-        assert values["species_ionisation"].shape == (1, 2, 1)
+        assert values["species_ionisation"].shape == (2, 1)
         # Structural: an inactive component's statistics are exactly zero.
-        assert_array_equal(values["species_ionisation"][:, channels:], 0.0)
-        assert_array_equal(values["species_ionisation_energy"][:, channels:], 0.0)
+        assert_array_equal(values["species_ionisation"][channels:], 0.0)
+        assert_array_equal(values["species_ionisation_energy"][channels:], 0.0)
         if channels:
             totals = backend.stats(
                 StatsSpec(names=("electron_density", "peak_ionisation_rate"))
@@ -166,12 +166,12 @@ def test_inactive_components_keep_the_species_axis(backend_class, channels):
             bound = 4 * grid.n_to * np.finfo(float).eps
             assert_allclose(
                 totals["electron_density"],
-                values["species_electron_density"].sum(axis=1),
+                values["species_electron_density"].sum(axis=0),
                 rtol=bound,
             )
             assert_allclose(
                 totals["peak_ionisation_rate"],
-                values["species_peak_ionisation_rate"].max(axis=1),
+                values["species_peak_ionisation_rate"].max(axis=0),
                 rtol=bound,
             )
     finally:

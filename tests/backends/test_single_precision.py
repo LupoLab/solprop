@@ -420,7 +420,7 @@ def test_the_state_is_binary32_at_the_launch_scale_and_observed_exactly():
         assert 1.0 <= peak < 2.0
         observed = backend.observe().field
         assert observed is not None and observed.dtype == np.complex128
-        assert np.array_equal(observed, state.astype(np.complex128) * 8.0)
+        assert np.array_equal(observed, state[0].astype(np.complex128) * 8.0)
         # A reload of the observed plane holds the same binary32 state: class P.
         backend.propagate_to(0.02)
         plane = backend.observe().field
@@ -938,7 +938,7 @@ def test_the_binary32_exponent_switch_rounds_the_exponent_first():
 def test_a_non_finite_state_after_a_step_is_refused():
     with ExitStack() as cleanup:
         backend = cast(NumpySingleBackend, loaded(gnlse("single"), cleanup))
-        state = np.full(backend._problem.shape, np.nan, dtype=np.complex64)
+        state = np.full((1, *backend._problem.shape), np.nan, dtype=np.complex64)
         with pytest.raises(ConvergenceError, match="not finite after a step"):
             backend._finish(state, 1e-3)
 

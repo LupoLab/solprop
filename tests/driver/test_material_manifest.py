@@ -680,7 +680,7 @@ def test_a_derived_run_keeps_its_own_log_from_its_parents():
     parent = capillary()
     parent.translate()
     parent._material_log.seen.add(("probe", "parent"))
-    child = parent.with_input(parent.translate().initial.field0[0])
+    child = parent.with_input(parent.translate().initial.field0)
     assert child._material_log is not parent._material_log
     assert ("probe", "parent") in child._material_log.seen
     child._material_log.seen.add(("probe", "child"))

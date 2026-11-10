@@ -198,8 +198,8 @@ class _StepStatsBuffer:
         step : int
             Index of the accepted step it was taken after, into the plane's history.
         values : collections.abc.Mapping
-            What the backend's ``stats`` returned, keyed by name, each with a leading
-            batch axis.
+            What the backend's ``stats`` returned, keyed by name, without a batch
+            axis.
 
         Raises
         ------
@@ -361,7 +361,7 @@ class _TrialProbe:
         field = np.array(driver._observed_field(finished)[0])
         if kept is not None:
             # The kept array already carries any `input` draw: a resume adds none.
-            driver.set_initial(kept, self._noise, z=self._z, resume=True)
+            driver.set_initial(kept[0], self._noise, z=self._z, resume=True)
         self._trial = None
         return field
 
@@ -827,7 +827,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, without a batch axis.
         """
 
     def _on_accepted_step(self) -> None:  # noqa: B027 - optional by design
@@ -1211,7 +1211,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -1254,8 +1254,8 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         ----------
         field : numpy.ndarray
             The state in the canonical layout, complex, shape
-            ``(n_batch, n_modes, n_pol, n_omega)``, in the square root of watts and the
-            FFT convention.
+            ``(n_modes, n_pol, n_omega)``, in the square root of watts and the FFT
+            convention.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry along the run, or ``None`` to take the one the
             problem was assembled with.
@@ -1280,6 +1280,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
                 f"{self._problem.shape} from the contract"
             )
             raise BackendError(msg)
+        # The march holds its state with a leading axis of one, privately: the layout
+        # its kernels and the native build's read (SEP 47 section 6.2).
+        values = values[np.newaxis]
         position = self._checked_position(float(z))
         drawn = self._noise_field(noise)
         model = self._problem.initial.noise_model
@@ -1522,9 +1525,15 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             accepted=np.array([entry[3] for entry in self._history], dtype=np.bool_),
             wall_time=np.array([entry[4] for entry in self._history], dtype=np.float64),
         )
+        whole = self._observed_field(state) if field else None
+        if whole is not None and not self.observes_fresh_field:
+            # The observation is a view of the held state without its leading axis:
+            # the state itself is frozen, as an observed array always was, so that
+            # the next step replaces it rather than accepting in place.
+            whole.setflags(write=False)
         plane = Observation(
             z=self._z,
-            field=self._observed_field(state) if field else None,
+            field=None if whole is None else whole[0],
             noise_phase=self._noise_phase() if field else None,
             step_history=history,
             n_steps=history.n_steps,
@@ -1568,7 +1577,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The probe.
         """
         self.set_initial(
-            np.asarray(start.take_field())[np.newaxis],
+            np.asarray(start.take_field()),
             start.noise,
             z=float(start.z),
             resume=start.resume,
@@ -1698,7 +1707,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             The anchor, the step and the five coefficients, host arrays.
         """
         start = self._observed_field(cast(_StateT, self._state)).reshape(
-            self._problem.shape
+            (1, *self._problem.shape)
         )
         coefficients = extension_coefficients(
             self._problem.stepper.tableau, start, self._dense_stages(), dz
@@ -1728,7 +1737,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         self._dense_ahead = (
             self._z,
             self._observed_field(cast(_StateT, self._state)).reshape(
-                self._problem.shape
+                (1, *self._problem.shape)
             ),
         )
         self._state = self._apply_mask(self._adams_propagator(z, position) * value)
@@ -2004,7 +2013,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             If the monitor's weights do not match the grid, or its columns the state.
         """
         n_t = self._problem.grids.n_t
-        _, n_modes, _, _ = self._problem.shape
+        n_modes, _, _ = self._problem.shape
         columns = monitor.columns
         given = None if columns is None else columns.shape
         if monitor.weights.shape != (4, n_t) or given not in {None, (n_modes,)}:
@@ -2588,8 +2597,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         if noise is not None:
-            return noise_spectrum(noise, self._problem.shape)
-        return self._problem.initial.noise0
+            return noise_spectrum(noise, self._problem.shape)[np.newaxis]
+        noise0 = self._problem.initial.noise0
+        return None if noise0 is None else noise0[np.newaxis]
 
     def _noise_at(
         self, bundle: StageScalars
@@ -2616,7 +2626,7 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
 
     def _noise_phase(
         self,
-    ) -> Float[np.ndarray, "n_batch n_modes n_pol n_omega"] | None:
+    ) -> Float[np.ndarray, "n_modes n_pol n_omega"] | None:
         """Return ``Im Phi`` at the current position, or ``None`` without a noise model.
 
         Returns
@@ -2627,7 +2637,9 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
         if self._problem.initial.noise_model == "none":
             return None
         phase = self._unitary_phase(self._stage_scalars(self._z, self._z))
-        return np.ascontiguousarray(np.broadcast_to(phase, self._problem.shape))
+        return np.ascontiguousarray(
+            np.broadcast_to(phase, (1, *self._problem.shape))[0]
+        )
 
     # --- guards --------------------------------------------------------------------
 

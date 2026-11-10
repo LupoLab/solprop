@@ -115,7 +115,7 @@ def outputs(case, tmp_path):
     for output in (memory, file):
         output.open(simulation.metadata())
         for index, z in enumerate((0.0, simulation.grid.length)):
-            output.save(SavedPlane(z=z, field=problem.initial.field0[0] * (index + 1)))
+            output.save(SavedPlane(z=z, field=problem.initial.field0 * (index + 1)))
     file.close()
     with HDF5Output(path, readonly=True) as reloaded:
         yield memory, reloaded
@@ -244,7 +244,7 @@ def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
         grid,
         replace(mode, mixture=mixture, loss=np.ones_like),
         (),
-        original.initial.field0[0],
+        original.initial.field0,
         settings=SimulationSettings(
             controller=original.stepper.controller,
             save_planes=[grid.length],
@@ -254,7 +254,7 @@ def test_callable_total_loss_is_retained_but_species_attribution_is_refused():
     )
     output = MemoryOutput()
     output.open(simulation.metadata())
-    output.save(SavedPlane(z=0.0, field=original.initial.field0[0]))
+    output.save(SavedPlane(z=0.0, field=original.initial.field0))
     with pytest.raises(ProcessingError, match="callable total loss"):
         processing.absorbed_spectral_energy(output)
     assert np.all(processing.node_fluence(output) >= 0)
@@ -265,10 +265,10 @@ def test_the_power_weight_is_modal_and_a_spatial_run_has_none(case):
     simulation, problem = case
     output = MemoryOutput()
     output.open(simulation.metadata())
-    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
+    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0))
     if simulation.metadata().simulation_kind in ("multimode", "mode_averaged"):
         weight = processing.get_power_weight(output)
-        assert weight.shape == (1, *problem.shape[1:])
+        assert weight.shape == (1, *problem.shape)
         np.testing.assert_array_equal(
             weight[0], power_weight_at(problem, simulation.grid.length)
         )
@@ -284,7 +284,7 @@ def test_unrecorded_material_positions_are_refused(case, factor):
     output = MemoryOutput()
     output.open(simulation.metadata())
     output.save(
-        SavedPlane(z=factor * simulation.grid.length, field=problem.initial.field0[0])
+        SavedPlane(z=factor * simulation.grid.length, field=problem.initial.field0)
     )
     with pytest.raises(ProcessingError, match="saved planes"):
         processing.node_fluence(output)
@@ -301,7 +301,7 @@ def test_a_spatial_record_without_its_plane_measure_is_refused(case):
     }
     output = MemoryOutput()
     output.open(replace(metadata, spatial=spatial))
-    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0[0]))
+    output.save(SavedPlane(z=simulation.grid.length, field=problem.initial.field0))
     with pytest.raises(ProcessingError, match="carries no plane measure"):
         processing.node_fluence(output)
 
@@ -325,7 +325,7 @@ def test_coarse_radial_fluence_matches_direct_bessel_synthesis():
     )
     output = MemoryOutput()
     output.open(simulation.metadata())
-    field = simulation.translate().initial.field0[0].copy()
+    field = simulation.translate().initial.field0.copy()
     # One Bessel component avoids cancellation between columns at nearly dark
     # nodes, where a componentwise relative roundoff bound is not meaningful.
     field[1:] = 0
@@ -430,7 +430,7 @@ def test_tapered_multimode_fluence_matches_hand_node_sum(envelope):
     problem = simulation.translate()
     output = MemoryOutput()
     output.open(simulation.metadata())
-    field = problem.initial.field0[0].copy()
+    field = problem.initial.field0.copy()
     field[1] = 0.5j * field[0]
     output.save(SavedPlane(z=grid.length, field=field))
     # Parseval plus two modal synthesis products and one temporal reduction.
@@ -492,9 +492,9 @@ def test_the_recorded_power_weight_is_factored_and_survives_the_file(tmp_path):
     with HDF5Output(path) as output:
         output.open(simulation.metadata())
         for z in (0.0, *problem.stepper.save_planes[:2]):
-            output.save(SavedPlane(z=float(z), field=problem.initial.field0[0]))
+            output.save(SavedPlane(z=float(z), field=problem.initial.field0))
     with open_file(path) as reloaded:
         weights = processing.get_power_weight(reloaded)
-        assert weights.shape == (3, *problem.shape[1:])
+        assert weights.shape == (3, *problem.shape)
         for weight, z in zip(weights, reloaded["z"], strict=True):
             np.testing.assert_array_equal(weight, power_weight_at(problem, float(z)))

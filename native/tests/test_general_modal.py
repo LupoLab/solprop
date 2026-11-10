@@ -207,7 +207,7 @@ def _case(
     if mix is not None:
         # A second channel carrying part of the launch, so every cross term of the
         # cubic and of the delayed pair history is exercised.
-        state[:, 1] = mix * state[:, 0]
+        state[1] = mix * state[0]
     return Case(simulation, problem, state)
 
 
@@ -285,7 +285,7 @@ def _parity_bound(case: Case, reference: ComplexArray, linear: ComplexArray) -> 
     n_to = case.problem.grids.n_to
     components = int(tables.electric.shape[2])
     nodes = int(tables.region_index.size)
-    modes = case.problem.shape[1]
+    modes = case.problem.shape[0]
     delayed = case.problem.responses.regional_responses
     source = (
         _gamma(modes)
@@ -556,7 +556,7 @@ def test_a_batch_of_general_members_agrees_with_its_members_alone() -> None:
     the member's own :func:`_parity_bound` (solprop SEP 25).
     """
     case = CASES["delayed_tensor"]()
-    launches = [case.state, 0.5 * case.state[:, ::-1].copy()]
+    launches = [case.state, 0.5 * case.state[::-1].copy()]
     cases = [dataclasses.replace(case, state=state) for state in launches]
     singles = [_run(NativeBackend, one)[0] for one in cases]
     bounds = [
@@ -670,7 +670,7 @@ def _moving_bound(
     assert tables is not None
     assert tables.synthesis is not None
     assert tables.projection is not None
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     dz = FIBRE / STEPS
     kappa = float(np.max(flow.inverse_condition_bound))
     scale = float(np.max(np.abs(problem.initial.field0)))

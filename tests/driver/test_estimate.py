@@ -224,7 +224,7 @@ def test_a_timing_probe_commits_nothing_and_reads_back_its_trial(backend):
         half = probe.field()
         probe.trial()
         whole = probe.field()
-        assert half.shape == whole.shape == problem.shape[1:]
+        assert half.shape == whole.shape == problem.shape
         # The two lengths end in different states: the readback is the last trial's.
         assert not np.array_equal(half, whole)
         # Nothing was committed: no attempt, the launch position, the loaded state.

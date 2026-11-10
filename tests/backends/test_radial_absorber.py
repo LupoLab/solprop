@@ -184,9 +184,9 @@ def test_spatial_absorber_derivative_matches_independent_bessel_operator(
         if isinstance(backend, NumpyRefBackend):
             backend._hoist(0.0)
             measured = backend._nonlinear(
-                problem.initial.field0,
+                problem.initial.field0[None],
                 backend._stage_scalars(0.0, 0.0),
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         else:
             backend._trial_step(0.0, LENGTH / 8)
@@ -229,7 +229,7 @@ def test_spatial_absorber_step_refinement_matches_matrix_exponential(
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            measured = backend.observe().require_field()[0, :, :, index]
+            measured = backend.observe().require_field()[:, :, index]
             error = float(np.max(np.abs(measured - reference))) / scale
             measured_errors.append(error)
             assert error <= bound, (count, error, bound)
@@ -257,7 +257,7 @@ def test_spatial_collar_diagnostic_reports_the_measured_fraction(
 ):
     grid, space, _, _, _, _, _, _ = absorber_case
     problem = problem_for(absorber_case, 8)
-    field = problem.initial.field0[0].copy()
+    field = problem.initial.field0.copy()
     if illumination == "extended":
         # A highest-order Bessel column fills the disk and deliberately lights
         # the collar; the original confined spectrum remains a negative control.

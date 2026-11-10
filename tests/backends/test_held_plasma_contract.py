@@ -48,7 +48,7 @@ def test_benchmark_identity_and_both_resume_doors(
     path = tmp_path / "gated.h5"
     with HDF5Output(path) as output:
         output.open(historical)
-        output.save(SavedPlane(z=0.0, field=problem.initial.field0[0]))
+        output.save(SavedPlane(z=0.0, field=problem.initial.field0))
     with pytest.raises(OutputError, match="gated plasma benchmark"):
         check_cache(path, historical)
     with pytest.raises(OutputError, match="gated plasma benchmark"):

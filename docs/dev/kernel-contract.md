@@ -7,7 +7,7 @@ stated here and nothing else; the translation layer promises everything stated h
 nothing else. Changing this file and the dataclass together is the only way to extend the
 contract, and a test checks that the fields listed here and the fields of the dataclass agree.
 
-Axis names follow [conventions.md](conventions.md): `n_batch`, `n_modes`, `n_pol`, `n_omega`
+Axis names follow [conventions.md](conventions.md): `n_modes`, `n_pol`, `n_omega`
 (coarse spectral), `n_omega_fine`, `n_t`, `n_to` (fine time), `n_nodes`, `n_z`, `n_intervals`,
 `n_deg` (Chebyshev degree + 1). The algorithms behind the fields — the cumulative
 operator, the quadrature, the compiled responses — are in [algorithms.md](algorithms.md).
@@ -44,8 +44,8 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | field | type | meaning |
 |---|---|---|
 | `grid_kind` | `"field" \| "envelope"` | selects r2c/c2r vs c2c transforms and the response formulas |
-| `shape` | `(n_batch, n_modes, n_pol, n_omega)` | canonical state shape |
-| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `single_batch`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
+| `shape` | `(n_modes, n_pol, n_omega)` | canonical state shape of the one trajectory the problem describes; a group of trajectories is a sequence of problems ([SEP 47](seps/sep-0047-run-ownership.md) §6.7) |
+| `flags` | frozen dataclass of static flags and counts | `single_mode`, `scalar_pol`, `has_plasma`, `has_raman`, `has_spectral_responses`, `has_noise`, `has_temporal_absorber`, `constant_linop`, `mode_averaged`, `n_channels`, `n_raman` — kernels specialise on these at compile time. Derived from the content, never passed in |
 | `grids` | frozen dataclass | section 2 (`translate.masks.Grids`) |
 | `linear` | frozen dataclass | section 3 (`translate.linop.LinearOperator`) |
 | `transform` | frozen dataclass | section 4 (`translate.modal.Transform`) |
@@ -57,7 +57,7 @@ hard-mask zeros, and explicitly exact zeros and no-ops.
 | `flux` | `FluxPlan` or `None` | a spatial run's plane measure ([SEP 34](seps/archive/sep-0034-medium-flux.md), `translate.spatial.FluxPlan`): `base`, the separable coefficients with the entrance material square, whose principal root gives the dimensionless axial admittance `c k_z/omega` of every column and bin (zero on nonpropagating, inactive and nonpositive-frequency bins); `material`, the z table of the complex material square `(omega n/c)²` for a varying radial medium, `None` for a uniform one; and `admission`, the varying path's adiabatic certificate. `at(z)` gives a plane's coefficients. Every spatial statistic weights its columns by the real admittance at its plane (energy, spectra, absorbed powers) or synthesises the closure `G` with the complex one (fluence, intensities, on-axis spectrum). Required with spatial geometry and `None` otherwise; its active mask equals `grids.active_mask`. Added in version 35 |
 | `precision` | `translate.precision.Precision` | the arithmetic the run is held in ([SEP 33](seps/archive/sep-0033-single-precision-mlx.md), ADR-054): `state` and `source`, each `"double"` or `"single"` and equal (a mixed record is refused). Every table here is binary64 either way; a backend that admits single precision narrows its tables on upload, each with its own power-of-two exponent, and holds the state at the launch's exact power-of-two scale. Under `"single"`, `validate` refuses the general modal route, the hybrid planar kind, coupled flows, TDSE responses, the dispersive electronic response, the far-field statistics and noise models; `native` refuses a single-precision problem by name. Default `DOUBLE`. Added in version 36 |
 | `transverse` | `SpatialAbsorberDesign` or `None` | a free-space run's resolved transverse boundary ([SEP 40](seps/archive/sep-0040-transverse-absorbing-boundaries.md), `spatial_absorber.SpatialAbsorberDesign`), host-side: the safety ramp's rate per column, which the separable operator carries as `kperp_rate` (the dense operator radially), and a requested collar's rate on the nodes, which the geometry carries as `absorber_rate`, with its band, strength, crossing step and design check. A backend meets it only through those fields and the stepper's `dz_max`, held to the collar's crossing limit and to the ramp's exponent budget. `None` for no transverse boundary and on modal routes. Added in version 41 |
-| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its batch members, polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
+| `split_crossing` | `SplitCrossing` or `None` | the split temporal collar's crossing limit (`boundaries.SplitCrossing`): `buckets`, each `(mode, frequency)` bin's walk-off bucket as `(n_modes,n_omega) uint8` (the fastest of its polarisations and positions, a coupled flow's channels with the generator's diagonal added to the shared carrier; `boundaries.split_rate_buckets`), the fastest rate a bin reaches `fastest` (the open first bucket's rate), the collar's `width` and the launch's limit `launch_limit`, which holds an adaptive `dz_max` and a fixed schedule at translation. A backend that reads the boundary monitor under the `"split_step"` scheme returns the state's energy per bucket with every reading (`BoundaryEnergies.occupancy`; native: `bind_occupancy`, then `monitor_reading`'s ten numbers followed by the 128 buckets); the monitor turns it into a cap on the steps until the next check (`StepDriver._split_capped`, the native Adams march's required `step_cap` bound), and a fixed schedule whose steps before the next check exceed it, at a check or when a resumed state is watched, stops with a `BoundaryError`. `None` under the in-stage scheme or without a temporal collar. Added in version 43 |
 `KernelProblem` also carries one **property**, which is not a field and so not a row
 above: `device_ready` is true when Φ (§3) and the prefactor (§5) are each a weighted sum
 of a fixed set of arrays, and false when either took the z table.
@@ -342,14 +342,14 @@ and falls to the z table below. The names are the vocabulary of
 | `phi_representation` | `"constant" \| "expansion" \| "table" \| "separable"` | the representation consumed by `delta_phi` and `unitary_phase`; every kind except the z table has a device form |
 | `phi_breakpoints` | `(n_intervals + 1,) float64` | interval edges in z — of the table itself, or of the expansion's scalar tables |
 | `phi_degrees` | `(n_intervals,) intp` | degree used per interval (diagnostic) |
-| `phi_coefficients` | `(n_intervals, n_deg, n_batch_or_1, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z (the batch axis is 1 when members share a fibre); present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
+| `phi_coefficients` | `(n_intervals, n_deg, 1, n_modes, n_pol, n_omega) complex128` or `None` | Chebyshev coefficients of Φ(ω, z) = ∫D dz − ½ ln[w(z)/w(0)] along z (the leading axis of one is the value layout the native build reads; the state has none); present for `"table"` and for `"constant"`, whose degree-1 intervals are exact — one, or one per stretch between the hard kinks a response path declares — and absent for `"expansion"` |
 | `phi_expansion` | frozen dataclass or `None` | Φ as an expansion in the mode set's scalar paths (`translate.expansion.ParameterExpansion`; a leaf, see below); present exactly when `phi_representation` is `"expansion"` |
 | `hard_kinks` | `(n_kinks,) float64` | z positions where D, or a scalar path a response consumes (a plasma channel's preionisation, an explicit density), jumps or kinks; steps land on them |
-| `phi_constant` | `(n_batch_or_1, n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
+| `phi_constant` | `(1, n_modes, n_pol, n_omega) complex128` or `None` | `D` itself, present exactly when `phi_representation` is `"constant"`, so that `delta_phi` returns `D (z₂ − z₁)` to the last bit rather than the difference of two Clenshaw sums. As a bundle it is the one-term case: one array, and the distance as its weight |
 | `power_weight_representation` | `"constant" \| "expansion" \| "table"` or `None` | modal power weight representation, present exactly for modal transforms and absent for spatial geometry |
 | `power_weight` | `PiecewiseChebyshev` or `None` | positive dimensionless `Re n_eff`, or the prefactor's index override, per `(n_modes, n_pol, n_omega)`; table and constant representations only; unit weight outside the active band |
 | `power_weight_expansion` | `ParameterExpansion` or `None` | the weight with plain basis-product weights; expansion representation only |
-| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only. It carries no batch axis, unlike `phi_constant`, because the members of one problem share the fibre and therefore share `Re n_eff` |
+| `power_weight_constant` | `(n_modes, n_pol, n_omega) float64` or `None` | exact constant weight, with a matching degree-zero table; constant representation only. It carries no leading axis of one, unlike `phi_constant`'s value layout |
 | `beta0`, `beta1` | `ZProfile` tables | frame quantities along z (diagnostic; already inside Φ) |
 | `separable` | `SeparableOperator` or `None` | shared constant spatial coefficients, present exactly for `"separable"`; described below and shared by identity with `responses.separable` |
 | `coupled_flow` | `CoupledFlowTables` or `None` | the generator of a guide whose channels couple, dense or factored, with its residual, conditioning and error certificate and one method per section; a leaf in `translate.coupled`, described in [the coupled-flow leaf](#the-coupled-flow-leaf) below |
@@ -435,7 +435,7 @@ blocks' tensor sizes. Reuse reweights each block with its original weight kind.
 this document; they are `parameters` (the path names, in the order of the term
 multi-index), `ranges` (`(n_params, 2) float64`, the values each path reaches over the
 tabulated range), `degrees` (`(n_params,) intp`, the Chebyshev degree per parameter),
-`terms` (`(n_terms, n_batch_or_1, n_modes, n_pol, n_omega) complex128`, with
+`terms` (`(n_terms, 1, n_modes, n_pol, n_omega) complex128`, with
 `n_terms = Π(degrees + 1) + Π(endpoint_degrees + 1)` when the endpoint block
 is present, otherwise just the first product, and each multi-index flattened in C
 order) and `weights`, the concatenated integral and endpoint tables along z as a `(n_terms,)`-valued `PiecewiseChebyshev`. Its
@@ -974,7 +974,7 @@ visit every kernel row in component order. The `preionisation` property serves t
 one-channel specialisation. All changing Raman amplitudes and rates participate in
 kernel-cache validity; the one-component kernel keeps the single-species amplitude order.
 
-## 6. Initial state, noise and batch parameters
+## 6. Initial state and noise
 
 ### Optional TDSE source binding
 
@@ -1050,18 +1050,16 @@ The initial-state fields below are independent of that optional binding.
 
 | field | shape / dtype | meaning |
 |---|---|---|
-| `field0` | `(n_batch, n_modes, n_pol, n_omega) complex128` | initial state in the lab frame, FFT convention; read-only, and C-contiguous unless it is a zero-stride broadcast view (below) |
+| `field0` | `(n_modes, n_pol, n_omega) complex128` | initial state in the lab frame, FFT convention; read-only, and C-contiguous unless it is a zero-stride broadcast view (below) |
 | `noise0` | same or `None` | modified shot-noise realisation |
 | `noise_model` | `"none" \| "input" \| "modified"` | |
-| `batch_params` | dict of `(n_batch,) float64` | per-member scalars recorded in the output; per-member table indices where tables differ |
 | `z` | `float` | absolute initial position in m, non-negative and before the first requested save; true-power input is normalised at this position |
 
 No kernel indexes `field0`: `StepDriver.set_initial` accepts a state of any strides and
 copies it contiguous into the backend's own state, so since version 42 `field0` may be a
 zero-stride broadcast view. Every array of `Initial` is the problem's own, so that
 nothing a caller does afterwards to an array it passed changes the problem, and the
-caller's array is never frozen: the state, the noise and the batch parameters are
-copied; a broadcast state (as from `numpy.broadcast_to`) copies only the block it
+caller's array is never frozen: the state and the noise are copied; a broadcast state (as from `numpy.broadcast_to`) copies only the block it
 repeats, converted to complex128, and broadcasts that copy; and an array the problem
 already holds, or one the translation built for it, is taken without a second copy.
 
@@ -1119,14 +1117,14 @@ spatial kind it does not execute.
 
 ## 9. What comes back
 
-`Observation` (host arrays only, FFT convention): `z`, `field` in the lab frame `(n_batch,
-n_modes, n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
+`Observation` (host arrays only, FFT convention): `z`, `field` in the lab frame `(n_modes,
+n_pol, n_omega)`, `noise_phase` (if a noise model is active, so processing can restore the
 background), both `None` for an observation made with `observe(field=False)`: nothing then crosses to the host and nothing scans the field, so a
 diverged field-free run is caught by the step loop's finite-norm rule and the
 statistics, `step_history` (arrays of z, h, error norm, accepted flag, wall time since the
 last observation; recorded whether the run was adaptive or replayed a schedule, since the
 embedded estimate is computed either way), `n_steps`, `n_rejected`, and `step_stats`. `stats()` returns a dict of small host arrays
-keyed by statistic name with a leading batch axis. Nothing writes to an observation's
+keyed by statistic name, without a batch axis. Nothing writes to an observation's
 arrays again, the backend included: `run_problem` hands them to the output without a copy,
 and a handler may keep them. The array-backed state of a host backend is observed as it is
 and frozen, so its next step replaces it rather than accepting in place. `field_owned` says
@@ -1138,8 +1136,8 @@ the backend's state (SEP 47 §5.4). It is `False` by default and without a field
 
 `step_stats` is a `StepStats`: `z` `(n_rows,)` and `step` `(n_rows,)` — the index of the
 accepted step each row was taken after, into *this* observation's `step_history`, which
-counts rejected attempts — and `values[name]` shaped `(n_rows, n_batch, *shape)`, the row
-axis first and then the batch axis every statistic crossing this seam carries. Empty
+counts rejected attempts — and `values[name]` shaped `(n_rows, *shape)`, the row axis
+first and then the statistic's own shape. Empty
 unless the spec named a periodic subset, which is the default; the field has a default so
 an `Observation` built without it is unchanged. It is flushed at every observation, like
 the step history and over the same interval, and a row may not index past it.

@@ -139,7 +139,7 @@ def _no_temporal_collar():
 def _launched_in(problem: KernelProblem, index: int) -> KernelProblem:
     """Return the problem launched with 1e-9 in the first channel at one bin only."""
     state = np.zeros_like(problem.initial.field0)
-    state[0, 0, 0, index] = 1e-9
+    state[0, 0, index] = 1e-9
     return replace(problem, initial=replace(problem.initial, field0=state))
 
 
@@ -186,7 +186,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     try:
         driver.set_initial(launched.initial.field0, None)
         driver.propagate_to(LENGTH)
-        got = driver.observe().require_field()[0, :, 0, index].copy()
+        got = driver.observe().require_field()[:, 0, index].copy()
     finally:
         driver.close()
     flow = problem.linear.coupled_flow
@@ -202,7 +202,7 @@ def test_the_collar_is_carried_by_the_frozen_flow_alone(name):
     departure = float(np.max(abs(got / got[0] - expected / expected[0])))
     assert departure <= bound, (departure, bound)
     if name == "numpy_ref":
-        old = run(NumpyRefBackend, scored_everywhere(launched), GRID)[0, :, 0, index]
+        old = run(NumpyRefBackend, scored_everywhere(launched), GRID)[:, 0, index]
         assert float(np.max(abs(old / old[0] - expected / expected[0]))) > 1e-3
 
 
@@ -278,7 +278,7 @@ def _seeded_growth(backend, problem, grid, collar, worst):
         final = driver.observe().require_field()
     finally:
         driver.close()
-    return float(abs(final[0, 3, 0, worst])) / seed
+    return float(abs(final[3, 0, worst])) / seed
 
 
 @pytest.mark.parametrize("name", BACKENDS)

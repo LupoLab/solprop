@@ -96,7 +96,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
         bundle = reference._stage_scalars(0.0, 0.0)
         transform, grids = problem.transform, problem.grids
         nodes = passes.synthesise(
-            passes.to_time(state[0], grids.crop_index, grids.n_to, kind="field"),
+            passes.to_time(state, grids.crop_index, grids.n_to, kind="field"),
             transform.synthesis,
             bundle.taper_scale,
             transform.n_pol,
@@ -127,7 +127,7 @@ def test_embedded_current_projection_accumulates_partial_chunks(
             )
             for collar in collars
         ]
-        reference._nonlinear(state, bundle, np.ones_like(state))
+        reference._nonlinear(state[None], bundle, np.ones_like(state[None]))
         assert reference._last_plasma is not None
         _, _, coarse_gate, coarse_edge = reference._last_plasma
         assert coarse_gate is not None and coarse_edge is not None

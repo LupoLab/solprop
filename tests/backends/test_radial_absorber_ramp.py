@@ -60,9 +60,9 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
         reference.set_initial(problem.initial.field0, None)
         reference._hoist(0.0)
         expected = reference._nonlinear(
-            problem.initial.field0,
+            problem.initial.field0[None],
             reference._stage_scalars(0.0, 0.0),
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
         matrix = reference._spatial_absorber.copy()
     finally:
@@ -75,12 +75,12 @@ def test_a_ramped_rate_is_read_sample_by_sample(absorber_case):
     finally:
         backend.close()
     samples = passes.to_time(
-        problem.initial.field0[0],
+        problem.initial.field0,
         problem.grids.crop_index,
         grid.n_to,
         kind=problem.grid_kind,
     )
-    n_r = problem.shape[1]
+    n_r = problem.shape[0]
     rows = samples.reshape(n_r, -1)
     absolute = np.abs(matrix) @ np.abs(rows) + (0.5 * rate * np.abs(samples)).reshape(
         n_r, -1

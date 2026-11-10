@@ -445,6 +445,16 @@ class NativeBackend(StepDriver[_core.State]):
             acquire=acquire_host_blas,
         )
 
+    @property
+    def _layout(self) -> tuple[int, int, int, int]:
+        """Return the build's state layout: the shape behind a unit axis.
+
+        The C++ kernels keep their four-axis layouts; a single trajectory crosses the
+        Python seam without the axis (solprop SEP 47 section 6.2).
+        """
+        n_modes, n_pol, n_omega = self._problem.shape
+        return (1, n_modes, n_pol, n_omega)
+
     def _apply_mask(self, state: ComplexArray) -> _core.State:
         flat = np.ascontiguousarray(state.reshape(-1))
         if self._loading:
@@ -483,7 +493,7 @@ class NativeBackend(StepDriver[_core.State]):
             self._host_state = (
                 None
                 if self._resident is not None
-                else self._native_state.field_to_host().reshape(self._problem.shape)
+                else self._native_state.field_to_host().reshape(self._layout)
             )
             if self._host_state is not None and (
                 (counters := _counters.active) is not None
@@ -541,7 +551,7 @@ class NativeBackend(StepDriver[_core.State]):
         """
         self._require_state()
         if self._resident is not None:
-            return self._native_state.field_to_host().reshape(self._problem.shape)
+            return self._native_state.field_to_host().reshape(self._layout)
         return cast("ComplexArray", self._host_state)
 
     def _adams_engine(
@@ -563,8 +573,7 @@ class NativeBackend(StepDriver[_core.State]):
         if flow is not None and (
             method.formulation != "exponential"
             or not bool(np.all(flow.route))
-            or self._problem.shape[1] > ADAMS_MAX_CHANNELS
-            or self._problem.shape[0] != 1
+            or self._problem.shape[0] > ADAMS_MAX_CHANNELS
         ):
             return None
         # A varying operator's exponential formulation carries the transported
@@ -592,7 +601,7 @@ class NativeBackend(StepDriver[_core.State]):
             hoist=self._hoist,
             adopted=self._resident_adopted,
             rate=self._rate_weights,
-            shape=tuple(self._problem.shape),
+            shape=self._layout,
             helpers=self.helpers,
             compensated=compensated,
             interpolate=self._problem.stepper.interpolate_planes,
@@ -843,9 +852,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Adopt an Adams step through the native finish; keep its host copy."""
         self._native_state.adopt(np.ascontiguousarray(advanced.reshape(-1)), dz)
         self._state = self._native_state
-        self._host_state = self._native_state.field_to_host().reshape(
-            self._problem.shape
-        )
+        self._host_state = self._native_state.field_to_host().reshape(self._layout)
         if (counters := _counters.active) is not None:
             counters.crossing("step", self._host_state.nbytes)
         return self._host_state
@@ -854,7 +861,7 @@ class NativeBackend(StepDriver[_core.State]):
         """Return the accepted trial's stage derivatives from the engine (SEP 14)."""
         stages = self._problem.stepper.tableau.n_stages
         return [
-            self._native_state.stage_to_host(index).reshape(self._problem.shape)
+            self._native_state.stage_to_host(index).reshape(self._layout)
             for index in range(stages)
         ]
 
@@ -913,7 +920,7 @@ class NativeBackend(StepDriver[_core.State]):
                 *arrays,
                 material,
             )
-        return source.reshape(self._problem.shape), propagator
+        return source.reshape(self._layout), propagator
 
     def _adams_lab_source(
         self,
@@ -1157,14 +1164,14 @@ class NativeBackend(StepDriver[_core.State]):
         if tables is not None and tables.phi:
             here = tables.values("phi", bundle.z1)
             anchored = tables.values("phi", bundle.z0)
-            return (here - anchored).reshape(self._problem.shape)
+            return (here - anchored).reshape(self._layout)
         return super()._delta_phi(bundle)
 
     def _unitary_phase(self, bundle: StageScalars) -> RealArray:
         """Return ``Im Phi`` at the stage's position, a z table's from its slot."""
         tables = self._z_tables
         if tables is not None and tables.phi:
-            return np.imag(tables.values("phi", bundle.z1)).reshape(self._problem.shape)
+            return np.imag(tables.values("phi", bundle.z1)).reshape(self._layout)
         return super()._unitary_phase(bundle)
 
     def _flow_trial(
@@ -1354,7 +1361,7 @@ class NativeBackend(StepDriver[_core.State]):
         int
             The bytes of a `transverse_edge` ledger row, from the grid alone.
         """
-        _, _, n_pol, n_omega = self._problem.shape
+        _, n_pol, n_omega = self._problem.shape
         return _transverse_edge_bytes(
             cast("Any", space), self._problem.transverse, n_pol, n_omega
         )
@@ -1488,7 +1495,7 @@ class NativeBackend(StepDriver[_core.State]):
     def _observed_field(self, state: _core.State) -> ComplexArray:
         if state is not self._native_state:
             raise BackendError("the observed state does not belong to this backend")
-        field = state.field_to_host().reshape(self._problem.shape)
+        field = state.field_to_host().reshape(self._layout)
         if (counters := _counters.active) is not None:
             counters.crossing("plane", field.nbytes)
         return field
@@ -1510,7 +1517,19 @@ class NativeBackend(StepDriver[_core.State]):
         return int(self._native_state.raman_kernel_transforms)
 
     def stats(self, spec: StatsSpec) -> dict[str, np.ndarray]:
-        """Collect field and response statistics without observing the full field."""
+        """Collect field and response statistics without observing the full field.
+
+        The native evaluators lay each statistic out with the leading axis of one of
+        the build's state layout; the trajectory's cross without it (solprop SEP 47
+        section 6.2).
+        """
+        return {
+            name: np.asarray(value[0])
+            for name, value in self._stacked_statistics(spec).items()
+        }
+
+    def _stacked_statistics(self, spec: StatsSpec) -> dict[str, np.ndarray]:
+        """Collect the statistics with the leading axis of one of the state layout."""
         self._require_state()
         if (counters := _counters.active) is not None:
             counters.statistics_evaluations += 1
@@ -1797,7 +1816,7 @@ class NativeBackend(StepDriver[_core.State]):
                 offset += count
         if names & {"beam_radius", "fwhm_r"}:
             n_terms = (
-                self._problem.shape[2] * self._problem.grids.n_t
+                self._problem.shape[1] * self._problem.grids.n_t
                 + self._problem.transform.n_modes
             )
             if plane:
@@ -1902,8 +1921,7 @@ class NativeBackend(StepDriver[_core.State]):
     ) -> dict[str, np.ndarray]:
         """Unpack the native fixed-order scalar transfer into catalogue shapes."""
         requested = set(names)
-        modes = self._problem.shape[1]
-        polarisations = self._problem.shape[2]
+        modes, polarisations, _ = self._problem.shape
         columns = modes * polarisations
         offset = 0
         values: dict[str, np.ndarray] = {}
@@ -2186,8 +2204,8 @@ def _require_initial_array(field: object, shape: tuple[int, ...]) -> None:
     array = cast(npt.NDArray[np.generic], field)
     if array.dtype != np.dtype(np.complex128):
         raise TypeError(f"field must have dtype complex128, got {array.dtype}")
-    if array.ndim != 4:
-        raise ValueError(f"field must have rank 4, got rank {array.ndim}")
+    if array.ndim != 3:
+        raise ValueError(f"field must have rank 3, got rank {array.ndim}")
     if array.shape != shape:
         raise BackendError(
             f"the initial state has shape {array.shape}, expected {shape}"
@@ -2228,7 +2246,7 @@ class _ResidentAdams:
     rate: Callable[..., RealArray]
     """``(z, *, before=False) -> D(z)``'s weights over the native ``Phi`` terms."""
     shape: tuple[int, ...]
-    """The state's shape, ``(n_batch, n_modes, n_pol, n_omega)``."""
+    """The state layout, ``(1, n_modes, n_pol, n_omega)``."""
     helpers: Helpers
     """The backend's Chebyshev and Adams-basis helpers (``NativeBackend.helpers``)."""
     interpolate: bool
@@ -4237,21 +4255,16 @@ def _refuse_unsupported(problem: KernelProblem) -> None:
     )
     _refuse_native_route(problem)
     flags = problem.flags
-    if not flags.single_batch:
-        raise BackendError(
-            "NativeBackend owns one member (max_batch = 1, n_batch == 1); "
-            "use NativeBatchBackend for fixed-schedule batches"
-        )
-    if problem.transform.n_pol * problem.shape[2] > 2:
+    if problem.transform.n_pol * problem.shape[1] > 2:
         raise BackendError(
             "the polarisation components must belong to one of the two supported "
             "representations; Kokkos supports at most two effective node "
             "components, but the transform and state request "
-            f"{problem.transform.n_pol * problem.shape[2]}"
+            f"{problem.transform.n_pol * problem.shape[1]}"
         )
     if (
         flags.has_raman
-        and problem.transform.n_pol * problem.shape[2] != 1
+        and problem.transform.n_pol * problem.shape[1] != 1
         and (
             not problem.responses.raman_terms
             or not all(term.tensor_capable for term in problem.responses.raman_terms)
@@ -4564,7 +4577,10 @@ def _refined_record(
     from ._store import refinement, stores
 
     key = descriptor(
-        shape=problem.shape,
+        # The store's key keeps the four-axis shape it has always been written with,
+        # so that refinements recorded before the batch axis left the problem (solprop
+        # SEP 47 section 6.2) are found again.
+        shape=(1, *problem.shape),
         grid_kind=problem.grid_kind,
         integrator=type(problem.stepper.integrator).__name__,
         sizing=state.execution_sizing,
@@ -4772,8 +4788,8 @@ def _native_problem(
         "n_t": problem.grids.n_t,
         "n_to": problem.grids.n_to,
         "n_stages": problem.stepper.tableau.n_stages,
-        "n_modes": problem.shape[1],
-        "n_pol_state": problem.shape[2],
+        "n_modes": problem.shape[0],
+        "n_pol_state": problem.shape[1],
         "n_pol_transform": problem.transform.n_pol,
         "n_nodes": problem.transform.n_nodes,
         "node_chunk": node_chunk,

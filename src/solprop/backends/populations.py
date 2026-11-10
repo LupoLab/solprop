@@ -270,7 +270,7 @@ def axis_row_matrix(
         magnitude row on a state with two polarisations.
     """
     scaled = axis * problem.grids.pad_scale
-    if problem.shape[2] == 1:
+    if problem.shape[1] == 1:
         return scaled
     return np.hypot(scaled[0], scaled[1])[None]
 

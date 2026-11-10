@@ -144,10 +144,10 @@ def collar_block(problem: KernelProblem) -> int:
         Bins per block, at least one and at most ``n_omega``.
     """
     transform = problem.transform
-    n_pol = problem.shape[2]
+    n_pol = problem.shape[1]
     budget = transform.node_chunk * n_pol * problem.grids.n_to
     per_bin = 3 * transform.n_nodes * n_pol
-    return int(min(problem.shape[3], max(1, budget // per_bin)))
+    return int(min(problem.shape[2], max(1, budget // per_bin)))
 
 
 def _blockwise_fluence(
@@ -417,12 +417,12 @@ def far_field_partials(problem: KernelProblem) -> tuple[int, int]:
         spec.names,
         n_apertures=spec.n_apertures,
         n_regions=spec.n_regions,
-        n_pol=problem.shape[2],
+        n_pol=problem.shape[1],
     )
     if layout is None:
         return 0, 0
     n_x, n_y = geometry.shape
-    edges = far_field_bands(n_x, n_y, layout.n_slots, problem.shape[3])
+    edges = far_field_bands(n_x, n_y, layout.n_slots, problem.shape[2])
     return layout.n_slots, edges.size - 1
 
 

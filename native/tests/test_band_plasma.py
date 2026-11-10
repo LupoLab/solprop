@@ -393,8 +393,8 @@ def test_the_band_cases_ionise() -> None:
     for name in ("mode_averaged", "mixture", "radial"):
         grid, problem = case(name)
         _, stats = march(NativeBackend, problem, grid)
-        assert float(stats["electron_density"][0]) > 0.0, name
-        assert float(stats["plasma_work_defect"][0]) < 1e-4, name
+        assert float(stats["electron_density"]) > 0.0, name
+        assert float(stats["plasma_work_defect"]) < 1e-4, name
 
 
 @pytest.mark.gpu
@@ -408,7 +408,7 @@ def test_one_evaluation_matches_the_reference() -> None:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
@@ -419,7 +419,7 @@ def test_one_evaluation_matches_the_reference() -> None:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         actual = np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))
@@ -472,7 +472,7 @@ def test_every_stage_of_a_trial_matches_the_reference(
         backend._trial_step(0.0, dz)  # pyright: ignore[reportPrivateUsage]
         state = backend._native_state  # pyright: ignore[reportPrivateUsage]
         actual = [
-            np.asarray(state.stage_to_host(stage)).reshape(problem.shape[1:])
+            np.asarray(state.stage_to_host(stage)).reshape(problem.shape)
             for stage in range(len(expected))
         ]
     finally:
@@ -575,7 +575,7 @@ def test_a_trapezoid_problem_reports_the_run_diagnostics() -> None:
     )
     assert_statistics_agree(actual_stats, expected_stats, bound)
     # The trapezoid's own work defect is its finite-step defect, never zero here.
-    assert float(actual_stats["plasma_work_defect"][0]) > 0.0
+    assert float(actual_stats["plasma_work_defect"]) > 0.0
 
 
 @pytest.mark.gpu

@@ -260,7 +260,7 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
     flow = problem.linear.coupled_flow
     assert flow is not None
     eps = float(np.finfo(float).eps)
-    _, channels, _, _ = problem.shape
+    channels, _, _ = problem.shape
     tables = problem.transform.modal_tables
     nodes = (
         problem.transform.n_nodes if tables is None else int(tables.region_index.size)
@@ -463,7 +463,7 @@ def test_the_flow_s_ledger_rows_are_its_views_and_zero_elsewhere():
         ledger = backend.memory_ledger()
     finally:
         backend.close()
-    _, channels, _, bins = case.problem.shape
+    channels, _, bins = case.problem.shape
     active = int(np.count_nonzero(np.any(flow.generator != 0.0, axis=(0, 1, 2, 3))))
     stages = case.problem.stepper.tableau.n_stages
     block = active * channels * channels * 16

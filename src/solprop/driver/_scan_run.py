@@ -216,7 +216,7 @@ class _Capture(MemoryOutput):
         self.options = options
         self.count = len(simulation.settings.save_planes) + 1
         problem = simulation.translate()
-        self._field_shape = tuple(problem.shape[1:])
+        self._field_shape = tuple(problem.shape)
         self.selected = (
             set(range(self.count))
             if options.fields == "all"

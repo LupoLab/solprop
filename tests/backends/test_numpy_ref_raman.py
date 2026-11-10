@@ -351,7 +351,7 @@ def test_one_stage_matches_the_responses_composed_by_hand(
     problem, kerr, raman = raman_capillary()
     backend = NumpyRefBackend(problem)
     backend.set_initial(problem.initial.field0, None)
-    state = problem.initial.field0
+    state = problem.initial.field0[None]
     got = backend._nonlinear(state, backend._stage_scalars(0.0, z), np.ones_like(state))
     want = reference_nonlinear(problem, raman_field_grid, kerr, raman, state, z)
     # The Raman half is one convolution's rounding -- its kernel spectrum and its
@@ -698,7 +698,7 @@ def test_a_short_propagation_grows_the_stokes_at_the_predicted_rate(backend_clas
         backend = backend_class(problem, grid=setup.grid)
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(length)
-        final = backend.observe().require_field()[0, 0, 0].copy()
+        final = backend.observe().require_field()[0, 0].copy()
         backend.close()
         return final
 

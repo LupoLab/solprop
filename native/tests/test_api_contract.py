@@ -654,7 +654,7 @@ def test_initial_array_contract(
             backend.set_initial(
                 cast(ComplexArray, writable_initial.astype(np.complex64)), None
             )
-        with pytest.raises(ValueError, match="rank 4"):
+        with pytest.raises(ValueError, match="rank 3"):
             backend.set_initial(writable_initial.reshape(-1), None)
         # Any strides load as their contiguous copy, bit for bit: the load copies.
         strided = writable_initial[..., ::-1]

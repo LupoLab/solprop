@@ -331,19 +331,22 @@ Cartesian one).
 
 ## 6. Array layout and axis names
 
-Kernel state and canonical storage: `(n_batch, n_modes, n_pol, n_omega)` complex128, ω
-contiguous (C order). Under `precision="single"` (SEP 33, ADR-054) a backend holds the
+Kernel state and canonical storage: `(n_modes, n_pol, n_omega)` complex128, ω
+contiguous (C order): one trajectory. A group of trajectories is a sequence of member
+problems, not a leading axis ([SEP 47](seps/sep-0047-run-ownership.md) §6.7); a backend
+may hold its state privately with a leading axis of one (the native build's four-axis
+layout), and a march snapshot's file keeps that axis. Under `precision="single"` (SEP 33, ADR-054) a backend holds the
 state as complex64 at the run's exact power-of-two scale `s`, `a / s`; what crosses the
 seam to the host, and every saved field, is the physical state widened to complex128.
-Saved fields: `(n_z, n_modes, n_pol, n_omega)`, with a leading `n_batch`
-for batch runs. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
+Saved fields: `(n_z, n_modes, n_pol, n_omega)`; a batched scan stores each member
+separately. Space-domain buffers: `(n_nodes_chunk, n_pol, n_to)`. Convenience accessors
 may squeeze trivial axes; the seam and the files never do.
 
 Standard axis names, reused verbatim in every jaxtyping annotation and docstring:
 
 | name | meaning |
 |---|---|
-| `n_batch` | batch members |
+| `n_batch` | the leading axis of one of a backend's private state layout, the operator's value tables (§3 of the kernel contract) and a march snapshot's stored state; never part of a single trajectory's seam |
 | `n_modes` | modes (1 for mode-averaged) |
 | `n_pol` | polarisation components of the kernel state (1 or 2) |
 | `n_components` | Cartesian components of a local physical field (1, 2 or 3); a general modal guide carries `n_pol = 1` and `n_components = 3` |

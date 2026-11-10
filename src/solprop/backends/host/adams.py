@@ -214,7 +214,9 @@ class HostAdamsMarch:
         backend = self._backend
         return MarchSnapshot(
             z=float(backend._z),
-            state=np.array(backend._adams_state(), dtype=np.complex128, copy=True),
+            # The snapshot's state is the trajectory's own; the march holds it with a
+            # leading axis of one.
+            state=np.array(backend._adams_state()[0], dtype=np.complex128, copy=True),
             proposal=float(backend._proposal),
             method=repr(self._method),
             order=int(self._order),
@@ -292,12 +294,14 @@ class HostAdamsMarch:
         if reason is not None:
             return reason
         load_rows = self._engine.load_rows
-        shape = tuple(backend._problem.shape)
+        # The engine's rows keep the march's layout, a leading axis of one beside
+        # their own (the snapshot's disk format, SEP 47 section 6.7).
+        shape = (1, *backend._problem.shape)
         try:
             load_rows(snapshot.rows, shape)
         except BackendError as error:
             return str(error)
-        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True))
+        backend._adams_restore(snapshot.z, np.array(snapshot.state, copy=True)[None])
         self._history = [
             _Derivative(float(z), self._engine.value(int(slot)), identity, int(slot))
             for z, identity, slot in zip(
@@ -615,7 +619,7 @@ class HostAdamsMarch:
             "the run stops at its last accepted step, unfinished"
         )
         return ResponseBudgetError(
-            msg, z=backend._z, field=backend._adams_state().copy(), calls=spent
+            msg, z=backend._z, field=backend._adams_state()[0].copy(), calls=spent
         )
 
     def _start(self) -> None:

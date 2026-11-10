@@ -115,7 +115,7 @@ def native_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
     backend = NativeBackend(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        backend._adams_lab_source(problem.initial.field0, 0.0)
+        backend._adams_lab_source(problem.initial.field0[None], 0.0)
         native = backend._native_state
         return Evaluation(
             native.projected_to_host(False),
@@ -146,7 +146,7 @@ def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray
     backend = backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
-        return np.array(backend._adams_lab_source(problem.initial.field0, 0.0))
+        return np.array(backend._adams_lab_source(problem.initial.field0[None], 0.0))
     finally:
         backend.close()
 
@@ -260,7 +260,7 @@ def test_the_quadrature_alarm_is_the_reference_s(sector, evaluator):
         try:
             backend.set_initial(problem.initial.field0, None)
             backend.propagate_to(LENGTH)
-            alarms.append(float(backend.stats(spec)["quadrature_error"][0]))
+            alarms.append(float(backend.stats(spec)["quadrature_error"]))
         finally:
             backend.close()
     ours, theirs = alarms
@@ -327,7 +327,7 @@ def test_the_mode_averaged_route_matches_the_reference(case, evaluator):
 def test_a_two_component_field_matches_the_reference(case, evaluator):
     """The isotropic Kleinman contraction of an elliptical launch, on the quadrature."""
     problem, grid = averaged(evaluator, vector=True, **GRID_CASES[case])
-    assert problem.transform.n_pol * problem.shape[2] == 2
+    assert problem.transform.n_pol * problem.shape[1] == 2
     assert_one_evaluation(problem, grid)
     assert_steps(problem, grid)
 
@@ -422,7 +422,7 @@ def test_species_with_one_leg_bound_share_their_derivative_fields(case):
         held = ledger.memory_ledger()
     finally:
         ledger.close()
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     item = 8 if case == "field full" else 16
     # Two filtered fields and three products: one group.
     assert held["dispersive_filtered_time"] == 2 * n_columns * n_to * item
@@ -600,7 +600,7 @@ def test_a_lone_symmetric_response_beside_the_collar_holds_one_field():
     problem = simulation.translate()
     assert problem.responses.absorber_scheme == "nonlinear"
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_filtered_time"] == n_columns * n_to * 8
     for row in ("dispersive_node_fields", "dispersive_products"):
         assert ledger[row] == 0, row
@@ -612,7 +612,7 @@ def test_the_polynomial_holds_two_derivative_fields_and_its_products():
     simulation = capillary("polynomial", thg=False)
     problem = simulation.translate()
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     field = n_columns * n_to * 16  # the analytic family: complex fields
     assert ledger["dispersive_filtered_time"] == 2 * field
     assert ledger["dispersive_products"] == 3 * field
@@ -628,7 +628,7 @@ def test_a_response_beside_raman_holds_its_own_node_field_and_products():
     simulation = capillary("symmetric", gas="N2", raman=True, thg=False)
     problem = simulation.translate()
     ledger = ledger_of(problem, simulation.grid)
-    n_columns, n_to = problem.shape[1] * problem.shape[2], problem.grids.n_to
+    n_columns, n_to = problem.shape[0] * problem.shape[1], problem.grids.n_to
     assert ledger["dispersive_node_fields"] == ledger["node_field"]
     assert ledger["dispersive_products"] == n_columns * n_to * 16
     assert ledger["dispersive_product_spectra"] == n_columns * n_to * 16
@@ -643,7 +643,7 @@ def test_chunked_nodes_pack_their_projections():
     )
     ledger = ledger_of(problem, simulation.grid)
     chunks = -(-problem.transform.n_nodes // 8)
-    per_rule = chunks * problem.shape[1] * 8 * problem.transform.n_pol * 8
+    per_rule = chunks * problem.shape[0] * 8 * problem.transform.n_pol * 8
     assert ledger["dispersive_projection_chunks"] == 2 * per_rule
 
 

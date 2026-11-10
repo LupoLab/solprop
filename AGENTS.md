@@ -240,7 +240,7 @@ to it; a function that departs from it says so in the first line of its docstrin
 | Fourier sign | **Optics convention at the interface**: `Ẽ(ω) = ∫ E(t) e^{+iωt} dt`, plane wave `e^{i(βz − ωt)}`, delay `e^{+iωτ}`. **FFT convention inside the seam**: raw forward DFTs, `e^{i(ωt − βz)}`. The boundary is a conjugation in exactly three named places (`fourier.to_optics`/`to_internal`); HDF5 files are optics-convention (`conventions.md §2`) |
 | Linear operator (internal) | `D = −i(β − β₀ − β₁(ω − ω₀)) − α/2`, `Im n_eff > 0` is loss |
 | Amplitudes | interface modal amplitude `b = sqrt(Re n_eff) a` in true √W; the internal `a` is vacuum-normalised (`conventions.md §4`) |
-| Kernel state layout | `(n_batch, n_modes, n_pol, n_omega)` complex128, ω contiguous; saved fields `(n_z, n_modes, n_pol, n_omega)` |
+| Kernel state layout | `(n_modes, n_pol, n_omega)` complex128, ω contiguous, one trajectory (a group is a sequence of problems); saved fields `(n_z, n_modes, n_pol, n_omega)` |
 | Axis names | `n_batch n_modes n_pol n_omega n_omega_fine n_t n_to n_nodes n_z n_intervals n_deg n_windows`, reused verbatim in annotations |
 
 ## Guiding principles

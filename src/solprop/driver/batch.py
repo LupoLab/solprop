@@ -11,12 +11,9 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from solprop.backends.protocol import BackendHistory, Observation
-from solprop.driver.run import _history_of, plane_from_observation
 from solprop.driver.simulation import Simulation
 from solprop.exceptions import DriverError
 from solprop.output.scan import _json
-from solprop.output.schema import SavedPlane
 from solprop.translate.problem import KernelProblem
 
 __all__ = [
@@ -24,7 +21,6 @@ __all__ = [
     "compatible_groups",
     "refuse_mixed_guides",
     "shared_table_bytes",
-    "split_observation",
 ]
 
 
@@ -70,8 +66,6 @@ def _signature(member: BatchMember) -> str:
             "use Local or Pool to preserve the selected backend"
         )
     problem = simulation.translate()
-    if problem.shape[0] != 1:
-        raise DriverError("Batch members must be independently translated singletons")
     if problem.transform.geometry is not None:
         raise DriverError("Batch currently requires fibre geometry")
     if problem.stepper.schedule is None:
@@ -348,75 +342,3 @@ def shared_table_bytes(problems: Iterable[KernelProblem]) -> int:
     for problem in problems:
         visit(problem)
     return sum(storage.values())
-
-
-def split_observation(
-    observation: Observation,
-    statistics: Mapping[str, np.ndarray],
-    *,
-    histories: Sequence[BackendHistory],
-) -> tuple[SavedPlane, ...]:
-    """Separate fields, statistics and error histories into ordinary saved planes.
-
-    Each member retains its own error norms. The shared lockstep history describes
-    the attempted positions and acceptance decisions, and is never substituted for
-    a member's diagnostic history. No field or statistic gains a new storage axis.
-
-    **The field of every returned plane is the backend's internal, vacuum-normalised
-    modal amplitude, not the interface amplitude in true sqrt(W)**. This
-    function splits an observation and nothing else; the conversion ``b = sqrt(w) a`` at
-    the interface is ``solprop.driver.run._power_observation``, which a run applies to
-    the observation before any plane is stored. A caller that wants stored units must
-    convert first and split the converted observation.
-
-    Parameters
-    ----------
-    observation : solprop.backends.protocol.Observation
-        Host state with the leading batch axis and shared attempt itinerary.
-    statistics : mapping of str to numpy.ndarray
-        Saved-plane statistics, each with leading axis ``n_batch``.
-    histories : sequence of solprop.backends.protocol.BackendHistory
-        One history per member, with that member's error norms. Every itinerary must
-        match the observation, including rejected attempts.
-
-    Returns
-    -------
-    tuple of solprop.output.schema.SavedPlane
-        One plane per member, in batch order, preserving species and other axes.
-
-    Raises
-    ------
-    DriverError
-        If the observation carries no field, a member history is missing,
-        itineraries differ, or any statistic lacks the required batch axis.
-        Validation completes before any plane is returned.
-    """
-    if observation.field is None:
-        raise DriverError("a lockstep batch observes every member's field")
-    count = observation.field.shape[0]
-    if len(histories) != count:
-        raise DriverError(
-            f"Batch observation has {count} members but {len(histories)} histories"
-        )
-    for name, value in statistics.items():
-        if value.ndim < 1 or value.shape[0] != count:
-            raise DriverError(f"Batch statistic {name!r} must have {count} members")
-    for name, value in observation.step_stats.values.items():
-        if value.ndim < 2 or value.shape[1] != count:
-            raise DriverError(
-                f"Batch periodic statistic {name!r} must have {count} members"
-            )
-    reference = observation.step_history
-    for index, history in enumerate(histories):
-        if any(
-            not np.array_equal(getattr(history, name), getattr(reference, name))
-            for name in ("z", "dz", "accepted")
-        ):
-            raise DriverError(f"Batch member {index} has a different step itinerary")
-    return tuple(
-        dataclasses.replace(
-            plane_from_observation(observation, statistics, member=index),
-            step_history=_history_of(history),
-        )
-        for index, history in enumerate(histories)
-    )

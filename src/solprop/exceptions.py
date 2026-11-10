@@ -307,7 +307,7 @@ class ResponseBudgetError(ConvergenceError):
     z : float
         Position of the last accepted step, m.
     field : numpy.ndarray or None
-        The state there, in the kernel's canonical layout and FFT convention.
+        The state there, ``(n_modes, n_pol, n_omega)``, in the FFT convention.
     calls : int
         Source calls charged before the stop.
     """

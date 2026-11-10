@@ -131,7 +131,7 @@ def test_direct_spatial_constructor_derives_a_default_frame(case):
         medium=SpatialMedium(),
     )
     assert simulation.frame is not None
-    assert simulation.translate().shape[1] == space.n_r
+    assert simulation.translate().shape[0] == space.n_r
 
 
 @pytest.mark.parametrize(

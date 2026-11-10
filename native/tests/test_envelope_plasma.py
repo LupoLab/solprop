@@ -175,14 +175,14 @@ def test_envelope_current_streams_use_large_radial_projection() -> None:
         for owner in (reference, actual):
             owner.set_initial(problem.initial.field0, None)
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            problem.initial.field0,
+            problem.initial.field0[None],
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
         actual._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         observed = np.asarray(
             actual._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
         info = build_info()
         if info.device_backend == "none" and info.gemm_provider in {
             "HYBRID",
@@ -456,7 +456,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
             initial = replace(
                 problem.initial,
                 field0=problem.initial.field0 * (1 + 0.125 * index),
-                noise0=draw.spectrum[None],
+                noise0=draw.spectrum,
                 noise_model=draw.model,
             )
             one = replace(
@@ -484,7 +484,7 @@ def test_envelope_native_batch_keeps_noisy_members_and_statistics_independent() 
                 expected = singleton.stats(problem.stats_spec)
                 for name in NAMES:
                     np.testing.assert_allclose(
-                        got[name][index], expected[name][0], rtol=bound, atol=1e-30
+                        got[name][index], expected[name], rtol=bound, atol=1e-30
                     )
                 left, right = (
                     members[index].observe().step_stats,

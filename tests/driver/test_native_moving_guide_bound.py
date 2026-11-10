@@ -134,7 +134,9 @@ def source_at(implementation, problem, grid, positions):
     backend = implementation(problem, grid=grid)
     try:
         backend.set_initial(state, None)
-        return [np.array(backend._adams_lab_source(state, z)) for z in positions]
+        # The backend's private hook keeps the state's leading axis of one.
+        held = state[np.newaxis]
+        return [np.array(backend._adams_lab_source(held, z)) for z in positions]
     finally:
         backend.close()
 
@@ -149,7 +151,7 @@ def assert_source_parity(problem, grid, positions):
     maps = _general_maps(problem)
     assert maps is not None
     assert maps.moving
-    state = problem.initial.field0[0]
+    state = problem.initial.field0
     expected = source_at(NumpyRefBackend, problem, grid, positions)
     got = source_at(NativeBackend, problem, grid, positions)
     for position, mine, theirs in zip(positions, got, expected, strict=True):

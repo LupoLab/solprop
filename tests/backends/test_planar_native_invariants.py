@@ -165,9 +165,9 @@ def test_a_modified_noise_draw_rides_the_slab_phase():
     noise[..., ~grid.active_mask] = 0
     problem = dataclasses.replace(
         problem,
-        initial=Initial(problem.initial.field0, noise, "modified", {}),
+        initial=Initial(problem.initial.field0, noise, "modified"),
     )
-    realisation = NoiseRealisation(noise[0], None, "modified")
+    realisation = NoiseRealisation(noise, None, "modified")
     reference = propagate(NumpyRefBackend, problem, grid, length, realisation)
     actual = propagate(native_class(), problem, grid, length, realisation)
     bound = ladder_bound("kerr", grid, space, problem, 1, length)

@@ -466,7 +466,7 @@ consistent) and immutable, with no version number (ADR-068). What it computes, o
 
 | product | from | representation |
 |---|---|---|
-| Φ table | `linear.py` + `ZProfile`s | piecewise Chebyshev in z, coefficients `(n_intervals, n_deg, n_batch_or_1, n_modes, n_pol, n_omega)` as in `kernel-contract.md` §3, breakpoints, hard kinks; constant-D fast path (degree 1: one interval, or one per stretch between the kinks of a response path) |
+| Φ table | `linear.py` + `ZProfile`s | piecewise Chebyshev in z, coefficients `(n_intervals, n_deg, 1, n_modes, n_pol, n_omega)` as in `kernel-contract.md` §3, breakpoints, hard kinks; constant-D fast path (degree 1: one interval, or one per stretch between the kinks of a response path) |
 | unitary phase for noise | Im Φ | same table, imaginary part |
 | quadrature | `modes/quadrature.py` | nodes, weights, coarse weights, synthesis and projection matrices; taper scaling rule |
 | response spec | `nonlinear/responses.py` | compiled ordering of the fused pass, coefficients, ionisation-rate spline tables (log-spaced, converged, clip limits), Raman kernels on the doubled grid in the frequency domain, normalisation prefactors |
@@ -515,7 +515,7 @@ planes and hard kinks (ADR-009). Where the linear flow couples channels (§16), 
 frozen-residual section adds its explicit residual to the stage source
 ([stepper.md](stepper.md) §2).
 
-**Memory budget** (field-sized unit `F = n_batch·n_modes·n_pol·n_omega·16 B`): state `y`,
+**Memory budget** (field-sized unit `F = n_modes·n_pol·n_omega·16 B`): state `y`,
 stages `k₁…k₆`, two accumulators, up to five propagator factors (tabulated) or none
 (recomputed) — 9–14 F by design, more when both propagator signs are tabulated
 (`recompute` halves that share); fine-grid spectral
@@ -604,7 +604,7 @@ dependency versions, git provenance of the running code when available, the nois
 realisation, the stepper settings and the step schedule actually taken (z, h, error norm,
 rejections, wall time), the statistics, and the rows a periodic subset of them recorded
 between planes. Fields are stored in the canonical layout
-`(n_z, n_modes, n_pol, n_omega)` (batch: leading `n_batch`), in the **optics** sign convention
+`(n_z, n_modes, n_pol, n_omega)` (a batched scan stores each member separately), in the **optics** sign convention
 with the attribute `spectral_convention = "optics"` (ADR-017: the output layer conjugates on
 save and on resume); processing accessors squeeze trivial axes and accept `convention="fft"`.
 A TDSE run may also write its raw provider evaluations to a separate archive

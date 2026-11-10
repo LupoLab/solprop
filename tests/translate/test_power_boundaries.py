@@ -303,7 +303,7 @@ def test_unit_index_intensity_retains_the_vacuum_limit(grid, launch, name, with_
                 spec, grid, launch, np.ones(launch.shape), axis
             )
             np.testing.assert_allclose(
-                backend.stats(spec)["peak_intensity"][0],
+                backend.stats(spec)["peak_intensity"],
                 expected["peak_intensity"],
                 rtol=64 * np.finfo(float).eps,
                 atol=0,

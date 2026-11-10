@@ -160,11 +160,11 @@ def processing_record(
         "power_weight_terms": terms,
         "power_weight_basis": basis,
         "n_nodes": transform.n_nodes,
-        "node_polarisations": transform.n_pol * problem.shape[2],
+        "node_polarisations": transform.n_pol * problem.shape[1],
         "taper": np.ones(positions.size)
         if transform.taper_scale is None
         else np.asarray([float(transform.taper_scale(float(z))) for z in positions]),
-        "column_energy_weights": np.ones(problem.shape[1])
+        "column_energy_weights": np.ones(problem.shape[0])
         if geometry is None
         else EPS0 * C / 2 * geometry.spectral_weights,
     }

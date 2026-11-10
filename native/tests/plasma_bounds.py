@@ -408,7 +408,7 @@ def plasma_stage_bound(problem: KernelProblem, grid: FieldGrid, threads: int) ->
         state = reference._require_state()  # pyright: ignore[reportPrivateUsage]
         bundle = reference._stage_scalars(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         stage = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
-            state, bundle, np.ones(problem.shape, complex)
+            state, bundle, np.ones((1, *problem.shape), complex)
         )[0]
         fields = np.real(
             np.concatenate(

@@ -168,13 +168,13 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
             draw = modified_noise(
                 grid,
                 np.random.default_rng(313 + index),
-                n_modes=problem.shape[1],
-                n_pol=problem.shape[2],
+                n_modes=problem.shape[0],
+                n_pol=problem.shape[1],
             )
             initial = dataclasses.replace(
                 problem.initial,
                 field0=problem.initial.field0 * (1.0 + 0.125 * index),
-                noise0=draw.spectrum[None],
+                noise0=draw.spectrum,
                 noise_model=draw.model,
             )
             one = dataclasses.replace(
@@ -201,7 +201,7 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
                 for name, value in owner.stats(spec).items():
                     np.testing.assert_allclose(
                         statistics[name][index],
-                        value[0],
+                        value,
                         rtol=batch_tests.statistics_bound(expected.field, bound),
                         err_msg=name,
                     )

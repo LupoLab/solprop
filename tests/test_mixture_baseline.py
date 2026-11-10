@@ -200,7 +200,7 @@ def test_m2_problem_keeps_every_recorded_array(ndarrays_regression):
     original = dataclasses.replace(
         problem,
         linear=dispersion,
-        initial=dataclasses.replace(problem.initial, field0=simulation._field0[None]),
+        initial=dataclasses.replace(problem.initial, field0=simulation._field0),
     )
     bounds = {"host": HOST_BOUND, "chebyshev": CHEBYSHEV_BOUND, "phi": PHI_BOUND}
     arrays, tolerances = {}, {}

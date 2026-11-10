@@ -72,8 +72,8 @@ def reference_base_memory(
     dict
         Buffer name to bytes, every row named even when it is zero.
     """
-    n_batch, n_modes, n_pol, n_omega = problem.shape
-    field_bytes = n_batch * n_modes * n_pol * n_omega * 16
+    n_modes, n_pol, n_omega = problem.shape
+    field_bytes = n_modes * n_pol * n_omega * 16
     stepping = _stepping_rows(problem, field_bytes, tabulating=tabulating)
     transform = problem.transform
     n_to = problem.grids.n_to
@@ -133,7 +133,7 @@ def reference_base_memory(
         # A slab's physical nodes (n_x * n_y) are not its columns (n_p * n_y): the
         # reference holds the whole node volume of the synthesised field.
         "transverse_scratch": (
-            n_batch * transform.n_nodes * n_pol * n_omega * 16
+            transform.n_nodes * n_pol * n_omega * 16
             if transform.geometry is not None and transform.geometry.kind == "slab"
             else field_bytes
             if free

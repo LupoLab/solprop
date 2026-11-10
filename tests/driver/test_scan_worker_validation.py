@@ -45,7 +45,7 @@ def test_capture_requires_metadata_before_saving(tmp_path, point):
     simulation = build(point)
     capture = _Capture(_Options((), "none", (), "none"), simulation, tmp_path)
     with pytest.raises(OutputError, match="opened before saving"):
-        capture.save(SavedPlane(z=0.0, field=simulation.translate().initial.field0[0]))
+        capture.save(SavedPlane(z=0.0, field=simulation.translate().initial.field0))
 
 
 @pytest.mark.parametrize(
@@ -73,7 +73,7 @@ def test_worker_rejects_noise_seed_mismatch(point):
     original = build(point)
     assert original.noise is not None
     wrong = original.with_input(
-        original.translate().initial.field0[0],
+        original.translate().initial.field0,
         noise=dataclasses.replace(original.noise, seed=43),
     )
     work = _Work(lambda point: wrong, _Options((), "none", (), "none"), "worker")
@@ -100,7 +100,7 @@ def test_scan_rejects_duplicate_or_invalid_reduction_names(tmp_path, names):
 )
 def test_input_update_refuses_incompatible_replacement(point, invalid):
     simulation = build(point)
-    field = simulation.translate().initial.field0[0].copy()
+    field = simulation.translate().initial.field0.copy()
     noise = simulation.noise
     if invalid == "shape":
         field = np.repeat(field, 2, axis=0)
@@ -179,7 +179,7 @@ def test_uninstrumented_retention_validation_rejects_unknown_fields():
 
 def test_probe_does_not_charge_noise_or_periodic_retention_when_disabled(point):
     base = build(point)
-    simulation = base.with_input(base.translate().initial.field0[0], noise=None)
+    simulation = base.with_input(base.translate().initial.field0, noise=None)
     work = _Work(lambda point: simulation, _Options((), "all", (), "none"), "worker")
     assert work.probe(_Job(point))["output_bytes"] > 0
 

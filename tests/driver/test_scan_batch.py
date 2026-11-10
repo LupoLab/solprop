@@ -373,7 +373,7 @@ def test_batch_refuses_changed_configuration_of_completed_point(tmp_path):
 
     def changed(point):
         simulation = build(point)
-        return simulation.with_input(simulation.translate().initial.field0[0] * 2)
+        return simulation.with_input(simulation.translate().initial.field0 * 2)
 
     with pytest.raises(OutputError, match="different configuration"):
         run_scan(scan, changed, **options)

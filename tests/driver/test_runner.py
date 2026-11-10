@@ -137,7 +137,7 @@ def restored(backend, problem) -> tuple:
     """
     march = backend._adams
     spec = dataclasses.replace(problem.stats_spec, names=("quadrature_error",))
-    entrance = float(backend.stats(spec)["quadrature_error"][0])
+    entrance = float(backend.stats(spec)["quadrature_error"])
     return (
         backend._dense_ahead is None,
         "nan" if np.isnan(entrance) else entrance,
@@ -449,6 +449,9 @@ def test_a_runner_holds_no_input_through_the_march(
         assert output is handler
         assert handler.n_saved > 1
         assert handler.alive == [False] * handler.n_saved
+        # An inline record keeps the input it ran, which on the spatial route is the
+        # very array loaded: once the record goes, nothing else holds the launch.
+        del output, handler
         assert loads[0]() is None
 
 

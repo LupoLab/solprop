@@ -166,7 +166,7 @@ def interface_and_backend(simulation):
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(problem.stepper.save_planes[-1]))
-        direct = backend.observe().require_field()[0].copy()
+        direct = backend.observe().require_field().copy()
     finally:
         backend.close()
     return handler, handler.fields("fft")[-1], direct

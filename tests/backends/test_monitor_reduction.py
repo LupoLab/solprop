@@ -347,7 +347,7 @@ def test_an_occupancy_outside_its_reduction_is_refused(count: int) -> None:
     try:
         driver = cast("Any", as_driver(made))
         table = np.zeros(
-            math.prod(driver._problem.shape[1:2]) * simulation.grid.n_omega
+            math.prod(driver._problem.shape[0:1]) * simulation.grid.n_omega
         )
         with pytest.raises(ValueError, match="between 1 and 128 buckets"):
             driver._native_state.bind_occupancy(table.astype(np.uint8), count)

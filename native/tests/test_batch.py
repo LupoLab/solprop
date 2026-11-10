@@ -123,12 +123,12 @@ def test_batch_matches_member_fields_histories_and_statistics(
                     what=name,
                 )
             for name, value in single.stats(spec).items():
-                assert_within(statistics[name][index], value[0], statistic_bound)
+                assert_within(statistics[name][index], value, statistic_bound)
         assert batch.metadata()["batch_fused_operations"] == ("accept_error_partials",)
         sizing = cast(
             dict[str, dict[str, int]], batch.metadata()["batch_execution_sizing"]
         )
-        elements = count * math.prod(problem.shape[1:])
+        elements = count * math.prod(problem.shape)
         assert sizing[f"kernels.stage.{elements}"]["elements"] == elements
         assert sizing[f"kernels.stage.{elements}"]["threads"] >= 1
         assert batch.memory_ledger()["batch/update_descriptors"] > 0

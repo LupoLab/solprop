@@ -432,7 +432,7 @@ def _representation(problem: KernelProblem, metadata: RunMetadata) -> str:
     str
         For example ``"mode-averaged (1 mode), scalar"``.
     """
-    n_modes, n_pol = problem.shape[1], problem.shape[2]
+    n_modes, n_pol = problem.shape[0], problem.shape[1]
     polarisation = "scalar" if n_pol == 1 else "vector (x and y)"
     kind = metadata.simulation_kind
     # A spatial route carries its geometry; every modal one has none.

@@ -27,12 +27,12 @@ def test_cartesian_column_buffers_stay_within_the_shared_budget(
     # response/FFT 8, doubled Raman 3, GPU plasma 3.5, split-step 2, statistics 2.5.
     # One further column covers real-FFT endpoint bins. Use a small budget to
     # exercise the same translation division without allocating a full-size run.
-    budget = 7 * 20 * 16 * problem.shape[2] * grid.n_to
+    budget = 7 * 20 * 16 * problem.shape[1] * grid.n_to
     transform = free_transform(
-        space, grid, n_pol=problem.shape[2], z_max=grid.length, node_budget=budget
+        space, grid, n_pol=problem.shape[1], z_max=grid.length, node_budget=budget
     )
     transform = _held_current_chunk(
-        transform, problem.responses, problem.shape[2], grid.n_to, budget
+        transform, problem.responses, problem.shape[1], grid.n_to, budget
     )
     geometry = transform.geometry
     assert geometry is not None

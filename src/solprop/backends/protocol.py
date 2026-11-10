@@ -219,8 +219,7 @@ class StepStats:
         The history counts rejected attempts too, so this is not ``row * period``.
     values : collections.abc.Mapping
         The statistics, keyed by catalogue name, each with a leading row axis and then
-        the leading batch axis every statistic crossing this seam carries:
-        ``(n_rows, n_batch, *shape)``.
+        the statistic's own shape, with no batch axis: ``(n_rows, *shape)``.
 
     Raises
     ------
@@ -233,7 +232,7 @@ class StepStats:
     >>> import numpy as np
     >>> from solprop.backends.protocol import StepStats
     >>> rows = StepStats(np.array([0.1, 0.2]), np.array([0, 1]),
-    ...                  {"energy": np.ones((2, 1, 1, 1))})
+    ...                  {"energy": np.ones((2, 1, 1))})
     >>> rows.n_rows, rows.names
     (2, ('energy',))
     >>> StepStats.empty().n_rows
@@ -380,8 +379,8 @@ class Observation:
     z : float
         Position of the plane, m.
     field : numpy.ndarray or None
-        The state, complex128, shape ``(n_batch, n_modes, n_pol, n_omega)``, in the
-        square root of watts; ``None`` for an observation that asked for no field
+        The state, complex128, shape ``(n_modes, n_pol, n_omega)``, in the square root
+        of watts; ``None`` for an observation that asked for no field
         (``observe(field=False)``, SEP 22 section 5.1).
     noise_phase : numpy.ndarray or None
         ``Im Phi(omega, z)`` in radians, same shape, when a noise model is active and
@@ -412,7 +411,7 @@ class Observation:
     Raises
     ------
     BackendError
-        If a field is not four-dimensional and finite, a noise phase is given without
+        If a field is not finite, a noise phase is given without
         a field or does not match it, the step counts disagree with the history, or a
         statistics row points past the history it indexes.
 
@@ -422,14 +421,14 @@ class Observation:
     >>> from solprop.backends.protocol import Observation, BackendHistory
     >>> history = BackendHistory(np.array([1.0]), np.array([1.0]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
-    >>> plane = Observation(1.0, np.zeros((1, 1, 1, 8), complex), None, history, 1, 0)
+    >>> plane = Observation(1.0, np.zeros((1, 1, 8), complex), None, history, 1, 0)
     >>> plane.z, plane.field.flags.writeable
     (1.0, False)
     """
 
     z: float
-    field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"] | None
-    noise_phase: Float[np.ndarray, "n_batch_p n_modes_p n_pol_p n_omega_p"] | None
+    field: Complex[np.ndarray, "n_modes n_pol n_omega"] | None
+    noise_phase: Float[np.ndarray, "n_modes_p n_pol_p n_omega_p"] | None
     step_history: BackendHistory
     n_steps: int
     n_rejected: int
@@ -475,13 +474,13 @@ class Observation:
                 raise BackendError(msg)
         self._check_counts()
 
-    def require_field(self) -> Complex[np.ndarray, "n_batch n_modes n_pol n_omega"]:
+    def require_field(self) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
         """Return the observed field, refusing an observation that asked for none.
 
         Returns
         -------
         numpy.ndarray
-            The read-only field, shape ``(n_batch, n_modes, n_pol, n_omega)``.
+            The read-only field, shape ``(n_modes, n_pol, n_omega)``.
 
         Raises
         ------
@@ -494,9 +493,9 @@ class Observation:
         >>> from solprop.backends.protocol import Observation, BackendHistory
         >>> empty = BackendHistory(np.empty(0), np.empty(0), np.empty(0),
         ...                     np.empty(0, bool), np.empty(0))
-        >>> Observation(0.0, np.ones((1, 1, 1, 2), complex), None, empty, 0, 0
+        >>> Observation(0.0, np.ones((1, 1, 2), complex), None, empty, 0, 0
         ...             ).require_field().shape
-        (1, 1, 1, 2)
+        (1, 1, 2)
         """
         if self.field is None:
             msg = (
@@ -669,8 +668,8 @@ class Backend(Protocol):
     name : str
         The registry name, for example ``"numpy_ref"``.
     max_batch : int
-        Largest batch axis this backend steps at once; 1 for a backend that steps one
-        problem.
+        Trajectories this backend steps at once: 1 for a backend that steps one
+        problem, the member count for a group runner.
     reads_transverse_edge : bool
         Whether it reads a free-space run's transverse edge (SEP 40 section 5.3), which
         a run with a requested real-space collar needs.
@@ -697,7 +696,7 @@ class Backend(Protocol):
 
     def set_initial(
         self,
-        field: Complex[np.ndarray, "n_batch n_modes n_pol n_omega"],
+        field: Complex[np.ndarray, "n_modes n_pol n_omega"],
         noise: NoiseRealisation | None,
         *,
         z: float = 0.0,
@@ -708,7 +707,7 @@ class Backend(Protocol):
         Parameters
         ----------
         field : numpy.ndarray
-            The state in the canonical layout, FFT convention.
+            The state, shape ``(n_modes, n_pol, n_omega)``, FFT convention.
         noise : solprop.noise.NoiseRealisation or None
             The realisation to carry along the run, or ``None``.
         z : float, optional
@@ -826,7 +825,7 @@ class Backend(Protocol):
         Returns
         -------
         dict
-            Small host arrays keyed by statistic name, each with a leading batch axis.
+            Small host arrays keyed by statistic name, without a batch axis.
         """
         ...
 

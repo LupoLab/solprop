@@ -36,7 +36,7 @@ from solprop.stepper.multistep import Multistep
 from solprop.translate import masks
 from solprop.translate.coupled import CoupledFlowTables
 from solprop.translate.linop import delta_phi
-from solprop.translate.problem import Flags, KernelProblem, assemble
+from solprop.translate.problem import KernelProblem, assemble
 from solprop.translate.stage import terms
 
 import solprop_native
@@ -531,7 +531,7 @@ def _leaf_value(problem: KernelProblem, leaf: str) -> object:
     if leaf != "coupled_flow":
         return object()
     n_omega = problem.shape[-1]
-    n_modes = problem.shape[1]
+    n_modes = problem.shape[0]
     return CoupledFlowTables(
         np.linspace(1.0e15, 2.0e15, n_omega),
         np.array([0.0, 1.0]),
@@ -553,7 +553,6 @@ def _leaf_value(problem: KernelProblem, leaf: str) -> object:
 @pytest.mark.parametrize(
     ("flags", "message"),
     [
-        ({"single_batch": False}, "NativeBackend owns one member"),
         ({"has_spectral_responses": True}, "spectral responses other than envelope"),
     ],
 )
@@ -611,23 +610,6 @@ def test_the_dispersive_electronic_leaf_runs_on_the_free_space_route(
         backend.close()
     held = ledger["dispersive_products"] + ledger["dispersive_product_spectra"]
     assert (held == 0) == (evaluator == "symmetric")
-
-
-def test_batch_refusal_happens_before_native_allocation(
-    phase_a_case: PhaseACase,
-) -> None:
-    problem, grid = phase_a_case
-    shape: tuple[int, ...] = (2, *problem.shape[1:])
-    flags = Flags.from_content(
-        shape,
-        problem.linear,
-        problem.transform,
-        problem.responses,
-        problem.initial,
-    )
-    spoiled = dataclasses.replace(problem, shape=shape, flags=flags)
-    with pytest.raises(BackendError, match="use NativeBatchBackend"):
-        NativeBackend(spoiled, grid=grid)
 
 
 def test_statistics_do_not_observe_the_full_field(
@@ -942,7 +924,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
             reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
                 reference._require_state(),  # pyright: ignore[reportPrivateUsage]
                 reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-                np.ones(problem.shape, complex),
+                np.ones((1, *problem.shape), complex),
             )[0]
         )
     finally:
@@ -967,7 +949,7 @@ def test_packed_real_blas_radial_envelope_matches_the_reference_when_eligible() 
             assert ledger.get("radial_blas_buffers", 0) == 0
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         state = backend._native_state  # pyright: ignore[reportPrivateUsage]
-        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape[1:])
+        actual = np.asarray(state.stage_to_host(0)).reshape(problem.shape)
     finally:
         backend.close()
     scale = float(np.max(np.abs(expected)))

@@ -156,7 +156,7 @@ def launched(
     # The state's spectrum is doubled on its way to the real field.
     spectrum = 2.0 * np.fft.fft(real, axis=-1)[..., grids.crop_index] / grids.pad_scale
     inverse = np.linalg.inv(problem.transform.synthesis)
-    state = np.einsum("mn,npw->mpw", inverse, spectrum)[None]
+    state = np.einsum("mn,npw->mpw", inverse, spectrum)
     state[..., ~grids.active_mask] = 0.0
     n_to = grids.n_to
     return dataclasses.replace(
@@ -220,7 +220,7 @@ def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
         expected = reference._nonlinear(  # pyright: ignore[reportPrivateUsage]
             reference._require_state(),  # pyright: ignore[reportPrivateUsage]
             reference._stage_scalars(0.0, 0.0),  # pyright: ignore[reportPrivateUsage]
-            np.ones(problem.shape, complex),
+            np.ones((1, *problem.shape), complex),
         )[0]
     finally:
         reference.close()
@@ -231,7 +231,7 @@ def stages(problem: KernelProblem) -> tuple[Complex, Complex]:
         backend._trial_step(0.0, 0.0)  # pyright: ignore[reportPrivateUsage]
         actual = np.asarray(
             backend._native_state.stage_to_host(0)  # pyright: ignore[reportPrivateUsage]
-        ).reshape(problem.shape[1:])
+        ).reshape(problem.shape)
     finally:
         backend.close()
     return actual, expected
@@ -321,12 +321,12 @@ def test_the_launch_fraction_is_within_its_scan_bound(
     bound = launch_fraction_bound(problem)
     expected = launch_statistics(NumpyRefBackend, problem, GRID)
     actual = launch_statistics(NativeBackend, problem, GRID)
-    error = abs(float(actual["electron_density"][0] - expected["electron_density"][0]))
+    error = abs(float(actual["electron_density"] - expected["electron_density"]))
     record_property("measured", error / DENSITY)
     record_property("bound", bound)
     assert error <= DENSITY * bound, (error, DENSITY * bound)
     # Every case but one has electrons; the pre-ionised one starts with them too.
-    assert float(expected["electron_density"][0]) > 0.0
+    assert float(expected["electron_density"]) > 0.0
 
 
 @dataclass(frozen=True)

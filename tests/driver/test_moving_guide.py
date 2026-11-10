@@ -388,14 +388,14 @@ def _single_bin(guide, grid, length, steps, index, **overrides):
     simulation.settings = dataclasses.replace(simulation.settings, absorber=None)
     problem = simulation.translate()
     state = np.zeros_like(problem.initial.field0)
-    state[0, 0, 0, index] = 1e-9
+    state[0, 0, index] = 1e-9
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(length)
-    final = backend.observe().require_field()[0, :, 0, index].copy()
+    final = backend.observe().require_field()[:, 0, index].copy()
     backend.close()
     return final / 1e-9, problem
 
@@ -637,16 +637,16 @@ def _step_run(guide, steps, index, launch=None):
     problem = simulation.translate()
     state = np.zeros_like(problem.initial.field0)
     if launch is None:
-        state[0, 0, 0, index] = 1e-9
+        state[0, 0, index] = 1e-9
     else:
-        state[0, :, 0, index] = 1e-9 * np.asarray(launch)
+        state[:, 0, index] = 1e-9 * np.asarray(launch)
     problem = dataclasses.replace(
         problem, initial=dataclasses.replace(problem.initial, field0=state)
     )
     backend = NumpyRefBackend(problem, grid=grid)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(LENGTH)
-    final = backend.observe().require_field()[0, :, 0, index].copy()
+    final = backend.observe().require_field()[:, 0, index].copy()
     backend.close()
     return final / 1e-9, problem
 
@@ -866,7 +866,7 @@ def test_the_connection_is_stored_unconjugated_as_a_complex_basis_decides(
     backend = NumpyRefBackend(wrong_problem, grid=grid)
     backend.set_initial(wrong_problem.initial.field0, None)
     backend.propagate_to(LENGTH)
-    wrong = backend.observe().require_field()[0, :, 0, index] / 1e-9
+    wrong = backend.observe().require_field()[:, 0, index] / 1e-9
     backend.close()
     wrong_departure = float(np.max(abs(wrong[1:] / wrong[0] - expected)))
     record_property("tc801_conjugated_departure", wrong_departure)

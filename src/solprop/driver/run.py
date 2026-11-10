@@ -167,14 +167,12 @@ def plane_from_observation(
     observation: Observation,
     stats: Mapping[str, np.ndarray] | None = None,
     *,
-    member: int = 0,
     field: bool = True,
 ) -> SavedPlane:
     """Turn one observation and its statistics into the plane an output handler stores.
 
-    The only shape change on the way: the seam's arrays carry a leading batch axis and a
-    stored plane does not, so one member is taken from the field, the noise phase and
-    every statistic (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
+    The seam's arrays are one trajectory's, as a stored plane is, so no shape changes
+    on the way (``docs/dev/conventions.md`` section 6). Nothing is conjugated --
     the field stays in the internal FFT convention, and the handler converts it on the
     way to storage (``docs/dev/conventions.md`` section 2). Nothing is rescaled either:
     the field is whatever amplitude the observation carries, the backend's
@@ -188,15 +186,7 @@ def plane_from_observation(
         :meth:`solprop.backends.protocol.Backend.observe`.
     stats : collections.abc.Mapping, optional
         What :meth:`solprop.backends.protocol.Backend.stats` returned there, keyed by
-        statistic name, each with a leading batch axis. Empty when omitted.
-
-        The observation's between-planes rows are taken across the same way: their
-        batch axis is the one *after* the row axis, so the member is taken from axis
-        one rather than axis zero.
-    member : int, optional
-        Which batch member to store; 0, the only member of an unbatched run, by
-        default. :func:`solprop.driver.batch.split_observation` stores each member of
-        a lockstep batch in turn.
+        statistic name. Empty when omitted.
     field : bool, optional
         Whether the plane keeps the field and its noise phase; ``False``, or an
         observation that carries no field, builds a field-free plane (SEP 22), which
@@ -214,9 +204,8 @@ def plane_from_observation(
     >>> from solprop.driver.run import plane_from_observation
     >>> history = BackendHistory(np.array([0.5]), np.array([0.5]), np.array([0.3]),
     ...                       np.array([True]), np.array([0.02]))
-    >>> observation = Observation(0.5, np.ones((1, 1, 1, 4), complex), None, history,
-    ...                           1, 0)
-    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1, 1))})
+    >>> observation = Observation(0.5, np.ones((1, 1, 4), complex), None, history, 1, 0)
+    >>> plane = plane_from_observation(observation, {"energy": np.ones((1, 1))})
     >>> plane.z, plane.shape, plane.stats["energy"].shape
     (0.5, (1, 1, 4), (1, 1))
     """
@@ -224,22 +213,11 @@ def plane_from_observation(
     rows = observation.step_stats
     return SavedPlane(
         z=observation.z,
-        field=observation.field[member]
-        if field and observation.field is not None
-        else None,
-        stats={name: np.asarray(value[member]) for name, value in values.items()},
+        field=observation.field if field else None,
+        stats={name: np.asarray(value) for name, value in values.items()},
         step_history=_history_of(observation.step_history),
-        step_stats=StepStats(
-            z=rows.z,
-            step=rows.step,
-            values={
-                name: np.asarray(value[:, member])
-                for name, value in rows.values.items()
-            },
-        ),
-        noise_phase=None
-        if observation.noise_phase is None or not field
-        else observation.noise_phase[member],
+        step_stats=StepStats(z=rows.z, step=rows.step, values=dict(rows.values)),
+        noise_phase=observation.noise_phase if field else None,
     )
 
 
@@ -397,8 +375,7 @@ def run_problem(  # noqa: PLR0913 - the loop's inputs and commit sequence
     ------
     DriverError
         If the statistics given here disagree with the problem's own about the
-        between-planes channel; if the problem carries a batch axis, which the output
-        schema has no room for yet; if the record and the problem disagree about
+        between-planes channel; if the record and the problem disagree about
         whether this is a general modal run; if the start's ``plane_index`` is not a
         plane of this problem; or if the field retention is not valid, names a plane
         outside the run, asks for ``fields='planes'`` beside ``step_planes`` (whose
@@ -653,8 +630,6 @@ def check_snapshot_request(
     # A snapshot is taken at the next accepted endpoint, persisted as a running
     # checkpoint when no plane is saved there, so it needs no step planes (SEP 47
     # section 5.5).
-    if problem.shape[0] != 1:
-        raise DriverError("snapshots require an unbatched run")
     # Interpolated output stays refused for now: a running checkpoint must first drain
     # and commit the dense planes its accepted step crossed (SEP 47 section 5.5),
     # which the transitional session does not do yet.
@@ -1528,14 +1503,6 @@ def _refuse_unrunnable(
             f"{list(channel.periodic)} every {channel.period}; the between-planes "
             "channel is armed when the backend is built, from the problem's own spec, "
             "so the two would disagree -- pass the problem's spec, or translate again"
-        )
-        raise DriverError(msg)
-    if problem.shape[0] != 1:
-        msg = (
-            f"this problem carries a batch axis of {problem.shape[0]} and a stored "
-            "plane has no batch axis; run a batch through "
-            "solprop.driver.scan.run_scan with executor=solprop.driver.executors."
-            "Batch(...), which stores each member separately"
         )
         raise DriverError(msg)
     if not 0 <= start_plane <= n_planes:

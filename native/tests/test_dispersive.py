@@ -301,7 +301,7 @@ def test_one_evaluation_matches_the_reference(evaluator: str, thg: bool) -> None
         backend = backend_class(problem, grid=grid)
         try:
             backend.set_initial(problem.initial.field0, None)
-            backend._adams_lab_source(problem.initial.field0, 0.0)  # pyright: ignore[reportPrivateUsage]
+            backend._adams_lab_source(problem.initial.field0[None], 0.0)  # pyright: ignore[reportPrivateUsage]
             if isinstance(backend, NativeBackend):
                 spectra.append(backend._native_state.projected_to_host(False))  # pyright: ignore[reportPrivateUsage]
             else:
