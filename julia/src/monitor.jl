@@ -477,13 +477,22 @@ struct TemporalPlaneRow
 end
 
 """
-    TemporalContinuation
+    TemporalContinuation(launch, launch_occupancy, guard_max, guard_at, collar_max,
+        raw_removed, floor_removed, quiet_run, quiet, raw_guard_max, steps, skipped,
+        left_out_checks, last_plane_z; has_quiet_run=true)
 
 Retain immutable numerical continuation data from the monitor's public record.
 
 Fields preserve original launch/guard/removal totals, quiet count, checked/skipped
-counts and the last saved-plane coordinate. Row histories and textual metadata are
-owned by the session. A restore rejudges neither the launch nor its quiet count.
+counts and the last saved-plane coordinate. Counts are already parsed integers; launch
+and removal values retain the monitor's energy/share units, and coordinates are in m.
+`has_quiet_run=false` represents a missing or nonfinite legacy quiet count: the newly
+settled launch retains its own quiet state. With the default `true`, even an explicit
+zero replaces that newly settled count exactly once. The caller applies the neutral
+record's count-parsing policy before construction; no parsing occurs here.
+
+The final positional field also accepts the presence flag. Row histories and textual
+metadata are owned by the session. A restore never rejudges a resumed launch.
 """
 struct TemporalContinuation
     launch::Float64
@@ -500,6 +509,18 @@ struct TemporalContinuation
     skipped::Int
     left_out_checks::Int
     last_plane_z::Float64
+    has_quiet_run::Bool
+end
+function TemporalContinuation(
+        launch, launch_occupancy, guard_max, guard_at, collar_max,
+        raw_removed, floor_removed, quiet_run, quiet, raw_guard_max,
+        steps, skipped, left_out_checks, last_plane_z; has_quiet_run::Bool = true,
+    )
+    return TemporalContinuation(
+        launch, launch_occupancy, guard_max, guard_at, collar_max,
+        raw_removed, floor_removed, quiet_run, quiet, raw_guard_max,
+        steps, skipped, left_out_checks, last_plane_z, has_quiet_run
+    )
 end
 
 function _temporal_cap!(state, policy, reading)
@@ -593,7 +614,7 @@ Record a fresh or resumed launch, returning its optional fixed plane row.
 `floor` is a `TemporalFloor` from actual input noise, or its zero record. Fresh guard
 warnings/stops have a NaN notice position, identifying launch to the existing helper.
 A resumed launch retains its original positive launch energy, does not judge again,
-and restores its quiet count after settling the current reading. Invalid inputs raise.
+and restores a present old quiet count after settling the reading. Invalid inputs raise.
 """
 function temporal_launch!(state, policy, reading, z, floor::TemporalFloor, notices)
     isfinite(z) && isfinite(floor.total) && floor.total >= 0 &&
@@ -806,13 +827,15 @@ end
     temporal_continuation(state)
 
 Return immutable numerical restart data, without copying row or notice histories.
+
+The live state's quiet count is always present, so `has_quiet_run` is always true.
 """
 function temporal_continuation(state)
     return TemporalContinuation(
         state.launch, state.launch_occupancy, state.guard_max,
         state.guard_at, state.collar_max, state.raw_removed, state.floor_removed,
         state.quiet_run, state.quiet, state.raw_guard_max, state.steps, state.skipped,
-        state.left_out_checks, state.last_plane_z
+        state.left_out_checks, state.last_plane_z, true
     )
 end
 
@@ -823,8 +846,9 @@ Restore a numerical public record into a fresh temporal monitor before launch.
 
 Use `nothing` for a resumed run with no previous monitor record. The next launch
 records but does not judge a resumed field; original positive launch/totals survive,
-and its previously counted quiet check is not counted twice. The caller separately
-restores plane histories and resume/unwatched metadata.
+and a present old quiet check is not counted twice. An absent legacy quiet count leaves
+the newly settled launch's count and quiet flag intact. The caller separately restores
+plane histories and resume/unwatched metadata.
 """
 function restore_temporal!(state, continuation; plane::Bool)
     !state.has_last || throw(ArgumentError("restore requires fresh temporal monitor state"))
@@ -837,7 +861,7 @@ function restore_temporal!(state, continuation; plane::Bool)
     state.collar_max = continuation.collar_max
     state.raw_removed, state.floor_removed = continuation.raw_removed,
         continuation.floor_removed
-    state.restore_quiet = true
+    state.restore_quiet = continuation.has_quiet_run
     state.restored_quiet_run, state.restored_quiet = continuation.quiet_run,
         continuation.quiet
     state.raw_guard_max = continuation.raw_guard_max
