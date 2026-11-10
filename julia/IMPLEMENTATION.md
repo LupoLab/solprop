@@ -48,9 +48,9 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Numerical transform/Adams agent | `julia/src/execution.jl`, `transforms.jl`, `operators.jl`, `tables.jl`, `phi_functions.jl`, `adams.jl`, `adams_control.jl`, `low_storage.jl`, `composition.jl`; corresponding tests; dependency declarations/generated environments | Reviewed Adams/low-storage integrated; general source in review; pure Adams control next |
-| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`; corresponding Julia tests | Statistics and temporal monitor integrated; transverse monitor under independent review |
+| Numerical services agent | `julia/src/responses.jl`, `raman.jl`, `plasma.jl`, `statistics.jl`, `monitor.jl`, `observations.jl`; corresponding Julia tests | Transverse monitor reviewed and integrated; modal observation composition next |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Legacy test integration reviewed and merged; complete CPU bridge and transverse monitor review next |
+| Independent reviewer | Production code read-only | First CPU bridge and transverse monitor approved; general source composition in review |
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -331,6 +331,16 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   internal adapter docstrings, scoped types, formatting and spelling pass. The refreshed
   Sphinx build passes with warnings as errors. Independent review approved this first
   CPU slice; the restored legacy benchmark tests pass 34 cases and both shared output
-  modes pass again. Complete integrated package quality has 12 passes and a persistent-
-  task child precompile error from incompatible dependency-cache images; cache
-  preparation is being corrected, and that required check remains unresolved.
+  modes pass again. Final boundary/runner selection passes 77 cases; scoped typing has
+  zero errors or warnings. Complete integrated package quality now passes all 13
+  Aqua/JET checks after using prepared, matching dependency images. Earlier child
+  precompilation errors remain recorded as tooling failures.
+- Transverse monitoring is integrated at `187504ec` and `cae3e377` after independent
+  review. The final bounds-enabled two-thread monitor selection passes 191 assertions;
+  the combined numerical and actual-oracle witnesses pass 304 and 4,345 assertions.
+  Mismatched face metadata now refuses before mutation in both directions (#637).
+- Modal observation interfaces are frozen before implementation: separate coarse
+  analytic statistics, coarse real/envelope monitoring, and fine physical population
+  reconstructions. Split monitoring captures the masked pre-split candidate, then
+  consumes it after split damping, final masking and commit. Numerical observation
+  work owns scratch only; session glue owns bounded rows, event cursors and delivery.
