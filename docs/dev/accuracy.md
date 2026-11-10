@@ -413,6 +413,8 @@ relative-L2 bounds of `1e-10` and `1e-9`.
 | two runs, one thread against many, on one fixed schedule | the step's rounding budget from its reduction lengths | within it | `tests/backends/test_backend_ladder.py` |
 | same-backend resume through true-power output | 2.7e-16 of the global field peak; statistic-specific rounding bounds | field 1.77333e-16; energy up to 2.64009e-16; rate up to 5.06947e-15 | `tests/driver/test_resume.py` |
 | a run continued on the other backend | — | 2.2–2.7e-16 against either uninterrupted run | `tests/driver/test_resume.py` |
+| ten exponential Adams steps beside a coupled flow with every bin, or every other one, off the eigenbasis route (the augmented exponential's scaling and squaring against SciPy's `expm`), native CPU, eight cases | `B_10` at `flow_parity.adams_formation_bound`: 1.7e-8 to 8.4e-8, 4.6e-6 on the split block | 3.3e-16 to 5.9e-15 against `numpy_ref`, solprop's host engine and the eigenbasis route | `tests/driver/test_native_flow_session.py` (SEP 47 phase 4) |
+| ten exponential Adams steps beside a 17- and a 24-channel coupled flow, native CPU | `parity_bound`: 6.0e-10 and 4.6e-7 | 4.2e-16 against `numpy_ref`, 9.8e-18 and 3.3e-17 against solprop's host engine | `tests/driver/test_native_flow_session.py` (SEP 47 phase 4) |
 
 The measured columns of the ladder are the committed record. The native CPU and
 `native_cuda` series each cover all seven rungs through reduced M2; on a data-centre
