@@ -18,14 +18,14 @@ values by the same ``eigh`` on each interval where the metric is constant.
 A profile statistic (``density``, ``pressure``, ``core_radius``) reads its path from
 the representation the propagation already carries when one of the problem's scalar
 tables reproduces the profile at rounding level; otherwise the profile itself is
-lowered at preparation over the whole run (it holds its end value outside its own
-span), with its declared breakpoints as mandatory edges, refined until its measured
-error on a dense check set is at rounding level
-(:data:`PROFILE_TOLERANCE`), or refused by name. Either way the measured error is
-recorded (:attr:`StatisticsLowering.tables`) and reaches the run's execution record
-under ``statistics_tables``: it is what separates a native profile statistic from the
-profile's own value, planes and rows alike. The metric statistics of a basis whose
-metric varies inside one of its intervals stay with the host.
+lowered at preparation over the propagation's span, the whole run and the tables'
+margin past its end (it holds its end value outside its own span), with its declared
+breakpoints as mandatory edges, refined until its measured error on a dense check set
+is at rounding level (:data:`PROFILE_TOLERANCE`), or refused by name. Either way the
+measured error is recorded (:attr:`StatisticsLowering.tables`) and reaches the run's
+execution record under ``statistics_tables``: it is what separates a native profile
+statistic from the profile's own value, planes and rows alike. The metric statistics
+of a basis whose metric varies inside one of its intervals stay with the host.
 
 The native evaluation finishes every statistic (the widths, the species reduction, the
 integration ratios); :meth:`StatisticsLowering.unpack` only names and shapes the packed
@@ -688,8 +688,14 @@ def _lowered_profile_table(
     The propagation's own table of the path when one of the problem's scalar tables
     reproduces the profile at rounding level over the run; otherwise the profile
     lowered by the propagation's own tabulation (:func:`solprop.translate.linop.
-    profile_table`), at its declared breakpoints, with the builder's tolerance
-    tightened until the measured error is at rounding level.
+    profile_table`), at its declared breakpoints and over the propagation's span (the
+    run and the tables' margin beyond its end, :data:`solprop.translate.linop.
+    DEFAULT_MARGIN`), with the builder's tolerance tightened until the measured error
+    is at rounding level. The margin keeps the run's end inside the table, as it is
+    in the propagation's: a table that ends there reads its last interval at a sample
+    inset one ulp, and a path that leaves a profile's end steeply (a pressure
+    gradient's square root near its floor) moves by more than rounding level of its
+    scale over that ulp.
 
     Parameters
     ----------
@@ -710,13 +716,16 @@ def _lowered_profile_table(
     solprop.exceptions.BackendError
         Naming the statistic when no table reaches :data:`PROFILE_TOLERANCE`.
     """
-    from solprop.translate.linop import profile_table
+    from solprop.translate.linop import DEFAULT_MARGIN, profile_table
     from solprop.translate.problem import _walk_tables
 
     start = float(problem.initial.z)
     end = float(problem.stepper.z_end)
     if not end > start:
         end = start + max(abs(start), 1.0) * 1e-12
+    # The propagation's span: from the fibre's entrance to the margin past its end.
+    lower = min(start, 0.0)
+    upper = max(end, end + abs(end) * DEFAULT_MARGIN)
 
     def record(source: str, error: float, scale: float, count: int) -> dict:
         return {
@@ -738,7 +747,7 @@ def _lowered_profile_table(
             return table, record(source, error, scale, check.size)
     best = math.inf
     for tolerance in _FIT_TOLERANCES:
-        table = profile_table(profile, start, end, tol=tolerance)
+        table = profile_table(profile, lower, upper, tol=tolerance)
         check = _check_set(profile, start, end, np.asarray(table.breakpoints))
         error, scale = _measured(table, profile, check)
         if acceptable(error, scale):
