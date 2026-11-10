@@ -134,6 +134,7 @@ class _Session:
                 profiles=simulation.profiles,
                 cpu_execution=execution,
                 fft_planning=planning,
+                options=simulation.settings.execution_options(),
             )
             backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
             step = backend.timed_step()
@@ -315,6 +316,7 @@ class _Session:
                     "capture_effort": effort,
                     "time_limit": each,
                 },
+                options=simulation.settings.execution_options(),
             )
             try:
                 found = backend._native_state.fft_planning  # pyright: ignore[reportPrivateUsage]

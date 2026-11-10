@@ -131,6 +131,8 @@ class _Windows:
             cpu_execution=None
             if record is None
             else ExecutionRecord.from_native(record),
+            # The run's own node chunk, so the windows time what the run executes.
+            options=simulation.settings.execution_options(),
         )
         self.backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
         start = float(problem.initial.z)
