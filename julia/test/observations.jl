@@ -629,3 +629,45 @@ end
         power_weight = SolpropJulia.ObservationWeight(execution, ones(5, 2))
     )
 end
+
+@testset "Population observations are independent of current-only coefficients" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    for kind in (:field, :envelope)
+        ordinary = observation_population_case(execution, kind)
+        field = observation_field(kind)
+        SolpropJulia.observe!(ordinary, field, 0.3)
+        previous = ordinary.data.populations
+        channels = map(previous.plasma.channels) do original
+            rate = original.channel.rate
+            current = SolpropJulia.PlasmaChannel(rate, floatmax(Float64), floatmax(Float64))
+            SolpropJulia.ModalPlasmaChannel(
+                current,
+                SolpropJulia.SourceProfile(floatmax(Float64)), original.preionisation;
+                quadrature = original.quadrature
+            )
+        end
+        plasma = kind == :field ? SolpropJulia.ModalPlasma(
+                execution, channels,
+                previous.plasma.rule
+            ) : SolpropJulia.ModalPlasma(
+                execution, channels;
+                drude = previous.plasma.drude, loss = previous.plasma.loss
+            )
+        populations = SolpropJulia.ObservationPopulations(
+            plasma, previous.grid, previous.map;
+            species_densities = previous.species_densities,
+            channel_species = previous.channel_species, peak_species = previous.peak_species
+        )
+        prepared = SolpropJulia.ObservationPreparation(
+            execution, ordinary.data.grid,
+            ordinary.data.selection; kind, n_modes = 2,
+            power_weight = ordinary.data.power_weight, populations
+        )
+        work = SolpropJulia.ObservationWorkspace(execution, prepared; node_chunk = 2)
+        SolpropJulia.observe!(work, field, 0.3)
+        # Coefficients absent from the equation cannot change its rounding budget.
+        @test isapprox(work.values, ordinary.values; rtol = 16eps(Float64), atol = 0.0)
+        @test all(isfinite, work.values)
+        @test observation_allocated(work, field) == 0
+    end
+end

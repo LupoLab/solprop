@@ -275,3 +275,188 @@ end
         execution, Float64, SolpropJulia.ResponseLayout(2, 2, 1)
     )
 end
+
+function _field_population_allocations(samples, table, rule, work, execution)
+    SolpropJulia.field_populations!(
+        samples, table, rule, work, execution;
+        preionisation = 0.25
+    )
+    return @allocated SolpropJulia.field_populations!(
+        samples, table, rule, work, execution;
+        preionisation = 0.25
+    )
+end
+
+function _envelope_population_allocations(samples, table, quadrature, work, execution)
+    SolpropJulia.envelope_populations!(
+        samples, table, quadrature, work, execution;
+        preionisation = 0.25, dt = 0.125
+    )
+    return @allocated SolpropJulia.envelope_populations!(
+        samples, table, quadrature, work, execution; preionisation = 0.25, dt = 0.125
+    )
+end
+
+@testset "Population-only scans preserve recurrence and ignore current coefficients" begin
+    for tasks in (1, 2)
+        execution = SolpropJulia.KernelExecution(
+            SolpropJulia.KernelAbstractions.CPU(),
+            tasks, true
+        )
+        layout = SolpropJulia.ResponseLayout(8, 1, 2)
+        work = SolpropJulia.PopulationWorkspace(execution, Float64, layout)
+        table = _quadratic_rate_table()
+        rule = SolpropJulia.RunningIntegralRule([1.0], 0.125)
+        channel = SolpropJulia.PlasmaChannel(table, 2.0, 3.0)
+        full = SolpropJulia.FieldPlasmaWorkspace(execution, Float64, layout)
+        samples = ones(8, 2)
+        first, second = zeros(8, 2), zeros(8, 2)
+        SolpropJulia.field_plasma!(
+            first, second, samples, channel, rule, full, execution;
+            density = 2.0, preionisation = 0.25
+        )
+        SolpropJulia.field_populations!(
+            samples, table, rule, work, execution;
+            preionisation = 0.25
+        )
+        @test SolpropJulia.plasma_failure(work.status).code == SolpropJulia.PlasmaSuccess
+        # The same matched recurrence is held to a small operation-count budget.
+        @test isapprox(work.fraction, full.fraction; rtol = 16eps(Float64), atol = 0.0)
+        @test isapprox(work.rate, full.rate; rtol = 16eps(Float64), atol = 0.0)
+        @test _field_population_allocations(samples, table, rule, work, execution) == 0
+        fill!(work.filtered, NaN)
+        SolpropJulia.field_populations!(
+            samples, table, rule, work, execution;
+            preionisation = 1.0, count = 1
+        )
+        @test all(isone, work.fraction[:, 1]) && all(iszero, work.survival[:, 1])
+        @test all(iszero, work.fraction[:, 2]) && all(iszero, work.filtered[:, 2])
+        samples[1, 1] = NaN
+        SolpropJulia.field_populations!(
+            samples, table, rule, work, execution;
+            preionisation = 0.0
+        )
+        failure = SolpropJulia.plasma_failure(work.status)
+        @test failure.code == SolpropJulia.PlasmaNonfiniteInput
+        @test all(iszero, work.fraction[:, 1])
+        samples .= 1.0
+        for initial in (-0.1, 1.1, NaN)
+            @test_throws ArgumentError SolpropJulia.field_populations!(
+                samples, table, rule, work, execution; preionisation = initial
+            )
+        end
+        before = copy(work.rate)
+        @test_throws ArgumentError SolpropJulia.field_populations!(
+            work.rate, table, rule, work, execution; preionisation = 0.0
+        )
+        @test isequal(before, work.rate)
+        @test_throws ArgumentError SolpropJulia.field_populations!(
+            complex.(samples), table, rule, work, execution; preionisation = 0.0
+        )
+        @test_throws DimensionMismatch SolpropJulia.field_populations!(
+            samples[:, 1:1], table, rule, work, execution; preionisation = 0.0
+        )
+        @test_throws ArgumentError SolpropJulia.PopulationWorkspace(
+            execution, Float64,
+            SolpropJulia.ResponseLayout(8, 2, 1)
+        )
+        quadrature = _cycle_test_rules((64, 128, 256, 512))
+        envelope = fill(ComplexF64(0.6, 0.8), 8, 2)
+        full_envelope = SolpropJulia.EnvelopePlasmaWorkspace(execution, Float64, layout)
+        first_complex, second_complex = similar(envelope), similar(envelope)
+        SolpropJulia.envelope_plasma!(
+            first_complex, second_complex, envelope, channel,
+            quadrature, full_envelope, execution;
+            density = 2.0, preionisation = 0.25, dt = 0.125
+        )
+        SolpropJulia.envelope_populations!(
+            envelope, table, quadrature, work, execution;
+            preionisation = 0.25, dt = 0.125
+        )
+        @test SolpropJulia.plasma_failure(work.status).code == SolpropJulia.PlasmaSuccess
+        @test isapprox(
+            work.fraction, full_envelope.fraction;
+            rtol = 16eps(Float64), atol = 0.0
+        )
+        @test isapprox(work.rate, full_envelope.rate; rtol = 16eps(Float64), atol = 0.0)
+        @test _envelope_population_allocations(
+            envelope, table, quadrature, work, execution,
+        ) == 0
+        @test all(iszero, work.filtered)
+        inadequate = _cycle_test_rules((2, 4); moment_rtol = 1.0e-30)
+        SolpropJulia.envelope_populations!(
+            envelope, table, inadequate, work, execution;
+            preionisation = 0.25, dt = 0.125
+        )
+        failure = SolpropJulia.plasma_failure(work.status)
+        @test failure.code == SolpropJulia.PlasmaQuadratureFailure
+        @test all(iszero, work.fraction)
+        envelope[1, 2] = ComplexF64(NaN, NaN)
+        SolpropJulia.envelope_populations!(
+            envelope, table, quadrature, work, execution;
+            preionisation = 0.25, dt = 0.125, count = 1
+        )
+        @test SolpropJulia.plasma_failure(work.status).code == SolpropJulia.PlasmaSuccess
+        @test all(iszero, work.rate[:, 2]) && all(iszero, work.fraction[:, 2])
+        @test_throws ArgumentError SolpropJulia.envelope_populations!(
+            envelope, table, quadrature, work, execution; preionisation = 0.25, dt = 0.0
+        )
+        @test_throws ArgumentError SolpropJulia.envelope_populations!(
+            samples, table, quadrature, work, execution; preionisation = 0.25, dt = 0.125
+        )
+        # Current evaluation still rejects overflow; only population observations are
+        # independent of this irrelevant finite coefficient (issue #647).
+        large = SolpropJulia.PlasmaChannel(table, floatmax(Float64), floatmax(Float64))
+        SolpropJulia.field_plasma!(
+            first, second, samples, large, rule, full, execution;
+            density = 2.0, preionisation = 0.25
+        )
+        failure = SolpropJulia.plasma_failure(full.status)
+        @test failure.code == SolpropJulia.PlasmaNonfiniteResult
+        envelope .= 1.0
+        SolpropJulia.envelope_plasma!(
+            first_complex, second_complex, envelope, large,
+            quadrature, full_envelope, execution;
+            density = 2.0, preionisation = 0.25, dt = 0.125
+        )
+        failure = SolpropJulia.plasma_failure(full_envelope.status)
+        @test failure.code == SolpropJulia.PlasmaNonfiniteResult
+    end
+end
+
+@testset "Population floors cannot hide nonfinite raw exposure" begin
+    execution = SolpropJulia.KernelExecution(SolpropJulia.KernelAbstractions.CPU(), 2, true)
+    layout = SolpropJulia.ResponseLayout(4, 1, 1)
+    samples = ones(4, 1)
+    table = _quadratic_rate_table()
+    rule = SolpropJulia.RunningIntegralRule(
+        [-1.0], floatmax(Float64);
+        floor_exposure = true
+    )
+    work = SolpropJulia.PopulationWorkspace(execution, Float64, layout)
+    SolpropJulia.field_populations!(
+        samples, table, rule, work, execution;
+        preionisation = 0.0
+    )
+    failure = SolpropJulia.plasma_failure(work.status)
+    @test failure.code == SolpropJulia.PlasmaNonfiniteResult
+    @test all(iszero, work.fraction) && all(isfinite, work.exposure)
+    full = SolpropJulia.FieldPlasmaWorkspace(execution, Float64, layout)
+    first, second = zeros(4, 1), zeros(4, 1)
+    channel = SolpropJulia.PlasmaChannel(table, 1.0, 1.0)
+    SolpropJulia.field_plasma!(
+        first, second, samples, channel, rule, full, execution;
+        density = 1.0, preionisation = 0.0
+    )
+    failure = SolpropJulia.plasma_failure(full.status)
+    @test failure.code == SolpropJulia.PlasmaNonfiniteResult
+    @test all(iszero, first) && all(iszero, second) && all(isfinite, full.exposure)
+    # Finite negative exposure still obeys the translated floor exactly (#649).
+    finite_rule = SolpropJulia.RunningIntegralRule([-1.0], 0.125; floor_exposure = true)
+    SolpropJulia.field_populations!(
+        samples, table, finite_rule, work, execution;
+        preionisation = 0.25
+    )
+    @test SolpropJulia.plasma_failure(work.status).code == SolpropJulia.PlasmaSuccess
+    @test all(==(0.25), work.fraction)
+end

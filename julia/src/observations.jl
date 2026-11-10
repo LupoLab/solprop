@@ -46,6 +46,8 @@ tuple of independent number-density `SourceProfile` values in m⁻³. `channel_s
 maps each plasma channel to a unique one-based species index. Non-ionising species
 retain zero populations. `peak_species` is zero for the mixture peak, or a one-based
 species index for the translated legacy single-population node-selection convention.
+Scans use only each channel's rate and preionisation with its integration/cycle rule;
+current-only density, charge and ionisation potential never enter population algebra.
 No mutable source instance or stage scratch is retained. Invalid mappings or field/
 envelope channel combinations raise `ArgumentError` or `DimensionMismatch`.
 """
@@ -290,8 +292,6 @@ struct _ObservationPopulationWork{A, T, F, P, W, C}
     transform::F
     padding::P
     nodes::T
-    first::T
-    second::T
     workspace::W
     chunks::C
     densities::Vector{Float64}
@@ -311,9 +311,8 @@ function _observation_population_work(execution, data, n_modes, node_chunk)
     modal = zeros(scalar, grid.n_time, n_modes)
     nodes = zeros(scalar, grid.n_time, capacity)
     layout = ResponseLayout(grid.n_time, 1, capacity)
-    workspace = data.plasma === nothing ? nothing : field ?
-        FieldPlasmaWorkspace(execution, Float64, layout) :
-        EnvelopePlasmaWorkspace(execution, Float64, layout)
+    workspace = data.plasma === nothing ? nothing :
+        PopulationWorkspace(execution, Float64, layout)
     chunks = map(1:capacity:n_nodes) do first
         last = min(first + capacity - 1, n_nodes)
         (
@@ -325,7 +324,7 @@ function _observation_population_work(execution, data, n_modes, node_chunk)
         spectrum, modal,
         TemporalFFT(execution, modal, spectrum),
         SpectralPadding(execution, grid.crop_index, frequencies, 1.0, 1.0),
-        nodes, similar(nodes), similar(nodes), workspace, chunks,
+        nodes, workspace, chunks,
         zeros(n_species), zeros(n_nodes, n_species), zeros(n_nodes, n_species)
     )
 end
@@ -381,16 +380,10 @@ _observation_arrays(work::_ObservationMonitorWork) =
     work.spectrum, work.samples, work.power,
     work.reading.occupancy, work.pending.occupancy,
 )
-_observation_arrays(work::FieldPlasmaWorkspace) =
-    (
-    work.rate, work.filtered, work.exposure, work.fraction, work.survival,
-    work.integrand, work.current, work.status,
-)
-_observation_arrays(work::EnvelopePlasmaWorkspace) =
-    (work.rate, work.exposure, work.fraction, work.survival, work.loss_moment, work.status)
+_observation_arrays(work::PopulationWorkspace) = _population_arrays(work)
 _observation_arrays(work::_ObservationPopulationWork) =
     (
-    work.spectrum, work.modal, work.nodes, work.first, work.second, work.densities,
+    work.spectrum, work.modal, work.nodes, work.densities,
     work.fractions, work.peaks, _observation_arrays(work.workspace),
 )
 
@@ -590,21 +583,20 @@ function _observation_densities!(output, profiles::Tuple, position, offset)
 end
 
 function _observation_channel!(work, data, channel, index, chunk, position, execution)
-    density = _source_profile(channel.density, position)
     initial = _source_profile(channel.preionisation, position)
-    density >= 0 && 0 <= initial <= 1 ||
-        throw(ArgumentError("invalid observation plasma density or preionisation"))
-    if work.workspace isa FieldPlasmaWorkspace
-        field_plasma!(
-            work.first, work.second, work.nodes, channel.channel,
+    0 <= initial <= 1 ||
+        throw(ArgumentError("invalid observation plasma preionisation"))
+    if data.plasma.rule !== nothing
+        field_populations!(
+            work.nodes, channel.channel.rate,
             data.plasma.rule, work.workspace, execution;
-            density, preionisation = initial, count = chunk.count
+            preionisation = initial, count = chunk.count
         )
     else
-        envelope_plasma!(
-            work.first, work.second, work.nodes, channel.channel,
+        envelope_populations!(
+            work.nodes, channel.channel.rate,
             channel.quadrature, work.workspace, execution;
-            density, preionisation = initial, dt = data.grid.dt, count = chunk.count
+            preionisation = initial, dt = data.grid.dt, count = chunk.count
         )
     end
     failure = plasma_failure(work.workspace.status)

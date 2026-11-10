@@ -6,6 +6,7 @@ public IonisationRateTable, PlasmaChannel, RunningIntegralRule, FieldPlasmaWorks
 public PlasmaCode, PlasmaSuccess, PlasmaNonfiniteInput, PlasmaNonfiniteResult
 public PlasmaQuadratureFailure, PlasmaFailure, plasma_failure, field_plasma!
 public CycleQuadrature, EnvelopePlasmaWorkspace, envelope_plasma!
+public PopulationWorkspace, field_populations!, envelope_populations!
 
 """
     IonisationRateTable(coefficients, field_min, field_max, rate_max,
@@ -380,6 +381,14 @@ function field_plasma!(
             buffers.exposure, buffers.filtered, buffers.rate, node, taps, dt
         )
         for row in axes(samples, 1)
+            if !(
+                    isfinite(buffers.exposure[row, node]) &&
+                        isfinite(buffers.filtered[row, node])
+                )
+                buffers.status[row, node] = UInt8(PlasmaNonfiniteResult)
+                invalid = true
+                continue
+            end
             exposure = floor_exposure ? max(buffers.exposure[row, node], zero(T)) :
                 buffers.exposure[row, node]
             survival = (1 - initial) * exp(-exposure)
@@ -387,6 +396,10 @@ function field_plasma!(
             buffers.survival[row, node] = survival
             buffers.fraction[row, node] = fraction
             buffers.integrand[row, node] = (charge * fraction) * samples[row, node]
+        end
+        if invalid
+            _clear_field_plasma!(buffers, gated, edge, node)
+            return nothing
         end
         _integrate_plasma_column!(
             buffers.current, buffers.filtered, buffers.integrand, node, taps, dt
@@ -704,6 +717,241 @@ function envelope_plasma!(
             end
             drive[row, node] = first
             loss[row, node] = second
+        end
+        return nothing
+    end
+    return nothing
+end
+
+"""
+    PopulationWorkspace(execution, T, layout)
+
+Allocate independent rate/population storage without any current-response buffers.
+
+`layout` is a scalar `ResponseLayout`; `T` is the real response precision. Owned
+`rate` and `filtered` are in s⁻¹; `exposure`, `fraction` and `survival` are
+dimensionless. These arrays and `UInt8` `status` all have shape `(n_time,n_nodes)`.
+The filtered rate is scratch for the field's FIR rule.
+Envelope populations use the same storage and clear unused filter values. Current
+coefficients and density are absent: populations depend only on rate and initial
+fraction. Invalid vector layouts raise `ArgumentError` before allocation.
+"""
+struct PopulationWorkspace{T, A <: AbstractMatrix{T}, U <: AbstractMatrix{UInt8}}
+    layout::ResponseLayout
+    rate::A
+    exposure::A
+    fraction::A
+    survival::A
+    filtered::A
+    status::U
+end
+
+function PopulationWorkspace(execution, ::Type{T}, layout::ResponseLayout) where
+    {T <: AbstractFloat}
+    layout.n_components == 1 ||
+        throw(ArgumentError("Julia populations currently require scalar polarisation"))
+    dimensions = (layout.n_time, layout.n_nodes)
+    return PopulationWorkspace(
+        layout,
+        ntuple(_ -> dzeros(execution, T, dimensions...), 5)...,
+        dzeros(execution, UInt8, dimensions...)
+    )
+end
+
+@inline _population_arrays(work) =
+    (work.rate, work.exposure, work.fraction, work.survival, work.filtered, work.status)
+
+@inline _population_disjoint(destination, ::Tuple{}) = nothing
+@inline function _population_disjoint(destination, inputs::Tuple)
+    Base.mightalias(destination, first(inputs)) &&
+        throw(ArgumentError("population workspace aliases numerical input or scratch"))
+    _population_disjoint(destination, Base.tail(inputs))
+    return nothing
+end
+
+@inline _population_storage(::Tuple{}, samples, prepared) = nothing
+@inline function _population_storage(arrays::Tuple, samples, prepared)
+    destination, rest = first(arrays), Base.tail(arrays)
+    _population_disjoint(destination, (samples, prepared..., rest...))
+    _population_storage(rest, samples, prepared)
+    return nothing
+end
+
+@inline _population_shapes(layout, ::Tuple{}) = nothing
+@inline function _population_shapes(layout, arrays::Tuple)
+    _response_matrix(first(arrays), layout)
+    _population_shapes(layout, Base.tail(arrays))
+    return nothing
+end
+
+function _population_admit(work, samples, prepared, initial, count)
+    _response_matrix(samples, work.layout)
+    _response_count(work.layout, count)
+    isfinite(initial) && 0 <= initial <= 1 ||
+        throw(ArgumentError("population preionisation must lie in [0, 1]"))
+    arrays = _population_arrays(work)
+    _population_shapes(work.layout, arrays)
+    _population_storage(arrays, samples, prepared)
+    return nothing
+end
+
+@inline function _clear_population_column!(
+        rate, exposure, fraction, survival, filtered, node,
+    )
+    for row in axes(rate, 1)
+        rate[row, node] = 0
+        exposure[row, node] = 0
+        fraction[row, node] = 0
+        survival[row, node] = 0
+        filtered[row, node] = 0
+    end
+    return nothing
+end
+
+@inline function _population_pair(exposure, initial)
+    neutral = (1 - initial) * exp(-exposure)
+    fraction = initial + (1 - initial) * -expm1(-exposure)
+    valid = isfinite(exposure) && isfinite(neutral) && isfinite(fraction)
+    return fraction, neutral, valid
+end
+
+"""
+    field_populations!(samples, rate, rule, workspace, execution;
+                       preionisation, count=workspace.layout.n_nodes)
+
+Evaluate fresh scalar field rates and populations without constructing a current.
+
+`samples` is a real `(n_time,n_nodes)` electric field in V/m. `rate` is its
+`IonisationRateTable`, `rule` its `RunningIntegralRule`, and `workspace` an owned
+`PopulationWorkspace`, all in the same real precision. `preionisation` lies in
+`[0,1]`; `count` is the active node count. The complete rate/FIR/prefix footprint is
+overwritten on each call and inactive columns are zeroed. Preserve the field and
+prepared arrays, which must be disjoint from every workspace array.
+
+Return `nothing`; check `plasma_failure(workspace.status)` before reading fractions
+or peak rates. Nonfinite fields/rates/exposures/populations receive explicit status.
+Warm calls allocate nothing. Invalid types, shapes, ranges, aliases or FIR support
+raise before mutation. The survival and stable fraction use the same independent-atom
+formula as `field_plasma!`; density, charge and ionisation potential do not enter.
+"""
+function field_populations!(
+        samples, table::IonisationRateTable{T},
+        rule::RunningIntegralRule{T}, work::PopulationWorkspace{T}, execution;
+        preionisation, count::Int = work.layout.n_nodes
+    ) where {T}
+    eltype(samples) === T ||
+        throw(ArgumentError("field populations require matching real field precision"))
+    length(rule.taps) <= work.layout.n_time ||
+        throw(ArgumentError("population FIR support exceeds the temporal grid"))
+    _population_admit(work, samples, (table.coefficients, rule.taps), preionisation, count)
+    rate, exposure, fraction, survival, filtered, status = _population_arrays(work)
+    parameters = _rate_parameters(table)
+    taps, dt, floor_exposure = rule.taps, rule.dt, rule.floor_exposure
+    initial = T(preionisation)
+    each_column!(execution, work.layout.n_nodes) do node
+        invalid = false
+        for row in axes(samples, 1)
+            sample = node <= count ? samples[row, node] : zero(T)
+            code = isfinite(sample) ? PlasmaSuccess : PlasmaNonfiniteInput
+            value = code == PlasmaSuccess ?
+                _ionisation_rate(abs(sample), parameters) : zero(T)
+            if !isfinite(value)
+                code, value = PlasmaNonfiniteResult, zero(T)
+            end
+            rate[row, node], status[row, node] = value, UInt8(code)
+            invalid |= code != PlasmaSuccess
+        end
+        if node > count || invalid
+            _clear_population_column!(rate, exposure, fraction, survival, filtered, node)
+            return nothing
+        end
+        _integrate_plasma_column!(exposure, filtered, rate, node, taps, dt)
+        for row in axes(samples, 1)
+            if !(isfinite(exposure[row, node]) && isfinite(filtered[row, node]))
+                status[row, node] = UInt8(PlasmaNonfiniteResult)
+                invalid = true
+                continue
+            end
+            value = floor_exposure ? max(exposure[row, node], zero(T)) : exposure[row, node]
+            ionised, neutral, valid = _population_pair(value, initial)
+            fraction[row, node], survival[row, node] = valid ?
+                (ionised, neutral) : (zero(T), zero(T))
+            valid || (status[row, node] = UInt8(PlasmaNonfiniteResult))
+            invalid |= !valid
+        end
+        invalid &&
+            _clear_population_column!(rate, exposure, fraction, survival, filtered, node)
+        return nothing
+    end
+    return nothing
+end
+
+
+"""
+    envelope_populations!(samples, rate, quadrature, workspace, execution;
+                          preionisation, dt, count=workspace.layout.n_nodes)
+
+Evaluate fresh scalar envelope rates and populations without loss/current algebra.
+
+`samples` is a complex `(n_time,n_nodes)` envelope in V/m. `rate` is the instantaneous
+`IonisationRateTable`, `quadrature` its translated `CycleQuadrature`, and `workspace`
+an independent `PopulationWorkspace` in the matching real precision. `dt` is positive
+in s; `preionisation` lies in `[0,1]` and `count` bounds active nodes. Both directional
+cycle moments must meet the same refinement tests used by `envelope_plasma!`, even
+though population accumulation consumes only the scalar rate.
+
+Preserve inputs and overwrite every rate/population/status cell, clearing inactive
+columns and unused filter scratch. Return `nothing`; check `plasma_failure` before
+consuming rates or fractions. Invalid layouts, precision, stage values or aliases
+raise before mutation. Failed quadrature and nonfinite numerical inputs/results use
+status codes. Warm evaluation allocates nothing and reads no current coefficients.
+"""
+function envelope_populations!(
+        samples, table::IonisationRateTable{T},
+        quadrature::CycleQuadrature{T}, work::PopulationWorkspace{T}, execution;
+        preionisation, dt, count::Int = work.layout.n_nodes
+    ) where {T}
+    eltype(samples) === Complex{T} ||
+        throw(ArgumentError("envelope populations require matching complex precision"))
+    spacing = T(dt)
+    isfinite(spacing) && spacing > 0 ||
+        throw(ArgumentError("population time spacing must be finite and positive"))
+    _population_admit(
+        work, samples,
+        (table.coefficients, quadrature.nodes, quadrature.weights), preionisation, count
+    )
+    rate, exposure, fraction, survival, filtered, status = _population_arrays(work)
+    parameters, rules, initial = _rate_parameters(table), _cycle_parameters(quadrature),
+        T(preionisation)
+    each!(execution, work.layout.n_time, work.layout.n_nodes; heavy = true) do row, node
+        sample = node <= count ? samples[row, node] : zero(eltype(samples))
+        major = abs(sample)
+        code = isfinite(major) ? PlasmaSuccess : PlasmaNonfiniteInput
+        value = zero(T)
+        if code == PlasmaSuccess
+            value, _, code = _scalar_cycle_moments(major, parameters, rules)
+        end
+        rate[row, node], status[row, node] = value, UInt8(code)
+    end
+    each_column!(execution, work.layout.n_nodes) do node
+        invalid = false
+        for row in axes(samples, 1)
+            invalid |= !iszero(status[row, node])
+        end
+        if node > count || invalid
+            _clear_population_column!(rate, exposure, fraction, survival, filtered, node)
+            return nothing
+        end
+        total = zero(T)
+        for row in axes(samples, 1)
+            if row > 1
+                total += (rate[row - 1, node] / 2 + rate[row, node] / 2) * spacing
+            end
+            exposure[row, node], filtered[row, node] = total, zero(T)
+            ionised, neutral, valid = _population_pair(total, initial)
+            fraction[row, node], survival[row, node] = valid ?
+                (ionised, neutral) : (zero(T), zero(T))
+            valid || (status[row, node] = UInt8(PlasmaNonfiniteResult))
         end
         return nothing
     end
