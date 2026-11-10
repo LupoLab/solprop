@@ -523,6 +523,117 @@ function Base.showerror(io::IO, error::SourcePlasmaError)
     )
 end
 
+@inline _source_alias(array, ::Nothing) = false
+@inline _source_alias(array, value::Float64) = false
+@inline _source_alias(array, owned::AbstractArray) = Base.mightalias(array, owned)
+@inline _source_alias(array, ::Tuple{}) = false
+@inline function _source_alias(array, owned::Tuple{T, Vararg}) where {T}
+    return _source_alias(array, first(owned)) || _source_alias(array, Base.tail(owned))
+end
+
+@inline function _source_alias(array, owned::ChebyshevTable)
+    return _source_alias(array, (owned.breakpoints, owned.coefficients))
+end
+
+@inline _source_alias(array, owned::SourceProfile) = _source_alias(array, owned.value)
+
+@inline function _source_alias(array, owned::SourcePrefactor)
+    return _source_alias(array, (owned.data, owned.weights))
+end
+
+@inline function _source_alias(array, owned::ModalSourceGrid)
+    return _source_alias(
+        array, (
+            owned.crop_index, owned.omega, owned.active, owned.omega_window,
+            owned.source_window, owned.source_window_derivative,
+            owned.temporal_rate, owned.carrier,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::ModalSourceMap)
+    return _source_alias(
+        array, (
+            owned.synthesis, owned.projection, owned.coarse_projection, owned.taper,
+        )
+    )
+end
+
+@inline _source_alias(array, owned::ModalKerr) = _source_alias(array, owned.density)
+
+@inline function _source_alias(array, owned::ModalRaman)
+    return _source_alias(
+        array, (
+            owned.kernel.undamped, owned.decay_profiles, owned.density,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::ModalPlasmaChannel)
+    retained = (owned.channel.rate.coefficients, owned.density, owned.preionisation)
+    return _source_alias(array, retained) || (
+        owned.quadrature !== nothing &&
+            _source_alias(array, (owned.quadrature.nodes, owned.quadrature.weights))
+    )
+end
+
+@inline function _source_alias(array, owned::ModalPlasma)
+    return _source_alias(array, (owned.channels, owned.drude, owned.loss)) ||
+        (owned.rule !== nothing && _source_alias(array, owned.rule.taps))
+end
+
+@inline function _source_alias(array, owned::ModalSourceData)
+    return _source_alias(
+        array, (
+            owned.grid, owned.map, owned.prefactor, owned.kerr, owned.raman, owned.plasma,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::_SourceAnalytic)
+    return _source_alias(array, (owned.modal, owned.spectrum, owned.nodes))
+end
+
+@inline function _source_alias(array, owned::_SourceRamanWork)
+    return _source_alias(
+        array, (
+            owned.time_kernel, owned.spectrum, owned.rates, owned.weights,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::_SourceRamanBuffers)
+    return _source_alias(array, (owned.drive, owned.frequency))
+end
+
+@inline function _source_alias(array, owned::FieldPlasmaWorkspace)
+    return _source_alias(
+        array, (
+            owned.rate, owned.exposure, owned.fraction, owned.survival,
+            owned.integrand, owned.current, owned.filtered, owned.status,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::EnvelopePlasmaWorkspace)
+    return _source_alias(
+        array, (
+            owned.rate, owned.exposure, owned.fraction, owned.survival,
+            owned.loss_moment, owned.status,
+        )
+    )
+end
+
+@inline function _source_alias(array, owned::_SourcePlasmaWork)
+    return _source_alias(
+        array, (
+            owned.workspace, owned.first, owned.second, owned.projected_first,
+            owned.projected_second, owned.coarse_first, owned.coarse_second,
+            owned.factors_first, owned.factors_second, owned.stage,
+        )
+    )
+end
+
 """
     ModalSource(execution, data::ModalSourceData; node_chunk)
 
@@ -532,8 +643,11 @@ Prepare owned binary64 CPU work for a scalar modal field or envelope source.
 use `(n_time,n_modes)` and `(n_omega,n_modes)`; nodal arrays use `(n_time,node_chunk)`.
 The callable `source(out,state,z)` returns `nothing`, writes the complete derivative
 in state units per metre, and charges `calls` before any validation or physical work.
-It never changes `state`. All FFTs use one thread and numerical launches finish before
-return. Warmed calls allocate nothing. Every inactive chunk cell is overwritten.
+Both caller arrays must be disjoint from this source's retained numerical inputs and
+work, as well as from each other; direct arrays, views and reinterpreted aliases refuse
+before any numerical write. It never changes `state`. All FFTs use one thread and
+numerical launches finish before return. Warmed calls allocate nothing. Every inactive
+chunk cell is overwritten.
 
 Data records may be shared; all mutable stage values, plans and work belong to this
 instance. `ready` is true only after a successful call. When an embedded projection
@@ -571,6 +685,21 @@ mutable struct ModalSource{E, D, P, F, A, T, C, N, R, B, L, Q, H}
     calls::Int
     temporal_active::Bool
     ready::Bool
+end
+
+function _source_caller_alias(array, source::ModalSource)
+    # The chunk views refer to map arrays already visited here. FFT plans retain
+    # executable metadata, not additional caller-addressable numerical storage.
+    return _source_alias(
+        array, (
+            source.data, source.padding.crop, source.padding.uncrop,
+            source.modal_spectrum, source.modal_time, source.nodes, source.polarisation,
+            source.projected, source.projection_work, source.coarse_projected,
+            source.analytic, source.raman, source.raman_buffers, source.plasma,
+            source.prefactor, source.prefactor_weights, source.quadrature_fine,
+            source.quadrature_coarse, source.failures,
+        )
+    )
 end
 
 function _source_analytic(execution, data, modes, capacity)
@@ -707,13 +836,25 @@ function set_temporal_source!(source::ModalSource, active::Bool)
     return nothing
 end
 
+# Independent profiles may have different concrete constant/table types. Tuple
+# traversal keeps those types visible instead of boxing a dynamically indexed entry.
+@inline _source_each_indexed(f, ::Tuple{}, index::Int = 1) = nothing
+
+@inline function _source_each_indexed(
+        f::F, items::Tuple{T, Vararg}, index::Int = 1
+    ) where {F, T}
+    f(first(items), index)
+    _source_each_indexed(f, Base.tail(items), index + 1)
+    return nothing
+end
+
 function _prepare_source_raman!(work, position, execution)
     component = work.data
     density = _source_profile(component.density, position)
     density >= 0 || throw(ArgumentError("Raman amplitude density must be nonnegative"))
     work.density = density
-    for index in eachindex(component.decay_profiles)
-        rate = _source_profile(component.decay_profiles[index], position)
+    _source_each_indexed(component.decay_profiles) do profile, index
+        rate = _source_profile(profile, position)
         rate >= 0 || throw(ArgumentError("Raman decay rates must be nonnegative"))
         work.rates[index] = rate
     end
@@ -736,7 +877,7 @@ function _prepare_source_profiles!(source, position)
     _source_finite!(source.failures, source.prefactor, execution, :prefactor)
     foreach(work -> _prepare_source_raman!(work, position, execution), source.raman)
     if data.plasma !== nothing
-        for (index, channel) in enumerate(data.plasma.channels)
+        _source_each_indexed(data.plasma.channels) do channel, index
             density = _source_profile(channel.density, position)
             initial = _source_profile(channel.preionisation, position)
             density >= 0 && 0 <= initial <= 1 ||
@@ -819,7 +960,7 @@ end
 function _source_plasma_channel!(source, channel, index, count, first)
     data, work, execution = source.data, source.plasma, source.execution
     density, initial = work.stage[1, index], work.stage[2, index]
-    if data.grid.kind == :field
+    if work.workspace isa FieldPlasmaWorkspace
         field_plasma!(
             work.first, work.second, source.nodes, channel.channel, data.plasma.rule,
             work.workspace, execution; density, preionisation = initial,
@@ -848,7 +989,7 @@ end
 function _source_plasma_chunk!(source, chunk, taper)
     work, execution = source.plasma, source.execution
     work === nothing && return nothing
-    for (index, channel) in enumerate(source.data.plasma.channels)
+    _source_each_indexed(source.data.plasma.channels) do channel, index
         _source_plasma_channel!(source, channel, index, chunk.count, chunk.first)
     end
     for (nodal, projected, coarse) in (
@@ -977,6 +1118,8 @@ function (source::ModalSource)(output, state, position::Float64)
     isfinite(position) || throw(ArgumentError("a source position must be finite"))
     Base.mightalias(output, state) &&
         throw(ArgumentError("a modal source must not overwrite its input state"))
+    (_source_caller_alias(output, source) || _source_caller_alias(state, source)) &&
+        throw(ArgumentError("caller arrays must be disjoint from source inputs and work"))
     execution, data = source.execution, source.data
     _source_finite!(source.failures, state, execution, :input)
     material = data.kerr !== nothing || !isempty(data.raman) || data.plasma !== nothing

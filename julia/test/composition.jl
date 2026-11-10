@@ -228,6 +228,46 @@ function composition_scan(input, dt)
     return result
 end
 
+function composition_mixed_case(execution, kind)
+    base, state = composition_case(
+        execution, kind; raman = 2, plasma = true, temporal = true,
+        prefactor_kind = :expansion,
+    )
+    first_raman, second_raman = base.raman
+    raman = (
+        SP.ModalRaman(
+            first_raman.kernel,
+            (SP.SourceProfile(0.2), first_raman.decay_profiles[2]),
+            SP.SourceProfile(0.3); fraction = first_raman.fraction,
+            material_factor = first_raman.material_factor, thg = first_raman.thg,
+        ),
+        SP.ModalRaman(
+            second_raman.kernel,
+            (second_raman.decay_profiles[1], SP.SourceProfile(0.2)),
+            second_raman.density; fraction = second_raman.fraction,
+            material_factor = second_raman.material_factor, thg = second_raman.thg,
+        ),
+    )
+    first_channel, second_channel = base.plasma.channels
+    channels = (
+        SP.ModalPlasmaChannel(
+            first_channel.channel, SP.SourceProfile(0.5), first_channel.preionisation;
+            quadrature = first_channel.quadrature,
+        ),
+        SP.ModalPlasmaChannel(
+            second_channel.channel, second_channel.density, SP.SourceProfile(0.06);
+            quadrature = second_channel.quadrature,
+        ),
+    )
+    plasma = kind == :field ? SP.ModalPlasma(execution, channels, base.plasma.rule) :
+        SP.ModalPlasma(
+            execution, channels; drude = base.plasma.drude, loss = base.plasma.loss
+        )
+    return SP.ModalSourceData(
+            base.grid, base.map, base.prefactor; kerr = base.kerr, raman, plasma
+        ), state
+end
+
 function composition_reference(
         data, state, position; temporal_active = true, coarse = false,
     )
@@ -243,6 +283,15 @@ function composition_reference(
     taper = composition_value(maps.taper, position)
     nodes = (modal * transpose(maps.synthesis)) .* taper
     analytic_nodes = (analytic * transpose(maps.synthesis)) .* taper
+    # Propagate absolute magnitudes before the inverse DFT and signed modal map.
+    # Real and analytic fields have the same one-sided L1 bound: interior bins
+    # count twice and the real DC/Nyquist endpoints once. This bounds cancellation
+    # in either transform/map before the nonlinear response sees its small result.
+    bin_weights = field ? [1.0; fill(2.0, fine_count - 2); 1.0] : ones(fine_count)
+    modal_bound = repeat(
+        sum(abs.(padded) .* bin_weights; dims = 1) ./ grid.n_time, grid.n_time, 1
+    )
+    node_bound = (modal_bound * transpose(abs.(maps.synthesis))) .* taper
     polarisation = zeros(eltype(nodes), size(nodes))
     contributions = zeros(Float64, size(nodes))
     if data.kerr !== nothing
@@ -261,14 +310,23 @@ function composition_reference(
         end
         value .*= coefficients.coefficient * composition_value(data.kerr.density, position)
         polarisation .+= value
-        contributions .+= abs.(value)
+        algebra = coefficients isa SP.KerrCoefficients{Float64, :real} ? 1.0 :
+            abs(coefficients.self_factor) + abs(coefficients.conjugate_factor) +
+            abs(coefficients.harmonic_factor)
+        contributions .+= abs(
+            coefficients.coefficient * composition_value(data.kerr.density, position)
+        ) .* algebra .* node_bound .^ 3
     end
     for component in data.raman
         kernel = zeros(grid.n_time)
+        kernel_bound = zeros(grid.n_time)
         for term in axes(component.kernel.undamped, 2), row in 1:grid.n_time
             rate = composition_value(component.decay_profiles[term], position)
             kernel[row] += component.fraction * component.kernel.undamped[row, term] *
                 exp(-rate * (row - 1) * grid.dt)
+            kernel_bound[row] += abs(
+                component.fraction * component.kernel.undamped[row, term]
+            ) * exp(-rate * (row - 1) * grid.dt)
         end
         drive = field && component.thg ? nodes .^ 2 :
             abs2.(field ? analytic_nodes : nodes) ./ 2
@@ -279,7 +337,14 @@ function composition_reference(
         factor = component.material_factor * composition_value(component.density, position)
         value = factor .* nodes .* convolution
         polarisation .+= value
-        contributions .+= abs.(value)
+        drive_bound = node_bound .^ 2 .* (field && component.thg ? 1.0 : 0.5)
+        convolution_bound = [
+            grid.dt * sum(
+                kernel_bound[row - index + 1] * drive_bound[index, column]
+                    for index in 1:row
+            ) for row in 1:grid.n_time, column in axes(nodes, 2)
+        ]
+        contributions .+= abs(factor) .* node_bound .* convolution_bound
     end
     projection = coarse ? maps.coarse_projection : maps.projection
     project(samples) = (samples * transpose(projection)) ./ taper
@@ -293,6 +358,7 @@ function composition_reference(
     bound = repeat(source_scale, length(grid.omega), 1)
     if data.plasma !== nothing
         first, second = zeros(eltype(nodes), size(nodes)), zeros(eltype(nodes), size(nodes))
+        first_bound, second_bound = zeros(size(nodes)), zeros(size(nodes))
         for component in data.plasma.channels
             channel = component.channel
             density = composition_value(component.density, position)
@@ -305,6 +371,12 @@ function composition_reference(
             exposure = composition_scan(rate, grid.dt)
             survival = (1 - initial) .* exp.(-exposure)
             fraction = initial .+ (1 - initial) .* (-expm1.(-exposure))
+            # The fixture has W=kE² below its far-away ceiling. Bound each
+            # channel before current addition, including the population's
+            # derivative amplification: |delta S| <= 2*S_max*relative_field_error.
+            # f and survival are at most one, so 1+2*S_max covers their products.
+            duration = (grid.n_time - 1) * grid.dt
+            population_gain = 1 .+ 2scale * duration .* node_bound .^ 2
             if field
                 current = density .* (
                     channel.charge_mass_ratio .*
@@ -313,11 +385,22 @@ function composition_reference(
                 )
                 first .+= current .* grid.source_window
                 second .+= current .* grid.source_window_derivative
+                current_bound = density .* population_gain .* node_bound .*
+                    (
+                    channel.charge_mass_ratio * duration +
+                        channel.ionisation_potential * scale
+                )
+                first_bound .+= current_bound .* abs.(grid.source_window)
+                second_bound .+= current_bound .* abs.(grid.source_window_derivative)
             else
                 first .+= channel.charge_mass_ratio * density .* fraction .* nodes .*
                     grid.source_window
                 second .+= channel.ionisation_potential * density * scale .*
                     survival .* nodes .* grid.source_window
+                first_bound .+= channel.charge_mass_ratio * density .*
+                    population_gain .* node_bound .* abs.(grid.source_window)
+                second_bound .+= channel.ionisation_potential * density * scale .*
+                    population_gain .* node_bound .* abs.(grid.source_window)
             end
         end
         factors = if field
@@ -334,10 +417,12 @@ function composition_reference(
         else
             (data.plasma.drude, data.plasma.loss)
         end
-        for (stream, factor) in zip((first, second), factors)
+        for (stream, stream_bound, factor) in zip(
+                (first, second), (first_bound, second_bound), factors,
+            )
             result .+= factor .* spectrum(stream)
             bound .+= abs.(factor) .* sum(
-                abs.(stream) * transpose(abs.(projection)) ./ taper; dims = 1
+                stream_bound * transpose(abs.(projection)) ./ taper; dims = 1
             )
         end
     end
@@ -347,7 +432,7 @@ function composition_reference(
     if temporal_active && grid.temporal_rate !== nothing
         absorber = -0.5 .* grid.temporal_rate .* modal
         result .+= composition_dft(absorber)[grid.crop_index .+ 1, :] .* grid.active
-        bound .+= sum(abs.(absorber); dims = 1) .* grid.active
+        bound .+= sum(0.5 .* grid.temporal_rate .* modal_bound; dims = 1) .* grid.active
     end
     result[.!grid.active, :] .= 0
     return result, maximum(bound)
@@ -629,5 +714,98 @@ end
         @test_throws SP.NonfiniteSourceError source(output, huge, 0.2)
         @test !source.ready
         @test isequal(state, before)
+    end
+end
+
+@testset "modal cancellation retains the upstream contribution bound" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1, true)
+    base, state = composition_case(execution, :envelope; coarse = false)
+    map = SP.ModalSourceMap(
+        execution; synthesis = [1.0 -1.0; 2.0 -2.0; 3.0 -3.0],
+        projection = base.map.projection, taper = base.map.taper,
+    )
+    data = SP.ModalSourceData(base.grid, map, base.prefactor; kerr = base.kerr)
+    state[:, 2] .= state[:, 1]
+    state[2, 2] += 1.0e-10
+    source = SP.ModalSource(execution, data; node_chunk = 2)
+    output = similar(state)
+    source(output, state, 0.53)
+    reference, scale = composition_reference(data, state, 0.53)
+    # The inverse transform and signed synthesis nearly cancel before the cubic.
+    # Their absolute contributions, not that tiny residual, set the fixed bound.
+    gamma = 8192eps(Float64) / (1 - 8192eps(Float64))
+    @test scale > 0
+    @test maximum(abs.(output - reference)) <= gamma * scale
+end
+
+@testset "independent mixed constant/table response profiles" begin
+    for tasks in unique((1, Threads.nthreads() >= 2 ? 2 : 1)), kind in (:field, :envelope)
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        data, state = composition_mixed_case(execution, kind)
+        source = SP.ModalSource(execution, data; node_chunk = 2)
+        output = similar(state)
+        source(output, state, 0.53)
+        reference, scale = composition_reference(data, state, 0.53)
+        gamma = 8192eps(Float64) / (1 - 8192eps(Float64))
+        @test scale > 0
+        @test maximum(abs.(output - reference)) <= gamma * scale
+        @test composition_allocations(source, output, state, 0.53) == 0
+    end
+end
+
+function composition_alias_buffer(owned, state)
+    if eltype(owned) === ComplexF64 && length(owned) >= length(state)
+        return size(owned) == size(state) ? owned :
+            reshape(view(vec(owned), 1:length(state)), size(state))
+    elseif eltype(owned) === Float64 && length(owned) >= 2length(state)
+        return reshape(
+            reinterpret(ComplexF64, view(vec(owned), 1:2length(state))), size(state)
+        )
+    end
+    return nothing
+end
+
+@testset "caller arrays cannot overlap source inputs or work (#639)" begin
+    budgets = unique((1, min(2, Threads.nthreads(:default))))
+    for tasks in budgets, kind in (:field, :envelope), representation in (
+                :constant, :table, :expansion,
+            )
+        execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), tasks, true)
+        data, state = composition_case(
+            execution, kind; raman = 2, plasma = true, temporal = true,
+            prefactor_kind = representation,
+        )
+        source = SP.ModalSource(execution, data; node_chunk = 2)
+        output = similar(state)
+        source(output, state, 0.53)
+        expected = copy(output)
+        _, scale = composition_reference(data, state, 0.53)
+        prefactor_input = data.prefactor.data isa SP.ChebyshevTable ?
+            data.prefactor.data.coefficients : data.prefactor.data
+        buffers = (
+            source.prefactor, source.modal_spectrum, source.modal_time,
+            source.nodes, source.projected, source.projection_work,
+            source.quadrature_fine, source.quadrature_coarse,
+            source.raman_buffers.drive, source.raman_buffers.frequency,
+            source.plasma.first, source.plasma.projected_second,
+            source.plasma.workspace.fraction,
+            prefactor_input, data.raman[1].kernel.undamped,
+        )
+        for owned in buffers
+            alias = composition_alias_buffer(owned, state)
+            alias === nothing && continue
+            saved = copy(owned)
+            saved_state = copy(state)
+            calls = source.calls
+            @test_throws ArgumentError source(alias, state, 0.53)
+            @test source.calls == calls + 1 && !source.ready
+            @test isequal(owned, saved) && isequal(state, saved_state)
+            @test_throws ArgumentError source(output, alias, 0.53)
+            @test source.calls == calls + 2 && !source.ready
+            @test isequal(owned, saved) && isequal(output, expected)
+        end
+        source(output, state, 0.53)
+        @test maximum(abs.(output - expected)) <= 16384eps(Float64) * scale
+        @test composition_allocations(source, output, state, 0.53) == 0
     end
 end
