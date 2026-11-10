@@ -437,8 +437,9 @@ solprop julia status                # what is set up, where, and at which versio
     preferences and the CPU target;
   - the engine's and the device packages' versions;
   - the depot's location and size;
-  - whether the precompiled code matches this machine, and for a GPU whether the device
-    prerequisites are met here.
+  - the CPU target and CPU name used for precompilation; Julia validates cache
+    compatibility and recompiles when needed at load;
+  - for a GPU, whether the device prerequisites are met here.
 
 #### 5.2 Selecting the backend
 
@@ -565,19 +566,27 @@ SEP when that SEP says so.
   Julia reads the flag atomically, without the GIL, between attempts (SEP 47 §5.5),
   and any Python thread may set it. Julia never calls back into Python while advancing.
 - **Signals.** Threaded Julia needs JuliaCall's signal handling on, for the
-  safepoints of its garbage collector [6]. That installs Julia's signal handlers, which
-  would take Ctrl-C and SIGTERM from Python.
-  - Before startup, the bridge saves the application's actual SIGINT and SIGTERM
-    handlers, including ignored signals. It re-installs them after startup, so Julia
-    keeps only the signals its runtime needs.
-  - An advance runs with the GIL released. A signal is recorded by Python's C handler,
+  safepoints of its garbage collector [6]. The maintainer accepts its process-wide
+  SIGTERM limitation for this optional backend; [#610] tracks revisiting it with a
+  stable Julia 1.14 and compatible device packages.
+  - Before startup, the bridge saves the application's actual SIGINT handler,
+    including an ignored signal, and restores it afterwards. It does not unblock
+    SIGINT in Julia's installed thread mask: on macOS that duplicates delivery through
+    Julia's forwarding path. Phase 1 qualifies this behavior on both CPU platforms.
+  - An advance runs with the GIL released. SIGINT is recorded by Python's C handler,
     and solprop's handler (`solprop._interrupts`) runs at the advance's bounded return,
     a safe boundary, exactly as SEP 47 retains for Python signals.
   - Julia's `InterruptException` is never used.
-  - Phase 1 must show by probes that threaded garbage collection stays safe, that Ctrl-C
-    and SIGTERM stop a run at its next return, and that a stop set from another thread
-    is honoured, before any session code builds on it. If the probes fail, a different
-    signal policy is the maintainer's decision.
+  - Once Julia starts, SIGTERM may terminate the entire process, even with an ignored
+    or custom Python handler and even while no Julia session is advancing. It need not
+    service pending output or write a final checkpoint. Closing a session does not
+    remove this lifetime limitation. Graceful cancellation uses the stop token or
+    qualified Python Ctrl-C handling; callers must not rely on SIGTERM for it.
+  - Phase 1 must show by probes that threaded garbage collection stays safe, that
+    Python Ctrl-C handling runs at a bounded return, and that a stop set from another
+    thread is honoured, before any session code builds on it. Separate subprocesses
+    record SIGTERM's behavior. Disabling Julia's signal handling is not a workaround.
+    Failure of these remaining requirements still needs a maintainer decision.
 - **The GIL.** An advance releases it.
 - **First-run cost.** The first run in a process pays the runtime's start, package
   loading and any remaining compilation. §7.5 records these costs, and the manual states
@@ -777,8 +786,11 @@ environment that created it, and must never be mistaken for another.
   - a second setup with different preferences.
 
 **Julia version.** Julia 1.13 is the minimum (the experiment's version; FFTL's compiled
-library misbehaved on 1.12.6, #590). The patch release is pinned, and raised by a PR
-that reruns the Julia lane. A minor-version bump re-resolves the manifests.
+library misbehaved on 1.12.6, #590). Start with Julia 1.13.3 and matching JuliaCall and
+PythonCall 0.9.37. The patch release is pinned, and raised by a PR that reruns the
+Julia lane. A minor-version bump re-resolves the manifests and qualifies device
+package compatibility; the signal follow-up [#610] is not a promise that an upgrade
+alone fixes the limitation.
 
 **Platforms (Q5).** Linux x86-64 and macOS arm64 are qualified at merge. Setup also
 installs on Linux aarch64 and Windows x64, which the manual lists as unqualified.
@@ -812,9 +824,9 @@ The C-ABI-friendly boundary of §6.2 keeps both possible.
 
 #### 6.6 Tests and CI
 
-**Julia tests**, `Pkg.test` in `julia/`, in two groups:
+**Julia tests**, in two groups with separate dependency environments:
 
-- **`Core`:**
+- **`Core`**, through `Pkg.test` in the prepared CPU environment:
   - the shared helpers (Chebyshev rows, Adams basis) against the plain Python forms,
     within operation-derived bounds, as `tests/test_helpers.py` does for the native
     records. Bitwise agreement is recorded as information, not asserted. Exact
@@ -823,7 +835,10 @@ The C-ABI-friendly boundary of §6.2 keeps both possible.
   - the double-float primitives against their bounds;
   - every FFT plan form the engine uses, on each array type present;
   - a warmed step that allocates nothing on the CPU (`@allocated`).
-- **`Quality`:** `Aqua.test_all` and `JET.test_package` (error analysis), both blocking.
+- **`Quality`**, through the same test entry point in the pinned quality environment:
+  `Aqua.test_all` and `JET.test_package` (error analysis), both blocking. Quality tools
+  are absent from the runtime dependency closure; JET analysis must actually run,
+  rather than silently becoming unavailable on an unsupported Julia version.
 
 **Python tests**, `tests/backends/julia/`:
 
@@ -840,8 +855,8 @@ GPU could not take.
 
 **CI.** A `julia` job on Linux x86-64:
 
-- runs setup with the depot cached by manifest digest, the Runic check, `Pkg.test`, and
-  the Python Julia modules;
+- runs setup with the depot cached by manifest digest, the Runic check, both Julia
+  test groups, and the Python Julia modules;
 - runs on every pull request whose diff is not documentation alone (Q3). A macOS arm64
   job runs weekly and on changes to `julia/`;
 - is independent of the coverage lane, which omits `backends/julia/` as a recorded
@@ -1006,14 +1021,18 @@ never leaves a half-committed state reported as valid. The suite runs on each GP
 **Signals.** Phase 1's probes become tests (§5.4):
 
 - threaded garbage collection under load;
-- SIGINT and SIGTERM delivered during an advance stop the run at its next bounded
-  return;
+- the application's actual SIGINT handler, including ignored signals, is restored;
+  Python Ctrl-C handling during an advance runs at its next bounded return;
+- separate subprocesses record SIGTERM with default, custom and ignored Python
+  handlers, both during GIL-free work and while idle after initialization; process
+  termination without final output is an accepted limitation, not graceful cancellation;
 - a stop token set from another Python thread is honoured;
 - first initialization on a worker thread refuses before importing JuliaCall,
   concurrent initialization is serialized, and subsequent worker-thread calls are safe;
 - an already-set stop token, concurrent cancellation and close/detach retain the
   atomic flag until no caller can access it;
-- none of these leaves a half-committed state.
+- cooperative stops and returned failures never report a half-committed state as valid;
+  SIGTERM termination has no final-output or checkpoint guarantee.
 
 #### 7.3 Binary32
 
@@ -1136,6 +1155,9 @@ merge (§7.6), but none is a gate: no ratio has to reach a threshold.
   - installing and setting up, offline and HPC use, devices and precision;
   - what it runs and refuses;
   - the first-run cost;
+  - the process-wide SIGTERM limitation after first initialization, including custom
+    and ignored handlers, the lack of a final-checkpoint guarantee, and using a stop
+    token or qualified Ctrl-C handling for graceful cancellation;
   - troubleshooting: another `juliacall` user in the process, a native CUDA build beside
     it, a heterogeneous cluster's CPU target.
 
@@ -1240,8 +1262,8 @@ What each phase needs from SEP 47:
      - the exact `juliacall` pin and its check before start-up;
      - complete artifact fetching, an offline package manager at run time, and the
        vendor prerequisite checks;
-     - availability, refusal, and the runtime's start with Python's signal handlers
-       re-installed;
+     - availability, refusal, and the runtime's start with the actual Python SIGINT
+       handler restored and the documented process-wide SIGTERM limitation;
      - the wheel's package data and the extra;
      - the CI job.
    - **Verify:**
@@ -1791,3 +1813,32 @@ The proposal's merge does not close implementation tracking issue #608.
 primary tool documentation. It ran no propagation, signal probe or GPU qualification.
 The full primary papers for the double-word arithmetic bounds remain to be checked
 in phase 3, as the earlier review already requires.
+
+### Signal-policy decision before merge — 2026-11-10
+
+Phase 1 feasibility probes found that Julia 1.13.3 on macOS arm64 terminates the
+process on SIGTERM even after restoring a custom or ignored Python handler. Two
+independent subprocess investigations reproduced this. Disabling Julia's signal
+handling instead crashed during shutdown in a two-thread probe. The proposal merge
+was held for the maintainer's decision, as R8 and R15 required.
+
+John Travers chose to keep Julia 1.13.3 in process and accept the SIGTERM limitation,
+rather than adopt a prerelease runtime before device packages are qualified. This
+decision explicitly supersedes the SIGTERM-preservation promises in the earlier R8
+and R15 responses and implementation response above. Sections 5.4, 7.2, 8 and phase 1
+now describe the limitation and its tests. The actual Python SIGINT handler remains
+preserved, Julia's SIGINT thread mask remains installed, and lifetime-owned atomic
+stop tokens remain the independent graceful cancellation mechanism. Threaded GC,
+bounded Python Ctrl-C handling and concurrent cancellation are still blocking probes.
+
+[#610] stays open to revisit signal ownership with stable Julia 1.14 and compatible
+device packages. Its resolution is not required for this SEP's implementation or
+Final status under the policy accepted here. No propagation or GPU qualification is
+claimed by these runtime feasibility probes.
+
+Two implementation clarifications also precede the freeze: filesystem-only status
+reports the prepared CPU name and target, leaving native-cache compatibility checks
+to Julia at load; and the quality test group uses its own pinned environment so its
+tools never enter the runtime dependency closure. Both groups remain blocking.
+
+[#610]: https://github.com/LupoLab/solprop/issues/610
