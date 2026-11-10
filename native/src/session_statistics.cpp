@@ -614,6 +614,8 @@ void Plan::validate() const {
     table.validate("species density");
   for (const auto& table : profiles)
     table.validate("profile");
+  for (const auto& table : zdw)
+    table.validate("zero-dispersion wavelength");
   check(channel_preionisation.empty() || channel_preionisation.size() == n_channels,
         "has one preionisation a channel");
   check(species_density.size() == n_species, "has one density a species");
@@ -633,6 +635,13 @@ void Plan::validate() const {
         "apertures have the wrong extent");
   check(regions.size() == n_regions * 4, "regions have the wrong extent");
   const Wanted wanted(outputs);
+  if (wanted(Stat::zdw))
+    check(zdw.size() == n_modes &&
+              std::all_of(zdw.begin(), zdw.end(),
+                          [](const RealTable& table) {
+                            return table.present() && table.n_values == 1;
+                          }),
+          "lacks a mode's zero-dispersion wavelength table");
   if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
     check(route == Route::spatial && widths != Widths::none,
           "asks for fluence widths without their rule");
@@ -681,6 +690,7 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::energy_window:
     return n_windows * columns;
   case Stat::peak_power:
+  case Stat::zdw:
     return n_modes;
   case Stat::peak_power_window:
     return n_windows * n_modes;
@@ -734,6 +744,12 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
         std::pair{Stat::core_radius, 2}})
     if (wanted(stat))
       put(results, stat, {plan.profiles[static_cast<std::size_t>(index)].scalar(z)});
+  if (wanted(Stat::zdw)) {
+    std::vector<double> wavelengths(plan.zdw.size());
+    for (std::size_t mode = 0; mode < wavelengths.size(); ++mode)
+      wavelengths[mode] = plan.zdw[mode].scalar(z);
+    put(results, Stat::zdw, std::move(wavelengths));
+  }
   std::vector<double> packed;
   packed.reserve(plan.packed_size());
   for (const Stat stat : plan.outputs) {

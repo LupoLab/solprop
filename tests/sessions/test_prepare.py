@@ -24,7 +24,7 @@ from solprop.backends.session import (
     check_group,
 )
 from solprop.backends.sessions import start_session
-from solprop.exceptions import BackendError, DriverError
+from solprop.exceptions import BackendError
 
 NATIVE = pytest.mark.skipif(
     "native" not in available(), reason="solprop-native is not installed"
@@ -201,7 +201,7 @@ def test_the_run_layer_refuses_it_before_a_session_starts(names, match):
             stats=StatsSpec(names=names),
             backend=backend,
         )
-        with pytest.raises(DriverError, match=match):
+        with pytest.raises(BackendError, match=match):
             simulation.run()
 
 

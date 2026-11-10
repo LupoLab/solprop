@@ -2739,6 +2739,7 @@ public:
       plan->ring_cosines = real_vector(exact_array<RealInput>(values["ring_cosines"]));
       plan->ring_sines = real_vector(exact_array<RealInput>(values["ring_sines"]));
       plan->e2_fraction = nb::cast<double>(values["e2_fraction"]);
+      plan->zdw = tables_from(values["zdw"]);
     } catch (const nb::cast_error&) {
       throw std::invalid_argument("a statistics plan has the wrong types");
     } catch (const nb::python_error&) {
@@ -3227,6 +3228,16 @@ NB_MODULE(_core, module_) {
       },
       "radius"_a.noconvert(), "fluence"_a.noconvert(), "weights"_a.noconvert(),
       "axis_fluence"_a, "e2_fraction"_a);
+  module_.def(
+      "fluence_block_widths",
+      [](const BoundStatisticsPlan& plan, const RealInput block) {
+        if (block.ndim() != 1)
+          throw std::invalid_argument("a fluence block is one-dimensional");
+        const auto widths =
+            native::statistics::widths::of_block(*plan.plan(), real_vector(block));
+        return nb::make_tuple(widths[0], widths[1], widths[2]);
+      },
+      "plan"_a, "block"_a.noconvert());
   module_.def(
       "line_fluence_widths",
       [](const RealInput x, const RealInput samples, const double e2_fraction) {

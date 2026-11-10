@@ -100,12 +100,17 @@ def test_native_modal_payload_requires_both_fixed_coefficient_arrays(
 
 
 def test_spatial_statistics_require_geometry(phase_a_case: PhaseACase) -> None:
-    """Refuse a spatial reduction on an ordinary modal state before native entry."""
+    """Refuse a spatial reduction on an ordinary modal state before native entry,
+    with the reference's message (``backends.session.statistics_unavailable``)."""
     problem, run_request, grid = phase_a_case
     backend = NativeBackend(problem, run_request, grid=grid)
     try:
-        with pytest.raises(BackendError, match="require spatial geometry"):
-            backend._spatial_statistics({"energy"})  # pyright: ignore[reportPrivateUsage]
+        backend.set_initial(problem.initial.field0, None)
+        for name in ("beam_radius", "fwhm_r", "on_axis_intensity", "absorbed_power"):
+            with pytest.raises(
+                BackendError, match=f"the '{name}' statistic requires spatial geometry"
+            ):
+                backend.stats(StatsSpec(names=("energy", name)))
     finally:
         backend.close()
 

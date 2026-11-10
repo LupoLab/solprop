@@ -1588,6 +1588,9 @@ def _refuse_unrunnable(
     ------
     DriverError
         Naming what cannot be done.
+    BackendError
+        Naming statistics the problem does not carry
+        (:func:`solprop.backends.session.statistics_unavailable`).
     """
     _refuse_a_record_that_misnames_the_basis(problem, metadata)
     channel = request.observation.stats
@@ -1640,7 +1643,7 @@ def _refuse_unrunnable(
     if refusal is not None:
         raise DriverError(refusal)
     # What the problem does not carry, refused here for every executor rather than at
-    # the first plane (SEP 47 section 6.3).
+    # the first plane (SEP 47 section 6.3), as a preparation and a group refuse it.
     refusal = statistics_unavailable(problem, [*spec.names, *spec.periodic])
     if refusal is not None:
-        raise DriverError(refusal)
+        raise BackendError(refusal)

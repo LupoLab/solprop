@@ -216,7 +216,7 @@ subprocess.run([sys.executable, "-I", "-m", "solprop_native"], check=True, captu
 # that fuses (the x86-64-v2 variant, for processors without FMA, cannot fuse).
 from solprop_native import _core
 control, *probes = _core.strict_witness(1.0 + 2.0**-30, 1.0 - 2.0**-30, -1.0)
-assert probes == [0.0] * 8, probes
+assert probes == [0.0] * 9, probes
 assert control == -(2.0**-60) or info.cpu_baseline == "x86-64-v2", (control, info.cpu_baseline)
 PY
 if [[ $(uname -s) == "Linux" ]]; then

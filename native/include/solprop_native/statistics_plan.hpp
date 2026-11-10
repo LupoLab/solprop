@@ -82,10 +82,11 @@ enum class Stat : int {
   node_populations = 33,
   beam_radius = 34,
   fwhm_r = 35,
+  zdw = 36,
 };
 
 /** The number of `Stat` values. */
-inline constexpr int stat_count = 36;
+inline constexpr int stat_count = 37;
 
 /** A piecewise Chebyshev table of z: on interval `k` of `edges`, `coefficients[(k *
     n_terms + i) * n_values + j]` is value `j`'s coefficient of degree `i`. A position
@@ -170,6 +171,10 @@ struct Plan {
       propagation's own where it carries the path, else the profile lowered at
       preparation with its error measured and recorded. */
   std::array<RealTable, 3> profiles;
+  /** Each mode's zero-dispersion wavelength as a table of z, m: the value itself for a
+      z-independent mode, else the root lowered at preparation with its error measured
+      and recorded (`solprop_native._statistics`); NaN where the band holds no zero. */
+  std::vector<RealTable> zdw;
   // A spatial route: whether `on_axis_spectrum` comes from the far-field pass (a
   // Cartesian or line grid), and the far-field tables, `(n_apertures,
   // far_field_aperture_constants + n_omega)`

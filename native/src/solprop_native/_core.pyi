@@ -430,6 +430,9 @@ def radial_fluence_widths(
     axis_fluence: float,
     e2_fraction: float,
 ) -> tuple[float, float, float]: ...
+def fluence_block_widths(
+    plan: StatisticsPlan, block: npt.NDArray[np.float64]
+) -> tuple[float, float, float]: ...
 def line_fluence_widths(
     x: npt.NDArray[np.float64], samples: npt.NDArray[np.float64], e2_fraction: float
 ) -> tuple[float, float, float]: ...

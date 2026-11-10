@@ -139,6 +139,7 @@ from ._statistics import (
     ADMITTED_STATISTICS,
     StatisticsLowering,
     lower,
+    metric_refusal,
     translated,
     uncovered,
 )
@@ -457,12 +458,14 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     unavailable = statistics_unavailable(problem, (*names, *spec.periodic))
     if unavailable is not None:
         return unavailable
+    refused = metric_refusal(problem, (*names, *spec.periodic))
+    if refused is not None:
+        return refused
     left = uncovered(problem, names)
     if left:
         return (
-            f"the statistics {left!r}, which the host finishes: the zero-dispersion "
-            "wavelength, the on-axis plasma statistics, or a metric statistic of a "
-            "basis whose metric varies inside an interval"
+            f"the statistics {left!r}, which the host finishes: the on-axis plasma "
+            "statistics"
         )
     return None
 
@@ -2162,8 +2165,21 @@ class NativePrepared(DriverPrepared):
         problem: PropagationProblem,
         request: RunRequest,
     ) -> None:
-        """Bind the problem and the request to the backend."""
+        """Bind the problem and the request to the backend.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming a varying metric's statistics, which native refuses on every
+            session rather than leave to the transitional one
+            (:func:`~solprop_native._statistics.metric_refusal`).
+        """
         super().__init__(driver, problem, request)
+        stats = request.observation.stats
+        refused = metric_refusal(problem, (*stats.names, *stats.periodic))
+        if refused is not None:
+            msg = f"native cannot prepare this run: native refuses {refused}"
+            raise BackendError(msg)
         self._native_backend = driver
         self.refused: str | None = None
         """Why the last start ran on the transitional session; ``None`` on the native

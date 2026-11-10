@@ -529,10 +529,22 @@ carry are refused by name before any session starts, on every executor, rather t
 first plane (`backends.session.statistics_unavailable`, read by every preparation, by
 `check_group` and by the run layer): a modal statistic of a spatial route, a spatial one of a modal
 route, the plasma integration diagnostics without the field-grid plasma column and the electron
-density or peak ionisation rate without a compiled plasma response. The native session's own
-statistics refusal then names only the plane-only statistics the host still finishes
-(`solprop_native._statistics.PLANE_ONLY`: `zdw` and the on-axis plasma statistics) and the metric
-statistics of a basis whose metric varies inside an interval. Groups start through
+density or peak ionisation rate without a compiled plasma response (a `BackendError` at every door).
+`zdw` is read natively from a table of each mode's root along z, lowered once at preparation
+(`_statistics._zdw_tables`): a z-independent mode's table holds its one root, the reference's at
+every plane to the bit; any other mode's root is tabulated over the propagation's span with the
+problem's table edges as knots, within a capped fit (`_ZDW_FIT`: each sample is a root search of
+about 0.2 s), and held to `ZDW_TOLERANCE` (1e-6 of the wavelength, a picometre at a micrometre,
+measured on a check set against the root search itself and recorded under `statistics_tables`), or
+refused by name, as is a mode whose band holds a root over part of the run only. Not rounding level,
+because the reference is not: its root scatters by a few times 1e-8 between neighbouring positions
+on a gas capillary (`beta_2` is a finite difference), and a pressure gradient over a decade is
+resolved to about 5e-7 within the fit's budget. Native refuses by name, before anything is allocated, the metric
+statistics of a general modal basis whose metric varies inside an interval
+(`_statistics.metric_refusal`): the plan's metric root is exact only on a metric constant on each
+interval. The native session's own statistics refusal then names only the on-axis plasma
+statistics (`solprop_native._statistics.PLANE_ONLY`), which the transitional session still finishes
+on the host. Groups start through
 `start_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 

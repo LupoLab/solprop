@@ -26,13 +26,16 @@ is at rounding level (``1e-13`` of its scale, or the closest table within
 by name. Either way the
 measured error is recorded (:attr:`StatisticsLowering.tables`) and reaches the run's
 execution record under ``statistics_tables``: it is what separates a native profile
-statistic from the profile's own value, planes and rows alike. The metric statistics
-of a basis whose metric varies inside one of its intervals stay with the host.
+statistic from the profile's own value, planes and rows alike. ``zdw`` is read the
+same way from a table of each mode's root along z (:func:`_zdw_tables`). The metric
+statistics of a basis whose metric varies inside one of its intervals are refused by
+name (:func:`metric_refusal`).
 
 The native evaluation finishes every statistic (the half-maximum widths, a spatial
 route's fluence widths, the species reduction, the integration ratios);
-:meth:`StatisticsLowering.unpack` only names and shapes the packed values. A native refusal is translated into the exception the reference raises for the
-same condition (:func:`translated`).
+:meth:`StatisticsLowering.unpack` only names and shapes the packed values. A native
+refusal is translated into the exception the reference raises for the same condition
+(:func:`translated`).
 """
 
 from __future__ import annotations
@@ -52,7 +55,11 @@ from solprop.spatial import (
     ABSORBED_CHANNELS,
     _ring_angles,  # pyright: ignore[reportPrivateUsage] - the host widths' own rule
 )
-from solprop.stats import FAR_FIELD_STATISTICS
+from solprop.stats import (
+    FAR_FIELD_STATISTICS,
+    METRIC_WEIGHTED_STATISTICS,
+    inband_wavelengths,
+)
 from solprop.translate.chebyshev import PiecewiseChebyshev
 
 from . import _core
@@ -74,8 +81,10 @@ __all__ = [
     "PLANE_ONLY",
     "PROFILE_TOLERANCE",
     "STATISTIC_IDS",
+    "ZDW_TOLERANCE",
     "StatisticsLowering",
     "lower",
+    "metric_refusal",
     "translated",
     "uncovered",
 ]
@@ -125,13 +134,13 @@ STATISTIC_IDS: Mapping[str, int] = {
             NODE_POPULATIONS,
             "beam_radius",
             "fwhm_r",
+            "zdw",
         )
     )
 }
 """Each output the native plan evaluates, by its id (``statistics::Stat``)."""
 
 PLANE_ONLY = (
-    "zdw",
     "on_axis_electron_density",
     "on_axis_peak_ionisation_rate",
     "on_axis_species_electron_density",
@@ -139,14 +148,15 @@ PLANE_ONLY = (
 )
 """The plane-only statistics the plan does not evaluate.
 
-``zdw`` is a root search over the Python mode objects; the four on-axis plasma
-statistics scan the axis row in time on the host
+The four on-axis plasma statistics scan the axis row in time on the host
 (:func:`solprop.backends.populations.axis_row_populations`). None is
 periodic-capable (``StatDefinition.between_planes`` false). The plan evaluates the
-other plane-only statistics, among them a spatial route's fluence widths
-(``beam_radius``, ``fwhm_r``), finished natively from the native fluence passes as
+other plane-only statistics: a spatial route's fluence widths (``beam_radius``,
+``fwhm_r``), finished natively from the native fluence passes as
 :func:`solprop.backends.spatial.signed_fluence_widths` and
-:func:`~solprop.backends.spatial.plane_fluence_widths` finish them.
+:func:`~solprop.backends.spatial.plane_fluence_widths` finish them, and ``zdw``,
+read from a table of each mode's root along z lowered at preparation
+(:func:`_zdw_tables`).
 """
 
 _RESPONSE = (
@@ -195,6 +205,7 @@ ADMITTED_STATISTICS = (
     "fwhm_t",
     "fwhm_t_outer",
     "peak_intensity",
+    "zdw",
     *_RESPONSE,
 )
 """The statistics the native plan evaluates on a modal or mode-averaged route."""
@@ -223,9 +234,11 @@ ADMITTED_GENERAL_STATISTICS = (
     "analytic_flux",
     "fwhm_t",
     "fwhm_t_outer",
+    "zdw",
 )
 """The statistics it evaluates on a general modal basis: functionals of ``a.H W a``,
-where the metric is constant on each of its intervals."""
+where the metric is constant on each of its intervals, and the channels'
+zero-dispersion wavelength."""
 
 _ROUTES = {"modal": 0, "spatial": 1, "general": 2}
 _ADMITTED: dict[str, frozenset[str]] = {
@@ -354,13 +367,14 @@ def uncovered(problem: PropagationProblem, names: Sequence[str]) -> tuple[str, .
     Returns
     -------
     tuple of str
-        The names left to the host, in request order: the plane-only ones and, on a
-        basis whose metric varies inside an interval, its metric statistics.
+        The names the plan leaves, in request order: the on-axis plasma statistics,
+        a statistic of another route and, on a basis whose metric varies inside an
+        interval, its metric statistics (:func:`metric_refusal`).
     """
     route = _route(problem)
     admitted = _ADMITTED[route]
     if route == "general" and _metric_varies(problem):
-        admitted = frozenset[str]()
+        admitted = admitted - METRIC_WEIGHTED_STATISTICS
     return tuple(name for name in names if name not in admitted)
 
 
@@ -833,6 +847,7 @@ def _shape(
         "energy": () if plan["route"] == _ROUTES["spatial"] else (modes, pol),
         "energy_window": (n_windows, modes, pol),
         "peak_power": (modes,),
+        "zdw": (modes,),
         "peak_power_window": (n_windows, modes),
         "beam_radius": (2,),
         "species_ionisation": (species, nodes),
@@ -850,6 +865,263 @@ def _shape(
         NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
+
+
+def metric_refusal(problem: PropagationProblem, names: Sequence[str]) -> str | None:
+    """Return why native refuses a basis's metric statistics, naming them, or ``None``.
+
+    The plan whitens a general modal basis's columns with the root of its flux metric,
+    formed exactly from the metric's own values where the metric is constant on each of
+    its intervals (:func:`_root_table`). A metric that varies inside an interval has no
+    such root, so native refuses its metric statistics by name, before anything is
+    allocated; ``numpy_ref`` computes them (maintainer's decision, SEP 47 phase 4). No
+    built-in route builds such a metric (:func:`solprop.translate.coupled.
+    dense_metric` is constant on each interval).
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    names : sequence of str
+        The statistics asked for.
+
+    Returns
+    -------
+    str or None
+        The refusal, or ``None``.
+    """
+    if _route(problem) != "general" or not _metric_varies(problem):
+        return None
+    asked = tuple(name for name in names if name in METRIC_WEIGHTED_STATISTICS)
+    if not asked:
+        return None
+    return (
+        f"the metric statistics {asked!r} of a general modal basis whose flux metric "
+        "varies inside one of its intervals: the native plan whitens the columns "
+        "with the metric's root, exact only where the metric is constant on each "
+        "interval; use backend='numpy_ref'"
+    )
+
+
+ZDW_TOLERANCE = 1e-6
+"""The largest error a ``zdw`` table may carry, relative to the mode's
+zero-dispersion wavelength on the run, measured on its check set against the root
+search itself (:func:`solprop.modes.base.zdw`): a picometre at a micrometre.
+
+Not rounding level, because the reference is not: its root scatters by up to a few
+times 1e-8 of the wavelength between neighbouring positions on a gas capillary
+(``beta_2`` is a finite difference of the dispersion), which no table of z follows,
+and a pressure gradient over a decade is resolved to about 5e-7 within the fit's
+budget (:data:`_ZDW_FIT`)."""
+
+_ZDW_FIT = {"tol": 1e-7, "n_max": 16, "max_intervals": 16}
+"""The ``zdw`` fit's builder options (:func:`solprop.translate.chebyshev.build`): each
+sample is a root search of about 0.2 s, so the degree and the intervals are capped
+(at most a few hundred searches) rather than refined to a rounding level the root
+search does not have."""
+
+_ZDW_CHECK_POINTS = 17
+"""Uniform positions of a ``zdw`` table's check set, beside its knots, edges and
+midpoints: each is a root search, 0.2 to 0.6 s on a gas capillary, so far fewer than
+a profile's."""
+
+_ZDW_TABLES: weakref.WeakKeyDictionary[
+    PropagationProblem,
+    dict[float, tuple[tuple[int, ...], list[PiecewiseChebyshev], dict[str, object]]],
+] = weakref.WeakKeyDictionary()
+"""Each problem's ``zdw`` tables and their record, by last plane, with the modes' ids
+they were lowered for, while the problem lives."""
+
+
+def _zdw_tables(
+    problem: PropagationProblem, modes: Sequence[Mode], grid: TimeGrid, z_end: float
+) -> tuple[list[PiecewiseChebyshev], dict[str, object]]:
+    """Return each mode's ``zdw`` table and their record, lowered once per problem.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    modes : sequence of Mode
+        The propagated modes, in state order.
+    grid : solprop.grid.TimeGrid
+        The time grid, whose band the roots are searched in.
+    z_end : float
+        The run's last plane, m.
+
+    Returns
+    -------
+    tuple
+        The tables, and their record for ``statistics_tables`` (a copy).
+    """
+    held = _ZDW_TABLES.setdefault(problem, {})
+    identity = tuple(id(mode) for mode in modes)
+    cached = held.get(z_end)
+    if cached is None or cached[0] != identity:
+        tables, record = _lowered_zdw_tables(problem, modes, grid, z_end)
+        cached = held[z_end] = (identity, tables, record)
+    return cached[1], dict(cached[2])
+
+
+def _constant_table(value: float, lower: float, upper: float) -> PiecewiseChebyshev:
+    """Return a scalar table holding one value exactly: degree zero, one interval."""
+    return PiecewiseChebyshev(
+        np.array([[value]], dtype=np.float64),
+        np.array([lower, upper], dtype=np.float64),
+        np.zeros(1, dtype=np.int64),
+        np.empty(0),
+    )
+
+
+def _lowered_zdw_tables(
+    problem: PropagationProblem, modes: Sequence[Mode], grid: TimeGrid, z_end: float
+) -> tuple[list[PiecewiseChebyshev], dict[str, object]]:
+    """Lower each mode's zero-dispersion wavelength along z to a table.
+
+    The root search of :func:`solprop.stats.collect` (``beta_2``'s zero in the grid's
+    band, :func:`solprop.stats.inband_wavelengths`), NaN where the band holds none, as
+    the reference records it. A z-independent mode's table holds its one root, which is
+    the reference's at every plane, to the bit. Any other mode's root is tabulated over
+    the propagation's span with the problem's own table edges as knots
+    (:func:`solprop.translate.chebyshev.build` with :data:`_ZDW_FIT`), and its
+    measured error on a check set must be within :data:`ZDW_TOLERANCE`, or the
+    statistic is refused by name; so is a mode whose band holds a root over part of
+    the run only.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.PropagationProblem
+        The problem.
+    modes : sequence of Mode
+        The propagated modes.
+    grid : solprop.grid.TimeGrid
+        The time grid.
+    z_end : float
+        The run's last plane, m.
+
+    Returns
+    -------
+    tuple
+        The tables, one per mode, and the record of the largest measured error.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        Naming the mode whose root no table represents within :data:`ZDW_TOLERANCE`.
+
+    Warns
+    -----
+    solprop.exceptions.SolpropWarning
+        Once, if a mode's band holds no zero at the run's start.
+    """
+    import warnings
+
+    from solprop.exceptions import (
+        NoZeroDispersionError,
+        SolpropWarning,
+    )
+    from solprop.modes.base import zdw
+    from solprop.translate.chebyshev import build
+    from solprop.translate.linop import DEFAULT_MARGIN
+    from solprop.translate.problem import (
+        _walk_tables,  # pyright: ignore[reportPrivateUsage]
+    )
+
+    window = inband_wavelengths(grid)
+    start = float(problem.initial.z)
+    end = float(z_end)
+    if not end > start:
+        end = start + max(abs(start), 1.0) * 1e-12
+    lower = min(start, 0.0)
+    upper = max(end, end + abs(end) * DEFAULT_MARGIN)
+
+    def root(mode: Mode, z: float) -> float:
+        try:
+            return float(zdw(mode, z, wavelength_limits=window))
+        except NoZeroDispersionError:
+            return math.nan
+
+    first = [root(mode, start) for mode in modes]
+    missing = [index for index, value in enumerate(first) if math.isnan(value)]
+    if missing:
+        warnings.warn(
+            f"the 'zdw' statistic records nan for modes {missing}: beta_2 has one "
+            f"sign at both ends of the grid's {window[0] * 1e9:.4g}-"
+            f"{window[1] * 1e9:.4g} nm band",
+            SolpropWarning,
+            stacklevel=4,
+        )
+    knots = sorted(
+        {
+            float(edge)
+            for _, table in _walk_tables(problem)  # pyright: ignore[reportPrivateUsage]
+            for edge in np.asarray(table.breakpoints)
+        }
+    )
+    uniform = np.linspace(start, end, _ZDW_CHECK_POINTS)
+    tables: list[PiecewiseChebyshev] = []
+    worst_error, worst_relative, checked = 0.0, 0.0, 0
+    for index, (mode, value) in enumerate(zip(modes, first, strict=True)):
+        if mode.z_constant:
+            tables.append(_constant_table(value, lower, upper))
+            continue
+
+        def path(z: np.ndarray, mode: Mode = mode) -> np.ndarray:
+            return np.asarray([root(mode, float(one)) for one in np.atleast_1d(z)])
+
+        with warnings.catch_warnings():
+            # Each position repeats the start's material warnings, given once above.
+            warnings.simplefilter("ignore")
+            check = np.unique(
+                np.concatenate(
+                    (uniform, [knot for knot in knots if start <= knot <= end])
+                )
+            )
+            exact = path(check)
+            if np.all(np.isnan(exact)):
+                tables.append(_constant_table(math.nan, lower, upper))
+                continue
+            if np.any(np.isnan(exact)):
+                msg = (
+                    f"the zdw statistic: mode {index}'s band holds a zero-dispersion "
+                    "wavelength over part of the run only, which no table of z "
+                    "represents"
+                )
+                raise BackendError(msg)
+            scale = float(np.max(np.abs(exact)))
+            inside = [knot for knot in knots if lower < knot < upper]
+            table = build(path, lower, upper, mandatory_breakpoints=inside, **_ZDW_FIT)
+            edges = np.asarray(table.breakpoints)
+            middles = 0.5 * (edges[1:] + edges[:-1])
+            extra = np.concatenate((edges, middles))
+            extra = extra[(extra >= start) & (extra <= end)]
+            positions = np.concatenate((check, extra))
+            wanted = np.concatenate((exact, path(extra)))
+            tabulated = np.asarray(
+                table.at_positions(positions, helpers=NATIVE), dtype=np.float64
+            ).reshape(-1)
+            error = float(np.max(np.abs(tabulated - wanted)))
+            count = positions.size
+            if not error <= ZDW_TOLERANCE * scale:
+                msg = (
+                    f"the zdw statistic: mode {index}'s zero-dispersion wavelength "
+                    "cannot be tabulated along z within its tolerance (measured "
+                    f"relative error {error / scale:.3g}, above {ZDW_TOLERANCE:g})"
+                )
+                raise BackendError(msg)
+        tables.append(table)
+        worst_error = max(worst_error, error)
+        worst_relative = max(worst_relative, error / scale)
+        checked += int(count)
+    varying = any(not mode.z_constant for mode in modes)
+    record: dict[str, object] = {
+        "source": "lowered zdw" if varying else "z-independent modes",
+        "max_error": worst_error,
+        "relative_error": worst_relative,
+        "check_points": checked,
+        "tolerance": ZDW_TOLERANCE,
+    }
+    return tables, record
 
 
 def _width_rule(problem: PropagationProblem) -> dict[str, object]:
@@ -1013,6 +1285,7 @@ def lower(
         "ring_cosines": np.empty(0),
         "ring_sines": np.empty(0),
         "e2_fraction": math.exp(-2),
+        "zdw": [],
     }
     tables: dict[str, dict[str, object]] = {}
     for index, name in enumerate(_PROFILE_NAMES):
@@ -1025,6 +1298,12 @@ def lower(
         slots = plan["profiles"]
         assert isinstance(slots, list)
         slots[index] = _table(table)
+    if "zdw" in asked:
+        if modes is None or grid is None:
+            msg = "the zdw statistic needs the mode set and the time grid"
+            raise BackendError(msg)
+        zdw_tables, tables["zdw"] = _zdw_tables(problem, modes, grid, z_end)
+        plan["zdw"] = [_table(table) for table in zdw_tables]
     if asked & {"fwhm_t", "fwhm_t_outer"}:
         if grid is None:
             msg = "the half-maximum widths need the time grid at construction"

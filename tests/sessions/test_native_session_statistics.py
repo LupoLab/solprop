@@ -822,13 +822,14 @@ def _beam(route):
     return grid, simulation.translate(), simulation._run_request()
 
 
-def _host_widths(problem, run_request, grid, record):
+def _host_widths(problem, run_request, grid, record, monkeypatch):
     """The host finishing the transitional session took, on the native fluence passes.
 
     ``solprop.backends.spatial.signed_fluence_widths`` on the fluence block, or
     ``plane_fluence_widths`` on a plane's moments and its native trace, of the record's
     exported field loaded at its position.
     """
+    from backends.test_native_widths import host_interp  # noqa: PLC0415
     from solprop.backends.spatial import (  # noqa: PLC0415
         fluence_budget,
         plane_fluence_widths,
@@ -836,6 +837,7 @@ def _host_widths(problem, run_request, grid, record):
     )
     from solprop.constants import EPS0, C  # noqa: PLC0415
 
+    host_interp(monkeypatch)
     geometry = problem.transform.geometry
     assert geometry is not None
     plane = geometry.kind == "free" and geometry.axes[1].size > 1
@@ -867,12 +869,13 @@ def _host_widths(problem, run_request, grid, record):
     ":solprop.exceptions.SolpropWarning"
 )
 @pytest.mark.parametrize("route", ["radial", "plane", "line", "planar"])
-def test_a_beam_s_fluence_widths_are_native_at_its_planes(route):
+def test_a_beam_s_fluence_widths_are_native_at_its_planes(route, monkeypatch):
     """``beam_radius`` and ``fwhm_r``, plane-only, in the session's own plan.
 
     Against the host finishing the transitional session took on the same native
     passes: the same bits on a radial, line or slab profile, whose sums are NumPy's
-    pairwise order; within a few units of rounding on a plane, whose extent is the
+    pairwise order (``numpy.interp`` held to its unfused rule off x86-64, where NumPy's
+    may fuse); within a few units of rounding on a plane, whose extent is the
     platform's ``hypot`` rather than Python's. Against the NumPy reference on each
     exported field within the backend widths test's bound. The rows, which take the
     periodic statistics beside them, return nothing to Python.
@@ -892,7 +895,7 @@ def test_a_beam_s_fluence_widths_are_native_at_its_planes(route):
     extent = max(float(np.max(np.abs(axis))) for axis in geometry.axes)
     for record, want in zip(seen, reference, strict=True):
         got = (*record.stats["beam_radius"], float(record.stats["fwhm_r"]))
-        host = _host_widths(problem, run_request, grid, record)
+        host = _host_widths(problem, run_request, grid, record, monkeypatch)
         assert np.isfinite(got[0]), record.z
         if route == "plane":
             np.testing.assert_allclose(got, host, rtol=16 * np.finfo(float).eps)
@@ -951,3 +954,160 @@ def test_a_negative_lobe_s_widths_are_refused_by_the_session_as_by_the_reference
     assert len(errors) == 1
     assert type(errors[0]) is BackendError
     assert str(errors[0]) == str(want.value)
+
+
+# --- a metric that varies inside an interval: refused by name on native ------------
+
+
+def _varying_metric():
+    """The general basis of the flux test, its metric ``W0 (1 + T_1)`` on every
+    interval: no longer constant inside one, positive away from each interval's left
+    edge, and each coefficient as near the identity as ``W0``, which is what
+    ``numpy_ref``'s admission measures."""
+    from modal_provider_cases import GENERAL_Z_END, general_case  # noqa: PLC0415
+    from solprop.pulses import GaussianPulse  # noqa: PLC0415
+
+    case = general_case(
+        (("HE", 1, 1, "even"), ("HE", 1, 1, "odd")), blocks=((0, 1),), circular=(0, 1)
+    )
+    grid = case.grid
+    pulse = GaussianPulse(
+        wavelength=2 * np.pi * 299792458.0 / grid.omega0, fwhm=30e-15, energy=1e-12
+    ).build(grid)
+    problem, run_request = assemble(
+        grid,
+        list(case.guide.mode_collection),
+        [],
+        np.concatenate([pulse, 0.3j * pulse], axis=0),
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[GENERAL_Z_END],
+        dz_max=GENERAL_Z_END,
+        dz_init=GENERAL_Z_END / 8,
+        schedule=FixedSchedule.uniform(0.0, GENERAL_Z_END, GENERAL_Z_END / 8),
+        general=case.route,
+    )
+    metric = problem.linear.modal_metric
+    assert metric is not None and metric.dense is not None
+    dense = np.concatenate([metric.dense, metric.dense], axis=1)
+    varying = dataclasses.replace(metric, dense=dense)
+    problem = dataclasses.replace(
+        problem, linear=dataclasses.replace(problem.linear, modal_metric=varying)
+    )
+    assert native_statistics._metric_varies(problem)  # pyright: ignore[reportPrivateUsage]
+    return grid, problem, run_request
+
+
+def test_a_varying_metric_s_statistics_are_refused_by_native_before_allocation():
+    """Native refuses a varying metric's statistics by name, at construction and at a
+    run's preparation, and never leaves them to the transitional session; numpy_ref
+    computes them, and native still serves what the metric does not weigh."""
+    grid, problem, run_request = _varying_metric()
+    spec = StatsSpec(names=GENERAL)
+    request = run_request.for_run(stats=spec)
+    # A schedule edge inside the first interval, away from its left edge, where
+    # W0 (1 + T_1) is zero.
+    inside = float(run_request.stepper.save_planes[-1]) / 8
+    reference = select("numpy_ref", problem, request, grid=grid)
+    try:
+        reference.set_initial(problem.initial.field0, None, z=inside, resume=True)
+        values = reference.stats(spec)
+    finally:
+        reference.close()
+    assert set(values) == set(GENERAL)
+    assert np.isfinite(float(np.ravel(values["physical_energy"])[0]))
+    refused = r"native refuses the metric statistics \('omega0', 'physical_energy'"
+    with pytest.raises(BackendError, match=refused):
+        select("native", problem, request, grid=grid)
+    assert native_session.refusal(problem, request, entrance(problem)) is not None
+    # Built for no statistics, asked for them by a run's request.
+    backend = select("native", problem, run_request, grid=grid)
+    try:
+        with pytest.raises(BackendError, match=refused):
+            backend.prepare(problem, request)
+        backend.set_initial(problem.initial.field0, None)
+        with pytest.raises(BackendError, match=refused):
+            backend.stats(spec)
+        # The channels' zero-dispersion wavelength weighs no metric.
+        assert native_statistics.metric_refusal(problem, ("zdw",)) is None
+    finally:
+        backend.close()
+
+
+# --- zdw: each mode's root along z, read from a table lowered once -----------------
+
+
+def _zdw_capillary(pressure):
+    """A Kerr capillary of helium whose band holds its zero-dispersion wavelength."""
+    from solprop.grid import FieldGrid  # noqa: PLC0415
+    from solprop.modes.capillary import MarcatiliMode  # noqa: PLC0415
+    from solprop.nonlinear.responses import KerrResponse  # noqa: PLC0415
+    from solprop.pulses import GaussianPulse  # noqa: PLC0415
+
+    grid = FieldGrid.from_limits(0.2, 800e-9, (200e-9, 4e-6), 100e-15)
+    mode = MarcatiliMode(125e-6, "He", pressure, cladding=1.45)
+    start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=10e-6).build(grid)
+    problem, run_request = assemble(
+        grid,
+        mode,
+        [KerrResponse(chi3=2.2e-53, thg=True)],
+        start,
+        controller=PIController(rtol=1e-8, atol=1e-14),
+        save_planes=[2e-3, 4e-3],
+        schedule=FixedSchedule.uniform(0.0, 4e-3, 1e-3),
+        dz_max=0.01,
+        dz_init=1e-4,
+    )
+    return grid, problem, run_request, [mode]
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_z_independent_mode_s_zdw_is_the_reference_s_to_the_bit():
+    """A z-independent mode's table holds its one root: the reference's at every plane,
+    bit for bit, with no root search in the run."""
+    grid, problem, run_request, modes = _zdw_capillary(0.4)
+    assert modes[0].z_constant
+    names = ("energy", "zdw")
+    seen, status, counters, lowering, spec = _run(
+        problem, run_request, names, grid=grid, modes=modes
+    )
+    _check_rows(seen, names)
+    _check_structure(seen, status, counters)
+    record = lowering.tables["zdw"]
+    assert record["source"] == "z-independent modes"
+    assert record["max_error"] == 0.0
+    reference = _reference(problem, run_request, spec, seen, grid=grid, modes=modes)
+    for record_, want in zip(seen, reference, strict=True):
+        assert np.isfinite(want["zdw"]).all()
+        np.testing.assert_array_equal(record_.stats["zdw"], want["zdw"])
+
+
+@pytest.mark.slow
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+def test_a_pressure_gradient_s_zdw_is_a_table_within_its_recorded_tolerance():
+    """A mode that varies along z: its root lowered over the run, its measured error
+    recorded and within ``ZDW_TOLERANCE``, and every plane within that of the
+    reference's own root search."""
+    from solprop.profiles import PressureGradient  # noqa: PLC0415
+
+    grid, problem, run_request, modes = _zdw_capillary(
+        PressureGradient.two_point(0.2, 0.3, 0.6)
+    )
+    assert not modes[0].z_constant
+    names = ("energy", "zdw")
+    seen, status, counters, lowering, spec = _run(
+        problem, run_request, names, grid=grid, modes=modes
+    )
+    _check_rows(seen, names)
+    _check_structure(seen, status, counters)
+    record = lowering.tables["zdw"]
+    tolerance = native_statistics.ZDW_TOLERANCE
+    assert record["source"] == "lowered zdw"
+    assert record["tolerance"] == tolerance
+    assert 0.0 <= record["relative_error"] <= tolerance
+    reference = _reference(problem, run_request, spec, seen, grid=grid, modes=modes)
+    for record_, want in zip(seen, reference, strict=True):
+        scale = float(np.max(np.abs(want["zdw"])))
+        _within(
+            record_.stats["zdw"], want["zdw"], tolerance * scale, f"zdw {record_.z}"
+        )
