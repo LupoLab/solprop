@@ -29,9 +29,9 @@ execution record under ``statistics_tables``: it is what separates a native prof
 statistic from the profile's own value, planes and rows alike. The metric statistics
 of a basis whose metric varies inside one of its intervals stay with the host.
 
-The native evaluation finishes every statistic (the widths, the species reduction, the
-integration ratios); :meth:`StatisticsLowering.unpack` only names and shapes the packed
-values. A native refusal is translated into the exception the reference raises for the
+The native evaluation finishes every statistic (the half-maximum widths, a spatial
+route's fluence widths, the species reduction, the integration ratios);
+:meth:`StatisticsLowering.unpack` only names and shapes the packed values. A native refusal is translated into the exception the reference raises for the
 same condition (:func:`translated`).
 """
 

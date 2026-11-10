@@ -524,7 +524,15 @@ without the run layer naming it. The reference's opens `HostSession`; the native
 backend's (`solprop_native.session.NativePrepared`) opens `NativeSession` where it admits
 the run and the transitional `DriverSession` otherwise, logging the reason at debug level
 (`session_refusal`, which a test replaces to force the bridge); any other driver's
-(`backends.driver_session.DriverPrepared`) opens `DriverSession`. Groups start through
+(`backends.driver_session.DriverPrepared`) opens `DriverSession`. Statistics the problem does not
+carry are refused by name before any session starts, on every executor, rather than left to the
+first plane (`backends.session.statistics_unavailable`, read by every preparation, by
+`check_group` and by the run layer): a modal statistic of a spatial route, a spatial one of a modal
+route, the plasma integration diagnostics without the field-grid plasma column and the electron
+density or peak ionisation rate without a compiled plasma response. The native session's own
+statistics refusal then names only the plane-only statistics the host still finishes
+(`solprop_native._statistics.PLANE_ONLY`: `zdw` and the on-axis plasma statistics) and the metric
+statistics of a basis whose metric varies inside an interval. Groups start through
 `start_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 
@@ -1312,8 +1320,23 @@ The axis's fluence, which only a radial width reads, isn't formed.
 of the bilinear interpolant on a few thousand angles per ring, about 3.7 million samples at
 768 x 768. Native forms each as a kernel over the fluence it holds, so that the moments and one value
 per ring cross, and solprop keeps the rule: `solprop.spatial._fluence_rings` fixes the rings,
-`backends.spatial.plane_fluence_widths` reads the refusal and the widths. A line's and a planar
-fluence are short profiles, and these still cross.
+and its angles, which depend on the axes alone, are formed once at lowering
+(`solprop.spatial._ring_angles`).
+
+**The widths are finished natively** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
+`beam_radius` and `fwhm_r` are statistics of the native plan (`Stat::beam_radius`,
+`Stat::fwhm_r`), so the native session and `NativeBackend.stats` take them with no Python finishing,
+at planes (neither is periodic-capable). The plan runs the same fluence passes the host finishing
+read -- flag 16's block on a radial, line or planar profile, flag 32's moments and the trace on a
+Cartesian plane -- and `session_widths.cpp`, a strict translation unit, finishes them as
+`backends.spatial.signed_fluence_widths` and `plane_fluence_widths` do, through
+`spatial.radial_fluence_widths`, `cartesian_fluence_widths` and `_line_fluence_widths`: the
+refusal and its budget, the clamp, the slab's sum over x, the centroid, the rings and the threshold
+crossings. NumPy's pairwise summation and `numpy.interp` are reproduced, so a radial, line or planar
+width is the host finishing's to the bit on the same passes; a plane's extent is the platform's
+`std::hypot`, which may differ from Python's `math.hypot` in its last bit (the session tests hold
+it to 16 units of rounding). Refusals are the reference's exceptions and messages
+(`_statistics.translated`): a negative lobe the `BackendError`, an invalid profile the `GridError`.
 
 ## 4. `native`: the compiled CPU and GPU backend, a second distribution
 
