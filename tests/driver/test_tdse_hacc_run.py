@@ -221,6 +221,37 @@ def test_checkpoint_and_resume_keep_identities_and_never_repeat_the_check(
         _run(other, path, resume=True)
 
 
+def test_a_resume_without_the_cached_check_restores_its_accounting_first(
+    fake, cache, tmp_path
+):
+    """A resumed haCC run on a machine without the cached check runs it again.
+
+    The diagnostic call charges the binding, so the run's cumulative atomic
+    accounting is restored before the check, not after it: the resume continues,
+    and the check is counted once more on top of the checkpoint's.
+    """
+    path = tmp_path / "hacc.h5"
+    simulation = _simulation(limit=40)
+    simulation.settings = dataclasses.replace(simulation.settings, resume_history=False)
+    with pytest.raises(ResponseBudgetError):
+        _run(simulation, path)
+    first = resume(path)
+    assert first.outcome is not None
+    attempted = first.outcome.atomic_calls["attempted"]
+    for entry in cache.glob("*.json"):
+        entry.unlink()
+    simulation.settings = dataclasses.replace(
+        simulation.settings, tdse_execution=TDSEExecution(max_atomic_calls=1000)
+    )
+    _run(simulation, path, resume=True)
+    final = resume(path)
+    assert final.outcome is not None and final.outcome.status == "complete"
+    assert final.outcome.atomic_calls["diagnostic_calls"] == 2
+    assert final.outcome.atomic_calls["attempted"] > attempted
+    consistency = plain(final.outcome.execution)["tdse"]["consistency"]
+    assert consistency["from_cache"] is False
+
+
 def test_a_hacc_run_needs_a_binding_with_a_diagnostic_row(fake, monkeypatch):
     from tests.driver.test_sep12_sep14_integration import _Binding  # noqa: PLC0415
 
