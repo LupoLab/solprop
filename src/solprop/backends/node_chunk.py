@@ -107,7 +107,7 @@ separately in the memory ledgers. A conservative inventory, about three times th
 group buffers (solprop issue #349); the dispersive admission adds its own to it.
 """
 
-ChunkSource = Literal["automatic", "explicit", "forced"]
+ChunkSource = Literal["default", "explicit", "forced"]
 """Where a plan's chunk came from: the default budget, an explicit one, or a chunk."""
 
 
@@ -123,9 +123,10 @@ class NodeChunkPlan:
     budget : int
         The budget the chunk was planned within, bytes: the explicit one, or the
         problem's default (:func:`default_node_budget`).
-    source : {'automatic', 'explicit', 'forced'}
-        ``"automatic"`` without an explicit budget, ``"explicit"`` with one, and
-        ``"forced"`` for an exact chunk (:attr:`ExecutionOptions.node_chunk`).
+    source : {'default', 'explicit', 'forced'}
+        ``"default"`` without an explicit budget (the route's default budget),
+        ``"explicit"`` with one, and ``"forced"`` for an exact chunk
+        (:attr:`ExecutionOptions.node_chunk`).
     requested : int or None
         The exact chunk asked for, before it was bounded by the node count; ``None``
         unless `source` is ``"forced"``. A general modal guide's route takes it in
@@ -134,8 +135,8 @@ class NodeChunkPlan:
     Examples
     --------
     >>> from solprop.backends.node_chunk import NodeChunkPlan
-    >>> NodeChunkPlan(16, 2**26, "automatic").record()
-    {'node_chunk': 16, 'node_budget': 67108864, 'node_chunk_source': 'automatic'}
+    >>> NodeChunkPlan(16, 2**26, "default").record()
+    {'node_chunk': 16, 'node_budget': 67108864, 'node_chunk_source': 'default'}
     """
 
     chunk: int
@@ -150,9 +151,9 @@ class NodeChunkPlan:
         Returns
         -------
         bool
-            ``True`` when `source` is ``"automatic"``.
+            ``True`` when `source` is ``"default"``.
         """
-        return self.source == "automatic"
+        return self.source == "default"
 
     def record(self) -> dict[str, object]:
         """Return the plan as execution metadata, outside every identity.
@@ -229,16 +230,17 @@ def plan_node_chunk(
     """
     options = ExecutionOptions() if options is None else options
     transform = problem.transform
-    explicit = options.node_budget
+    explicit = options.budget
     budget = default_node_budget(transform) if explicit is None else explicit
-    if options.node_chunk is not None:
+    requested = options.chunk
+    if requested is not None:
         chunk = (
             1
             if transform.modal_tables is not None
-            else min(options.node_chunk, transform.n_nodes)
+            else min(requested, transform.n_nodes)
         )
-        return NodeChunkPlan(chunk, budget, "forced", options.node_chunk)
-    source: ChunkSource = "automatic" if explicit is None else "explicit"
+        return NodeChunkPlan(chunk, budget, "forced", requested)
+    source: ChunkSource = "default" if explicit is None else "explicit"
     return NodeChunkPlan(_host_chunk(problem, budget), budget, source)
 
 

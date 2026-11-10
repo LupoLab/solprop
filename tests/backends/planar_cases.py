@@ -18,6 +18,7 @@ import math
 import numpy as np
 
 from backends.test_planar_hybrid import FAMILIES, HALF_GAP, LENGTH, ORDERS
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.driver import Simulation
 from solprop.grid import EnvelopeGrid
@@ -113,6 +114,9 @@ def planar_case(name, *, steps=None):
         quadrature=None,
         components=None,
         stats=None,
+        # The modal route's budget, which `from_waveguide` once passed on explicitly:
+        # the planar runs keep the chunks their records were measured at.
+        node_budget=DEFAULT_NODE_BUDGET,
     )
     if respond != "family":
         # The family's plasma range has no rate to tabulate over without it.

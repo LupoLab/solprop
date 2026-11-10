@@ -38,9 +38,12 @@ from __future__ import annotations
 
 import enum
 import itertools
+import operator
 import threading
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Protocol, SupportsIndex, cast, runtime_checkable
+
+import numpy as np
 
 from solprop.backends.events import (
     EventBatch,
@@ -54,7 +57,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
     from types import TracebackType
 
-    import numpy as np
     from jaxtyping import Complex
 
     from solprop.backends.export import ExportRecipe
@@ -77,6 +79,7 @@ __all__ = [
     "SnapshotReceipt",
     "Start",
     "StopToken",
+    "positive_count",
 ]
 
 DEFAULT_WORK_LIMIT = 256
@@ -186,14 +189,16 @@ class ExecutionOptions:
     Attributes
     ----------
     node_budget : int or None
-        An explicit workspace budget for node chunks, bytes; ``None`` leaves the
-        backend's automatic choice. An explicit budget is authoritative: the backend
+        An explicit workspace budget for node chunks, bytes: any integral value
+        (``operator.index``, a NumPy integer too), held as an ``int``. ``None`` leaves
+        the backend's automatic choice. An explicit budget is authoritative: the backend
         plans its chunk from it and no machine rule overrides it
         (:func:`solprop.backends.node_chunk.plan_node_chunk`).
     node_chunk : int or None
-        An exact node chunk, which overrides both the budget and the automatic choice:
-        a measurement's or a test's control, not a user setting. A backend takes at
-        most every node, and on the planar kind whole transverse rows.
+        An exact node chunk, integral and held as an ``int``, which overrides both the
+        budget and the automatic choice: a measurement's or a test's control, not a user
+        setting. A backend takes at most every node, and on the planar kind whole
+        transverse rows.
     backend_options : collections.abc.Mapping
         Backend-specific execution options, passed through untouched (for example a
         native CPU execution record).
@@ -210,12 +215,12 @@ class ExecutionOptions:
     67108864
     """
 
-    node_budget: int | None = None
-    node_chunk: int | None = None
+    node_budget: int | SupportsIndex | None = None
+    node_chunk: int | SupportsIndex | None = None
     backend_options: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        """Refuse a budget or a chunk that is not a positive integer.
+        """Hold an integral budget or chunk as an ``int``; refuse any other value.
 
         Raises
         ------
@@ -224,12 +229,70 @@ class ExecutionOptions:
         """
         for name in ("node_budget", "node_chunk"):
             value = getattr(self, name)
-            if value is not None and (
-                isinstance(value, bool) or not isinstance(value, int) or value < 1
-            ):
-                unit = " of bytes" if name == "node_budget" else ""
-                msg = f"{name} must be a positive number{unit}, got {value!r}"
-                raise BackendError(msg)
+            if value is not None:
+                object.__setattr__(self, name, positive_count(name, value))
+
+    @property
+    def budget(self) -> int | None:
+        """Return the explicit node budget as an ``int``, or ``None``.
+
+        Returns
+        -------
+        int or None
+            :attr:`node_budget`, which construction already made an ``int``.
+        """
+        return None if self.node_budget is None else operator.index(self.node_budget)
+
+    @property
+    def chunk(self) -> int | None:
+        """Return the exact node chunk as an ``int``, or ``None``.
+
+        Returns
+        -------
+        int or None
+            :attr:`node_chunk`, which construction already made an ``int``.
+        """
+        return None if self.node_chunk is None else operator.index(self.node_chunk)
+
+
+def positive_count(name: str, value: object) -> int:
+    """Return an integral, positive budget or chunk as an ``int``.
+
+    Parameters
+    ----------
+    name : str
+        ``"node_budget"`` or ``"node_chunk"``, for the message.
+    value : object
+        Anything ``operator.index`` accepts, such as an ``int`` or a NumPy integer.
+
+    Returns
+    -------
+    int
+        The value.
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If `value` is a ``bool``, not integral, or not positive.
+
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from solprop.backends.session import positive_count
+    >>> positive_count("node_budget", np.int64(2**26))
+    67108864
+    """
+    unit = " of bytes" if name == "node_budget" else ""
+    msg = f"{name} must be a positive number{unit}, got {value!r}"
+    if isinstance(value, bool | np.bool_):
+        raise BackendError(msg)
+    try:
+        count = operator.index(cast("SupportsIndex", value))
+    except TypeError:
+        raise BackendError(msg) from None
+    if count < 1:
+        raise BackendError(msg)
+    return count
 
 
 @dataclass(frozen=True, eq=False)

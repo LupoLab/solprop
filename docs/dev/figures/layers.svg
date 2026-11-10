@@ -180,7 +180,7 @@ text { font-family: Inter, "Helvetica Neue", Helvetica, Arial, sans-serif; fill:
 <text x="317.0" y="852.5" font-size="15" class="bold ink-b">backends/</text>
 <text x="317.0" y="868.0" font-size="12" class="dim">protocol · registry · driver</text>
 <text x="317.0" y="883.5" font-size="12" class="dim">batch · spatial · populations</text>
-<text x="317.0" y="899.0" font-size="12" class="dim">memory · multistep</text>
+<text x="317.0" y="899.0" font-size="12" class="dim">memory · node_chunk · multistep</text>
 <text x="317.0" y="914.5" font-size="12" class="dim">multistep_general · adams_core</text>
 <text x="317.0" y="930.0" font-size="12" class="dim">rk_core · exponential · low_storage</text>
 <rect x="568.0" y="830.5" width="224.60000000000002" height="112.5" rx="7" ry="7" class="fill-b" />

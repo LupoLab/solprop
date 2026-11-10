@@ -26,7 +26,6 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
-from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
@@ -870,7 +869,7 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
     n_save: int | None = None,
     stats: StatsSpec | None = None,
     polarisation_taper: bool = False,
-    node_budget: int = DEFAULT_NODE_BUDGET,
+    node_budget: int | None = None,
     backend: str = "auto",
     precision: PrecisionName = "double",
     polarisation: str | float | None = None,
@@ -1160,8 +1159,9 @@ def prop_capillary(  # noqa: PLR0913 - the interface's keyword surface
         Whether the spectral collar tapers the nonlinear polarisation. Default
         ``False``: the taper costs a systematic error of the size of the field's
         content in the collar, and the rate absorber acts either way.
-    node_budget : int, optional
-        Bytes of node-chunk buffers the response pass may hold.
+    node_budget : int or None, optional
+        Bytes of node-chunk buffers the response pass may hold, an execution setting;
+        ``None``, the default, leaves the backend's automatic choice.
     backend : str, optional
         Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
         isn't installed or this processor is below its baseline. There is no fallback,
@@ -1403,7 +1403,7 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
     n_save: int | None = None,
     stats: StatsSpec | None = None,
     polarisation_taper: bool = False,
-    node_budget: int = DEFAULT_NODE_BUDGET,
+    node_budget: int | None = None,
     backend: str = "auto",
     precision: PrecisionName = "double",
     polarisation: str | float | None = None,
@@ -1678,8 +1678,9 @@ def prop_waveguide(  # noqa: PLR0913 - the interface's keyword surface
         Whether the spectral collar tapers the nonlinear polarisation. Default
         ``False``: the taper costs a systematic error of the size of the field's
         content in the collar, and the rate absorber acts either way.
-    node_budget : int, optional
-        Bytes of node-chunk buffers the response pass may hold.
+    node_budget : int or None, optional
+        Bytes of node-chunk buffers the response pass may hold, an execution setting;
+        ``None``, the default, leaves the backend's automatic choice.
     backend : str, optional
         Registry name, or ``"auto"`` (the default) for ``native``, which refuses if it
         isn't installed or this processor is below its baseline. There is no fallback,

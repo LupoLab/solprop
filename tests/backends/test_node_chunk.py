@@ -14,6 +14,7 @@ among them, and the plan reproduces each, refusals included.
 
 import dataclasses
 import functools
+import inspect
 import json
 import subprocess
 import sys
@@ -37,8 +38,9 @@ from solprop.backends.node_chunk import (
 )
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.session import ExecutionOptions
-from solprop.driver import SimulationSettings
-from solprop.exceptions import BackendError
+from solprop.driver import Simulation, SimulationSettings
+from solprop.driver.interface import prop_capillary, prop_waveguide
+from solprop.exceptions import BackendError, DriverError
 from solprop.grid import FieldGrid, FreeGrid, LineGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
 from solprop.nonlinear.raman import response_for
@@ -211,7 +213,7 @@ def test_the_plan_is_the_translation_s_former_chunk(name):
             continue
         plan = plan_node_chunk(problem, options)
         assert plan.chunk == expected, (name, budget)
-        assert plan.source == ("automatic" if budget is None else "explicit")
+        assert plan.source == ("default" if budget is None else "explicit")
         assert plan.budget == (
             default_node_budget(problem.transform) if budget is None else budget
         )
@@ -249,6 +251,47 @@ def test_a_budget_that_is_not_a_positive_integer_is_refused(budget):
         ExecutionOptions(node_budget=budget)
     with pytest.raises(BackendError, match="node_chunk must be a positive"):
         ExecutionOptions(node_chunk=budget)
+
+
+@pytest.mark.parametrize("integral", [np.int64(2**20), np.uint32(2**20), 2**20])
+def test_any_integral_budget_is_held_as_an_int(integral):
+    """A NumPy integer, as a scan axis gives one, is a budget like any other."""
+    options = ExecutionOptions(node_budget=integral, node_chunk=integral)
+    assert type(options.node_budget) is int and options.node_budget == 2**20
+    assert type(options.node_chunk) is int and options.node_chunk == 2**20
+    settings = SimulationSettings(
+        save_planes=[1.0], dz_max=0.1, dz_init=0.01, node_budget=integral
+    )
+    assert type(settings.node_budget) is int and settings.node_budget == 2**20
+    assert settings.execution_options() == ExecutionOptions(node_budget=2**20)
+    with pytest.raises(BackendError, match="positive number of bytes"):
+        ExecutionOptions(node_budget=np.int64(0))
+
+
+def test_the_settings_refuse_a_budget_before_translation():
+    """Refused when the settings are made, not after the output opened (SEP 47)."""
+    with pytest.raises(DriverError, match="node_budget must be a positive"):
+        SimulationSettings(save_planes=[1.0], dz_max=0.1, dz_init=0.01, node_budget=0)
+
+
+def test_the_constructors_leave_the_budget_to_the_backend():
+    """No budget given is the route's default, recorded so; a given one is explicit."""
+    simulation = capillary(modes=3)
+    assert simulation.settings.node_budget is None
+    problem = simulation.translate()
+    plan = plan_node_chunk(problem, simulation.settings.execution_options())
+    assert (plan.source, plan.budget) == ("default", DEFAULT_NODE_BUDGET)
+    explicit = capillary(modes=3, node_budget=DEFAULT_NODE_BUDGET)
+    same = plan_node_chunk(problem, explicit.settings.execution_options())
+    assert (same.source, same.chunk) == ("explicit", plan.chunk)
+    signature = inspect.signature
+    for constructor in (
+        Simulation.from_capillary,
+        Simulation.from_waveguide,
+        prop_capillary,
+        prop_waveguide,
+    ):
+        assert signature(constructor).parameters["node_budget"].default is None
 
 
 def test_the_default_budgets_are_stated_in_bytes():

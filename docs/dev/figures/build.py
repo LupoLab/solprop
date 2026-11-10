@@ -711,6 +711,7 @@ MODULES = {
                 "spatial",
                 "populations",
                 "memory",
+                "node_chunk",
                 "multistep",
                 "multistep_general",
                 "adams_core",
@@ -2382,7 +2383,7 @@ def one_stage() -> drawsvg.Drawing:
     _arrow(drawing, [(MARGIN + PIPE_WIDTH + 4, fourth + 24), (side_x - 4, fourth + 24)])
     _text(
         drawing,
-        "over a chunk of transform.node_chunk nodes, so the buffers are",
+        "over the backend's node chunk at a time, so the buffers are",
         side_x,
         fourth + column + 14,
         size=SMALL_SIZE,

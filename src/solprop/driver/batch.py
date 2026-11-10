@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.driver.run import _history_of, plane_from_observation
 from solprop.driver.simulation import Simulation
@@ -90,9 +91,12 @@ def _signature(member: BatchMember) -> str:
         "stepper": problem.stepper,
         "statistics": problem.stats_spec,
         "nodes": transform.n_nodes,
-        # The node chunk is planned from the problem and this budget when the
-        # backend is prepared, so members with equal layouts and budgets share it.
-        "node_budget": simulation.settings.node_budget,
+        # Each member's planned chunk (SEP 47 section 6.5): members whose responses
+        # plan different chunks (Raman tensor weights, dispersive groups) do not
+        # share a lockstep group.
+        "node_chunk": plan_node_chunk(
+            problem, simulation.settings.execution_options()
+        ).chunk,
         "transform_shape": transform.synthesis.shape,
         "coarse_projection": transform.projection_coarse is not None,
         "linear_structure": _structure(problem.linear),
