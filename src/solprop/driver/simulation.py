@@ -3772,6 +3772,7 @@ class Simulation(Displayed):
                     kept=kept is not None,
                     restoration=restoration,
                 )
+                self._restore_atomic(binding, start)
                 self._consistency_gate(binding, problem, handler, metadata, backend)
                 run_problem(
                     problem,
@@ -3948,6 +3949,29 @@ class Simulation(Displayed):
             _close_tdse_archive(archive, error)
             raise
         return binding, archive
+
+    @staticmethod
+    def _restore_atomic(binding: TDSEBinding | None, start: Start) -> None:
+        """Restore a resumed run's cumulative atomic accounting into its binding.
+
+        Before anything can charge the binding: a haCC run's consistency gate makes a
+        diagnostic provider call when its local cache has no entry, and a budget that
+        has begun work refuses to be restored. The start keeps only the logical
+        ledger, which the session restores when it loads the start.
+
+        Parameters
+        ----------
+        binding : TDSEBinding or None
+            The run's open atomic binding; None for a run without one.
+        start : solprop.backends.session.Start
+            Where the run starts; its atomic ledger is taken.
+        """
+        ledgers = start.ledgers
+        if binding is None or not ledgers or not ledgers.get("atomic"):
+            return
+        atomic = cast("Mapping[str, object]", ledgers["atomic"])
+        binding.restore_ledger(AtomicCallLedger.from_record(atomic))
+        start.ledgers = {"logical": ledgers.get("logical", {})}
 
     def _consistency_gate(
         self,
