@@ -34,7 +34,8 @@ volatile double factor_a = 1.0 + 0x1p-30;
 volatile double factor_b = 1.0 - 0x1p-30;
 volatile double addend = -1.0;
 
-[[gnu::noinline]] double contracting(const double a, const double b, const double c) {
+[[gnu::noinline, maybe_unused]] double contracting(const double a, const double b,
+                                                   const double c) {
   const double product = a * b;
   return product + c;
 }
