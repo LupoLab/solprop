@@ -25,10 +25,17 @@ from solprop.translate.run_request import MethodKind, describe_run
         (None, MethodKind.RUNGE_KUTTA, False),
         (Multistep(), MethodKind.ADAMS, False),
         (ComparisonMultistep(order=3), MethodKind.ADAMS, True),
+        (
+            ComparisonMultistep(corrector="pec", order=3, corrector_order=4),
+            MethodKind.ADAMS,
+            False,
+        ),
     ],
-    ids=["runge-kutta", "adams", "comparison"],
+    ids=["runge-kutta", "adams", "comparison", "selected-pec"],
 )
-def test_only_the_comparison_family_is_reference_only(integrator, kind, reference_only):
+def test_only_the_comparison_variants_are_reference_only(
+    integrator, kind, reference_only
+):
     integration = describe_run(soliton(integrator=integrator)).integration
     assert integration.kind is kind
     assert integration.reference_only is reference_only
