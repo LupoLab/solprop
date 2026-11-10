@@ -268,7 +268,7 @@ def noisy_problem(march: str, *, draw: bool = True):
         problem,
         initial=dataclasses.replace(
             problem.initial,
-            field0=pulse.build(grid, space, medium=SpatialMedium())[None],
+            field0=pulse.build(grid, space, medium=SpatialMedium()),
         ),
     )
     if march != "march":

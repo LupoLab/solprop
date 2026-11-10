@@ -2119,7 +2119,7 @@ class Simulation(Displayed):
     ... )
     >>> handler = simulation.run()
     >>> handler.n_saved, simulation.translate().shape
-    (2, (1, 1, 1, 1024))
+    (2, (1, 1, 1024))
     """
 
     # How a constructor that drew the noise without a seed draws it again from a given
@@ -2447,7 +2447,7 @@ class Simulation(Displayed):
         ... )
         >>> problem = simulation.translate()
         >>> problem.shape, simulation.translate() is problem
-        ((1, 1, 1, 768), True)
+        ((1, 1, 768), True)
         """
         if self._problem is None:
             settings = self.settings
