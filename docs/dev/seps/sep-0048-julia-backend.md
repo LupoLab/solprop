@@ -292,8 +292,12 @@ solprop julia status                # what is set up, where, and at which versio
   and a set-up environment for this solprop version exists. It checks this from files,
   without starting Julia.
 - **`solprop julia setup`** installs the pinned Julia release, unless a matching one is
-  found (§6.5). It then instantiates the committed environment of each requested device
-  and precompiles it, including the engine's compile workload.
+  found (§6.5). It then instantiates the CPU environment and the environment of each
+  device requested with `--device` (repeatable: `cuda`, `rocm`, `metal`), and
+  precompiles them, including the engine's compile workload. A device can be added by
+  a later setup. `solprop.backends.julia.setup()` and `status()` are the same
+  operations as Python functions, for scripts and notebooks; the commands are thin
+  wrappers over them (Q4).
   - The packages go to a private depot below the calibration store directory
     (`solprop.calibration.store_directory`, so `SOLPROP_CACHE_DIR` moves it).
     `SOLPROP_JULIA_DEPOT` names another.
@@ -316,16 +320,24 @@ solprop julia status                # what is set up, where, and at which versio
 from solprop import Simulation, SimulationSettings
 
 sim = Simulation(..., settings=SimulationSettings(backend="julia"))
+sim_gpu = Simulation(..., settings=SimulationSettings(backend="julia", device="cuda"))
 sim_single = Simulation(..., settings=SimulationSettings(backend="julia", precision="single"))
 ```
 
-- **The device.** `SOLPROP_JULIA_DEVICE` (`cpu`, the default, `cuda`, `rocm` or `metal`)
-  is read once, when the process starts its Julia runtime. A process holds one Julia
-  runtime, whose environment is fixed when it starts, so the device is a per-process
-  choice (Q2). A run in a process whose runtime holds another device's environment
-  refuses by name. `SOLPROP_REQUIRE_DEVICE` gains `metal` and applies to `julia` as it
-  does to `native`: `cuda` accepts Julia's CUDA, `hip` its ROCm, and `any` every
-  device.
+- **The device** is a per-run setting, a new `SimulationSettings.device` (Q2): `None`
+  (the default), `"cpu"`, `"cuda"`, `"rocm"` or `"metal"`.
+  - **On `julia`,** `None` means the CPU. A GPU package loads only when a run first asks
+    for its device, and SolpropJulia's extension for it then activates by itself
+    (§6.5). A CPU run never loads a GPU package. Runs on different devices may share a
+    process; the first run on a device pays its package's loading and kernel
+    compilation. A device whose environment is not set up refuses by name, giving the
+    setup command.
+  - **On `native`,** the device is the build's. `None` accepts it, and any other value
+    must match it (`"cuda"` a CUDA build, `"rocm"` a HIP build, `"cpu"` a CPU build), or
+    the run refuses before allocating anything. `numpy_ref` accepts `None` and `"cpu"`.
+  - `SOLPROP_REQUIRE_DEVICE` stays as a job's guard. It gains `metal` and applies to
+    `julia` as it does to `native`: `cuda` accepts either backend's CUDA, `hip` native's
+    HIP or Julia's ROCm, and `any` every GPU.
 - **Precision.** `precision="single"` is admitted: `julia` joins
   `SINGLE_PRECISION_BACKENDS`. Metal is binary32 only, and binary64 refuses there by
   name. The wide type defaults to double-float on Metal and binary64 elsewhere, and is
@@ -376,8 +388,13 @@ SEP when that SEP says so.
 #### 5.4 Process model
 
 - **Starting the runtime.** The runtime starts at the first `julia` preparation in a
-  process, never on import. It refuses if `juliacall` was already initialised by
-  something else, which would hold another environment.
+  process, never on import. Its load path holds the CPU environment and every device
+  environment that setup installed, so a device's package can load later in the same
+  process. It refuses if `juliacall` was already initialised by something else, which
+  would hold another environment.
+- **Loading a device.** The first run on a device loads its GPU package, which stays
+  loaded for the life of the process. Loading it can invalidate some compiled CPU code,
+  which then recompiles once; phase 4 measures the cost (§7.5).
 - **Workers.** Scans, the service client and the GUI's jobs already use spawned worker
   processes. Each spawned process starts its own runtime and pays its start-up once.
   `fork` after the runtime has started is unsupported, and refused where solprop
@@ -398,8 +415,8 @@ The code lives in four places:
 - **`julia/`, the Julia project.** It sits at the repository root, beside `native/`:
   - the package `SolpropJulia`: `Project.toml`, `src/`, the device extensions in `ext/`
     and the Julia tests in `test/`;
-  - `julia/environments/{cpu,cuda,rocm,metal}/`, the committed environments setup
-    instantiates (§6.5);
+  - `julia/environments/`, the committed environments setup instantiates: one joint
+    resolution, and the CPU and per-device environments derived from it (§6.5);
   - `julia/AGENTS.md` (§6.7).
 - **`src/solprop/backends/julia/`, the Python adapter:**
   - the registry entry and admission (`refusal`);
@@ -480,7 +497,8 @@ block merge.
 
 #### 6.5 Distribution
 
-There are two ways to deliver option A, a run-time Julia through `juliacall`:
+There are two ways to deliver option A, a run-time Julia through `juliacall`. The
+maintainer chose A2 (Q1).
 
 **A1, juliapkg-managed.**
 
@@ -494,7 +512,7 @@ There are two ways to deliver option A, a run-time Julia through `juliacall`:
 - Another `juliacall` package in the same environment shares, and can conflict with,
   the project.
 
-**A2, solprop-managed (recommended).**
+**A2, solprop-managed (chosen).**
 
 - Setup installs a pinned Julia: an existing `juliaup` channel or a `julia` on the
   `PATH` of the exact pinned minor, otherwise the official release, checked against its
@@ -511,16 +529,28 @@ There are two ways to deliver option A, a run-time Julia through `juliacall`:
     own environment directories in it, and they share package files.
   - It cannot be disturbed by other `juliacall` packages.
 - **The cost:**
-  - A manifest per device environment to keep current (a scheduled update PR).
+  - The manifests to keep current (a scheduled update PR).
   - The table of Julia releases and digests that setup downloads.
+
+**The environments (Q2).** One joint resolution, a project whose dependencies are the
+engine and all three GPU packages, fixes a single version of every package, the shared
+GPU dependencies included. The CPU environment and each device environment are
+committed as subsets of that resolution, each closed under its dependencies, so any
+combination of them agrees on every shared package. At run time the CPU environment
+heads the load path and the set-up device environments are stacked after it. Loading a
+GPU package then finds it, with versions consistent with what is already loaded, and
+SolpropJulia's extension for it activates. Setup instantiates and precompiles only the
+environments asked for, so a CPU-only user downloads no GPU package. CUDA.jl's
+`--cuda-local` preference lives in the CUDA environment.
 
 **Julia version.** Julia 1.13 is the minimum (the experiment's version; FFTL's compiled
 library misbehaved on 1.12.6, #590). The patch release is pinned and recorded, and
 raised by a PR that reruns the Julia lane.
 
-**Platforms.** Setup and the CPU lane cover Linux x86-64 and macOS arm64. Linux aarch64
-and Windows x64 are attempted by setup but unqualified at merge (Q5). Metal needs macOS
-on Apple silicon; CUDA and ROCm need Linux.
+**Platforms (Q5).** Linux x86-64 and macOS arm64 are qualified at merge. Setup also
+installs on Linux aarch64 and Windows x64, which the manual lists as unqualified.
+Windows arm64, which Julia supports only at its lowest tier, is refused by name. Metal
+needs macOS on Apple silicon; CUDA and ROCm are qualified on Linux only.
 
 **Coexistence with native in one process** is supported. The experiment's A/B harness
 ran both arms in one interpreter, on Linux and macOS.
@@ -576,13 +606,14 @@ GPU could not take.
 
 - runs setup with the depot cached by manifest digest, the Runic check, `Pkg.test`, and
   the Python Julia modules;
-- runs on every pull request whose diff is not documentation alone (Q3), and on macOS
-  arm64 weekly and on changes to `julia/`;
+- runs on every pull request whose diff is not documentation alone (Q3). A macOS arm64
+  job runs weekly and on changes to `julia/`;
 - is independent of the coverage lane, which omits `backends/julia/` as a recorded
   omission (as `mlx` was).
 
-GPU tests (`pytest -m gpu` with `SOLPROP_JULIA_DEVICE`) run by hand, once per vendor
-before merge and at each qualification pass, as native's device builds do.
+GPU tests (`pytest -m gpu`, with the test run's device named by an environment
+variable) run by hand, once per vendor before merge and at each qualification pass, as
+native's device builds do.
 
 #### 6.7 Rules for the Julia code
 
@@ -747,7 +778,9 @@ These are not merge gates. They are rows in the ledger of
   - each GPU of §7.4, binary64 and binary32.
 - **Whole runs** on two cases per machine.
 - **Start-up:**
-  - setup's time and the depot's size;
+  - setup's time and the depot's size, for the CPU environment and each device's;
+  - the cost of loading a device package into a process that has already run on the
+    CPU, including any recompilation it causes;
   - a process's first-run latency: the runtime start, package loading and compilation,
     on a CPU and on each GPU;
   - a spawned scan worker's overhead.
@@ -808,6 +841,8 @@ These are not merge gates. They are rows in the ledger of
 **Added:**
 
 - the `julia` registry name;
+- `SimulationSettings.device`, which native and `numpy_ref` check against what they
+  run (§5.2);
 - `julia` in `SINGLE_PRECISION_BACKENDS`;
 - `SOLPROP_REQUIRE_DEVICE=metal`;
 - the `solprop julia` commands;
@@ -853,7 +888,8 @@ rewritten.
 
 1. **Package, distribution and rules.**
    - **Deliverables:**
-     - the `julia/` package with its environments and `julia/AGENTS.md`;
+     - the `julia/` package, the joint resolution with the environments derived from
+       it, and `julia/AGENTS.md`;
      - Runic, Aqua and JET;
      - `solprop julia setup` and `status`, and the private depot;
      - availability, refusal and the runtime's start;
@@ -879,7 +915,9 @@ rewritten.
    - **Verify:** §7.3 on the CPU.
 4. **Devices.**
    - **Deliverables:**
-     - the CUDA, ROCm and Metal extensions on the session;
+     - the CUDA, ROCm and Metal extensions on the session, loaded on demand by a run's
+       `device`;
+     - `SimulationSettings.device`, and native's check of it against its build;
      - graphs and the other measured device choices.
    - **Verify:** §7.4 for each vendor, §7.3 on each GPU, and the device rows of §7.5.
 5. **Records and Final.**
@@ -892,25 +930,25 @@ rewritten.
 
 ### 12. Open questions
 
-To settle before acceptance unless deferred:
+None remain open. The maintainer settled the drafted questions on 2026-11-10, and Part I
+records each decision where it applies:
 
-- **Q1. The environment's manager.** Should it be A2, solprop-managed with committed
-  manifests (recommended), or A1, juliapkg (§6.5)?
-- **Q2. Device selection.** Should the device be a process-wide `SOLPROP_JULIA_DEVICE`
-  (recommended, since the runtime's environment is fixed at start), or a per-run setting
-  refused when it differs from the running environment?
-- **Q3. CI trigger.** Should the Julia job run on every non-documentation pull request
-  (recommended: the seam is wide and Tier 3 must stay runnable), or only on changes to
-  `julia/`, `backends/`, `translate/` and `driver/service.py`?
-- **Q4. The command's spelling.** `solprop julia setup` and `status` beside
-  `solprop calibrate` (recommended), or a Python function only?
-- **Q5. Platforms at merge.** Linux x86-64 and macOS arm64 qualified, with Linux aarch64
-  and Windows x64 attempted but unqualified (recommended)? Or should Windows be refused?
-- **Q6. The merge scope.** Is §5.3's table the right bar? In particular: groups, dense
-  output and the low-storage replay at merge, and vector polarisation and tensor Raman
-  left out.
-- **Q7. The Julia version policy.** Should it be 1.13 as the minimum, with a pinned patch
-  raised by pull request (recommended)?
+- **Q1. The environment's manager:** solprop-managed (A2), with committed manifests and
+  a private depot shared across virtual environments (§6.5).
+- **Q2. Device selection:** a per-run `SimulationSettings.device`. GPU packages load on
+  demand through package extensions, from stacked environments derived from one joint
+  resolution. Native checks the setting against its build (§§5.2, 5.4, 6.5).
+- **Q3. CI trigger:** the Linux job on every pull request that is not documentation
+  alone, and a macOS arm64 job weekly and on changes to `julia/` (§6.6).
+- **Q4. Commands:** `solprop julia setup` and `status`, as thin wrappers over
+  `solprop.backends.julia.setup()` and `status()` (§5.1).
+- **Q5. Platforms:** Linux x86-64 and macOS arm64 qualified at merge. Linux aarch64 and
+  Windows x64 install but are unqualified, and Windows arm64 is refused (§6.5).
+- **Q6. Merge scope:** §5.3 as drafted, including snapshots and resume, fixed-schedule
+  groups, dense output and the low-storage replay. Vector polarisation and tensor Raman
+  stay out.
+- **Q7. Julia version:** 1.13 minimum, with the exact patch pinned and raised by pull
+  request. A minor-version bump re-resolves the manifests (§6.5).
 
 ### 13. References
 
@@ -948,3 +986,6 @@ To settle before acceptance unless deferred:
   PR #559. The maintainer chose an explicit setup over a first-use install, all three
   GPU vendors and binary32 at merge, and Runic, Aqua and JET as the blocking Julia tools.
   The tracking issue is still to be opened.
+- 2026-11-10: The maintainer settled Q1–Q7 (§12). Q2 changed the design: the device is
+  a per-run setting, with GPU packages loaded on demand from stacked environments of
+  one joint resolution, in place of a process-wide variable.
