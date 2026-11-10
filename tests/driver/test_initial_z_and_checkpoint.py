@@ -16,6 +16,8 @@ from tests.driver.test_run import NullBackend
 from solprop.backends.multistep import CallLedger
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import select
+from solprop.backends.session import Start
+from solprop.backends.sessions import start_session
 from solprop.boundaries import absorber
 from solprop.driver import Simulation, SimulationSettings, run_problem
 from solprop.driver import simulation as simulation_module
@@ -53,6 +55,7 @@ from solprop.stats import StatsSpec
 from solprop.stepper import PIController
 from solprop.stepper.multistep import Multistep
 from solprop.translate import problem as problem_module
+from solprop.translate.run_request import describe_run
 from solprop.translate.tdse import AtomicCallLedger
 
 # These fixtures run a TDSE response on a multi-node Gauss-Kronrod rule on purpose;
@@ -476,6 +479,23 @@ def test_budget_stop_is_separate_and_resume_cannot_reset_its_budget(tmp_path):
     assert again.history.n_steps == stopped.history.n_steps
 
 
+def _loaded(backend, problem, start) -> int:
+    """Load a run's start into a backend through its session, as the run does.
+
+    Returns the start's first save plane still to propagate to; the backend is left
+    loaded and open.
+    """
+    session = start_session(
+        backend,
+        problem,
+        describe_run(problem, start_plane=start.plane_index),
+        start,
+        owns=False,
+    )
+    session.close()
+    return start.plane_index
+
+
 def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path):
     simulation = tiny_simulation()
     problem = simulation.translate()
@@ -491,14 +511,16 @@ def test_resume_uses_checkpoint_position_and_rejects_inconsistent_index(tmp_path
     state = resume(path)
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         assert backend.observe().z == 5e-6
         assert state.checkpoint is not None
         invalid = dataclasses.replace(
             state, checkpoint=dataclasses.replace(state.checkpoint, next_save_index=1)
         )
         with pytest.raises(DriverError, match="next_save_index"):
-            simulation._prime(backend, problem, invalid)
+            simulation._start(backend, problem, invalid)
     finally:
         backend.close()
 
@@ -521,7 +543,9 @@ def test_ordinary_resume_without_outcome_restores_plane_and_starts_fresh_ledgers
     assert state.outcome is None
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 1
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 1
+        )
         observed = backend.observe()
         assert observed.z == 5e-6
         assert_array_equal(
@@ -541,7 +565,6 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
     simulation = tiny_simulation()
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
-    backend.set_initial(problem.initial.field0, None)
     calls = []
     original = NumpyRefBackend.stats
 
@@ -559,6 +582,7 @@ def test_statistics_failure_keeps_drained_history_without_retrying_statistics(
                 problem,
                 backend,
                 memory,
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
             )
@@ -960,6 +984,7 @@ def test_tdse_requires_checkpoint_output_before_preparing_native_resources(
                 atomic_simulation.translate(),
                 NullBackend(),
                 LegacyOutput(),
+                start=Start.entrance(atomic_simulation.translate()),
                 metadata=atomic_simulation.metadata(),
                 progress="none",
             )
@@ -1107,7 +1132,9 @@ def test_a_resume_without_an_outcome_loads_the_field_without_restoring_ledgers(
     monkeypatch.setattr(NumpyRefBackend, "restore_call_ledgers", forbidden)
     backend = select("numpy_ref", problem, grid=simulation.grid, modes=simulation.modes)
     try:
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         assert backend.observe().z == state.plane.z
     finally:
         backend.close()
@@ -1178,7 +1205,9 @@ def test_spatial_resume_retains_physical_field_without_modal_normalisation(monke
             raise AssertionError("spatial physical fields have no modal power weight")
 
         monkeypatch.setattr(simulation_module, "power_amplitude", forbidden)
-        assert simulation._prime(backend, problem, state) == 0
+        assert (
+            _loaded(backend, problem, simulation._start(backend, problem, state)) == 0
+        )
         restored = backend.observe()
         assert restored.z == state.plane.z
         assert_array_equal(restored.require_field()[0], field)

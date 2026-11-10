@@ -265,7 +265,8 @@ Simulation(...)                                                    (D)
    │  .backend = backends.select(name, problem)                     (B)
    ▼
 run loop over save planes and stats periods                        (D)
-   │  backend.set_initial(field)                                    host → device once
+   │  session = start_session(backend, problem, request, start)
+   │  backend.set_initial(field)  (by the session)                  host → device once
    │  for z_save in planes: backend.propagate_to(z_save)            the driver's marches
    │                        obs = backend.observe()                 small host arrays
    │                        stats = backend.stats(spec)             one fused pass
@@ -283,7 +284,9 @@ call. The outer driver visits save planes. Device arrays never cross the seam;
 and the step history; `stats()` returns a small dictionary of host scalars/vectors.
 
 The outer loop is `solprop.driver.run.run_problem`, which takes a translated problem, a
-backend that already holds its initial state, and an output handler. Nothing in it is
+constructed backend, an output handler and a `Start` -- the entrance, or a resumed
+state with its call ledgers and method history -- which the run's session loads into
+the backend (SEP 47). Nothing in it is
 specific to a `Simulation`; it is the piece a batch runner or a scan calls. What the
 driver does not do is as much a part of the design as what it does:
 
@@ -647,18 +650,25 @@ index, parameters and seed. `run_scan` selects an executor; `Local` is the API d
 `Pool` uses spawned processes for independent CPU runs, and `Queue`/`Slurm` provide
 durable distributed execution. A controller owns the collected HDF5 scan file.
 
-Fixed-schedule fibre batches use `BatchBackend` and `select_batch`.
-A batch adopts independently translated and loaded member backends, each with its
-own tables, state and noise; it advances them under one compatible explicit schedule.
-The accepted update is fused on compiled backends, while response and transform work
-remains member-owned. `observe_members` preserves each member's history and statistics.
-Admission uses memory ledgers and a free-device-memory query with headroom.
+Fixed-schedule fibre batches run as a group (`solprop.backends.session.GroupSession`,
+started by `solprop.backends.sessions.start_group`; SEP 47 section 6.7): a sequence of
+independently translated member problems, each loaded from its own `Start`, advanced
+one common window (save plane) at a time, each member reporting its own events. The
+batched scan's loop (`driver/_scan_batch.py`) is the group's service loop. Until the
+native session lands the group is served over the lockstep runners (`BatchBackend`,
+`select_batch`), which adopt the loaded member backends, each with its own tables,
+state and noise. The accepted update is fused on compiled backends, while response and
+transform work remains member-owned. `observe_members` preserves each member's history
+and statistics. Admission uses memory ledgers and a free-device-memory query with
+headroom.
 
 Every backend has exact member-versus-singleton identity checks under the same
 schedule. That does not imply a throughput improvement on every workload: whether a
 batch beats independent runs depends on the problem size and the device. Adaptive
-lockstep is not implemented. A group-level failure fails every member of that group;
-recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
+lockstep is not implemented. A boundary stop fails its member alone; a group-level
+failure (a non-finite norm, a step floor, a trial exception, an in-flight failure)
+fails every member of that group, each reporting its own committed position and
+checkpoint eligibility; recovering the surviving members is an open question ([#171](https://github.com/LupoLab/solprop/issues/171)).
 
 Independent simulations use spawned processes, normally one scientific thread per
 worker, rather than threads, because thread pools, FFTW plans and the OpenMP runtime are

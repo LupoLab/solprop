@@ -33,6 +33,7 @@ from typing import TYPE_CHECKING, Literal, cast
 
 import numpy as np
 
+from solprop.backends.session import Start
 from solprop.calibration import _native, grain, selection
 from solprop.exceptions import CalibrationError
 
@@ -132,7 +133,7 @@ class _Windows:
             if record is None
             else ExecutionRecord.from_native(record),
         )
-        self.backend.set_initial(problem.initial.field0, None, z=problem.initial.z)
+        self.probe = self.backend.timing_probe(Start.entrance(problem))
         start = float(problem.initial.z)
         end = float(max(problem.stepper.save_planes, default=start))
         self.dz = float(problem.stepper.dz_init)
@@ -160,8 +161,8 @@ class _Windows:
         for z in self.positions:
             if self.low_storage:
                 return []
-            _, state = self.backend._trial_step(z, self.dz)  # pyright: ignore[reportPrivateUsage]
-            found.append(np.asarray(self.backend._observed_field(state)))  # pyright: ignore[reportPrivateUsage]
+            self.probe.trial(z, self.dz)
+            found.append(self.probe.field())
         return found
 
     def time(self, repeats: int) -> float:
@@ -178,12 +179,9 @@ class _Windows:
             Seconds per step.
         """
         steps: list[Callable[[], object]] = (
-            [self.backend.timed_step()]
+            [self.probe.trial]
             if self.low_storage
-            else [
-                (lambda z=z: self.backend._trial_step(z, self.dz))  # pyright: ignore[reportPrivateUsage]
-                for z in self.positions
-            ]
+            else [(lambda z=z: self.probe.trial(z, self.dz)) for z in self.positions]
         )
         for step in steps:
             step()

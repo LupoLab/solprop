@@ -27,6 +27,7 @@ from solprop.backends.host.driver import HostDriver
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.protocol import BackendHistory, Observation
 from solprop.backends.registry import available, select
+from solprop.backends.session import Start
 from solprop.driver import Simulation, SimulationSettings
 from solprop.driver.run import field_retention, run_problem
 from solprop.exceptions import BackendError, ConvergenceError, DriverError
@@ -408,12 +409,12 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
     problem = simulation.translate()
     backend = select("numpy_ref", problem, grid=simulation.grid)
     try:
-        backend.set_initial(problem.initial.field0, None)
         with pytest.raises(DriverError, match="cannot store field-free planes"):
             run_problem(
                 problem,
                 backend,
                 _NoRetention(),
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
                 fields="none",
@@ -423,6 +424,7 @@ def test_an_output_that_cannot_store_field_free_planes_is_refused():
                 problem,
                 backend,
                 MemoryOutput(),
+                start=Start.entrance(problem),
                 metadata=simulation.metadata(),
                 progress="none",
                 fields="planes",

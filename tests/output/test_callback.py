@@ -31,6 +31,7 @@ from runtime_types import unchecked
 from solprop import capabilities, sol
 from solprop.backends.protocol import Observation
 from solprop.backends.registry import available
+from solprop.backends.session import Start
 from solprop.driver import Simulation
 from solprop.driver import service as service_module
 from solprop.driver.run import run_problem
@@ -571,7 +572,13 @@ def test_a_handler_holding_planes_is_not_continued():
         simulation.runner() as runner,
         pytest.raises(OutputError, match="no run can continue it"),
     ):
-        run_problem(problem, runner.backend, handler, metadata=metadata)
+        run_problem(
+            problem,
+            runner.backend,
+            handler,
+            start=Start.entrance(problem),
+            metadata=metadata,
+        )
     assert len(planes) == 1
 
 
