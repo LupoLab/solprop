@@ -2780,7 +2780,8 @@ public:
       plan->widths = static_cast<statistics::Widths>(widths);
       plan->width_x = real_vector(exact_array<RealInput>(values["width_x"]));
       plan->width_y = real_vector(exact_array<RealInput>(values["width_y"]));
-      plan->width_weights = real_vector(exact_array<RealInput>(values["width_weights"]));
+      plan->width_weights =
+          real_vector(exact_array<RealInput>(values["width_weights"]));
       plan->width_n_x = nb::cast<std::size_t>(values["width_n_x"]);
       plan->width_n_y = nb::cast<std::size_t>(values["width_n_y"]);
       plan->width_terms = nb::cast<std::size_t>(values["width_terms"]);
@@ -3270,8 +3271,8 @@ NB_MODULE(_core, module_) {
           throw std::invalid_argument("a radial profile's samples are one-dimensional "
                                       "and of one length");
         const auto widths = native::statistics::widths::radial(
-            radius.data(), fluence.data(), weights.data(), radius.shape(0), axis_fluence,
-            e2_fraction);
+            radius.data(), fluence.data(), weights.data(), radius.shape(0),
+            axis_fluence, e2_fraction);
         return nb::make_tuple(widths[0], widths[1], widths[2]);
       },
       "radius"_a.noconvert(), "fluence"_a.noconvert(), "weights"_a.noconvert(),

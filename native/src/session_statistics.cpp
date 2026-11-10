@@ -506,8 +506,8 @@ void spatial(GeneralState& state, const Plan& plan, const double z,
     // The widths' own pass, as the host finishing read it: a plane's moments and then
     // its trace, or a profile's fluence block (session_widths.cpp).
     const bool plane = plan.widths == Widths::plane;
-    const auto packed = state.spatial_statistics(plane ? spatial_moments : spatial_fluence,
-                                                 plan.intensity_factor, z);
+    const auto packed = state.spatial_statistics(
+        plane ? spatial_moments : spatial_fluence, plan.intensity_factor, z);
     if (packed.size() != (plane ? plane_moments : plan.n_nodes + 2))
       throw std::logic_error("a fluence pass packed the wrong number of values");
     const auto values =
@@ -735,11 +735,11 @@ void Plan::validate() const {
           "has a pad scale that is not positive");
   }
   if (wanted(Stat::zdw))
-    check(zdw.size() == n_modes &&
-              std::all_of(zdw.begin(), zdw.end(),
-                          [](const RealTable& table) {
-                            return table.present() && table.n_values == 1;
-                          }),
+    check(zdw.size() == n_modes && std::all_of(zdw.begin(), zdw.end(),
+                                               [](const RealTable& table) {
+                                                 return table.present() &&
+                                                        table.n_values == 1;
+                                               }),
           "lacks a mode's zero-dispersion wavelength table");
   if (wanted.any({Stat::beam_radius, Stat::fwhm_r})) {
     check(route == Route::spatial && widths != Widths::none,
