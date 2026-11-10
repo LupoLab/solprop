@@ -252,12 +252,16 @@ def test_no_step_returns_to_python():
         _counters.disable()
         session.close()
     record = counters.record()
-    assert record["native_returns"] == {}
+    assert record["native_returns"] == {
+        "session_observation": len(run.observations),
+        "session_terminal": 1,
+    }
     assert record["low_storage_steps"] == record["host_attempts"] == 0
-    assert record["statistics_rows"] == record["statistics_evaluations"] == 0
     assert len(run.batches) == len(run.observations) + 1 == status.batches
     rows = sum(event.step_stats.n_rows for event in run.observations)
     assert rows == status.rows_taken == run.attempts == STEPS
+    assert record["statistics_rows"] == STEPS
+    assert record["march_calls"] == {"session_low_storage": status.march_calls}
     assert not run.histories[-1].n_steps
     assert np.all(np.concatenate([one.error_norm for one in run.histories]) == 0.0)
     assert status.march_calls >= STEPS

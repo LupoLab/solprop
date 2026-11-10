@@ -238,7 +238,10 @@ def test_an_edged_native_session_returns_to_python_only_at_its_events():
     assert accepted > len(observations)
     found = counters.record()
     assert found["transverse_reads"] == 0
-    assert found["native_returns"] == {}
+    assert found["native_returns"] == {
+        "session_observation": len(observations),
+        "session_terminal": 1,
+    }
     assert found["field_crossings"] == {}
     assert record is not None
     assert record["transverse"]["reads"] > 0

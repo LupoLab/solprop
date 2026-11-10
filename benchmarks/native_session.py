@@ -219,12 +219,13 @@ def _once(
     """Run one session to its end; return its timings and, with `count`, its counts.
 
     The driver's structural counters hook every attempt, so a counted run is not one
-    of the timed ones.
+    of the timed ones; both sessions are counted the same way
+    (:mod:`solprop_native._counters`).
     """
     from solprop_native import _counters  # noqa: PLC0415
 
     session, timed = _start(executor, simulation, problem, request)
-    counters = _counters.enable() if executor == "driver" and count else None
+    counters = _counters.enable() if count else None
     try:
         started = time.perf_counter()
         batches, kinds, saved = _serve(session, request)
@@ -248,12 +249,8 @@ def _once(
         record["march_calls"] = counted["march_calls"]
         record["field_bytes"] = counted["field_bytes"]
         record["statistics_rows"] = counted["statistics_rows"]
-    elif executor == "native-session":
-        status = session.native.status()
-        record["march_calls"] = status.march_calls
-        record["field_bytes"] = status.export_bytes
-        record["statistics_rows"] = status.rows_taken
-        record["buffer_bytes"] = status.buffer_bytes
+    if count and executor == "native-session":
+        record["buffer_bytes"] = session.native.status().buffer_bytes
     session.close()
     return record
 

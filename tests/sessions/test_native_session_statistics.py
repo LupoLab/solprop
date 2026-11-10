@@ -16,7 +16,8 @@ is exported. Three things are checked on each:
   backend statistics tests use for that statistic;
 - the periodic row equal to the plane statistics at the same position, bit for bit:
   one native implementation of each;
-- no return to Python caused by the rows, by solprop's native counters.
+- no return to Python caused by the rows, by solprop's native counters: the session
+  returns at its observations and its end alone, each one batch.
 """
 
 import dataclasses
@@ -189,14 +190,23 @@ def _check_rows(seen, names):
 
 
 def _check_structure(seen, status, counters):
-    """Assert the rows were native: no return to Python, no statistics call."""
+    """Assert the rows were native: returns at the observations and the end alone.
+
+    Every row and plane statistic is the session's own, counted from its batches; the
+    one field crossing an observation makes is the export the test asks for.
+    """
     rows = sum(record.row is not None for record in seen)
     assert status.rows_taken >= rows > 0
     record = counters.record()
-    assert record["statistics_evaluations"] == 0
-    assert record["statistics_rows"] == 0
-    assert record["native_returns"] == {}
-    assert record["field_crossings"] == {}
+    assert record["statistics_rows"] == status.rows_taken
+    assert record["statistics_evaluations"] == status.rows_taken + len(seen)
+    assert record["native_returns"] == {
+        "session_observation": len(seen),
+        "session_terminal": 1,
+    }
+    assert sum(record["native_returns"].values()) == status.batches
+    assert record["field_crossings"] == {"export": len(seen)}
+    assert record["host_attempts"] == record["transverse_reads"] == 0
 
 
 def _within(actual, expected, bound, what):
@@ -701,6 +711,10 @@ def test_rows_of_every_family_cause_no_return_to_python():
     assert rows == accepted == status.rows_taken == 8
     assert set(observations[-1].step_stats.values) == set(_periodic(CAPILLARY))
     record = counters.record()
-    assert record["statistics_evaluations"] == record["statistics_rows"] == 0
-    assert record["native_returns"] == {}
+    assert record["statistics_rows"] == status.rows_taken
+    assert record["statistics_evaluations"] == status.rows_taken + len(observations)
+    assert record["native_returns"] == {
+        "session_observation": len(observations),
+        "session_terminal": 1,
+    }
     assert record["field_crossings"] == {}

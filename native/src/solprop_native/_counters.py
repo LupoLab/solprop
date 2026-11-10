@@ -9,34 +9,59 @@ why each native call came back to Python, how many attempts it carried, and what
 crossed to the host. Counting is off unless the benchmark worker turns it on: every
 hook reads :data:`active` once and does nothing while it is ``None``. A run that is
 not counted pays one attribute test per native march call, plane, statistics call,
-edge read, field crossing and low-storage or group step, and nothing per attempt:
-the two per-attempt hooks (solprop's own loop's attempts and periodic rows) are
-installed on ``NativeBackend`` by :func:`enable` and removed by :func:`disable`. Its
-numbers are unchanged either way.
+edge read, field crossing or load, low-storage or group step and native session
+``advance`` or export, and nothing per attempt: the two per-attempt hooks (solprop's
+own loop's attempts and periodic rows) are installed on ``NativeBackend`` by
+:func:`enable` and removed by :func:`disable`. Its numbers are unchanged either way.
+
+The same record covers both ways a native run is served -- the transitional bridge
+(:class:`~solprop.backends.driver_session.DriverSession` over ``NativeBackend`` and its
+native marches) and the native execution session
+(:class:`~solprop_native.session.NativeSession`) -- so that the two can be compared
+key for key. A key keeps one meaning on both; where the two differ in kind, the
+session's own key starts ``session_``.
 
 What is counted, and where:
 
-- **Native march calls** (``adams_march``, ``rk_march``): one per call, with the
-  reason it returned (``march::Reason``). A ``host_step`` return is split by the
-  driver's work that fell due on its last accepted step: ``statistics`` (a periodic
-  row), ``step_planes`` (a natural stop, which a snapshot needs today), ``monitor``
-  (the boundary monitor's check by steps) and ``transverse`` (a collar's per-step
-  current, or a read of the transverse edge that fell due by distance,
-  ``transverse_read``). Several causes due together are joined with ``+``.
+- **Native march calls** made from Python (``adams_march``, ``rk_march``): one per
+  call, with the reason it returned (``march::Reason``). A ``host_step`` return is
+  split by the driver's work that fell due on its last accepted step: ``statistics``
+  (a periodic row), ``step_planes`` (a natural stop, which a snapshot needs on the
+  bridge), ``monitor`` (the boundary monitor's check by steps) and ``transverse`` (a
+  collar's per-step current, or a read of the transverse edge that fell due by
+  distance, ``transverse_read``). Several causes due together are joined with ``+``.
 - **Python-stepped attempts**: every attempt the driver's own loop records (a host
   march, a replay, the low-storage march and a lockstep group's members), each one or
   more native calls the counters do not split. The low-storage engine's steps and a
   native group's lockstep steps are also counted as such.
-- **Native group members' batches**: every batch a member's native session returns
-  to the native group session (``solprop_native.group``), by its event --
-  ``session_observation``, ``session_progress``, ``session_warning`` or
-  ``session_terminal`` -- with the attempts it carries, among the native attempts; and
-  the group's common steps, among the group steps.
-- **Planes** (calls of ``propagate_to``), **statistics rows** (periodic rows) and
-  **statistics evaluations** (every ``stats`` call, rows and planes), **transverse
-  edge reads**, and **fields crossing to the host** with their bytes, by where they
-  cross: ``plane`` (an observation), ``step`` (a host Adams engine's copy of each
-  accepted state) and ``load`` (a host engine's copy at a load).
+- **Native session batches**: every ``advance`` of a native session, each one return
+  to Python, by its event -- ``session_observation``, ``session_snapshot`` (a
+  requested snapshot serviced), ``session_warning``, ``session_terminal``, or
+  ``session_progress`` split by its cause: ``buffer`` (the attempt or row buffer
+  filled), ``work_limit`` (the caller's attempt bound) or ``deadline`` (its time
+  bound). Each batch's chunk adds its attempts and accepted steps to the native
+  attempts, its periodic rows to the statistics rows and, with its plane statistics,
+  to the statistics evaluations, and a non-launch observation to the planes; the
+  session's own march calls inside the ``advance`` are counted from its status as
+  ``session_adams``, ``session_runge_kutta`` or ``session_low_storage``. Members of
+  the native group session (``solprop_native.group``) are native sessions and are
+  counted so; the group's common steps are counted among the group steps.
+- **Planes** (calls of ``propagate_to`` on the bridge; non-launch observations of a
+  session), **statistics rows** (periodic rows, taken by solprop's loop on the bridge
+  and natively in a session) and **statistics evaluations** (rows and plane
+  statistics together), **transverse edge reads** made through Python (a native
+  session reads its edge natively: none), and **fields crossing to the host** with
+  their bytes, by where they cross: ``plane`` (the bridge's observation), ``step`` (a
+  host Adams engine's copy of each accepted state), ``load`` (a host engine's copy at
+  a load), ``export`` (a native session's export of an observation's field, one
+  native pass into the destination; a recipe asked again for the same batch is
+  served from the first and not counted) and ``snapshot`` (a native session's copy of
+  the Adams state and history).
+- **Fields loaded into the native state** with their bytes, by where: ``start``
+  (``NativeBackend.set_initial``: a run's start or resume, on either path) and
+  ``restore`` (the Adams march's reload after a dense observation or at a method
+  history's restore). solprop's host Adams engine reloads its masked state at each
+  step, which is not counted: its ``step`` crossings mark that route.
 
 Private: the benchmark harness's hook, with no stability promise. A build that moves
 these returns keeps the record's keys and says in its own counting what it removed.
@@ -61,11 +86,14 @@ class Counters:
     Attributes
     ----------
     march_calls : collections.Counter
-        Native march calls, by march.
+        Native march calls, by march; a native session's, by ``session_`` and its
+        march's kind.
     returns : collections.Counter
-        Native march returns, by reason; ``host_step`` by the work due on its step.
+        Native march returns, by reason; ``host_step`` by the work due on its step;
+        and native session batches, by ``session_`` and their event.
     march_attempts : int
-        Attempts the native marches made, rejected ones included.
+        Attempts the native marches and native sessions made, rejected ones
+        included.
     march_accepted : int
         Accepted steps among them.
     host_attempts : int
@@ -83,16 +111,23 @@ class Counters:
         Common steps of the native group session, which returns per window, not per
         step; the record's ``group_steps`` counts both kinds.
     planes : int
-        ``propagate_to`` calls: one per saved plane after the launch.
+        ``propagate_to`` calls, or a native session's observations: one per saved
+        plane after the launch.
     statistics_rows : int
-        Periodic statistics rows.
+        Periodic statistics rows, wherever taken.
     statistics_evaluations : int
-        ``stats`` calls, rows and planes together.
+        Statistics evaluations, rows and planes together: ``stats`` calls, or a
+        native session's rows and plane statistics.
     transverse_reads : int
-        Native reads of the transverse edge: its faces, or a collar's current.
+        Native reads of the transverse edge made through Python: its faces, or a
+        collar's current.
     field_crossings : collections.Counter
         Fields copied to the host, by where they cross.
     field_bytes : int
+        Bytes of those fields.
+    field_loads : collections.Counter
+        Host fields loaded into the native state, by where.
+    load_bytes : int
         Bytes of those fields.
     """
 
@@ -112,6 +147,8 @@ class Counters:
     transverse_reads: int = 0
     field_crossings: Counter[str] = field(default_factory=Counter[str])
     field_bytes: int = 0
+    field_loads: Counter[str] = field(default_factory=Counter[str])
+    load_bytes: int = 0
 
     def march(
         self,
@@ -154,22 +191,48 @@ class Counters:
         self.group_steps += 1
         self.group_attempts += members
 
-    def session_batch(self, event: str, attempts: int, accepted: int) -> None:
-        """Count one batch a group member's native session returned.
+    def session_batch(
+        self,
+        event: str,
+        attempts: int,
+        accepted: int,
+        *,
+        rows: int = 0,
+        evaluations: int = 0,
+        plane: bool = False,
+        march: str = "",
+        calls: int = 0,
+    ) -> None:
+        """Count one batch a native session returned from ``advance``.
 
         Parameters
         ----------
         event : str
-            Its event's kind: ``observation``, ``progress``, ``warning`` or
-            ``terminal``.
+            Its event's kind: ``observation``, ``snapshot``, ``warning``,
+            ``terminal``, or ``progress:`` and its cause.
         attempts : int
-            The attempts it carries.
+            The attempts its chunk carries.
         accepted : int
             The accepted steps among them.
+        rows : int, optional
+            The periodic rows its chunk carries.
+        evaluations : int, optional
+            The statistics evaluations it carries: its rows and its plane statistics.
+        plane : bool, optional
+            Whether it is an observation after the launch.
+        march : str, optional
+            The session's march, for its native march calls.
+        calls : int, optional
+            The native march calls the ``advance`` made.
         """
         self.returns[f"session_{event}"] += 1
         self.march_attempts += attempts
         self.march_accepted += accepted
+        self.statistics_rows += rows
+        self.statistics_evaluations += evaluations
+        self.planes += plane
+        if calls:
+            self.march_calls[march] += calls
 
     def group_window(self, steps: int) -> None:
         """Count the common steps of one window of the native group session."""
@@ -180,12 +243,18 @@ class Counters:
         self.field_crossings[where] += 1
         self.field_bytes += int(nbytes)
 
+    def load(self, where: str, nbytes: int) -> None:
+        """Count one host field loaded into the native state."""
+        self.field_loads[where] += 1
+        self.load_bytes += int(nbytes)
+
     def record(self) -> dict[str, object]:
         """Return the counts as a JSON-ready record.
 
-        ``native_returns`` is every return to Python by cause: the marches' reasons,
-        then ``host_attempt`` for solprop's own loop, less the low-storage steps and
-        group members it also counts, and ``low_storage_step`` and ``group_step``.
+        ``native_returns`` is every return to Python by cause: the marches' reasons
+        and the native sessions' batches, then ``host_attempt`` for solprop's own
+        loop, less the low-storage steps and group members it also counts, and
+        ``low_storage_step`` and ``group_step``.
         """
         host = self.host_attempts - self.low_storage_steps - self.group_attempts
         loops = {
@@ -211,6 +280,8 @@ class Counters:
             "transverse_reads": self.transverse_reads,
             "field_crossings": dict(sorted(self.field_crossings.items())),
             "field_bytes": self.field_bytes,
+            "field_loads": dict(sorted(self.field_loads.items())),
+            "load_bytes": self.load_bytes,
         }
 
 
