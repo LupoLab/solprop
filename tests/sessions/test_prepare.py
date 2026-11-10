@@ -22,6 +22,7 @@ from solprop.backends.driver_session import (
     DriverPreparedGroup,
     DriverSession,
 )
+from solprop.backends.events import Eligibility, Outcome, Terminal
 from solprop.backends.host.group_session import HostPreparedGroup
 from solprop.backends.host.session import HostPrepared, HostSession
 from solprop.backends.protocol import Backend
@@ -92,6 +93,7 @@ def test_any_other_driver_prepares_the_transitional_session():
     driver = ScriptedDriver(problem, request, grid=window())
     prepared = driver.prepare(problem, request)
     assert isinstance(prepared, DriverPrepared)
+    assert prepared.backend == driver.name
     # The preparation's execution facts are its driver's.
     assert prepared.metadata() == driver.metadata()
     with prepared.start(Start.entrance(problem), owns=False) as session:
@@ -101,6 +103,32 @@ def test_any_other_driver_prepares_the_transitional_session():
     assert driver.closed
     with pytest.raises(SessionError, match="closed"):
         prepared.start(Start.entrance(problem))
+
+
+def test_the_transitional_session_fails_a_plane_whose_statistics_fail(monkeypatch):
+    """The bridge session's own terminal paths, which the reference no longer takes.
+
+    A failure of the statistics at a plane ends the run there, eligible; a ticket
+    asked for while that terminal batch is pending is bound to it.
+    """
+    problem, request = soliton()
+    driver = ScriptedDriver(problem, request, grid=window())
+
+    def broken(spec):
+        msg = "manufactured statistics failure"
+        raise RuntimeError(msg)
+
+    monkeypatch.setattr(driver, "stats", broken)
+    with driver.prepare(problem, request).start(Start.entrance(problem)) as session:
+        batch = session.advance()
+        (terminal,) = batch.events
+        assert isinstance(terminal, Terminal)
+        assert terminal.outcome is Outcome.FAILED
+        assert isinstance(terminal.error, RuntimeError)
+        assert terminal.eligibility is Eligibility.ELIGIBLE
+        ticket = session.pending_ticket()
+        assert ticket is not None
+        assert ticket.receipt == batch.receipt
 
 
 def test_any_other_driver_prepares_the_transitional_group():
@@ -116,6 +144,10 @@ def test_any_other_driver_prepares_the_transitional_group():
         assert isinstance(prepared, DriverPreparedGroup)
         assert isinstance(prepared, PreparedGroup)
         assert prepared.backend == "numpy_ref"
+        # It starts over the runner the registry row names, which refuses an
+        # adaptive member by name.
+        with pytest.raises(BackendError, match="explicit fixed schedule"):
+            prepared.start([Start.entrance(problem)])
     finally:
         backend.close()
 

@@ -872,3 +872,42 @@ def test_a_final_warning_raised_as_an_error_fails_its_member_alone(backend):
     (completed,) = last.members[1]
     assert isinstance(completed, Terminal)
     assert completed.outcome is Outcome.COMPLETED
+
+
+@pytest.mark.parametrize("backend", TRANSITIONAL)
+def test_a_final_warning_raised_as_an_error_fails_the_member_s_lone_run(
+    backend, monkeypatch
+):
+    # The lone counterpart of the test above: the member's own session fails at its
+    # final check, at the run's end, with its state eligible for a checkpoint.
+    available(backend)
+    if backend == "native-lockstep":
+        monkeypatch.setattr(
+            "solprop_native.session.session_refusal", lambda *_: "the test's bridge"
+        )
+    simulation = member(0, backend)
+    problem = simulation.translate()
+    with ExitStack() as cleanup, warnings.catch_warnings():
+        warnings.simplefilter("ignore", BoundaryWarning)
+        warnings.filterwarnings(
+            "error", ".*a manufactured final warning", BoundaryWarning
+        )
+        lone = start_session(
+            constructed(simulation, cleanup),
+            problem,
+            simulation._run_request().for_run(monitor=final_warning(simulation)),
+            Start.entrance(problem),
+            owns=False,
+        )
+        cleanup.callback(lone.close)
+        batch = None
+        while not lone.finished:
+            batch = lone.advance()
+            lone.acknowledge(batch.receipt)
+    assert batch is not None
+    (failed,) = batch.events
+    assert isinstance(failed, Terminal)
+    assert failed.outcome is Outcome.FAILED
+    assert isinstance(failed.error, BoundaryWarning)
+    assert failed.eligibility is Eligibility.ELIGIBLE
+    assert failed.z == pytest.approx(PLANES[-1])
