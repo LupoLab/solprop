@@ -20,6 +20,7 @@ from solprop.backends.driver_session import DriverPrepared
 from solprop.exceptions import BackendError
 from solprop.log import NullReporter
 from solprop.stats import StatsSpec
+from solprop.translate.run_request import RunRequest
 
 
 def history(n_steps=2, *, accepted=None):
@@ -324,10 +325,13 @@ class Stub:
     reads_transverse_edge = False
     in_flight = None
     closed = False
-    request = None
-    """The run's request: the stub runs nothing, so it holds none."""
 
-    def set_initial(self, field, noise):
+    @property
+    def request(self) -> RunRequest:
+        """The run's request: the stub runs nothing, so it holds none."""
+        raise NotImplementedError
+
+    def set_initial(self, field, noise, *, z=0.0, resume=False):
         self.field = field
 
     def prepare(self, problem, request):
@@ -372,7 +376,7 @@ class Stub:
     def stats(self, spec):
         return {name: np.zeros(1) for name in spec.names}
 
-    def metadata(self):
+    def metadata(self) -> dict[str, object]:
         return {"backend": self.name, "propagator_mode": "tabulate"}
 
     def memory_ledger(self):

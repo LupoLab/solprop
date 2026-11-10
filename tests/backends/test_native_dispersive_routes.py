@@ -176,7 +176,8 @@ def route_case(
     response = DispersiveKerrResponse(ARGON, evaluator)
     if route == "free":
         grid = free_grid("field", True)
-        return (*free_problem([response], grid), grid)
+        problem, run_request = free_problem([response], grid)
+        return problem, run_request, grid
     if route == "planar":
         return planar_problem([response])
     return general_problem(strand(ARGON_FILL, core=CORE_CHI3), evaluator, "analytic")
@@ -560,12 +561,12 @@ def ledger_cases() -> dict[str, tuple[PropagationProblem, RunRequest, Any]]:
         for thg in (True, False):
             grid = free_grid("field", thg)
             response = DispersiveKerrResponse(ARGON, evaluator, thg=thg)
-            cases[f"free {evaluator} thg={thg}"] = (
-                *free_problem([response], grid),
-                grid,
-            )
+            problem, run_request = free_problem([response], grid)
+            cases[f"free {evaluator} thg={thg}"] = (problem, run_request, grid)
+            problem, run_request = free_problem([response, raman(thg)], grid)
             cases[f"free {evaluator} thg={thg} beside Raman"] = (
-                *free_problem([response, raman(thg)], grid),
+                problem,
+                run_request,
                 grid,
             )
             cases[f"planar {evaluator} thg={thg}"] = planar_problem([response])
@@ -573,12 +574,10 @@ def ledger_cases() -> dict[str, tuple[PropagationProblem, RunRequest, Any]]:
                 [response, raman(thg)]
             )
         envelope = free_grid("envelope", False)
-        cases[f"free envelope {evaluator}"] = (
-            *free_problem(
-                [DispersiveKerrResponse(ARGON, evaluator, thg=False)], envelope
-            ),
-            envelope,
+        problem, run_request = free_problem(
+            [DispersiveKerrResponse(ARGON, evaluator, thg=False)], envelope
         )
+        cases[f"free envelope {evaluator}"] = (problem, run_request, envelope)
         for form in ("real", "analytic"):
             for name, (gas, core) in STRANDS.items():
                 cases[f"general {evaluator} {form} {name}"] = general_problem(

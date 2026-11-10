@@ -292,7 +292,8 @@ def native_session() -> Any:
 
 
 def _soliton() -> tuple[Any, Any, dict[str, Any]]:
-    return *soliton(), {"grid": window(), "modes": [fibre().mode]}
+    problem, run_request = soliton()
+    return problem, run_request, {"grid": window(), "modes": [fibre().mode]}
 
 
 def _from_simulation(simulation: Any) -> tuple[Any, Any, dict[str, Any]]:

@@ -328,7 +328,9 @@ def test_the_planar_in_stage_collar_agrees_across_threads(tmp_path, march):
     if march == "adams":
         run_request = with_adams(run_request)
     run_request = fixed_order(run_request)
-    bound = _planar_bound(grid, space, problem, run_request.stepper.schedule.n_steps)  # pyright: ignore[reportOptionalMemberAccess]
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    bound = _planar_bound(grid, space, problem, run_request, schedule.n_steps)
     case = f"planar:{march}"
     one = forced_run(case, 1, tmp_path)
     several = forced_run(case, WIDTH, tmp_path)

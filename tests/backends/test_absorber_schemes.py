@@ -353,7 +353,8 @@ def capillary_in_its_collar(scheme):
 
 def soliton_in_its_collar(grid, scheme):
     """The envelope soliton of :func:`biting_case`, on five fixed steps."""
-    return grid, *biting_case(grid, scheme, BAND_STEPS), LENGTH
+    problem, run_request = biting_case(grid, scheme, BAND_STEPS)
+    return grid, problem, run_request, LENGTH
 
 
 @pytest.mark.parametrize("kind", ["field", "envelope"])
