@@ -5,21 +5,28 @@
 """The coupled flow's exponential Adams march, resident wherever a CPU build runs it.
 
 solprop SEP 47 phase 4 (section 6.3, the coupled-flow row): a coupled block wider than
-16 channels steps on the resident Adams engine of a CPU build, and the native session
-serves it, where solprop's host engine stepped it over the backend's hooks before and
-the session left it to the transitional bridge. A device build keeps today's
-admission: the host engine and the bridge.
+16 channels, and a block with bins off its flow's eigenbasis route, step on the
+resident Adams engine of a CPU build, and the native session serves them, where
+solprop's host engine stepped them over the backend's hooks before and the session left
+them to the transitional bridge. A device build keeps today's admission: the host
+engine and the bridge.
 
-Each case is a lossless helium taper with taper coupling and every bin on the flow's
-eigenbasis route, over ten fixed steps short enough that the formation bound of
-``tests/flow_parity.py`` stays far below one. The resident engine is held to
+The wide cases are lossless helium tapers with taper coupling and every bin on the
+route, over ten fixed steps short enough that the formation bound of
+``tests/flow_parity.py`` stays far below one; the resident engine is held to
 ``numpy_ref`` and to solprop's host engine on the same backend within the ten-step
-bound of ``tests/driver/test_native_coupled_flow.py`` (``parity_bound``), written
-before any measurement; the session is the bridge over the resident engine to the bit
-on one thread and the bridge over the host engine within the same bound.
+bound of ``tests/driver/test_native_coupled_flow.py`` (``parity_bound``). The cases off
+the route are ``flow_parity``'s eight, every bin or every other one routed to the
+augmented exponential, held to ``numpy_ref``, the host engine and the same backend on
+the eigenbasis route within ``flow_parity.ten_step_bound`` at
+``adams_formation_bound``. Every bound is written before any measurement; the session
+is the bridge over the resident engine to the bit on one thread and the bridge over the
+host engine within the same bound.
 """
 
+import dataclasses
 import os
+import weakref
 from typing import Any
 
 import numpy as np
@@ -33,13 +40,28 @@ from driver.test_native_coupled_flow import (
     parity_bound,
     propagate,
 )
+from flow_parity import (
+    CASES,
+    adams_formation_bound,
+    build,
+    departure,
+    flow_scales,
+    run,
+    ten_step_bound,
+)
 from sessions.executors import IDENTITY, Started, drive, entrance
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
 from solprop.driver import Simulation
-from solprop.exceptions import GrazingIncidenceWarning, MaterialRangeWarning
+from solprop.exceptions import (
+    BackendError,
+    GrazingIncidenceWarning,
+    MaterialRangeWarning,
+)
 from solprop.profiles import PiecewiseLinear
 from solprop.stepper import FixedSchedule
+from solprop.stepper.multistep import Multistep
+from solprop.translate.coupled import schur_eigenbasis
 
 pytestmark = [
     pytest.mark.skipif("native" not in available(), reason="native is not installed"),
@@ -140,7 +162,9 @@ def cases():
 
 def on_host_engine(monkeypatch) -> None:
     """Make the backend step every coupled flow on solprop's host engine."""
-    monkeypatch.setattr(backend_module, "_flow_on_host", lambda *_: True)
+    monkeypatch.setattr(
+        backend_module, "_flow_on_host", lambda *_: "the test's host engine"
+    )
 
 
 def _scale(case: Case) -> float:
@@ -222,13 +246,16 @@ def _one_thread() -> bool:
     }
 
 
-def session_run(case: Case, monkeypatch, path: str) -> tuple[np.ndarray, Any]:
+def session_run(
+    case: Case, monkeypatch, path: str, context: dict[str, Any] | None = None
+) -> tuple[np.ndarray, Any]:
     """Run a case's prepared execution on one path; return its last field and status.
 
     ``"session"`` is whatever the preparation chooses, ``"bridge"`` the transitional
     session over the backend's own march and ``"host"`` that bridge over solprop's host
     engine. Every observation is exported with the identity recipe, the state as the
-    backend holds it.
+    backend holds it. `context` holds the profiles and modes a case's statistics read,
+    a wide case's own by default.
     """
     with monkeypatch.context() as patched:
         if path != "session":
@@ -242,7 +269,7 @@ def session_run(case: Case, monkeypatch, path: str) -> tuple[np.ndarray, Any]:
             case.problem,
             case.run_request,
             grid=case.grid,
-            **CONTEXT[case.problem.shape[0]],
+            **(CONTEXT[case.problem.shape[0]] if context is None else context),
         )
         prepared = backend.prepare(case.problem, case.run_request)
         session = prepared.start(entrance(case.problem))
@@ -281,3 +308,179 @@ def test_the_session_runs_a_wide_flow_as_the_bridges_do(cases, modes, monkeypatc
         np.testing.assert_array_equal(session, bridge)
     assert float(np.max(np.abs(session - bridge))) <= bound
     assert float(np.max(np.abs(session - host))) <= bound
+
+
+# --- Bins off the flow's eigenbasis route ------------------------------------------
+
+ROUTES = ("off", "mixed")
+"""Every bin off the eigenbasis route, and every other active bin of every section."""
+
+
+def _every_other(vectors, triangular):
+    """``schur_eigenbasis`` with every other bin taken off the route."""
+    left, right, eigenvalues, route = schur_eigenbasis(vectors, triangular)
+    route = route.copy()
+    route[1::2] = False
+    left[~route] = 0.0
+    right[~route] = 0.0
+    return left, right, eigenvalues, route
+
+
+def off_route(monkeypatch, route: str) -> None:
+    """Route a problem's bins off the eigenbasis, all of them or every other one.
+
+    Each problem's decomposition is kept while it lives, routed as it was when formed:
+    a fresh cache forms this route's.
+    """
+    monkeypatch.setattr(
+        "solprop_native.backend._HOST_FLOWS", weakref.WeakKeyDictionary()
+    )
+    if route == "off":
+        monkeypatch.setattr(
+            "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        )
+    else:
+        monkeypatch.setattr(backend_module, "schur_eigenbasis", _every_other)
+
+
+@pytest.fixture(scope="module")
+def parity_cases():
+    """Build each ``flow_parity`` case once for the module, on demand."""
+    built: dict[str, tuple[Simulation, Any]] = {}
+
+    def get(name: str):
+        if name not in built:
+            simulation = build(name)
+            built[name] = (simulation, simulation.translate())
+        return built[name]
+
+    return get
+
+
+def on_adams(request):
+    """Return a request on the exponential Adams march, the split block's included."""
+    if isinstance(request.stepper.integrator, Multistep):
+        return request
+    return request.with_stepper(
+        dataclasses.replace(request.stepper, integrator=Multistep())
+    )
+
+
+def _assert_routed(problem, route: str) -> None:
+    held = backend_module._host_flow(problem)
+    assert held is not None
+    assert not np.all(held.route) and (route == "off") == (not np.any(held.route))
+    # The native passes read the Schur factor's upper triangle alone.
+    assert np.all(np.tril(held.triangular, -1) == 0.0)
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("route", ROUTES)
+@pytest.mark.parametrize("name", CASES)
+def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
+    parity_cases, name, route, monkeypatch, record_property
+):
+    """Ten fixed Adams steps with bins off the route, within ``B_10``.
+
+    The bound, stated first: ``flow_parity.ten_step_bound`` with its formation bound
+    the larger of the actions' and the augmented exponential's
+    (``adams_formation_bound``), against ``numpy_ref`` (SciPy's ``expm`` on every
+    bin), against solprop's host engine on the same backend (the eigenbasis on the
+    route's bins, ``expm`` off it), and against the resident engine with every bin on
+    the eigenbasis route, each a pair of implementations of the same ten steps.
+    """
+    if DEVICE:
+        pytest.skip("a device build steps a bin off the route on the host engine")
+    simulation, problem = parity_cases(name)
+    request, grid = on_adams(simulation._run_request()), simulation.grid
+    on = run(NativeBackend, problem, request, grid)
+    expected = run(NumpyRefBackend, problem, request, grid)
+    off_route(monkeypatch, route)
+    _assert_routed(problem, route)
+    backend = NativeBackend(problem, request, grid=grid)
+    try:
+        assert type(backend._adams._engine).__name__ == "_ResidentAdams"
+    finally:
+        backend.close()
+    resident = run(NativeBackend, problem, request, grid)
+    with monkeypatch.context() as patched:
+        on_host_engine(patched)
+        host = run(NativeBackend, problem, request, grid)
+    scales = flow_scales(problem, request, grid, expected)
+    formation = max(scales.formation, adams_formation_bound(problem, request, grid))
+    bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
+    measured = {
+        "reference": departure(resident, expected),
+        "host_engine": departure(resident, host),
+        "eigenbasis": departure(resident, on),
+    }
+    record_property("bound", bound)
+    for key, value in measured.items():
+        record_property(key, value)
+    # The augmented exponential's share dominates the bound, loose by its factorial
+    # ((order + 1)! of a block's absolute rounding): it stays below 1e-5 on every case,
+    # far under the departure of a wrong moment, which is of the order of the step's
+    # nonlinear increment.
+    assert 0.0 < bound < 1e-5
+    assert max(measured.values()) <= bound
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("route", ROUTES)
+def test_the_session_runs_bins_off_the_route_as_the_bridges_do(
+    parity_cases, route, monkeypatch
+):
+    """The session admits the taper off the route and is the bridges' run.
+
+    Bitwise the resident bridge's on one thread; the host engine's bridge within the
+    bound of :func:`test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s`.
+    A device build refuses it by name, as it did.
+    """
+    simulation, problem = parity_cases("taper")
+    request, grid = simulation._run_request(), simulation.grid
+    expected = run(NumpyRefBackend, problem, request, grid)
+    off_route(monkeypatch, route)
+    _assert_routed(problem, route)
+    refused = native_session.refusal(problem, request)
+    if DEVICE:
+        assert refused is not None and "off the eigenbasis route" in refused
+        return
+    assert refused is None
+    case = Case(problem, request, grid, float(np.sum(request.stepper.schedule.steps)))
+    context = {"profiles": simulation.profiles, "modes": simulation.modes}
+    session, status = session_run(case, monkeypatch, "session", context)
+    bridge, bridged = session_run(case, monkeypatch, "bridge", context)
+    host, hosted = session_run(case, monkeypatch, "host", context)
+    scales = flow_scales(problem, request, grid, expected)
+    formation = max(scales.formation, adams_formation_bound(problem, request, grid))
+    bound = ten_step_bound(dataclasses.replace(scales, formation=formation))
+    assert status.attempts == bridged.attempts == hosted.attempts
+    if _one_thread():
+        np.testing.assert_array_equal(session, bridge)
+    assert departure(session, bridge) <= bound
+    assert departure(session, host) <= bound
+
+
+def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
+    parity_cases, monkeypatch
+):
+    """The augmented exponent's squarings are counted per trial and refused past 30.
+
+    A phase increment of 1e15 rad a step, the same in every channel, puts the shifted
+    block's row-sum norm far past ``0.5 2^30``: the trial refuses before it moves the
+    state, in the words of the flow action's own refusal.
+    """
+    if DEVICE:
+        pytest.skip("a device build steps a bin off the route on the host engine")
+    simulation, problem = parity_cases("scalar")
+    off_route(monkeypatch, "off")
+    linear = problem.linear
+    assert linear.phi_constant is not None
+    fast = dataclasses.replace(
+        problem,
+        linear=dataclasses.replace(linear, phi_constant=linear.phi_constant + 1e15j),
+    )
+    with pytest.raises(BackendError, match="would need more than 30 squarings"):
+        run(NativeBackend, fast, simulation._run_request(), simulation.grid)

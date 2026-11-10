@@ -343,11 +343,12 @@ def product_rounding(n_modes):
     return math.sqrt(2.0) * (n_modes + 2) * UNIT
 
 
-def reference_formation_bound(n_modes, norm, squarings):
-    """Return ``eps_S``: scaling and squaring's action against the exact one.
+def squaring_rounding(n_modes, norm, squarings):
+    """Return ``rho_s``: scaling and squaring's departure, in units of ``e^||A||``.
 
-    Parameters are the channel count, ``||l T||_2`` (any upper bound) and the number
-    of squarings taken; the result is relative to ``||U||_2``.
+    Parameters are the channel count, ``||A||_2`` (any upper bound) and the number of
+    squarings taken: Horner's sixteen steps and the series' tail, doubled and added to
+    at each squaring, as the module's docstring derives.
     """
     gamma = product_rounding(n_modes)
     scaled = norm / 2.0**squarings
@@ -359,10 +360,57 @@ def reference_formation_bound(n_modes, norm, squarings):
         * math.exp(scaled)
         * HARMONIC_16
     )
-    squared = (
-        2.0**squarings * (horner + tail) + (2.0**squarings - 1.0) * n_modes * gamma
-    )
+    return 2.0**squarings * (horner + tail) + (2.0**squarings - 1.0) * n_modes * gamma
+
+
+def reference_formation_bound(n_modes, norm, squarings):
+    """Return ``eps_S``: scaling and squaring's action against the exact one.
+
+    Parameters are the channel count, ``||l T||_2`` (any upper bound) and the number
+    of squarings taken; the result is relative to ``||U||_2``.
+    """
+    gamma = product_rounding(n_modes)
+    squared = squaring_rounding(n_modes, norm, squarings)
     return math.exp(2.0 * norm) * squared + 2.0 * n_modes * gamma
+
+
+def reference_squarings(row_sum):
+    """Return the squarings solprop's reference takes at a row-sum norm."""
+    if row_sum <= _TAYLOR_SCALE:
+        return 0
+    return math.ceil(math.log2(row_sum / _TAYLOR_SCALE))
+
+
+def augmented_formation_bound(n_modes, count, norm, row_sum):
+    """Return ``eps_M``: a bin's flow and moments off the eigenbasis route, absolutely.
+
+    solprop SEP 47 phase 4. The exponential Adams formulation reads the flow and
+    ``M_k = k! phi_(k+1)(X)``, ``X = Delta Phi I + h T``, off the first block row of
+    the exponential of the augmented matrix ``A`` of ``count + 1`` blocks
+    (``native/include/solprop_native/flow_functions.hpp``), whose block rows past the
+    first are a shift: ``||A||_2 <= ||X||_2 + 1``. The native passes are the full
+    augmented scaling and squaring's to the sign of a zero, so each block of the first
+    row is within ``e^||A|| rho_s`` of the exact one, with ``rho_s`` at
+    ``N = n (count + 1)`` channels and the squarings of the row-sum norm
+    (:func:`squaring_rounding`), and the back-transform adds ``2 n gamma ||phi||``;
+    ``||M_k|| <= k! e^||X|| / (k + 1)! <= e^||X||``. So every ``M_k`` (and the
+    flow) is within
+
+    ``eps_M = e^||A|| ((count - 1)! rho_s + 2 n gamma)``
+
+    of the exact one in the operator 2-norm. Parameters are the channel count, the
+    phi-blocks formed, ``||A||_2`` and the row-sum norm of ``A`` (any upper bounds).
+    SciPy's Pade ``expm``, the reference's evaluation, scales and squares the same
+    matrix to a backward error of ``u`` (Al-Mohy and Higham 2009); this module takes
+    it within the same ``eps_M``, as it takes the reference's flow action within
+    ``eps_S``.
+    """
+    width = n_modes * (count + 1)
+    rho = squaring_rounding(width, norm, reference_squarings(row_sum))
+    return math.exp(norm) * (
+        math.factorial(max(count - 1, 0)) * rho
+        + 2.0 * n_modes * product_rounding(n_modes)
+    )
 
 
 def eigenbasis_formation_bound(n_modes, spread, condition, residual, drift):
@@ -460,6 +508,62 @@ def formation_bound(problem: PropagationProblem, run_request, dz: float) -> floa
         )
         for vectors, triangular in zip(held.vectors, held.triangular, strict=True)
     )
+
+
+def adams_formation_bound(problem: PropagationProblem, run_request, grid) -> float:
+    """Return the formation bound of an exponential Adams run with bins off the route.
+
+    solprop SEP 47 phase 4, written before any measurement: the larger of the flow's
+    action bound (:func:`formation_bound`, over lengths up to the oldest history
+    sample's ``order + 2`` steps, which the compensation's carry reaches) and twice
+    :func:`augmented_formation_bound` (the native evaluation's and the reference's) at
+    the trial's most moments, ``order + 2``, with ``||X||`` bounded by the largest
+    ``|Delta Phi|`` over the fixed schedule's steps plus ``dz ||T||_2``.
+    """
+    held = _coupled_flow_maps(problem)
+    assert held is not None
+    schedule = run_request.stepper.schedule
+    assert schedule is not None
+    integrator = run_request.stepper.integrator
+    count = int(integrator.order) + 2
+    dz = float(np.max(schedule.steps))
+    backend = NumpyRefBackend(problem, run_request, grid=grid)
+    try:
+        anchors = np.concatenate(([0.0], np.cumsum(schedule.steps)[:-1]))
+        shift = max(
+            float(
+                np.max(
+                    np.abs(
+                        backend._delta_phi(
+                            backend._stage_scalars(float(z), float(z + step))
+                        )
+                    )
+                )
+            )
+            for z, step in zip(anchors, schedule.steps, strict=True)
+        )
+    finally:
+        backend.close()
+    certificate = float(np.max(held.condition_bound))
+    lengths = [float(span) * dz for span in range(1, count + 1)]
+    worst = 0.0
+    for vectors, triangular in zip(held.vectors, held.triangular, strict=True):
+        actions = section_formation_bounds(
+            vectors,
+            triangular,
+            lengths,
+            certificate,
+            route=np.zeros(len(triangular), bool),
+        )
+        norm = (
+            shift
+            + dz * float(np.max(np.linalg.norm(triangular, ord=2, axis=(-2, -1))))
+            + 1.0
+        )
+        rows = shift + dz * float(np.max(np.sum(abs(triangular), axis=-1))) + 1.0
+        moments = 2.0 * augmented_formation_bound(held.n_modes, count, norm, rows)
+        worst = max(worst, float(np.max(actions)), moments)
+    return worst
 
 
 def apply_bound(n_modes, condition, formation=0.0):

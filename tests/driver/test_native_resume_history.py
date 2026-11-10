@@ -227,9 +227,10 @@ def test_the_resident_history_is_restored_exactly_and_continued(build_simulation
 def test_the_host_engine_on_native_hooks_round_trips_too(
     build_simulation, monkeypatch, case
 ):
-    # Where the resident engine does not apply (a block of more than sixteen channels,
-    # the untransported witness), the native backend runs solprop's host engine over
-    # its hooks; that history crosses a resume in the host engine's own rows.
+    # Where the resident engine does not apply (a device build's block of more than
+    # sixteen channels or off the eigenbasis route, the untransported witness), the
+    # native backend runs solprop's host engine over its hooks; that history crosses a
+    # resume in the host engine's own rows.
     from solprop_native import (  # noqa: PLC0415  # pyright: ignore[reportMissingImports]
         NativeBackend,
     )

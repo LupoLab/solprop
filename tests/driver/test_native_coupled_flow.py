@@ -241,7 +241,12 @@ def propagate(case: Case, backend, field0=None) -> np.ndarray:
         driver.close()
 
 
-def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
+def parity_bound(
+    case: Case,
+    expected: np.ndarray,
+    linear: np.ndarray,
+    formation: float | None = None,
+) -> float:
     """Return the ten-step bound on the native backend's departure from ``numpy_ref``.
 
     Written before any measurement. The two backends form their flow actions from
@@ -265,6 +270,8 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
       ``(T + 2 n) u`` for ``T`` terms and the two carries.
 
     Ten steps add, each amplifying the error carried in by ``1 + 3 rho + r``.
+    `formation`, when given, replaces ``eps_form`` (a run with bins off the
+    eigenbasis route: ``flow_parity.adams_formation_bound``).
     """
     problem = case.problem
     flow = problem.linear.coupled_flow
@@ -282,9 +289,9 @@ def parity_bound(case: Case, expected: np.ndarray, linear: np.ndarray) -> float:
     residual = float(np.max(flow.residual_norm_bound)) * dz
     assert flow.generator is not None
     terms = int(flow.generator.shape[0] * flow.generator.shape[1])
-    carry = 2 * channels * kappa * eps + kappa * formation_bound(
-        problem, case.run_request, dz
-    )
+    if formation is None:
+        formation = formation_bound(problem, case.run_request, dz)
+    carry = 2 * channels * kappa * eps + kappa * formation
     source = (
         2 * 512 * eps * math.log2(problem.grids.n_to)
         + (channels + 84 + 3 * nodes) * eps
@@ -323,9 +330,6 @@ def test_native_runs_ten_steps_of_the_flow_as_numpy_ref_does(name, record_proper
     assert departure <= bound
 
 
-# Off the eigenbasis route the flow keeps the host engine, which runs solprop's march
-# with the warning tests/backends/test_native_march_admission.py asserts (SEP 39).
-@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 @pytest.mark.parametrize("route", ["eigenbasis", "scaling_and_squaring"])
 def test_the_flow_s_native_actions_are_the_reference_s_within_the_formation_bound(
     route, monkeypatch
