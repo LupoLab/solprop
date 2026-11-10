@@ -43,6 +43,7 @@ jobs:
     outputs:
       lanes: ${{ steps.diff.outputs.lanes }}
       device: ${{ steps.diff.outputs.device }}
+      julia: ${{ steps.diff.outputs.julia }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -84,6 +85,31 @@ jobs:
             device=false
           fi
           echo "device=$device" | tee -a "$GITHUB_OUTPUT"
+          # Linux checks Julia on every non-documentation change, including GUI-only
+          # changes. macOS adds a change-triggered run for its source and integration.
+          julia=true
+          if [ -f changed.txt ] && ! grep -vE '^docs/|\.md$' changed.txt | grep -qE '^julia/|^src/solprop/backends/julia/|^tests/backends/julia/|^tools/check_julia\.py$|^tests/test_check_julia\.py$|^hatch_build\.py$|^pyproject\.toml$|^uv\.lock$|^\.github/workflows/(ci|julia)\.yml$'; then
+            julia=false
+          fi
+          echo "julia=$julia" | tee -a "$GITHUB_OUTPUT"
+
+  julia-linux:
+    needs: [changes, native-wheel]
+    if: needs.changes.outputs.lanes == 'full' || needs.changes.outputs.lanes == 'gui'
+    uses: ./.github/workflows/julia.yml
+    with:
+      runner: ubuntu-24.04
+      native-artifact: native-wheel-linux-x86_64
+
+  julia-macos:
+    needs: [changes, native-wheel]
+    if: >-
+      (needs.changes.outputs.lanes == 'full' || needs.changes.outputs.lanes == 'gui')
+      && needs.changes.outputs.julia == 'true'
+    uses: ./.github/workflows/julia.yml
+    with:
+      runner: macos-15
+      native-artifact: native-wheel-macos-arm64
 
   docs-tests:
     needs: [changes, native-wheel]
@@ -730,6 +756,8 @@ jobs:
       - static
       - docs
       - native-wheel
+      - julia-linux
+      - julia-macos
       - test
       - slow
       - slow-macos

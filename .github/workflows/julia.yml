@@ -1,0 +1,115 @@
+# SPDX-FileCopyrightText: 2026 John C. Travers and contributors
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+name: Julia
+
+on:
+  workflow_call:
+    inputs:
+      runner:
+        description: GitHub-hosted runner matching the native wheel artifact
+        required: true
+        type: string
+      native-artifact:
+        description: Matching native-wheel artifact from this CI run
+        required: true
+        type: string
+  schedule:
+    - cron: "23 4 * * 1"
+
+permissions:
+  contents: read
+
+# Called jobs share their caller's workflow name. Include the runner so the Linux
+# and macOS calls cannot cancel each other or the parent CI workflow.
+concurrency:
+  group: julia-${{ github.workflow }}-${{ github.ref }}-${{ inputs.runner || 'macos-15' }}
+  cancel-in-progress: true
+
+env:
+  UV_NO_SYNC: "1"
+  SOLPROP_FFTW_PLAN: estimate
+  SOLPROP_TEST_JULIA: "1"
+  SOLPROP_TEST_TYPECHECK: "0"
+  JULIA_CPU_TARGET: generic
+  JULIA_LOAD_PATH: "@:@stdlib"
+  JULIA_REVISE_POLL: "1"
+  PYTHONDONTWRITEBYTECODE: "1"
+
+jobs:
+  julia:
+    name: Julia (${{ inputs.runner || 'macos-15' }})
+    runs-on: ${{ inputs.runner || 'macos-15' }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # both distributions derive their version from tags
+      - name: Select the private Julia depot
+        run: |
+          echo "SOLPROP_JULIA_DEPOT=$RUNNER_TEMP/solprop-julia" >> "$GITHUB_ENV"
+          echo "JULIA_DEPOT_PATH=$RUNNER_TEMP/solprop-julia" >> "$GITHUB_ENV"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          enable-cache: true
+      - run: uv python install 3.14
+      - name: Read and validate the committed Julia pins
+        id: pins
+        run: uv run --no-project --python 3.14 python tools/check_julia.py metadata
+      - uses: julia-actions/setup-julia@da908477b5db94c10ffce8cfea9f2b3b9d5db687 # v3
+        with:
+          version: ${{ steps.pins.outputs.julia }}
+          show-versioninfo: true
+      - name: Cache the private Julia depot
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.SOLPROP_JULIA_DEPOT }}
+          key: >-
+            julia-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.pins.outputs.julia }}-${{
+            steps.pins.outputs.PythonCall }}-generic-${{ hashFiles('julia/Project.toml',
+            'julia/bridge.toml', 'julia/src/**', 'julia/ext/**', 'julia/scripts/**',
+            'julia/environments/**', '!julia/environments/**/*.md') }}
+      - name: Install native runtime libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes libfftw3-dev
+      - name: Download the native wheel from this CI run
+        if: github.event_name != 'schedule'
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: ${{ inputs.native-artifact }}
+          path: wheelhouse
+      - name: Install Python and the matching native wheel
+        if: github.event_name != 'schedule'
+        run: |
+          uv sync --locked --extra julia --no-install-package solprop-native
+          uv pip install --no-deps wheelhouse/*.whl
+      # Scheduled runs have no native-wheel producer. This is the only native build
+      # in this workflow; pull requests always use CI's already-qualified artifact.
+      - name: Install the weekly native toolchain
+        if: github.event_name == 'schedule'
+        run: brew install llvm ninja fftw libomp
+      - name: Build the native package for the weekly run
+        if: github.event_name == 'schedule'
+        run: uv sync --locked --extra julia
+      - name: Validate native coexistence prerequisites
+        run: >-
+          uv run --no-sync python -c
+          "from solprop_native import check_build; check_build()"
+      - name: Publish and verify the managed CPU setup
+        run: uv run --no-sync python tools/check_julia.py setup
+      - name: Check Runic formatting
+        run: uv run --no-sync python tools/check_julia.py format
+      - name: Run CPU Core tests with bounds checking
+        run: uv run --no-sync python tools/check_julia.py core
+      - name: Run Aqua and blocking JET error analysis
+        run: uv run --no-sync python tools/check_julia.py quality
+      # The default coverage lane omits the optional adapter until the final SEP 48
+      # coverage gate is enabled. These tests still run here, including real runtime
+      # subprocess probes; their presence and explicit opt-in are mandatory.
+      - name: Run Python Julia adapter and runtime subprocess tests
+        run: uv run --no-sync python tools/check_julia.py python
+      - name: Refuse changes to committed Julia inputs
+        run: git diff --exit-code -- julia
