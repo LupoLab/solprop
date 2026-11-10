@@ -271,16 +271,15 @@ class SessionFacts:
     The transitional output and record helpers (:mod:`solprop.driver.run`) read a
     backend: its name, metadata, method history and in-flight state. A session that
     owns its backend answers them through its protocol: its execution record, its
-    method-history size, and an in-place step it never leaves in flight.
+    method-history size, and the in-place step a failure left in flight, which a
+    session that steps in place reports as ``in_flight`` (the native session's
+    low-storage replay, SEP 47 section 5.5); any other leaves none.
 
     Parameters
     ----------
     session : solprop.backends.session.RunSession
         The session.
     """
-
-    in_flight = None
-    """A session's failures leave no step for the loop to observe in flight."""
 
     def __init__(self, session: RunSession) -> None:
         """Read the session's facts through its protocol."""
@@ -290,6 +289,17 @@ class SessionFacts:
         self.reads_transverse_edge = bool(
             getattr(session, "reads_transverse_edge", False)
         )
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the in-place step a failure left in flight, or ``None``.
+
+        Returns
+        -------
+        tuple or None
+            Where the step started and its length, m, as the session reports it.
+        """
+        return getattr(self._session, "in_flight", None)
 
     def metadata(self) -> dict[str, object]:
         """Return the session's execution record.
@@ -1244,7 +1254,7 @@ class _MarchKeeper:
 
 
 def _record_abandoned_step(
-    backend: Backend,
+    backend: Backend | SessionFacts,
     output: CheckpointOutput,
     binding: TDSEBinding | None,
     failure: _FailedObservation,
@@ -1265,8 +1275,8 @@ def _record_abandoned_step(
 
     Parameters
     ----------
-    backend : Backend
-        The backend, refusing its state.
+    backend : Backend or SessionFacts
+        The backend, refusing its state, or a poisoned session's facts.
     output : CheckpointOutput
         Handler recording the outcome.
     binding : TDSEBinding or None

@@ -21,6 +21,9 @@ the same tests.
   native backend owns the run, its boundary monitor included, whose decisions and
   record are native (:attr:`Executor.native_monitor`); it evaluates every
   periodic-capable statistic natively.
+- ``native-session-low-storage`` is the native execution session replaying the same
+  problem's planes on a uniform schedule of :data:`LOW_STORAGE_STEPS` steps with the
+  low-storage march (SEP 47 section 6.3), whose loop the native session owns.
 - ``scripted-host`` is the same script on the reference's own driver, in the
   reference's session (:class:`HostSessionScript`).
 - ``scripted`` is :class:`SessionScript`, a step driver whose norms, rejections,
@@ -30,6 +33,7 @@ The problem is the fundamental GNLSE soliton of ``tests/backends/conftest.py`` o
 768-bin window, over 2 cm in four planes: a few dozen attempts on any executor.
 """
 
+import dataclasses
 import functools
 import os
 import warnings
@@ -67,8 +71,15 @@ from solprop.nonlinear.gnlse import GnlseProblem, problem_from
 from solprop.pulses import SechPulse
 from solprop.stats import StatsSpec
 from solprop.stepper import PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
+from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.problem import KernelProblem, assemble
-from solprop.translate.run_request import RunRequest
+from solprop.translate.run_request import (
+    IntegrationSpec,
+    MethodKind,
+    ReplaySpec,
+    RunRequest,
+)
 
 BETA2 = -11.83e-27  # s^2/m, as tests/backends/conftest.py
 GAMMA = 0.11  # 1/(W m)
@@ -80,6 +91,9 @@ LENGTH = 0.02
 
 PLANES = (LENGTH / 4, LENGTH / 2, 3 * LENGTH / 4, LENGTH)
 """The save planes, m."""
+
+LOW_STORAGE_STEPS = 40
+"""The steps of the low-storage executor's uniform schedule over :data:`LENGTH`."""
 
 FACTOR = 2.0
 """What a scripted trial multiplies the state by: a power of two, so the field after
@@ -429,6 +443,79 @@ def _native_session(problem, request, start, *, stop=None, listener=None, **scri
     return Started(session, field_reads=lambda: session.native.status().exports)
 
 
+def low_storage(
+    problem: KernelProblem, request: RunRequest
+) -> tuple[KernelProblem, RunRequest]:
+    """Return a problem and its request replayed by the low-storage march.
+
+    The same problem and policies, its planes replayed on a uniform schedule of
+    :data:`LOW_STORAGE_STEPS` steps over :data:`LENGTH` with
+    :class:`~solprop.stepper.low_storage.LowStorageRungeKutta`.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem.
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+
+    Returns
+    -------
+    tuple
+        The replayed problem and its request.
+    """
+    stepper = problem.stepper
+    schedule = FixedSchedule.uniform(
+        float(problem.initial.z),
+        stepper.z_end,
+        LENGTH / LOW_STORAGE_STEPS,
+        save_planes=list(stepper.save_planes),
+    )
+    method = LowStorageRungeKutta()
+    replayed = dataclasses.replace(
+        problem,
+        stepper=dataclasses.replace(stepper, integrator=method, schedule=schedule),
+    )
+    integration = IntegrationSpec(
+        kind=MethodKind.LOW_STORAGE,
+        tableau=request.integration.tableau,
+        method=method,
+        propagator_mode=request.integration.propagator_mode,
+    )
+    return replayed, dataclasses.replace(
+        request, integration=integration, replay=ReplaySpec(schedule)
+    )
+
+
+def _native_low_storage(problem, request, start, *, stop=None, listener=None, **script):
+    """Start a native execution session replaying a problem by the low-storage march.
+
+    Parameters
+    ----------
+    problem : solprop.translate.problem.KernelProblem
+        The problem, whose planes the replay lands on (:func:`low_storage`).
+    request : solprop.translate.run_request.RunRequest
+        Its run request.
+    start : solprop.backends.session.Start
+        Where the run starts.
+    stop : object or None, optional
+        The stop token.
+    listener : callable or None, optional
+        The attempt listener.
+    **script
+        Refused: the native session's outcomes are not scripted.
+
+    Returns
+    -------
+    Started
+        The session, counting the fields it exports natively.
+    """
+    replayed, policies = low_storage(problem, request)
+    return _native_session(
+        replayed, policies, start, stop=stop, listener=listener, **script
+    )
+
+
 MONITOR = "monitor"
 """The capability of watching the boundary with a monitor (SEP 21)."""
 
@@ -533,6 +620,12 @@ EXECUTORS: dict[str, Executor] = {
     "native-session": Executor(
         "native-session",
         _native_session,
+        requires="solprop_native",
+        native_monitor=True,
+    ),
+    "native-session-low-storage": Executor(
+        "native-session-low-storage",
+        _native_low_storage,
         requires="solprop_native",
         native_monitor=True,
     ),
