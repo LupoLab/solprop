@@ -47,9 +47,10 @@ routes' default, pass 7 also adds the temporal absorber's own term, `−α(t) E(
 transformed to the modes, beside the normalised polarisation (§6).
 
 **Passes 3 to 5 are a loop over node chunks.** The transforms of passes 2 and 6 run once
-over all `n_modes n_pol` columns; the space-domain work runs over `transform.node_chunk`
-nodes at a time and the projections accumulate, so the buffers `E` and `P` are sized by the
-chunk and not by the rule ([architecture.md §13](architecture.md)). Mode-averaged
+over all `n_modes n_pol` columns; the space-domain work runs over the backend's node chunk
+(`solprop.backends.node_chunk.plan_node_chunk`) at a time and the projections accumulate,
+so the buffers `E` and `P` are sized by the chunk and not by the rule
+([architecture.md §13](architecture.md)). Mode-averaged
 propagation is the one-node, one-column case of exactly this code and not a second path
 (ADR-010): the "quadrature" is then the mode itself, the synthesis is
 `1/sqrt(ε₀ c A_eff / 2)` and the projection is one. A one-mode multimode run reproduces the

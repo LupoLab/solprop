@@ -695,7 +695,8 @@ otherwise, with a warning, `numpy_ref` (ADR-029, ADR-064); the installed native 
   folds each slope into its registers as it is produced (ADR-009 as amended by ADR-050).
 - Space-domain work runs over node chunks; the chunk size is chosen from a memory budget
   (default: the whole node set when it fits a per-problem budget, else the largest chunk that
-  does).
+  does). The backend plans it when it is prepared, not the translation (SEP 47 section 6.5,
+  `solprop.backends.node_chunk`), and an explicit `node_budget` is authoritative.
 - `HDF5Output` never holds more than the current plane, in datasets preallocated for the
   planned planes with an `n_saved` count; `MemoryOutput` is allocated for the planned
   planes and grows by doubling past them.
