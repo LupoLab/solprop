@@ -616,7 +616,7 @@ class NativeSession:
         self._backend: NativeBackend | None = backend
         try:
             # The built backend's own admission, before the start's field is taken: a
-            # march it would step on the host, a noise phase its leased state holds.
+            # march it would step on the host.
             refused = backend_refusal(backend)
             if refused is not None:
                 msg = f"the native session does not run {refused}"
@@ -788,21 +788,26 @@ class NativeSession:
             self._max_calls = adams._policy.max_calls
             # The history's persistent rows, sized while the state is not leased.
             self._rows_nbytes = int(adams._engine.snapshot_nbytes())
-        self._edge_noise = self._noise_readings(driver)
+        self._edge_noise = self._noise_readings(driver, start)
         return kind, march._state(False)  # pyright: ignore[reportPrivateUsage]
 
-    def _noise_readings(self, driver: Any) -> dict[str, object] | None:
+    def _noise_readings(self, driver: Any, start: Start) -> dict[str, object] | None:
         """Return the input noise's readings the transverse edge's launch carries.
 
         ``StepDriver.attach_monitor`` hands the edge's launch the input draw and the
         launch's columns without it (``_edge_clean_columns``), formed where the load
-        holds both parts or, on a resume, from the loaded state, which is read here
-        before the native session leases it.
+        holds both parts or, on a restart, from the loaded state, which is read here
+        before the native session leases it. A launch that resumes an earlier edge's
+        record is not judged, so it takes no such columns and no state is read for
+        them: the native edge resumes exactly when the record's resumption holds a
+        launch baseline (:func:`solprop_native._transverse.resumption`).
 
         Parameters
         ----------
         driver : solprop_native.backend.NativeBackend
             The loaded backend, its state not yet leased.
+        start : solprop.backends.session.Start
+            Where the run starts, with a monitored resume's continuation.
 
         Returns
         -------
@@ -814,9 +819,11 @@ class NativeSession:
         drawn = driver._input_floor
         if edge is None or drawn is None:
             return None
-        return _transverse.noise_readings(
-            edge, np.asarray(drawn[0]), driver._edge_clean_columns(edge)
+        resumed = start.monitor is not None and "edge_baseline" in cast(
+            "dict[str, object]", self._continuation(start.monitor)["edge_record"]
         )
+        clean = None if resumed else driver._edge_clean_columns(edge)
+        return _transverse.noise_readings(edge, np.asarray(drawn[0]), clean)
 
     @staticmethod
     def _driver(backend: NativeBackend | None) -> Any:
@@ -1264,6 +1271,8 @@ class NativeSession:
         ------
         solprop.backends.session.SessionError
             If the ticket belongs to another session, or a z table's ticket expired.
+        solprop.exceptions.BackendError
+            If a z table cannot be read at the plane (outside its span).
         """
         if self._problem.initial.noise_model == "none":
             return None
@@ -1280,6 +1289,10 @@ class NativeSession:
                 )
             except _core.SessionLifecycleError as error:
                 raise SessionError(str(error)) from None
+            except (ValueError, IndexError, RuntimeError) as error:
+                # Too many positions, one outside the table's span, or no table of
+                # `Phi`: the backend's error, as `_ZTables.load` raises the first.
+                raise BackendError(str(error)) from error
             phase = np.imag(values).reshape(driver._layout)
         else:
             phase = driver._unitary_phase(driver._stage_scalars(z, z))

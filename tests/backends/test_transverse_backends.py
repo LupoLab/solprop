@@ -136,10 +136,11 @@ def radial_collar(
     backend: str,
     integrator: Multistep | RungeKutta,
     noise: Literal["input"] | None = None,
+    seed: int = 5,
 ) -> Simulation:
     """Return a linear radial run with a requested collar outside its aperture.
 
-    `noise` launches the input noise, seeded, beside the pulse.
+    `noise` launches the input noise, drawn from `seed`, beside the pulse.
     """
     length = 2e-3
     grid = EnvelopeGrid.from_limits(length, 800e-9, (700e-9, 900e-9), 200e-15)
@@ -163,7 +164,7 @@ def radial_collar(
         pulse,
         settings=settings,
         noise=noise,
-        seed=None if noise is None else 5,
+        seed=None if noise is None else seed,
     )
 
 

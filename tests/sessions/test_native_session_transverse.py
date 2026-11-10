@@ -131,27 +131,43 @@ removal, ``sum_t (1 - exp(-alpha(t) h))``, which the native monitor sums in orde
 solprop pairwise (``watch.hpp``)."""
 
 
-def _split_floor_bound(simulation: Simulation, record: dict[str, Any]) -> float:
-    """Return the bound on a split floor field's difference.
+def _floor_delta(n_t: int, steps: int) -> float:
+    """Return the relative bound on a split floor share after `steps` accepted steps.
 
     ``tests/backends/test_monitor_owner.py``'s: each step's sum over the ``n_t``
-    samples, in order against pairwise, and its accumulation over the run's steps.
+    samples, in order against pairwise, and its accumulation over the steps.
     """
+    return (n_t + math.ceil(math.log2(n_t)) + 2 * steps + 4) * U
+
+
+def _samples(simulation: Simulation) -> int:
+    """Return the monitor's time samples, the split floor's sums' length."""
     monitor = simulation._boundary_monitor()
     assert monitor is not None
-    n_t = int(monitor.weights.shape[1])
-    steps = int(record["steps"])
-    delta = (n_t + math.ceil(math.log2(n_t)) + 2 * steps + 4) * U
-    return delta * abs(float(record["floor_removed_fraction"]))
+    return int(monitor.weights.shape[1])
+
+
+def _steps_at(run: Any) -> dict[float, int]:
+    """Return the accepted steps a run took up to each of its observations."""
+    steps = 0
+    found: dict[float, int] = {}
+    for event, history, _ in run.assembled():
+        steps += int(np.count_nonzero(history.accepted))
+        if isinstance(event, ObservationReady):
+            found[float(event.z)] = steps
+    return found
 
 
 def _compare(
-    driver: Served, native: Served, columns: int, *, floor_bound: float | None = None
+    driver: Served, native: Served, columns: int, *, samples: int | None = None
 ) -> None:
     """Require the same trace, warnings, outcome and records.
 
-    With `floor_bound`, a noisy split run's floor fields (:data:`SPLIT_FLOOR`) and its
-    planes' removals are held to it, and the rest of the temporal record exactly.
+    With the monitor's time `samples`, a noisy split run's floor fields
+    (:data:`SPLIT_FLOOR`) are held to their bound at the run's steps and scale, and
+    each plane's removal to its bound at that plane's steps on the scale of the
+    floor share its removal subtracts, at most ``min(floor_removed, noise_floor)``;
+    the rest of the temporal record exactly.
     """
     assert native.warnings == driver.warnings
     assert trace(native.run) == trace(driver.run)
@@ -159,23 +175,32 @@ def _compare(
     expected, got = dict(driver.record), dict(native.record)
     assert list(got) == list(expected)
     edge, edge_expected = got.pop("transverse"), expected.pop("transverse")
-    if floor_bound is not None:
+    if samples is not None:
+        floor = abs(float(expected["floor_removed_fraction"]))
+        bound = _floor_delta(samples, int(expected["steps"])) * floor
         for name in SPLIT_FLOOR:
             assert got.pop(name) == pytest.approx(
-                expected.pop(name), rel=0.0, abs=floor_bound
+                expected.pop(name), rel=0.0, abs=bound
             ), name
+        # The removal subtracts at most the floor itself from the raw removal, which
+        # both sides record exactly.
+        share = min(floor, abs(float(expected["noise_floor"])))
+        steps = _steps_at(driver.run)
+        # A continued record counts the earlier execution's steps, and holds its
+        # planes, before any of this run's.
+        earlier = int(expected["steps"]) - max(steps.values(), default=0)
         planes, planes_expected = got.pop("planes"), expected.pop("planes")
         assert list(planes) == list(planes_expected)
         for name, values in planes_expected.items():
-            if name == "removed_fraction":
-                np.testing.assert_allclose(
-                    np.asarray(planes[name], dtype=float),
-                    np.asarray(values, dtype=float),
-                    rtol=0.0,
-                    atol=floor_bound,
-                )
-            else:
+            if name != "removed_fraction":
                 assert planes[name] == values, name
+                continue
+            for z, value, found in zip(
+                planes_expected["z"], values, planes[name], strict=True
+            ):
+                taken = earlier + steps.get(float(z), 0)
+                at = _floor_delta(samples, taken) * share
+                assert found == pytest.approx(value, rel=0.0, abs=at), z
     assert got == expected
     assert list(edge) == list(edge_expected)
     bound = _edge_bound(edge_expected, columns)
@@ -290,6 +315,12 @@ def test_the_input_noise_beside_a_collar_is_judged_as_the_driver_judges_it(march
 
 @pytest.mark.parametrize("march", sorted(MARCHES))
 def test_a_noisy_packet_is_read_as_the_driver_reads_it(march):
+    """A free-space packet launched with the input noise, relaxed and read to the end:
+    the run is the driver's, its edge record too but for the ramp's sums, and its
+    temporal record but for the split floor's share (:data:`SPLIT_FLOOR`), each
+    within its bound.
+    """
+
     def simulation() -> Simulation:
         return packet_run(
             REREVIEW,
@@ -301,9 +332,7 @@ def test_a_noisy_packet_is_read_as_the_driver_reads_it(march):
         )
 
     driver, native = _both(simulation)
-    assert driver.record is not None
-    bound = _split_floor_bound(simulation(), driver.record)
-    _compare(driver, native, _columns(simulation()), floor_bound=bound)
+    _compare(driver, native, _columns(simulation()), samples=_samples(simulation()))
     assert native.run.terminal.outcome is driver.run.terminal.outcome
     assert native.record is not None
     assert native.record["transverse"]["noise_allowance"] > 0.0
@@ -412,6 +441,7 @@ def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
     assert record["transverse"]["reads"] > 0
     z, field = state
     served = []
+    crossings = []
     for kind in ("driver", "native"):
         start = Start(
             field=field,
@@ -422,15 +452,25 @@ def test_a_resumed_edge_continues_the_driver_s_record(noise, continued):
             if continued
             else None,
         )
-        session = _start(simulation(), kind, start)
+        counters = _counters.enable()
         try:
-            served.append(_serve(session))
+            session = _start(simulation(), kind, start)
+            try:
+                served.append(_serve(session))
+            finally:
+                session.close()
+            crossings.append(counters.record()["field_crossings"])
         finally:
-            session.close()
+            _counters.disable()
     driver, native = served
-    assert driver.record is not None
-    bound = None if noise is None else _split_floor_bound(simulation(), driver.record)
-    _compare(driver, native, _columns(simulation()), floor_bound=bound)
+    # A restart's launch is judged on the loaded state less the draw, which crosses
+    # once on either side; a continued record's launch is not judged, and nothing
+    # crosses for it.
+    assert crossings[1] == crossings[0]
+    if continued:
+        assert crossings[1] == {}
+    samples = None if noise is None else _samples(simulation())
+    _compare(driver, native, _columns(simulation()), samples=samples)
     assert native.record is not None
     edge = native.record["transverse"]
     if continued:

@@ -41,6 +41,7 @@ from solprop.backends.registry import select
 from solprop.backends.session import SessionError, Start
 from solprop.backends.sessions import start_session
 from solprop.exceptions import (
+    BackendError,
     BoundaryWarning,
     ResponseBudgetError,
     RunTerminated,
@@ -594,15 +595,24 @@ def test_a_noisy_run_is_the_drivers(noise, check, march):
         assert got.shape == problem.shape
         assert got.tobytes() == expected.tobytes()
     assert (records["native"] is None) is not check
-    if _one_thread():
-        from sessions.executors import assert_same_run  # noqa: PLC0415
+    if not _one_thread():
+        pytest.skip(
+            "the noise phases agree; the runs and records are compared bit for bit on "
+            "one thread (SOLPROP_THREADS=1), where the reductions' order is fixed"
+        )
+    from sessions.executors import assert_same_run  # noqa: PLC0415
 
-        assert_same_run(runs["native"], runs["driver"])
-        assert records["native"] == records["driver"]
+    assert_same_run(runs["native"], runs["driver"])
+    assert records["native"] == records["driver"]
 
 
-def _walkoff(noise: Literal["input", "modified"], integrator: Any) -> Any:
-    """Return a noisy linear walk-off run, whose propagator phase is a z table."""
+def _walkoff(
+    noise: Literal["input", "modified"], integrator: Any, seed: int = 3, **settings: Any
+) -> Any:
+    """Return a noisy linear walk-off run, whose propagator phase is a z table.
+
+    `settings` replace any of its settings (``Simulation.from_gnlse``).
+    """
     from driver.test_specified_paths import (  # noqa: PLC0415 - beside its one use
         GRID,
         PULSE,
@@ -617,8 +627,8 @@ def _walkoff(noise: Literal["input", "modified"], integrator: Any) -> Any:
     grid = EnvelopeGrid.from_limits(WALKOFF_LENGTH, 835e-9, (600e-9, 1300e-9), 2e-12)
     return Simulation.from_gnlse(
         0.1, WALKOFF_LENGTH, fibre=linear_walkoff(grid), shock=False, n_save=4,
-        noise=noise, seed=3, backend="native", integrator=integrator,
-        **GRID, **PULSE,
+        noise=noise, seed=seed, backend="native", integrator=integrator,
+        **(GRID | PULSE | settings),
     )  # fmt: skip
 
 
@@ -668,15 +678,20 @@ def test_a_noisy_run_on_a_z_table_is_the_drivers(noise, march):
         assert got.shape == problem.shape
         assert got.tobytes() == expected.tobytes()
     assert np.any(phases["native"][-1] != phases["native"][0])
-    if _one_thread():
-        from sessions.executors import assert_same_run  # noqa: PLC0415
+    if not _one_thread():
+        pytest.skip(
+            "the noise phases agree; the runs are compared bit for bit on one thread "
+            "(SOLPROP_THREADS=1), where the reductions' order is fixed"
+        )
+    from sessions.executors import assert_same_run  # noqa: PLC0415
 
-        assert_same_run(runs["native"], runs["driver"])
+    assert_same_run(runs["native"], runs["driver"])
 
 
 def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
     """The slot is read under the session's lock for the pending batch alone: an
-    acknowledged ticket has expired, as for an export.
+    acknowledged ticket has expired, as for an export. A position outside the table's
+    span is the backend's error, as the backend's own read raises it.
     """
     simulation = _walkoff("modified", Multistep())
     problem = simulation.translate()
@@ -692,6 +707,10 @@ def test_a_z_table_s_noise_phase_needs_a_pending_ticket():
             for event in batch.events
             if isinstance(event, ObservationReady)
         )
+        assert session.noise_phase(ticket) is not None
+        outside = dataclasses.replace(ticket, z=1e3)
+        with pytest.raises(BackendError):
+            session.noise_phase(outside)
         assert session.noise_phase(ticket) is not None
         session.acknowledge(batch.receipt)
         with pytest.raises(SessionError, match="expired"):
