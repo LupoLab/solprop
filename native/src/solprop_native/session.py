@@ -139,7 +139,6 @@ from .backend import (
     _DIVERGED,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
-    _build_facts,  # pyright: ignore[reportPrivateUsage]
     _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
@@ -286,11 +285,6 @@ def refusal(
     return _statistics_refusal(problem, request.observation.stats)
 
 
-def _device_backend() -> str:
-    """Return the build's device backend: ``"cuda"``, ``"hip"`` or ``"none"``."""
-    return str(_build_facts().info["device_backend"])
-
-
 def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | None:
     """Return why the session refuses a run on a device build, naming it, or ``None``.
 
@@ -314,11 +308,6 @@ def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | No
     str or None
         The reason, or ``None`` when the device path admits the run.
     """
-    if _device_backend() != "cuda":
-        # Compiled for HIP and vendor-neutral, but never run on an AMD GPU: until an
-        # AMD Instinct run qualifies it, the transitional session serves HIP builds,
-        # as it did before (SEP 47 maintainer decision 2: each vendor keeps its status).
-        return "a HIP build: the native session is qualified on CUDA only so far"
     monitor = request.boundary.monitor
     refused = (
         (problem.transform.geometry is not None, "a spatial route"),

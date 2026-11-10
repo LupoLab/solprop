@@ -29,6 +29,7 @@ from sessions.executors import (
     STORED,
     entrance,
     fibre,
+    skip_device_refused,
     soliton,
     window,
 )
@@ -350,6 +351,7 @@ def test_the_native_pass_fills_a_destination_on_every_route(route, native_sessio
     """
     problem, context = ROUTES[route]()
     problem = dataclasses.replace(problem, stats_spec=StatsSpec())
+    skip_device_refused(problem, describe_run(problem))
     session = native_session.NativeSession(
         problem, describe_run(problem), entrance(problem), **context
     )
@@ -436,6 +438,7 @@ def test_the_native_session_writes_a_kept_field_once_into_its_row(
     route, native_session
 ):
     problem, context = ROUTES[route]()
+    skip_device_refused(problem, describe_run(problem))
     spy = _Spy()
     output = _Exported()
     status = _served(native_session, output, problem, context, spy)
@@ -453,6 +456,7 @@ def test_the_native_session_hands_a_file_one_new_array_per_kept_plane(
     tmp_path, native_session
 ):
     problem, context = ROUTES["cartesian"]()
+    skip_device_refused(problem, describe_run(problem))
     spy = _Spy()
     path = tmp_path / "run.h5"
     status = _served(native_session, HDF5Output(path), problem, context, spy)

@@ -444,7 +444,6 @@ def test_a_device_build_refuses_by_name_what_phase_3_does_not_admit(
     any build, the device patched in; a device build's own lane runs what it admits.
     """
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    monkeypatch.setattr(native_session, "_device_backend", lambda: "cuda")
     problem = _case(**options)
     _refused(problem, describe_run(problem), name, monkeypatch)
 
@@ -455,19 +454,8 @@ def test_a_device_build_admits_the_representative_path(case, monkeypatch):
     rows and step planes, are the device path's; its monitor is admitted too
     (``test_native_session_monitor``)."""
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    monkeypatch.setattr(native_session, "_device_backend", lambda: "cuda")
     problem = _case(**CASES[case])
     assert native_session.refusal(problem, describe_run(problem)) is None
-
-
-def test_a_hip_build_leaves_the_session_to_the_bridge(monkeypatch):
-    """Until an AMD Instinct run qualifies it, HIP keeps the transitional session."""
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    monkeypatch.setattr(native_session, "_device_backend", lambda: "hip")
-    problem = _case(**CASES["rk"])
-    refused = native_session.refusal(problem, describe_run(problem))
-    assert refused is not None
-    assert "HIP" in refused
 
 
 def test_a_session_leases_its_state_exclusively():
