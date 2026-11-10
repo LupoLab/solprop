@@ -486,6 +486,17 @@ mutable struct _SourceRamanWork{D, F, C}
     forward::F
     convolution::C
     density::Float64
+
+    function _SourceRamanWork(
+            data::D, drive::RamanDrive, time_kernel::Vector{Float64},
+            spectrum::Vector{ComplexF64}, rates::Vector{Float64}, weights::Vector{Float64},
+            forward::F, convolution::C, density::Float64,
+        ) where {D, F, C}
+        return new{D, F, C}(
+            data, drive, time_kernel, spectrum, rates, weights,
+            forward, convolution, density,
+        )
+    end
 end
 
 struct _SourcePlasmaWork{W, A, C}
@@ -499,6 +510,19 @@ struct _SourcePlasmaWork{W, A, C}
     factors_first::Vector{ComplexF64}
     factors_second::Vector{ComplexF64}
     stage::Matrix{Float64}
+
+    # These are already-owned prepared buffers. Keep construction from implicitly
+    # converting arbitrary arrays into replacement storage with different ownership.
+    function _SourcePlasmaWork(
+            workspace::W, first::A, second::A, projected_first::A, projected_second::A,
+            coarse_first::C, coarse_second::C, factors_first::Vector{ComplexF64},
+            factors_second::Vector{ComplexF64}, stage::Matrix{Float64},
+        ) where {W, A, C}
+        return new{W, A, C}(
+            workspace, first, second, projected_first, projected_second,
+            coarse_first, coarse_second, factors_first, factors_second, stage,
+        )
+    end
 end
 
 """

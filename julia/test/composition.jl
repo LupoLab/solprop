@@ -515,6 +515,38 @@ end
     end
 end
 
+@testset "source response work retains prepared buffer identities" begin
+    execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1, true)
+    for kind in (:field, :envelope)
+        data, _ = composition_case(execution, kind; plasma = true, raman = 2)
+        source = SP.ModalSource(execution, data; node_chunk = 2)
+        work = source.plasma
+        retained = (
+            work.workspace, work.first, work.second, work.projected_first,
+            work.projected_second, work.coarse_first, work.coarse_second,
+            work.factors_first, work.factors_second, work.stage,
+        )
+        rebound = SP._SourcePlasmaWork(retained...)
+        @test all(getfield(rebound, index) === retained[index] for index in 1:10)
+        @test_throws MethodError SP._SourcePlasmaWork(
+            retained[1:7]..., ComplexF32.(work.factors_first),
+            work.factors_second, work.stage,
+        )
+        for response in source.raman
+            raman = (
+                response.data, response.drive, response.time_kernel, response.spectrum,
+                response.rates, response.weights, response.forward, response.convolution,
+                response.density,
+            )
+            restored = SP._SourceRamanWork(raman...)
+            @test all(getfield(restored, index) === raman[index] for index in 1:9)
+            @test_throws MethodError SP._SourceRamanWork(
+                raman[1:3]..., ComplexF32.(response.spectrum), raman[5:9]...
+            )
+        end
+    end
+end
+
 @testset "source absence, temporal policy and failed calls" begin
     execution = SP.KernelExecution(SP.KernelAbstractions.CPU(), 1, true)
     for kind in (:field, :envelope)
