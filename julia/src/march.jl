@@ -4,6 +4,7 @@
 public MarchSchedule, MarchNorm, AttemptBuffer, RungeKuttaSession
 public SessionReport, SessionEvent
 public advance!, acknowledge!, request_snapshot!, close_session!
+public terminate_session!
 
 """
     MarchSchedule(; planes, breakpoints, hard_kinks, stretch, step_planes,
@@ -416,6 +417,36 @@ function _march_issue!(session, kind; plane = session.state.plane - 1)
     )
 end
 
+"""
+    terminate_session!(session, kind; failure_code=:none, failure_message="")
+
+Replace an open member's current barrier with a group-imposed terminal event.
+
+`kind` is `:stopped`, `:failed` or `:boundary_stop`. Retain its actual committed
+position, attempt/observation buffers, history, controller, counters and in-flight
+failure facts. Do not acknowledge the old event or execute a deferred numerical
+continuation. The returned `SessionReport` has a new pending generation; the group
+separately tracks whether the preserved chunk has already been delivered and whether
+a launch established export eligibility. Reject a closed or already terminal member,
+an invalid kind or exhausted generation capacity before mutation.
+"""
+function terminate_session!(
+        session::_MarchSession, kind::Symbol;
+        failure_code::Symbol = :none, failure_message::String = "",
+    )
+    state = session.state
+    kind in (:stopped, :failed, :boundary_stop) ||
+        throw(ArgumentError("group termination requires a terminal event kind"))
+    !state.closed && !state.finished ||
+        throw(ArgumentError("group termination requires an open nonterminal member"))
+    state.generation < typemax(Int) ||
+        throw(ArgumentError("session export generation capacity is exhausted"))
+    if kind === :failed
+        state.failure_code, state.failure_message = failure_code, failure_message
+    end
+    return _march_issue!(session, kind)
+end
+
 function _march_timed_issue!(
         session, kind, began, previous_work; plane = session.state.plane - 1,
     )
@@ -511,7 +542,7 @@ function _march_trial!(session::RungeKuttaSession, began)
 end
 
 """
-    advance!(session; work_limit=256, deadline=0.1)
+    advance!(session; work_limit=256, deadline=0.1, replay_limit=nothing)
 
 Advance entirely in Julia until an event, an attempt bound or a wall-clock deadline.
 
@@ -520,9 +551,14 @@ bound may return earlier, including after rejection, without changing any numeri
 decision. One `SessionReport` closes the pending event; its attempt buffer is immutable
 until `acknowledge!`. Failures become terminal records with their exact in-flight facts.
 Neither yields nor acknowledgments change proposals, histories or accepted fields.
+An optional absolute one-based `replay_limit` stops before that next-step cursor.
+It requires a fixed itinerary and a limit from the current cursor through the final
+edge. Complete owed continuations, planes and snapshots before yielding at the limit;
+the limit changes no trial or step and may return a progress event without new work.
 """
 function advance!(
         session::_MarchSession; work_limit::Int = 256, deadline::Float64 = 0.1,
+        replay_limit::Union{Nothing, Int} = nothing,
     )
     state = session.state
     state.closed && throw(ArgumentError("the session is closed"))
@@ -530,6 +566,11 @@ function advance!(
     state.finished && throw(ArgumentError("the session has ended"))
     work_limit > 0 && isfinite(deadline) && deadline >= 0.0 ||
         throw(ArgumentError("invalid session work limit or deadline"))
+    if replay_limit !== nothing
+        !isempty(session.schedule.replay_steps) &&
+            state.replay <= replay_limit <= length(session.schedule.replay_steps) + 1 ||
+            throw(ArgumentError("a replay limit must name a current or future fixed edge"))
+    end
     began = time_ns()
     previous_work = state.plane_work
     try
@@ -582,6 +623,9 @@ function advance!(
                 return _march_timed_issue!(session, :completed, began, previous_work)
             end
             spent = (time_ns() - began) * 1.0e-9 >= deadline
+            if replay_limit !== nothing && state.replay >= replay_limit
+                return _march_timed_issue!(session, :progress, began, previous_work)
+            end
             if worked && (session.attempts.count >= limit || spent)
                 return _march_timed_issue!(session, :progress, began, previous_work)
             end
