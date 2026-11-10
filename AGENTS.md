@@ -39,6 +39,10 @@ rather than style, ask rather than guess.
 
 ## Commands
 
+The optional Julia engine is developed under `julia/` and ships inside `solprop`.
+Changes there also follow [`julia/AGENTS.md`](julia/AGENTS.md); its current phase,
+ownership and verification evidence are in [`julia/IMPLEMENTATION.md`](julia/IMPLEMENTATION.md).
+
 | Task | Command |
 |---|---|
 | Sync environment | `uv sync` builds and installs the native backend from `native/` (editable), and needs a C++20 compiler; `--extra gui --group gui-test` adds the front end from `gui/` with its test plugin. A sync removes every extra it does not name; `uv sync --inexact` keeps a hand-installed Pyroraptor. `uv run --no-project tools/setup_light.py` is the lightweight setup, with no native package and no compiler: then `UV_NO_SYNC=1` or an activated environment, and `SOLPROP_TEST_BACKEND=numpy_ref`. It supports the reference backend and the lint, type, test and documentation checks; `auto` refuses there, and a native change needs a native build. After that setup, `uv run --no-sync poe fetch-wheel` installs the wheel CI built, with no compiler, and refuses one that doesn't fit this tree (`docs/dev/contributing.md`) |
