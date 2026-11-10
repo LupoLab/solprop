@@ -47,6 +47,7 @@ if group == "Core"
     include("observation_session.jl")
     include("observation_transfer.jl")
     include("low_storage_session.jl")
+    include("group_session.jl")
     include("transfer.jl")
     include("preparation.jl")
     include("environments.jl")

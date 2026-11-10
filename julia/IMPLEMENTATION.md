@@ -54,9 +54,9 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 | Assignment | Exclusive files | State |
 |---|---|---|
 | Numerical transform/Adams agent | New `julia/DF32_BOUNDS.md`, `julia/src/double_float_functions.jl` and its test | Conservative function domain/API approved; implementation and independent qualification pending |
-| Numerical services agent | New `julia/src/group_session.jl` and its test | Julia-owned group coordinator under independent review |
+| Numerical services agent | New `julia/src/monitor_transfer.jl`, `julia/ext/monitor.jl` and focused tests after interface agreement | Monitor transport proposal; reviewed group leaf returns to master |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Statistics transport approved pending same-field runtime evidence; reviewing groups |
+| Independent reviewer | Production code read-only | Statistics and groups approved; reviewing DF32 function derivation |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -93,6 +93,11 @@ the services agent independently passed all 55 new bounds-enabled assertions.
 The group coordinator keeps Julia in charge of member advancement; Python assembles
 only complete transport windows. Fresh entrance starts are required by the shared
 group contract; portable-history groups are not admitted.
+The numerical group leaf `cb8ace0e` is integrated at `340ea43c`. Independent review
+passed 639 bounds-enabled assertions, including original witnesses for nonprogressing
+near-coincident planes (#666) and zero-trial deadline turns (#667). Warmed advancement
+allocates zero; the author's package/concrete quality checks pass. Public compatibility,
+transactional original-start adoption and complete Python group windows remain pending.
 The initial DF32 function API admits only a proposed `abs(real(z)) <= 16`,
 `abs(imag(z)) <= 2^20` domain with a separate `u/8` input-error budget. Protected
 exponential, phasor and phi helpers are being implemented against that derivation;
