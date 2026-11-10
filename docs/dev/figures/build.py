@@ -1210,7 +1210,7 @@ SEAM_METHODS = (
     ("march_snapshot_nbytes", "its size, copying nothing"),
     ("march_export_refusal", "why the march cannot carry its history, or None"),
     ("restore_march", "continue the history, or say why it starts afresh"),
-    ("timed_step", "one step of the march, for an estimate to time"),
+    ("timing_probe", "single trials from a start, committing nothing, for timing"),
     ("stats", "one fused pass, a dict of small host arrays"),
     ("metadata", "what the execution was: pools, plans, digests, propagator mode"),
     ("memory_ledger", "every named buffer and its size"),
