@@ -121,8 +121,9 @@ class IntegrationSpec:
         bool
             True for the benchmark-only comparison family, ``ComparisonMultistep``
             (SEP 47 section 6.3): PEC, PECE, explicit Adams-Bashforth and the matched
-            pairs, which native refuses; :class:`~solprop.stepper.Multistep` is the
-            selected method every backend runs.
+            pairs, which native refuses;
+            :class:`~solprop.stepper.multistep.Multistep` is the selected method every
+            backend runs.
         """
         return isinstance(self.method, ComparisonMultistep)
 

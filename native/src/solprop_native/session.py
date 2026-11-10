@@ -240,7 +240,9 @@ def refusal(
     allocated. A march the backend itself would step on the host is refused once the
     backend is built (:class:`NativeSession`). What native runs on no session -- a
     comparison method, a controller that overrides a decision, a TDSE response -- the
-    backend refuses where it is built (``NativeBackend``), so it never reaches here.
+    backend refuses by name where it is built (``NativeBackend``), still before any
+    native state; a session built without a backend reaches that refusal only after
+    these checks, which may name another feature first.
 
     Parameters
     ----------
