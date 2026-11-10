@@ -24,6 +24,11 @@ every other feature by name before allocating anything (:func:`refusal`):
 - the native CPU build; Adams (``Multistep``) and the embedded Runge-Kutta tableaux,
   adaptive or replayed, on the routes the resident engines march without a host
   fallback;
+- the low-storage replay (``LowStorageRungeKutta``, SEP 47 section 6.3) on the
+  diagonal-flow routes whose stage rows the native state reads from its tables: every
+  step one in-place native step, its scalars formed natively, the replay loop the
+  native Runge-Kutta march's; a failure in the middle of a step leaves no consistent
+  state, and the terminal event is then poisoned, with no ticket;
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
@@ -33,8 +38,8 @@ every other feature by name before allocating anything (:func:`refusal`):
   its every decision and record are native, a warning is a
   :class:`~solprop.backends.events.ServiceRequired` barrier and a stop a terminal
   failure, and a monitored resume continues the record natively;
-- no transverse edge, dense output, low-storage replay, comparison method, custom
-  controller, group, noise model, TDSE, resumed run or method-history snapshot.
+- no transverse edge, dense output, comparison method, custom controller, group,
+  noise model, TDSE, resumed run or method-history snapshot.
 """
 
 from __future__ import annotations
@@ -71,7 +76,12 @@ from solprop.backends.session import (
     SnapshotReceipt,
 )
 from solprop.backends.spatial import FarFieldTables
-from solprop.exceptions import BackendError, GridError, StopRequested
+from solprop.exceptions import (
+    BackendError,
+    ConvergenceError,
+    GridError,
+    StopRequested,
+)
 from solprop.monitor import (
     _log_finish,  # pyright: ignore[reportPrivateUsage] - one log line
 )
@@ -97,11 +107,14 @@ from ._statistics import (
     uncovered,
 )
 from .backend import (
+    _DIVERGED,  # pyright: ignore[reportPrivateUsage]
     NativeBackend,
     _aperture_payload,  # pyright: ignore[reportPrivateUsage]
+    _low_storage_payload,  # pyright: ignore[reportPrivateUsage]
     _NativeRungeKuttaMarch,  # pyright: ignore[reportPrivateUsage]
     _on_device,  # pyright: ignore[reportPrivateUsage]
     native_march_refusal,
+    stage_tables_available,
 )
 
 if TYPE_CHECKING:
@@ -195,11 +208,9 @@ def refusal(
     if problem.shape[0] != 1:
         return f"a group of {problem.shape[0]} members (one trajectory a session)"
     method = request.integration.method
-    if isinstance(method, LowStorageRungeKutta):
-        return "the low-storage replay"
     if isinstance(method, ComparisonMultistep):
         return f"the comparison method {method.name}"
-    if method is not None and not isinstance(method, Multistep):
+    if method is not None and not isinstance(method, Multistep | LowStorageRungeKutta):
         return f"the method {type(method).__name__}"
     controller = request.error_control.controller
     overridden = [
@@ -227,10 +238,47 @@ def refusal(
             return "a resumed run"
         if start.noise is not None:
             return "a noise realisation"
-    march = native_march_refusal(problem)
-    if march is not None:
-        return march
+    if isinstance(method, LowStorageRungeKutta):
+        if not stage_tables_available(problem):
+            return "a low-storage step whose stage rows the host forms"
+    else:
+        march = native_march_refusal(problem)
+        if march is not None:
+            return march
     return _statistics_refusal(problem, request.observation.stats)
+
+
+def _diverged(
+    name: str, problem: KernelProblem, event: _core.SessionEvent
+) -> ConvergenceError:
+    """Return the error of a low-storage step that ended in a non-finite state.
+
+    ``LowStorageMarch``'s message: the step was accepted in place, so the state is lost
+    with it, and the terminal event that carries this error is poisoned.
+
+    Parameters
+    ----------
+    name : str
+        The backend's name.
+    problem : solprop.translate.problem.KernelProblem
+        The problem, whose method names the march.
+    event : solprop_native._core.SessionEvent
+        The terminal record: where the step started and its length.
+
+    Returns
+    -------
+    solprop.exceptions.ConvergenceError
+        The divergence.
+    """
+    method = cast("LowStorageRungeKutta", problem.stepper.integrator)
+    return ConvergenceError(
+        f"{name}: a replayed {method.name} step of {event.replay_dz:.4g} m from z = "
+        f"{event.z:.6g} m ended in a non-finite state: the field has diverged. A "
+        "replayed schedule takes its steps as given and cannot reject one, so a step "
+        "beyond an explicit stability limit -- the in-stage collars' -- grows until it "
+        "overflows; the translation refuses a declared step past the collars' limit. "
+        "The state was accepted in place and is lost; take shorter steps"
+    )
 
 
 def _statistics_refusal(problem: KernelProblem, spec: StatsSpec) -> str | None:
@@ -394,6 +442,9 @@ class NativeSession:
             backend.close()
             raise
         self._adams = kind == "adams"
+        self._low_storage = kind == "low_storage"
+        self._poisoned = False
+        self._abandoned: tuple[float, float] | None = None
         attach = getattr(stop, "attach", None)
         if callable(attach):
             self._detach = cast("Callable[[], None]", attach(self._native.request_stop))
@@ -479,6 +530,11 @@ class NativeSession:
         if isinstance(integrator, Multistep):
             march = driver._adams
             refused = march.refusal
+        elif isinstance(integrator, LowStorageRungeKutta):
+            # The replay is the native Runge-Kutta march's, over the stage tables the
+            # state reads each step's scalars from (SEP 47 section 6.3).
+            refused = None if driver._staged_rows() else "stage rows the host forms"
+            march = _NativeRungeKuttaMarch(backend)
         else:
             refused, _ = _NativeRungeKuttaMarch.refusal(backend)
             march = None if refused is not None else driver._rk_march()
@@ -490,6 +546,19 @@ class NativeSession:
             raise BackendError(msg)
         assert march is not None
         march._configure()
+        kind = "runge_kutta"
+        if isinstance(integrator, Multistep):
+            kind = "adams"
+        elif isinstance(integrator, LowStorageRungeKutta):
+            kind = "low_storage"
+            # The flows `_ResidentLowStorage` holds, and the operator's origin, from
+            # which a constant operator's table is built.
+            payload = _low_storage_payload(self._problem, device=False)
+            backend._native_state.low_storage_configure(  # pyright: ignore[reportPrivateUsage]
+                int(cast("int", payload["low_storage_flows"])),
+                driver._terms.separable is not None,
+                float(self._problem.linear.z_span[0]),
+            )
         monitor = self._monitor
         if monitor is not None:
             # The monitor's weights where the state lives, read at every check, and the
@@ -501,7 +570,6 @@ class NativeSession:
                     crossing=self._problem.split_crossing if monitor.split else None,
                 )
             )
-        kind = "adams" if isinstance(integrator, Multistep) else "runge_kutta"
         return kind, march._state(False)
 
     @staticmethod
@@ -902,6 +970,11 @@ class NativeSession:
         if self._statistics_tables:
             # The profile statistics' tables and their measured errors (SEP 47 6.4).
             record["statistics_tables"] = dict(self._statistics_tables)
+        if self._low_storage:
+            # Four source evaluations a committed step (`LowStorageMarch`), which the
+            # native replay makes: none for a step abandoned or diverged.
+            method = cast("LowStorageRungeKutta", self._problem.stepper.integrator)
+            record["source_evaluations"] = method.evaluations * status.attempts
         record["native_session"] = {
             "march_calls": status.march_calls,
             "rows_taken": status.rows_taken,
@@ -991,15 +1064,35 @@ class NativeSession:
         Returns
         -------
         solprop.backends.events.ExportTicket or None
-            A ticket bound to the pending batch, or ``None`` when none is pending or
-            the session is closed: the native state exports only while its batch is.
+            A ticket bound to the pending batch, or ``None`` when none is pending, the
+            session is closed or its state poisoned: the native state exports only
+            while its batch is.
         """
         status = self._native.status()
-        if _STATES[status.state] is not SessionState.PENDING or self._sequence == 0:
+        if (
+            _STATES[status.state] is not SessionState.PENDING
+            or self._sequence == 0
+            or self._poisoned
+        ):
             return None
         return ExportTicket(
             Receipt(self._id, self._sequence), status.generation, status.z
         )
+
+    @property
+    def in_flight(self) -> tuple[float, float] | None:
+        """Return the step a failure left in flight, or ``None``.
+
+        A low-storage step overwrites the state in place, so a failure partway leaves
+        neither of its ends: the session is poisoned, and the service loop falls back
+        to its latest running checkpoint (SEP 47 section 5.5), naming this step.
+
+        Returns
+        -------
+        tuple or None
+            Where the abandoned step started and its length, m, or ``None``.
+        """
+        return self._abandoned
 
     @property
     def reads_transverse_edge(self) -> bool:
@@ -1295,15 +1388,40 @@ class NativeSession:
                 chunk,
                 rows,
             )
+        # A stop or failure without a ticket left a low-storage step in flight: the
+        # state is neither end of it and claims no checkpoint (SEP 47 section 5.5).
+        self._poisoned = ticket is None
+        if self._poisoned:
+            self._abandoned = (event.z, self._abandoned_step(event))
         return Terminal(
             outcome,
             event.z,
-            Eligibility.ELIGIBLE,
+            Eligibility.POISONED if self._poisoned else Eligibility.ELIGIBLE,
             self._error(event, outcome),
             ticket,
             chunk,
             rows,
         )
+
+    def _abandoned_step(self, event: _core.SessionEvent) -> float:
+        """Return the length of the step a poisoned terminal event left in flight.
+
+        Parameters
+        ----------
+        event : solprop_native._core.SessionEvent
+            The terminal record.
+
+        Returns
+        -------
+        float
+            The diverged step's length, or the schedule's step at the failure's cursor,
+            m.
+        """
+        if event.reason == _DIVERGED:
+            return float(event.replay_dz)
+        schedule = self._problem.stepper.schedule
+        assert schedule is not None  # only a replayed low-storage step is in place
+        return float(schedule.steps[int(event.cursor)])
 
     def _log_finish(self) -> None:
         """Log the monitor's removal and guard peaks once, at the end (D5)."""
@@ -1363,8 +1481,14 @@ class NativeSession:
             "category": event.category,
         }
         driver = self._driver(self._backend)
+        if self._low_storage and event.reason == _DIVERGED:
+            return _diverged(driver.name, self._problem, event)
         if self._adams:
             march = driver._adams
+        elif self._low_storage:
+            # A native exception's message and class, as the Runge-Kutta march maps
+            # them; the low-storage march's own divergence is formatted above.
+            march = _NativeRungeKuttaMarch(self._backend)  # pyright: ignore[reportArgumentType]
         else:
             # The diverged replay's message names the cursor and the position.
             driver._schedule_index = int(event.cursor)

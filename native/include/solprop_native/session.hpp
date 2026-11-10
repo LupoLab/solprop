@@ -355,6 +355,8 @@ private:
   [[nodiscard]] std::uint64_t host_step() const;
   [[nodiscard]] bool at_endpoint() const;
   [[nodiscard]] bool snapshot_latched() const noexcept;
+  /** Whether the march left a step in flight in the state, which is then poisoned. */
+  [[nodiscard]] bool poisoned() const noexcept;
   [[nodiscard]] std::size_t chunk_attempts() const noexcept;
   [[nodiscard]] bool chunk_full() const noexcept;
   void take_row();

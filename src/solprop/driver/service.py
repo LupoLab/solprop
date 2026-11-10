@@ -793,10 +793,9 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
     backend = _facts(session)
     in_flight = backend.in_flight
     if failure.pending is None and in_flight is not None:
-        # Only a driver leaves a step in flight; a session's facts never do.
-        assert not isinstance(backend, SessionFacts)
-        # The latest running checkpoint, when one follows the last plane, is the
-        # state to resume from (SEP 47 section 5.5).
+        # A driver's step in flight, or a poisoned session's: the latest running
+        # checkpoint, when one follows the last plane, is the state to resume from
+        # (SEP 47 section 5.5).
         return _record_abandoned_step(
             backend,
             output,

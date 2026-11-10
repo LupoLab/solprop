@@ -206,6 +206,13 @@ bool Session::snapshot_latched() const noexcept {
   return (latch_.load(std::memory_order_acquire) & 1U) != 0;
 }
 
+bool Session::poisoned() const noexcept {
+  // An in-place step abandoned partway (solprop SEP 47 section 5.5): no state stands.
+  const auto* runge_kutta = std::get_if<RungeKuttaMethod>(&method_);
+  return runge_kutta != nullptr && runge_kutta->engine &&
+         runge_kutta->engine->in_flight();
+}
+
 std::uint64_t Session::host_step() const {
   // The accepted steps to the driver's next work, the least of them: a periodic row
   // and a step plane (each march's `_bounds`). A latched snapshot is the halt flag,
@@ -388,9 +395,9 @@ void Session::terminal(Batch& batch, const Outcome outcome, Failure failure) {
   event.z = position();
   event.outcome = outcome;
   event.failure = std::move(failure);
-  // A stop or a failure names the committed state, eligible
-  // (`DriverSession._terminal`).
-  event.ticket = outcome != Outcome::completed;
+  // A stop or a failure names the committed state, eligible, unless a step left in
+  // flight poisoned it (`DriverSession._terminal`).
+  event.ticket = outcome != Outcome::completed && !poisoned();
   event.generation = generation_;
   drain(batch);
   batch.event = event;
@@ -813,6 +820,9 @@ void Session::export_field(const std::uint64_t sequence, const std::uint64_t gen
       generation != pending_generation_)
     throw LifecycleError("the export ticket has expired: its batch was acknowledged, "
                          "or it belongs to another session");
+  if (poisoned())
+    throw LifecycleError("the state was left in flight by an abandoned step and "
+                         "cannot be exported");
   const std::size_t n = resident_->elements();
   bool scale = false;
   if (power) {
