@@ -40,7 +40,6 @@ from solprop.backends.events import (
     Progress,
     ServiceKind,
     ServiceRequired,
-    Terminal,
     join_attempts,
 )
 from solprop.backends.export import ExportRecipe
@@ -522,22 +521,24 @@ def serve(  # noqa: PLR0912, PLR0915 - the commit sequence of SEP 47 section 5.3
                         reporter.plane(event.z, event.summary)
                 elif isinstance(event, ServiceRequired):
                     chunks.add(event.history, event.step_stats)
-                    if event.kind is ServiceKind.SNAPSHOT and snapshots is not None:
-                        assert isinstance(output, HDF5Output)
-                        _service_snapshot(
-                            event,
-                            output,
-                            checkpoint_output,
-                            backend,
-                            keeper,
-                            exports,
-                            context,
-                            chunks.joined(),
-                            clock=clock,
-                            adams=adams,
-                            base=base,
-                        )
-                elif isinstance(event, Terminal):
+                    # The one service a session asks for is the snapshot this loop
+                    # requested, only with snapshots on.
+                    assert event.kind is ServiceKind.SNAPSHOT and snapshots is not None
+                    assert isinstance(output, HDF5Output)
+                    _service_snapshot(
+                        event,
+                        output,
+                        checkpoint_output,
+                        backend,
+                        keeper,
+                        exports,
+                        context,
+                        chunks.joined(),
+                        clock=clock,
+                        adams=adams,
+                        base=base,
+                    )
+                else:
                     chunks.add(event.history, event.step_stats)
                     if event.outcome is Outcome.COMPLETED:
                         with committing():
@@ -681,6 +682,21 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
     z = event.z
     at_plane = output.n_saved > 0 and float(output["z"][-1]) == z
     checkpoint = None
+
+    def persist() -> None:
+        """Keep the method history and record the execution beside the snapshot."""
+        keeper.keep(z, required=adams)
+        _record_execution(
+            checkpoint_output,
+            backend,  # pyright: ignore[reportArgumentType]
+            context.tdse_binding,
+            _Status("running", z),
+            clock=clock,
+            checkpoint=checkpoint,
+            restart=_restart(base, keeper),
+        )
+
+    # A snapshot at the plane just saved needs no running checkpoint beside it.
     if not at_plane:
         assert event.ticket is not None
         history, rows = attempts
@@ -698,19 +714,6 @@ def _service_snapshot(  # noqa: PLR0913, PLR0917 - the snapshot transaction's co
                 np.searchsorted(context.request.observation.save_planes, z, "right")
             ),
             landed=True,
-        )
-
-    def persist() -> None:
-        """Keep the method history and record the execution beside the snapshot."""
-        keeper.keep(z, required=adams)
-        _record_execution(
-            checkpoint_output,
-            backend,  # pyright: ignore[reportArgumentType]
-            context.tdse_binding,
-            _Status("running", z),
-            clock=clock,
-            checkpoint=checkpoint,
-            restart=_restart(base, keeper),
         )
 
     snapshots._service(
@@ -787,9 +790,10 @@ def _persist_failure(  # noqa: PLR0913, PLR0917 - the failure's whole context
             restart=_restart(base, keeper),
         )
     if ticket is None:
+        # The loop's own session is open, and a state left in flight is recorded
+        # above: the committed state always has a ticket.
         ticket = _fallback_ticket(session)
-        if ticket is None:
-            return None
+        assert ticket is not None
     problem = context.problem
     reached = None
     try:
@@ -878,8 +882,9 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
     """Return a ticket for the committed state after a failure outside the session.
 
     A service failure -- an output error, a signal during a commit -- leaves the
-    session's batch pending, so its state is still where the batch left it. When the
-    session already finished, nothing is pending and nothing can be exported.
+    session's batch pending, so its state is still where the batch left it. When
+    nothing is pending, the session issues a failed terminal batch whose ticket exports
+    the committed state (``DriverSession.pending_ticket``).
 
     Parameters
     ----------
@@ -889,6 +894,7 @@ def _fallback_ticket(session: DriverSession) -> ExportTicket | None:
     Returns
     -------
     solprop.backends.events.ExportTicket or None
-        A ticket for the pending state, or ``None``.
+        A ticket for the committed state, or ``None`` when the session is closed or
+        its state was left in flight.
     """
     return session.pending_ticket()
