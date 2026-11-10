@@ -182,8 +182,9 @@ fixed-schedule group `HostGroup`. The native backend runs the inherited `StepDri
 `AdamsMarch`, `LowStorageMarch` and `LockstepRunner` in `backends/`, the
 native bridge's temporary copies, removed with SEP 47's native session. The copies
 started identical and the decision corpora hold both to the same decisions; where this
-page names a member of one, the other's is the same. The general Adams path of the
-comparison variants is the reference's alone: the native backend refuses them by name
+page names a member of one, the other's is the same. The comparison variants
+(`ComparisonMultistep`, whose general Adams path is the reference's) and a controller that
+overrides a decision are the reference's alone: the native backend refuses them by name
 (SEP 47 section 6.3).
 
 **FSAL, the evidence.** The rebasing identity `k₁ⁿ⁺¹ = exp(ΔΦⁿ)·k₇ⁿ` and the condition it
@@ -436,8 +437,11 @@ holds its extension; in SEP 47's native session the march holds it through its e
 `rk::Engine::extend`, finishes the step itself and the session observes the plane where the
 state lives, `native/src/dense.cpp`), a replayed schedule, a coupled flow (its guards transcribed), a z table
 the transverse edge (read on the host, as the Adams march reads it) and a weighted norm
-(reduced natively in both loops), on CPU and device builds alike; a controller with its own
-methods still steps the driver's loop, with a `HostMarchWarning` naming the reason.
+(reduced natively in both loops), on CPU and device builds alike. A `PIController` subclass
+that overrides one of its decisions or its norm (`scale`, `accepts`, `propose`,
+`rejection_factor`, `start_factor`, `equivalent_norm`) is a reference-only experiment:
+`native` refuses it by name where the backend is built, before it allocates
+([SEP 47](seps/sep-0047-run-ownership.md) §6.3), and `numpy_ref` runs it.
 
 **The policy and the native march** (ADR-060, [SEP 39](seps/archive/sep-0039-native-adams-march.md)):
 every number the controller reads -- the order and its variability, the safety and
@@ -446,8 +450,7 @@ caps, the budget, the floor and ceiling, the landings and the run's end -- is on
 record, `MarchPolicy`, formed by `march_policy` from the method and the settings, and
 the decisions are pure functions of the policy, the march's state and a trial's norms
 (`backends/adams_core.py`). The kernel contract's section 11 specifies them. `native`
-executes `Multistep()` in either formulation, the one-order-higher PEC comparisons and
-replayed schedules from that record on its resident engine
+executes `Multistep()` in either formulation and replayed schedules from that record on its resident engine
 (`native/src/adams_march.cpp`), a run of attempts per call, and returns to solprop
 only at an event: the target reached or crossed, an accepted step on which the driver
 has work (a statistics row, a natural stop), a boundary check whose verdict needs
@@ -460,11 +463,11 @@ what either waits for. The driver books the call's attempts through
 `_record_attempt` and `_account_step`, inside one commit, replaying each buffered
 reading through the monitor at its own step. The Python march is the reference --
 `HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
-configuration the native march does not cover (the comparison
-methods' general path, a coupled flow on the host engine (beside the interaction
-formulation, and on a device build off the eigenbasis route or wider than 16 channels)
-and a norm scale other than `PIController`'s), with a `HostMarchWarning` naming the
-reason. A z table's carrier frame steps natively: the stage tables carry the imaginary
+configuration the native march does not cover (a coupled flow on the host engine, beside
+the interaction formulation, and on a device build off the eigenbasis route or wider than
+16 channels), with a `HostMarchWarning` naming the reason. The comparison methods
+(`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
+overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
 part of the table's reference element as a scalar table, read by the Clenshaw helper
 solprop's tables use, so its shift and step cap are the host's (issue #255). The
 transitional lockstep
