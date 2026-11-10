@@ -2124,3 +2124,107 @@ Withdrawn (development-process record, not a design decision).
   Every run records the profile and the settings it applied (`calibration`). The test
   suites and the documentation build run with `SOLPROP_CALIBRATION=off`; benchmark series
   calibrate each build thorough first and record the profile per row.
+
+## ADR-075 — Transforms thread by shape; a host packs a stage's forward rows
+
+- **Status:** accepted (maintainer), 2026-11-09 (PR #598; issues #584, #587, #595).
+- **Context:** a batch of native CPU transforms took its width from its element count
+  (serial below 16384, four threads below 131072, the full pool above), but FFTW divides a
+  batch's rows among its threads, so transforms of one count want opposite widths by
+  shape: SEP 46's grain saw a full width from 98304 elements win 0.56 on many short rows
+  and lose 8–10 % on few long ones, and froze the transforms' grain. Timed alone on an
+  Intel Xeon Gold 6240, 16 cores of an AMD EPYC 7763 and an Apple M5 Max, batches of 1–7
+  rows ran fastest at about a thread a row and many short rows at 8–18 threads. A modal
+  stage also ran each forward transform as its own call over the modes' rows: four modes
+  left most of 16 threads idle, as Julia's batched form had shown (#560). And SEP 46's
+  thorough calibration never reached a verdict on FFT planning: its patient capture never
+  finished in time, and the timing in the step then ran out of rounds.
+- **Decision:**
+  - *Width by shape.* From `fft_threshold` a batch takes a thread per
+    `fft_thread_elements` samples, at most one a row, or up to the medium width when its
+    rows are at least `fft_long_row` long; `fft_full` is a backstop. Linux and Windows
+    8192, 4096 and 16384; macOS 32768, 32768 and 65536, a sixteenth on a spinning top tier
+    (ADR-073). The calibration's grain moves the threshold and halves and doubles
+    `fft_thread_elements`, after every other class (each such move changes nearly every
+    problem's width, and with the long row's moves too a thorough calibration ran out of
+    rounds).
+  - *One forward pack.* On a host, as on a device, a modal stage's forward rows (the
+    projection's fine and coarse, the in-stage absorber's, the held currents') are one
+    batch and one plan, the coarse rows after the fine so that a deferred quadrature's
+    stages transform the fine block alone. Compact problems keep their separate transforms.
+    `SOLPROP_NATIVE_FORWARD_PACK=0` turns the pack off.
+  - *Planning.* Threaded rows stay at estimate by default; the thorough calibration no
+    longer plans at patient, and records each candidate's plans timed alone beside its
+    verdict in the step, and times in the step only the candidates faster alone. The
+    levels take 30 s, 2 min and 7 min (maintainer, 2026-11-09): with 20 s, 90 s and
+    5 min the FFT stage ran out of rounds at the standard and thorough levels on every
+    machine measured, before this change too.
+- **Consequences:** against the previous build, the tracking set ran 0.977 (Xeon Gold
+  6240) and 0.981 (EPYC 7763) on geometric mean: `argon_blueshift` 0.80–0.87, `ctc`
+  0.89–0.92, `rdw` 0.91–0.95, `line` 0.87–0.93, the rest within their spread; fields agree
+  to rounding (plan choice and width move results by rounding only, as before). Measured
+  threaded plans win in the step (0.94–0.97) but cost up to 12 s of construction, so they
+  reach a run through a calibration's stored wisdom, not the default. Stored profiles keyed
+  on the old widths miss and replan (each plan key holds its threads); the calibration's
+  version is bumped with this change.
+
+## ADR-076 — Runs keep the FFTW plans they measure, by transform, by default
+
+- **Status:** proposed with PR #602 (issue #136), for the maintainer.
+- **Context:** measured plans for threaded rows win in the step (0.94–0.97, ADR-075), but
+  planning them costs up to 12 s of a run's construction (`ctc` on 16 cores of an AMD EPYC
+  7763: 13.8 s against 1.6 s), so the policy left them at estimate. Wisdom outlived the
+  process only when `SOLPROP_FFTW_WISDOM` named a file, for three reasons: solprop wrote
+  nothing to user directories, which ADR-074's store ended; a bad stored plan could slow
+  every later run in silence (SEP 46 §4), which is why a profiled workspace forgets all
+  wisdom; and #136's robustness bugs. The opt-in file was also one blob of wisdom, which a
+  profiled workspace forgets, so it helped only runs without a profile. Wisdom planned
+  alone, outside the run, once ran `h2_raman_averaged` 1.17 times slower on an AMD EPYC
+  9B45; a plan measured by the run itself, in its own workspace, is the one the policy
+  already trusts.
+- **Decision:**
+  - *What is kept.* Each plan key (`fft_plan_key`: kind, sizes, strides, placement,
+    alignment and threads, as a calibration keys its winners) holds the wisdom of that
+    transform alone, measured in place by the first run that planned it: the seed plans
+    with the workspace's other wisdom set aside, from the key's stored wisdom only (one to
+    measure from what the workspace itself measured so far, whose sub-plans it shares, so
+    that a cold run measures as much as before), and its own wisdom is exported after it (`FftPlanning::stored`, `keep`, `measured`,
+    `reused`). A stored plan applies at any effort, as FFTW applies wisdom: a transform
+    left at estimate takes it for its estimate plan, unseeded.
+  - *Where.* `wisdom.json` in the calibration store's directory of the machine and build
+    (ADR-074's fingerprint: machine, operating system, build digest, calibration version),
+    so machines and builds never share plans, and Apple silicon models are told apart.
+    `SOLPROP_FFTW_WISDOM` moves it, beside the named file as
+    `<name>.native-<fingerprint>`, and no longer turns off a profile's FFT planning;
+    `SOLPROP_CALIBRATION=off` keeps no default file. `solprop calibrate --clear` removes
+    both. A process also keeps what it measured in memory for its later workspaces.
+  - *Precedence.* A key the profile holds is planned from the profile's wisdom, never
+    from the store, and never written to it. SEP 46's transaction stays: a profiled
+    workspace forgets wisdom before and after it plans, and imports the store's wisdom key
+    by key, beneath the workspace's, so no unrelated wisdom reaches a profiled plan. This
+    amends SEP 46 §6.7's "runs no longer merge wisdom into the store when a profile
+    applies": they merge the plans the profile does not hold.
+  - *Writes and robustness.* Only a run's own planning (the policy's or the profile's)
+    reads and writes the store; a calibration's workspaces and children do neither. The
+    file is replaced whole by an atomic rename, under a `flock` writer lock, merging what
+    others stored. A name that cannot be used (an empty file name, an unknown user's
+    home, no home at all) and a file that cannot be read or written log a warning and the
+    run plans without stored plans (#136).
+- **Consequences:** under `SOLPROP_FFTW_PLAN=measure` on 16 cores (one NUMA domain) of an
+  AMD EPYC 7763, five interleaved rounds against PR #598, a cold run plans as before
+  (`ctc` 13.7 s, `h2_raman_averaged` 5.1 s, `grin_nonlinear` 3.6 s, `rdw` 1.8 s, both
+  builds) and a warm one builds its backend in 0.18, 0.13, 0.36 and 0.16 s; on an Intel
+  Xeon Gold 6240 at 18 and 36 threads `ctc` took 23 s cold and 0.12 s warm. Windows with
+  the stored plans ran as those with plans measured in place: `h2_raman_averaged` 0.99–1.02
+  across four comparisons on the EPYC (same build and against #598, two independent
+  stored measurements), no slower than plans measured in place; `ctc` 1.003–1.017, its
+  range spanning 1 with a second stored measurement, so the plan a single measurement
+  picks; `rdw` 1.00; the Xeon's geometric mean 1.015, every range spanning 1. Fields agree
+  to rounding. A first attempt that planned each transform from nothing measured a key
+  seeded twice twice and lost shared sub-plans (`rdw` 6.7 s cold on the Xeon against 1.4 s);
+  a transform to measure now starts from the workspace's own measurements. The store
+  holds about 20 kB a case at one width (80 kB for four cases on the EPYC) and grows with
+  the shapes a user runs; nothing evicts a plan, and `--clear` empties it. Plans kept by
+  the earlier opt-in file are not read. Measured threaded rows stay off by default: a
+  plan measured once now costs nothing after, which leaves the policy's threaded-rows
+  effort for the maintainer.

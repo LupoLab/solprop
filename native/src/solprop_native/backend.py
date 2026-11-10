@@ -16,6 +16,7 @@ import types
 import warnings
 from collections.abc import Callable, Mapping, Sequence
 from importlib.metadata import version
+from pathlib import Path
 from types import TracebackType
 from typing import Any, ClassVar, Literal, Protocol, cast
 
@@ -113,6 +114,7 @@ from solprop.stats import (
 from solprop.stepper.controller import START_GROWTH, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import (
+    ComparisonMultistep,
     Multistep,
     integrated_weights,
     lagrange_coefficients,
@@ -378,10 +380,12 @@ class NativeBackend(StepDriver[_core.State]):
         # solprop SEP 23: the far-field tables are formed once, which refuses a
         # geometry the far-field statistics do not admit before anything is built.
         self._far_field = FarFieldTables(problem)
-        # solprop's opt-in SOLPROP_FFTW_WISDOM: the plans a run of this build measured
-        # before are imported before planning, and new ones are kept after it.
-        wisdom = _wisdom.wisdom_file()
-        self._wisdom_loaded = _wisdom.load(wisdom)
+        # solprop ADR-076: the plans runs of this machine and build measured before
+        # are offered to the workspace, and those it measures are kept after it.
+        wisdom = _wisdom.wisdom_file() if fft_planning is None else None
+        stored, self._wisdom_loaded = (
+            _wisdom.plans(wisdom) if fft_planning is None else ({}, False)
+        )
         self._bound_buckets: np.ndarray | None = None
         # solprop SEP 46: the workspace's CPU execution record, the process's (the
         # calibration's where it holds, else the built-in table) unless one is given,
@@ -393,7 +397,7 @@ class NativeBackend(StepDriver[_core.State]):
             _native_problem(problem, self._terms, self._flow, self._z_tables)
             | _low_storage_payload(problem, device=_on_device())
             | {"cpu_execution": (cpu_execution or _package.EXECUTION).native()}
-            | _planning_payload(fft_planning)
+            | _planning_payload(fft_planning, stored)
         )
         self._applied_execution = ExecutionRecord.from_native(
             self._native_state.cpu_execution
@@ -403,20 +407,32 @@ class NativeBackend(StepDriver[_core.State]):
             # 6.6): the workspace is built again with its record.
             refined = _refined_record(problem, self._native_state)
             if refined is not None:
+                stored |= _keep_plans(self._native_state, wisdom)
                 self._native_state.close()
                 self._native_state = _core.State(
                     _native_problem(problem, self._terms, self._flow, self._z_tables)
                     | _low_storage_payload(problem, device=_on_device())
                     | {"cpu_execution": refined[0].native()}
-                    | _planning_payload(fft_planning)
+                    | _planning_payload(fft_planning, stored)
                 )
                 self._execution_source = refined[1]
                 self._applied_execution = ExecutionRecord.from_native(
                     self._native_state.cpu_execution
                 )
         self._native_state.set_crossing_workers(thread_budget().threads)
-        _wisdom.store(wisdom)
-        self._wisdom_digest: str | None = None
+        if fft_planning is None:
+            _keep_plans(self._native_state, wisdom)
+        self._wisdom_digest = (
+            _wisdom.digest(
+                _applied_plans(
+                    self._native_state,
+                    stored,
+                    fft_planning if fft_planning is not None else _package.PLANNING,
+                )
+            )
+            if not _on_device()
+            else None
+        )
         if self._z_tables is not None:
             self._z_tables.upload(self._native_state)
         _upload_flux_table(self._native_state, problem)
@@ -2028,8 +2044,6 @@ class NativeBackend(StepDriver[_core.State]):
         """
         facts = _build_facts()
         work = super().metadata()
-        if self._wisdom_digest is None:
-            self._wisdom_digest = _wisdom.digest()
         if self._adams is None and self._low_storage is None:
             work["source_evaluations"] = self._native_state.rk_source_evaluations
         march = self._adams
@@ -3051,15 +3065,6 @@ class _NativeAdamsMarch(AdamsMarch):
         if march == "host" or _ADAMS_MARCH == "host":
             return "the private switch asked for it", False
         engine = self._engine
-        reasons = (
-            (
-                self._general is not None,
-                "a comparison method's general path (PECE, explicit or matched pairs)",
-            ),
-        )
-        for failed, reason in reasons:
-            if failed:
-                return reason, True
         if self._runner is not None:
             return None, False
         if not isinstance(engine, _ResidentAdams):
@@ -4175,6 +4180,20 @@ def _refuse_adams(problem: PropagationProblem) -> None:
     # translation admits it on: no coupled flow and no TDSE response.
     if integrator is None or isinstance(integrator, LowStorageRungeKutta):
         return
+    # solprop SEP 47 section 6.3: the benchmark-only comparison variants off the
+    # selected one-order-higher PEC family -- PECE, explicit Adams-Bashforth and the
+    # matched pairs, which solprop's general Adams path steps -- are the reference's
+    # alone. The PEC variant with corrector_order = order + 1 is the selected method.
+    if isinstance(integrator, ComparisonMultistep) and (
+        integrator.corrector != "pec"
+        or integrator.corrector_nodes(integrator.order) != integrator.order + 1
+    ):
+        raise BackendError(
+            f"solprop-native does not step the comparison variant {integrator.name} "
+            "(ComparisonMultistep's general path: PECE, explicit Adams-Bashforth and "
+            "the matched pairs are reference-only, solprop SEP 47); use "
+            "backend='numpy_ref' for it, or Multistep()"
+        )
     # solprop SEP 16 phase 3: every route's stage source serves both formulations,
     # with the modified noise. A coupled flow is stepped by the exponential
     # formulation only (phase 5), as solprop's reference does; its CF4 sections are
@@ -4626,12 +4645,58 @@ def _refined_record(
         return None
 
 
-def _planning_payload(given: Mapping[str, object] | None) -> dict[str, object]:
-    """Return the problem's ``fft_planning``: the one given, the profile's, or none."""
-    chosen = given if given is not None else _package.PLANNING
-    if chosen is None or _on_device():
+def _planning_payload(
+    given: Mapping[str, object] | None, stored: Mapping[str, str]
+) -> dict[str, object]:
+    """Return the problem's ``fft_planning``: the one given, or the run's own.
+
+    A run's own is the profile's, or the plan policy's, offered the plans runs measured
+    before (`stored`) and keeping those it measures (solprop ADR-076); one given, a
+    calibration's, plans on its own.
+    """
+    if _on_device():
         return {}
-    return {"fft_planning": dict(chosen)}
+    if given is not None:
+        return {"fft_planning": dict(given)}
+    chosen = _package.PLANNING or {"mode": "legacy"}
+    return {"fft_planning": dict(chosen) | {"stored": dict(stored), "keep": True}}
+
+
+def _keep_plans(state: _core.State, path: Path | None) -> dict[str, str]:
+    """Keep the plans a workspace measured, in this process and in `path`; return them.
+
+    A key the profile holds is never kept: its winner takes precedence.
+    """
+    if _on_device():
+        return {}
+    measured = cast(dict[str, str], state.fft_planning["measured"])
+    profiled = cast(Mapping[str, str], (_package.PLANNING or {}).get("wisdom", {}))
+    kept = {key: plan for key, plan in measured.items() if key not in profiled}
+    if kept:
+        _wisdom.remember(kept)
+        _wisdom.store(path, kept)
+    return kept
+
+
+def _applied_plans(
+    state: _core.State,
+    stored: Mapping[str, str],
+    planning: Mapping[str, object] | None,
+) -> dict[str, str]:
+    """Return the wisdom of each plan a workspace built from wisdom or measured.
+
+    `planning` is the one it was given, or the profile's; `stored` the plans offered.
+    """
+    found = state.fft_planning
+    profiled = cast(Mapping[str, str], (planning or {}).get("wisdom", {}))
+    missing = set(cast(list[str], found["missing"]))
+    applied = {
+        key: profiled[key]
+        for key in cast(dict[str, str], found["groups"])
+        if key in profiled and key not in missing
+    }
+    applied |= {key: stored[key] for key in cast(list[str], found["reused"])}
+    return applied | cast(dict[str, str], found["measured"])
 
 
 def _planning_record(state: _core.State) -> dict[str, object]:

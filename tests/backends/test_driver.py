@@ -835,10 +835,6 @@ DRIVER_SURFACE = {
         "(self, bundle: solprop.translate.stage.StageScalars) -> "
         "jaxtyping.Float[ndarray, 'n_batch n_modes n_pol n_omega']"
     ),
-    "_prefactor": (
-        "(self, bundle: solprop.translate.stage.StageScalars) -> "
-        "jaxtyping.Complex[ndarray, 'n_modes n_pol n_omega']"
-    ),
     "_apply_mask": (
         "(self, state: jaxtyping.Complex[ndarray, 'n_batch n_modes n_pol n_omega'])"
         " -> _StateT"

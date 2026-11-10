@@ -177,8 +177,6 @@ class StopToken:
         with self._lock:
             self._listeners.append(listener)
             already = self._event.is_set()
-        if already:
-            listener()
 
         def detach() -> None:
             """Remove the listener; a second call does nothing."""
@@ -186,6 +184,8 @@ class StopToken:
                 if listener in self._listeners:
                     self._listeners.remove(listener)
 
+        if already:
+            listener()
         return detach
 
 
@@ -546,7 +546,13 @@ class GroupSession(Protocol):
         ...
 
     def acknowledge(self, receipt: Receipt) -> None:
-        """Release a window's batch and allow advancing past it."""
+        """Release a window's batch and allow advancing past it.
+
+        Parameters
+        ----------
+        receipt : solprop.backends.events.Receipt
+            The batch's receipt.
+        """
         ...
 
     def export(
@@ -556,23 +562,86 @@ class GroupSession(Protocol):
         recipe: ExportRecipe,
         out: Complex[np.ndarray, "n_modes n_pol n_omega"] | None = None,
     ) -> Complex[np.ndarray, "n_modes n_pol n_omega"]:
-        """Fill a destination with one member's converted field at a pending ticket."""
+        """Fill a destination with one member's converted field at a pending ticket.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+        ticket : solprop.backends.events.ExportTicket
+            The member's pending ticket.
+        recipe : solprop.backends.export.ExportRecipe
+            The conversion.
+        out : numpy.ndarray or None, optional
+            The destination; a new array by default.
+
+        Returns
+        -------
+        numpy.ndarray
+            The filled destination.
+        """
         ...
 
     def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
-        """Return one member's noise phase at a pending ticket."""
+        """Return one member's noise phase at a pending ticket.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+        ticket : solprop.backends.events.ExportTicket
+            The member's pending ticket.
+
+        Returns
+        -------
+        numpy.ndarray or None
+            The phase, or ``None`` without noise.
+        """
         ...
 
     def member_status(self, member: int) -> SessionStatus:
-        """Return one member's committed position, counters and outcome."""
+        """Return one member's committed position, counters and outcome.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        SessionStatus
+            The member's status.
+        """
         ...
 
     def execution_record(self, member: int) -> Mapping[str, object]:
-        """Return one member's execution facts."""
+        """Return one member's execution facts.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        collections.abc.Mapping
+            The member's execution record.
+        """
         ...
 
     def monitor_record(self, member: int) -> Mapping[str, object] | None:
-        """Return one member's boundary-monitor record, ``None`` when unwatched."""
+        """Return one member's boundary-monitor record, ``None`` when unwatched.
+
+        Parameters
+        ----------
+        member : int
+            The member's index, from zero.
+
+        Returns
+        -------
+        collections.abc.Mapping or None
+            The record.
+        """
         ...
 
     def close(self) -> None:
@@ -589,7 +658,17 @@ class GroupSession(Protocol):
         error: BaseException | None,
         trace: TracebackType | None,
     ) -> None:
-        """Close the group."""
+        """Close the group.
+
+        Parameters
+        ----------
+        kind : type or None
+            The type of the exception leaving the scope, if any.
+        error : BaseException or None
+            The exception, if any.
+        trace : types.TracebackType or None
+            Its traceback, if any.
+        """
         ...
 
 

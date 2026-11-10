@@ -118,12 +118,16 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 full = info.raman_fft_threads
                 tail = info.raman_tail_fft_threads
                 kernel = full
+                # Each Raman batch's key names its row length, a doubled time grid.
+                row = f".samples.{2 * grid.n_to}"
                 if info.cpu_size_policy_enabled:
-                    full = sizing[f"raman_fft.raman.{chunk * 2 * grid.n_to}"]["threads"]
-                    kernel = sizing[f"raman_fft.raman.{2 * grid.n_to}"]["threads"]
+                    full = sizing[f"raman_fft.raman.{chunk * 2 * grid.n_to}{row}"][
+                        "threads"
+                    ]
+                    kernel = sizing[f"raman_fft.raman.{2 * grid.n_to}{row}"]["threads"]
                     if 7 % chunk:
                         tail = sizing[
-                            f"raman_tail_fft.raman.{(7 % chunk) * 2 * grid.n_to}"
+                            f"raman_tail_fft.raman.{(7 % chunk) * 2 * grid.n_to}{row}"
                         ]["threads"]
                 accelerated = _accelerated(2 * grid.n_to, full)
                 tail_accelerated = _accelerated(2 * grid.n_to, tail)
@@ -137,7 +141,7 @@ def test_raman_partial_chunk_matches_reference_and_repeats(
                 if info.device_backend == "none":
                     products = info.raman_tail_fft_threads
                     if info.cpu_size_policy_enabled:
-                        products = sizing[f"raman_tail_fft.raman.{2 * grid.n_to}"][
+                        products = sizing[f"raman_tail_fft.raman.{2 * grid.n_to}{row}"][
                             "threads"
                         ]
                     if _accelerated(2 * grid.n_to, products):

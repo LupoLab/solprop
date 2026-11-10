@@ -32,7 +32,7 @@ from jaxtyping import Bool, Complex, Float, Inexact, Num
 
 from solprop._helpers import PLAIN
 from solprop.backends.exponential import refuse_carrier_frame, refuse_formulation
-from solprop.backends.host.driver import HostDriver, refuse_general_leaves
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.low_storage import HostLowStorageMarch
 from solprop.backends.memory import adams_memory, reference_base_memory
 from solprop.backends.numpy_ref import passes, transforms
@@ -2951,7 +2951,6 @@ def _refuse_unsupported(problem: PropagationProblem) -> None:
         case route:
             msg = f"numpy_ref does not execute the {route_name(route)} route"
             raise BackendError(msg)
-    refuse_general_leaves(problem, "numpy_ref", admits=_GENERAL_LEAVES)
     _refuse_adams(problem)
     # One list for every backend: the coupled flow first, then the
     # general modal route, each refusal naming this backend.
@@ -3602,23 +3601,6 @@ def _apply_flow(
         "wij,bjpw->bipw", action, state[:, :, :, active]
     )
     return carried
-
-
-_GENERAL_LEAVES = (
-    "linear.coupled_flow",
-    "linear.modal_metric",
-    "transform.modal_tables",
-    "responses.regional_responses",
-)
-"""The schema-12 leaves ``numpy_ref`` executes.
-
-The metric, the tables and the regional responses are the general modal route;
-``coupled_flow`` is executed in the combinations
-:func:`solprop.backends.numpy_ref.admission.refuse_coupled_flow` admits. Naming a leaf
-here only says the field may be present; which contents are executed is the shared
-list's, :func:`solprop.backends.numpy_ref.admission.refuse_general_route`, which every
-backend runs under its own name.
-"""
 
 
 def _check_flow_conditioning(

@@ -1693,9 +1693,16 @@ def test_the_march_warns_once_when_a_step_passes_the_interval(
     assert np.all(history.error_norm == 0.0)
 
 
-def test_a_replay_that_runs_out_says_so(lifecycle, narrow_grid):
+@pytest.mark.parametrize("name", ["numpy_ref", "native"])
+def test_a_replay_that_runs_out_says_so(lifecycle, narrow_grid, name):
+    # The reference's march, and the bridge's around the native resident engine.
     problem, length = lifecycle()
-    backend = NumpyRefBackend(problem, grid=narrow_grid)
+    if name == "native":
+        backend = pytest.importorskip("solprop_native").NativeBackend(
+            problem, grid=narrow_grid
+        )
+    else:
+        backend = NumpyRefBackend(problem, grid=narrow_grid)
     backend.set_initial(problem.initial.field0, None)
     with pytest.raises(BackendError, match="cannot reach"):
         backend.propagate_to(length * 1.02)

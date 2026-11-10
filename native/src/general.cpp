@@ -618,8 +618,10 @@ inline void seed_fftw_wisdom(const ExecutionSpace& space, Complex* input,
   // The policy has always tolerated a plane it cannot seed; a profile records it.
   if (seeded == nullptr && (*chosen & FFTW_WISDOM_ONLY) == 0U &&
       (detail::planning == nullptr ||
-       detail::planning->mode == FftPlanning::Mode::legacy))
+       detail::planning->mode == FftPlanning::Mode::legacy)) {
+    release_seed(key, false);
     return;
+  }
   end_seed(key, *chosen, seeded != nullptr);
   if (seeded != nullptr)
     fftw_destroy_plan(seeded);
@@ -2607,17 +2609,34 @@ public:
   // microseconds on 16 of its 84 multiprocessors, whatever the rows. Batched, the
   // stage's rows share them. A device never defers the coarse quadrature
   // (`deferred_quadrature_eligible`), so the coarse rows are projected at every stage.
-  // A host keeps its separate plans.
+  // A host packs them too, unless the problem is compact or SOLPROP_NATIVE_FORWARD_PACK
+  // is 0 (solprop issue #584): one transform of every row, threaded by its shape, in
+  // place of one a transform over only the modes' rows, which left most of the
+  // threads idle: on 18 cores of an Intel Xeon Gold 6240 the pack ran rdw 0.90,
+  // argon_blueshift 0.88 and ctc 0.92 of their windows. A host keeps the coarse rows
+  // after the fine ones so that a deferred quadrature's stages transform the fine block
+  // alone.
   bool packs_forward() const noexcept {
-#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+    // A compact problem keeps its separate transforms: its one row a transform runs
+    // serially below the FFT start, and the pack's few rows on the compact team ran
+    // averaged helium 1.35 times slower on 18 cores of an Intel Xeon Gold 6240 and
+    // 1.11 on 16 of an AMD EPYC 7763 (solprop issue #584).
+    if (!host_forward_pack() || compact_)
+      return false;
+#endif
     return problem_.family == FieldFamily::field_real &&
            !problem_.separable_geometry() && !problem_.general_modal &&
            !problem_.dispersive && !problem_.envelope_plasma && !held_radial() &&
            (problem_.in_stage_absorber || held_plasma() ||
             !problem_.projection_coarse_matrix.empty());
-#else
-    return false;
-#endif
+  }
+  static bool host_forward_pack() noexcept {
+    static const bool enabled = [] {
+      const char* text = std::getenv("SOLPROP_NATIVE_FORWARD_PACK");
+      return text == nullptr || std::string(text) != "0";
+    }();
+    return enabled;
   }
   void transform_forward_pack();
   void held_response(std::size_t stage, std::size_t first_node, std::size_t node_count,
@@ -2683,7 +2702,14 @@ public:
   bool use_chunked_blas_for_synthesis() const noexcept;
   bool folds_single_node() const noexcept;
   bool use_chunked_blas_for_projection() const noexcept;
-  [[nodiscard]] const ExecutionSpace& fft_space_for(std::size_t samples);
+  [[nodiscard]] const ExecutionSpace& fft_space_for(std::size_t samples,
+                                                    std::size_t length);
+  /** A batch's FFT instance, sized by its rows: extent 0 counts the rows, the
+      remaining extents make one row (a transverse plane counts as one row). */
+  template <class View>
+  [[nodiscard]] const ExecutionSpace& fft_space_for_rows(const View& rows) {
+    return fft_space_for(rows.size(), row_length(rows));
+  }
 
   Problem problem_;
   // A compact problem's pools (`compact_problem`) and the team its FFTW loops take.
@@ -2936,6 +2962,14 @@ public:
   ComplexView2 forward_pack_spectrum_, forward_pack_tail_spectrum_;
   std::unique_ptr<ForwardRealPlan> forward_pack_plan_, forward_pack_tail_plan_;
   std::size_t forward_pack_absorber_rows_ = 0;
+  // A host's deferred quadrature (`deferred_quadrature_eligible`): the pack's fine
+  // block (the absorber's, the projection's and the held currents' fine rows) with and
+  // without the absorber's, for the stages, and its coarse block for the finish.
+  RealView2 forward_pack_fine_, forward_pack_fine_tail_, forward_pack_coarse_;
+  ComplexView2 forward_pack_fine_spectrum_, forward_pack_fine_tail_spectrum_,
+      forward_pack_coarse_spectrum_;
+  std::unique_ptr<ForwardRealPlan> forward_pack_fine_plan_,
+      forward_pack_fine_tail_plan_, forward_pack_coarse_plan_;
   RealView2 held_current_, held_projection_;
   ComplexView2 held_nodal_spectrum_, held_projected_spectrum_;
   RealView held_derivative_, held_inverse_;
@@ -3974,6 +4008,17 @@ void GeneralWorkspace::allocate() {
   const auto pack_slice = [&](const std::size_t first, const std::size_t count) {
     return std::pair<std::size_t, std::size_t>(first, first + count);
   };
+#if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
+  constexpr bool host_pack_layout = false;
+#else
+  constexpr bool host_pack_layout = true;
+#endif
+  // A host's pack: [absorber | fine | held fine x2 | coarse | held coarse x2]; a
+  // device's: [absorber | fine | coarse | (held fine, held coarse) x2].
+  const std::size_t held_fine_rows = held_plasma() ? 2 * temporal_columns : 0;
+  const std::size_t fine_end = absorber_rows + temporal_columns + held_fine_rows;
+  const std::size_t coarse_first =
+      host_pack_layout ? fine_end : absorber_rows + temporal_columns;
   forward_pack_absorber_rows_ = absorber_rows;
   if (pack) {
     forward_pack_ =
@@ -3988,6 +4033,27 @@ void GeneralWorkspace::allocate() {
           forward_pack_spectrum_, pack_slice(absorber_rows, pack_rows - absorber_rows),
           Kokkos::ALL);
     }
+    if (host_pack_layout && coarse_rows != 0 && deferred_quadrature_eligible()) {
+      forward_pack_fine_ =
+          Kokkos::subview(forward_pack_, pack_slice(0, fine_end), Kokkos::ALL);
+      forward_pack_fine_spectrum_ =
+          Kokkos::subview(forward_pack_spectrum_, pack_slice(0, fine_end), Kokkos::ALL);
+      if (absorber_rows != 0 && fine_end - absorber_rows > temporal_columns) {
+        forward_pack_fine_tail_ = Kokkos::subview(
+            forward_pack_, pack_slice(absorber_rows, fine_end - absorber_rows),
+            Kokkos::ALL);
+        forward_pack_fine_tail_spectrum_ = Kokkos::subview(
+            forward_pack_spectrum_, pack_slice(absorber_rows, fine_end - absorber_rows),
+            Kokkos::ALL);
+      }
+      if (held_plasma()) {
+        forward_pack_coarse_ = Kokkos::subview(
+            forward_pack_, pack_slice(fine_end, pack_rows - fine_end), Kokkos::ALL);
+        forward_pack_coarse_spectrum_ =
+            Kokkos::subview(forward_pack_spectrum_,
+                            pack_slice(fine_end, pack_rows - fine_end), Kokkos::ALL);
+      }
+    }
   }
   projected_spectrum_ =
       pack ? ComplexView2(Kokkos::subview(forward_pack_spectrum_,
@@ -3998,10 +4064,9 @@ void GeneralWorkspace::allocate() {
   if (!problem_.projection_coarse_matrix.empty())
     projected_coarse_spectrum_ =
         coarse_rows != 0
-            ? ComplexView2(Kokkos::subview(
-                  forward_pack_spectrum_,
-                  pack_slice(absorber_rows + temporal_columns, coarse_rows),
-                  Kokkos::ALL))
+            ? ComplexView2(Kokkos::subview(forward_pack_spectrum_,
+                                           pack_slice(coarse_first, coarse_rows),
+                                           Kokkos::ALL))
             : ComplexView2("solprop_native.fft.projected_coarse_spectrum", columns,
                            projected_spectrum_size());
   absorber_spectrum_ =
@@ -4060,9 +4125,7 @@ void GeneralWorkspace::allocate() {
       projected_coarse_real_ =
           coarse_rows != 0
               ? RealView2(Kokkos::subview(
-                    forward_pack_,
-                    pack_slice(absorber_rows + temporal_columns, coarse_rows),
-                    Kokkos::ALL))
+                    forward_pack_, pack_slice(coarse_first, coarse_rows), Kokkos::ALL))
               : RealView2("solprop_native.response.projected_coarse_real",
                           temporal_columns, problem_.n_to);
     absorber_real_ =
@@ -4091,6 +4154,8 @@ void GeneralWorkspace::allocate() {
     const bool packed = false;
     const bool radial_packed = false;
 #endif
+    // A host's pack holds the streams' rows itself, each fine block then each coarse.
+    const bool host_held = host_pack_layout && pack && !radial;
     if (packed && pack) {
       // The stage's forward pack ends with the held pack's rows.
       const auto held_rows =
@@ -4114,6 +4179,19 @@ void GeneralWorkspace::allocate() {
           std::string("solprop_native.held.stream") + std::to_string(index) + ".";
       if (index < 2)
         stream.node = RealView2(label + "node", chunk_rows, problem_.n_to);
+      if (host_held && index < 2) {
+        const auto fine = pack_slice(absorber_rows + rows + index * rows, rows);
+        stream.projected = Kokkos::subview(forward_pack_, fine, Kokkos::ALL);
+        stream.spectrum = Kokkos::subview(forward_pack_spectrum_, fine, Kokkos::ALL);
+        if (coarse) {
+          const auto held_coarse = pack_slice(fine_end + rows + index * rows, rows);
+          stream.coarse = Kokkos::subview(forward_pack_, held_coarse, Kokkos::ALL);
+          stream.coarse_spectrum =
+              Kokkos::subview(forward_pack_spectrum_, held_coarse, Kokkos::ALL);
+          stream.stacked = RealView2(label + "stacked", 2 * rows, problem_.n_to);
+        }
+        continue;
+      }
       if (packed) {
         // Each of the two streams holds half of the pack.
         const std::size_t first = index * (held_pack_.extent(0) / 2);
@@ -4513,8 +4591,9 @@ void GeneralWorkspace::upload() {
 // thresholds in core.hpp. Explicit FFT-pool requests bypass automatic sizing.
 // FFTW's factorisation can change with the width; comparisons use solprop's SEP 25
 // transform/propagation rounding budgets rather than bitwise agreement.
-const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples) {
-  return fft_pool_.get(CpuOperation::fft, samples);
+const ExecutionSpace& GeneralWorkspace::fft_space_for(const std::size_t samples,
+                                                      const std::size_t length) {
+  return fft_pool_.get(CpuOperation::fft, samples, length);
 }
 
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
@@ -4527,7 +4606,7 @@ void GeneralWorkspace::seed_free_wisdom() {
   const auto n_y = static_cast<int>(transverse_.extent(1));
   const auto n_x = static_cast<int>(transverse_.extent(2));
   for (const int sign : {FFTW_FORWARD, FFTW_BACKWARD})
-    seed_fftw_wisdom(fft_space_for(transverse_.size()), transverse_.data(),
+    seed_fftw_wisdom(fft_space_for_rows(transverse_), transverse_.data(),
                      transverse_.data(), {n_y, n_x}, planes, n_y * n_x, n_y * n_x,
                      sign);
   graph::deep_copy(execution_space_, transverse_, Complex{});
@@ -4544,20 +4623,20 @@ void GeneralWorkspace::seed_free_wisdom() {
 // twice the measured cost). The plan policy (`fftw_seed_effort`) decides the effort.
 void GeneralWorkspace::seed_modal_wisdom() {
   if (problem_.family == FieldFamily::field_real) {
-    seed_row_fft_wisdom(fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
+    seed_row_fft_wisdom(fft_space_for_rows(modal_real_), fine_spectrum_, modal_real_,
                         KokkosFFT::Direction::backward);
     graph::deep_copy(execution_space_, modal_real_, 0.0);
   } else {
-    seed_row_fft_wisdom(fft_space_for(modal_complex_.size()), fine_spectrum_,
+    seed_row_fft_wisdom(fft_space_for_rows(modal_complex_), fine_spectrum_,
                         modal_complex_, KokkosFFT::Direction::backward);
     graph::deep_copy(execution_space_, modal_complex_, Complex{});
   }
   if (problem_.family == FieldFamily::envelope) {
-    seed_row_fft_wisdom(fft_space_for(projected_complex_.size()), projected_complex_,
+    seed_row_fft_wisdom(fft_space_for_rows(projected_complex_), projected_complex_,
                         projected_spectrum_, KokkosFFT::Direction::forward);
     graph::deep_copy(execution_space_, projected_complex_, Complex{});
   } else {
-    seed_row_fft_wisdom(fft_space_for(projected_real_.size()), projected_real_,
+    seed_row_fft_wisdom(fft_space_for_rows(projected_real_), projected_real_,
                         projected_spectrum_, KokkosFFT::Direction::forward);
     graph::deep_copy(execution_space_, projected_real_, 0.0);
   }
@@ -4569,30 +4648,46 @@ void GeneralWorkspace::seed_modal_wisdom() {
 // projected pair seeded above, whose wisdom FFTW then finds at once; the radial held
 // streams' chunk rows do not.
 void GeneralWorkspace::seed_stream_wisdom() {
+  // The forward pack's plans (`packs_forward`); seeding overwrites their rows.
+  for (const auto& [rows, spectrum] :
+       {std::pair{forward_pack_, forward_pack_spectrum_},
+        std::pair{forward_pack_tail_, forward_pack_tail_spectrum_},
+        std::pair{forward_pack_fine_, forward_pack_fine_spectrum_},
+        std::pair{forward_pack_fine_tail_, forward_pack_fine_tail_spectrum_},
+        std::pair{forward_pack_coarse_, forward_pack_coarse_spectrum_}}) {
+    if (rows.empty())
+      continue;
+    seed_row_fft_wisdom(fft_space_for_rows(rows), rows, spectrum,
+                        KokkosFFT::Direction::forward);
+  }
+  if (!forward_pack_.empty()) {
+    graph::deep_copy(execution_space_, forward_pack_, 0.0);
+    graph::deep_copy(execution_space_, forward_pack_spectrum_, Complex{});
+  }
   if (held_plasma())
     for (auto& stream : held_streams_) {
       if (stream.projected.empty())
         continue;
-      seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
+      seed_row_fft_wisdom(fft_space_for_rows(stream.projected), stream.projected,
                           stream.spectrum, KokkosFFT::Direction::forward);
       graph::deep_copy(execution_space_, stream.projected, 0.0);
       graph::deep_copy(execution_space_, stream.spectrum, Complex{});
       if (stream.coarse.empty())
         continue;
-      seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
+      seed_row_fft_wisdom(fft_space_for_rows(stream.coarse), stream.coarse,
                           stream.coarse_spectrum, KokkosFFT::Direction::forward);
       graph::deep_copy(execution_space_, stream.coarse, 0.0);
       graph::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
     }
   if (problem_.envelope_plasma)
     for (auto& stream : envelope_streams_) {
-      seed_row_fft_wisdom(fft_space_for(stream.projected.size()), stream.projected,
+      seed_row_fft_wisdom(fft_space_for_rows(stream.projected), stream.projected,
                           stream.spectrum, KokkosFFT::Direction::forward);
       graph::deep_copy(execution_space_, stream.projected, Complex{});
       graph::deep_copy(execution_space_, stream.spectrum, Complex{});
       if (stream.coarse.empty())
         continue;
-      seed_row_fft_wisdom(fft_space_for(stream.coarse.size()), stream.coarse,
+      seed_row_fft_wisdom(fft_space_for_rows(stream.coarse), stream.coarse,
                           stream.coarse_spectrum, KokkosFFT::Direction::forward);
       graph::deep_copy(execution_space_, stream.coarse, Complex{});
       graph::deep_copy(execution_space_, stream.coarse_spectrum, Complex{});
@@ -4610,16 +4705,18 @@ void GeneralWorkspace::plan() {
     seed_modal_wisdom();
   seed_stream_wisdom();
 #endif
-  fft_execution_space_ =
-      fft_space_for(std::max(modal_complex_.size(), modal_real_.size()));
+  fft_execution_space_ = modal_complex_.size() > modal_real_.size()
+                             ? fft_space_for_rows(modal_complex_)
+                             : fft_space_for_rows(modal_real_);
   if (problem_.raman) {
-    raman_execution_space_ =
-        raman_pool_.get(CpuOperation::raman, node_raman_drive_.size());
+    raman_execution_space_ = raman_pool_.get(
+        CpuOperation::raman, node_raman_drive_.size(), row_length(node_raman_drive_));
     const auto raman_tail = problem_.n_nodes % problem_.node_chunk;
     raman_tail_execution_space_ = raman_tail_pool_.get(
-        CpuOperation::raman, raman_tail * problem_.raman_drives() * 2 * problem_.n_to);
-    raman_kernel_execution_space_ =
-        raman_pool_.get(CpuOperation::raman, raman_kernel_time_.size());
+        CpuOperation::raman, raman_tail * problem_.raman_drives() * 2 * problem_.n_to,
+        2 * problem_.n_to);
+    raman_kernel_execution_space_ = raman_pool_.get(
+        CpuOperation::raman, raman_kernel_time_.size(), row_length(raman_kernel_time_));
     raman_multiply_space_ =
         kernel_pool_.get(CpuOperation::stage, node_raman_spectrum_.size());
     raman_tail_multiply_space_ =
@@ -4632,7 +4729,7 @@ void GeneralWorkspace::plan() {
     raman_products_ = raman_modal_products();
     if (raman_products_ != 0) {
       raman_product_execution_space_ = raman_tail_pool_.get(
-          CpuOperation::raman, raman_products_ * 2 * problem_.n_to);
+          CpuOperation::raman, raman_products_ * 2 * problem_.n_to, 2 * problem_.n_to);
       raman_product_space_ =
           kernel_pool_.get(CpuOperation::stage, raman_products_ * 2 * problem_.n_to);
     }
@@ -4647,7 +4744,7 @@ void GeneralWorkspace::plan() {
     // The y transforms are many short ones; below the threaded-plan threshold they
     // run on one FFTW thread, as every other small plan (`fft_space_for`).
     constexpr int y_axis = -1;
-    const auto& space = fft_space_for(transverse_.size());
+    const auto& space = fft_space_for_rows(transverse_);
     slab_forward_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
                                                KokkosFFT::Direction::forward, y_axis);
     slab_inverse_ = std::make_unique<SlabPlan>(space, transverse_, transverse_,
@@ -4659,10 +4756,10 @@ void GeneralWorkspace::plan() {
     const KokkosFFT::axis_type<2> axes{-2, -1};
 #endif
     transverse_forward_ = std::make_unique<TransversePlan>(
-        fft_space_for(transverse_.size()), transverse_, transverse_,
+        fft_space_for_rows(transverse_), transverse_, transverse_,
         KokkosFFT::Direction::forward, axes);
     transverse_inverse_ = std::make_unique<TransversePlan>(
-        fft_space_for(transverse_.size()), transverse_, transverse_,
+        fft_space_for_rows(transverse_), transverse_, transverse_,
         KokkosFFT::Direction::backward, axes);
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)
     bool identity_crop = problem_.crop_index.size() == problem_.n_omega;
@@ -4718,38 +4815,38 @@ void GeneralWorkspace::plan() {
       if (stream.projected.empty())
         continue;
       stream.forward = std::make_unique<ForwardRealPlan>(
-          fft_space_for(stream.projected.size()), stream.projected, stream.spectrum,
+          fft_space_for_rows(stream.projected), stream.projected, stream.spectrum,
           KokkosFFT::Direction::forward, axis);
       if (!stream.coarse.empty())
         stream.coarse_forward = std::make_unique<ForwardRealPlan>(
-            fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
+            fft_space_for_rows(stream.coarse), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
     if (!held_pack_.empty() && forward_pack_.empty())
       held_pack_forward_ = std::make_unique<ForwardRealPlan>(
-          fft_space_for(held_pack_.size()), held_pack_, held_pack_spectrum_,
+          fft_space_for_rows(held_pack_), held_pack_, held_pack_spectrum_,
           KokkosFFT::Direction::forward, axis);
   }
   if (problem_.envelope_plasma)
     for (auto& stream : envelope_streams_) {
       stream.forward = std::make_unique<ComplexPlan>(
-          fft_space_for(stream.projected.size()), stream.projected, stream.spectrum,
+          fft_space_for_rows(stream.projected), stream.projected, stream.spectrum,
           KokkosFFT::Direction::forward, axis);
       if (!stream.coarse.empty())
         stream.coarse_forward = std::make_unique<ComplexPlan>(
-            fft_space_for(stream.coarse.size()), stream.coarse, stream.coarse_spectrum,
+            fft_space_for_rows(stream.coarse), stream.coarse, stream.coarse_spectrum,
             KokkosFFT::Direction::forward, axis);
     }
   statistics_inverse_plan_ = std::make_unique<ComplexPlan>(
-      fft_space_for(statistics_time_.size()), statistics_spectrum_, statistics_time_,
+      fft_space_for_rows(statistics_time_), statistics_spectrum_, statistics_time_,
       KokkosFFT::Direction::backward, axis);
   if (problem_.family == FieldFamily::field_real) {
     inverse_real_plan_ = std::make_unique<InverseRealPlan>(
-        fft_space_for(modal_real_.size()), fine_spectrum_, modal_real_,
+        fft_space_for_rows(modal_real_), fine_spectrum_, modal_real_,
         KokkosFFT::Direction::backward, axis);
   } else {
     inverse_complex_plan_ = std::make_unique<ComplexPlan>(
-        fft_space_for(modal_complex_.size()), fine_spectrum_, modal_complex_,
+        fft_space_for_rows(modal_complex_), fine_spectrum_, modal_complex_,
         KokkosFFT::Direction::backward, axis);
   }
   if (retained_synthesis_) {
@@ -4757,7 +4854,7 @@ void GeneralWorkspace::plan() {
       const auto rows = std::make_pair(std::size_t{0}, count);
       const ComplexView2 padded = Kokkos::subview(modal_complex_, rows, Kokkos::ALL());
       const ComplexView2 node = Kokkos::subview(node_complex_, rows, Kokkos::ALL());
-      const auto& space = fft_space_for(node.size());
+      const auto& space = fft_space_for_rows(node);
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
       seed_row_fft_wisdom(space, padded, node, KokkosFFT::Direction::backward);
 #endif
@@ -4775,33 +4872,45 @@ void GeneralWorkspace::plan() {
   }
   if (problem_.family == FieldFamily::envelope) {
     forward_complex_plan_ = std::make_unique<ComplexPlan>(
-        fft_space_for(projected_complex_.size()), projected_complex_,
-        projected_spectrum_, KokkosFFT::Direction::forward, axis);
+        fft_space_for_rows(projected_complex_), projected_complex_, projected_spectrum_,
+        KokkosFFT::Direction::forward, axis);
     absorber_complex_plan_ = std::make_unique<ComplexPlan>(
-        fft_space_for(absorber_complex_.size()), absorber_complex_, absorber_spectrum_,
+        fft_space_for_rows(absorber_complex_), absorber_complex_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
     if (!problem_.projection_coarse_matrix.empty())
       forward_coarse_complex_plan_ = std::make_unique<ComplexPlan>(
-          fft_space_for(projected_coarse_complex_.size()), projected_coarse_complex_,
+          fft_space_for_rows(projected_coarse_complex_), projected_coarse_complex_,
           projected_coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   } else {
     forward_real_plan_ = std::make_unique<ForwardRealPlan>(
-        fft_space_for(projected_real_.size()), projected_real_, projected_spectrum_,
+        fft_space_for_rows(projected_real_), projected_real_, projected_spectrum_,
         KokkosFFT::Direction::forward, axis);
     absorber_real_plan_ = std::make_unique<ForwardRealPlan>(
-        fft_space_for(absorber_real_.size()), absorber_real_, absorber_spectrum_,
+        fft_space_for_rows(absorber_real_), absorber_real_, absorber_spectrum_,
         KokkosFFT::Direction::forward, axis);
     if (!forward_pack_.empty())
       forward_pack_plan_ = std::make_unique<ForwardRealPlan>(
-          fft_space_for(forward_pack_.size()), forward_pack_, forward_pack_spectrum_,
+          fft_space_for_rows(forward_pack_), forward_pack_, forward_pack_spectrum_,
           KokkosFFT::Direction::forward, axis);
     if (!forward_pack_tail_.empty())
       forward_pack_tail_plan_ = std::make_unique<ForwardRealPlan>(
-          fft_space_for(forward_pack_tail_.size()), forward_pack_tail_,
+          fft_space_for_rows(forward_pack_tail_), forward_pack_tail_,
           forward_pack_tail_spectrum_, KokkosFFT::Direction::forward, axis);
+    if (!forward_pack_fine_.empty())
+      forward_pack_fine_plan_ = std::make_unique<ForwardRealPlan>(
+          fft_space_for_rows(forward_pack_fine_), forward_pack_fine_,
+          forward_pack_fine_spectrum_, KokkosFFT::Direction::forward, axis);
+    if (!forward_pack_fine_tail_.empty())
+      forward_pack_fine_tail_plan_ = std::make_unique<ForwardRealPlan>(
+          fft_space_for_rows(forward_pack_fine_tail_), forward_pack_fine_tail_,
+          forward_pack_fine_tail_spectrum_, KokkosFFT::Direction::forward, axis);
+    if (!forward_pack_coarse_.empty())
+      forward_pack_coarse_plan_ = std::make_unique<ForwardRealPlan>(
+          fft_space_for_rows(forward_pack_coarse_), forward_pack_coarse_,
+          forward_pack_coarse_spectrum_, KokkosFFT::Direction::forward, axis);
     if (!problem_.projection_coarse_matrix.empty())
       forward_coarse_real_plan_ = std::make_unique<ForwardRealPlan>(
-          fft_space_for(projected_coarse_real_.size()), projected_coarse_real_,
+          fft_space_for_rows(projected_coarse_real_), projected_coarse_real_,
           projected_coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   }
   if constexpr (cpu_size_policy_enabled) {
@@ -4812,7 +4921,8 @@ void GeneralWorkspace::plan() {
           problem_.slab_geometry() ? problem_.n_p : problem_.n_pol_state;
       temporal_tail_rows_ = tail_units * rows_per_unit;
       if (temporal_tail_rows_ != 0) {
-        const auto& space = fft_space_for(temporal_tail_rows_ * problem_.n_to);
+        const auto& space =
+            fft_space_for(temporal_tail_rows_ * problem_.n_to, problem_.n_to);
         const auto rows = fine_spectrum_.extent(0);
         if (problem_.family == FieldFamily::field_real)
           temporal_tail_inverse_real_.create(space, fine_spectrum_, modal_real_, rows,
@@ -4897,7 +5007,7 @@ void GeneralWorkspace::plan() {
                                const KokkosFFT::Direction direction) {
       const ComplexView2 rows =
           Kokkos::subview(state, std::make_pair(std::size_t{0}, count), Kokkos::ALL());
-      const auto& space = fft_space_for(rows.size());
+      const auto& space = fft_space_for_rows(rows);
 #if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
       // Seeding may overwrite the rows; nothing is loaded yet.
       seed_row_fft_wisdom(space, rows, rows, direction);
@@ -4915,21 +5025,21 @@ void GeneralWorkspace::plan() {
   }
   if (problem_.family == FieldFamily::envelope) {
     coarse_inverse_complex_plan_ = std::make_unique<ComplexPlan>(
-        fft_space_for(coarse_time_complex_.size()), coarse_spectrum_,
+        fft_space_for_rows(coarse_time_complex_), coarse_spectrum_,
         coarse_time_complex_, KokkosFFT::Direction::backward, axis);
     coarse_forward_complex_plan_ = std::make_unique<ComplexPlan>(
-        fft_space_for(coarse_time_complex_.size()), coarse_time_complex_,
+        fft_space_for_rows(coarse_time_complex_), coarse_time_complex_,
         coarse_spectrum_, KokkosFFT::Direction::forward, axis);
   } else {
     coarse_inverse_real_plan_ = std::make_unique<InverseRealPlan>(
-        fft_space_for(coarse_time_real_.size()), coarse_spectrum_, coarse_time_real_,
+        fft_space_for_rows(coarse_time_real_), coarse_spectrum_, coarse_time_real_,
         KokkosFFT::Direction::backward, axis);
     coarse_forward_real_plan_ = std::make_unique<ForwardRealPlan>(
-        fft_space_for(coarse_time_real_.size()), coarse_time_real_, coarse_spectrum_,
+        fft_space_for_rows(coarse_time_real_), coarse_time_real_, coarse_spectrum_,
         KokkosFFT::Direction::forward, axis);
   }
   if (temporal_tail_rows_ != 0) {
-    const auto& space = fft_space_for(temporal_tail_rows_ * problem_.n_t);
+    const auto& space = fft_space_for(temporal_tail_rows_ * problem_.n_t, problem_.n_t);
     const auto rows = coarse_spectrum_.extent(0);
     if (problem_.family == FieldFamily::envelope) {
       coarse_tail_inverse_complex_.create(space, coarse_spectrum_, coarse_time_complex_,
@@ -12633,18 +12743,31 @@ void GeneralWorkspace::held_response(const std::size_t stage,
   }
 }
 
-// A device's stage forward rows in one transform: all of them when the absorber's are
-// due, else those after the absorber's (or the projection's alone).
+// A stage's forward rows in one transform: all of them when the absorber's are due,
+// else those after the absorber's (or the projection's alone). A host deferring its
+// quadrature transforms the fine block only; `finish_quadrature` takes the coarse.
 void GeneralWorkspace::transform_forward_pack() {
-  if (absorbing() || forward_pack_absorber_rows_ == 0)
-    graph::execute(*forward_pack_plan_, forward_pack_, forward_pack_spectrum_,
-                   KokkosFFT::Normalization::none);
-  else if (forward_pack_tail_plan_)
-    graph::execute(*forward_pack_tail_plan_, forward_pack_tail_,
-                   forward_pack_tail_spectrum_, KokkosFFT::Normalization::none);
-  else
+  const Kokkos::Profiling::ScopedRegion region("solprop_native.fft.forward_pack");
+  const bool fine = defer_quadrature_ && forward_pack_fine_plan_;
+  if (absorbing() || forward_pack_absorber_rows_ == 0) {
+    if (fine)
+      graph::execute(*forward_pack_fine_plan_, forward_pack_fine_,
+                     forward_pack_fine_spectrum_, KokkosFFT::Normalization::none);
+    else
+      graph::execute(*forward_pack_plan_, forward_pack_, forward_pack_spectrum_,
+                     KokkosFFT::Normalization::none);
+  } else if (fine ? static_cast<bool>(forward_pack_fine_tail_plan_)
+                  : static_cast<bool>(forward_pack_tail_plan_)) {
+    if (fine)
+      graph::execute(*forward_pack_fine_tail_plan_, forward_pack_fine_tail_,
+                     forward_pack_fine_tail_spectrum_, KokkosFFT::Normalization::none);
+    else
+      graph::execute(*forward_pack_tail_plan_, forward_pack_tail_,
+                     forward_pack_tail_spectrum_, KokkosFFT::Normalization::none);
+  } else {
     graph::execute(*forward_real_plan_, projected_real_, projected_spectrum_,
                    KokkosFFT::Normalization::none);
+  }
 }
 
 void GeneralWorkspace::held_transform(const bool coarse_only, const bool transformed) {
@@ -14945,11 +15068,14 @@ void GeneralWorkspace::finish_quadrature() {
   if (problem_.family == FieldFamily::envelope)
     graph::execute(*forward_coarse_complex_plan_, projected_coarse_complex_,
                    projected_coarse_spectrum_, KokkosFFT::Normalization::none);
+  else if (forward_pack_coarse_plan_)
+    graph::execute(*forward_pack_coarse_plan_, forward_pack_coarse_,
+                   forward_pack_coarse_spectrum_, KokkosFFT::Normalization::none);
   else
     graph::execute(*forward_coarse_real_plan_, projected_coarse_real_,
                    projected_coarse_spectrum_, KokkosFFT::Normalization::none);
   if (held_plasma())
-    held_transform(true);
+    held_transform(true, static_cast<bool>(forward_pack_coarse_plan_));
   coarse_pending_ = false;
 }
 
@@ -15650,7 +15776,7 @@ void GeneralWorkspace::bind_edge_lines(const EdgeLines& lines) {
         const auto heap_before = heap_bytes();
         const auto device_before = device_free_bytes();
         constexpr int along = -1;
-        batch.plan = std::make_unique<StripPlan>(fft_space_for(batch.buffer.size()),
+        batch.plan = std::make_unique<StripPlan>(fft_space_for_rows(batch.buffer),
                                                  batch.buffer, batch.buffer,
                                                  KokkosFFT::Direction::forward, along);
         execution_space_.fence("solprop_native edge strip plan");
@@ -16533,6 +16659,15 @@ void GeneralWorkspace::close() noexcept {
   held_pack_spectrum_ = {};
   forward_pack_plan_.reset();
   forward_pack_tail_plan_.reset();
+  forward_pack_fine_plan_.reset();
+  forward_pack_fine_tail_plan_.reset();
+  forward_pack_coarse_plan_.reset();
+  forward_pack_fine_ = {};
+  forward_pack_fine_tail_ = {};
+  forward_pack_coarse_ = {};
+  forward_pack_fine_spectrum_ = {};
+  forward_pack_fine_tail_spectrum_ = {};
+  forward_pack_coarse_spectrum_ = {};
   forward_pack_ = {};
   forward_pack_tail_ = {};
   forward_pack_spectrum_ = {};

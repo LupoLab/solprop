@@ -85,11 +85,9 @@ from solprop.stepper.schedule import (
 )
 from solprop.translate.linop import phi_rate
 from solprop.translate.routes import tdse_descriptor
-from solprop.translate.tdse import TDSEPurpose
 
 if TYPE_CHECKING:
     from solprop.backends.driver import StepDriver
-    from solprop.backends.multistep_general import GeneralPath
 
 __all__ = [
     "AdamsEngine",
@@ -2920,7 +2918,7 @@ def _divisor(
 ) -> np.ndarray:
     """Return the defect norm's scale per bin, the accepted state's before the step.
 
-    See :func:`solprop.backends.multistep_general._norm_function` for why the state
+    See :func:`solprop.backends.host.general._norm_function` for why the state
     before the step is the scale.
 
     Parameters
@@ -3006,26 +3004,18 @@ class AdamsMarch:
                 for order in range(1, method.order + 1)
             )
         )
+        # The comparison variants' general path is the reference's alone (SEP 47
+        # section 6.3): the native backend refuses it at admission, before this march
+        # is built, so every march here takes the fused or the exponential path.
+        assert self._fused or self._exponential is not None
         # Every state-sized operation goes to an engine (SEP 16 phase 3b): the host
-        # one here, or one the backend keeps resident for the fused and exponential
-        # paths. The general path's arithmetic stays in this class.
-        resident = (
-            backend._adams_engine(method, compensation)
-            if self._fused or self._exponential is not None
-            else None
-        )
+        # one here, or one the backend keeps resident.
+        resident = backend._adams_engine(method, compensation)
         self._engine: AdamsEngine = (
             HostHistory(backend, method, self._kernels, self._exponential, compensation)
             if resident is None
             else cast("AdamsEngine", resident)
         )
-        # The comparison variants' general path keeps its arithmetic in a class of its
-        # own (SEP 39 Q7); the selected method's paths never reach it.
-        self._general: GeneralPath | None = None
-        if not (self._fused or self._exponential is not None):
-            from solprop.backends import multistep_general  # noqa: PLC0415 - cycle
-
-            self._general = multistep_general.GeneralPath(self)
         self._history: list[_Derivative] = []
         self._rejections = 0
         self._last_rejected = False
@@ -3098,14 +3088,9 @@ class AdamsMarch:
         -------
         solprop.output.schema.MarchSnapshot or None
             The snapshot, or ``None`` where there is nothing a resume could continue:
-            no history yet, the march ahead of an interpolated observation, or a march
-            that cannot carry its history (:meth:`export_refusal`).
+            no history yet, or the march ahead of an interpolated observation.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         export = self._engine.snapshot_rows
         backend = self._backend
@@ -3136,36 +3121,12 @@ class AdamsMarch:
             The state and every engine row, or ``None`` where :meth:`snapshot` returns
             ``None``.
         """
-        if (
-            self.export_refusal() is not None
-            or not self._history
-            or self._ahead is not None
-        ):
+        if not self._history or self._ahead is not None:
             return None
         state = (
             math.prod(self._backend._problem.shape) * np.dtype(np.complex128).itemsize
         )
         return state + self._engine.snapshot_nbytes()
-
-    def export_refusal(self) -> str | None:
-        """Return why this march cannot carry its history across a resume, or ``None``.
-
-        The fused and exponential paths keep their history in an engine, and every
-        engine exports and installs its rows (:class:`AdamsEngine`, SEP 29 section
-        6.6). The general path combines a list of host arrays one product at a time
-        and keeps no store a snapshot could hold.
-
-        Returns
-        -------
-        str or None
-            The reason, or ``None`` when the march exports and installs its history.
-        """
-        if not (self._fused or self._exponential is not None):
-            return (
-                "the general Adams path keeps its history as host arrays a resume "
-                "does not carry"
-            )
-        return None
 
     def load(self, snapshot: MarchSnapshot) -> str | None:
         """Continue from a snapshot taken where the backend's state now stands.
@@ -3226,9 +3187,6 @@ class AdamsMarch:
             The reason, or ``None`` when the snapshot fits.
         """
         backend = self._backend
-        refusal = self.export_refusal()
-        if refusal is not None:
-            return refusal
         checks = (
             (
                 # Starting afresh is always safe.
@@ -3268,32 +3226,6 @@ class AdamsMarch:
         return next((reason for failed, reason in checks if failed), None)
 
     # --- evaluation -------------------------------------------------------------------
-
-    def _source(
-        self,
-        lab: _State,
-        anchor: float,
-        position: float,
-        *,
-        purpose: TDSEPurpose = "predictor",
-    ) -> tuple[_State, _State]:
-        """Return the source at a lab-frame field, in the anchor's frame, and U.
-
-        Parameters
-        ----------
-        lab : numpy.ndarray
-            The lab-frame field at `position`.
-        anchor, position : float
-            The frame's anchor and the evaluation position, m.
-        purpose : str, optional
-            Atomic evaluation label, distinguishing startup and predictor work.
-
-        Returns
-        -------
-        tuple
-            ``U(anchor, position) N(lab, position)`` and ``U(position, anchor)``.
-        """
-        return self._backend._adams_source(lab, anchor, position, purpose=purpose)
 
     # --- the march --------------------------------------------------------------------
 
@@ -3610,10 +3542,7 @@ class AdamsMarch:
         """
         if self._exponential is not None:
             return self._attempt_exponential(dz, fixed=fixed, landing=landing)
-        if self._fused:
-            return self._attempt_fused(dz, fixed=fixed, landing=landing)
-        assert self._general is not None
-        return self._general.attempt(dz, fixed=fixed, landing=landing)
+        return self._attempt_fused(dz, fixed=fixed, landing=landing)
 
     def _attempt_fused(
         self,

@@ -31,7 +31,7 @@ import pytest
 import solprop.backends.host
 import solprop.backends.numpy_ref
 from scripted_driver import ScriptedDriver
-from solprop.backends import batch, driver, low_storage, multistep, multistep_general
+from solprop.backends import batch, driver, low_storage, multistep
 from solprop.backends.driver_session import DriverSession
 from solprop.backends.host.adams import HostAdamsMarch
 from solprop.backends.host.driver import HostDriver
@@ -55,7 +55,6 @@ PACKAGES = (solprop.backends.numpy_ref, solprop.backends.host)
 LEGACY_MODULES = (
     "solprop.backends.driver",
     "solprop.backends.batch",
-    "solprop.backends.multistep_general",
 )
 """The native bridge's control modules, which hold nothing else."""
 
@@ -74,7 +73,6 @@ whatever route reached it -- an import, an alias, or a module attribute."""
 LEGACY_CLASSES = (
     driver.StepDriver,
     multistep.AdamsMarch,
-    multistep_general.GeneralPath,
     low_storage.LowStorageMarch,
     batch.LockstepRunner,
 )

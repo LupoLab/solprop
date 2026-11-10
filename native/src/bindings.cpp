@@ -179,9 +179,11 @@ native::TableKind table_kind(const std::string& name) {
 // size, then the response bounds, widths and rules, every key required.
 constexpr std::array<const char*, native::cpu_operation_count> cpu_operation_names{
     "stage", "response", "dense", "fft", "raman", "copy", "flow", "modal", "adams"};
-constexpr std::array<const char*, 6> cpu_execution_scalars{
-    "response_full_samples", "response_full_columns",    "medium_threads",
-    "compact_threads",       "compact_max_fine_samples", "stable_kernel_team"};
+constexpr std::array<const char*, 8> cpu_execution_scalars{
+    "response_full_samples",    "response_full_columns",
+    "medium_threads",           "compact_threads",
+    "compact_max_fine_samples", "stable_kernel_team",
+    "fft_thread_elements",      "fft_long_row"};
 
 native::CpuExecution cpu_execution_from(const nb::dict& values) {
   native::CpuExecution result;
@@ -211,6 +213,8 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
     result.compact_max_fine_samples =
         nb::cast<std::size_t>(field("compact_max_fine_samples"));
     result.stable_kernel_team = nb::cast<bool>(field("stable_kernel_team"));
+    result.fft_thread_elements = nb::cast<std::size_t>(field("fft_thread_elements"));
+    result.fft_long_row = nb::cast<std::size_t>(field("fft_long_row"));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument(
         "a CPU execution record holds nonnegative integers and one bool");
@@ -220,8 +224,9 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
 }
 
 // solprop SEP 46 phase 3: a workspace's FFT planning, as solprop_native's backend
-// writes it: its mode, each group's effort, the profile's wisdom by plan key, and a
-// capture's effort and time limit; absent, the plan policy (`legacy`).
+// writes it: its mode, each group's effort, the profile's wisdom by plan key, a
+// capture's effort and time limit, and the plans runs measured before with whether to
+// keep new ones (ADR-076); absent, the plan policy (`legacy`).
 [[maybe_unused]] native::FftPlanning fft_planning_from(const nb::dict& values) {
   native::FftPlanning result;
   try {
@@ -267,6 +272,11 @@ native::CpuExecution cpu_execution_from(const nb::dict& values) {
     }
     if (values.contains("time_limit"))
       result.time_limit = nb::cast<double>(values["time_limit"]);
+    if (values.contains("stored"))
+      for (auto [key, text] : nb::cast<nb::dict>(values["stored"]))
+        result.stored[nb::cast<std::string>(key)] = nb::cast<std::string>(text);
+    if (values.contains("keep"))
+      result.keep = nb::cast<bool>(values["keep"]);
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("an FFT planning record has the wrong types");
   }
@@ -284,9 +294,17 @@ nb::dict fft_planning_dict(const native::FftPlanning& planning) {
   nb::list missing;
   for (const auto& key : planning.missing)
     missing.append(key);
+  nb::dict measured;
+  for (const auto& [key, text] : planning.measured)
+    measured[key.c_str()] = text;
+  nb::list reused;
+  for (const auto& key : planning.reused)
+    reused.append(key);
   result["groups"] = groups;
   result["captured"] = captured;
   result["missing"] = missing;
+  result["measured"] = measured;
+  result["reused"] = reused;
   return result;
 }
 
@@ -303,6 +321,8 @@ nb::dict cpu_execution_dict(const native::CpuExecution& execution) {
   result["compact_threads"] = execution.compact_threads;
   result["compact_max_fine_samples"] = execution.compact_max_fine_samples;
   result["stable_kernel_team"] = execution.stable_kernel_team;
+  result["fft_thread_elements"] = execution.fft_thread_elements;
+  result["fft_long_row"] = execution.fft_long_row;
   return result;
 }
 
@@ -2712,6 +2732,24 @@ NB_MODULE(_core, module_) {
     return nb::none();
 #endif
   });
+  // solprop issue #595: a captured plan's execution alone, against estimate's.
+  module_.def(
+      "time_fft_plan",
+      [](const std::string& key, const std::string& wisdom, const std::string& effort) {
+        nb::dict result;
+#if !defined(KOKKOS_ENABLE_CUDA) && !defined(KOKKOS_ENABLE_HIP)
+        // With the GIL held, as every planning: it serialises FFTW's planner.
+        const auto timed = native::time_fft_plan(key, wisdom, effort);
+        result["plan"] = timed.plan;
+        result["estimate"] = timed.estimate;
+#else
+        static_cast<void>(key);
+        static_cast<void>(wisdom);
+        static_cast<void>(effort);
+#endif
+        return result;
+      },
+      nb::arg("key"), nb::arg("wisdom"), nb::arg("effort"));
   // solprop SEP 28 section 4.2's reference parts, for its benchmarks only.
   module_.def(
       "reference_fft3_pairs",
@@ -2742,8 +2780,8 @@ NB_MODULE(_core, module_) {
   module_.def("scoped_block_time", &native::scoped_block_time);
   module_.def("shutdown_runtime", &shutdown_kokkos);
   module_.def("build_record", &build_record);
-  // FFTW's wisdom as text for solprop's SOLPROP_FFTW_WISDOM, whose file the adapter
-  // owns (solprop_native._wisdom). None where there is none to keep: a device build,
+  // FFTW's wisdom as text, for the plan store the adapter owns
+  // (solprop_native._wisdom). None where there is none to keep: a device build,
   // which plans with the device FFT, or a provider without FFTW's wisdom.
   module_.def("export_fftw_wisdom", []() -> nb::object {
 #if defined(KOKKOS_ENABLE_CUDA) || defined(KOKKOS_ENABLE_HIP)

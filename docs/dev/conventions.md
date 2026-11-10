@@ -100,8 +100,9 @@ later.
 
 The amplitude conversion is a separate, named boundary beside these Fourier helpers:
 `fourier.power_amplitude` maps internal `a` to saved `b`, and its inverse maps a resumed
-plane back. It is called by `driver.run._power_observation` and the batch scan path
-before the output handler's conjugation. It never changes the Fourier sign. Input
+plane back. A session applies it on export (`backends.export.ExportRecipe` with
+`power=True`, bitwise the same as `power_amplitude`), for single runs and the batch scan
+path alike, before the output handler's conjugation. It never changes the Fourier sign. Input
 assembly and `Simulation.with_input` divide at the entrance. These are the amplitude
 conversion sites; no propagation kernel converts amplitudes.
 

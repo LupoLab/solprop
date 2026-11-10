@@ -633,6 +633,29 @@ def test_a_stale_running_checkpoint_is_ignored_rather_than_refused(
         assert_array_equal(stored["step_history/z"], [0.0, 0.125, 0.25])
 
 
+def test_an_appending_writer_keeps_a_disagreeing_closing_checkpoint_as_read(
+    metadata, tmp_path
+):
+    # Only a reader refuses the inconsistent state; a writer continuing the file keeps
+    # its checkpoint as read, and the next read still refuses it.
+    path = tmp_path / "closing-append.h5"
+    with HDF5Output(path) as handler:
+        handler.open(metadata)
+        handler.save(plane(metadata, 0.0))
+        handler.record_outcome(
+            RunOutcome("failed", 0.25), TerminalCheckpoint(plane(metadata, 0.25), 0)
+        )
+    with h5py.File(path, "r+") as file:
+        file["terminal_checkpoint"].attrs["z"] = 0.375
+    with HDF5Output(path, append=True) as handler:
+        handler.open(metadata)
+        kept = handler.terminal_checkpoint
+        assert kept is not None
+        assert kept.plane.z == 0.375
+    with pytest.raises(OutputError, match="no matching execution outcome"):
+        resume(path)
+
+
 def test_a_closing_record_disagreeing_with_its_checkpoint_is_still_refused(
     metadata, tmp_path
 ):

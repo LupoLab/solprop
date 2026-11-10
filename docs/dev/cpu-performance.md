@@ -160,6 +160,22 @@ measured while it existed.
   pool's cores for the whole run: at 16 threads the four-mode capillary became 2.2 times faster on a Xeon Gold
   6240 (1.3 times on an AMD EPYC 7763), the radial filament 1.4 (1.6) times and averaged
   helium 1.4 (2.9) times; one thread is unchanged.
+- **Transforms thread by shape** ([measurements](benchmarks.md#transforms-by-shape-and-one-forward-pack),
+  issue [#587](https://github.com/LupoLab/solprop/issues/587)). A batch of transforms took
+  its width from its element count, though FFTW divides a batch's rows among its
+  threads: a few rows ran fastest at about a thread a row and full width was 1.1–1.6
+  times slower, while many short rows wanted 8–18 threads where four were two to three
+  times slower. Now a batch takes a thread per `fft_thread_elements` samples, at most
+  one a row, or up to the medium width when its rows are `fft_long_row` long, and the
+  calibration moves both. `line` takes 0.87–0.93 of its time at 16–36 threads on an
+  Intel Xeon Gold 6240 and an AMD EPYC 7763.
+- **A modal stage's forward transforms as one batch** (issue
+  [#584](https://github.com/LupoLab/solprop/issues/584)). The device's pack of a stage's
+  forward rows (projection, absorber, held currents) now runs on the host too, so four
+  modes no longer leave most threads idle: `argon_blueshift` 0.80–0.87, `ctc`
+  0.89–0.92 and `rdw` 0.91–0.95 at 16–36 threads on those two machines. One-column
+  problems keep their separate transforms: there the pack's few rows on the compact
+  team ran averaged helium 1.1–1.35 times slower.
 - **Measured FFTW wisdom only for serial transforms by default**
   ([measurements](benchmarks.md#threaded-fft-plan-selection)). FFTW's construction-time
   trials sometimes chose a slower *threaded* plan: on a 32-core AVX-512 server at 32
@@ -172,7 +188,8 @@ measured while it existed.
     happens before the first plan is made; the plasma streams' plans were made earlier
     and stayed at estimate.
 
-- **Measured plans kept across processes** (`SOLPROP_FFTW_WISDOM`, opt-in;
+- **Measured plans kept across processes** (by default since ADR-076, opt-in through
+  `SOLPROP_FFTW_WISDOM` before;
   [measurements](benchmarks.md#persistent-fftw-wisdom)). A scan of one-thread jobs
   measured the same plans in every job: 0.5–4 s of construction against windows of 0.1–8
   s on a Xeon Gold 6240. With the wisdom file in place a job constructs its backend in
@@ -180,9 +197,43 @@ measured while it existed.
   (`fftw_set_timelimit` of 0.01–0.2 s) gave plans 10–30 % slower to execute, and
   estimate plans ran one-thread windows up to 1.6 times slower on an AMD EPYC 7763.
 
+- **Measured threaded plans through the calibration, not by default** (issue
+  [#595](https://github.com/LupoLab/solprop/issues/595)). In the step, measured plans for
+  the threaded rows (`SOLPROP_FFTW_PLAN=measure`) ran the tracking cases 0.94 on an
+  Intel Xeon Gold 6240 (`kerr_beam_192` 0.54–0.79, `ctc` 0.90–0.94), 0.96 on 16 cores
+  of an AMD EPYC 7763 (`grin_nonlinear` 0.83, `ctc` 0.90) and 0.97 on an Apple M5 Max,
+  but planning them took up to 12 s more construction (`ctc` on the EPYC 7763: 13.8 s
+  against 1.6 s), more than a whole run of it gains. So the default stays at estimate,
+  and a calibration that admits `threaded_rows measure` stores the wisdom once.
+  - Why the calibration's measured and patient plans "rarely won": they were rarely
+    timed. On all three machines the thorough level's patient capture never finished
+    within its share of the stage, and the timing in the step then ran out of rounds
+    before a verdict (no noise estimate), so every group fell back to the policy. The
+    previous build did the same on the EPYC 7763 (thorough: no verdict; standard: no
+    transform planned within the stage's share), and so still does this one without
+    patient plans: the stage needs more of the levels' time than it gets.
+    Timed alone, the measured threaded plans ran 0.53–1.05 of estimate's time
+    (medians 0.74 on the EPYC 7763, 0.91 on the Xeon, about 0.95 on the M5 Max), and
+    estimate's serial plans 1.06–2.8 of measure's. Those timings ran outside the native
+    wait scope, so LLVM's runtime woke its idle threads at each loop; the timing alone
+    now runs inside it, as a step's transforms do (on the M5 Max a 4 × 10240 plan took
+    11 µs there against 22 µs outside). Inside it, on the EPYC 7763: measured threaded
+    plans 0.72–0.92 of estimate's time (medians by level and allocation), estimate's
+    serial rows 2.1–3.0 of measure's and its planes 1.05–1.34, so both are pruned. In
+    the step `threaded_rows measure` won every round on an 8-core allocation (0.915)
+    and lost one on 16 cores (1.039).
+  - The thorough level no longer plans at patient; a candidate whose plans are no
+    faster alone (median ratio 0.98 or more) is not timed in the step; and the levels
+    take 30 s, 2 min and 7 min (from 20 s, 90 s and 5 min). On the EPYC 7763 the stage
+    then reached a verdict: estimate's serial rows (2.11 alone) and planes (1.26) were
+    pruned, and `threaded_rows measure` scored 0.99 on the calibration's problems but
+    tied a round, so the policy held. Each candidate's plans timed alone are kept beside
+    its verdict (`evidence.planning.alone`, `pruned`).
+
 **Tried and not adopted**
 - **`FFTW_PATIENT` planning.** It adds seconds of construction and gave no measured
-  throughput gain.
+  throughput gain. SEP 46's thorough calibration tried it for serial rows; its capture
+  never finished in time on three machines, and it was dropped (#595).
 
 ## Kernels
 
