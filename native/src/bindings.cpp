@@ -9,6 +9,7 @@
 #include "solprop_native/engines.hpp"
 #include "solprop_native/fft_plan.hpp"
 #include "solprop_native/lagrange_basis.hpp"
+#include "solprop_native/low_storage.hpp"
 #include "solprop_native/rk_march.hpp"
 #include "solprop_native/session.hpp"
 #include "solprop_native/stage_tables.hpp"
@@ -1798,6 +1799,15 @@ public:
     require_open();
     return general_state_->weighted_error(scale);
   }
+  // solprop SEP 47 section 6.3: the low-storage replay's flows and operator origin,
+  // which a session's low-storage engine reads beside the Runge-Kutta policy.
+  void low_storage_configure(const std::size_t flows, const bool separable,
+                             const double origin) {
+    open_state();
+    if (flows > 2)
+      throw std::invalid_argument("the low-storage march holds at most two flows");
+    low_storage_ = native::rk::low_storage::Config{flows, separable, origin};
+  }
   // solprop SEP 45 phase 4: a weighted controller's weights, and its norm from a
   // trial's partials, for both Runge-Kutta loops.
   void rk_weights_configure(std::vector<double> weights) {
@@ -2173,7 +2183,22 @@ public:
           rk_rtol_, rk_atol_, rk_weights_);
       return method;
     }
-    throw std::invalid_argument("a session's march is \"adams\" or \"runge_kutta\"");
+    if (kind == "low_storage") {
+      // solprop SEP 47 section 6.3: the replay is the Runge-Kutta march's, each step
+      // one in-place low-storage step whose scalars the state forms itself.
+      if (!rk_policy_ || !stage_tables_ || !low_storage_)
+        throw std::logic_error("the native low-storage replay is not configured");
+      native::session::RungeKuttaMethod method;
+      method.policy = *rk_policy_;
+      method.state = rk_state_from(state_values);
+      method.schedule = rk_schedule_;
+      method.engine = std::make_unique<native::engines::ResidentLowStorage>(
+          general, *stage_tables_, stage_anchor_, *low_storage_, rk_schedule_,
+          rk_policy_->landings.landing_ulps, march_fault_);
+      return method;
+    }
+    throw std::invalid_argument(
+        "a session's march is \"adams\", \"runge_kutta\" or \"low_storage\"");
   }
   // The state's field and statistics, as a session reads them.
   std::unique_ptr<native::session::Resident> session_resident() {
@@ -2238,6 +2263,7 @@ private:
   double rk_atol_ = 0.0;
   march::Schedule rk_schedule_;
   std::vector<double> rk_weights_;
+  std::optional<native::rk::low_storage::Config> low_storage_;
   march::Schedule march_schedule_;
   bool march_fused_ = false;
   bool march_compensated_ = false;
@@ -2997,7 +3023,8 @@ NB_MODULE(_core, module_) {
                               native::watch::strict_probe(a, b, c),
                               native::rk::strict_probe(a, b, c),
                               native::session::strict_probe(a, b, c),
-                              native::statistics::strict_probe(a, b, c));
+                              native::statistics::strict_probe(a, b, c),
+                              native::rk::low_storage::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(
@@ -3595,6 +3622,8 @@ NB_MODULE(_core, module_) {
           "policy"_a, "nodes"_a, "rtol"_a, "atol"_a, "steps"_a.noconvert(),
           "edges"_a.noconvert())
       .def("rk_march_run", &BoundState::rk_march_run, "state"_a, "bounds"_a)
+      .def("low_storage_configure", &BoundState::low_storage_configure, "flows"_a,
+           "separable"_a, "origin"_a)
       .def("start_session", &start_session, "kind"_a, "state"_a, "plan"_a, "z"_a,
            nb::keep_alive<0, 1>())
       .def("rk_weights_configure", &BoundState::rk_weights_configure, "weights"_a)

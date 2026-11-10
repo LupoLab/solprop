@@ -102,6 +102,9 @@ public:
   virtual void accept(double dz) = 0;
   /** The committed state's boundary reading, for a check the march takes itself. */
   virtual std::vector<double> reading() = 0;
+  /** Whether a step that overwrites the state in place was left partway: the committed
+      state is then lost (the low-storage march, solprop SEP 47 section 5.5). */
+  [[nodiscard]] virtual bool in_flight() const noexcept { return false; }
 };
 
 /** Where the floor stopped a march (SEP 45 section 4.3). */

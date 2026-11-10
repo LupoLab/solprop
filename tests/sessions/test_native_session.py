@@ -241,9 +241,14 @@ CASES = {
         "integrator": Multistep(),
         "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
     },
+    "low-storage": {
+        "integrator": LowStorageRungeKutta(),
+        "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
+    },
 }
-"""Adams and Runge-Kutta, adaptive and replayed, with periodic rows and step planes;
-and every temporal statistic, whose native plan the driver's backend also reads."""
+"""Adams and Runge-Kutta, adaptive and replayed, and the low-storage replay, with
+periodic rows and step planes; and every temporal statistic, whose native plan the
+driver's backend also reads."""
 
 
 @pytest.mark.parametrize("recipe", [CONSUMER, STORED], ids=["consumer", "stored"])
@@ -388,16 +393,6 @@ class _OwnAccept(PIController):
         (lambda: (_case(interpolate=True), {}), "dense output"),
         (
             lambda: (
-                _case(
-                    integrator=LowStorageRungeKutta(),
-                    schedule=FixedSchedule(np.full(40, LENGTH / 40)),
-                ),
-                {},
-            ),
-            "the low-storage replay",
-        ),
-        (
-            lambda: (
                 _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
                 {},
             ),
@@ -415,7 +410,6 @@ class _OwnAccept(PIController):
     ids=[
         "transverse-edge",
         "dense",
-        "low-storage",
         "comparison",
         "controller",
         "statistic",
@@ -517,6 +511,9 @@ LEASED_CALLS = {
     "adams_march_run": lambda state, n: state.adams_march_run({}, {}),
     "table_slots": lambda state, n: state.table_slots(False, False, 1, False),
     "rk_weights_configure": lambda state, n: state.rk_weights_configure([1.0]),
+    "low_storage_configure": lambda state, n: state.low_storage_configure(
+        1, False, 0.0
+    ),
     "flow_guard_configure": lambda state, n: state.flow_guard_configure(
         [1.0], [1.0], 1.0, 1, 1.0
     ),
