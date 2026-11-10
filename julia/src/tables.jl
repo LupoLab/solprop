@@ -125,8 +125,11 @@ function derivative_table!(
     )
     length(output) == size(table.coefficients, 1) ||
         throw(DimensionMismatch("profile derivative has the wrong value count"))
-    Base.mightalias(output, table.coefficients) &&
-        throw(ArgumentError("profile outputs must be disjoint from their coefficients"))
+    (
+        Base.mightalias(output, table.coefficients) ||
+            Base.mightalias(output, table.breakpoints)
+    ) &&
+        throw(ArgumentError("profile outputs must be disjoint from their represented data"))
     _check_table_position(table, position)
     coefficients, edges = table.coefficients, table.breakpoints
     each!(execution, length(output), 1) do value_index, unused
@@ -177,8 +180,11 @@ function evaluate_table!(
     )
     length(output) == size(table.coefficients, 1) ||
         throw(DimensionMismatch("profile output has the wrong value count"))
-    Base.mightalias(output, table.coefficients) &&
-        throw(ArgumentError("profile outputs must be disjoint from their coefficients"))
+    (
+        Base.mightalias(output, table.coefficients) ||
+            Base.mightalias(output, table.breakpoints)
+    ) &&
+        throw(ArgumentError("profile outputs must be disjoint from their represented data"))
     _check_table_position(table, position)
     coefficients, edges = table.coefficients, table.breakpoints
     each!(execution, length(output), 1) do value_index, unused
@@ -195,8 +201,9 @@ function evaluate_table!(
         throw(DimensionMismatch("profile output has the wrong value count"))
     0 <= active_positions <= min(length(positions), size(output, 2)) ||
         throw(DimensionMismatch("active profile positions exceed prepared storage"))
-    if Base.mightalias(output, table.coefficients) || Base.mightalias(output, positions)
-        throw(ArgumentError("profile output must not overlap coefficients or positions"))
+    if Base.mightalias(output, table.coefficients) ||
+            Base.mightalias(output, table.breakpoints) || Base.mightalias(output, positions)
+        throw(ArgumentError("profile output must be disjoint from data and positions"))
     end
     for index in 1:active_positions
         _check_table_position(table, positions[index])
@@ -230,8 +237,11 @@ function difference_table!(
     )
     length(output) == size(table.coefficients, 1) ||
         throw(DimensionMismatch("profile difference has the wrong value count"))
-    Base.mightalias(output, table.coefficients) &&
-        throw(ArgumentError("profile outputs must be disjoint from their coefficients"))
+    (
+        Base.mightalias(output, table.coefficients) ||
+            Base.mightalias(output, table.breakpoints)
+    ) &&
+        throw(ArgumentError("profile outputs must be disjoint from their represented data"))
     _check_table_position(table, z0)
     _check_table_position(table, z1)
     coefficients, edges = table.coefficients, table.breakpoints

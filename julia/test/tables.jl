@@ -67,6 +67,21 @@ end
     ex = SolpropJulia.KernelExecution(
         SolpropJulia.KernelAbstractions.CPU(), Threads.nthreads(:default), true,
     )
+    alias_table = SolpropJulia.ChebyshevTable(ex, [0.0, 1.0, 2.0], ones(3, 2, 2))
+    saved_edges = copy(alias_table.breakpoints)
+    @test_throws ArgumentError SolpropJulia.evaluate_table!(
+        alias_table.breakpoints, alias_table, 0.5, ex,
+    )
+    @test_throws ArgumentError SolpropJulia.evaluate_table!(
+        reshape(alias_table.breakpoints, 3, 1), alias_table, [0.5], ex,
+    )
+    @test_throws ArgumentError SolpropJulia.difference_table!(
+        alias_table.breakpoints, alias_table, 0.0, 0.5, ex,
+    )
+    @test_throws ArgumentError SolpropJulia.derivative_table!(
+        alias_table.breakpoints, alias_table, 0.5, ex,
+    )
+    @test alias_table.breakpoints == saved_edges
     edges = [0.0, 1.0, 2.0]
     coefficients = zeros(2, 3, 2)
     coefficients[1, :, 1] = [3.125, 2.5, 0.375]
