@@ -41,6 +41,7 @@ from solprop._interrupts import committing, poll
 from solprop.backends import rk_core
 from solprop.backends.node_chunk import NodeChunkPlan, plan_node_chunk
 from solprop.backends.protocol import (
+    Backend,
     BackendHistory,
     Observation,
     StepStats,
@@ -958,7 +959,12 @@ class HostDriver[_StateT](ABC):  # noqa: UP049 - the protected state type is pri
             HostSession,
         )
 
-        return DriverPrepared(self, problem, request, session=HostSession)
+        # A concrete driver is a backend: this base is the march, and the subclass
+        # supplies the rest of the protocol (`memory_ledger`, `close`). They are not
+        # abstract here, so that a batch's protocol check can refuse a driver without.
+        return DriverPrepared(
+            cast("Backend", self), problem, request, session=HostSession
+        )
 
     @property
     def request(self) -> RunRequest:
