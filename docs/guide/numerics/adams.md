@@ -665,8 +665,8 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   march itself runs natively too, for `Multistep()` in either formulation and the
   one-order-higher PEC comparisons, adaptive or replayed, on every route; the
   configurations it does not cover (the other comparison methods, a coupled flow whose
-  matrix passes run on the host, a norm scale of your own, the carrier frame on a z
-  table) step solprop's march on the same engine, with a
+  matrix passes run on the host, a norm scale of your own) step solprop's march on the
+  same engine, with a
   {py:class}`~solprop.exceptions.HostMarchWarning` that names the reason. Either march
   takes the same steps.
 - **Resume across backends.** A frozen-residual coupled flow's history is kept in a

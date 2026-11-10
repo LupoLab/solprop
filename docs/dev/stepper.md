@@ -462,8 +462,11 @@ reading through the monitor at its own step. The Python march is the reference -
 `HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
 configuration the native march does not cover (the comparison
 methods' general path, a coupled flow on the host engine (off the eigenbasis route or
-wider than 16 channels), a norm scale other than `PIController`'s, and a z table's
-carrier frame), with a `HostMarchWarning` naming the reason. The transitional lockstep
+wider than 16 channels) and a norm scale other than `PIController`'s), with a
+`HostMarchWarning` naming the reason. A z table's carrier frame steps natively: the
+stage tables carry the imaginary part of the table's reference element as a scalar
+table, read by the Clenshaw helper solprop's tables use, so its shift and step cap are
+the host's (issue #255). The transitional lockstep
 batches replay on the host (`replay_step`); a native CPU group the native group session
 admits replays each member in its own native session instead (`solprop_native.group`).
 

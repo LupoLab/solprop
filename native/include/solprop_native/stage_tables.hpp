@@ -167,7 +167,7 @@ private:
 };
 
 /** How the carrier frame's chord is represented (SEP 35 section 6.1). */
-enum class Chord : int { none = 0, constant = 1, expansion = 2 };
+enum class Chord : int { none = 0, constant = 1, expansion = 2, table = 3 };
 
 /** Every table a trial's stage scalars read, uploaded once per run. */
 struct Tables {
@@ -198,11 +198,13 @@ struct Tables {
   ZSlots* z_slots = nullptr;
   GeneralState* z_state = nullptr;
   /** The carrier frame's chord (solprop's `CarrierChord`), the imaginary part of the
-      reference element's operator: none, a constant's rate, or an expansion's terms
-      over `phi_weights`. */
+      reference element's operator: none, a constant's rate, an expansion's terms
+      over `phi_weights`, or a z table's reference-element column as a scalar table
+      of its own (solprop issue #255). */
   Chord chord = Chord::none;
   double chord_rate = 0.0;
   std::vector<double> chord_terms;
+  Table chord_table;
   /** A coupled flow's sections (the step's section, and a frozen-residual flow's
       weights), and a moving guide's maps. */
   Sections flow;
@@ -547,13 +549,21 @@ inline TrialScalars sample(const Tables& tables, Anchor& anchor,
  * reference element (`CarrierChord.exponent`). A constant's is its rate times the
  * distance, as solprop forms it; an expansion's is the weights' difference against the
  * terms, summed in order, where solprop's `tensordot` sums in its BLAS's order: the two
- * agree to rounding (SEP 39 section 4.9).
+ * agree to rounding (SEP 39 section 4.9). A z table's is its reference element's
+ * imaginary part read at each end by the Clenshaw helper: a complex Clenshaw pass at a
+ * real position forms the imaginary part by these operations, so the two agree but for
+ * the sign of a zero (solprop issue #255).
  */
 inline double chord(const Tables& tables, const double z1, const double z2) {
   if (tables.chord == Chord::constant)
     return tables.chord_rate * (z2 - z1);
   if (tables.chord == Chord::none)
     return 0.0;
+  if (tables.chord == Chord::table) {
+    const double upper = tables.chord_table.value(z2);
+    const double lower = tables.chord_table.value(z1);
+    return upper - lower;
+  }
   const auto& weights = tables.phi_weights;
   std::vector<double> upper(weights.n_values);
   std::vector<double> lower(weights.n_values);

@@ -2884,9 +2884,10 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
     """Return the carrier frame's chord as the native stage tables take it.
 
     The imaginary part of the reference element's operator for the one batch member
-    (`CarrierChord`): a constant's rate, or an expansion's terms over the ``Phi``
-    weights the tables already hold. None without an active frame, and none for a z
-    table's chord, whose run steps solprop's march.
+    (`CarrierChord`): a constant's rate, an expansion's terms over the ``Phi`` weights
+    the tables already hold, or a z table's reference-element column as a scalar table
+    of its own (solprop issue #255), packed as its batch pass reads it. None without an
+    active frame.
     """
     chord = None if carrier is None or not carrier.active else carrier.chord
     if chord is not None and chord.constant is not None:
@@ -2894,11 +2895,28 @@ def _chord_tables(carrier: CarrierReference | None) -> dict[str, object]:
             "chord": 1,
             "chord_rate": float(np.imag(chord.constant)[0]),
             "chord_terms": [],
+            "chord_table": None,
         }
     if chord is not None and chord.expansion is not None:
         terms = np.imag(np.asarray(chord.expansion.terms))[:, 0]
-        return {"chord": 2, "chord_rate": 0.0, "chord_terms": terms.tolist()}
-    return {"chord": 0, "chord_rate": 0.0, "chord_terms": []}
+        return {
+            "chord": 2,
+            "chord_rate": 0.0,
+            "chord_terms": terms.tolist(),
+            "chord_table": None,
+        }
+    if chord is not None and chord.table is not None:
+        edges, lower, upper, coefficients = chord.table.packed()
+        # The one batch member's column: the imaginary part a complex Clenshaw pass
+        # forms at a real position, by the same operations (`stage::chord`).
+        column = np.ascontiguousarray(np.imag(coefficients[:, :, :1]))
+        return {
+            "chord": 3,
+            "chord_rate": 0.0,
+            "chord_terms": [],
+            "chord_table": (edges, lower, upper, column),
+        }
+    return {"chord": 0, "chord_rate": 0.0, "chord_terms": [], "chord_table": None}
 
 
 def _on_device() -> bool:
@@ -3090,7 +3108,7 @@ def native_march_refusal(
     decided from the problem alone (solprop SEP 47 section 5.2): the private host
     switches; for Adams, a formulation without a resident engine, a coupled flow off
     the eigenbasis route or wider than :data:`ADAMS_MAX_CHANNELS`, stage rows the host
-    forms, and the carrier frame on a z table; for Runge-Kutta, stage rows the host
+    forms, and a carrier frame with no chord; for Runge-Kutta, stage rows the host
     forms. A controller overriding a decision is refused by its caller.
     """
     integrator = stepper.integrator
@@ -3125,10 +3143,8 @@ def native_march_refusal(
                 "not read"
             )
         carrier = carrier_reference(problem, integrator)
-        if carrier is not None and carrier.active:
-            chord = carrier.chord
-            if chord is None or chord.table is not None:
-                return "the carrier frame on a z table"
+        if carrier is not None and carrier.active and carrier.chord is None:
+            return "the carrier frame on an operator with no chord"
         return None
     if _RK_MARCH == "host" or _RK_ROWS == "host" or not staged:
         return "a trial whose stage rows the host forms"
@@ -3322,8 +3338,8 @@ class _NativeAdamsMarch(AdamsMarch):
             ),
             (not engine.device_scale, "a controller with a norm scale of its own"),
             (
-                self._policy.carrier and (chord is None or chord.table is not None),
-                "the carrier frame on a z table",
+                self._policy.carrier and chord is None,
+                "the carrier frame on an operator with no chord",
             ),
         )
         for failed, reason in resident:
