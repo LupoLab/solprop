@@ -217,6 +217,10 @@ _session_accepted!(::_NoSessionServices, session, dz) = nothing
 _session_observe!(::_NoSessionServices, session, kind, plane) = nothing
 _session_finish!(::_NoSessionServices, session) = nothing
 
+# Concrete methods own numerical trials; this internal common surface owns event
+# barriers, bounded delivery, cancellation, acknowledgment and failure persistence.
+abstract type _MarchSession end
+
 """
     RungeKuttaSession(execution, state, z, proposal, tableau, control, norm, schedule,
                       source, flow; stop=StopFlag(), capacity=256)
@@ -234,7 +238,7 @@ before advancing again; export generations expire on acknowledgment. This first 
 composition supports landed planes and field restarts; other methods/services attach
 through their own typed compositions without changing its transport contract.
 """
-struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X}
+struct RungeKuttaSession{E, A, T, W, N, S, F, B, O, X} <: _MarchSession
     execution::E
     field::A
     tableau::T
@@ -259,6 +263,21 @@ function RungeKuttaSession(
         services = _NoSessionServices(), exports = nothing,
         plane_index::Union{Nothing, Int} = nothing,
         plane_pending::Bool = true,
+    )
+    owned, progress = _prepare_march(
+        execution, state, z, proposal, norm, schedule; plane_index, plane_pending,
+    )
+    return RungeKuttaSession(
+        execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
+        NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
+        progress, services, exports,
+    )
+end
+
+function _prepare_march(
+        execution, state::AbstractMatrix{ComplexF64}, z::Float64, proposal::Float64,
+        norm::MarchNorm, schedule::MarchSchedule;
+        plane_index::Union{Nothing, Int}, plane_pending::Bool,
     )
     all(isfinite, state) && size(state, 1) == length(norm.active) &&
         size(state, 2) > 0 || throw(ArgumentError("invalid initial march field"))
@@ -292,11 +311,7 @@ function RungeKuttaSession(
     end
     progress = _MarchState(z, proposal, plane, replay)
     progress.launched = !plane_pending
-    return RungeKuttaSession(
-        execution, owned, tableau, RungeKuttaWork(owned, tableau), control,
-        NormHistory(control), norm, schedule, source, flow, stop, AttemptBuffer(capacity),
-        progress, services, exports,
-    )
+    return owned, progress
 end
 
 @inline _march_slack(z, target) = 8eps(max(abs(z), abs(target)))
@@ -379,7 +394,7 @@ function _march_issue!(session, kind; plane = session.state.plane - 1)
     )
 end
 
-function _march_trial!(session, began)
+function _march_trial!(session::RungeKuttaSession, began)
     state, norm = session.state, session.norm
     dz, destination = _march_landing(session)
     state.flight_z, state.flight_dz = state.z, dz
@@ -446,7 +461,7 @@ until `acknowledge!`. Failures become terminal records with their exact in-fligh
 Neither yields nor acknowledgments change proposals, histories or accepted fields.
 """
 function advance!(
-        session::RungeKuttaSession; work_limit::Int = 256, deadline::Float64 = 0.1,
+        session::_MarchSession; work_limit::Int = 256, deadline::Float64 = 0.1,
     )
     state = session.state
     state.closed && throw(ArgumentError("the session is closed"))
@@ -523,7 +538,7 @@ Stale, repeated or foreign generations refuse before buffers change. The next ad
 may overwrite the bounded attempt buffer. Observation acknowledgment resets only the
 plane summary; controller history, total counters and the accepted field are unchanged.
 """
-function acknowledge!(session::RungeKuttaSession, generation::Int)
+function acknowledge!(session::_MarchSession, generation::Int)
     state = session.state
     !state.closed && state.pending && generation == state.generation ||
         throw(ArgumentError("the session event generation is stale or not pending"))
@@ -545,7 +560,7 @@ Repeated outstanding requests share a sequence. A launch request waits for the f
 accepted endpoint. A coincident requested or step plane precedes its snapshot barrier.
 Closed or terminal sessions refuse requests. The caller owns persistence and acknowledgment.
 """
-function request_snapshot!(session::RungeKuttaSession)
+function request_snapshot!(session::_MarchSession)
     state = session.state
     !state.closed && !state.finished || throw(ArgumentError("the session cannot snapshot"))
     state.snapshot && return (state.snapshot_sequence, true)
@@ -562,7 +577,7 @@ Close a numerical session idempotently and invalidate every pending export.
 The bridge detaches stop listeners before releasing this owner. Close performs no
 propagation, observation or output delivery; Julia releases buffers with their owner.
 """
-function close_session!(session::RungeKuttaSession)
+function close_session!(session::_MarchSession)
     session.state.closed = true
     session.state.pending = false
     return nothing

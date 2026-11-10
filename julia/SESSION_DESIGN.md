@@ -90,6 +90,28 @@ services closed events and validates destination arrays; it never drives numeric
 trials or computes periodic statistics. Failures retain SEP 47's pending/failure
 tickets, undelivered data and in-flight facts. Monitor continuation is explicit.
 
+## Shared landed-session composition
+
+`march.jl` owns the internal `_MarchSession` superclass and its common event loop,
+acknowledgment, snapshot requests, stop polling, close and failure records. Concrete
+integrators provide `_march_trial!(session, began)` and retain the shared fields
+`execution`, `field`, `norm`, `schedule`, `source`, `flow`, `stop`, `attempts`, `state`,
+`services` and `exports`. A method's trial is entirely Julia-owned. It returns whether
+the attempt was accepted, records the actual attempt through `_march_record!`, commits
+position with state, and invokes `_session_accepted!` after a successful commit.
+`_prepare_march` validates and copies the launch, applies its hard mask and establishes
+the common plane/replay cursors. Only the master edits these shared boundaries.
+
+The next independent numerical task owns `adams_session.jl` and its test. It composes
+the approved Adams policy and kernels for landed adaptive/fixed sessions, reusing this
+common event transport. Retain the full oldest-first `order+1` history for policy and
+resume, actual predictor samples, and the original sampled positions even when the
+committed endpoint snaps to a landing. Store no unbounded order log inside advancement:
+fixed counters and bounded per-attempt order rows can be drained with event chunks.
+Master integration owns Python lowering, ledger translation, dense observation hooks,
+restart records and the observation-service attachment. No partial method is advertised
+as publicly qualified before these integrations and conformance checks pass.
+
 ## Delivery order
 
 1. Parallel reviewed CPU execution/transforms/operators and response kernels.
