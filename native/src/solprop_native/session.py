@@ -44,11 +44,10 @@ It admits a subset and refuses every other feature by name before allocating any
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
-  measured error the execution record carries, and the plane-only statistics the plan
-  evaluates, a spatial route's fluence widths among them; the plane-only statistics
-  the host still finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are
-  refused, as is what the problem does not carry
-  (:func:`solprop.backends.session.statistics_unavailable`);
+  measured error the execution record carries, and the plane-only statistics, a
+  spatial route's fluence widths and the on-axis plasma statistics among them (the
+  axis row scanned natively by the node scan's own pass); what the problem does not
+  carry is refused (:func:`solprop.backends.session.statistics_unavailable`);
 - the boundary monitor, temporal and a free-space run's transverse edge, which the
   native session owns (SEP 47 section 6.4): its every decision and record are native,
   each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
@@ -99,6 +98,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import destination_refusal
 from solprop.backends.multistep import CallLedger, budget_error
+from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
     DEFAULT_DEADLINE,
@@ -139,6 +139,7 @@ from ._statistics import (
     ADMITTED_SPATIAL_STATISTICS,
     ADMITTED_STATISTICS,
     StatisticsLowering,
+    axis_row_refusal,
     lower,
     metric_refusal,
     translated,
@@ -405,10 +406,11 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
 
     Every statistic the native plan evaluates on the route is admitted, plane and
     periodic (:mod:`solprop_native._statistics`), a spatial route's fluence widths
-    among them. What the backend itself would refuse, and what the problem does not
-    carry (:func:`solprop.backends.session.statistics_unavailable`, which every
-    executor refuses before it starts), are refused by name; so are the plane-only
-    statistics the host still finishes.
+    and the on-axis plasma statistics among them. What the backend itself would
+    refuse, and what the problem does not carry
+    (:func:`solprop.backends.session.statistics_unavailable`, which every executor
+    refuses before it starts, and
+    :func:`solprop.backends.populations.axis_refusal`), are refused by name.
 
     Parameters
     ----------
@@ -445,12 +447,12 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     refused = metric_refusal(problem, (*names, *spec.periodic))
     if refused is not None:
         return refused
+    refused = axis_refusal(problem, names)
+    if refused is not None:
+        return refused
     left = uncovered(problem, names)
     if left:
-        return (
-            f"the statistics {left!r}, which the host finishes: the on-axis plasma "
-            "statistics"
-        )
+        return f"the statistics {left!r}, which the native plan does not evaluate here"
     return None
 
 
@@ -2185,7 +2187,15 @@ def session_refusal(
     """
     if type(backend) is not NativeBackend:
         return f"a {type(backend).__name__}, which the native session does not adopt"
-    return refusal(problem, request, start) or backend_refusal(backend)
+    return (
+        refusal(problem, request, start)
+        or backend_refusal(backend)
+        or axis_row_refusal(
+            problem,
+            request.observation.stats.names,
+            backend._modes,  # pyright: ignore[reportPrivateUsage] - the set it was built with
+        )
+    )
 
 
 class NativePrepared(DriverPrepared):

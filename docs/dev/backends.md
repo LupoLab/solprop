@@ -546,9 +546,16 @@ on a gas capillary (`beta_2` is a finite difference), and a pressure gradient ov
 resolved to about 5e-7 within the fit's budget. Where the session's request fixes every position the statistic is taken at -- its start and save planes, with no step or interpolated plane -- and there are no more than `_ZDW_PLANE_LIMIT` (34), a z-varying mode's root is instead searched once at exactly those positions before the run and held in a table constant about each (`source: "save planes"`, error zero): the reference's own roots, at planes times modes searches. Native refuses by name, before anything is allocated, the metric
 statistics of a general modal basis whose metric varies inside an interval
 (`_statistics.metric_refusal`): the plan's metric root is exact only on a metric constant on each
-interval. The native session's own statistics refusal then names only the on-axis plasma
-statistics (`solprop_native._statistics.PLANE_ONLY`), which the transitional session still finishes
-on the host. Groups start through
+interval. The four on-axis plasma statistics are the plan's too: the axis row the mode profiles
+synthesise on the axis (`populations.axis_row_matrix`, the taper and the pad scale in it) is formed
+from the modal state on the fine grid and scanned natively in the first node's buffer by the node
+scan's own pass, its tables, preionisation and running-integral rule, or a Radau rule's axis node is
+read when the evaluation scans the nodes anyway; the species reduction is finished natively. A
+one-component scan of a field grid reads both rows' magnitude, `hypot(E_x, E_y)`; an envelope grid
+whose one-component transform has modes with a y field on the axis is the one row it cannot hold, and
+the session leaves it to the transitional session (`_statistics.axis_row_refusal`). The native row
+agrees with the host's scan to the node scans' parity tolerance (`1e-10`), and is the same bits where
+both read a Radau rule's axis node. Groups start through
 `start_group`. The
 three keyword arguments are what `stats()` needs and the kernel contract does not carry.
 

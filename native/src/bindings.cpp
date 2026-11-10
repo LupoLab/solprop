@@ -2737,6 +2737,8 @@ public:
       plan->weight_table = table_from<double>(values["weight_table"]);
       plan->on_axis = real_vector(exact_array<RealInput>(values["on_axis"]));
       plan->taper = table_from<double>(values["taper"]);
+      plan->pad_scale = nb::cast<double>(values["pad_scale"]);
+      plan->axis_node = nb::cast<std::int64_t>(values["axis_node"]);
       plan->plasma_density = table_from<double>(values["plasma_density"]);
       plan->plasma_preionisation = table_from<double>(values["plasma_preionisation"]);
       plan->channel_preionisation = tables_from(values["channel_preionisation"]);

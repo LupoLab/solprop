@@ -267,6 +267,85 @@ void species(const Plan& plan, const double z, const double taper,
   }
 }
 
+/**
+ * solprop's on-axis plasma statistics (SEP 19, `populations.axis_statistics`): each
+ * channel's final fraction and peak rate on the axis -- a Radau rule's axis node's,
+ * when this evaluation scanned the nodes anyway, else the axis row's own scan -- mapped
+ * onto the mixture's species, the total a running sum in species order.
+ */
+void axis(GeneralState& state, const Plan& plan, const double z, const double taper,
+          const std::vector<double>& rows, const Wanted& wanted, Results& results) {
+  const std::size_t n_channels = plan.n_channels;
+  std::vector<double> fractions(n_channels);
+  std::vector<double> peaks(n_channels);
+  if (plan.axis_node >= 0 && !rows.empty()) {
+    const auto node = static_cast<std::size_t>(plan.axis_node);
+    for (std::size_t c = 0; c < n_channels; ++c) {
+      fractions[c] = rows[2 * (node * n_channels + c)];
+      peaks[c] = rows[2 * (node * n_channels + c) + 1];
+    }
+  } else {
+    // `axis_row_matrix(problem, StepDriver._on_axis_synthesis(modes))`: the matrix at
+    // the reference position times the taper at z, then the pad scale; a state with
+    // two polarisations takes the profile's magnitude.
+    std::vector<double> scaled = plan.on_axis;
+    for (double& value : scaled) {
+      if (plan.taper.present())
+        value *= taper;
+      value *= plan.pad_scale;
+    }
+    std::vector<double> matrix = scaled;
+    if (plan.n_pol == 2) {
+      matrix.resize(plan.n_modes);
+      for (std::size_t mode = 0; mode < plan.n_modes; ++mode)
+        matrix[mode] = std::hypot(scaled[mode], scaled[plan.n_modes + mode]);
+    }
+    std::vector<double> initials(n_channels);
+    for (std::size_t c = 0; c < n_channels; ++c)
+      initials[c] = plan.channel_preionisation[c].scalar(z);
+    const auto packed = state.axis_populations(matrix, initials);
+    if (packed.size() != 2 * n_channels)
+      throw std::logic_error("a native on-axis scan packed the wrong number of values");
+    for (std::size_t c = 0; c < n_channels; ++c) {
+      fractions[c] = packed[2 * c];
+      peaks[c] = packed[2 * c + 1];
+    }
+  }
+  for (std::size_t c = 0; c < n_channels; ++c)
+    if (!std::isfinite(fractions[c]) || !std::isfinite(peaks[c]) ||
+        fractions[c] < 0.0 || fractions[c] > 1.0 || peaks[c] < 0.0)
+      throw std::invalid_argument(
+          "on-axis statistics require finite rates and fractions in [0, 1]");
+  const std::size_t n_species = plan.n_species;
+  std::vector<double> densities(n_species);
+  for (std::size_t s = 0; s < n_species; ++s)
+    densities[s] = plan.species_density[s].scalar(z);
+  std::vector<double> electrons(n_species, 0.0);
+  std::vector<double> species_peaks(n_species, 0.0);
+  for (std::size_t c = 0; c < n_channels; ++c) {
+    const std::size_t s = plan.channel_species[c];
+    electrons[s] = densities[s] * fractions[c];
+    species_peaks[s] = peaks[c];
+  }
+  if (wanted(Stat::on_axis_electron_density)) {
+    double total = 0.0;
+    for (const double value : electrons)
+      total += value;
+    put(results, Stat::on_axis_electron_density, {total});
+  }
+  if (wanted(Stat::on_axis_peak_ionisation_rate)) {
+    // `numpy.max` of finite values.
+    double rate = species_peaks[0];
+    for (std::size_t s = 1; s < n_species; ++s)
+      rate = species_peaks[s] > rate ? species_peaks[s] : rate;
+    put(results, Stat::on_axis_peak_ionisation_rate, {rate});
+  }
+  if (wanted(Stat::on_axis_species_electron_density))
+    put(results, Stat::on_axis_species_electron_density, std::move(electrons));
+  if (wanted(Stat::on_axis_species_peak_ionisation_rate))
+    put(results, Stat::on_axis_species_peak_ionisation_rate, std::move(species_peaks));
+}
+
 /** The state's temporal and response statistics on a modal or spatial route. */
 void temporal(GeneralState& state, const Plan& plan, const double z, const double taper,
               const Wanted& wanted, Results& results) {
@@ -310,9 +389,13 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
   }
   const bool rows_wanted = wanted(Stat::node_populations);
   const bool populations = (reduce || rows_wanted) && plan.n_channels > 0;
+  const bool axis_wanted =
+      wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
+                  Stat::on_axis_species_electron_density,
+                  Stat::on_axis_species_peak_ionisation_rate});
   if (populations)
     flags |= temporal_populations;
-  if (flags == 0 && !reduce && !rows_wanted)
+  if (flags == 0 && !reduce && !rows_wanted && !axis_wanted)
     return;
   std::vector<double> packed;
   if (flags != 0) {
@@ -390,6 +473,8 @@ void temporal(GeneralState& state, const Plan& plan, const double z, const doubl
     put(results, Stat::node_populations, rows);
   if (reduce)
     species(plan, z, taper, rows, wanted, results);
+  if (axis_wanted)
+    axis(state, plan, z, taper, rows, wanted, results);
 }
 
 /** A spatial route's statistics of the medium's axial flux and its far field. */
@@ -635,6 +720,20 @@ void Plan::validate() const {
         "apertures have the wrong extent");
   check(regions.size() == n_regions * 4, "regions have the wrong extent");
   const Wanted wanted(outputs);
+  if (wanted.any({Stat::on_axis_electron_density, Stat::on_axis_peak_ionisation_rate,
+                  Stat::on_axis_species_electron_density,
+                  Stat::on_axis_species_peak_ionisation_rate})) {
+    check(route == Route::modal && n_channels > 0 && n_species > 0,
+          "asks for on-axis plasma statistics off a modal route with plasma");
+    check(on_axis.size() == 2 * n_modes && (n_pol == 1 || n_pol == 2),
+          "lacks the on-axis synthesis its axis row reads");
+    check(channel_preionisation.size() == n_channels,
+          "lacks the preionisation its axis row reads");
+    check(axis_node < static_cast<std::int64_t>(n_nodes),
+          "has an axis node past the nodes");
+    check(std::isfinite(pad_scale) && pad_scale > 0.0,
+          "has a pad scale that is not positive");
+  }
   if (wanted(Stat::zdw))
     check(zdw.size() == n_modes &&
               std::all_of(zdw.begin(), zdw.end(),
@@ -700,6 +799,8 @@ std::size_t Plan::width(const Stat stat) const {
   case Stat::species_peak_ionisation_rate:
   case Stat::species_density:
   case Stat::species_ionisation_energy:
+  case Stat::on_axis_species_electron_density:
+  case Stat::on_axis_species_peak_ionisation_rate:
     return n_species;
   case Stat::spectral_flux:
   case Stat::on_axis_spectrum:

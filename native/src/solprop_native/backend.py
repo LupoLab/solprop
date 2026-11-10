@@ -1782,8 +1782,9 @@ class NativeBackend(StepDriver[_core.State]):
         """Evaluate a modal or spatial spec: the plan, then the names it leaves.
 
         Every statistic the plan covers is the plan's, a spatial route's fluence widths
-        among them (SEP 47 section 6.4). An on-axis plasma statistic is
-        the host's (SEP 19); on a Radau rule it reuses the node scan of this call's
+        among them (SEP 47 section 6.4). An on-axis plasma statistic is the host's
+        here (SEP 19), for the transitional session; on a Radau rule it reuses the
+        node scan of this call's
         species statistics, which the plan hands over with them
         (:data:`~solprop_native._statistics.NODE_POPULATIONS`).
 
@@ -1801,7 +1802,12 @@ class NativeBackend(StepDriver[_core.State]):
         dict
             The statistics, each with a leading batch axis.
         """
-        left = uncovered(self._problem, spec.names)
+        # The backend's own plane statistics keep the host's axis scan, which the
+        # transitional session reads; the native session's plan scans the row natively.
+        plan_left = set(uncovered(self._problem, spec.names))
+        left = tuple(
+            name for name in spec.names if name in axis_names or name in plan_left
+        )
         scanned = bool(
             axis_names
             and population_names
