@@ -54,6 +54,7 @@ EXPECTED: tuple[str, ...] = (
     r"the [a-z-]+ executor does not run an? [a-z -]+",
     # The parametrization reaches a case its subject excludes.
     r"the interaction formulation is refused beside a coupled flow",
+    r"the translation refuses dense output beside the modified noise",
     r"this case took the expansion",
     r"this case took the constant fast path",
     r"a process SEP is structured by its subject",

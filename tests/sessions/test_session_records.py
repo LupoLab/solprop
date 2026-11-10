@@ -98,7 +98,7 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     if executor.scripted:
         pytest.skip("a scripted driver runs no Adams march")
     if executor.name == "native-session-low-storage":
-        pytest.skip("this executor replays every problem by the low-storage march")
+        pytest.skip(f"the {executor.name} executor does not run a multistep march")
     session = start(soliton(integrator=Multistep())).session
     _, plane = _first_plane(session)
     assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]

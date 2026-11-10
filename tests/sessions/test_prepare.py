@@ -10,7 +10,7 @@ the native session where it admits the run and the transitional one, with the re
 where it does not, and any other driver the transitional one.
 """
 
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -69,7 +69,7 @@ def test_any_other_driver_prepares_the_transitional_session():
 
 @NATIVE
 def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
-    from solprop_native.session import (  # noqa: PLC0415 - optional
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
         NativePrepared,
         NativeSession,
     )
@@ -81,7 +81,7 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
         with prepared.start(Start.entrance(problem), owns=False) as session:
             assert isinstance(session, NativeSession)
         assert isinstance(prepared, NativePrepared)
-        assert prepared.refused is None
+        assert cast("Any", prepared).refused is None
     finally:
         backend.close()
 
@@ -90,7 +90,9 @@ def test_a_native_backend_prepares_the_native_session_where_it_admits_the_run():
 def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
     monkeypatch,
 ):
-    from solprop_native.session import NativePrepared  # noqa: PLC0415 - optional
+    from solprop_native.session import (  # noqa: PLC0415 - optional  # pyright: ignore[reportMissingImports]
+        NativePrepared,
+    )
 
     problem, request = soliton()
     backend = _select("native", problem, request)
@@ -106,7 +108,7 @@ def test_a_native_refusal_prepares_the_transitional_session_and_says_why(
         with prepared.start(Start.entrance(problem), owns=False):
             pass
         assert isinstance(prepared, NativePrepared)
-        assert prepared.refused == "the test's reason"
+        assert cast("Any", prepared).refused == "the test's reason"
     finally:
         backend.close()
 

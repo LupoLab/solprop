@@ -1284,7 +1284,13 @@ class DriverPrepared:
 
     @property
     def backend(self) -> str:
-        """Return the registered name of the backend that prepared it."""
+        """Return the registered name of the backend that prepared it.
+
+        Returns
+        -------
+        str
+            The backend's registered name.
+        """
         return self._driver.name
 
     def start(
