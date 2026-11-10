@@ -100,7 +100,8 @@ def _project(polarisation, current, result, problem, bundle, prefactor, **option
     source is gated (SEP 26) and its projection requires an edge array, and a zero
     one leaves the spectrum the plain transform of the current handed over.
     """
-    if _descriptor(problem) is not None and _descriptor(problem).gated:
+    descriptor = tdse_descriptor(problem.route)
+    if descriptor is not None and descriptor.gated:
         options.setdefault("edge", np.zeros_like(current))
     return project_atomic_sources(
         polarisation, current, result, problem, bundle, prefactor, **options
