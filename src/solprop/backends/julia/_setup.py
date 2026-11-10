@@ -664,6 +664,7 @@ def _install(
             )
         projects = tuple((name, engine / "environments" / name) for name in devices)
         _write_preferences(record, dict(projects))
+        _check_loader_configuration(engine, projects)
         inventories: list[tuple[str, Path, str]] = []
         for name, project in projects:
             inventory = temporary / f"inventory-{name}.toml"
@@ -761,6 +762,7 @@ def _instantiate(
         "JULIA_PYTHONCALL_EXE": sys.executable,
         "JULIA_PKG_PRECOMPILE_AUTO": "0",
         "JULIA_PKG_OFFLINE": "false",
+        "PYTHONDONTWRITEBYTECODE": "1",
     }
     command = [
         str(record.julia_executable),
@@ -908,6 +910,7 @@ def _check_record(
             "the julia setup lacks an inventory for an installed environment"
         )
     refuse_overrides(depot)
+    _check_loader_configuration(record.engine, record.projects)
     for name, project in record.projects:
         _check_preferences(record, name, project)
     for name, path, digest in record.inventories:
@@ -932,14 +935,104 @@ def _check_preferences(record: SetupRecord, name: str, project: Path) -> None:
         Retained application environment.
     """
     for parent in (record.engine, record.engine / "environments"):
-        if (parent / "LocalPreferences.toml").exists():
+        if _present(parent / "LocalPreferences.toml"):
             raise BackendError("the julia setup has unrecorded inherited preferences")
     path = project / "LocalPreferences.toml"
     if name == "cuda":
         if path.read_text(encoding="utf-8") != _preferences(record):
             raise BackendError("the julia CUDA preferences changed after setup")
-    elif path.exists():
+    elif _present(path):
         raise BackendError(f"the julia {name} environment has unrecorded preferences")
+
+
+def _present(path: Path) -> bool:
+    """Check for a loader input, including a dangling symbolic link.
+
+    Parameters
+    ----------
+    path : pathlib.Path
+        Potential unrecorded loader input.
+
+    Returns
+    -------
+    bool
+        Whether a file-system entry exists at this path.
+    """
+    return path.exists() or path.is_symlink()
+
+
+def _check_loader_configuration(
+    engine: Path, projects: tuple[tuple[str, Path], ...]
+) -> None:
+    """Refuse Julia loader aliases and ancestor workspace redirections.
+
+    Parameters
+    ----------
+    engine : pathlib.Path
+        Retained engine source root.
+    projects : tuple of tuple
+        Complete selected application environment stack.
+    """
+    # Base.loading gives these aliases precedence over the explicitly owned files.
+    roots = (engine, engine / "environments", *(path for _, path in projects))
+    for directory in roots:
+        aliases = [
+            directory / name
+            for name in (
+                "JuliaProject.toml",
+                "JuliaManifest.toml",
+                "JuliaLocalPreferences.toml",
+            )
+        ]
+        aliases.extend(directory.glob("*Manifest-v*.toml"))
+        if any(_present(alias) for alias in aliases):
+            raise BackendError(
+                f"the julia setup has an unrecorded loader alias in {directory}"
+            )
+    for _, project in projects:
+        _check_workspace_parents(project)
+
+
+def _check_workspace_parents(project: Path) -> None:
+    """Refuse an ancestor workspace that replaces an owned project's manifest.
+
+    Parameters
+    ----------
+    project : pathlib.Path
+        Owned application environment whose effective base must remain itself.
+    """
+    # Match Base.base_project's home boundary and explicit workspace project list.
+    home = Path.home().resolve()
+    started_in_home = str(project).startswith(str(home))
+    for parent in project.parents:
+        if started_in_home and not str(parent).startswith(str(home)):
+            break
+        source = next(
+            (
+                parent / name
+                for name in ("JuliaProject.toml", "Project.toml")
+                if (parent / name).is_file()
+            ),
+            None,
+        )
+        if source is None:
+            continue
+        with source.open("rb") as stream:
+            content = mapping(tomllib.load(stream), "ancestor project")
+        workspace = content.get("workspace")
+        if workspace is None:
+            continue
+        members = mapping(workspace, "ancestor workspace").get("projects")
+        if isinstance(members, list):
+            for member in members:
+                if not isinstance(member, str):
+                    raise BackendError(
+                        "the julia ancestor workspace has invalid projects"
+                    )
+                if (parent / member).resolve() == project.resolve():
+                    raise BackendError(
+                        f"the julia setup is redirected by ancestor workspace {source}"
+                    )
 
 
 def _directory_bytes(directory: Path) -> int:

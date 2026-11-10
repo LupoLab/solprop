@@ -11,6 +11,7 @@ the build and an editable installation use exactly the same source identity.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Iterable
 from pathlib import Path
 
@@ -116,14 +117,30 @@ def source_bundle() -> Path:
     Returns
     -------
     pathlib.Path
-        The source root. Required files are validated when their identity is read.
+        The source root. Packaged sources must match the wheel's generated digest.
+
+    Raises
+    ------
+    OSError
+        If the packaged digest or required source file is absent.
+    ValueError
+        If packaged source bytes do not match their generated identity.
     """
     package = Path(__file__).resolve().parent
     checkout = package.parents[3]
     editable = checkout / "julia"
     if (checkout / "pyproject.toml").is_file() and editable.is_dir():
         return editable
-    return package / "_bundle"
+    bundle = package / "_bundle"
+    expected = (package / "_engine_digest.txt").read_text(encoding="utf-8").strip()
+    if (
+        re.fullmatch(r"[0-9a-f]{64}", expected) is None
+        or engine_digest(bundle) != expected
+    ):
+        raise ValueError(
+            "the packaged Julia engine differs from its wheel digest; reinstall solprop"
+        )
+    return bundle
 
 
 def setup_files(bundle: Path, devices: tuple[str, ...]) -> tuple[Path, ...]:

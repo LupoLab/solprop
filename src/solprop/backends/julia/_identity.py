@@ -270,6 +270,16 @@ def read_record(directory: Path) -> SetupRecord:
         elapsed_seconds=float(seconds),
     )
     if (
+        record.engine != directory / "engine" / record.engine_digest
+        or record.projects
+        != tuple((name, record.engine / "environments" / name) for name in devices)
+        or any(
+            path != directory / f"inventory-{name}.toml"
+            for name, path, _ in record.inventories
+        )
+    ):
+        raise BackendError("the julia setup has an invalid owned-directory layout")
+    if (
         record.setup_id != directory.name
         or identity(record_inputs(record)) != record.setup_id
     ):

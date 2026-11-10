@@ -72,11 +72,33 @@ def test_source_location_distinguishes_editable_checkout_and_wheel(
     tmp_path, monkeypatch
 ):
     package = tmp_path / "src" / "solprop" / "backends" / "julia"
+    package.mkdir(parents=True)
+    bundle = _sources(package / "_bundle")
+    digest = package / "_engine_digest.txt"
+    digest.write_text(_source.engine_digest(bundle) + "\n", encoding="utf-8")
     monkeypatch.setattr(_source, "__file__", str(package / "_source.py"))
     assert _source.source_bundle() == package / "_bundle"
     (tmp_path / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (tmp_path / "julia").mkdir()
     assert _source.source_bundle() == tmp_path / "julia"
+
+
+@pytest.mark.parametrize("invalid", ["missing", "malformed", "changed-source"])
+def test_wheel_sources_require_the_generated_source_identity(
+    tmp_path, monkeypatch, invalid
+):
+    package = tmp_path / "src" / "solprop" / "backends" / "julia"
+    package.mkdir(parents=True)
+    bundle = _sources(package / "_bundle")
+    digest = package / "_engine_digest.txt"
+    if invalid == "malformed":
+        digest.write_text("invalid\n", encoding="utf-8")
+    elif invalid == "changed-source":
+        digest.write_text(_source.engine_digest(bundle) + "\n", encoding="utf-8")
+        (bundle / "src" / "engine.jl").write_text("changed source", encoding="utf-8")
+    monkeypatch.setattr(_source, "__file__", str(package / "_source.py"))
+    with pytest.raises((ValueError, FileNotFoundError)):
+        _source.source_bundle()
 
 
 def test_setup_inputs_always_name_required_installer_and_version_table(tmp_path):

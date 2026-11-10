@@ -641,6 +641,8 @@ def test_setup_never_repairs_edited_owned_metadata(prepared, monkeypatch):
         ({"elapsed_seconds": "1"}, "elapsed time"),
         ({"elapsed_seconds": True}, "elapsed time"),
         ({"cpu_target": None}, "invalid cpu_target"),
+        ({"projects": {"cpu": "elsewhere/cpu"}}, "owned-directory layout"),
+        ({"engine": "elsewhere"}, "owned-directory layout"),
     ],
 )
 def test_malformed_publications_remain_unavailable(prepared, updates, message):
@@ -694,6 +696,77 @@ def test_unrecorded_preferences_are_refused(prepared, location):
     _write(parent / "LocalPreferences.toml", "unrecorded = true\n")
     with pytest.raises(BackendError, match="unrecorded"):
         select_setup()
+
+
+@pytest.mark.parametrize("location", ["engine", "environments", "cpu"])
+@pytest.mark.parametrize(
+    "alias",
+    [
+        "JuliaProject.toml",
+        "JuliaManifest.toml",
+        "Manifest-v1.13.toml",
+        "JuliaManifest-v1.13.toml",
+        "JuliaLocalPreferences.toml",
+    ],
+)
+def test_julia_loader_aliases_cannot_override_owned_inputs(prepared, location, alias):
+    record = setup()
+    root = {
+        "engine": record.engine,
+        "environments": record.engine / "environments",
+        "cpu": dict(record.projects)["cpu"],
+    }[location]
+    _write(root / alias, "unrecorded = true\n")
+    with pytest.raises(BackendError, match="unrecorded loader alias"):
+        select_setup()
+
+
+@pytest.mark.skipif(
+    _setup.sys.platform == "win32", reason="creating symlinks needs Windows privileges"
+)
+@pytest.mark.parametrize(
+    "name", ["LocalPreferences.toml", "JuliaLocalPreferences.toml"]
+)
+def test_dangling_preference_aliases_are_refused(prepared, name):
+    record = setup()
+    project = dict(record.projects)["cpu"]
+    (project / name).symlink_to(project / "absent")
+    with pytest.raises(BackendError, match="unrecorded"):
+        select_setup()
+
+
+@pytest.mark.parametrize("filename", ["Project.toml", "JuliaProject.toml"])
+def test_ancestor_workspace_cannot_redirect_a_published_environment(prepared, filename):
+    record = setup()
+    project = dict(record.projects)["cpu"]
+    relative = project.relative_to(prepared.depot).as_posix()
+    _write(prepared.depot / filename, f'[workspace]\nprojects = ["{relative}"]\n')
+    with pytest.raises(BackendError, match="redirected by ancestor workspace"):
+        select_setup()
+
+
+@pytest.mark.parametrize("members", ['["unrelated"]', '"unrelated"'])
+def test_unrelated_ancestor_workspace_is_allowed(prepared, members):
+    record = setup()
+    _write(prepared.depot / "Project.toml", f"[workspace]\nprojects = {members}\n")
+    assert select_setup() == record
+
+
+def test_malformed_ancestor_workspace_refuses_before_startup(prepared):
+    setup()
+    _write(prepared.depot / "Project.toml", "[workspace]\nprojects = [42]\n")
+    with pytest.raises(BackendError, match="ancestor workspace has invalid projects"):
+        select_setup()
+
+
+def test_workspace_search_honors_julias_home_boundary(prepared, monkeypatch):
+    record = setup()
+    monkeypatch.setattr(Path, "home", lambda: prepared.depot)
+    project = dict(record.projects)["cpu"]
+    outside = prepared.depot.parent / "Project.toml"
+    relative = project.relative_to(outside.parent).as_posix()
+    _write(outside, f'[workspace]\nprojects = ["{relative}"]\n')
+    assert select_setup() == record
 
 
 def test_changed_retained_sources_and_templates_are_refused(prepared):
