@@ -702,8 +702,6 @@ class NativeGroupSession:
             batch = session.advance(work_limit=ROUND_STEPS - made)
             self._pending[index] = batch.receipt
             (event,) = batch.events
-            if (counters := _counters.active) is not None:
-                _count(counters, event)
             if isinstance(event, Progress):
                 window.chunks.append((event.history, event.step_stats))
                 made += event.history.n_steps
@@ -849,28 +847,6 @@ class NativeGroupSession:
             for index, events in enumerate(members)
         )
         return GroupBatch(receipt, bound, outcome, error)
-
-
-def _count(counters: _counters.Counters, event: Event) -> None:
-    """Count a batch a member's native session returned, for the benchmarks.
-
-    Parameters
-    ----------
-    counters : solprop_native._counters.Counters
-        The active counters.
-    event : solprop.backends.events.Event
-        The batch's event.
-    """
-    kind = {
-        ObservationReady: "observation",
-        Progress: "progress",
-        ServiceRequired: "warning",
-        Terminal: "terminal",
-    }[type(event)]
-    history = event.history
-    attempts = 0 if history is None else history.n_steps
-    accepted = 0 if history is None else attempts - history.n_rejected
-    counters.session_batch(kind, attempts, accepted)
 
 
 def _with_chunk(event: Event, history: BackendHistory, rows: StepStats) -> Event:

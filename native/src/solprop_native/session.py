@@ -123,7 +123,7 @@ from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.stepper.tableau import continuous_extension
 from solprop.translate.linop import power_weight_at
 
-from . import _core, _transverse, _watch
+from . import _core, _counters, _transverse, _watch
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
     ADMITTED_SPATIAL_STATISTICS,
@@ -198,6 +198,8 @@ _STATES = (
 )
 _OUTCOMES = (None, Outcome.COMPLETED, Outcome.STOPPED, Outcome.FAILED)
 _OBSERVATION, _PROGRESS, _SNAPSHOT, _TERMINAL, _WARNING = range(5)
+_EVENT_NAMES = ("observation", "progress", "snapshot", "terminal", "warning")
+"""The native event kinds by name, as the benchmark counters report a batch."""
 _OVERRIDES = (
     "scale",
     "accepts",
@@ -629,6 +631,10 @@ class NativeSession:
             raise
         self._adams = kind == "adams"
         self._low_storage = kind == "low_storage"
+        # The benchmark counters' name for the march, and the native march calls they
+        # have counted (`_tally`).
+        self._march_name = f"session_{kind}"
+        self._calls_counted = 0
         self._poisoned = False
         self._abandoned: tuple[float, float] | None = None
         attach = getattr(stop, "attach", None)
@@ -1039,6 +1045,8 @@ class NativeSession:
             raise failure
         assert translated is not None
         chunk, event = translated
+        if (counters := _counters.active) is not None:
+            self._tally(counters, batch, chunk, limit)
         if self._listener is not None:
             for end, dz, accepted in zip(
                 chunk.z.tolist(),
@@ -1191,6 +1199,8 @@ class NativeSession:
             if "power weights" in str(error):
                 raise GridError(str(error)) from None
             raise
+        if (counters := _counters.active) is not None:
+            counters.crossing("export", destination.nbytes)
         if out is None:
             destination.setflags(write=False)
             self._exports[key] = destination
@@ -1286,6 +1296,10 @@ class NativeSession:
         if taken is None:
             return None
         state, field, rows = taken
+        if (counters := _counters.active) is not None:
+            counters.crossing(
+                "snapshot", field.nbytes + sum(row.nbytes for row in rows.values())
+            )
         if float(state["z"]) != ticket.z:
             # A dense plane's ticket: the march stands ahead of it, at its endpoint,
             # and keeps no history a resume from the plane could continue.
@@ -1707,6 +1721,53 @@ class NativeSession:
             error_norm=np.ascontiguousarray(attempts[:, 2]),
             accepted=attempts[:, 3] != 0.0,
             wall_time=np.ascontiguousarray(attempts[:, 4]),
+        )
+
+    def _tally(
+        self,
+        counters: _counters.Counters,
+        batch: _core.SessionBatch,
+        chunk: BackendHistory,
+        limit: int,
+    ) -> None:
+        """Count a delivered batch for the benchmarks: one return to Python.
+
+        Parameters
+        ----------
+        counters : solprop_native._counters.Counters
+            The active counters.
+        batch : solprop_native._core.SessionBatch
+            The batch.
+        chunk : solprop.backends.protocol.BackendHistory
+            Its attempts.
+        limit : int
+            The ``advance``'s attempt bound.
+        """
+        event = batch.event
+        attempts = chunk.n_steps
+        rows = int(batch.row_z.size)
+        name = _EVENT_NAMES[event.kind]
+        if event.kind == _PROGRESS:
+            # The native session's yield (`Session::advance`): a full chunk buffer
+            # first, then the attempt bound, else the time bound.
+            if attempts >= ATTEMPT_CAPACITY or rows >= ROW_CAPACITY:
+                name += ":buffer"
+            elif attempts >= limit:
+                name += ":work_limit"
+            else:
+                name += ":deadline"
+        calls = int(self._native.status().march_calls)
+        made, self._calls_counted = calls - self._calls_counted, calls
+        counters.session_batch(
+            name,
+            attempts,
+            attempts - chunk.n_rejected,
+            rows=rows,
+            evaluations=rows + int(event.has_stats),
+            plane=event.kind == _OBSERVATION
+            and _KINDS[event.observation] is not ObservationKind.LAUNCH,
+            march=self._march_name,
+            calls=made,
         )
 
     def _count(self, chunk: BackendHistory) -> None:

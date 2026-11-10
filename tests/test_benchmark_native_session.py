@@ -24,7 +24,11 @@ def test_period_one_rows_return_to_python_only_on_the_driver(case):
     assert driver["native_returns"]["host_step:statistics"] > 0
     # Rows taken natively: the native session returns at its planes and end alone.
     assert native["batches"] == native["planes"] + 1
-    assert native["march_calls"] >= native["statistics_rows"]
+    assert native["native_returns"] == {
+        "session_observation": native["planes"],
+        "session_terminal": 1,
+    }
+    assert sum(native["march_calls"].values()) >= native["statistics_rows"]
     assert native["field_bytes"] == driver["field_bytes"] > 0
     for executor in (driver, native):
         assert executor["seconds"]["median"] >= executor["native_seconds"]["median"]

@@ -523,6 +523,8 @@ class NativeBackend(StepDriver[_core.State]):
             else np.ascontiguousarray(self._noise.reshape(-1))
         )
         self._native_state.set_initial(flat, native_noise)
+        if (counters := _counters.active) is not None:
+            counters.load("start", flat.nbytes)
         self._native_state.clear_fsal()
         if self._adams is not None:
             # The host engine's copy of the accepted state; a resident march reads the
@@ -922,6 +924,8 @@ class NativeBackend(StepDriver[_core.State]):
             if self._noise is None
             else np.ascontiguousarray(self._noise.reshape(-1)),
         )
+        if (counters := _counters.active) is not None:
+            counters.load("restore", state.nbytes)
         self._state = self._native_state
 
     def _adams_propagator(self, anchor: float, position: float) -> ComplexArray:
