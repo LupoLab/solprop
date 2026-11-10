@@ -289,7 +289,7 @@ def refusal(
 
 def _device_backend() -> str:
     """Return the build's device backend: ``"cuda"``, ``"hip"`` or ``"none"``."""
-    return _build_facts().info.device_backend
+    return str(_build_facts().info["device_backend"])
 
 
 def device_refusal(problem: KernelProblem, request: RunRequest) -> str | None:
