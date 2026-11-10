@@ -662,9 +662,7 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   constant-Schur and frozen-residual sections and CF4 sections are refused. On `native`
   the history and the step's arithmetic are resident in the engine, on the CPU and on
   the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too:
-  at any width, and on the CPU build whichever route each bin takes, on a device when every
-  bin of its sections is on the flow's eigenbasis route (otherwise its matrix passes run on
-  the host there). On the CPU build the
+  at any width and whichever route each bin takes. On the CPU build the
   march itself runs natively too, for `Multistep()` in either formulation, adaptive or
   replayed, on every route; a coupled flow whose matrix passes run on the host steps
   solprop's march on the same engine, with a

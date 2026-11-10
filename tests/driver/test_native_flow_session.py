@@ -5,11 +5,10 @@
 """The coupled flow's exponential Adams march, resident wherever a CPU build runs it.
 
 solprop SEP 47 phase 4 (section 6.3, the coupled-flow row): a coupled block wider than
-16 channels steps on the resident Adams engine of any build, and a block with bins off
-its flow's eigenbasis route on a CPU build's, and the native session serves them, where
-solprop's host engine stepped them over the backend's hooks before and the session left
-them to the transitional bridge. A device build keeps today's admission off the route:
-the host engine and the bridge.
+16 channels, and a block with bins off its flow's eigenbasis route, step on the
+resident Adams engine of a CPU or a device build, and the native session serves them,
+where solprop's host engine stepped them over the backend's hooks before and the
+session left them to the transitional bridge.
 
 The wide cases are lossless helium tapers with taper coupling and every bin on the
 route, over ten fixed steps short enough that the formation bound of
@@ -84,8 +83,8 @@ native_session = pytest.importorskip("solprop_native.session")
 NativeBackend = pytest.importorskip("solprop_native").NativeBackend
 
 DEVICE = pytest.importorskip("solprop_native").build_info().device_backend != "none"
-"""Whether the installed build executes on an accelerator, which keeps the host
-engine for a bin off the route."""
+"""Whether the installed build executes on an accelerator, which holds no host channel
+rows and refuses the carrier frame."""
 
 WIDE_LENGTH = 2e-5
 """Length of the wide cases, m: ten steps of 2 um.
@@ -390,8 +389,6 @@ def test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s(
     route's bins, ``expm`` off it), and against the resident engine with every bin on
     the eigenbasis route, each a pair of implementations of the same ten steps.
     """
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
     simulation, problem = parity_cases(name)
     request, grid = on_adams(simulation._run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
@@ -439,18 +436,13 @@ def test_the_session_runs_bins_off_the_route_as_the_bridges_do(
 
     Bitwise the resident bridge's on one thread; the host engine's bridge within the
     bound of :func:`test_bins_off_the_route_are_the_reference_s_and_the_host_engine_s`.
-    A device build refuses it by name, as it did.
     """
     simulation, problem = parity_cases("taper")
     request, grid = simulation._run_request(), simulation.grid
     expected = run(NumpyRefBackend, problem, request, grid)
     off_route(monkeypatch, route)
     _assert_routed(problem, route)
-    refused = native_session.refusal(problem, request)
-    if DEVICE:
-        assert refused is not None and "off the eigenbasis route" in refused
-        return
-    assert refused is None
+    assert native_session.refusal(problem, request) is None
     case = Case(problem, request, grid, float(np.sum(request.stepper.schedule.steps)))
     context = {"profiles": simulation.profiles, "modes": simulation.modes}
     session, status = session_run(case, monkeypatch, "session", context)
@@ -475,8 +467,6 @@ def test_a_bin_off_the_route_past_thirty_squarings_is_refused_by_name(
     block's row-sum norm far past ``0.5 2^30``: the trial refuses before it moves the
     state, in the words of the flow action's own refusal.
     """
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
     simulation, problem = parity_cases("scalar")
     off_route(monkeypatch, "off")
     linear = problem.linear
@@ -540,8 +530,8 @@ def test_the_off_route_block_functions_are_the_reference_s(
     case's step, about 1e-11 for both evaluations together, with the margin of its
     norm-wise slack.
     """
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
+    if carrier and DEVICE:
+        pytest.skip("device builds refuse the carrier frame by name")
     step = LENGTH / 40
     simulation = build(
         "te_tm",
@@ -657,8 +647,6 @@ def test_a_carry_past_thirty_squarings_is_refused_and_keeps_the_state(
 ):
     """A compensated trial's carry is counted too, refused by name before the state
     moves, and the backend and the session both stay usable at the committed state."""
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
     simulation, problem = parity_cases("taper")
     request, grid = simulation._run_request(), simulation.grid
     off_route(monkeypatch, "off")
@@ -752,8 +740,6 @@ def _held_to_the_bound(setup, runs, carrier=0.0):
 @pytest.mark.parametrize("name", ["taper", "lossless", "gradient"])
 def test_sections_on_and_off_the_route_in_one_run(parity_cases, name, monkeypatch):
     """A flow whose sections alternate: every bin off the route, then every bin on."""
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
     simulation, problem = parity_cases(name)
     request, grid = on_adams(simulation._run_request()), simulation.grid
     on = run(NativeBackend, problem, request, grid)
@@ -818,8 +804,6 @@ def test_a_carrier_frame_off_the_route(parity_cases, monkeypatch):
 @pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
 def test_a_wide_flow_off_the_route(cases, monkeypatch):
     """17 channels, every other bin off the route: wide rows and augmented bins."""
-    if DEVICE:
-        pytest.skip("a device build steps a bin off the route on the host engine")
     case = cases(17)
     problem, request = case.problem, case.run_request
     on = propagate(case, NativeBackend)
@@ -889,8 +873,6 @@ def test_a_snapshot_off_the_route_or_wide_resumes_to_the_bit(
     The engine's rows round-trip losslessly, so a resumed run takes the uninterrupted
     one's steps on the same arithmetic: the same state to the bit in one process.
     """
-    if DEVICE and kind == "off route":
-        pytest.skip("a device build steps a bin off the route on the host engine")
     if kind == "wide":
         case = cases(17)
         simulation = wide_simulation(17)

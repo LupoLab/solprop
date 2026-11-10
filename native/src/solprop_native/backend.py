@@ -2996,9 +2996,8 @@ def native_march_refusal(
     ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
     decided from the problem alone (solprop SEP 47 section 5.2): the host marches the
     backend's test interface asks for; for Adams, a coupled flow the host engine steps
-    (:func:`_flow_on_host`: beside the interaction formulation, and on a device build
-    off the eigenbasis route), and a carrier
-    frame with no chord. What the backend refuses at admission is not asked here: a
+    (:func:`_flow_on_host`: beside the interaction formulation), and a carrier frame
+    with no chord. What the backend refuses at admission is not asked here: a
     comparison method or a controller overriding a decision
     (``_refuse_reference_only``) and stage rows the native tables do not read
     (:func:`host_rows_refusal`).
@@ -3023,24 +3022,15 @@ def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
     """Return why solprop's host engine steps an Adams run beside a coupled flow.
 
     The resident engine steps the exponential formulation beside a coupled flow
-    (solprop SEP 16 phase 6) at any width (SEP 47 phase 4), on a CPU build whichever
-    route each bin takes, the eigenbasis or the augmented exponential; a device build
-    keeps the eigenbasis route on every bin of every section. ``None`` without a
-    coupled flow or where the resident engine steps it.
+    (solprop SEP 16 phase 6) at any width and whichever route each bin takes, the
+    eigenbasis or the augmented exponential, on a CPU and a device build alike (SEP 47
+    phase 4): only the interaction formulation takes the host engine. ``None`` without
+    a coupled flow or where the resident engine steps it.
     """
     if problem.linear.coupled_flow is None:
         return None
     if not exponential:
         return "the host engine, which steps the interaction formulation beside a flow"
-    if not _on_device():
-        return None
-    flow = _host_flow(problem)
-    assert flow is not None
-    if not bool(np.all(flow.route)):
-        return (
-            "the host engine, which steps a coupled flow off the eigenbasis route on a "
-            "device build"
-        )
     return None
 
 

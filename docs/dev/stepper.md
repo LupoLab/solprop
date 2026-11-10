@@ -464,7 +464,7 @@ what either waits for. The driver books the call's attempts through
 reading through the monitor at its own step. The Python march is the reference --
 `HostAdamsMarch` for `numpy_ref` -- and its bridge copy `AdamsMarch` steps every
 configuration the native march does not cover (a coupled flow on the host engine, beside
-the interaction formulation, and on a device build off the eigenbasis route), with a
+the interaction formulation), with a
 `HostMarchWarning` naming the reason. The comparison methods
 (`ComparisonMultistep`, the one-order-higher PEC variant among them) and a controller that
 overrides a decision are refused by name at admission (SEP 47 §6.3). A z table's carrier frame steps natively: the stage tables carry the imaginary
