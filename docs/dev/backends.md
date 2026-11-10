@@ -498,8 +498,8 @@ the edge's `_EdgeTables`, four regions' weights on the nodes, so it holds no fac
 field-free run crosses no state (`tests/backends/test_native_edge_reading.py`). A requested collar's lines are described
 once, as `_edge_lines`, for both reductions (`tests/backends/test_native_edge_collar.py`): native takes each strip's padded
 transform in batches of planes under `_STRIP_BATCH_BYTES`, on buffers listed in the `transverse_edge` ledger row, and the
-current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. The current is still
-accumulated in Python. Everything else, the weights, the spacing, the ledgers and the judgement, is one
+current from the onset's three nodes, rectified per row, all on one load of the transverse scratch. Under the driver
+the current is still accumulated in Python (under the native session, below, nothing is). Everything else, the weights, the spacing, the ledgers and the judgement, is one
 code on every backend. The read spacing is a ceiling on the step, and
 a step is not made to land on a read: the edge is read at the last committed position
 from which the next step, a replay's scheduled one or else the controller's proposal, would
@@ -514,6 +514,28 @@ position from which the next step would pass the read, so the host reads the sta
 there. With a collar the host step is one, so the march returns at every committed step.
 A saved plane reads the edge unless the step that reached it already did (`TransverseEdge.wants_read`), as a second read at one position records nothing.
 A backend that does not set it reports `unwatched` and refuses a requested collar by name.
+
+**Under the native execution session the judgement is native too** ([SEP 47](seps/sep-0047-run-ownership.md) §6.4).
+`NativeSession` hands no reading to a Python edge: `transverse::Edge`
+(`native/include/solprop_native/transverse.hpp`, a strict translation unit) owns the edge's every decision and record
+-- the launch's judgements, the spacing and its ceiling, each read's ledgers and verdict, a collar's current and return,
+the resume and the record -- and the session reads the resident state for it (`Resident::edge_reading`, the same
+reduction as `_edge_reading`). The march's `read_at`/`read_spacing` bounds return it to the session, not to Python, where
+a read falls due, and with a collar at every committed step, so a collar's current costs no return to Python. The edge
+follows the temporal monitor at each point of SEP 47 §5.3: launched after the temporal launch, read after a committed
+step's check and before its statistics row, and at a plane before its row. A point's several warnings (a launch can
+raise five) are each a `ServiceRequired` barrier, the edge holding its place between them (`Edge::proceed`), so a
+warning the caller raises leaves the rest of that point undone, as solprop's inline warning does. The scalar decisions
+are solprop's exactly on the same readings, the worst face's ties broken on its name as `max` breaks a tuple's and the
+reach's tail summed in order over the columns as solprop sorted them; the launch's share in the ramp's band and the
+ramp's removal per interval are the native reading, summed in order with the C library's `expm1` where NumPy sums
+pairwise with its own, within `(n - 1 + ceil(log2 n))u` of it, plus the two `expm1`s' error for the removal
+(`tests/backends/test_transverse_owner.py`). The removal's error accumulates across reads, at most that bound of each
+read's term plus a rounding per read. So the two decisions taken on these readings -- the ramp's band at the launch
+and the ramp's removal at each read, warning or stop -- may differ from solprop's where a share lies within that bound
+of a threshold: a native share a rounding below the stop warns where solprop stops (SEP 47 §4.3, the maintainer's
+decision 4). Every other decision is solprop's on the same readings. `solprop_native._transverse` formats the
+record and the verdicts with the edge's own texts, which `solprop.transverse_monitor` keeps as module functions.
 
 ## 3. Compiled execution: the design `native` runs
 

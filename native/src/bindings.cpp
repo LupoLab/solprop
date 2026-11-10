@@ -2,6 +2,7 @@
 //
 // SPDX-License-Identifier: GPL-3.0-or-later
 
+#include "bindings_transverse.hpp"
 #include "helpers.hpp"
 #include "solprop_native/adams_march.hpp"
 #include "solprop_native/core.hpp"
@@ -1271,7 +1272,14 @@ native::session::MonitorPlan monitor_plan_from(const nb::dict values) {
       plan.record = watch_resumption_from(nb::cast<nb::dict>(values["record"]));
       plan.plane = nb::cast<bool>(values["plane"]);
       plan.unwatched = watch_stretches_from(values["unwatched"]);
+      if (values.contains("edge_record"))
+        plan.edge_record = native::bindings::transverse_resumption_from(
+            nb::cast<nb::dict>(values["edge_record"]));
     }
+    // A free-space run's transverse edge (SEP 40 section 5.3), owned alike.
+    if (values.contains("edge") && !values["edge"].is_none())
+      plan.edge =
+          native::bindings::transverse_config_from(nb::cast<nb::dict>(values["edge"]));
   } catch (const nb::cast_error&) {
     throw std::invalid_argument("a session's boundary monitor has the wrong types");
   } catch (const nb::python_error&) {
@@ -2412,11 +2420,24 @@ public:
   std::size_t elements() const { return session_->elements(); }
   // Continue a resumed run's monitor record; takes the session's lock.
   void continue_monitor(const nb::dict record, const bool plane,
-                        const nb::handle unwatched) {
+                        const nb::handle unwatched, const nb::dict edge_record) {
     auto resumption = watch_resumption_from(record);
     auto stretches = watch_stretches_from(unwatched);
+    auto edge = native::bindings::transverse_resumption_from(edge_record);
     const nb::gil_scoped_release release;
-    session_->continue_monitor(resumption, plane, stretches);
+    session_->continue_monitor(resumption, plane, stretches, edge);
+  }
+  // The transverse edge's record and finish, or None; takes the session's lock.
+  nb::object edge_record() {
+    std::optional<std::pair<native::transverse::Record, native::transverse::Finish>>
+        record;
+    {
+      const nb::gil_scoped_release release;
+      record = session_->edge_record();
+    }
+    if (!record)
+      return nb::none();
+    return native::bindings::transverse_record_to(record->first, record->second);
   }
   // The boundary monitor's record, or None; takes the session's lock.
   nb::object monitor_record() {
@@ -3024,7 +3045,8 @@ NB_MODULE(_core, module_) {
                               native::rk::strict_probe(a, b, c),
                               native::session::strict_probe(a, b, c),
                               native::statistics::strict_probe(a, b, c),
-                              native::rk::low_storage::strict_probe(a, b, c));
+                              native::rk::low_storage::strict_probe(a, b, c),
+                              native::transverse::strict_probe(a, b, c));
       },
       "a"_a, "b"_a, "c"_a);
   module_.def(
@@ -3132,6 +3154,7 @@ NB_MODULE(_core, module_) {
       },
       "text"_a);
   native::bindings::bind_helpers(module_);
+  native::bindings::bind_transverse(module_);
   nb::class_<ScriptedMarch>(module_, "ScriptedMarch")
       .def(nb::init<nb::dict, RealInput, double, RealInput, RealInput>(), "policy"_a,
            "norms"_a.noconvert(), "carrier_rate"_a, "steps"_a.noconvert(),
@@ -4193,6 +4216,7 @@ NB_MODULE(_core, module_) {
         out["value"] = notice.value;
         out["cap"] = notice.cap;
         out["step"] = notice.step;
+        out["edge"] = native::bindings::transverse_notice_to(notice.edge);
         return out;
       });
   nb::class_<BoundStatisticsPlan>(module_, "StatisticsPlan")
@@ -4239,7 +4263,8 @@ NB_MODULE(_core, module_) {
       .def_prop_ro("elements", &BoundSession::elements)
       .def("monitor_record", &BoundSession::monitor_record)
       .def("continue_monitor", &BoundSession::continue_monitor, "record"_a, "plane"_a,
-           "unwatched"_a)
+           "unwatched"_a, "edge_record"_a)
+      .def("edge_record", &BoundSession::edge_record)
       .def("close", &BoundSession::close, nb::call_guard<nb::gil_scoped_release>());
   // solprop SEP 47 section 6.4: the owning boundary monitor alone, for solprop's tests
   // to feed recorded readings through it and its own monitor alike.

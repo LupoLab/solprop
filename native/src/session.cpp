@@ -130,6 +130,8 @@ Session::Session(std::unique_ptr<Resident> resident, Method method, Plan plan,
   adams_ = std::holds_alternative<AdamsMethod>(method_);
   if (plan_.monitor) {
     monitor_ = std::make_unique<watch::Monitor>(plan_.monitor->config);
+    if (plan_.monitor->edge)
+      edge_ = std::make_unique<transverse::Edge>(*plan_.monitor->edge);
     // A resting collar caps the steps at the monitor's interval, as the march's policy
     // takes it from solprop's monitor (`quiet_interval`).
     std::visit(
@@ -225,6 +227,9 @@ std::uint64_t Session::host_step() const {
     take(steps_to_next(plan_.period, accepted_steps_));
   if (plan_.step_planes > 0)
     take(steps_to_next(plan_.step_planes, natural_count_));
+  // A requested collar's current is taken at every committed step, in the session.
+  if (edge_ && edge_->every_step())
+    take(1);
   return steps;
 }
 
@@ -252,9 +257,16 @@ march::Result Session::call(const double target, const double slack,
   bounds.target = target;
   bounds.host_step = host_step();
   // The session's own monitor takes each committed step's check in the march, its cap
-  // the split collar's; no transverse edge (refused at preparation), whose spacing is
-  // infinite.
+  // the split collar's. The transverse edge's spacing caps every adaptive step, and the
+  // march returns to the session at the committed position from which the next step
+  // would carry past the next read (`TransverseEdge.ceiling`, `.due`); infinite
+  // without an edge.
   bounds.read_spacing = std::numeric_limits<double>::infinity();
+  if (edge_) {
+    bounds.read_at = edge_->next_read();
+    bounds.has_read_at = std::isfinite(bounds.read_at);
+    bounds.read_spacing = edge_->ceiling();
+  }
   if (monitor_) {
     bounds.watch = true;
     bounds.owner = monitor_.get();
@@ -448,10 +460,11 @@ void Session::warning(Batch& batch, const Notice& notice) {
 void Session::monitor_stop(Batch& batch, const Notice& notice) {
   Failure failure;
   failure.reason = march::Reason::error;
-  failure.category =
-      notice.kind == Notice::Kind::guard || notice.kind == Notice::Kind::crossing
-          ? march::Category::refused
-          : march::Category::backend;
+  failure.category = notice.kind == Notice::Kind::guard ||
+                             notice.kind == Notice::Kind::crossing ||
+                             notice.kind == Notice::Kind::transverse
+                         ? march::Category::refused
+                         : march::Category::backend;
   failure.notice = notice;
   failure.cursor = cursor();
   terminal(batch, Outcome::failed, std::move(failure));
@@ -508,8 +521,12 @@ bool Session::attach(Batch& batch) {
   // record, then record and judge the launch (`attach_monitor`).
   attached_ = true;
   const auto& plan = *plan_.monitor;
-  if (plan.resume)
+  if (plan.resume) {
+    // `BoundaryMonitor.resume` continues the edge's record first.
+    if (edge_)
+      edge_->resume(plan.edge_record);
     monitor_->resume(plan.record, plan.plane, plan.unwatched);
+  }
   const std::vector<double> reading = resident_->boundary_reading();
   // The input noise's floor is refused at preparation: none is read.
   const watch::Judgement judgement =
@@ -519,12 +536,16 @@ bool Session::attach(Batch& batch) {
   if (judged(batch, judgement))
     return true;
   sync_collar();
-  return refused_crossing(batch);
+  // Then the transverse edge's launch (`attach_monitor`).
+  return refused_crossing(batch) || (edge_ && edge_launch(batch));
 }
 
-bool Session::endpoint(Batch& batch, const double target) {
-  // The event step after its monitor check: its statistics row, then the natural stop
+bool Session::endpoint(Batch& batch, const double target, const bool edge) {
+  // The event step after its monitor check: the transverse edge's read where due and
+  // its collar's current, its statistics row, then the natural stop
   // (`_take_step_stats`, `_natural_stop`).
+  if (edge && edge_ && edge_endpoint(batch))
+    return true;
   if (plan_.period > 0) {
     ++accepted_steps_;
     if (accepted_steps_ % plan_.period == 0)
@@ -565,6 +586,9 @@ bool Session::observe_plane(Batch& batch, const Observation kind,
     if (refused_crossing(batch))
       return true;
   }
+  // The transverse edge reads every plane it has not read (`_read_transverse`).
+  if (edge_ && edge_plane(batch))
+    return true;
   return plane_rest(batch);
 }
 
@@ -614,16 +638,31 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     switch (continued) {
     case Continuation::attach:
       sync_collar();
-      if (refused_crossing(batch))
+      if (refused_crossing(batch) || (edge_ && edge_launch(batch)))
+        return ready();
+      break;
+    case Continuation::edge_launch:
+      if (edge_proceed(batch, Continuation::edge_launch))
         return ready();
       break;
     case Continuation::endpoint:
-      // The step's check warned: its crossing, then its row and natural stop.
+      // The step's check warned: its crossing, then the edge, its row and natural stop.
       if (refused_crossing(batch) || endpoint(batch, plan_.planes[next_plane_]))
         return ready();
       break;
+    case Continuation::edge_endpoint:
+      // The edge warned at the step: the rest of its read, then the row and stop.
+      if (edge_proceed(batch, Continuation::edge_endpoint) ||
+          endpoint(batch, plan_.planes[next_plane_], false))
+        return ready();
+      break;
     case Continuation::plane:
-      if (refused_crossing(batch))
+      if (refused_crossing(batch) || (edge_ && edge_plane(batch)))
+        return ready();
+      plane_rest(batch);
+      return ready();
+    case Continuation::edge_plane:
+      if (edge_proceed(batch, Continuation::edge_plane))
         return ready();
       plane_rest(batch);
       return ready();
@@ -633,7 +672,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
     case Continuation::none:
       break;
     }
-    if (continued != Continuation::endpoint) {
+    if (continued != Continuation::endpoint &&
+        continued != Continuation::edge_endpoint) {
       if (monitor_ && !attached_ && attach(batch))
         return ready();
       if (snapshot_latched() && at_endpoint()) {
@@ -780,7 +820,8 @@ Batch Session::advance(const std::size_t work_limit, const double deadline) {
 }
 
 void Session::continue_monitor(const watch::Resumption& record, const bool plane,
-                               const std::vector<std::array<double, 2>>& unwatched) {
+                               const std::vector<std::array<double, 2>>& unwatched,
+                               const transverse::Resumption& edge_record) {
   const std::scoped_lock lock(mutex_);
   require_open();
   if (attached_)
@@ -791,6 +832,7 @@ void Session::continue_monitor(const watch::Resumption& record, const bool plane
   plan_.monitor->record = record;
   plan_.monitor->plane = plane;
   plan_.monitor->unwatched = unwatched;
+  plan_.monitor->edge_record = edge_record;
 }
 
 std::optional<watch::Record> Session::monitor_record() const {

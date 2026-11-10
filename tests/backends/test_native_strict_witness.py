@@ -6,12 +6,12 @@
 
 ADR-060, SEP 45 and SEP 47 compile the Adams march's decisions, the boundary watch's
 predictions, the Runge-Kutta march's positions and norm, the low-storage replay's
-positions and table keys and the native session's scheduling, export and statistics
-finishing without contraction, so that they round as solprop's Python does. Each file
-holds a probe, ``p = a * b; return p + c``, which a fused multiply-add changes. The
-witness runs in the build that is installed, with its own flags, link-time
-optimisation and visibility, beside a control from a contracting file: where the
-control fuses, a probe that fused too has lost its file's rule.
+positions and table keys, the native session's scheduling, export and statistics
+finishing and the transverse edge's judgement without contraction, so that they round
+as solprop's Python does. Each file holds a probe, ``p = a * b; return p + c``, which a
+fused multiply-add changes. The witness runs in the build that is installed, with its
+own flags, link-time optimisation and visibility, beside a control from a contracting
+file: where the control fuses, a probe that fused too has lost its file's rule.
 """
 
 from __future__ import annotations
@@ -40,9 +40,7 @@ def test_the_strict_files_round_every_operation_where_the_build_fuses():
     control, *probes = native._core.strict_witness(  # pyright: ignore[reportPrivateUsage]
         FACTOR_A, FACTOR_B, ADDEND
     )
-    assert probes == [0.0, 0.0, 0.0, 0.0, 0.0, 0.0], (
-        "a strict file's product and sum were fused"
-    )
+    assert probes == [0.0] * 7, "a strict file's product and sum were fused"
     if control == -(2.0**-60):
         return
     assert control == 0.0, control

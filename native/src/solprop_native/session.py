@@ -34,11 +34,13 @@ every other feature by name before allocating anything (:func:`refusal`):
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
   measured error the execution record carries; the plane-only statistics the host
   finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
-- the temporal boundary monitor, which the native session owns (SEP 47 section 6.4):
-  its every decision and record are native, a warning is a
-  :class:`~solprop.backends.events.ServiceRequired` barrier and a stop a terminal
-  failure, and a monitored resume continues the record natively;
-- no transverse edge, dense output, comparison method, custom controller, group,
+- the boundary monitor, temporal and a free-space run's transverse edge, which the
+  native session owns (SEP 47 section 6.4): its every decision and record are native,
+  each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
+  and a stop a terminal failure, the edge's readings and a collar's current are taken
+  from the resident state with no return to Python, and a monitored resume continues
+  both records natively (:mod:`solprop_native._transverse`);
+- no dense output, comparison method, custom controller, group,
   noise model, TDSE, resumed run or method-history snapshot.
 """
 
@@ -96,7 +98,7 @@ from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
 from solprop.translate.linop import power_weight_at
 
-from . import _core, _watch
+from . import _core, _transverse, _watch
 from ._statistics import (
     ADMITTED_GENERAL_STATISTICS,
     ADMITTED_SPATIAL_STATISTICS,
@@ -222,9 +224,6 @@ def refusal(
         return "a controller with its own " + ", ".join(overridden)
     if request.observation.dense:
         return "dense output (interpolated save planes)"
-    monitor = request.boundary.monitor
-    if monitor is not None and monitor.transverse is not None:
-        return "a boundary monitor's transverse edge"
     if problem.initial.noise_model != "none":
         return f"the {problem.initial.noise_model!r} noise model"
     if problem.tdse is not None:
@@ -396,6 +395,9 @@ class NativeSession:
         self._request = request
         self._monitor: BoundaryMonitor | None = request.boundary.monitor
         self._finish_logged = False
+        # A declared launch's share in the ramp's band is logged once it is launched.
+        edge = None if self._monitor is None else self._monitor.transverse
+        self._declared_logged = edge is None or not _transverse.declared(problem)
         self._sequence = 0
         self._id = next(_SESSION_IDS)
         self._listener = listener
@@ -655,12 +657,15 @@ class NativeSession:
             ).native(),
             "resume": start.monitor is not None,
         }
+        if monitor.transverse is not None:
+            plan["edge"] = _transverse.edge_config(
+                monitor.transverse, self._problem
+            ).native()
         if start.monitor is not None:
             plan.update(self._continuation(start.monitor))
         return plan
 
-    @staticmethod
-    def _continuation(continuation: Mapping[str, object]) -> dict[str, object]:
+    def _continuation(self, continuation: Mapping[str, object]) -> dict[str, object]:
         """Return a monitored resume's continuation as the native session reads it.
 
         Parameters
@@ -671,11 +676,19 @@ class NativeSession:
         Returns
         -------
         dict
-            The earlier record's resumption, whether the run resumes at a saved plane,
-            and the stretches run since without a monitor.
+            The earlier record's resumption and its transverse edge's, whether the run
+            resumes at a saved plane, and the stretches run since without a monitor.
         """
         record = continuation.get("record")
+        edge = None if self._monitor is None else self._monitor.transverse
+        faces = 0 if edge is None else len(edge._faces)  # pyright: ignore[reportPrivateUsage]
         return {
+            "edge_record": _transverse.resumption(
+                cast("Mapping[str, object]", record).get("transverse")
+                if isinstance(record, Mapping)
+                else None,
+                faces,
+            ),
             "record": _watch.resumption(
                 cast("Mapping[str, object]", record)
                 if isinstance(record, Mapping)
@@ -786,6 +799,9 @@ class NativeSession:
             ):
                 self._listener(end, dz, bool(accepted))
         rows = self._chunk_rows(batch)
+        if not self._declared_logged:
+            edge = self._native.edge_record()
+            self._declared_logged = edge is None or _transverse.log_declared(edge)
         return EventBatch(receipt, (self._event(batch, receipt, chunk, rows),))
 
     def acknowledge(self, receipt: Receipt) -> None:
@@ -1004,7 +1020,11 @@ class NativeSession:
         native = self._native.monitor_record()
         if native is None:
             return None
-        return _watch.record_of(monitor.check, native)
+        record = _watch.record_of(monitor.check, native)
+        edge = self._native.edge_record()
+        if monitor.transverse is not None and edge is not None:
+            record["transverse"] = _transverse.record_of(monitor.transverse, edge)
+        return record
 
     def continue_monitor(self, continuation: Mapping[str, object]) -> None:
         """Continue a resumed run's boundary-monitor record, before it is attached.
@@ -1027,6 +1047,7 @@ class NativeSession:
                 cast("dict[str, object]", held["record"]),
                 bool(held["plane"]),
                 cast("list[list[float]]", held["unwatched"]),
+                cast("dict[str, object]", held["edge_record"]),
             )
         except _core.SessionLifecycleError as error:
             raise SessionError(str(error)) from None
@@ -1101,8 +1122,8 @@ class NativeSession:
         Returns
         -------
         bool
-            True: the native backend reads it, though this session refuses a
-            monitor's edge for now.
+            True: the native session reads the edge from its resident state and
+            judges it natively.
         """
         return NativeBackend.reads_transverse_edge
 
@@ -1360,11 +1381,10 @@ class NativeSession:
             # A boundary warning (SEP 47 section 5.5): the caller emits it, and its
             # filters may raise it; the committed field and the chunk are there for
             # that failure's checkpoint.
-            assert self._monitor is not None
             notice = _watch.Notice.of(event.notice)
             if notice.kind is _watch.NoticeKind.REMOVAL:
                 self._log_finish()
-            warning = _watch.notice_warning(self._monitor.check, notice)
+            warning = self._warning(event.notice)
             return ServiceRequired(
                 kind=ServiceKind.WARNING,
                 z=event.z,
@@ -1423,11 +1443,41 @@ class NativeSession:
         assert schedule is not None  # only a replayed low-storage step is in place
         return float(schedule.steps[int(event.cursor)])
 
+    def _warning(self, native: Mapping[str, object]) -> Warning:
+        """Return a warning barrier's warning, the monitor's or its edge's.
+
+        Parameters
+        ----------
+        native : collections.abc.Mapping
+            ``SessionEvent.notice``.
+
+        Returns
+        -------
+        Warning
+            The warning, as solprop's monitor or edge issues it.
+        """
+        monitor = self._monitor
+        assert monitor is not None
+        notice = _watch.Notice.of(native)
+        if notice.kind is _watch.NoticeKind.TRANSVERSE:
+            assert monitor.transverse is not None
+            edge = _transverse.EdgeNotice.of(
+                cast("Mapping[str, object]", native["edge"])
+            )
+            return _transverse.notice_warning(monitor.transverse, edge)
+        return _watch.notice_warning(monitor.check, notice)
+
     def _log_finish(self) -> None:
-        """Log the monitor's removal and guard peaks once, at the end (D5)."""
+        """Log the edge's verdict, then the monitor's removal and guard peaks, once.
+
+        As :meth:`solprop.monitor.BoundaryMonitor.finish` logs them at the end (D5).
+        """
         if self._finish_logged or self._monitor is None:
             return
         self._finish_logged = True
+        edge = self._native.edge_record()
+        if edge is not None:
+            _transverse.log_finish(edge)
         record = self._native.monitor_record()
         if record is not None:
             _log_finish(
@@ -1457,6 +1507,12 @@ class NativeSession:
         if outcome is Outcome.STOPPED:
             return StopRequested(self._stop)
         notice = _watch.Notice.of(event.notice)
+        if notice.kind is _watch.NoticeKind.TRANSVERSE and self._monitor is not None:
+            assert self._monitor.transverse is not None
+            edge = _transverse.EdgeNotice.of(
+                cast("Mapping[str, object]", event.notice["edge"])
+            )
+            return _transverse.notice_error(self._monitor.transverse, edge)
         if notice.kind is not _watch.NoticeKind.NONE and self._monitor is not None:
             return _watch.notice_error(self._monitor.check, notice)
         if event.schedule_exhausted:
