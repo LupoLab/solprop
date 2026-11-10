@@ -468,23 +468,74 @@ def test_the_native_group_refuses_by_name_what_it_does_not_run():
             group_module.NativeGroupSession(reference, problems, requests, starts)
 
 
-def test_a_group_the_native_group_refuses_runs_in_the_transitional_group():
-    """A noise model is outside the native session: the door starts the transitional
-    group, which runs it; a group neither runs is refused by the lockstep's own check.
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.HostMarchWarning")
+@pytest.mark.parametrize("name", ["runge_kutta", "adams_fixed_order"])
+@pytest.mark.parametrize("noise", ["input", "modified"])
+def test_a_noisy_group_marches_as_the_transitional_group_bit_for_bit(noise, name):
+    """Each member carries its own realisation, seeded per member, and its own
+    propagator: the door starts the native group, whose members' noise phases are
+    their own sessions', and on one thread each member's fields, statistics, attempts,
+    rows and noise phases are the transitional group's exactly.
     """
-    simulations = [
-        member(index, "native", noise="default", seed=index) for index in range(2)
-    ]
-    problems, requests, starts = _requests(simulations)
-    refused = group_module.refusal(problems, requests, starts)
-    assert refused is not None
-    assert "noise model (member 0)" in refused
-    with ExitStack() as cleanup:
-        owners = [constructed(one, cleanup) for one in simulations]
-        group = start_group(owners, problems, requests, starts)
-        cleanup.callback(group.close)
-        assert isinstance(group, DriverGroupSession)
-        assert drive(group)[-1].outcome is Outcome.COMPLETED
+    integrator = INTEGRATORS[name]
+    recorded = []
+    phases: list[list[list[np.ndarray]]] = []
+    for transitional in (False, True):
+        with ExitStack() as cleanup:
+            simulations = [
+                member(index, "native", integrator, noise=noise, seed=11 + index)
+                for index in range(2)
+            ]
+            problems, requests, starts = _requests(simulations)
+            assert all(one.initial.noise_model == noise for one in problems)
+            if not transitional:
+                assert group_module.refusal(problems, requests, starts) is None
+            group = _started(simulations, cleanup, transitional=transitional)
+            expected = (
+                DriverGroupSession if transitional else group_module.NativeGroupSession
+            )
+            assert isinstance(group, expected)
+            found: list[list[np.ndarray]] = [[] for _ in range(group.n_members)]
+            planes: list[list[dict[str, Any]]] = [[] for _ in range(group.n_members)]
+            while not group.finished:
+                batch = group.advance()
+                for index, events in enumerate(batch.members):
+                    for event in events:
+                        if isinstance(event, ObservationReady):
+                            phase = group.noise_phase(index, event.ticket)
+                            assert phase is not None
+                            found[index].append(np.array(phase))
+                            planes[index].append(
+                                {
+                                    "field": np.array(
+                                        group.export(index, event.ticket, IDENTITY)
+                                    ),
+                                    "stats": {
+                                        k: np.asarray(v) for k, v in event.stats.items()
+                                    },
+                                    "accepted": event.history.accepted.copy(),
+                                }
+                            )
+                group.acknowledge(batch.receipt)
+            recorded.append(planes)
+            phases.append(found)
+    (native, lockstep), (ours, theirs) = recorded, phases
+    for index in range(2):
+        assert len(ours[index]) == len(theirs[index]) == len(PLANES) + 1
+        for got, expected in zip(ours[index], theirs[index], strict=True):
+            assert got.tobytes() == expected.tobytes(), index
+    # Each member's propagator is its own, so is its phase.
+    assert not np.array_equal(ours[0][-1], ours[1][-1])
+    if not _one_thread():
+        return
+    for index, (one, other) in enumerate(zip(native, lockstep, strict=True)):
+        for plane, (left, right) in enumerate(zip(one, other, strict=True)):
+            for key in left:
+                assert _same(left[key], right[key]), (index, plane, key)
+
+
+def test_a_group_neither_group_runs_is_refused_by_the_lockstep_s_check():
+    """A group neither runs is refused by the lockstep's own check."""
     simulations = [member(index, "native", schedule=None) for index in range(2)]
     problems, requests, starts = _requests(simulations)
     assert "an adaptive march" in (
