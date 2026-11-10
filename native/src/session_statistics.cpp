@@ -614,7 +614,7 @@ void Plan::validate() const {
   const Wanted wanted(outputs);
   if (wanted.any({Stat::fwhm_t, Stat::fwhm_t_outer}))
     check(t.size() == n_t, "lacks the time axis its widths read");
-  for (const auto [stat, index] :
+  for (const auto& [stat, index] :
        {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
         std::pair{Stat::core_radius, 2}})
     if (wanted(stat))
@@ -680,7 +680,7 @@ std::vector<double> evaluate(GeneralState& state, const Plan& plan, const double
     if (plan.route == Route::spatial)
       spatial(state, plan, z, wanted, results);
   }
-  for (const auto [stat, index] :
+  for (const auto& [stat, index] :
        {std::pair{Stat::density, 0}, std::pair{Stat::pressure, 1},
         std::pair{Stat::core_radius, 2}})
     if (wanted(stat))
