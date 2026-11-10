@@ -53,10 +53,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | New `julia/DF32_BOUNDS.md`, `julia/src/double_float_functions.jl` and its test | Conservative function domain/API approved; implementation and independent qualification pending |
+| Numerical transform/Adams agent | New `_phase_bounds.py`, its test and `julia/PHASE_ADMISSION.md` | Proposing complete exponent-operand bounds and an explicit assembly certificate interface; protected function leaf returned to master |
 | Numerical services agent | New `julia/src/monitor_transfer.jl`, `julia/ext/monitor.jl` and focused tests after interface agreement | Monitor transport proposal; reviewed group leaf returns to master |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Statistics and groups approved; reviewing DF32 function derivation |
+| Independent reviewer | Production code read-only | Statistics, groups and exact DF32 function leaf approved; reviewing monitor transport |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -102,6 +102,14 @@ The initial DF32 function API admits only a proposed `abs(real(z)) <= 16`,
 `abs(imag(z)) <= 2^20` domain with a separate `u/8` input-error budget. Protected
 exponential, phasor and phi helpers are being implemented against that derivation;
 neither whole-run admission nor device qualification is inferred from this decision.
+The protected function leaf `5db7d4de` is integrated at `93ba2e53` after independent
+review. The exact committed source passed 66,336 bounds-enabled assertions at two
+threads, zero warmed allocations and 16 Aqua/JET checks over 1,063 definitions.
+Independent qualification passed 157,543 assertions, including 78 emitted-code
+checks and the separately reviewed finite-underflow proof. These results establish
+the documented conservative CPU arithmetic domain only. Actual replay spans,
+restored Adams history and represented-operator operand bounds are the next
+certificate inputs; public binary32 admission and each device remain unqualified.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
