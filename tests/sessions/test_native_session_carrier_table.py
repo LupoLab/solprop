@@ -22,10 +22,10 @@ windows (SEP 25). The carrier approximation itself is unchanged; a device build 
 refuses every carrier frame by name.
 """
 
+import dataclasses
 import functools
-import os
 import warnings
-from typing import Any, cast
+from typing import Any, NamedTuple, cast
 
 import numpy as np
 import pytest
@@ -35,6 +35,7 @@ from sessions.executors import (
     EXECUTORS,
     IDENTITY,
     Started,
+    _one_thread,  # pyright: ignore[reportPrivateUsage]
     assert_same_run,
     device_build,
     drive,
@@ -51,6 +52,10 @@ from solprop.output.schema import MarchSnapshot
 from solprop.physdata import Mixture
 from solprop.profiles import Linear
 from solprop.stepper import FixedSchedule, Multistep
+from solprop.translate.chebyshev import build as build_table
+from solprop.translate.linop import delta_phi
+from solprop.translate.problem import Flags, PropagationProblem, validate_run
+from solprop.translate.run_request import RunRequest
 
 native_session = pytest.importorskip("solprop_native.session")
 native_backend = pytest.importorskip("solprop_native.backend")
@@ -147,6 +152,107 @@ def build(
         )
 
 
+def gradient(
+    method: Multistep = SCALAR, *, schedule: FixedSchedule | None = None
+) -> Simulation:
+    """Return a 16 um hydrogen capillary on a 40 to 20 bar gradient, the frame active.
+
+    A pressure gradient's operator and prefactor are expansions; :func:`on_a_table`
+    puts the operator alone on a z table. Kerr alone, with a weak temporal collar, as
+    ``tests/backends/test_carrier_frame.py``'s gradient.
+
+    Parameters
+    ----------
+    method : Multistep, optional
+        The method.
+    schedule : solprop.stepper.FixedSchedule or None, optional
+        A replayed itinerary; adaptive by default.
+
+    Returns
+    -------
+    solprop.driver.Simulation
+        The simulation, on ``numpy_ref`` by default.
+    """
+    grid = FieldGrid.from_limits(LENGTH, 800e-9, (200e-9, 2e-6), 200e-15)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        return Simulation.from_capillary(
+            16e-6,
+            LENGTH,
+            "H2",
+            (40.0, 20.0),
+            grid=grid,
+            wavelength=800e-9,
+            fwhm=30e-15,
+            energy=2e-6,
+            rtol=1e-8,
+            atol=1e-12,
+            noise=None,
+            backend="numpy_ref",
+            n_save=4,
+            integrator=method,
+            schedule=schedule,
+            raman=False,
+            plasma=False,
+            absorber=absorber(grid, boundary_length=1.0),
+        )
+
+
+class Case(NamedTuple):
+    """A problem, its run request, and what its backends take beside them."""
+
+    problem: PropagationProblem
+    request: RunRequest
+    context: dict[str, Any]
+
+
+def on_a_table(simulation: Simulation) -> Case:
+    """Return `simulation`'s problem with ``Phi`` alone tabulated along z.
+
+    The table is built from the values the expansion gives, as a mode set that
+    declares no parameters would present them (``tests/backends/test_native_z_table.py``
+    tabulates the same way); the prefactor keeps its own representation.
+
+    Parameters
+    ----------
+    simulation : solprop.driver.Simulation
+        The simulation, whose operator is an expansion.
+
+    Returns
+    -------
+    Case
+        The tabulated problem, the simulation's request and context.
+    """
+    problem = simulation.translate()
+    request = simulation._run_request()
+    linear = problem.linear
+    table = build_table(
+        lambda z: np.stack([delta_phi(linear, 0.0, float(one)) for one in z]),
+        *linear.z_span,
+        tol=1e-10,
+    )
+    tabulated = dataclasses.replace(
+        linear,
+        phi_expansion=None,
+        phi_representation="table",
+        phi_breakpoints=table.breakpoints,
+        phi_coefficients=table.coefficients,
+        phi_degrees=table.degrees,
+        hard_kinks=table.hard_kinks,
+        phi_constant=None,
+    )
+    flags = Flags.from_content(
+        problem.shape,
+        tabulated,
+        problem.route.transform,
+        problem.responses,
+        problem.initial,
+    )
+    found = dataclasses.replace(problem, linear=tabulated, flags=flags)
+    validate_run(found, request)
+    return Case(found, request, _context(simulation))
+
+
 def _context(simulation: Simulation) -> dict[str, Any]:
     """Return what a backend of `simulation` takes beside its problem.
 
@@ -167,29 +273,15 @@ def _context(simulation: Simulation) -> dict[str, Any]:
     }
 
 
-def _one_thread() -> bool:
-    """Return whether the native backend runs one thread in this process.
-
-    Returns
-    -------
-    bool
-        True when ``SOLPROP_NATIVE_THREADS`` or ``SOLPROP_THREADS`` is ``"1"``.
-    """
-    return "1" in {
-        os.environ.get("SOLPROP_NATIVE_THREADS"),
-        os.environ.get("SOLPROP_THREADS"),
-    }
-
-
-def _run(name: str, simulation: Simulation, start: Start | None = None):
+def _run(name: str, simulation: Simulation | Case, start: Start | None = None):
     """Drive one executor of the lifecycle suite over `simulation` to its end.
 
     Parameters
     ----------
     name : str
         The executor (``sessions.executors.EXECUTORS``).
-    simulation : solprop.driver.Simulation
-        The simulation.
+    simulation : solprop.driver.Simulation or Case
+        The simulation, or a problem built from one.
     start : solprop.backends.session.Start or None, optional
         Where the run starts; the entrance by default.
 
@@ -199,13 +291,14 @@ def _run(name: str, simulation: Simulation, start: Start | None = None):
         The run and the march a driver session's backend took (``None`` for another
         session).
     """
-    problem = simulation.translate()
-    run_request = simulation._run_request()
+    case = simulation
+    if not isinstance(case, Case):
+        case = Case(case.translate(), case._run_request(), _context(case))
     started = EXECUTORS[name].start(
-        problem,
-        run_request,
-        entrance(problem) if start is None else start,
-        context=_context(simulation),
+        case.problem,
+        case.request,
+        entrance(case.problem) if start is None else start,
+        context=case.context,
     )
     try:
         run = drive(started, export=IDENTITY)
@@ -270,16 +363,18 @@ def test_the_chord_is_a_varying_table_the_session_admits():
         # without one is refused when the tables are uploaded.
         tables = backend._stage_tables()
         assert tables is not None
-        with pytest.raises(ValueError, match="stage tables are inconsistent"):
-            backend._native_state.adams_stage_tables(
-                tables
-                | {
-                    "chord": 3,
-                    "chord_rate": 0.0,
-                    "chord_terms": [],
-                    "chord_table": None,
-                }
-            )
+        # A chord kind the build does not know is refused, not cast.
+        for chord in (3, 4, -1):
+            with pytest.raises(ValueError, match="stage tables are inconsistent"):
+                backend._native_state.adams_stage_tables(
+                    tables
+                    | {
+                        "chord": chord,
+                        "chord_rate": 0.0,
+                        "chord_terms": [],
+                        "chord_table": None,
+                    }
+                )
     finally:
         backend.close()
 
@@ -397,3 +492,39 @@ def test_a_resumed_history_continues_as_the_host_march_does(monkeypatch):
     # The resumed run ends where the uninterrupted one does, to the march's rounding.
     bound = 512 * EPS * len(whole.accepted_ends())
     assert_within(run.fields[-1], whole.fields[-1], bound)
+
+
+def test_a_tabulated_operator_beside_an_expanded_prefactor(monkeypatch):
+    # The chord read from the operator's table alone, the prefactor an expansion: the
+    # session against the bridge's Python march, bitwise on one thread, and against
+    # numpy_ref on the session's own steps at a fixed order, 512 eps a step.
+    method = Multistep(variable_order=False, carrier_frame="scalar")
+    case = on_a_table(gradient(method))
+    assert case.problem.linear.phi_representation == "table"
+    assert case.problem.responses.prefactor_representation == "expansion"
+    reference = carrier_reference(case.problem, method)
+    assert reference is not None and reference.chord is not None
+    assert reference.chord.table is not None
+    assert native_session.refusal(case.problem, case.request) is None
+    run, march = _run("native-session", case)
+    assert march is None
+    ends = run.accepted_ends()
+    assert len(ends) > 20
+    with monkeypatch.context() as patch:
+        patch.setattr(native_backend, "_ADAMS_MARCH", "host")
+        baseline, march = _run("native", case)
+    assert march == "host"
+    if _one_thread():
+        assert_same_run(run, baseline)
+    else:
+        assert np.array_equal(ends, baseline.accepted_ends())
+    steps = np.diff(np.concatenate([[0.0], ends]))
+    steps[-1] = LENGTH - float(np.sum(steps[:-1]))
+    replayed = on_a_table(gradient(method, schedule=FixedSchedule(steps)))
+    native, _ = _run("native-session", replayed)
+    expected, _ = _run("reference", replayed)
+    assert len(native.fields) == len(expected.fields) > 1
+    for one, other in zip(native.fields, expected.fields, strict=True):
+        assert_within(
+            one, other, len(steps) * 512 * EPS, what="native session against numpy_ref"
+        )

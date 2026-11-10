@@ -834,7 +834,12 @@ native::stage::Tables stage_tables_from(const nb::dict values) {
     tables.plasma_preionisation = stage_table_list(values["plasma_preionisation"]);
     tables.raman_densities = stage_table_list(values["raman_densities"]);
     tables.dispersive_densities = stage_table_list(values["dispersive_densities"]);
-    tables.chord = static_cast<native::stage::Chord>(nb::cast<int>(values["chord"]));
+    const int chord = nb::cast<int>(values["chord"]);
+    if (chord < static_cast<int>(native::stage::Chord::none) ||
+        chord > static_cast<int>(native::stage::Chord::table))
+      throw std::invalid_argument("the stage tables are inconsistent: chord kind " +
+                                  std::to_string(chord) + " is unknown");
+    tables.chord = static_cast<native::stage::Chord>(chord);
     tables.chord_rate = nb::cast<double>(values["chord_rate"]);
     tables.chord_terms = nb::cast<std::vector<double>>(values["chord_terms"]);
     if (values.contains("chord_table"))

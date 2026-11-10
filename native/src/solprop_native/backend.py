@@ -3366,8 +3366,7 @@ class _NativeAdamsMarch(AdamsMarch):
         resident = (
             (
                 not engine.staged,
-                "an operator or prefactor representation the native stage tables "
-                "do not read",
+                "stage tables withheld by the test interface",
             ),
             (not engine.device_scale, "a controller with a norm scale of its own"),
             (

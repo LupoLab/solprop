@@ -346,7 +346,9 @@ def backend_refusal(backend: NativeBackend) -> str | None:
     (``_ADAMS_MARCH``, ``_RK_MARCH``, ``_RK_ROWS``, or stage tables a test withholds;
     solprop SEP 47 section 6.3 retires them as production modes). A run either
     refuses is served by the transitional session over the backend's own march, never
-    by this one. Nothing is loaded or changed.
+    by this one. Nothing about the run changes, but a Runge-Kutta or low-storage
+    backend asked for the first time uploads its stage tables to the native state
+    (``NativeBackend._staged_rows``), as its march would on its first trial.
 
     Parameters
     ----------
