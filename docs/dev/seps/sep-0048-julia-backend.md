@@ -1841,4 +1841,9 @@ reports the prepared CPU name and target, leaving native-cache compatibility che
 to Julia at load; and the quality test group uses its own pinned environment so its
 tools never enter the runtime dependency closure. Both groups remain blocking.
 
+Independent review found no blocking issue in this amendment. Its documentation
+checks passed: spelling, whitespace, 349 SEP consistency tests (three expected skips),
+the Sphinx build with warnings as errors, and GitHub CI. The separate documentation
+preview was cancelled and is being rebuilt before merge, as the repository requires.
+
 [#610]: https://github.com/LupoLab/solprop/issues/610
