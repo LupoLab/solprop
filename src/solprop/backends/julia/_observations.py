@@ -182,9 +182,9 @@ class PopulationObservationTransfer:
     channel_species : tuple of int
         One-based species indices in the source population channel order.
     peak_species : int
-        One-based sole field-channel selector for the legacy peak-rate statistic;
-        zero uses the mixture-wide peak rule. Source buffers and fine reconstruction
-        inputs remain in the separately lowered source preparation.
+        One-based sole-channel selector for the legacy peak-rate statistic on both
+        formulations; zero uses the mixture-wide peak rule. Source buffers and fine
+        reconstruction inputs remain in the separately lowered source preparation.
     """
 
     species_labels: tuple[str, ...]
@@ -604,7 +604,7 @@ def _populations(problem: PropagationProblem) -> PopulationObservationTransfer:
         labels,
         tuple(lower_profile(table) for table in responses.species_densities),
         mapping,
-        mapping[0] if responses.plasma_coefficients is not None else 0,
+        mapping[0] if len(channels) == 1 else 0,
     )
 
 

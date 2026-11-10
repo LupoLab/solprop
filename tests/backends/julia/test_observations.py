@@ -22,6 +22,7 @@ from mixture_cases import mixture_translation
 from solprop.backends.julia import _observations
 from solprop.backends.julia._descriptors import TableTransfer
 from solprop.backends.julia._observations import lower_observations
+from solprop.backends.populations import population_statistics
 from solprop.boundaries import (
     SPLIT_RATE_BUCKETS,
     SplitCrossing,
@@ -394,20 +395,64 @@ def test_intensity_has_its_own_coarse_axis_and_the_source_taper():
     assert not np.shares_memory(prepared.axis_synthesis, problem.transform.synthesis)
 
 
-@pytest.mark.parametrize("fixture,selector", [("field_case", 1), ("envelope_case", 0)])
-def test_population_legacy_selector_and_unrequested_absence(fixture, selector, request):
+@pytest.mark.parametrize("fixture", ["field_case", "envelope_case"])
+def test_population_legacy_selector_and_unrequested_absence(fixture, request):
     case, _, _ = request.getfixturevalue(fixture)
     prepared = lower_observations(
         case.problem,
         _request(case, ("electron_density", "peak_ionisation_rate")),
     )
     assert prepared.populations is not None
-    assert prepared.populations.peak_species == selector
+    assert prepared.populations.peak_species == 1
     assert prepared.populations.channel_species == (1,)
-    assert prepared.populations is not None
     assert prepared.populations.species_labels == ("medium",)
     assert prepared.populations.species_densities == (1e24,)
     assert lower_observations(case.problem, _request(case)).populations is None
+
+
+@pytest.mark.parametrize("fractions", [[[0.8, 0.2]], [[0.4, 0.4]]])
+def test_sole_envelope_channel_keeps_the_actual_reference_peak_node(
+    envelope_case, fractions
+):
+    case, _, _ = envelope_case
+    original = case.problem.responses.envelope_plasma
+    assert original is not None
+    channel = replace(original.channels[0], label="active")
+    plasma = replace(original, channels=(channel,))
+    responses = replace(
+        case.problem.responses,
+        labels=("passive", "active"),
+        species_densities=(_table([[3e24]]), _table([[1e24]])),
+        envelope_plasma=plasma,
+        spectral_responses=(plasma,),
+    )
+    # A valid two-node numerical map isolates the reduction policy from rate/FIR
+    # accuracy: the input reductions are already fresh and finite.
+    transform = replace(
+        case.problem.transform,
+        kind="modal",
+        synthesis=np.ones((2, 1)),
+        projection=np.full((1, 2), 0.5),
+        projection_coarse=np.full((1, 2), 0.5),
+        node_weights=np.ones(2),
+    )
+    problem = replace(
+        case.problem,
+        responses=responses,
+        route=replace(case.problem.route, transform=transform),
+    )
+    fractions = np.asarray(fractions)
+    peaks = np.array([[3.0, 9.0]])
+    oracle = population_statistics(problem, 0.0, fractions, peaks)
+    prepared = lower_observations(problem, _request(case, ("peak_ionisation_rate",)))
+    assert prepared.populations is not None
+    assert prepared.populations.channel_species == (2,)
+    assert prepared.populations.peak_species == 2
+    # Exact node selection, including a first-node tie; a mixture maximum would
+    # report 9 instead of the actual single-population reference's 3.
+    assert oracle["peak_ionisation_rate"] == 3.0
+    assert peaks[0, np.argmax(fractions[0])] == oracle["peak_ionisation_rate"]
+    assert np.max(peaks) != oracle["peak_ionisation_rate"]
 
 
 def test_species_order_includes_nonionising_materials(field_case):
