@@ -21,7 +21,7 @@ from typing import cast
 import numpy as np
 
 from solprop.backends import select
-from solprop.backends.events import ObservationReady
+from solprop.backends.events import ObservationReady, Terminal
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import _device_build
 from solprop.backends.session import Start
@@ -34,7 +34,7 @@ from solprop.driver.executors.pool import PlaneScalars, peak_rss
 from solprop.driver.executors.queue import Queue, collect
 from solprop.driver.executors.slurm import Slurm
 from solprop.driver.simulation import Simulation, SimulationRunner
-from solprop.exceptions import DriverError, OutputError, StopRequested
+from solprop.exceptions import BackendError, DriverError, OutputError, StopRequested
 from solprop.fourier import spectrum_to_optics
 from solprop.log import (
     BarReporter,
@@ -117,16 +117,28 @@ def launch_statistics(
     -------
     collections.abc.Mapping
         The launch plane's statistics, without a batch axis.
+
+    Raises
+    ------
+    BaseException
+        The launch's own failure, when its statistics could not be evaluated.
+    solprop.exceptions.BackendError
+        If the session reports anything but its launch plane.
     """
     session = start_session(
         backend, problem, describe_run(problem), Start.entrance(problem), owns=False
     )
     try:
-        launch = session.advance().events[0]
-        assert isinstance(launch, ObservationReady)  # a fresh start owes its launch
-        return dict(launch.stats)
+        launch = session.advance().events[-1]
     finally:
         session.close()
+    if isinstance(launch, Terminal) and launch.error is not None:
+        # The launch plane's statistics failed: the probe fails with that error.
+        raise launch.error
+    if not isinstance(launch, ObservationReady):
+        msg = f"a fresh session reported {type(launch).__name__} before its launch"
+        raise BackendError(msg)
+    return dict(launch.stats)
 
 
 def _plane_index(index: int, count: int) -> int:

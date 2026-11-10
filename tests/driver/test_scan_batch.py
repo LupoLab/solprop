@@ -4,6 +4,7 @@
 
 """Exercise public batch dispatch with ordinary scan output and member provenance."""
 
+import contextlib
 import json
 from collections.abc import Mapping
 from functools import partial
@@ -16,11 +17,14 @@ import pytest
 from legacy_geometry import LEGACY_GRID, bare_absorber
 from march_bounds import FIXED_ORDER, assert_points_matched
 from solprop.backends.batch import LockstepRunner
+from solprop.backends.driver import StepDriver
+from solprop.backends.host.driver import HostDriver
 from solprop.backends.host.group import HostGroup
 from solprop.backends.numpy_ref.backend import NumpyRefBackend
 from solprop.backends.numpy_ref.batch import NumpyBatchBackend
 from solprop.backends.registry import resolve_name
 from solprop.driver import Simulation, _scan_batch
+from solprop.driver._scan_run import launch_statistics
 from solprop.driver.executors import Batch, Local
 from solprop.driver.scan import Scan, run_scan
 from solprop.exceptions import DriverError, OutputError
@@ -236,16 +240,24 @@ def test_a_batch_asks_its_members_only_for_the_fields_the_scan_reads(
             return original(self, field=field)
 
         monkeypatch.setattr(runner, "observe_members", spy)
+    crossed = []
+    # Every member observation, through the group or alone: the reference's own
+    # driver and the native bridge's inherited one.
+    for driver in (HostDriver, StepDriver):
+
+        def observed(self, *, field=True, original=driver.observe):
+            crossed.append(field)
+            return original(self, field=field)
+
+        monkeypatch.setattr(driver, "observe", observed)
     result = run_scan(
         scan, builder, output=tmp_path / "batch.h5", executor=Batch(3), **keywords
     )
     assert result.status.tolist() == ["done"] * 3
-    # The group drains every window's attempts field-free and fetches the fields of a
-    # plane only when the scan reads it; the closing window has no plane.
-    assert fields == [
-        *(call for keep in asked for call in ((False, True) if keep else (False,))),
-        False,
-    ]
+    # The group drains each member's attempts field-free, member by member, and
+    # fetches the members' fields of a plane only when the scan reads it.
+    assert fields == [True] * sum(asked)
+    assert crossed.count(True) == 3 * sum(asked)
     assert_points_matched(result, reference, scan, builder, what="batch member")
 
 
@@ -365,3 +377,21 @@ def test_batch_refuses_changed_configuration_of_completed_point(tmp_path):
 
     with pytest.raises(OutputError, match="different configuration"):
         run_scan(scan, changed, **options)
+
+
+def test_a_probe_whose_launch_fails_raises_the_launch_s_own_error(monkeypatch):
+    # A probe's launch statistics that fail end its session with a failed terminal:
+    # the probe raises that error, never a bare assertion.
+    simulation = build(Scan("probe", base_seed=772, power=[1.0]).point(0))
+    problem = simulation.translate()
+
+    def broken(self, spec):
+        raise OutputError("manufactured launch statistics failure")
+
+    monkeypatch.setattr(NumpyRefBackend, "stats", broken)
+    backend = _scan_batch._construct(simulation, contextlib.ExitStack())
+    try:
+        with pytest.raises(OutputError, match="manufactured launch statistics"):
+            launch_statistics(backend, problem)
+    finally:
+        backend.close()
