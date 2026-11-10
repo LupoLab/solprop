@@ -364,7 +364,7 @@ def test_envelope_currents_steps_statistics_and_repeatability(
 def test_envelope_native_payload_rejects_inconsistent_inputs(corruption: str) -> None:
     problem, _ = envelope_case("modal", 1, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options("modal").node_chunk
+        problem, terms(problem), node_chunk=envelope_options("modal").chunk
     )
     if corruption in ("field", "thg", "stash"):
         key, value = {
@@ -407,7 +407,7 @@ def test_envelope_angular_failure_is_a_solprop_convergence_error(
 
     problem, grid = envelope_case(geometry, n_pol, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options(geometry).node_chunk
+        problem, terms(problem), node_chunk=envelope_options(geometry).chunk
     )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # Sorted interior nodes and normalized positive weights still satisfy native

@@ -130,6 +130,7 @@ def _worker(
 
     import numpy as np
 
+    from solprop.backends.node_chunk import plan_node_chunk
     from solprop.backends.registry import select
     from solprop.driver import Simulation
     from solprop.exceptions import MaterialRangeWarning
@@ -169,6 +170,12 @@ def _worker(
         profiles=simulation.profiles,
     )
     construction_seconds = time.perf_counter() - construction_started
+    # The chunk a native response pass holds; the reference's is the host plan's.
+    node_chunk = (
+        int(backend.node_chunk)
+        if backend_name == "native"
+        else plan_node_chunk(problem).chunk
+    )
     try:
         memory_ledger = backend.memory_ledger()
         backend.set_initial(problem.initial.field0, simulation.noise)
@@ -248,10 +255,10 @@ def _worker(
         "milliseconds_per_accepted_step": (
             1000.0 * seconds / accepted if accepted else None
         ),
-        "modes": problem.shape[1],
+        "modes": problem.shape[0],
         "nodes": problem.transform.n_nodes,
-        "node_chunk": problem.transform.node_chunk,
-        "components": problem.transform.n_pol * problem.shape[2],
+        "node_chunk": node_chunk,
+        "components": problem.transform.n_pol * problem.shape[1],
         "n_omega": problem.shape[-1],
         "n_to": problem.grids.n_to,
         "warmed": True,

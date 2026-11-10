@@ -191,7 +191,7 @@ class Resumption:
 
     record: bool
     collar_quiet: bool = False
-    numbers: Mapping[str, float] = field(default_factory=dict)
+    numbers: Mapping[str, float] = field(default_factory=dict[str, float])
     unwatched: tuple[tuple[float, ...], ...] | None = None
     resumed_at: tuple[float, ...] | None = None
     planes: tuple[tuple[float, ...], ...] | None = None

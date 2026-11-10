@@ -38,7 +38,7 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
 ) -> None:
     problem, grid = envelope_case(geometry, 1, mixture=False)
     payload = _native_problem(
-        problem, terms(problem), node_chunk=envelope_options(geometry).node_chunk
+        problem, terms(problem), node_chunk=envelope_options(geometry).chunk
     )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # As the source's test: alternating incompatible rules must fail refinement.

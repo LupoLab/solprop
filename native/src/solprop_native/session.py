@@ -255,7 +255,9 @@ def refusal(
     method = request.integration.method
     if isinstance(method, ComparisonMultistep):
         return f"the comparison method {method.name}"
-    if method is not None and not isinstance(method, Multistep | LowStorageRungeKutta):
+    # A request built by hand may hold a method its annotation does not name.
+    unnamed = not isinstance(method, Multistep | LowStorageRungeKutta)  # pyright: ignore[reportUnnecessaryIsInstance]
+    if method is not None and unnamed:
         return f"the method {type(method).__name__}"
     controller = request.error_control.controller
     overridden = [
@@ -350,7 +352,7 @@ def backend_refusal(backend: NativeBackend) -> str | None:
     str or None
         The reason, or ``None`` when the native session can run the march.
     """
-    driver = NativeSession._driver(backend)
+    driver = NativeSession._driver(backend)  # pyright: ignore[reportPrivateUsage]
     tables = driver._z_tables
     if (
         driver._problem.initial.noise_model != "none"
@@ -751,7 +753,7 @@ class NativeSession:
             )
             raise BackendError(msg)
         assert march is not None
-        march._configure()
+        march._configure()  # pyright: ignore[reportPrivateUsage]
         kind = "runge_kutta"
         if isinstance(integrator, Multistep):
             kind = "adams"
@@ -784,7 +786,7 @@ class NativeSession:
             self._max_calls = adams._policy.max_calls
             # The history's persistent rows, sized while the state is not leased.
             self._rows_nbytes = int(adams._engine.snapshot_nbytes())
-        return kind, march._state(False)
+        return kind, march._state(False)  # pyright: ignore[reportPrivateUsage]
 
     @staticmethod
     def _driver(backend: NativeBackend | None) -> Any:
@@ -2084,7 +2086,7 @@ class NativeSession:
             driver._z = float(event.z)
             march = driver._rk_march()
         try:
-            march._raise(int(event.reason), result)
+            march._raise(int(event.reason), result)  # pyright: ignore[reportPrivateUsage]
         except Exception as error:
             return error
         return RuntimeError(event.message or "the native session failed")

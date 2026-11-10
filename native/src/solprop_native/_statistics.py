@@ -40,7 +40,7 @@ import itertools
 import math
 import weakref
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from solprop.constants import EPS0, C
@@ -213,7 +213,7 @@ ADMITTED_GENERAL_STATISTICS = (
 where the metric is constant on each of its intervals."""
 
 _ROUTES = {"modal": 0, "spatial": 1, "general": 2}
-_ADMITTED = {
+_ADMITTED: dict[str, frozenset[str]] = {
     "modal": frozenset(ADMITTED_STATISTICS),
     "spatial": frozenset(ADMITTED_SPATIAL_STATISTICS),
     "general": frozenset(ADMITTED_GENERAL_STATISTICS),
@@ -339,7 +339,7 @@ def uncovered(problem: PropagationProblem, names: Sequence[str]) -> tuple[str, .
     route = _route(problem)
     admitted = _ADMITTED[route]
     if route == "general" and _metric_varies(problem):
-        admitted = frozenset()
+        admitted = frozenset[str]()
     return tuple(name for name in names if name not in admitted)
 
 
@@ -717,7 +717,9 @@ def _lowered_profile_table(
         Naming the statistic when no table reaches :data:`PROFILE_TOLERANCE`.
     """
     from solprop.translate.linop import DEFAULT_MARGIN, profile_table
-    from solprop.translate.problem import _walk_tables
+    from solprop.translate.problem import (
+        _walk_tables,  # pyright: ignore[reportPrivateUsage]
+    )
 
     start = float(problem.initial.z)
     end = float(problem.stepper.z_end)
@@ -727,7 +729,9 @@ def _lowered_profile_table(
     lower = min(start, 0.0)
     upper = max(end, end + abs(end) * DEFAULT_MARGIN)
 
-    def record(source: str, error: float, scale: float, count: int) -> dict:
+    def record(
+        source: str, error: float, scale: float, count: int
+    ) -> dict[str, object]:
         return {
             "source": source,
             "max_error": error,
@@ -761,7 +765,9 @@ def _lowered_profile_table(
     raise BackendError(msg)
 
 
-def _shape(problem: PropagationProblem, name: str, n_windows: int, plan: dict) -> tuple:
+def _shape(
+    problem: PropagationProblem, name: str, n_windows: int, plan: Mapping[str, object]
+) -> tuple[int, ...]:
     """Return an output's shape on this problem, without a batch axis.
 
     Parameters
@@ -781,26 +787,31 @@ def _shape(problem: PropagationProblem, name: str, n_windows: int, plan: dict) -
         The shape.
     """
     modes, pol, n_omega = problem.shape
-    apertures = np.asarray(plan["apertures"]).shape[0]
-    shapes = {
+    apertures = int(np.asarray(plan["apertures"]).shape[0])
+    regions = int(np.asarray(plan["regions"]).shape[0])
+    species = int(cast("int", plan["n_species"]))
+    nodes = int(cast("int", plan["n_nodes"]))
+    absorbed = int(cast("int", plan["n_absorbed"]))
+    channels = int(cast("int", plan["n_channels"]))
+    shapes: dict[str, tuple[int, ...]] = {
         "omega0": (modes, pol),
         "energy": () if plan["route"] == _ROUTES["spatial"] else (modes, pol),
         "energy_window": (n_windows, modes, pol),
         "peak_power": (modes,),
         "peak_power_window": (n_windows, modes),
-        "species_ionisation": (plan["n_species"], plan["n_nodes"]),
-        "species_electron_density": (plan["n_species"],),
-        "species_peak_ionisation_rate": (plan["n_species"],),
-        "species_density": (plan["n_species"],),
-        "species_ionisation_energy": (plan["n_species"],),
+        "species_ionisation": (species, nodes),
+        "species_electron_density": (species,),
+        "species_peak_ionisation_rate": (species,),
+        "species_density": (species,),
+        "species_ionisation_energy": (species,),
         "spectral_flux": (n_omega,),
         "on_axis_spectrum": (n_omega,),
         "beam_spectrum": (n_omega,),
-        "absorbed_power": (plan["n_absorbed"],),
-        "region_spectrum": (np.asarray(plan["regions"]).shape[0], n_omega),
+        "absorbed_power": (absorbed,),
+        "region_spectrum": (regions, n_omega),
         "aperture_spectrum": (apertures, n_omega),
         "aperture_on_axis_spectrum": (apertures, n_omega),
-        NODE_POPULATIONS: (plan["n_nodes"], plan["n_channels"], 2),
+        NODE_POPULATIONS: (nodes, channels, 2),
     }
     return shapes.get(name, ())
 
