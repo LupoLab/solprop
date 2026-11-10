@@ -4,23 +4,28 @@
 
 """Which loop steps a native Runge-Kutta run (solprop SEP 45 phase 3).
 
-The native march steps an adaptive run on staged rows with ``PIController``'s weak norm;
-any other configuration runs solprop's loop with a ``HostMarchWarning`` that names the
-reason, and the run's metadata records which loop stepped it. The backend's test
-interface (``solprop_native.backend._RK_MARCH``) selects solprop's loop without a
-warning.
+The native march steps an adaptive run on staged rows with ``PIController``'s norm, and
+the run's metadata records which loop stepped it. The backend's test interface
+(``solprop_native.backend._RK_MARCH``) selects solprop's loop without a warning. A
+controller that overrides one of ``PIController``'s decisions is a reference-only
+experiment (solprop SEP 47 section 6.3): the backend refuses it by name, for every
+method and on CPU and device builds alike, before it allocates anything.
 """
 
 import dataclasses
 import warnings
 
+import numpy as np
 import pytest
 
 from capability_routes import ROUTES
 from solprop.backends import available
-from solprop.exceptions import HostMarchWarning
+from solprop.exceptions import BackendError, HostMarchWarning
 from solprop.stepper.controller import PIController
+from solprop.stepper.low_storage import LowStorageRungeKutta
+from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
+from solprop.stepper.schedule import FixedSchedule
 
 pytestmark = pytest.mark.skipif(
     "native" not in available(), reason="native is not installed"
@@ -37,13 +42,6 @@ ROUTES_NATIVE = (
     "capillary (coherent wall)",
 )
 FLOWS = ("capillary (coherent wall)",)
-
-
-class _Scaled(PIController):
-    """A controller whose scale is its own."""
-
-    def scale(self, norm_y, norm_y_new):
-        return 2.0 * super().scale(norm_y, norm_y_new)
 
 
 def launched(route: str, **settings):
@@ -86,25 +84,75 @@ def test_the_default_loop_is_native_without_a_warning(route, dense):
         backend.close()
 
 
-@pytest.mark.parametrize(
-    ("route", "settings", "reason"),
-    [
-        (
-            "gnlse",
-            {"controller": _Scaled(rtol=1e-6, atol=0.0)},
-            "controller with its own scale",
-        ),
-    ],
-    ids=["own scale"],
+DECISIONS = (
+    "scale",
+    "accepts",
+    "propose",
+    "rejection_factor",
+    "start_factor",
+    "equivalent_norm",
 )
-def test_an_uncovered_run_takes_the_host_loop_and_says_why(route, settings, reason):
-    backend = launched(route, **settings)
-    try:
-        with pytest.warns(HostMarchWarning, match=reason):
-            assert backend._rk_march() is None
-        assert reason in backend.metadata()["rk_march"]
-    finally:
-        backend.close()
+"""Every ``PIController`` method the native controller implements itself."""
+
+
+def _overriding(name: str) -> type[PIController]:
+    """Return a ``PIController`` subclass that overrides `name` and nothing else."""
+
+    def inherited(self, *args, **kwargs):
+        return getattr(super(type(self), self), name)(*args, **kwargs)
+
+    return type(f"Own_{name}", (PIController,), {name: inherited})
+
+
+@pytest.mark.parametrize("name", DECISIONS)
+@pytest.mark.parametrize("method", ["runge-kutta", "adams", "low-storage"])
+@pytest.mark.parametrize("device", [False, True], ids=["cpu", "device"])
+def test_a_controller_that_overrides_a_decision_is_refused_before_allocation(
+    name, method, device, monkeypatch
+):
+    # solprop SEP 47 section 6.3: a controller that decides in Python is reference-only
+    # and refused by name at admission, whatever the method, on CPU and device builds
+    # alike (the device patched in: the decision is the controller's alone). The
+    # override defers to PIController's own method, so only its presence is refused.
+    # The native state, the first allocation, is never built.
+    simulation = ROUTES["gnlse"](None)
+    settings = {
+        "controller": _overriding(name)(rtol=1e-6, atol=0.0),
+        "integrator": {
+            "runge-kutta": RungeKutta(),
+            "adams": Multistep(),
+            "low-storage": LowStorageRungeKutta(),
+        }[method],
+    }
+    if method == "low-storage":
+        stepper = ROUTES["gnlse"](None)._run_request().stepper
+        settings["schedule"] = FixedSchedule.uniform(
+            0.0,
+            float(stepper.z_end),
+            # Below the temporal collar's stable step, which a replay must respect.
+            float(stepper.z_end) / 400,
+            save_planes=np.asarray(stepper.save_planes).tolist(),
+        )
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        simulation.settings = dataclasses.replace(simulation.settings, **settings)
+        problem = simulation.translate()
+        run_request = simulation._run_request()
+    monkeypatch.setattr(backend_module, "_on_device", lambda: device)
+    built_states = []
+    monkeypatch.setattr(
+        backend_module._core, "State", lambda *args: built_states.append(args)
+    )
+    with pytest.raises(BackendError, match="reference-only") as refused:
+        native.NativeBackend(
+            problem, run_request, grid=simulation.grid, modes=simulation.modes
+        )
+    message = str(refused.value)
+    assert f"the controller Own_{name}, which overrides PIController's {name}:" in (
+        message
+    )
+    assert "backend='numpy_ref'" in message
+    assert built_states == []
 
 
 def test_the_test_interface_is_silent(monkeypatch):

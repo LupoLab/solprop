@@ -394,17 +394,6 @@ class _OwnAccept(PIController):
     [
         (
             lambda: (
-                _case(integrator=ComparisonMultistep(corrector="pece", order=4)),
-                {},
-            ),
-            "the comparison method",
-        ),
-        (
-            lambda: (_case(controller=_OwnAccept(rtol=1e-4, atol=1e-16)), {}),
-            "a controller with its own accepts",
-        ),
-        (
-            lambda: (
                 _case(names=("energy", "peak_power", "on_axis_electron_density")),
                 {},
             ),
@@ -412,8 +401,6 @@ class _OwnAccept(PIController):
         ),
     ],
     ids=[
-        "comparison",
-        "controller",
         "statistic",
     ],
 )
@@ -421,6 +408,55 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
     """SEP 47 section 6.3: every refused feature names itself, before allocation."""
     (problem, run_request), settings = build()
     _refused(problem, run_request.for_run(**settings), name, monkeypatch)
+
+
+@pytest.mark.parametrize(
+    ("options", "name"),
+    [
+        (
+            {"integrator": ComparisonMultistep(corrector="pece", order=4)},
+            "the comparison variant adams-pece4: ",
+        ),
+        (
+            {
+                "integrator": ComparisonMultistep(
+                    corrector="pec", order=4, corrector_order=5
+                )
+            },
+            "the comparison variant adams-pec4/5: ",
+        ),
+        (
+            {"controller": _OwnAccept(rtol=1e-4, atol=1e-16)},
+            "the controller _OwnAccept, which overrides PIController's accepts: ",
+        ),
+    ],
+    ids=["comparison", "selected-pec-comparison", "controller"],
+)
+def test_a_reference_only_run_reaches_no_session(options, name, monkeypatch):
+    """SEP 47 section 6.3: native refuses a reference-only run where it is built.
+
+    A comparison method and a controller that overrides a decision run on
+    ``numpy_ref`` alone: the backend refuses them by name before the native state,
+    its first allocation, is built, so neither the native session nor the
+    transitional one ever runs them, whichever opens the run.
+    """
+    problem, run_request = _case(**options)
+    built_states = []
+    monkeypatch.setattr(
+        native_session._core, "State", lambda *args: built_states.append(args)
+    )
+    # The session's own refusal never sees them: the backend's admission is first.
+    assert native_session.refusal(problem, run_request) is None
+    with pytest.raises(BackendError, match="reference-only") as selected:
+        select("native", problem, run_request, grid=window(), modes=[fibre().mode])
+    with pytest.raises(BackendError, match="reference-only") as opened:
+        native_session.NativeSession(
+            problem, run_request, entrance(problem), grid=window(), modes=[fibre().mode]
+        )
+    for refused in (selected, opened):
+        assert name in str(refused.value)
+        assert "backend='numpy_ref'" in str(refused.value)
+    assert built_states == []
 
 
 @pytest.mark.parametrize(
