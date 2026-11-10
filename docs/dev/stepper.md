@@ -289,7 +289,14 @@ position) and one fold:
 `HostLowStorageMarch` replays a schedule and nothing else, mirroring `HostAdamsMarch`'s
 replay: each step calls the host engine (`HostLowStorage.step`), applies `_finish` and
 moves the position in one commit; the native bridge's `LowStorageMarch` does the same
-with the backend's resident engine from `_low_storage_engine`, one native call per step. There is no estimate: the history's norm is 0.0, "not estimated". The step
+with the backend's resident engine from `_low_storage_engine`, one native call per step.
+The native execution session ([SEP 47](seps/sep-0047-run-ownership.md) section 6.3,
+`solprop_native.session`) owns the loop itself: the native Runge-Kutta march replays the
+schedule, and each step is one in-place native step whose stage scalars, the table keys
+of `table_steps` and the flows' increments, the native state forms from its stage
+tables (`native/src/low_storage.cpp`), with no return to Python; a failure partway
+through a step leaves no consistent state, so the session's terminal event is poisoned
+and claims no checkpoint. There is no estimate: the history's norm is 0.0, "not estimated". The step
 is **in flight** from its start to its commit (`HostDriver._in_flight`), and every entry
 that reads or advances the state refuses it until `set_initial`; divergence is detected
 on the accepted state's squared norm, which pass 4 reduces over the norm mask. The
