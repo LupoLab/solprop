@@ -87,6 +87,27 @@ end
     return nothing
 end
 
+function _has_packed_capture(type, visited)
+    type <: BitArray && return true
+    isconcretetype(type) && !isbitstype(type) || return false
+    type in visited && return false
+    push!(visited, type)
+    return any(field -> _has_packed_capture(field, visited), fieldtypes(type))
+end
+
+@generated function _check_cpu_storage(::Type{F}) where {F}
+    if _has_packed_capture(F, Set{Any}())
+        return :(
+            throw(
+                ArgumentError(
+                    "packed BitArray captures unsupported; use upload for Array{Bool}",
+                )
+            )
+        )
+    end
+    return nothing
+end
+
 @inline function _partition_bounds(length::Int, part::Int, parts::Int)
     width, extra = divrem(length, parts)
     first_index = (part - 1) * width + min(part - 1, extra) + 1
@@ -146,6 +167,8 @@ Rows are contiguous in the package's column-major storage. CPU batches own disjo
 row ranges or complete columns and never exceed the execution's worker budget.
 An empty dimension performs no work. Bodies must not allocate, throw, or communicate
 between iterations. `heavy` is a scheduling hint reserved for measured tuning.
+CPU captures must not contain packed `BitArray` storage, including wrapped views:
+prepare ordinary `Array{Bool}` storage with `upload` before using a Boolean mask.
 
 # Throws
 - `ArgumentError`: For a negative dimension or a rejected captured type.
@@ -161,6 +184,9 @@ between iterations. `heavy` is a scheduling hint reserved for measured tuning.
     end
     Base.checked_mul(rows, columns)
     execution.check_body && _check_kernel_body(F)
+    # Packed writes share bytes across logical indices, and PtrArray cannot preserve
+    # multidimensional bit strides (#624). Refuse every CPU path, even a serial one.
+    oncpu(execution) && _check_cpu_storage(F)
     rows == 0 || columns == 0 || _each!(body, execution, rows, columns, heavy)
     return nothing
 end
@@ -218,12 +244,14 @@ Run one sequential body per column, synchronizing before returning.
 
 Columns are independent, but a body's operations within one column retain their order.
 The CPU worker budget also applies when there are more columns than available workers.
+Packed Boolean captures have the same unconditional refusal as `each!`.
 """
 @inline function each_column!(
         body::F, execution::KernelExecution, n_columns::Integer,
     ) where {F}
     n_columns >= 0 || throw(ArgumentError("the column count must be nonnegative"))
     execution.check_body && _check_kernel_body(F)
+    oncpu(execution) && _check_cpu_storage(F)
     n_columns == 0 || _each_column!(body, execution, Int(n_columns))
     return nothing
 end

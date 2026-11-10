@@ -43,6 +43,54 @@ function execution_nested!(buffer, execution)
     return nothing
 end
 
+function execution_copy!(output, input, execution)
+    SolpropJulia.each!(execution, size(output)...) do row, column
+        output[row, column] = input[row, column]
+    end
+    return nothing
+end
+
+function execution_copy_columns!(output, input, execution)
+    SolpropJulia.each_column!(execution, size(output, 2)) do column
+        for row in axes(output, 1)
+            output[row, column] = input[row, column]
+        end
+    end
+    return nothing
+end
+
+@testset "Packed Boolean captures are refused before launch" begin
+    backend = SolpropJulia.KernelAbstractions.CPU()
+    available = Threads.nthreads(:default)
+    for tasks in unique((1, min(2, available), available)),
+            check_body in (false, true)
+        execution = SolpropJulia.KernelExecution(backend, tasks, check_body)
+        packed = BitArray([isodd(row + column) for row in 1:3, column in 1:3])
+        variants = (
+            packed, view(packed, 1:2:3, :), reshape(vec(packed), 3, 3),
+            transpose(packed), PermutedDimsArray(packed, (2, 1)),
+        )
+        for input in variants
+            output = fill(false, size(input))
+            @test_throws ArgumentError execution_copy!(output, input, execution)
+            @test_throws ArgumentError execution_copy_columns!(output, input, execution)
+            @test iszero(output)
+            @test_throws ArgumentError execution_copy!(input, output, execution)
+            @test_throws ArgumentError execution_copy_columns!(input, output, execution)
+        end
+        owned = SolpropJulia.upload(execution, packed)
+        @test owned isa Matrix{Bool}
+        @test owned == packed
+        output = fill(false, size(owned))
+        execution_copy!(output, owned, execution)
+        @test output == owned
+        @test @allocated(execution_copy!(output, owned, execution)) == 0
+        execution_copy_columns!(output, owned, execution)
+        @test output == owned
+        @test @allocated(execution_copy_columns!(output, owned, execution)) == 0
+    end
+end
+
 @testset "Owned numerical execution" begin
     backend = SolpropJulia.KernelAbstractions.CPU()
     serial = SolpropJulia.KernelExecution(backend, 1, true)
