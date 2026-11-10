@@ -179,6 +179,7 @@ def estimate(
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=settings.execution_options(),
     )
     try:
         memory = sum(backend.memory_ledger().values())

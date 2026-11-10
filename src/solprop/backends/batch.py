@@ -96,7 +96,8 @@ class LockstepRunner(StepDriver[tuple[object, ...]]):
         first = self._members[0]
         # The members read the transverse edge, or not; the runner speaks for them.
         self.reads_transverse_edge = first.reads_transverse_edge
-        super().__init__(first._problem)
+        # The members' own execution options, so the runner plans the chunk they do.
+        super().__init__(first._problem, options=first._options)
         self.name = first.name
         self.max_batch = len(self._members)
         self._state = tuple(member._require_state() for member in self._members)

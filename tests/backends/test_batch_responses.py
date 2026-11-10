@@ -22,6 +22,7 @@ from bounds import EPS, gamma
 from former_raman import FORMER_H2, former_response
 from rate_oracles import AdkOracle, adk_oracle
 from solprop.backends import select, select_batch
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import AU_ENERGY
 from solprop.grid import EnvelopeGrid, FieldGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
@@ -59,7 +60,7 @@ def modal_problem(case, route):
         if route == "rows":
             modes = [row for mode in modes for row in (mode, mode.rotated(math.pi / 2))]
             initial = initial.reshape(4, 1, grid.n_omega)
-    problem = assemble(
+    return assemble(
         grid,
         modes,
         [KerrResponse(chi3=1e-26, thg=grid.kind == "field")],
@@ -71,9 +72,6 @@ def modal_problem(case, route):
         dz_max=1e-4,
         schedule=FixedSchedule.uniform(0.0, 8e-4, 1e-4),
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
-    )
-    return dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
     )
 
 
@@ -110,9 +108,7 @@ def scalar_raman_problem(kind, with_plasma):
         schedule=FixedSchedule.uniform(0.0, 8e-7, 1e-7),
         quadrature=transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
-    return grid, dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
-    )
+    return grid, problem
 
 
 def scalar_plasma_problem(mode_count, preionisation, with_kerr):
@@ -145,14 +141,14 @@ def scalar_plasma_problem(mode_count, preionisation, with_kerr):
         if mode_count == 1
         else transverse_quadrature(modes, n_r=4, radial_rule="gauss"),
     )
-    if mode_count > 1:
-        problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=3)
-        )
     return grid, problem
 
 
-def compare(problem, grid, backend, *, factory=select, spec=None):
+PARTIAL = ExecutionOptions(node_chunk=3)
+"""Three-node chunks, which every multinode case's members and solo runs take."""
+
+
+def compare(problem, grid, backend, *, factory=select, spec=None, options=PARTIAL):
     if spec is None:
         spec = StatsSpec(names=("energy", "peak_power"), periodic=("energy",), period=1)
     problem = dataclasses.replace(problem, stats_spec=spec)
@@ -183,7 +179,7 @@ def compare(problem, grid, backend, *, factory=select, spec=None):
                 flags=dataclasses.replace(problem.flags, has_noise=True),
             )
             for destination in (members, independent):
-                owner = factory(backend, one, grid=grid)
+                owner = factory(backend, one, grid=grid, options=options)
                 cleanup.callback(owner.close)
                 owner.set_initial(initial.field0, draw)
                 destination.append(owner)

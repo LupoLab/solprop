@@ -76,6 +76,7 @@ from solprop.translate.precision import (
     combine,
     precision_named,
 )
+from vector_raman_cases import CHUNK as VECTOR_CHUNK
 from vector_raman_cases import vector_problem
 
 U32 = UNIT_ROUNDOFF_32
@@ -673,7 +674,7 @@ def test_tensor_raman_on_two_components_agrees_with_binary64(family, material):
     )
     for precision, backend_class in cases:
         case = dataclasses.replace(problem, precision=precision_named(precision))
-        backend = backend_class(case, grid=grid, modes=modes)
+        backend = backend_class(case, grid=grid, modes=modes, options=VECTOR_CHUNK)
         try:
             backend.set_initial(case.initial.field0, None)
             backend.propagate_to(float(case.stepper.save_planes[-1]))

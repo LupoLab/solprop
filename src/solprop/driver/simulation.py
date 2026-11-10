@@ -48,8 +48,10 @@ import solprop.driver.tdse as tdse_runtime
 from solprop._display import Displayed, engineering, line, summarise
 from solprop.adiabatic import AdiabaticAccuracy
 from solprop.backends.multistep import CallLedger
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.backends.protocol import Backend, _all_finite
 from solprop.backends.registry import resolve_name, select
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import (
     Absorber,
     SpatialAbsorber,
@@ -321,7 +323,6 @@ from solprop.translate.masks import (
     AbsorberScheme,
     noise_spectrum,
 )
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.plasma_integration import (
     integration_record,
 )
@@ -452,6 +453,7 @@ the recipe, which would no longer describe the run (SEP 41, S2)."""
 
 _EXECUTION_SETTINGS = (
     "backend",
+    "node_budget",
     "resume_history",
     "tdse_execution",
     "fields",
@@ -682,10 +684,13 @@ class SimulationSettings(Displayed):
         low is a silent clip.
     node_budget : int or None
         Bytes of node-chunk buffers a response pass may hold
-        (``docs/dev/architecture.md`` section 13). ``None``, the default, takes 1 GiB
-        on a free-space, line or planar grid and 64 MiB otherwise
-        (:data:`~solprop.translate.modal.DEFAULT_SPATIAL_NODE_BUDGET`,
-        :data:`~solprop.translate.modal.DEFAULT_NODE_BUDGET`).
+        (``docs/dev/architecture.md`` section 13). An execution setting, outside the
+        resume key: the backend plans its node chunk from it when it is prepared, and
+        it may change after translation. ``None``, the default, leaves the choice to
+        the backend, which takes 1 GiB on a free-space, line or planar grid and 64 MiB
+        otherwise (:data:`~solprop.backends.node_chunk.DEFAULT_SPATIAL_NODE_BUDGET`,
+        :data:`~solprop.backends.node_chunk.DEFAULT_NODE_BUDGET`); an explicit budget
+        is authoritative.
     stats : solprop.stats.StatsSpec or None
         Which statistics to collect at every saved plane; ``None`` collects none.
     polarisation_taper : bool
@@ -1096,6 +1101,26 @@ class SimulationSettings(Displayed):
             False when :attr:`absorber_scheme` is the route's default.
         """
         return not isinstance(self.absorber_scheme, _Defaulted)
+
+    def execution_options(self) -> ExecutionOptions:
+        """Return the execution options a backend is prepared with (SEP 47).
+
+        The node budget is an execution choice, not part of the scientific problem:
+        the translation records none, and the backend plans its node chunk from it
+        when it is prepared (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+
+        Returns
+        -------
+        solprop.backends.session.ExecutionOptions
+            The explicit :attr:`node_budget`, or the backend's automatic choice.
+
+        Examples
+        --------
+        >>> from solprop.driver import SimulationSettings
+        >>> SimulationSettings(node_budget=2**26).execution_options().node_budget
+        67108864
+        """
+        return ExecutionOptions(node_budget=self.node_budget)
 
     def defaults_resolution(self) -> DefaultsResolution:
         """Return which stepping choices took the route's default (#87, SEP 41).
@@ -2490,7 +2515,6 @@ class Simulation(Displayed):
                     ionisation_field_range=(
                         settings.ionisation_field_range if self._reuse is None else None
                     ),
-                    node_budget=settings.node_budget,
                     stats_spec=settings.stats,
                     shock=settings.shock,
                     prefactor_index=settings.prefactor_index,
@@ -3690,6 +3714,7 @@ class Simulation(Displayed):
                     modes=self.modes,
                     profiles=self.profiles,
                     tdse_binding=binding,
+                    options=self.settings.execution_options(),
                 )
                 restoration: dict[str, object] = {}
                 start_plane = self._prime(
@@ -7292,6 +7317,7 @@ class SimulationRunner(Displayed):
                 grid=simulation.grid,
                 modes=simulation.modes,
                 profiles=simulation.profiles,
+                options=settings.execution_options(),
             )
 
     def __repr__(self) -> str:

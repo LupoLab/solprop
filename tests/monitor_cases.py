@@ -22,6 +22,7 @@ from capability_routes import LENGTH, ROUTES
 from solprop.backends.driver import StepDriver
 from solprop.backends.protocol import Backend
 from solprop.backends.registry import select
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.monitor import BoundaryCheck, BoundaryEnergies
 from solprop.stepper.low_storage import LowStorageRungeKutta
@@ -105,9 +106,15 @@ def as_driver(backend: Backend) -> StepDriver[Any]:
 
 
 def watched(
-    simulation: Simulation, name: str, problem: KernelProblem | None = None
+    simulation: Simulation,
+    name: str,
+    problem: KernelProblem | None = None,
+    options: ExecutionOptions | None = None,
 ) -> Backend:
-    """Return a backend loaded with the edge-reaching launch and watched."""
+    """Return a backend loaded with the edge-reaching launch and watched.
+
+    `options` default to the simulation's own execution options.
+    """
     problem = simulation.translate() if problem is None else problem
     backend = select(
         name,
@@ -115,6 +122,7 @@ def watched(
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options() if options is None else options,
     )
     driver = as_driver(backend)
     driver.set_initial(with_copy(problem.initial.field0, simulation.grid.n_t), None)

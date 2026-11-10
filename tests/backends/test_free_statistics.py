@@ -4,7 +4,6 @@
 
 """Packed Cartesian reductions and fluence-width perturbation bounds."""
 
-import dataclasses
 import math
 from functools import partial
 
@@ -14,6 +13,7 @@ from numpy.testing import assert_allclose
 
 from backends.test_radial_nonlinear import make_problem
 from bounds import gamma
+from solprop.backends.session import ExecutionOptions
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.output.schema import SavedPlane
 from solprop.pulses import GaussianPulse, SpatialPulse
@@ -93,10 +93,9 @@ def test_free_packed_statistics_match_host_definitions(
     )
     bounds["fwhm_r"] = 3 * profile_error / slope
     problem = make_problem(grid, space, initial, [])
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
+    backend = spatial_backend_class(
+        problem, grid=grid, options=ExecutionOptions(node_chunk=7)
     )
-    backend = spatial_backend_class(problem, grid=grid)
     try:
         backend.set_initial(problem.initial.field0, None)
         actual = backend.stats(spec)

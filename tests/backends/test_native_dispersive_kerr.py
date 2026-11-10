@@ -51,6 +51,7 @@ from backends.forced_threads import assert_threaded
 from backends.matched import fixed_order, native_thread_fields
 from bounds import assert_within, dispersive_device_bound, step_evaluations
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation
 from solprop.exceptions import MaterialRangeWarning
 from solprop.physdata import MaterialSelection, Mixture
@@ -105,14 +106,16 @@ def embedded(problem: KernelProblem) -> bool:
     )
 
 
-def native_evaluation(problem: KernelProblem, grid: Any) -> Evaluation:
+def native_evaluation(
+    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+) -> Evaluation:
     """Evaluate the source once at the launch and return the native projected spectra.
 
     The engine keeps both rules' projected polarisation spectra of its last
     evaluation, unnormalised, as the reference's projections' transforms are; the
     embedded rule's dispersive share is finished when it is read.
     """
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend._adams_lab_source(problem.initial.field0, 0.0)
@@ -133,12 +136,14 @@ def assert_close(ours: Evaluation, theirs: Evaluation, bound: float) -> None:
         assert disagreement(ours.coarse, theirs.coarse) < bound
 
 
-def assert_one_evaluation(problem: KernelProblem, grid: Any) -> None:
+def assert_one_evaluation(
+    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+) -> None:
     """One evaluation, both rules, against the reference."""
-    ours = native_evaluation(problem, grid)
+    ours = native_evaluation(problem, grid, options)
     bound = evaluation_bound(problem)
     assert bound > 0
-    assert_close(ours, reference_evaluation(problem, grid), bound)
+    assert_close(ours, reference_evaluation(problem, grid, options), bound)
 
 
 def source(backend_class: type, problem: KernelProblem, grid: Any) -> np.ndarray:
@@ -287,10 +292,7 @@ def test_node_chunks_accumulate_as_one(case, raman, evaluator):
         evaluator, gas="N2" if raman else "Ar", raman=raman, **GRID_CASES[case]
     )
     problem = simulation.translate()
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=8)
-    )
-    assert_one_evaluation(problem, simulation.grid)
+    assert_one_evaluation(problem, simulation.grid, ExecutionOptions(node_chunk=8))
 
 
 @pytest.mark.parametrize("evaluator", sorted(POLICIES))
@@ -554,9 +556,11 @@ def test_one_thread_and_four_agree(tmp_path):
 # --- the memory ledger -------------------------------------------------------------
 
 
-def ledger_of(problem: KernelProblem, grid: Any) -> dict[str, int]:
+def ledger_of(
+    problem: KernelProblem, grid: Any, options: ExecutionOptions | None = None
+) -> dict[str, int]:
     """Return the backend's ledger and check its rows are released on close."""
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=options)
     try:
         ledger = backend.memory_ledger()
     finally:
@@ -638,10 +642,7 @@ def test_chunked_nodes_pack_their_projections():
     """More than one chunk: each chunk's columns of both scaled projections, once."""
     simulation = capillary("polynomial")
     problem = simulation.translate()
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=8)
-    )
-    ledger = ledger_of(problem, simulation.grid)
+    ledger = ledger_of(problem, simulation.grid, ExecutionOptions(node_chunk=8))
     chunks = -(-problem.transform.n_nodes // 8)
     per_rule = chunks * problem.shape[1] * 8 * problem.transform.n_pol * 8
     assert ledger["dispersive_projection_chunks"] == 2 * per_rule

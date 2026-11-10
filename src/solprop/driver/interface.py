@@ -26,6 +26,7 @@ from typing import Literal
 import numpy as np
 from jaxtyping import Float
 
+from solprop.backends.node_chunk import DEFAULT_NODE_BUDGET
 from solprop.boundaries import Absorber, SpatialAbsorber
 from solprop.coupling.models import CouplingModel
 from solprop.driver.simulation import (
@@ -72,7 +73,6 @@ from solprop.stepper.multistep import Multistep
 from solprop.stepper.runge_kutta import RungeKutta
 from solprop.stepper.schedule import FixedSchedule
 from solprop.translate.masks import AbsorberScheme
-from solprop.translate.modal import DEFAULT_NODE_BUDGET
 from solprop.translate.precision import PrecisionName
 from solprop.translate.responses import KerrForm
 

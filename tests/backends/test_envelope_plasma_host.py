@@ -12,13 +12,16 @@ import pytest
 
 from bounds import scan_bound
 from rate_oracles import adk_oracle
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.numpy_ref.envelope_plasma import (
     _cycle_quantities,  # pyright: ignore[reportPrivateUsage]
     envelope_sources,
 )
+from solprop.backends.session import ExecutionOptions
 from solprop.driver import Simulation, SimulationSettings
 from solprop.exceptions import (
+    BackendError,
     ConvergenceError,
     MaterialRangeWarning,
     SolpropWarning,
@@ -301,18 +304,21 @@ def test_node_budget_accounts_for_envelope_histories(host_case):
     assert assembly is not None
     # The registry's argon fit range warned here; optmat's argon is qualified over
     # the band (SEP 3, Phase 4a).
-    with pytest.raises(TranslationError, match="one envelope plasma source history"):
-        assemble(
-            grid,
-            MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
-            [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
-            original.initial.field0[0],
-            controller=original.stepper.controller,
-            save_planes=[8e-6],
-            dz_init=1e-6,
-            dz_max=1e-6,
-            node_budget=1,
-        )
+    problem = assemble(
+        grid,
+        MarcatiliMode(125e-6, "Ar", 1.0, loss=False),
+        [EnvelopePlasmaResponse("Ar", assembly.channels[0].rate)],
+        original.initial.field0[0],
+        controller=original.stepper.controller,
+        save_planes=[8e-6],
+        dz_init=1e-6,
+        dz_max=1e-6,
+    )
+    # The backend plans its chunk when it is prepared, before it allocates.
+    with pytest.raises(BackendError, match="one envelope plasma source history"):
+        plan_node_chunk(problem, ExecutionOptions(node_budget=1))
+    with pytest.raises(BackendError, match="one envelope plasma source history"):
+        NumpyRefBackend(problem, grid=grid, options=ExecutionOptions(node_budget=1))
 
 
 def test_reference_refuses_unresolved_angular_source_and_recovers(host_case):

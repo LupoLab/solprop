@@ -187,14 +187,49 @@ class ExecutionOptions:
     ----------
     node_budget : int or None
         An explicit workspace budget for node chunks, bytes; ``None`` leaves the
-        backend's automatic choice. An explicit budget is authoritative.
+        backend's automatic choice. An explicit budget is authoritative: the backend
+        plans its chunk from it and no machine rule overrides it
+        (:func:`solprop.backends.node_chunk.plan_node_chunk`).
+    node_chunk : int or None
+        An exact node chunk, which overrides both the budget and the automatic choice:
+        a measurement's or a test's control, not a user setting. A backend takes at
+        most every node, and on the planar kind whole transverse rows.
     backend_options : collections.abc.Mapping
         Backend-specific execution options, passed through untouched (for example a
         native CPU execution record).
+
+    Raises
+    ------
+    solprop.exceptions.BackendError
+        If `node_budget` or `node_chunk` is given and is not a positive integer.
+
+    Examples
+    --------
+    >>> from solprop.backends.session import ExecutionOptions
+    >>> ExecutionOptions(node_budget=2**26).node_budget
+    67108864
     """
 
     node_budget: int | None = None
+    node_chunk: int | None = None
     backend_options: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        """Refuse a budget or a chunk that is not a positive integer.
+
+        Raises
+        ------
+        solprop.exceptions.BackendError
+            Naming the offending option.
+        """
+        for name in ("node_budget", "node_chunk"):
+            value = getattr(self, name)
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 1
+            ):
+                unit = " of bytes" if name == "node_budget" else ""
+                msg = f"{name} must be a positive number{unit}, got {value!r}"
+                raise BackendError(msg)
 
 
 @dataclass(frozen=True, eq=False)

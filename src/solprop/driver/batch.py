@@ -90,7 +90,9 @@ def _signature(member: BatchMember) -> str:
         "stepper": problem.stepper,
         "statistics": problem.stats_spec,
         "nodes": transform.n_nodes,
-        "node_chunk": transform.node_chunk,
+        # The node chunk is planned from the problem and this budget when the
+        # backend is prepared, so members with equal layouts and budgets share it.
+        "node_budget": simulation.settings.node_budget,
         "transform_shape": transform.synthesis.shape,
         "coarse_projection": transform.projection_coarse is not None,
         "linear_structure": _structure(problem.linear),

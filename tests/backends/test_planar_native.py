@@ -36,6 +36,7 @@ from legacy_geometry import LEGACY_GRID, bare_absorber
 from mixture_cases import AnalyticRate
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import available
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import SpatialAbsorber, absorber
 from solprop.constants import C
 from solprop.driver import SimulationSettings, prop_planar
@@ -179,13 +180,12 @@ def planar_case(family):
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 8),
         density=density,
     )
-    problem = dataclasses.replace(
-        problem,
-        transform=dataclasses.replace(
-            problem.transform, node_chunk=ROWS_PER_CHUNK * space.x.size
-        ),
-    )
     return grid, space, problem
+
+
+def chunked(space):
+    """Return the options of a case's backends: :data:`ROWS_PER_CHUNK` rows a chunk."""
+    return ExecutionOptions(node_chunk=ROWS_PER_CHUNK * space.x.size)
 
 
 def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
@@ -217,9 +217,9 @@ def amplitude_bound(grid, space, family, steps, *, length=LENGTH):
     return bound
 
 
-def propagate(problem, grid, implementation, names=()):
+def propagate(problem, grid, implementation, names=(), options=None):
     """Run a problem to its end and return the field and requested statistics."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(LENGTH)
@@ -269,13 +269,14 @@ def test_the_planar_kind_matches_the_reference(case, steps):
     family, grid, space, problem = case
     bound = amplitude_bound(grid, space, family, steps)
     assert bound > 0
+    options = chunked(space)
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(native_class(), problem, grid)
+        reference = derivative(NumpyRefBackend, problem, grid, options)
+        actual = derivative(native_class(), problem, grid, options)
     else:
         problem = with_steps(problem, steps)
-        reference, _ = propagate(problem, grid, NumpyRefBackend)
-        actual, _ = propagate(problem, grid, native_class())
+        reference, _ = propagate(problem, grid, NumpyRefBackend, options=options)
+        actual, _ = propagate(problem, grid, native_class(), options=options)
     scale = float(np.max(np.abs(reference)))
     assert scale > 0
     assert_allclose(actual, reference, rtol=0, atol=bound * scale)
@@ -297,7 +298,7 @@ def test_the_planar_statistics_match_the_reference(case, steps):
         problem = with_steps(problem, steps)
     rows = []
     for implementation in (NumpyRefBackend, native_class()):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=chunked(space))
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:
@@ -315,7 +316,7 @@ def test_the_planar_statistics_match_the_reference(case, steps):
 def test_the_ledger_counts_the_planar_buffers():
     """The y scratch, the slab rule and the wall terms, at their real byte cost."""
     grid, space, problem = planar_case("envelope_kerr")
-    backend = native_class()(problem, grid=grid)
+    backend = native_class()(problem, grid=grid, options=chunked(space))
     try:
         ledger = backend.memory_ledger()
     finally:

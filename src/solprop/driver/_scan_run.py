@@ -728,6 +728,7 @@ class _Work:
             grid=simulation.grid,
             modes=simulation.modes,
             profiles=simulation.profiles,
+            options=simulation.settings.execution_options(),
         )
         try:
             # None, not `simulation.noise`: the realisation the builders return is in

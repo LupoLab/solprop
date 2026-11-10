@@ -47,6 +47,7 @@ from solprop.backends.driver import StepDriver
 from solprop.backends.low_storage import HostLowStorage, schedule_key, table_steps
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.backends.registry import resolve_name
+from solprop.backends.session import ExecutionOptions
 from solprop.boundaries import absorber
 from solprop.constants import C
 from solprop.driver.scaffold import gnlse_source
@@ -105,9 +106,13 @@ def marched(problem, schedule, *, mode="auto", **stepper):
     return dataclasses.replace(problem, stepper=settings)
 
 
-def run(problem, grid, *, planes=None, backend=None):
+def run(problem, grid, *, planes=None, backend=None, options=None):
     """Replay a problem through its save planes; return the final state and backend."""
-    made = NumpyRefBackend(problem, grid=grid) if backend is None else backend
+    made = (
+        NumpyRefBackend(problem, grid=grid, options=options)
+        if backend is None
+        else backend
+    )
     made.set_initial(problem.initial.field0, None)
     for plane in problem.stepper.save_planes if planes is None else planes:
         made.propagate_to(float(plane))
@@ -1196,8 +1201,14 @@ FIELD_ROWS = (
 )
 
 
+CARTESIAN_CHUNK = ExecutionOptions(node_chunk=7)
+"""The node chunk :func:`cartesian_march`'s problem runs with: 7 of 108 columns."""
+
+
 def cartesian_march(mode, *, noise=None, collar=False):
-    """Return a Cartesian Kerr problem under the march, node chunk 7 of 108.
+    """Return a Cartesian Kerr problem under the march, run in chunks of 7 of 108.
+
+    Its backends take :data:`CARTESIAN_CHUNK`.
 
     With the collars, the spatial and the temporal one in-stage, it takes the 100
     steps their stability limits ask for; otherwise 4.
@@ -1233,9 +1244,6 @@ def cartesian_march(mode, *, noise=None, collar=False):
         propagator_mode=mode,
         absorber=absorber(grid) if collar else None,
         absorber_scheme="nonlinear",
-    )
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
     )
     if collar:
         # A collar cannot be designed on this coarse box (SEP 40's floor); the subject
@@ -1284,7 +1292,7 @@ def test_the_ledger_holds_three_registers_the_scratch_and_the_table(mode, collar
         assert np.any(problem.transform.geometry.absorber_rate)
         assert problem.responses.temporal_absorber_fine is not None
     field = 16 * math.prod(problem.shape)
-    backend = NumpyRefBackend(problem, grid=grid)
+    backend = NumpyRefBackend(problem, grid=grid, options=CARTESIAN_CHUNK)
     backend.set_initial(problem.initial.field0, None)
     backend.propagate_to(float(problem.stepper.save_planes[-1]))
     assert np.all(np.isfinite(backend.observe().require_field()))
@@ -1489,16 +1497,20 @@ def test_the_two_flow_treatments_agree_to_rounding(
     if problem_kind == "soliton":
         problem, _ = lifecycle()
         grid = narrow_grid
+        options = None
         bound = rounding_bound(problem, problem.stepper.schedule, scales)
     else:
         problem, grid, _ = cartesian_march("tabulate")
+        options = CARTESIAN_CHUNK
         # Four steps of a weakly nonlinear beam: section 4.5's bound without growth.
         bins = populated([problem.initial.field0], 1e-3)
         bound = float(np.max(linear_bound(problem, problem.stepper.schedule)[bins]))
     fields = {}
     for mode in ("tabulate", "recompute"):
         stepper = dataclasses.replace(problem.stepper, propagator_mode=mode)
-        fields[mode], backend = run(dataclasses.replace(problem, stepper=stepper), grid)
+        fields[mode], backend = run(
+            dataclasses.replace(problem, stepper=stepper), grid, options=options
+        )
         backend.close()
     reference = fields["recompute"]
     assert np.linalg.norm(fields["tabulate"] - reference) <= bound * np.linalg.norm(

@@ -285,10 +285,12 @@ def noisy_problem(march: str, *, draw: bool = True):
 
 def noisy(march: str):
     """March the beam under the modified noise model, and once without its draw."""
+    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+
     fields = {}
     for name, draw in (("field", True), ("quiet", False)):
         problem, grid, noise = noisy_problem(march, draw=draw)
-        backend = _native()(problem, grid=grid)
+        backend = _native()(problem, grid=grid, options=CARTESIAN_CHUNK)
         try:
             backend.set_initial(problem.initial.field0, noise)
             backend.propagate_to(float(problem.stepper.save_planes[-1]))
@@ -414,8 +416,10 @@ def linear_cartesian(mode: str):
 
 def folds(mode: str):
     """March the linear beam, saving every step's squared norm from the engine."""
+    from backends.test_low_storage import CARTESIAN_CHUNK  # noqa: PLC0415
+
     problem, grid = linear_cartesian(mode)
-    backend = _native()(problem, grid=grid)
+    backend = _native()(problem, grid=grid, options=CARTESIAN_CHUNK)
     norms = []
     try:
         engine = backend._low_storage._engine  # pyright: ignore[reportOptionalMemberAccess]

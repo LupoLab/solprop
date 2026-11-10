@@ -266,7 +266,7 @@ def raman_capillary(raman_field_grid):
     kerr = KerrResponse(chi3=1.0e-51, thg=True)
     raman = former_response(FORMER_H2, thg=True)
 
-    def build(responses=None, *, modal=False, chunk=None):
+    def build(responses=None, *, modal=False):
         start = GaussianPulse(wavelength=800e-9, fwhm=10e-15, energy=20e-6).build(
             raman_field_grid
         )
@@ -287,11 +287,6 @@ def raman_capillary(raman_field_grid):
                 dz_max=0.01,
                 dz_init=1e-4,
                 quadrature=quadrature,
-            )
-        if chunk is not None:
-            problem = dataclasses.replace(
-                problem,
-                transform=dataclasses.replace(problem.transform, node_chunk=chunk),
             )
         return problem, kerr, raman
 
@@ -452,8 +447,8 @@ def test_the_ledger_names_the_doubled_buffers(backend_class, raman_capillary):
     with_raman, _, _ = raman_capillary()
     without, _, _ = raman_capillary([KerrResponse(chi3=1.0e-51, thg=True)])
     n_to = with_raman.grids.n_to
-    chunk = with_raman.transform.node_chunk * with_raman.transform.n_pol
     owner = backend_class(with_raman)
+    chunk = owner.node_chunk * with_raman.transform.n_pol
     ledger = owner.memory_ledger()
     owner.close()
     owner = backend_class(without)

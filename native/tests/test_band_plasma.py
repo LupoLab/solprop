@@ -37,6 +37,7 @@ import numpy as np
 import numpy.typing as npt
 import pytest
 from thread_sizing import assert_threaded
+from solprop.backends.session import ExecutionOptions
 from solprop.backends.numpy_ref import NumpyRefBackend
 from solprop.driver import Simulation
 from solprop.exceptions import BackendError, MaterialRangeWarning, TranslationError
@@ -222,12 +223,15 @@ def spatial(kind: str, steps: int = STEPS) -> tuple[FieldGrid, KernelProblem]:
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / steps),
         density=1e22,
     )
-    if kind == "free":
-        # A remainder chunk, so the band column's rings meet a partial block.
-        problem = dataclasses.replace(
-            problem, transform=dataclasses.replace(problem.transform, node_chunk=7)
-        )
     return grid, banded(problem, design_running_integral(grid, "band"))
+
+
+def options_for(name: str) -> ExecutionOptions | None:
+    """Return a case's execution options: a remainder chunk on the Cartesian route.
+
+    Seven columns a chunk, so that the band column's rings meet a partial block.
+    """
+    return ExecutionOptions(node_chunk=7) if name == "free" else None
 
 
 CASES = ("mode_averaged", "analytic", "multimode", "mixture", "radial", "free")
@@ -243,9 +247,10 @@ def march(
     implementation: type[NumpyRefBackend] | type[NativeBackend],
     problem: KernelProblem,
     grid: FieldGrid,
+    options: ExecutionOptions | None = None,
 ) -> tuple[ComplexArray, dict[str, np.ndarray]]:
     """Return the field and the statistics after the problem's fixed steps."""
-    backend = implementation(problem, grid=grid)
+    backend = implementation(problem, grid=grid, options=options)
     try:
         backend.set_initial(problem.initial.field0, None)
         backend.propagate_to(float(problem.stepper.save_planes[-1]))
@@ -289,12 +294,10 @@ def assert_statistics_agree(
 def test_response_column_boundary_preserves_full_and_tail_windows(chunk: int) -> None:
     """Check full/tail chunks across the width boundary within SEP 25 bounds."""
     grid, problem = case("free")
-    problem = dataclasses.replace(
-        problem, transform=dataclasses.replace(problem.transform, node_chunk=chunk)
-    )
+    options = ExecutionOptions(node_chunk=chunk)
     bound = march_bound(problem, grid, STEPS)
-    expected, expected_stats = march(NumpyRefBackend, problem, grid)
-    backend = NativeBackend(problem, grid=grid)
+    expected, expected_stats = march(NumpyRefBackend, problem, grid, options)
+    backend = NativeBackend(problem, grid=grid, options=options)
     try:
         sizing = cast(dict[str, dict[str, int]], backend.metadata()["execution_sizing"])
         columns = 2 * chunk
@@ -331,8 +334,9 @@ def test_the_band_rule_matches_the_reference_on_every_route(name: str) -> None:
     grid, problem = case(name)
     assert problem.responses.plasma_integral.policy == "band"
     assert problem.responses.plasma_integral.half_width >= 1
-    expected, expected_stats = march(NumpyRefBackend, problem, grid)
-    actual, actual_stats = march(NativeBackend, problem, grid)
+    options = options_for(name)
+    expected, expected_stats = march(NumpyRefBackend, problem, grid, options)
+    actual, actual_stats = march(NativeBackend, problem, grid, options)
     bound = march_bound(problem, grid, STEPS)
     scale = float(np.max(np.abs(expected)))
     assert float(np.max(np.abs(actual - expected))) <= bound * scale
@@ -533,15 +537,15 @@ def test_quadrature_keeps_accepted_scores_through_rejection_and_reset(
     grid, original = modal(kind)
     problem = dataclasses.replace(
         original,
-        transform=dataclasses.replace(original.transform, node_chunk=chunk),
         stepper=dataclasses.replace(original.stepper, integrator=None),
     )
+    options = ExecutionOptions(node_chunk=chunk)
     bound = march_bound(problem, grid, STEPS)
     score_bound = 8 * bound
     assert bound > 0.0
     specification = StatsSpec(names=("quadrature_error", "electron_density"))
-    reference = NumpyRefBackend(problem, grid=grid)
-    backend = NativeBackend(problem, grid=grid)
+    reference = NumpyRefBackend(problem, grid=grid, options=options)
+    backend = NativeBackend(problem, grid=grid, options=options)
     state = backend._native_state  # pyright: ignore[reportPrivateUsage] - score lifetime
     dz = float(problem.stepper.save_planes[-1]) / STEPS
     try:
@@ -646,7 +650,7 @@ def band_slots(
 
     The tiled column keeps a device's rows on the host too, for a band problem.
     """
-    chunk = problem.transform.node_chunk
+    chunk = backend.node_chunk
     keeps_chunk = DEVICE_BUILD or (TILED and band)
     if keeps_chunk:
         return chunk
@@ -674,7 +678,7 @@ def test_the_band_rows_are_in_the_ledger() -> None:
     the integrand. Total current has its own ledger row. A device keeps its
     trapezoid column's rows, and the tiled column also keeps its tiles' totals."""
     grid, problem = spatial("free")
-    backend = NativeBackend(problem, grid=grid)
+    backend = NativeBackend(problem, grid=grid, options=options_for("free"))
     try:
         ledger = backend.memory_ledger()
         slots = band_slots(problem, backend)

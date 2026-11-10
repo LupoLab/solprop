@@ -27,7 +27,7 @@ if importlib.util.find_spec("solprop_native") is not None:
     importlib.import_module("solprop_native")
 
 from backends.low_storage_cases import replay
-from backends.test_low_storage import cartesian_march
+from backends.test_low_storage import CARTESIAN_CHUNK, cartesian_march
 
 # The doctest collection imports every module under tests/, and the arguments it
 # was given are not case names: only a subprocess run saves the fields.
@@ -52,5 +52,7 @@ if __name__ == "__main__":
     for index, name in enumerate(sys.argv[2:]):
         mode, collar = name.split("-")
         problem, grid, _ = cartesian_march(mode, collar=collar == "collar")
-        fields[f"case{index}"] = replay(NativeBackend, problem, grid)
+        fields[f"case{index}"] = replay(
+            NativeBackend, problem, grid, options=CARTESIAN_CHUNK
+        )
     np.savez(sys.argv[1], runtime_threads=_runtime_threads(), **fields)

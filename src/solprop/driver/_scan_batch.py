@@ -65,6 +65,7 @@ def _load(simulation: Simulation, cleanup: ExitStack) -> Backend:
         grid=simulation.grid,
         modes=simulation.modes,
         profiles=simulation.profiles,
+        options=simulation.settings.execution_options(),
     )
     cleanup.callback(owner.close)
     owner.set_initial(problem.initial.field0, None)

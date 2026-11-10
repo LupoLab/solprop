@@ -12,10 +12,11 @@ from numpy.testing import assert_allclose
 
 from backends import test_envelope_plasma_geometries as plasma_cases
 from backends.test_batch_responses import compare
-from backends.test_envelope_plasma_geometries import geometry_case
+from backends.test_envelope_plasma_geometries import geometry_case, geometry_options
 from backends.test_radial_nonlinear import derivative
 from former_raman import FORMER_H2, FORMER_N2, former_response
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.exceptions import TranslationError
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid, RadialGrid
 from solprop.modes import MarcatiliMode, transverse_quadrature
@@ -25,15 +26,15 @@ from solprop.pulses import GaussianPulse, SpatialPulse
 from solprop.spatial import SpatialMedium
 from solprop.stepper import FixedSchedule, PIController
 from solprop.translate.problem import assemble
-from vector_raman_cases import vector_problem
+from vector_raman_cases import CHUNK, vector_problem
 
 envelope_mixture = plasma_cases.envelope_mixture
 
 
-def run(backend_class, problem, grid):
+def run(backend_class, problem, grid, options=None):
     """Return one source evaluation and a complete fixed-schedule run."""
-    rhs = derivative(backend_class, problem, grid)
-    owner = backend_class(problem, grid=grid)
+    rhs = derivative(backend_class, problem, grid, options)
+    owner = backend_class(problem, grid=grid, options=options)
     try:
         owner.set_initial(problem.initial.field0, None)
         summary = owner.propagate_to(grid.length)
@@ -43,9 +44,9 @@ def run(backend_class, problem, grid):
         owner.close()
 
 
-def check_run(backend_class, problem, grid):
-    reference = run(NumpyRefBackend, problem, grid)
-    actual = run(backend_class, problem, grid)
+def check_run(backend_class, problem, grid, options=None):
+    reference = run(NumpyRefBackend, problem, grid, options)
+    actual = run(backend_class, problem, grid, options)
     # Temporal transforms, Cartesian contraction and transverse reductions per
     # stage; 14 stages cover the two-step complete run and both compared paths.
     bound = 256 * (grid.n_to + problem.transform.n_nodes) * 14 * np.finfo(float).eps
@@ -91,9 +92,13 @@ def test_spatial_vector_raman_and_actual_width_tails(
         dz_init=length / 2,
         schedule=FixedSchedule.uniform(0.0, length, length / 2),
     )
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=3))
     assert problem.transform.n_nodes % 3 != 0
-    check_run(spatial_equivalence_backend_class, problem, grid)
+    check_run(
+        spatial_equivalence_backend_class,
+        problem,
+        grid,
+        ExecutionOptions(node_chunk=3),
+    )
 
 
 @pytest.mark.medium
@@ -121,15 +126,19 @@ def test_raman_acts_on_synthesised_position_dependent_direction(
         schedule=original.stepper.schedule,
     )
     assert problem.transform.n_pol * problem.shape[2] == 2
-    problem = replace(problem, transform=replace(problem.transform, node_chunk=5))
-    check_run(spatial_equivalence_backend_class, problem, grid)
+    check_run(
+        spatial_equivalence_backend_class,
+        problem,
+        grid,
+        ExecutionOptions(node_chunk=5),
+    )
 
 
 @pytest.mark.medium
 @pytest.mark.parametrize("family", ["field_real", "field_analytic", "envelope"])
 def test_vector_fixed_batches_preserve_modified_noise_members(family, backend_class):
     problem, grid, _ = vector_problem(family, steps=2)
-    compare(problem, grid, backend_class.name)
+    compare(problem, grid, backend_class.name, options=CHUNK)
 
 
 @pytest.mark.medium
@@ -170,4 +179,6 @@ def test_vector_raman_with_two_envelope_plasma_populations(
         return
     problem, grid = geometry_case((mixture, responses), geometry, 2)
     assert len(problem.responses.raman_terms) == 2
-    check_run(spatial_equivalence_backend_class, problem, grid)
+    check_run(
+        spatial_equivalence_backend_class, problem, grid, geometry_options(geometry)
+    )

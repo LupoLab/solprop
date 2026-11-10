@@ -60,7 +60,7 @@ in-stage term as the whole derivative.
 """
 
 
-def planar_case(name, *, steps=None, node_chunk=None):
+def planar_case(name, *, steps=None):
     """Return ``(grid, space, problem)`` for one case, on a replayed schedule.
 
     Parameters
@@ -70,8 +70,6 @@ def planar_case(name, *, steps=None, node_chunk=None):
     steps : int, optional
         Fixed steps over :data:`LENGTH`; the family's own count by default. Zero is a
         one-step schedule for a problem that is only evaluated, never stepped.
-    node_chunk : int, optional
-        Override for the transform's node chunk, to force a partial last block.
     """
     family, n_y, collar_fraction, boundary, respond = CASES[name]
     grid, gas, energy, fwhm, plasma, raman, n_r, _, count, scheme = FAMILIES[family]
@@ -139,10 +137,5 @@ def planar_case(name, *, steps=None, node_chunk=None):
     if collar:
         problem = dataclasses.replace(
             problem, initial=dataclasses.replace(problem.initial, field0=field0[None])
-        )
-    if node_chunk is not None:
-        problem = dataclasses.replace(
-            problem,
-            transform=dataclasses.replace(problem.transform, node_chunk=node_chunk),
         )
     return grid, space, problem

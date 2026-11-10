@@ -18,7 +18,7 @@ import numpy.typing as npt
 import pytest
 from solprop.exceptions import ConvergenceError
 from solprop.stats import StatsSpec
-from test_envelope_plasma import envelope_case, terms
+from test_envelope_plasma import envelope_case, envelope_options, terms
 
 import solprop_native.backend as adapter
 from solprop_native import NativeBackend
@@ -37,7 +37,9 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
     monkeypatch: pytest.MonkeyPatch, geometry: str
 ) -> None:
     problem, grid = envelope_case(geometry, 1, mixture=False)
-    payload = _native_problem(problem, terms(problem))
+    payload = _native_problem(
+        problem, terms(problem), node_chunk=envelope_options(geometry).node_chunk
+    )
     nodes = cast(npt.NDArray[np.float64], payload["envelope_rule_nodes"]).copy()
     # As the source's test: alternating incompatible rules must fail refinement.
     for level in (1, 3):
@@ -45,11 +47,11 @@ def test_the_statistics_refuse_and_a_quiet_field_recovers(
         nodes[:, level, :order] = 0.5 * (nodes[:, level, :order] + 1)
     payload["envelope_rule_nodes"] = nodes
 
-    def corrupt_payload(*args: object) -> dict[str, object]:
+    def corrupt_payload(*args: object, **keywords: object) -> dict[str, object]:
         return payload
 
     monkeypatch.setattr(adapter, "_native_problem", corrupt_payload)
-    owner = NativeBackend(problem, grid=grid)
+    owner = NativeBackend(problem, grid=grid, options=envelope_options(geometry))
     try:
         owner.set_initial(
             np.asarray(10.0 * problem.initial.field0, dtype=np.complex128), None

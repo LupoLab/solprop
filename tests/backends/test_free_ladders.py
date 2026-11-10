@@ -23,6 +23,7 @@ from backends.test_radial_nonlinear import (
 from bounds import gamma, ladder_bound
 from legacy_geometry import LEGACY_GRID
 from solprop.backends.numpy_ref import NumpyRefBackend
+from solprop.backends.session import ExecutionOptions
 from solprop.constants import C
 from solprop.grid import EnvelopeGrid, FieldGrid, FreeGrid
 from solprop.nonlinear.raman import DampedOscillator, RamanResponse, undamped_dephasing
@@ -32,6 +33,9 @@ from solprop.spatial import SpatialMedium
 from solprop.stats import StatsSpec
 from solprop.translate.ionisation import build_rate_table
 from spatial_records import record_equivalence, record_metric
+
+REMAINDER = ExecutionOptions(node_chunk=7)
+"""Seven-column node chunks, which leave a remainder chunk on the 9 x 12 grid."""
 
 
 @pytest.fixture(
@@ -82,7 +86,6 @@ def free_case(request):
     )
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=plasma_names, periodic=plasma_names),
     )
     return family, grid, space, problem
@@ -113,8 +116,8 @@ def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, req
     bound = amplitude_bound(family, grid, space, spatial_backend_class.name, steps)
     assert bound > 0
     if steps == 0:
-        reference = derivative(NumpyRefBackend, problem, grid)
-        actual = derivative(spatial_backend_class, problem, grid)
+        reference = derivative(NumpyRefBackend, problem, grid, REMAINDER)
+        actual = derivative(spatial_backend_class, problem, grid, REMAINDER)
     else:
         schedule = problem.stepper.schedule
         assert schedule is not None
@@ -127,7 +130,7 @@ def test_cartesian_nonlinear_ladder(free_case, spatial_backend_class, steps, req
         )
         values = []
         for implementation in (NumpyRefBackend, spatial_backend_class):
-            backend = implementation(problem, grid=grid)
+            backend = implementation(problem, grid=grid, options=REMAINDER)
             try:
                 backend.set_initial(problem.initial.field0, None)
                 backend.propagate_to(LENGTH)
@@ -170,7 +173,7 @@ def test_cartesian_statistics_fresh_and_cached(
     spec = StatsSpec(names=names)
     rows = []
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             if steps:
@@ -242,12 +245,11 @@ def test_cartesian_analytic_family_plasma_statistics_scan_the_whole_field(
     names = ("electron_density", "peak_ionisation_rate", "species_electron_density")
     problem = dataclasses.replace(
         problem,
-        transform=dataclasses.replace(problem.transform, node_chunk=7),
         stats_spec=StatsSpec(names=names),
     )
     rows = {}
     for implementation in (NumpyRefBackend, spatial_backend_class):
-        backend = implementation(problem, grid=grid)
+        backend = implementation(problem, grid=grid, options=REMAINDER)
         try:
             backend.set_initial(problem.initial.field0, None)
             rows[implementation.name] = backend.stats(StatsSpec(names=names))

@@ -23,6 +23,7 @@ from driver.test_field_free_planes import cartesian
 from driver.test_prop_planar import GRID, pulse, settings, slab_modes
 from solprop import fourier
 from solprop.backends import spatial
+from solprop.backends.node_chunk import plan_node_chunk
 from solprop.backends.spatial import collar_block, collar_field_fraction
 from solprop.driver import Simulation
 from solprop.modes.slab import PlanarGrid
@@ -58,7 +59,7 @@ def test_the_blockwise_fraction_is_the_whole_volume_one(monkeypatch, kind, bins)
     expected = whole_volume_fraction(problem, field)
     assert expected > 0
     if bins is not None:
-        monkeypatch.setattr(spatial, "collar_block", lambda problem: bins)
+        monkeypatch.setattr(spatial, "collar_block", lambda *_: bins)
     measured = collar_field_fraction(problem, field)
     terms = field.size
     # Two sums of `terms` non-negative terms each (gamma_m apiece), their quotient,
@@ -69,24 +70,26 @@ def test_the_blockwise_fraction_is_the_whole_volume_one(monkeypatch, kind, bins)
 
 def test_the_block_is_bounded_by_the_node_chunk_and_so_is_the_transient():
     simulation = cartesian("numpy_ref")
-    # Four nodes' columns of the response pass: the Cartesian translation charges
-    # twenty fine temporal columns per node (translate/free.py).
+    # Four nodes' columns of the response pass: the Cartesian plan charges twenty
+    # fine temporal columns per node (solprop.backends.node_chunk).
     simulation.settings = dataclasses.replace(
         simulation.settings, node_budget=4 * 20 * 16 * simulation.grid.n_to
     )
     problem = simulation.translate()
-    assert problem.transform.node_chunk == 4
+    chunk = plan_node_chunk(problem, simulation.settings.execution_options()).chunk
+    assert chunk == 4
     transform = problem.transform
     n_pol, n_omega = problem.shape[2], problem.shape[3]
-    block = collar_block(problem)
+    block = collar_block(problem, chunk)
     assert 1 <= block < n_omega
     assert 3 * transform.n_nodes * n_pol * block <= max(
-        transform.node_chunk * n_pol * problem.grids.n_to, 3 * transform.n_nodes * n_pol
+        chunk * n_pol * problem.grids.n_to, 3 * transform.n_nodes * n_pol
     )
     field = np.ascontiguousarray(problem.initial.field0[0])
-    collar_field_fraction(problem, field)  # warm any first-call allocation
+    # Warm any first-call allocation.
+    collar_field_fraction(problem, field, node_chunk=chunk)
     tracemalloc.start()
-    collar_field_fraction(problem, field)
+    collar_field_fraction(problem, field, node_chunk=chunk)
     _, peak = tracemalloc.get_traced_memory()
     tracemalloc.stop()
     volume = 16 * transform.n_nodes * n_pol * n_omega

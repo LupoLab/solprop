@@ -13,12 +13,12 @@ from numpy.testing import assert_allclose
 
 from bounds import gamma, ladder_bound
 from former_raman import FORMER_H2, former_response
+from solprop.backends.node_chunk import _raman_chunk
 from solprop.backends.numpy_ref import NumpyRefBackend, passes
 from solprop.constants import EPS0
 from solprop.driver.simulation import _undamped_model_key
 from solprop.exceptions import BackendError, TranslationError
 from solprop.profiles import Constant
-from solprop.translate.problem import _raman_chunk
 from solprop.translate.responses import RamanCoefficients, raman_coefficients
 from solprop.translate.stage import scalars
 from test_vector_raman_qualification import gain_experiment
@@ -200,14 +200,16 @@ def test_undamped_reuse_distinguishes_tensor_roles():
 
 @pytest.mark.parametrize("material, drives", [("H2", 3), ("SF6", 1)])
 def test_node_admission_includes_complete_tensor_histories(material, drives):
-    problem, grid, _ = vector_problem(material=material, chunk=None)
+    problem, grid, _ = vector_problem(material=material)
+    transform = problem.transform
+    whole = transform.n_nodes
     per_node = 3 * 16 * 2 * grid.n_to + drives * (48 * grid.n_to + 16)
-    transformed = _raman_chunk(
-        problem.transform, problem.responses, 2, grid.n_to, 2 * per_node
+    admitted = _raman_chunk(
+        whole, transform, problem.responses, 2, grid.n_to, 2 * per_node
     )
-    assert transformed.node_chunk == 2
-    with pytest.raises(TranslationError, match="complete Raman node history"):
-        _raman_chunk(problem.transform, problem.responses, 2, grid.n_to, per_node - 1)
+    assert admitted == 2
+    with pytest.raises(BackendError, match="complete Raman node history"):
+        _raman_chunk(whole, transform, problem.responses, 2, grid.n_to, per_node - 1)
 
 
 def test_vector_kernel_cache_refreshes_all_dynamic_inputs(backend_class):
