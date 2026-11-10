@@ -11,8 +11,8 @@ The completed implementation is left ready for maintainer review, not auto-merge
 |---|---|---|
 | Acceptance | Complete; Part I frozen | Final head `da2e699f` passed GitHub CI and required documentation preview; merged `04e72192` |
 | 1: package and runtime | Setup/package integrated; remaining runtime qualification deferred | Maintainer directs core implementation to proceed; failures remain tracked |
-| 2: CPU binary64 session | Scalar modal RK, landed Adams and low-storage pass; service attachment in progress | Thirty-three real bridge tests cover numerical composition, adaptive accuracy, exact counters and poisoned failures |
-| 3: CPU binary32 | Pending | Phase 2 and source-checked DF32 bounds |
+| 2: CPU binary64 session | Scalar modal RK, landed Adams, low-storage and statistics pass; remaining services in progress | Fifty-three real bridge cases include portable histories and same-field statistics |
+| 3: CPU binary32 | Scalar DF32 foundation reviewed; full execution pending | Finite-expression and transcendental admission remain unqualified |
 | 4: devices | Pending | CPU gates and one qualification pass per vendor |
 | 5: records and Final | Pending | All required capability, CI and measurement evidence |
 
@@ -50,10 +50,10 @@ the work order, not the accuracy requirements or a claim of completed qualificat
 
 | Assignment | Exclusive files | State |
 |---|---|---|
-| Numerical transform/Adams agent | `julia/src/adams_observation.jl` and its test | Dense observation wrapper; portable history leaf and sample tags independently reviewed and integrated |
-| Numerical services agent | `src/solprop/backends/julia/_observations.py` and its test | Request-specific statistics/monitor preparation; profile lowering independently reviewed and integrated |
+| Numerical transform/Adams agent | New `julia/DF32_BOUNDS.md`, `julia/src/double_float_functions.jl` and its test | Conservative function domain/API approved; implementation and independent qualification pending |
+| Numerical services agent | New `julia/src/group_session.jl` and its test | Julia-owned group coordinator under independent review |
 | Master | All shared Python interfaces, Julia module/test inclusion, transfer records, integrators/session lifecycle, repository records and remote campaign | Integration and phase 2 shared interfaces |
-| Independent reviewer | Production code read-only | Portable history and profile lowering approved; reviewing Python bridge integration and subsequent numerical slices |
+| Independent reviewer | Production code read-only | Statistics transport approved pending same-field runtime evidence; reviewing groups |
 
 The temporary CI assignments for `restore_control!`, CPU allocation and source/monitor
 constructors are complete and integrated after independent review. Their files return
@@ -61,6 +61,39 @@ to master ownership; further leaf changes require an explicit assignment.
 The portable history leaf, sample tags and profile lowering also return to master
 ownership after review. Observation preparation is request-specific: its catalogue,
 monitor policy and profile context do not enter a problem-only preparation cache.
+The dense-observation leaf is independently approved and integrated at `2660ce42`;
+shared scheduler attachment remains master-owned. The history bridge milestone
+`12613fc5` is pushed to the draft PR for full CI.
+The DF32 scalar primitive commit `dff18fd1` is integrated as `1e9bc6a4` after
+independent source and algorithm review. The reviewer passed 33,651 assertions,
+including additional exact split/tie cases and CPU IR checks. These qualify only
+the scalar operations under their stated finite-intermediate hypotheses, not a
+propagation domain or vendor arithmetic. The monitor continuation fix `2216949e`
+is integrated as `f54aff0b`; independent bounds-checked testing passed 3,884
+assertions, including recorded Python readings and zero-allocation checks. Missing
+legacy quiet counts preserve the new launch settlement; explicit zero restores it.
+These two filesets return to master ownership after review.
+
+The request-specific statistics bridge has passed integration and independent review.
+Its first runtime pass found a PythonCall automatic-array-conversion dispatch gap;
+a distinct Python copy entry now transposes the packed destination explicitly.
+Transactional retries, buffer alias/admission and retained-array cleanup now pass.
+Monitoring, dense output, groups, noise
+and broader routes still block phase 2 completion. The subsequent phases continue
+without another approval step; the completed implementation PR remains unmerged.
+The reviewer-authored statistic-bound helper is integrated at `8e8aa1c6` after
+master review. It uses exact rational reduction bounds, a declared CPU FFT envelope,
+and certified width brackets/slopes. Twenty-eight independent witnesses cover its
+admission and 1,024 width perturbation corners. It does not bound material populations
+or propagated-field errors. The master-owned group hooks are committed at `81b0bdde`;
+the services agent independently passed all 55 new bounds-enabled assertions.
+The group coordinator keeps Julia in charge of member advancement; Python assembles
+only complete transport windows. Fresh entrance starts are required by the shared
+group contract; portable-history groups are not admitted.
+The initial DF32 function API admits only a proposed `abs(real(z)) <= 16`,
+`abs(imag(z)) <= 2^20` domain with a separate `u/8` input-error budget. Protected
+exponential, phasor and phi helpers are being implemented against that derivation;
+neither whole-run admission nor device qualification is inferred from this decision.
 
 The foundation is committed at `540794bd`. Setup commits `6c569742`, `fadae531` and
 `52269788` were independently reviewed and integrated as `9fe74c26`, `5cec895c` and
@@ -541,3 +574,15 @@ remain preserved; the old first-SIGTERM-exit tests have not been changed or pass
   alias regression also passes. The combined typed Python/CI-runner/SEP selection
   passes 514 tests with three expected process-SEP skips; docstrings, spelling, Runic,
   scoped types and the Sphinx build pass. The full GitHub matrix remains outstanding.
+- The statistics bridge milestone passes independent production and test review.
+  Eight managed-runtime tests pass on macOS arm64 with two Julia threads: six
+  integrator/yield cases compare identical raw fields using operation-derived absolute
+  bounds, and two material cases validate catalogue transport and population identities.
+  All 45 existing core/history bridge cases pass after attachment. The bounds-enabled
+  Core aggregate passes 42,802 assertions in 193 sets, including the reviewed DF32,
+  dense, monitor-continuation and group-hook leaves; all 16 Aqua/JET checks pass with
+  1,076 definitions analysed. The 170 typed boundary/lowering/CI-runner tests pass,
+  as do Runic, scoped types, docstrings, spelling, whitespace, 349 SEP checks (three
+  expected process-SEP skips) and Sphinx with warnings as errors. The earlier pushed
+  head's CI reports Julia Linux and combined coverage failures; their logs are being
+  investigated, and this local milestone does not claim a green full gate.

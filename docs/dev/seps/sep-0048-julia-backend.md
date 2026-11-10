@@ -1440,8 +1440,12 @@ The internal binary64 scalar modal adapter now constructs Julia-owned Runge–Ku
 exponential Adams and fixed low-storage RK4IP sessions through the SEP 47 execution
 owner contract. Julia owns stepping, control, bounded attempts and numerical failures;
 Python translates descriptors and services closed events. Kerr, Raman and plasma use
-their independent represented profiles. The composed observation services and dense
-numerical leaf have separate tests; their Python attachment remains in progress.
+their independent represented profiles. Plane and periodic scalar statistics now attach
+through request-specific immutable preparation and session-owned work. Generation-checked
+copies publish complete host payloads atomically, retain failed-copy retries and preserve
+delivered arrays after close. The unavailable embedded quadrature diagnostic remains NaN.
+The temporal monitor and dense numerical leaves have separate tests; their Python
+attachment remains in progress.
 
 Portable Adams history copies raw accepted state, all engine rows and actual selected
 sample coordinates into detached host buffers. Shared history keys gate restoration;
@@ -1453,6 +1457,13 @@ new work. Dense and cross-precision restart cases remain to be qualified. The co
 phase 2 report will follow its remaining route,
 observation, group, noise, conformance and measurement work; this milestone does not
 declare any implementation phase complete.
+
+The scalar DF32 primitives have passed independent algorithm/source review, including
+normalization ties, protected CPU instruction checks and zero warmed allocations.
+Their finite-intermediate assumptions do not establish a propagation domain. The
+transcendental/range analysis remains a separate phase 3 requirement. Fixed-group replay
+and terminal replacement hooks preserve chunks and actual positions; the complete group
+coordinator and transport still require integration and review.
 
 The recoverable assignment and verification record is `julia/IMPLEMENTATION.md`.
 The full primary-source DF32 analysis and per-vendor qualification remain in phases 3

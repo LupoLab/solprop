@@ -14,6 +14,12 @@ operators, prefactors and power weights keep their full represented variation. E
 material response uses its own density, decay and preionisation profiles; taper scaling
 follows the translated mode map.
 Julia owns the stepping loop, error control, bounded attempt history and event barriers.
+Plane and periodic scalar modal statistics are evaluated inside Julia from the current
+field. The packed catalogue, frequency windows and independently represented material
+profiles belong to each run request. Periodic cadence counts accepted steps and is
+unchanged by event yields. A failed copy can retry the same closed chunk; acknowledgment
+drains it only after its complete values are owned by Python. Already delivered rows
+remain readable after session cleanup.
 Snapshots, cooperative stops and field exports use the same session contract as other
 backends. An acknowledged event invalidates its export ticket; arrays already returned
 to Python remain valid. Failed output consumers can recover an undelivered history chunk
@@ -38,15 +44,23 @@ of committed steps and separately report `attempted_source_evaluations` and comp
 `norm_evaluations`. If an in-place trial fails, its attempted calls remain visible and
 its field is poisoned, so no field-export ticket is issued.
 
-This composition is being extended to the remaining accepted routes,
-integrators, statistics and monitors before public backend selection is enabled.
+This composition is being extended to the remaining accepted routes and session
+services before public backend selection is enabled.
 Unsupported combinations currently refuse by name at preparation. The standalone
 Statistics and temporal/transverse-monitor components have separate tests;
 their presence alone does not establish complete Python session support.
 The current session supports in-stage temporal absorption. Split absorption, noise,
-vector responses, general modal and spatial transforms, and observation services remain
+vector responses, general modal and spatial transforms, and monitor/dense attachment remain
 pending. An explicit node chunk bounds the source's physical-node scratch; memory-budget
 admission remains pending. These execution choices do not alter scientific identities.
+
+The scalar statistics catalogue includes spectral centroids, energies and frequency
+windows, peak powers, temporal widths, material profiles and populations, and on-axis
+peak intensity when the original physical modes are supplied. The quadrature diagnostic
+is NaN at launch and when no distinct embedded projection exists. Short same-field CPU
+comparisons use explicit transform and reduction bounds and certify temporal-width
+brackets separately; they do not assign a generic relative tolerance to material rates.
+Complete route/catalogue qualification remains part of phase 2.
 
 ## Install and inspect
 

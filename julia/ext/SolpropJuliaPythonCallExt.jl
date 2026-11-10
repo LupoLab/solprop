@@ -7,6 +7,7 @@ import PythonCall: Py, PyArray, pyconvert, pyis, pyisinstance, pybuiltins
 import SolpropJulia
 import SolpropJulia: copy_preparation, prepare_modal, start_runge_kutta, start_adams
 import SolpropJulia: start_low_storage
+import SolpropJulia: prepare_observations, copy_session_observations!
 import SolpropJulia: export_session!, session_attempts!, session_orders!
 import SolpropJulia: export_adams_history!, restore_adams_history!, restore_session_counts!
 
@@ -167,7 +168,7 @@ function prepare_modal(transfer::Py, threads::Int, node_chunk::Int)
     map = SolpropJulia.ModalSourceMap(
         execution; synthesis = copy_preparation(transfer.synthesis),
         projection = copy_preparation(transfer.projection),
-        coarse_projection = copy_preparation(transfer.coarse_projection),
+        coarse_projection = _optional_copy(transfer.coarse_projection),
         taper = _profile(execution, transfer.taper, :taper),
     )
     shape = (length(grid.omega), size(map.synthesis, 2))
@@ -234,9 +235,12 @@ function _launch(preparation, transfer, field)
 end
 
 function start_runge_kutta(
-        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
     )
+    services = SolpropJulia._observation_services(preparation)
+    preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     tableau = SolpropJulia.EmbeddedTableau(
         copy_preparation(transfer.nodes), copy_preparation(transfer.matrix),
@@ -246,7 +250,7 @@ function start_runge_kutta(
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
     return SolpropJulia.RungeKuttaSession(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init), tableau, policy,
-        norm, schedule, source, flow; stop, plane_index = plane, plane_pending,
+        norm, schedule, source, flow; stop, plane_index = plane, plane_pending, services,
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end
@@ -283,30 +287,36 @@ function _adams_control(policy)
 end
 
 function start_adams(
-        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
     )
+    services = SolpropJulia._observation_services(preparation)
+    preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     policy = _adams_control(transfer.adams)
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
     return SolpropJulia.AdamsSession(
         execution, state, z, pyconvert(Float64, transfer.control.dz_init),
         policy, norm, schedule, source, flow;
-        stop, plane_index = plane, plane_pending,
+        stop, plane_index = plane, plane_pending, services,
         source_absent = pyconvert(Bool, transfer.source_absent),
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end
 
 function start_low_storage(
-        preparation::SolpropJulia.ModalPreparation, transfer::Py, field,
+        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
+        transfer::Py, field,
         z::Float64, plane::Int, plane_pending::Bool, stop::SolpropJulia.StopFlag,
     )
+    services = SolpropJulia._observation_services(preparation)
+    preparation = SolpropJulia._modal_preparation(preparation)
     execution = preparation.execution
     state, norm, schedule, source, flow = _launch(preparation, transfer, field)
     return SolpropJulia.LowStorageSession(
         execution, state, z, SolpropJulia.RK4IPTableau(), norm, schedule, source, flow;
-        stop, plane_index = plane, plane_pending,
+        stop, plane_index = plane, plane_pending, services,
         exports = SolpropJulia._FieldExport(execution, preparation.power_weight),
     )
 end
@@ -323,7 +333,7 @@ end
 
 function export_session!(
         output::Union{Py, PyArray}, session, generation::Int,
-        preparation::SolpropJulia.ModalPreparation,
+        preparation::Union{SolpropJulia.ModalPreparation, SolpropJulia.SessionPreparation},
         power::Bool, optics::Bool,
     )
     borrowed = _python_buffer(ComplexF64, Val(3), output)
@@ -342,6 +352,8 @@ function export_session!(
     end
     return nothing
 end
+
+include("observations.jl")
 
 function session_attempts!(
         positions::Py, lengths::Union{Py, PyArray},

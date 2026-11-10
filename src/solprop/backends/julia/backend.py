@@ -14,6 +14,7 @@ from solprop.backends.driver_session import foreign_request
 from solprop.backends.julia import _calls
 from solprop.backends.julia._descriptors import lower_modal, transfer_memory
 from solprop.backends.julia._lower import RunTransfer, lower_run
+from solprop.backends.julia._observations import ObservationTransfer, lower_observations
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime, get_runtime
 from solprop.backends.julia._session import JuliaSession
@@ -110,6 +111,13 @@ class JuliaBackend:
             problem.transform.n_nodes if selected.chunk is None else selected.chunk,
         )
         lower_run(problem, request)
+        self._observation = (
+            lower_observations(
+                problem, request, grid=grid, modes=modes, profiles=profiles
+            )
+            if request.observation.stats.names
+            else None
+        )
         self._setup_id = setup_id
         self._wide = wide
         self._grid, self._modes, self._profiles = grid, modes, profiles
@@ -187,6 +195,19 @@ class JuliaBackend:
 
             check_derived_problem(self._problem, problem, self._request, request)
         transfer = lower_run(problem, request)
+        observation = (
+            self._observation
+            if request is self._request
+            else lower_observations(
+                problem,
+                request,
+                grid=self._grid,
+                modes=self._modes,
+                profiles=self._profiles,
+            )
+            if request.observation.stats.names
+            else None
+        )
         if self._preparation is None:
             runtime = get_runtime(setup_id=self._setup_id, device="cpu")
             handle = runtime.own_call(
@@ -194,8 +215,20 @@ class JuliaBackend:
             )
             self._runtime, self._preparation = runtime, handle
         assert self._runtime is not None
+        prepared = (
+            self._preparation
+            if observation is None
+            else self._runtime.own_call(
+                "prepare_observations", self._preparation, observation
+            )
+        )
         return JuliaPrepared(
-            self, self._runtime, self._preparation, transfer, problem.shape
+            self,
+            self._runtime,
+            prepared,
+            transfer,
+            problem.shape,
+            observation=observation,
         )
 
     def metadata(self) -> dict[str, object]:
@@ -298,6 +331,14 @@ class JuliaBackend:
             f"transfer.{name}": size
             for name, size in transfer_memory(self._lowered).items()
         }
+        observation_transfers = (
+            self._observation,
+            *(prepared._observation for prepared in self._prepared),
+        )
+        ledger.update(
+            (f"observation.transfer{name}", size)
+            for name, size in transfer_memory(observation_transfers).items()
+        )
         if self._runtime is not None and self._preparation is not None:
             ledger.update(
                 (f"preparation.{name}", size)
@@ -313,6 +354,13 @@ class JuliaBackend:
                 # are separate fields, including its copied tolerance weights.
                 if not name.startswith("control.")
             )
+            if prepared._observation is not None:
+                ledger.update(
+                    (f"observation.{index}.preparation.{name}", size)
+                    for name, size in _calls.memory(
+                        prepared._runtime, prepared._preparation, preparation=True
+                    ).items()
+                )
         for index, session in enumerate(self._sessions):
             ledger.update(
                 (f"session.{index}.{name}", size)
@@ -401,6 +449,9 @@ class JuliaBackend:
             except BaseException as error:
                 if failure is None:
                     failure = error
+        for prepared in self._prepared:
+            if prepared._preparation is not self._preparation:
+                prepared._preparation.close()
         if self._preparation is not None:
             self._preparation.close()
             self._preparation = None
@@ -423,6 +474,8 @@ class JuliaPrepared:
         Per-run policy, copied into each independently owned engine session.
     shape : tuple of int
         Host field shape ``(n_modes, n_pol, n_omega)``.
+    observation : ObservationTransfer or None, optional
+        Request-specific immutable observation layout and represented inputs.
     """
 
     def __init__(
@@ -432,6 +485,8 @@ class JuliaPrepared:
         preparation: JuliaHandle,
         transfer: RunTransfer,
         shape: tuple[int, int, int],
+        *,
+        observation: ObservationTransfer | None = None,
     ) -> None:
         """Retain numerical preparation without creating mutable march state."""
         self._owner = owner
@@ -439,6 +494,7 @@ class JuliaPrepared:
         self._preparation = preparation
         self._transfer = transfer
         self._shape = shape
+        self._observation = observation
         self._owner._prepared.add(self)
 
     @property
@@ -494,14 +550,30 @@ class JuliaPrepared:
             self._transfer,
             start,
             self._shape,
-            record=self._owner.metadata(),
-            released=partial(self._owner.release, owns=owns),
+            record=self.metadata(),
+            released=partial(
+                self._owner.release if self._observation is None else self._release,
+                owns=owns,
+            ),
             stop=stop,
             listener=listener,
             started=started,
+            observation=self._observation,
         )
         self._owner.register(session)
         return session
+
+    def _release(self, session: JuliaSession, *, owns: bool) -> None:
+        """Retain this prepared factory until its session releases numerical resources.
+
+        Parameters
+        ----------
+        session : JuliaSession
+            Closed independent session.
+        owns : bool
+            Whether the session also owns the execution owner.
+        """
+        self._owner.release(session, owns=owns)
 
     def metadata(self) -> Mapping[str, object]:
         """Return execution choices from the immutable owner.
@@ -511,7 +583,10 @@ class JuliaPrepared:
         collections.abc.Mapping
             Detached execution metadata.
         """
-        return self._owner.metadata()
+        record = self._owner.metadata()
+        if self._observation is not None:
+            record["statistics_tables"] = self._observation.profiles.record()
+        return record
 
     def memory_ledger(self) -> Mapping[str, int]:
         """Return the owner's retained buffers and live sessions.

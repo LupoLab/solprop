@@ -4,6 +4,7 @@
 
 """Own frequency-first numerical descriptors for Julia modal preparation."""
 
+from collections.abc import Mapping
 from dataclasses import dataclass, fields, is_dataclass
 from weakref import WeakKeyDictionary
 
@@ -239,9 +240,10 @@ class ModalTransfer:
         ``field`` or ``envelope``.
     n_time, dt : int, float
         Fine-grid sample count and spacing in seconds.
-    synthesis, projection, coarse_projection : numpy.ndarray
+    synthesis, projection, coarse_projection : numpy.ndarray or None
         Physical maps with shapes ``(n_nodes,n_modes)`` and ``(n_modes,n_nodes)``.
         Synthesis includes the existing padding scale; projection includes quadrature.
+        The coarse projection is absent when the shared transform has no embedded pair.
     taper : float or TableTransfer
         Independent positive dimensionless taper scale.
     prefactor, operator, power_weight : CoefficientTransfer
@@ -266,7 +268,7 @@ class ModalTransfer:
     dt: float
     synthesis: Float[np.ndarray, "n_nodes n_modes"]
     projection: Float[np.ndarray, "n_modes n_nodes"]
-    coarse_projection: Float[np.ndarray, "n_modes n_nodes"]
+    coarse_projection: Float[np.ndarray, "n_modes n_nodes"] | None
     taper: float | TableTransfer
     prefactor: CoefficientTransfer
     operator: CoefficientTransfer
@@ -630,7 +632,9 @@ def lower_modal(problem: PropagationProblem) -> ModalTransfer:
         grid.dt_fine,
         owned(transform.synthesis),
         owned(transform.projection),
-        owned(transform.projection_coarse),
+        None
+        if np.array_equal(transform.projection, transform.projection_coarse)
+        else owned(transform.projection_coarse),
         lower_profile(transform.taper_scale),
         _coefficient(
             responses.prefactor_constant,
@@ -697,15 +701,21 @@ def transfer_memory(transfer: object) -> dict[str, int]:
             Dotted retained-buffer name.
         """
         if isinstance(value, np.ndarray):
-            if id(value) not in seen:
-                ledger[path] = value.nbytes
-                seen.add(id(value))
+            owner = value
+            while isinstance(owner.base, np.ndarray):
+                owner = owner.base
+            if id(owner) not in seen:
+                ledger[path] = owner.nbytes
+                seen.add(id(owner))
         elif is_dataclass(value) and not isinstance(value, type):
             for field in fields(value):
                 visit(getattr(value, field.name), f"{path}.{field.name}".lstrip("."))
         elif isinstance(value, tuple):
             for index, item in enumerate(value):
                 visit(item, f"{path}.{index}")
+        elif isinstance(value, Mapping):
+            for name, item in value.items():
+                visit(item, f"{path}.{name}")
 
     visit(transfer, "")
     return ledger

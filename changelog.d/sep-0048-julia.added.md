@@ -23,6 +23,13 @@ The source owns bounded node scratch and refuses overlapping caller buffers befo
 numerical writes. Broader route, method, observation and device support remains under
 implementation.
 
+Scalar modal plane and periodic statistics execute inside Julia, with request-owned
+catalogues, profile tables and windows. Event copies are transactional, preserve rows
+after cleanup and retry undelivered chunks without numerical replay. Missing embedded
+quadrature diagnostics remain NaN; closed sessions release their request preparation
+([#653](https://github.com/LupoLab/solprop/issues/653),
+[#662](https://github.com/LupoLab/solprop/issues/662)).
+
 Adams preserves shared control policy, exact logical budget charges, actual source-call
 counts and compact accepted-order records across event yields and resumes. Portable
 binary64 snapshots transfer raw accepted state and full history stores losslessly;

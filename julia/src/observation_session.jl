@@ -226,7 +226,7 @@ master-owned alarm scalar, initially NaN when unavailable; it is never inferred 
 stale RHS scratch. Copy-out accessors do not drain. The containing session validates
 generations and owns event/plane cursors. Refuse invalid capacity or preparation.
 """
-mutable struct ObservationServices{W, S, R}
+mutable struct ObservationServices{W, S, R, Q}
     work::W
     split::S
     row_slices::R
@@ -251,17 +251,20 @@ mutable struct ObservationServices{W, S, R}
     accepted_seen::Int
     committed_z::Float64
     quadrature_error::Float64
+    quadrature_work::Q
 
     function ObservationServices(
             work::W, split::S, row_slices::R, period::Int, attempt_capacity::Int,
             can_rest::Bool, rows::_ObservationRows, plane_values::Vector{Float64},
-        ) where {W, S, R}
+            quadrature_work::Q,
+        ) where {W, S, R, Q}
         blank = TemporalPlaneRow(false, NaN, NaN, NaN, NaN, 0.0)
-        return new{W, S, R}(
+        return new{W, S, R, Q}(
             work, split, row_slices, period, attempt_capacity, can_rest, rows,
             plane_values, false, NaN, fill(blank, 2), 0,
             MonitorNotices(1), nothing, ObservationNoBarrier, ObservationNoContinuation,
             NaN, (quiet = false, step_cap = Inf), false, false, false, 0, NaN, NaN,
+            quadrature_work,
         )
     end
 end
@@ -299,6 +302,8 @@ function ObservationServices(
     return ObservationServices(
         work, split, slices, policy.period, attempt_capacity, policy.can_rest, rows,
         zeros(data.selection.width),
+        any(slot -> slot.code == 20, slots) ?
+            QuadratureWorkspace(execution, data.n_modes) : nothing,
     )
 end
 
@@ -510,12 +515,23 @@ function _session_accepted!(services::ObservationServices, session, dz)
         attempts.count > 0 && attempts.accepted[attempts.count] &&
         attempts.z[attempts.count] == state.z ||
         throw(ArgumentError("observation acceptance requires a fresh recorded endpoint"))
+    _observation_quadrature!(services, session.source, session.execution)
     services.decision = observation_accepted!(
         services.work, session.field, state.z, dz, services.notices,
     )
     services.accepted_seen, services.committed_z = state.accepted, state.z
     _observation_pause!(services, ObservationAcceptedRest, state.z) && return nothing
     _observation_accepted_rest!(services, session)
+    return nothing
+end
+
+_observation_quadrature!(services, source, execution) = nothing
+function _observation_quadrature!(services, source::ModalSource, execution)
+    work = services.quadrature_work
+    work === nothing && return nothing
+    services.quadrature_error = source.ready ? quadrature_error!(
+            work, source.quadrature_fine, source.quadrature_coarse, execution,
+        ) : NaN
     return nothing
 end
 
@@ -634,6 +650,7 @@ function _session_acknowledge!(services::ObservationServices, session, generatio
     !state.closed && state.pending && generation == state.generation ||
         throw(ArgumentError("the observation acknowledgment generation is not pending"))
     services.rows.count = services.monitor_count = 0
+    services.plane_valid && (services.quadrature_error = NaN)
     services.plane_valid = false
     reset_notices!(services.notices)
     services.crossing_refusal = nothing

@@ -31,6 +31,20 @@ from solprop.translate.precision import SINGLE
 from solprop.translate.responses import ResponseStage
 
 
+def test_identical_quadrature_projection_has_no_embedded_diagnostic():
+    case = cpu_case()
+    transform = case.problem.transform
+    assert np.array_equal(transform.projection, transform.projection_coarse)
+    assert lower_modal(case.problem).coarse_projection is None
+    represented = replace(transform, projection_coarse=0.5 * transform.projection)
+    changed = lower_modal(
+        replace(case.problem, route=replace(case.problem.route, transform=represented))
+    )
+    np.testing.assert_array_equal(
+        changed.coarse_projection, represented.projection_coarse
+    )
+
+
 def test_lowering_caches_owned_read_only_arrays_and_releases_its_problem():
     case = cpu_case()
     problem = case.problem

@@ -32,6 +32,7 @@ from solprop.backends.events import (
 )
 from solprop.backends.export import ExportRecipe, destination_refusal
 from solprop.backends.julia import _calls
+from solprop.backends.julia._descriptors import transfer_memory
 from solprop.backends.julia._history import (
     CALL_COUNTERS,
     CallRestore,
@@ -42,8 +43,10 @@ from solprop.backends.julia._history import (
     restore_history,
 )
 from solprop.backends.julia._lower import RunTransfer
+from solprop.backends.julia._observations import ObservationTransfer
 from solprop.backends.julia._ownership import JuliaHandle, require_main_thread
 from solprop.backends.julia._runtime import JuliaRuntime
+from solprop.backends.julia._services import ObservationPayload, observations
 from solprop.backends.julia._stop import StopLease
 from solprop.backends.protocol import BackendHistory, StepStats, StepSummary
 from solprop.backends.session import (
@@ -125,6 +128,8 @@ class JuliaSession:
         Observational attempt listener; forces an external yield after every attempt.
     started : callable or None, optional
         Announcement before numerical work, after an owed launch observation.
+    observation : ObservationTransfer or None, optional
+        Immutable shapes and offsets for Julia-owned observation services.
 
     Raises
     ------
@@ -147,11 +152,14 @@ class JuliaSession:
         stop: StopFlag | None = None,
         listener: Callable[[float, float, bool], None] | None = None,
         started: Callable[[float, float, int], None] | None = None,
+        observation: ObservationTransfer | None = None,
     ) -> None:
         """Validate the start, construct its independent engine, then take the field."""
         runtime.check()
         self._validate_start(start, shape)
         self._runtime = runtime
+        self._observation = observation
+        self._payload: ObservationPayload | None = None
         self._preparation = preparation
         self._shape = shape
         initial = dict(record)
@@ -174,7 +182,7 @@ class JuliaSession:
             np.empty((0, 2), dtype=np.int64) if restored is None else restored.orders,
             0,
         )
-        self._released = released
+        self._released: Callable[[JuliaSession], None] | None = released
         self._ledger = SessionLedger()
         self._listener = listener
         self._started = started
@@ -510,7 +518,8 @@ class JuliaSession:
         Event
             The shared observation, progress, service or terminal event.
         """
-        rows = StepStats.empty()
+        payload = self._capture_observations(report.generation)
+        rows = payload.rows
         ticket = ExportTicket(receipt, report.generation, report.z)
         if report.kind in _OBSERVATIONS:
             return ObservationReady(
@@ -519,7 +528,7 @@ class JuliaSession:
                 report.plane,
                 chunk,
                 rows,
-                {},
+                payload.plane,
                 StepSummary(
                     report.z,
                     report.plane_attempts,
@@ -563,6 +572,27 @@ class JuliaSession:
             chunk,
             rows,
         )
+
+    def _capture_observations(self, generation: int) -> ObservationPayload:
+        """Publish a complete copied payload once, leaving failed copies retryable.
+
+        Parameters
+        ----------
+        generation : int
+            Pending numerical generation.
+
+        Returns
+        -------
+        ObservationPayload
+            Complete detached values for this generation.
+        """
+        current = self._payload
+        if current is None or current.generation != generation:
+            current = observations(
+                self._runtime, self._engine, generation, self._observation
+            )
+            self._payload = current
+        return current
 
     def _budget_error(self, report: _calls.EngineReport) -> ResponseBudgetError:
         """Attach the accepted field and exact charges to the shared budget error.
@@ -625,6 +655,7 @@ class JuliaSession:
         assert self._report is not None
         with committing():
             self._capture_execution(self._report.generation)
+            self._capture_observations(self._report.generation)
             _calls.call_void(
                 self._runtime,
                 "acknowledge_session",
@@ -633,6 +664,7 @@ class JuliaSession:
             )
             self._ledger.acknowledge(receipt)
             self._exports.clear()
+            self._payload = None
             self._held = False
 
     def _check_ticket(self, ticket: ExportTicket) -> _calls.EngineReport:
@@ -888,8 +920,9 @@ class JuliaSession:
             return join_attempts(())
         self._capture_execution(report.generation)
         chunk = _calls.attempts(self._runtime, self._engine, report.generation)
+        payload = self._capture_observations(report.generation)
         self._held = False
-        return chunk, StepStats.empty()
+        return chunk, payload.rows
 
     def pending_ticket(self) -> ExportTicket | None:
         """Return a pending committed-state ticket after an external service failure.
@@ -948,6 +981,11 @@ class JuliaSession:
         self._check()
         ledger = _calls.memory(self._runtime, self._engine)
         ledger["execution.response_orders"] = self._accounting.orders.nbytes
+        if self._payload is not None:
+            ledger.update(
+                (f"observation.{name}", size)
+                for name, size in transfer_memory(self._payload).items()
+            )
         for recipe, values in self._exports.items():
             ledger[f"export_power_{recipe.power}_optics_{recipe.optics}"] = (
                 values.nbytes
@@ -974,11 +1012,16 @@ class JuliaSession:
                 status.outcome,
             )
             self._exports.clear()
+            self._payload = None
             try:
                 self._engine.close()
             finally:
+                self._preparation = None
+                self._observation = None
                 self._lease.close()
-                self._released(self)
+                released, self._released = self._released, None
+                if released is not None:
+                    released(self)
 
     def check_close(self) -> None:
         """Refuse a recursive close before an execution owner changes any lifetime.

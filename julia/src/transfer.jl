@@ -8,6 +8,9 @@ public session_attempts!, session_failure, session_memory, preparation_memory
 public fail_session
 public session_execution, session_orders!, session_budget
 public restore_session_counts!
+public SessionPreparation, prepare_observations, session_observation_status
+public session_observations!
+public copy_session_observations!
 
 """
     ModalPreparation(execution, data, operator, power_weight, node_chunk)
@@ -25,6 +28,40 @@ struct ModalPreparation{E, D, O, W}
     operator::O
     power_weight::W
     node_chunk::Int
+end
+
+"""
+    SessionPreparation(modal, observations)
+
+Pair immutable modal preparation with one request's immutable observation policy.
+
+`modal` is a `ModalPreparation`, and `observations` a `SessionObservationPolicy`.
+Every start creates independent mutable observation work and bounded delivery storage.
+The additional preparation ledger excludes arrays already owned by `modal`.
+"""
+struct SessionPreparation{M <: ModalPreparation, O <: SessionObservationPolicy}
+    modal::M
+    observations::O
+end
+
+"""
+    prepare_observations(modal, transfer)
+
+Copy one request's observation transfer through the optional PythonCall extension.
+
+The resulting `SessionPreparation` retains no Python objects and shares only immutable
+numerical inputs with `modal`. No session or delivery cursor is constructed here.
+"""
+function prepare_observations end
+
+_modal_preparation(preparation::ModalPreparation) = preparation
+_modal_preparation(preparation::SessionPreparation) = preparation.modal
+_observation_services(preparation::ModalPreparation) = _NoSessionServices()
+function _observation_services(preparation::SessionPreparation)
+    modal = preparation.modal
+    return ObservationServices(
+        modal.execution, preparation.observations; node_chunk = modal.node_chunk,
+    )
 end
 
 struct _FieldExport{W, A, C}
@@ -149,6 +186,81 @@ function _session_chunk_pending(session, generation)
         throw(ArgumentError("the session chunk is stale or not pending"))
     return nothing
 end
+
+"""
+    session_observation_status(session, generation)
+
+Read pending periodic row count, packed periodic width and valid plane width.
+
+Validate the open pending generation before reading. Return zero widths/counts when
+no observation services are attached. This read never drains numerical buffers.
+"""
+function session_observation_status(session, generation::Int)
+    _session_chunk_pending(session, generation)
+    services = session.services
+    services isa ObservationServices || return (0, 0, 0)
+    return (
+        services.rows.count, size(services.rows.values, 1),
+        services.plane_valid ? length(services.plane_values) : 0,
+    )
+end
+
+"""
+    session_observations!(positions, steps, values, plane, session, generation)
+
+Copy a pending observation payload into detached, writable destinations.
+
+The Float64 vectors `positions` and Int64 `steps` have the pending row count. The
+Float64 matrix `values` is `(periodic_width,n_rows)`; `plane` has the valid packed
+plane width or zero entries. Validate dimensions and all aliases before any writes.
+The call preserves the generation and its numerical buffers for a failed-copy retry.
+"""
+function session_observations!(
+        positions::AbstractVector{Float64}, steps::AbstractVector{Int64},
+        values::AbstractMatrix{Float64}, plane::AbstractVector{Float64},
+        session, generation::Int,
+    )
+    count, width, plane_width = session_observation_status(session, generation)
+    length(positions) == length(steps) == count && size(values) == (width, count) &&
+        length(plane) == plane_width ||
+        throw(DimensionMismatch("observation destinations disagree with the pending chunk"))
+    destinations = (positions, steps, values, plane)
+    Base.require_one_based_indexing(destinations...)
+    for (index, destination) in enumerate(destinations)
+        (
+            _retained_alias(destination, session) ||
+                _retained_alias(destination, session.services)
+        ) && throw(ArgumentError("observation destinations must not alias retained storage"))
+        for other in (index + 1):length(destinations)
+            Base.mightalias(destination, destinations[other]) &&
+                throw(ArgumentError("observation destinations must be disjoint"))
+        end
+    end
+    services = session.services
+    services isa ObservationServices || return nothing
+    for row in 1:count
+        positions[row], steps[row] = services.rows.z[row], services.rows.step[row]
+        for column in 1:width
+            values[column, row] = services.rows.values[column, row]
+        end
+    end
+    for index in 1:plane_width
+        plane[index] = services.plane_values[index]
+    end
+    return nothing
+end
+
+"""
+    copy_session_observations!(positions, steps, values, plane, session, generation)
+
+Copy a pending payload through the PythonCall destination adapter.
+
+Python vectors are writable C-contiguous Float64/Int64 buffers. The C-order Float64
+matrix `values` is `(n_rows,periodic_width)`; Julia's numerical copy uses its transposed
+storage layout. Validate every destination before writing and retain foreign owners
+for the synchronous copy. No Python reference remains in the session.
+"""
+function copy_session_observations! end
 
 """
     session_execution(session, generation)
@@ -426,6 +538,9 @@ function session_memory(session)
     if session.exports !== nothing
         _memory_arrays!(ledger, seen, "shared.weight", session.exports.weight)
     end
+    if session.services isa ObservationServices
+        _memory_arrays!(ledger, seen, "shared.observations", session.services.work.data)
+    end
     empty!(ledger)
     _memory_arrays!(ledger, seen, "session", session)
     # Julia-owned bytes were visited above. Only foreign storage needs this entry.
@@ -445,6 +560,24 @@ function preparation_memory(preparation::ModalPreparation)
     ledger = Dict{Symbol, Int}()
     _memory_arrays!(ledger, IdDict{Any, Bool}(), "preparation", preparation)
     return _memory_record(ledger)
+end
+
+function preparation_memory(preparation::SessionPreparation)
+    ledger = Dict{Symbol, Int}()
+    seen = IdDict{Any, Bool}()
+    _memory_arrays!(ledger, seen, "modal", preparation.modal)
+    empty!(ledger)
+    _memory_arrays!(ledger, seen, "observations", preparation.observations)
+    return _memory_record(ledger)
+end
+
+function export_session!(
+        output::AbstractMatrix{ComplexF64}, session, generation::Int,
+        preparation::SessionPreparation, power::Bool, optics::Bool,
+    )
+    _retained_alias(output, preparation) &&
+        throw(ArgumentError("an export must not alias retained numerical storage"))
+    return export_session!(output, session, generation, preparation.modal, power, optics)
 end
 
 function export_session!(

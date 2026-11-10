@@ -21,6 +21,7 @@ from weakref import WeakSet, ref
 import numpy as np
 import pytest
 
+from backends.julia.cases import cpu_case
 from solprop import _interrupts
 from solprop.backends.events import (
     Eligibility,
@@ -36,18 +37,63 @@ from solprop.backends.export import ExportRecipe
 from solprop.backends.julia import _calls, _runtime
 from solprop.backends.julia import _session as session_module
 from solprop.backends.julia._lower import RunTransfer
+from solprop.backends.julia._observations import lower_observations
 from solprop.backends.julia._runtime import JuliaRuntime
+from solprop.backends.julia._services import ObservationPayload
 from solprop.backends.julia._session import JuliaSession
 from solprop.backends.julia.backend import JuliaBackend, JuliaPrepared
-from solprop.backends.protocol import BackendHistory
+from solprop.backends.protocol import BackendHistory, StepStats
 from solprop.backends.session import SessionError, SessionState, Start, StopToken
 from solprop.exceptions import BackendError, ConvergenceError, StopRequested
 from solprop.output.schema import MarchSnapshot
+from solprop.stats import StatsSpec
 from solprop.stepper.controller import PIController
 from solprop.translate.run_request import ErrorControlSpec
 
 SHAPE = (1, 1, 2)
 IDENTITY = ExportRecipe(power=False, optics=False)
+
+
+def test_closed_observation_session_releases_request_preparation(boundary):
+    case = cpu_case()
+    request = replace(
+        case.request,
+        observation=replace(
+            case.request.observation, stats=StatsSpec(names=("energy",))
+        ),
+    )
+    transfer = lower_observations(case.problem, request)
+    handle = boundary.runtime.owners.retain(object())
+    handle_ref, transfer_ref = ref(handle), ref(transfer)
+    prepared = JuliaPrepared(
+        boundary.owner,
+        boundary.runtime,
+        handle,
+        _transfer(),
+        SHAPE,
+        observation=transfer,
+    )
+    held = ref(prepared)
+    session = prepared.start(
+        Start(np.ones(SHAPE, dtype=np.complex128), 0.0), owns=False
+    )
+    del prepared, handle, transfer
+    gc.collect()
+    assert held() is not None
+    session.close()
+    gc.collect()
+    assert held() is None and handle_ref() is None and transfer_ref() is None
+
+
+def test_close_releases_observation_payload_and_preserves_delivered_rows(boundary):
+    session = boundary.prepared.start(
+        Start(np.ones(SHAPE, dtype=np.complex128), 0.0), owns=False
+    )
+    rows = StepStats(np.array([0.1]), np.array([0]), {"energy": np.array([[[2.0]]])})
+    session._payload = ObservationPayload(1, rows, {})
+    session.close()
+    assert session._payload is None
+    np.testing.assert_array_equal(rows.values["energy"], [[[2.0]]])
 
 
 def _history(*, z=None):
@@ -283,6 +329,7 @@ def boundary(monkeypatch, setup_record):
     owner._options = {}
     owner._wide = "binary64"
     owner._node_chunk = 1
+    owner._observation = None
     prepared = JuliaPrepared(owner, runtime, preparation, _transfer(), SHAPE)
     harness = SimpleNamespace(
         engine=engine,
@@ -500,6 +547,75 @@ def test_returned_chunk_is_not_delivered_again_for_a_service_failure(boundary):
     assert session.finished
     assert session.undelivered(ticket)[0].n_steps == 0
     assert len(boundary.engine.advances) == 2
+
+
+@pytest.mark.parametrize("failed_copy", [False, True])
+def test_observation_chunks_retry_atomically_and_remain_owned(
+    boundary, monkeypatch, failed_copy
+):
+    monkeypatch.setattr(_calls, "memory", lambda *args, **kwargs: {})
+    case = cpu_case()
+    spec = StatsSpec(names=("energy", "peak_power"), periodic=("peak_power", "energy"))
+    request = replace(
+        case.request, observation=replace(case.request.observation, stats=spec)
+    )
+    transfer = lower_observations(case.problem, request)
+    session = _start(boundary, _frame(0), _frame(3, z=0.1, attempts=1))
+    _launch(session)
+    session._observation = transfer
+    copies = []
+
+    def copy_observations(positions, steps, values, plane, engine, generation):
+        assert engine.pending and generation == engine.frame.report.generation
+        copies.append(generation)
+        positions[:] = 0.1
+        steps[:] = 0
+        values[:] = [11.0, 22.0]
+        assert plane.size == 0
+        if failed_copy and len(copies) == 1:
+            raise RuntimeError("interrupted observation copy")
+
+    boundary.engine.module.session_observation_status = lambda engine, generation: (
+        1,
+        2,
+        0,
+    )
+    setattr(boundary.engine.module, "copy_session_observations!", copy_observations)
+    if failed_copy:
+        with pytest.raises(BackendError, match="observation copy"):
+            session.advance()
+        assert session._payload is None
+        ticket = session.pending_ticket()
+        assert ticket is not None
+        attempts, rows = session.undelivered(ticket)
+        assert attempts.n_steps == 1
+        assert session.undelivered(ticket)[1].z.size == 0
+        receipt = ticket.receipt
+    else:
+        batch = session.advance()
+        (event,) = batch.events
+        assert isinstance(event, Progress)
+        rows = event.step_stats
+        receipt = batch.receipt
+    assert rows is not None
+    assert tuple(rows.values) == ("peak_power", "energy")
+    assert rows.values["peak_power"].shape == (1, 1)
+    assert rows.values["energy"].shape == (1, 1, 1)
+    np.testing.assert_array_equal(rows.values["peak_power"], [[11.0]])
+    np.testing.assert_array_equal(rows.values["energy"], [[[22.0]]])
+    assert not rows.z.flags.writeable and not rows.values["energy"].flags.writeable
+    assert (
+        sum(
+            value
+            for name, value in session.memory_ledger().items()
+            if name.startswith("observation.")
+        )
+        == 32
+    )
+    session.acknowledge(receipt)
+    assert session._payload is None
+    assert len(copies) == (2 if failed_copy else 1)
+    np.testing.assert_array_equal(rows.values["peak_power"], [[11.0]])
 
 
 def test_snapshot_coalescing_and_close_release_owned_resources(boundary):

@@ -84,6 +84,14 @@ Julia owns fixed-schedule member marching and
 refuses incompatible effective precision, wide arithmetic, setup or layout before
 consuming starts. Shared dispatch has no Julia-name branch.
 
+The Julia group coordinator contains independent member sessions, with no fused
+field or numerical work buffers. Its core validates fresh ownership and the shared
+actual itinerary, edges, planes, entrance and private stop flags needed for scheduling.
+Public method/layout/norm-mask and effective execution-option compatibility belongs
+to Python preflight before any caller-owned start is consumed. Member constructors
+retain their own precision/device admission; the phase 2 constructors admit CPU
+binary64 only. Differing immutable physical coefficients remain member-owned.
+
 Every Julia-facing Python call, destruction and exception formatting stays on main.
 The existing handle registry retains borrowed buffers and wrapper lifetimes. Python
 services closed events and validates destination arrays; it never drives numerical
@@ -168,6 +176,23 @@ The exact endpoint's field remains eligible for that diagnostic. The master owns
 common scheduler and generation-checked bridge; the service agent owns only the new
 service source and its focused tests. Dense planes remain a separate later integration
 and must never rewind the committed monitor.
+
+## Request-specific observation preparation
+
+`SessionPreparation` pairs the cached `ModalPreparation` with immutable
+`SessionObservationPolicy`. Statistics selection, cadence and monitor policy belong
+to the request, so they never enter the problem-only source cache. Its memory record
+counts only observation arrays not already owned by the modal preparation. Every
+start constructs its own `ObservationServices`; its ledger excludes both immutable
+preparations. An active Python session retains its prepared factory through its
+release callback, keeping request preparation alive and accounted until cleanup.
+
+The generation-checked bridge copies packed periodic rows and plane values into
+owned Python buffers without draining the engine. Python reshapes the catalogue's
+explicit C-order slices and publishes the complete payload atomically. A failed
+copy leaves the same generation retryable; acknowledgment occurs only after all
+retained execution and observation records have been captured. No statistic or
+monitor reduction runs in Python.
 
 ## Delivery order
 
