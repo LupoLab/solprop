@@ -31,11 +31,14 @@
 namespace solprop_native::engines {
 
 /** A failure injected at one of the resident engine's stages, after that stage has run
-    `after` more times: solprop's lifecycle tests fail the native march with it. */
+    `after` more times: solprop's lifecycle tests fail the native march with it. With
+    `signal`, that signal is raised in the native call instead and the stage goes on,
+    as a signal arriving while native code holds no interpreter lock does. */
 struct MarchFault {
   march::Stage stage = march::Stage::none;
   std::size_t after = 0;
   march::Category category = march::Category::backend;
+  int signal = 0;
 };
 
 /** A scalar carrier frame's shift and rotations (solprop SEP 35), packed by solprop's

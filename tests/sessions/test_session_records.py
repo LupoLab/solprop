@@ -85,10 +85,9 @@ def test_a_runge_kutta_session_reports_no_method_history(start, executor):
     _, plane = _first_plane(session)
     assert session.march_snapshot(plane.ticket) is None
     assert session.march_snapshot_nbytes() is None
-    if not executor.native_monitor:
-        # The transitional session's driver-facing answers.
-        assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
-        assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
+    # The driver-facing answers the run layer reads, which every executor gives.
+    assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]
+    assert session.march_refusal is None  # pyright: ignore[reportAttributeAccessIssue]
     record = session.execution_record()
     assert isinstance(record, Mapping)
     assert record
@@ -99,8 +98,8 @@ def test_an_adams_session_reports_its_history_at_the_pending_plane(start, execut
     """SEP 29 and 47 section 5.5: an Adams march's history is snapshotted at a plane."""
     if executor.scripted:
         pytest.skip("a scripted driver runs no Adams march")
-    if executor.native_monitor:
-        pytest.skip("the native session does not export its Adams history yet")
+    if executor.name == "native-session-low-storage":
+        pytest.skip("this executor replays every problem by the low-storage march")
     session = start(soliton(integrator=Multistep())).session
     _, plane = _first_plane(session)
     assert session.march_export_refusal() is None  # pyright: ignore[reportAttributeAccessIssue]

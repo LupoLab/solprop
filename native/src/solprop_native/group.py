@@ -152,7 +152,12 @@ def refusal(
     for index, (problem, request, start) in enumerate(
         zip(problems, requests, starts, strict=True)
     ):
-        refused = session_refusal(problem, request, start) or _member_refusal(request)
+        refused = (
+            # The group exports no noise phase, which a noisy plane stores.
+            f"the {problem.initial.noise_model!r} noise model"
+            if problem.initial.noise_model != "none"
+            else session_refusal(problem, request, start) or _member_refusal(request)
+        )
         if refused is not None:
             return f"{refused} (member {index})"
     first_problem, first = problems[0], requests[0]
@@ -471,7 +476,7 @@ class NativeGroupSession:
         return self._sessions[member].export(held, recipe, out)
 
     def noise_phase(self, member: int, ticket: ExportTicket) -> np.ndarray | None:
-        """Return ``None``: the native session refuses noise models.
+        """Return ``None``: the native group refuses noise models (:func:`refusal`).
 
         Parameters
         ----------

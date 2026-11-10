@@ -22,7 +22,7 @@ import pytest
 from tests.driver.test_native_z_table import walk_off
 
 from capability_routes import ROUTES
-from solprop.backends import available
+from solprop.backends import available, sessions
 from solprop.exceptions import BoundaryWarning, HostMarchWarning
 from solprop.monitor import BoundaryCheck
 from solprop.stepper.controller import PIController
@@ -140,7 +140,15 @@ def test_a_z_table_s_staged_trial_is_the_host_packed_trial(monkeypatch):
 
 @pytest.mark.parametrize("dense", [False, True], ids=["landed", "interpolated"])
 def test_a_z_table_s_march_is_the_host_loop_s(dense, monkeypatch):
-    """The moving-dispersion fibre, whose operator is a z table."""
+    """The moving-dispersion fibre, whose operator is a z table.
+
+    Interpolated, it is held on the backend's own march (the bridge, which still
+    serves what the native session refuses): the native session forms a z table's
+    dense plane where the state lives, which agrees with the host loop's NumPy
+    extension to rounding, not bitwise (``tests/sessions`` holds it to the driver).
+    """
+    if dense:
+        monkeypatch.setattr(sessions, "_native_session", lambda *_, **__: None)
     build = lambda: walk_off(  # noqa: E731
         "native", RungeKutta(), n_save=7, interpolate_planes=dense
     )

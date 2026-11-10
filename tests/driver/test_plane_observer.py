@@ -169,6 +169,20 @@ def test_a_stop_after_a_fetched_plane_checkpoints_the_field_fetched_once(
             return observation
 
         monkeypatch.setattr(driver, "observe", counted)
+    if backend == "native":
+        # The native session fetches from its resident state: a fetch is a native
+        # export, which the session counts.
+        session = pytest.importorskip("solprop_native.session").NativeSession
+        export = session.export
+
+        def exported(self, ticket, recipe, out=None):
+            before = self.native.status().exports
+            field = export(self, ticket, recipe, out)
+            if self.native.status().exports > before:
+                fetched.append(ticket.z)
+            return field
+
+        monkeypatch.setattr(session, "export", exported)
     simulation = _scheduled(build_simulation, backend)
     simulation.settings = dataclasses.replace(simulation.settings, fields="none")
     flag = threading.Event()
