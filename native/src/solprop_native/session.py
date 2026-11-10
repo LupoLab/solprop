@@ -312,23 +312,7 @@ def device_refusal(problem: PropagationProblem, request: RunRequest) -> str | No
     str or None
         The reason, or ``None`` when the device path admits the run.
     """
-    monitor = request.boundary.monitor
-    refused = (
-        (problem.transform.geometry is not None, "a spatial route"),
-        (
-            isinstance(request.integration.method, LowStorageRungeKutta),
-            "the low-storage replay",
-        ),
-        (request.observation.dense, "dense output"),
-        (
-            monitor is not None and monitor.transverse is not None,
-            "a boundary monitor's transverse edge",
-        ),
-        (
-            problem.initial.noise_model != "none",
-            f"the {problem.initial.noise_model!r} noise model",
-        ),
-    )
+    refused: tuple[tuple[bool, str], ...] = ()
     for failed, name in refused:
         if failed:
             return f"{name} on a device build"

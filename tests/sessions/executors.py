@@ -724,11 +724,10 @@ def _one_thread() -> bool:
     }
 
 
-DEVICE_REFUSED = frozenset({TRANSVERSE, DENSE, COUPLED})
-"""What the native session refuses on a device build (SEP 47 phase 3's representative
-device path, ``solprop_native.session.device_refusal``, and a coupled flow the device
-steps on solprop's host engine, ``solprop_native.backend._flow_on_host``); the suite's
-problem is modal and noiseless, so nothing else it asks is refused there."""
+DEVICE_REFUSED = frozenset({COUPLED})
+"""What the native session refuses on a device build: a coupled flow the device steps
+on solprop's host engine (``solprop_native.backend._flow_on_host``). Everything else
+the suite asks runs in the native session on a device too (SEP 47 phase 4)."""
 
 
 @functools.cache
@@ -886,7 +885,6 @@ EXECUTORS: dict[str, Executor] = {
         requires="solprop_native",
         capabilities=CAPABILITIES - {DENSE, COUPLED},
         native_monitor=True,
-        device=None,
     ),
     "scripted-host": Executor(
         "scripted-host",

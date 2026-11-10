@@ -424,39 +424,21 @@ def test_the_prototype_refuses_by_name_before_allocating(build, name, monkeypatc
 
 
 @pytest.mark.parametrize(
-    ("options", "name"),
-    [
-        (
-            {
-                "integrator": LowStorageRungeKutta(),
-                "schedule": FixedSchedule(np.full(40, LENGTH / 40)),
-            },
-            "the low-storage replay on a device build",
-        ),
-        ({"interpolate": True}, "dense output on a device build"),
-    ],
-    ids=["low-storage", "dense"],
+    "case",
+    ["rk", "adams", "adams-period-3", "rk-replay", "low-storage", "adams-dense"],
 )
-def test_a_device_build_refuses_by_name_what_phase_3_does_not_admit(
-    options, name, monkeypatch
-):
-    """SEP 47 phase 3: the representative device path refuses the rest by name.
+def test_a_device_build_admits_what_the_cpu_build_admits(case, monkeypatch):
+    """SEP 47 phase 4: a device build's session admits what a CPU build's does.
 
+    Runge-Kutta and Adams with planes, periodic rows and step planes, the low-storage
+    replay and dense output (and a spatial route, its transverse edge and a noise
+    model, ``test_native_session_device``): nothing is refused for being on a device.
     The decision is the problem's and the request's alone, so it is checked here on
-    any build, the device patched in; a device build's own lane runs what it admits.
+    any build, the device patched in; a device build's own lane runs them.
     """
     monkeypatch.setattr(native_session, "_on_device", lambda: True)
-    problem, run_request = _case(**options)
-    _refused(problem, run_request, name, monkeypatch)
-
-
-@pytest.mark.parametrize("case", ["rk", "adams", "adams-period-3", "rk-replay"])
-def test_a_device_build_admits_the_representative_path(case, monkeypatch):
-    """SEP 47 phase 3: Runge-Kutta and Adams on the modal route, with planes, periodic
-    rows and step planes, are the device path's; its monitor is admitted too
-    (``test_native_session_monitor``)."""
-    monkeypatch.setattr(native_session, "_on_device", lambda: True)
     problem, run_request = _case(**CASES[case])
+    assert native_session.device_refusal(problem, run_request) is None
     assert native_session.refusal(problem, run_request) is None
 
 
