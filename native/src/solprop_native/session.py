@@ -44,8 +44,11 @@ It admits a subset and refuses every other feature by name before allocating any
 - every periodic-capable statistic of the catalogue on these routes, plane and
   periodic, each evaluated and finished natively from a plan lowered once
   (:mod:`solprop_native._statistics`), the profile statistics from tables whose
-  measured error the execution record carries; the plane-only statistics the host
-  finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are refused;
+  measured error the execution record carries, and the plane-only statistics the plan
+  evaluates, a spatial route's fluence widths among them; the plane-only statistics
+  the host still finishes (:data:`~solprop_native._statistics.PLANE_ONLY`) are
+  refused, as is what the problem does not carry
+  (:func:`solprop.backends.session.statistics_unavailable`);
 - the boundary monitor, temporal and a free-space run's transverse edge, which the
   native session owns (SEP 47 section 6.4): its every decision and record are native,
   each warning is its own :class:`~solprop.backends.events.ServiceRequired` barrier
@@ -104,6 +107,7 @@ from solprop.backends.session import (
     SessionState,
     SessionStatus,
     SnapshotReceipt,
+    statistics_unavailable,
 )
 from solprop.backends.spatial import FarFieldTables
 from solprop.exceptions import (
@@ -121,7 +125,6 @@ from solprop.output.capability import (
     withheld_accessors,
 )
 from solprop.output.schema import MarchSnapshot
-from solprop.stats import PLASMA_INTEGRATION_STATISTICS
 from solprop.stepper.controller import ControlRecord, PIController
 from solprop.stepper.low_storage import LowStorageRungeKutta
 from solprop.stepper.multistep import ComparisonMultistep, Multistep
@@ -416,8 +419,11 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     """Return why the session refuses a run's statistics, naming them, or ``None``.
 
     Every statistic the native plan evaluates on the route is admitted, plane and
-    periodic (:mod:`solprop_native._statistics`); the plane-only statistics the host
-    finishes are refused by name, and so is what the backend itself would refuse.
+    periodic (:mod:`solprop_native._statistics`), a spatial route's fluence widths
+    among them. What the backend itself would refuse, and what the problem does not
+    carry (:func:`solprop.backends.session.statistics_unavailable`, which every
+    executor refuses before it starts), are refused by name; so are the plane-only
+    statistics the host still finishes.
 
     Parameters
     ----------
@@ -448,26 +454,16 @@ def _statistics_refusal(problem: PropagationProblem, spec: StatsSpec) -> str | N
     )
     if refused is not None:
         return f"statistics the backend refuses ({refused})"
+    unavailable = statistics_unavailable(problem, (*names, *spec.periodic))
+    if unavailable is not None:
+        return unavailable
     left = uncovered(problem, names)
     if left:
         return (
-            f"the statistics {left!r}, which the host finishes: a plane-only "
-            "statistic, a metric that varies inside an interval, or not a "
-            "statistic of this route"
+            f"the statistics {left!r}, which the host finishes: the zero-dispersion "
+            "wavelength, the on-axis plasma statistics, or a metric statistic of a "
+            "basis whose metric varies inside an interval"
         )
-    responses = problem.responses
-    if set(names) & set(PLASMA_INTEGRATION_STATISTICS) and (
-        not responses.population_channels or responses.envelope_plasma is not None
-    ):
-        return (
-            "the plasma integration diagnostics, which read the field-grid plasma "
-            "column this problem does not carry"
-        )
-    if (
-        set(names) & {"electron_density", "peak_ionisation_rate"}
-        and not responses.population_channels
-    ):
-        return "the plasma statistics of a problem with no compiled plasma response"
     return None
 
 

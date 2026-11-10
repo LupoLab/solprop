@@ -41,7 +41,12 @@ from solprop._interrupts import committing, handled
 from solprop.backends.populations import axis_refusal
 from solprop.backends.protocol import Backend, BackendHistory, Observation
 from solprop.backends.registry import statistics_refusal
-from solprop.backends.session import RunSession, SessionState, Start
+from solprop.backends.session import (
+    RunSession,
+    SessionState,
+    Start,
+    statistics_unavailable,
+)
 from solprop.driver.summary import run_summary
 from solprop.exceptions import (
     BackendError,
@@ -1632,5 +1637,10 @@ def _refuse_unrunnable(
     if refusal is not None:
         raise DriverError(refusal)
     refusal = axis_refusal(problem, [*spec.names, *spec.periodic])
+    if refusal is not None:
+        raise DriverError(refusal)
+    # What the problem does not carry, refused here for every executor rather than at
+    # the first plane (SEP 47 section 6.3).
+    refusal = statistics_unavailable(problem, [*spec.names, *spec.periodic])
     if refusal is not None:
         raise DriverError(refusal)
