@@ -14,6 +14,7 @@ monitor's trapezoid over committed steps, matches the energy the run actually lo
 from __future__ import annotations
 
 import dataclasses
+import functools
 import math
 import warnings
 from collections.abc import Mapping
@@ -1586,7 +1587,7 @@ def test_a_quiet_collar_option_changes_nothing_where_the_stages_keep_it(
 # A scan point keeps its closing record, and fails on its own warning.
 
 
-def _walking_watched_point(point: ScanPoint) -> Simulation:
+def _walking_watched_point(point: ScanPoint, backend: str = "numpy_ref") -> Simulation:
     """Return a watched, fixed-schedule scan point whose pulse walks ``drift``."""
     trange = 3 * TRANGE
     grid = EnvelopeGrid.from_limits(LENGTH, 1e-6, (0.8e-6, 1.25e-6), trange)
@@ -1601,27 +1602,35 @@ def _walking_watched_point(point: ScanPoint) -> Simulation:
         )],
         noise=None, raman=False, shock=False, save_planes=planes,
         schedule=FixedSchedule.uniform(0.0, LENGTH, LENGTH / 100, save_planes=planes),
-        integrator=RungeKutta(), backend="numpy_ref",
+        integrator=RungeKutta(), backend=backend,
     )  # fmt: skip
 
 
-def test_a_scan_point_keeps_its_closing_monitor_record(tmp_path: Path) -> None:
+@pytest.mark.parametrize("backend", ["numpy_ref", "native"])
+def test_a_scan_point_keeps_its_closing_monitor_record(
+    tmp_path: Path, backend: str
+) -> None:
+    # The run's opening record holds no monitor (its launch zeros): the point keeps
+    # the closing record alone, whichever session ran it.
+    if backend not in available():
+        pytest.skip(f"{backend} is not installed")
     scan = Scan("walk", drift=[0.0, 0.4, 1.2])
+    build = functools.partial(_walking_watched_point, backend=backend)
     for name, executor in (("local", Local()), ("batch", Batch(3))):
         path = tmp_path / f"{name}.h5"
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", BoundaryWarning)
             run_scan(
                 scan,
-                _walking_watched_point,
+                build,
                 executor=executor,
                 output=path,
                 progress="none",
             )
         for index in range(3):
             found = read_point(path, index)
-            backend = cast("dict[str, Any]", found["metadata"])["backend"]
-            assert "boundary_monitor" not in backend.get("settings", {}), name
+            opened = cast("dict[str, Any]", found["metadata"])["backend"]
+            assert "boundary_monitor" not in opened.get("settings", {}), name
             record = cast("dict[str, Any]", found["boundary_monitor"])
             assert "planes" not in record, name
             assert record["steps"] > 0, name
