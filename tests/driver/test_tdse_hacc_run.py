@@ -13,7 +13,7 @@ checkpoint-resume test; the real haCC segments are not deliberately interrupted.
 import dataclasses
 import json
 import warnings
-from typing import Any
+from typing import Any, cast
 
 import numpy as np
 import pytest
@@ -237,7 +237,7 @@ def test_a_resume_without_the_cached_check_restores_its_accounting_first(
         _run(simulation, path)
     first = resume(path)
     assert first.outcome is not None
-    attempted = first.outcome.atomic_calls["attempted"]
+    attempted = int(cast("int", first.outcome.atomic_calls["attempted"]))
     for entry in cache.glob("*.json"):
         entry.unlink()
     simulation.settings = dataclasses.replace(
@@ -247,7 +247,7 @@ def test_a_resume_without_the_cached_check_restores_its_accounting_first(
     final = resume(path)
     assert final.outcome is not None and final.outcome.status == "complete"
     assert final.outcome.atomic_calls["diagnostic_calls"] == 2
-    assert final.outcome.atomic_calls["attempted"] > attempted
+    assert int(cast("int", final.outcome.atomic_calls["attempted"])) > attempted
     consistency = plain(final.outcome.execution)["tdse"]["consistency"]
     assert consistency["from_cache"] is False
 
