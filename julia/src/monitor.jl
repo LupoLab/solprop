@@ -239,7 +239,7 @@ function _monitor_pair(value)
     return real_value * real_value + imaginary_value * imaginary_value
 end
 
-function _temporal_power!(power, samples, weights, execution)
+function _monitor_temporal_power!(power, samples, weights, execution)
     size(samples) == (length(power), length(weights.columns)) &&
         length(power) == size(weights.regions, 1) ||
         throw(DimensionMismatch("temporal monitor samples and scratch disagree"))
@@ -296,7 +296,7 @@ function temporal_reading!(
     elseif !isempty(reading.occupancy)
         throw(DimensionMismatch("crossing occupancy needs prepared bucket indices"))
     end
-    _temporal_power!(power, samples, weights, execution)
+    _monitor_temporal_power!(power, samples, weights, execution)
     totals = (0.0, 0.0, 0.0, 0.0, 0.0)
     for row in eachindex(power)
         value = power[row]
@@ -345,7 +345,7 @@ function split_reading!(
         throw(ArgumentError("split monitor step must be positive"))
     Base.mightalias(power, reading.occupancy) &&
         throw(ArgumentError("split scratch aliases the retained crossing occupancy"))
-    _temporal_power!(power, samples, weights, execution)
+    _monitor_temporal_power!(power, samples, weights, execution)
     taken = total = low = high = collar = 0.0
     for row in eachindex(power)
         rate = weights.regions[row, 4]
