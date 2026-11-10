@@ -1831,6 +1831,14 @@ public:
     require_open();
     return general_state_->flow_actions_to_host(inverse);
   }
+  std::vector<native::Complex> adams_block_to_host() {
+    require_open();
+    return general_state_->adams_block_to_host();
+  }
+  std::vector<native::Complex> adams_exponent_to_host() {
+    require_open();
+    return general_state_->adams_exponent_to_host();
+  }
   std::vector<double> form_flow_actions(const std::size_t section, const double dz,
                                         const std::vector<double>& fractions) {
     require_open();
@@ -3989,6 +3997,26 @@ NB_MODULE(_core, module_) {
             return real_output(std::move(measured), 1);
           },
           "section"_a, "dz"_a, "fractions"_a.noconvert())
+      // solprop SEP 47 phase 4: the last exponential Adams trial's coupled block and
+      // exponent, observations for tests.
+      .def("adams_block_to_host",
+           [](BoundState& self) {
+             std::vector<native::Complex> values;
+             {
+               const nb::gil_scoped_release release;
+               values = self.adams_block_to_host();
+             }
+             return complex_output(values, {values.size()});
+           })
+      .def("adams_exponent_to_host",
+           [](BoundState& self) {
+             std::vector<native::Complex> values;
+             {
+               const nb::gil_scoped_release release;
+               values = self.adams_exponent_to_host();
+             }
+             return complex_output(values, {values.size()});
+           })
       .def(
           "flow_actions_to_host",
           [](BoundState& self, const bool inverse) {

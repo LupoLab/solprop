@@ -714,9 +714,10 @@ inline constexpr std::size_t adams_max_samples = 8;
 inline constexpr std::size_t adams_max_norms = 3;
 
 /**
- * The most channels a coupled block the resident Adams engine steps may have (solprop
- * SEP 16 phase 6): its per-bin passes hold a block's channel vectors in registers. A
- * larger block takes solprop's host engine.
+ * The most channels of a coupled block whose channel vectors a host task of the
+ * resident Adams engine holds on its stack (solprop SEP 16 phase 6). A wider block's
+ * host passes hold them in a scratch row per bin, allocated with the history (solprop
+ * SEP 47 phase 4); a device build steps at most this many channels.
  */
 inline constexpr std::size_t adams_max_channels = 16;
 
@@ -922,6 +923,13 @@ public:
                         const std::vector<unsigned char>& identity);
   /** A coupled flow's held actions; see `CoupledFlowAction::actions_to_host`. */
   [[nodiscard]] std::vector<Complex> flow_actions_to_host(bool inverse) const;
+  /** The last exponential Adams trial's coupled block functions, row-major
+      `(slots + 1, n_active, n_modes, n_modes)`, the flow first: an observation for
+      tests (solprop SEP 47 phase 4). */
+  [[nodiscard]] std::vector<Complex> adams_block_to_host() const;
+  /** The last Adams trial's exponent `Delta Phi`, row-major `(n_columns, n_omega)`:
+      an observation for tests. */
+  [[nodiscard]] std::vector<Complex> adams_exponent_to_host() const;
   /** Form a coupled flow's actions natively; see `CoupledFlowAction::form_actions`. */
   [[nodiscard]] std::vector<double>
   form_flow_actions(std::size_t section, double dz,

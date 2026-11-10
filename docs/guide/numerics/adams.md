@@ -308,7 +308,9 @@ CF4 section, which exponentiates the generator inside each stage, is excluded. O
 scalar wall and the taper (0.2 mm windows) it takes
 two to three times fewer calls than IP-DOPRI5 at matched error. On
 the native backend, the bins on the flow actions' eigenbasis route take their matrix functions as
-`W f(x + h λ) Y` from that basis.
+`W f(x + h λ) Y` from that basis, and the bins off it read them off the augmented exponential as
+the reference does, by scaling, a Taylor series and squaring where the reference uses SciPy's
+`expm` (a difference at the rounding level).
 
 ### The carrier frame
 
@@ -659,9 +661,10 @@ gives the measured ranking by regime, on the native backend's CPU build and on d
   beside a coupled flow, where the exponential formulation alone steps its
   constant-Schur and frozen-residual sections and CF4 sections are refused. On `native`
   the history and the step's arithmetic are resident in the engine, on the CPU and on
-  the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too
-  when every bin of its sections is on the flow's eigenbasis route and it has at most
-  16 channels (otherwise its matrix passes run on the host). On the CPU build the
+  the AMD CDNA 3 and NVIDIA Hopper devices SEP 16 qualified, beside a coupled flow too:
+  on the CPU build at any width and whichever route each bin takes, on a device when every
+  bin of its sections is on the flow's eigenbasis route and it has at most 16 channels
+  (otherwise its matrix passes run on the host there). On the CPU build the
   march itself runs natively too, for `Multistep()` in either formulation and the
   one-order-higher PEC comparisons, adaptive or replayed, on every route; the
   configurations it does not cover (the other comparison methods, a coupled flow whose

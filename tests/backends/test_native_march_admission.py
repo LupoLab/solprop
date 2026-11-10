@@ -186,8 +186,9 @@ def test_moving_maps_and_coupled_flows_are_native(route):
 
 
 def test_the_host_engine_takes_the_host_march(monkeypatch):
-    # A coupled flow off the eigenbasis route or wider than sixteen channels keeps the
-    # host engine (ADR-044), whose history the native march cannot reach.
+    # A coupled flow the host engine steps (beside the interaction formulation, and on
+    # a device build off the eigenbasis route or wider than sixteen channels) keeps it
+    # (ADR-044), whose history the native march cannot reach.
     monkeypatch.setattr(NativeBackend, "_adams_engine", lambda *_: None)
     with pytest.warns(HostMarchWarning, match="the host engine"):
         backend = built(on_route("capillary (coherent wall)", Multistep()))

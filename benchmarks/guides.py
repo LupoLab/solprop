@@ -138,11 +138,12 @@ def taper_flow(modes: int) -> Simulation:
 
     A 40 um capillary whose radius falls linearly from 50 to 48 um, with taper
     coupling and no wall, on a narrow field grid (600 nm to 1.1 um, 150 fs), so that
-    a wide flow's host march still finishes in seconds. Up to 16 channels the flow
-    runs on the native Adams march where its eigenbasis route covers every bin; 17
-    are past ``solprop_native.backend.ADAMS_MAX_CHANNELS``, and solprop's host march
-    steps them with a ``HostMarchWarning``. The walk-off absorber is the wall
-    tutorials' (``coupled``).
+    a wide flow still finishes in seconds. The flow runs on the native Adams march at
+    every width on a CPU build; 17 channels are past
+    ``solprop_native.backend.ADAMS_MAX_CHANNELS``, the most a host task holds on its
+    stack, so their passes hold each bin's channel vectors in a row of their own (SEP
+    47 phase 4), and a device build steps them on solprop's host march with a
+    ``HostMarchWarning``. The walk-off absorber is the wall tutorials' (``coupled``).
     """
     length = CASES[f"taper_flow_{modes}"].length
     grid = FieldGrid.from_limits(length, 800e-9, (600e-9, 1.1e-6), 150e-15)

@@ -325,19 +325,21 @@ def test_unchecked_work_and_fields_are_never_a_match():
 
 
 @pytest.mark.slow
-def test_a_narrow_flow_marches_natively_and_a_wide_one_on_the_host(tmp_path):
-    # Both keep the wall tutorials' walk-off absorber and its warning.
+def test_a_narrow_and_a_wide_flow_march_natively(tmp_path):
+    # Both keep the wall tutorials' walk-off absorber and its warning. A CPU build
+    # steps a block of any width on the native Adams march, in the native session
+    # (SEP 47 phase 4); a device build keeps the host march past 16 channels.
+    device = pytest.importorskip("solprop_native").build_info().device_backend
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         _, _, narrow = counted("taper_flow_4", tmp_path, fraction=1.0)
         found = {type(item.message) for item in caught}
         assert HostMarchWarning not in found
         _, _, wide = counted("taper_flow_17", tmp_path / "wide", fraction=1.0)
-    assert HostMarchWarning in {type(item.message) for item in caught}
-    # The narrow flow runs in the native session, on its native Adams march.
-    assert narrow["march_calls"].get("session_adams", 0) > 0
-    assert narrow["host_attempts"] == 0
-    assert wide["march_calls"] == {}
-    assert wide["host_attempts"] == wide["native_returns"]["host_attempt"] > 0
-    # The host engine copies every accepted state to the host.
-    assert wide["field_crossings"]["step"] == wide["accepted"]
+    hosted = HostMarchWarning in {type(item.message) for item in caught}
+    for counts in (narrow, *(() if device != "none" else (wide,))):
+        assert counts["march_calls"].get("session_adams", 0) > 0
+        assert counts["host_attempts"] == 0
+    assert hosted == (device != "none")
+    if device != "none":
+        assert wide["host_attempts"] == wide["native_returns"]["host_attempt"] > 0

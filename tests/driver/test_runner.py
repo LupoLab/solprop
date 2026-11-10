@@ -606,12 +606,14 @@ def test_a_resident_adams_march_holds_no_host_copy_of_the_state(route):
 def test_a_host_adams_march_lists_its_copy_of_the_state_and_closes_it(monkeypatch):
     """Solprop's host engine reads the state on the host, one volume in the ledger.
 
-    A flow off the eigenbasis route is what takes that engine (``_adams_engine``).
+    A coupled flow the host engine steps (``_flow_on_host``: on a device build off
+    the eigenbasis route or wider than 16 channels) is what takes that engine
+    (``_adams_engine``); the test asks for it on any build.
     """
     pytest.importorskip("solprop_native")
     flow_parity = pytest.importorskip("flow_parity")
     monkeypatch.setattr(
-        "solprop.translate.coupled.eigenbasis_limit", lambda n_modes: 0.0
+        "solprop_native.backend._flow_on_host", lambda *_: "the test's host engine"
     )
     with warnings.catch_warnings():
         for category in (*flow_parity.QUIET, SolpropWarning):

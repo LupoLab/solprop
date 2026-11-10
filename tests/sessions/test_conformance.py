@@ -23,6 +23,8 @@ import pytest
 
 from sessions.executors import (
     CONSUMER,
+    COUPLED,
+    COUPLED_KINDS,
     DENSE,
     FACTOR,
     IDENTITY,
@@ -38,6 +40,7 @@ from sessions.executors import (
     ScriptedError,
     ScriptedWarning,
     assert_same_run,
+    coupled_flow,
     drive,
     edged,
     soliton,
@@ -613,6 +616,44 @@ def test_attempt_records_add_up_to_the_status(start):
     assert run.attempts == run.status.attempts == started.session.status().attempts
     ends = run.accepted_ends()
     assert (np.diff(ends) > 0).all() and ends[-1] == LENGTH
+
+
+@pytest.mark.medium
+@pytest.mark.filterwarnings("ignore:the temporal absorber attenuates")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.MaterialRangeWarning")
+@pytest.mark.filterwarnings("ignore::solprop.exceptions.GrazingIncidenceWarning")
+@pytest.mark.parametrize("kind", COUPLED_KINDS)
+def test_a_wide_or_off_route_coupled_flow_keeps_the_contract(start, executor, kind):
+    """SEP 47 section 6.3 (phase 4): the coupled flows the session took over.
+
+    A 17-channel block and a block off its eigenbasis route, ten fixed Adams steps:
+    the run completes at its end with every step accepted and recorded once, the
+    planes are observed in order with finite fields, and a repeated native run is the
+    same to the bit where the executor is deterministic.
+    """
+    executor.require(COUPLED)
+    problem, request, context = coupled_flow(kind)
+    schedule = request.stepper.schedule
+    assert schedule is not None
+    # The repeat is the native executors' to show; the reference's numpy run of a
+    # 17-channel block is long, and its repeatability is the suite's other tests'.
+    repeated = executor.deterministic and executor.name.startswith("native")
+    runs = []
+    for _ in range(2 if repeated else 1):
+        started = start(problem, request, context=context)
+        runs.append(drive(started, export=IDENTITY))
+    run = runs[0]
+    assert run.terminal.outcome is Outcome.COMPLETED
+    assert run.attempts == run.status.attempts == len(schedule.steps)
+    np.testing.assert_allclose(
+        run.accepted_ends(), np.cumsum(schedule.steps), rtol=0.0, atol=1e-18
+    )
+    positions = [event.z for event in run.observations]
+    assert positions == sorted(positions)
+    assert len(run.fields) == len(run.observations) >= 2
+    assert all(np.all(np.isfinite(field)) for field in run.fields)
+    for again in runs[1:]:
+        assert_same_run(again, run)
 
 
 @pytest.mark.parametrize("work_limit", [1, 3, 10**6])

@@ -138,6 +138,20 @@ public:
   [[nodiscard]] std::size_t n_sections() const noexcept { return sections_; }
   /** Whether every section's every bin is on the eigenbasis route. */
   [[nodiscard]] bool full_route() const noexcept { return forms_ && fallback_ == 0; }
+  // The bins off the eigenbasis route (solprop SEP 47 phase 4): each section's bin's
+  // one-based index among them in row-major (section, bin) order, zero on the route,
+  // and their Schur factors `Z` and `T`, which the exponential Adams formulation forms
+  // its flow and moments from.
+  [[nodiscard]] const IndexView2& route() const noexcept { return route_; }
+  [[nodiscard]] const ComplexView3& fallback_vectors() const noexcept {
+    return fallback_vectors_;
+  }
+  [[nodiscard]] const ComplexView3& fallback_triangular() const noexcept {
+    return fallback_triangular_;
+  }
+  [[nodiscard]] std::size_t n_fallback() const noexcept { return fallback_; }
+  /** Whether a section has a bin off the eigenbasis route. */
+  [[nodiscard]] bool falls_back(std::size_t section) const;
 
   /** Persistent allocations, by role, in bytes. */
   [[nodiscard]] std::map<std::string, std::size_t> memory_ledger() const;
@@ -151,6 +165,8 @@ private:
   std::size_t section_{}, fallback_{};
   bool ready_{}, closed_{}, forms_{};
   std::vector<unsigned char> identity_;
+  // Per section, whether a bin is off the eigenbasis route.
+  std::vector<unsigned char> section_fallback_;
   // The per-stage counts of `active_terms_`, kept on the host for the launch.
   std::vector<std::size_t> listed_counts_;
   ExecutionSpace kernels_;

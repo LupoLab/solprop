@@ -229,10 +229,12 @@ class _envelope_errors:
 
 
 ADAMS_MAX_CHANNELS = 16
-"""The most channels of a coupled block the resident Adams engine steps.
+"""The most channels of a coupled block the resident Adams engine steps on a device.
 
-The native ``adams_max_channels``: the engine's per-bin passes hold a block's channel
-vectors in registers; a larger block takes solprop's host engine.
+The native ``adams_max_channels``: a device build's resident engine is qualified up to
+it, and a larger block takes solprop's host engine there. A CPU build steps any width:
+its per-bin passes hold a block's channel vectors on the stack up to it and in a row
+per bin beyond (solprop SEP 47 phase 4).
 """
 
 _SPATIAL_STAT_FLAGS = {
@@ -641,15 +643,10 @@ class NativeBackend(StepDriver[_core.State]):
         paths take solprop's host engine over this backend's hooks.
         """
         # Beside a coupled flow the exponential formulation's matrix passes are
-        # resident (solprop SEP 16 phase 6) when every bin of every section is on the
-        # flow's eigenbasis route and the block has at most `ADAMS_MAX_CHANNELS`
-        # channels; otherwise solprop's host engine runs them over this backend's hooks.
+        # resident (solprop SEP 16 phase 6) except where `_flow_on_host` says
+        # otherwise; there solprop's host engine runs them over this backend's hooks.
         flow = self._flow
-        if flow is not None and (
-            method.formulation != "exponential"
-            or not bool(np.all(flow.route))
-            or self._problem.shape[0] > ADAMS_MAX_CHANNELS
-        ):
+        if _flow_on_host(self._problem, method.formulation == "exponential"):
             return None
         # A varying operator's exponential formulation carries the transported
         # compensation natively, as does a frozen-residual flow's residual, whatever
@@ -3155,33 +3152,58 @@ def native_march_refusal(
 
     ``_NativeAdamsMarch._native_refusal`` and ``_NativeRungeKuttaMarch.refusal``,
     decided from the problem alone (solprop SEP 47 section 5.2): the host marches the
-    backend's test interface asks for; for Adams, a coupled flow off the eigenbasis
-    route or wider than :data:`ADAMS_MAX_CHANNELS`, and a carrier frame with no chord.
-    A controller overriding a decision is refused by its caller. What the backend
-    refuses at admission is not asked here: a comparison variant without a resident
-    engine (``_refuse_adams``) and stage rows the native tables do not read
-    (:func:`host_rows_refusal`).
+    backend's test interface asks for; for Adams, a coupled flow the host engine steps
+    (:func:`_flow_on_host`: beside the interaction formulation, and on a device build
+    off the eigenbasis route or wider than :data:`ADAMS_MAX_CHANNELS`), and a carrier
+    frame with no chord. A controller overriding a decision is refused by its caller.
+    What the backend refuses at admission is not asked here: a comparison variant
+    without a resident engine (``_refuse_adams``) and stage rows the native tables do
+    not read (:func:`host_rows_refusal`).
     """
     integrator = stepper.integrator
     if isinstance(integrator, Multistep):
         if _ADAMS_MARCH == "host":
             return "the test interface asked for the host Adams march"
-        flow = problem.linear.coupled_flow
-        if flow is not None and (
-            integrator.formulation != "exponential"
-            or not bool(np.all(_host_flow(problem).route))  # pyright: ignore[reportOptionalMemberAccess]
-            or problem.shape[0] > ADAMS_MAX_CHANNELS
-        ):
-            return (
-                "the host engine, which steps a coupled flow off the eigenbasis "
-                "route or wider than 16 channels"
-            )
+        hosted = _flow_on_host(problem, integrator.formulation == "exponential")
+        if hosted is not None:
+            return hosted
         carrier = carrier_reference(problem, integrator)
         if carrier is not None and carrier.active and carrier.chord is None:
             return "the carrier frame on an operator with no chord"
         return None
     if _RK_MARCH == "host" or _RK_ROWS == "host":
         return "a trial whose stage rows the host forms"
+    return None
+
+
+def _flow_on_host(problem: PropagationProblem, exponential: bool) -> str | None:
+    """Return why solprop's host engine steps an Adams run beside a coupled flow.
+
+    The resident engine steps the exponential formulation beside a coupled flow
+    (solprop SEP 16 phase 6) on a CPU build at any width and whichever route each bin
+    takes, the eigenbasis or the augmented exponential (SEP 47 phase 4); a device
+    build keeps the 16 channels (:data:`ADAMS_MAX_CHANNELS`) and the eigenbasis route
+    on every bin of every section it is qualified for. ``None`` without a coupled flow
+    or where the resident engine steps it.
+    """
+    if problem.linear.coupled_flow is None:
+        return None
+    if not exponential:
+        return "the host engine, which steps the interaction formulation beside a flow"
+    if not _on_device():
+        return None
+    if problem.shape[0] > ADAMS_MAX_CHANNELS:
+        return (
+            "the host engine, which steps a coupled flow wider than 16 channels on a "
+            "device build"
+        )
+    flow = _host_flow(problem)
+    assert flow is not None
+    if not bool(np.all(flow.route)):
+        return (
+            "the host engine, which steps a coupled flow off the eigenbasis route on a "
+            "device build"
+        )
     return None
 
 
@@ -3357,9 +3379,11 @@ class _NativeAdamsMarch(AdamsMarch):
         if self._runner is not None:
             return None, False
         if not isinstance(engine, _ResidentAdams):
+            hosted = _flow_on_host(
+                self._driver._problem, self._method.formulation == "exponential"
+            )
             return (
-                "the host engine, which steps a coupled flow off the eigenbasis "
-                "route or wider than 16 channels"
+                hosted or "the host engine, which steps the untransported compensation"
             ), True
         assert isinstance(engine, _ResidentAdams)
         chord = None if engine.carrier is None else engine.carrier.chord
