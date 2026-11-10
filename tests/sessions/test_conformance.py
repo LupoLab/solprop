@@ -1219,6 +1219,38 @@ def test_a_step_plane_ending_on_the_next_plane_is_observed_once(
     assert len(set(positions)) == len(positions), positions
 
 
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        {"work_limit": 1},
+        {"work_limit": 7},
+        {"work_limit": 10**6},
+        {"deadline": 0.0},
+    ],
+    ids=["work-limit-1", "work-limit-7", "work-limit-1e6", "deadline-0"],
+)
+@pytest.mark.parametrize("method", sorted(DENSE_METHODS))
+def test_yields_change_nothing_beside_dense_planes(start, executor, method, bounds):
+    """SEP 47 sections 5.1 and 7.1: bounded yields are exact transport no-ops beside
+    interpolated planes, a held plane and its step's extension included.
+
+    The run with its planes interpolated and a step plane every third step, yielding
+    after every attempt, every seventh, hardly ever or at once whatever was made, is
+    bit-identical to the run with the default bounds: every attempt, row, observation
+    and exported field.
+    """
+    executor.require(DENSE)
+    _deterministic(executor)
+    problem = soliton(
+        step_planes=3, period=2, interpolate=True, integrator=DENSE_METHODS[method]
+    )
+    baseline = drive(start(problem), export=IDENTITY)
+    run = drive(start(problem), export=IDENTITY, **bounds)
+    assert_same_run(run, baseline)
+    if bounds.get("work_limit") == 1:
+        assert len(run.batches) > len(baseline.batches)
+
+
 MANY_PLANES = tuple(float(z) for z in np.linspace(LENGTH / 64, LENGTH, 64))
 """Planes closer than the soliton's steps: several fall inside each step."""
 

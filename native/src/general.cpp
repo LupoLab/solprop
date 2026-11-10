@@ -9400,7 +9400,10 @@ void GeneralWorkspace::rk_dense_restore() {
   if (rk_dense_held_.extent(0) == 0)
     throw std::logic_error("Runge-Kutta dense output storage is not allocated");
   graph::deep_copy(execution_space_, current_, rk_dense_held_);
-  stash_is_current_ = false;
+  // As the driver's march reloads the committed state (`_adams_restore`): the next
+  // step evaluates its first stage afresh rather than reuse the crossing step's last,
+  // so that the session's run is the driver's whatever FFT plans round each.
+  clear_fsal();
   execution_space_.fence("solprop_native Runge-Kutta restore boundary");
 }
 

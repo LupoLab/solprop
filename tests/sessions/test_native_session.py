@@ -35,6 +35,7 @@ from sessions.executors import (
     drive,
     entrance,
     fibre,
+    trace,
     window,
 )
 from solprop.backends.driver_session import DriverSession
@@ -43,7 +44,6 @@ from solprop.backends.events import (
     Outcome,
     Progress,
     Terminal,
-    join_attempts,
 )
 from solprop.backends.registry import select
 from solprop.backends.session import SessionError, StopToken
@@ -654,18 +654,34 @@ DENSE = {
 and the Adams march's interpolant in both formulations."""
 
 
-def test_runge_kutta_dense_planes_follow_the_drivers_run():
-    """SEP 47 section 7.1: the native session's dense Runge-Kutta run is the driver's
-    to rounding.
+def _control_trace(run: Run) -> list[tuple[object, ...]]:
+    """Return a run's trace without its plane statistics, which read the planes.
 
-    The driver forms each plane on the host with NumPy (`StepDriver._dense_record`,
-    `_observe_inside`) from stages copied out of the native state, then reloads the
-    committed state, which drops the step's last stage, re-evaluated as the next
-    step's first; the native session forms the extension where the state lives, its
-    flow through the native exponential, and keeps the committed state and that
-    stage. The attempts, acceptances, observation kinds and positions are the
-    driver's, the steps' norms agree to rounding (the stage), and the planes to the
-    last bits (measured 9.2e-17 of the peak).
+    Parameters
+    ----------
+    run : sessions.executors.Run
+        The run.
+
+    Returns
+    -------
+    list
+        Each observation's kind, plane, position, attempts and rows, and the terminal
+        event's, as :func:`sessions.executors.trace` takes them, as bytes.
+    """
+    return [entry[:6] for entry in trace(run)]
+
+
+def test_runge_kutta_dense_planes_follow_the_drivers_run():
+    """SEP 47 section 7.1: the native session's dense Runge-Kutta run is the driver's.
+
+    Both reload the committed state after an observation, the next step evaluating its
+    first stage afresh, so every attempt, norm, acceptance, periodic row and
+    observation position is the driver's to the bit, whatever FFT plans this process
+    chose (a stage reused across an observation instead parted the two by up to 9e-8
+    in a norm under some plans, and the test with it). Only the planes themselves
+    differ: the driver forms each on the host with NumPy (`StepDriver._dense_record`,
+    `_observe_inside`), the session where the state lives, its flow through the native
+    exponential; measured 5.5e-16 of the peak, their statistics likewise.
     """
     if not _one_thread():
         pytest.skip("equal decisions are claimed on one thread (SOLPROP_THREADS=1)")
@@ -676,24 +692,13 @@ def test_runge_kutta_dense_planes_follow_the_drivers_run():
         started = _native_session(problem, request)
         run = drive(started, export=CONSUMER)
         started.session.close()
-        assert run.status.attempts == baseline.status.attempts
-        assert run.status.rejected == baseline.status.rejected
-        assert [(event.kind, event.plane_index) for event in run.observations] == [
-            (event.kind, event.plane_index) for event in baseline.observations
-        ]
-        np.testing.assert_allclose(
-            [event.z for event in run.observations],
-            [event.z for event in baseline.observations],
-            rtol=1e-12,
-        )
-        got = join_attempts(run.chunks)[0]
-        expected = join_attempts(baseline.chunks)[0]
-        np.testing.assert_array_equal(got.accepted, expected.accepted)
-        np.testing.assert_allclose(got.z, expected.z, rtol=1e-12)
-        np.testing.assert_allclose(got.error_norm, expected.error_norm, rtol=1e-8)
+        assert _control_trace(run) == _control_trace(baseline)
         scale = max(float(np.max(np.abs(field))) for field in baseline.fields)
         for field, other in zip(run.fields, baseline.fields, strict=True):
             np.testing.assert_allclose(field, other, rtol=0, atol=1e-14 * scale)
+        for got, expected in zip(run.observations, baseline.observations, strict=True):
+            for name, value in expected.stats.items():
+                np.testing.assert_allclose(got.stats[name], value, rtol=1e-12)
 
 
 @pytest.mark.parametrize("case", sorted(DENSE))

@@ -578,13 +578,14 @@ the measurements behind them.
   every plane its step crossed observed first -- the end of that step itself when the
   next plane lies beyond it, since with planes closer than the steps every later step
   crosses another plane -- so a checkpoint never needs the extension to reconstruct a
-  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). The native session's
-  Runge-Kutta march keeps the committed state and its recycled last stage (FSAL) across
-  an observation, where the native bridge reloads the committed state from its host
-  copy, which drops that stage, and evaluates the next step's first stage afresh. Their
-  norms, and so in general their trajectories, differ at rounding level: on the
-  qualification cases the decisions are the same, the norms agree to 1e-8 relative and
-  the planes to 9.2e-17 of the peak, each within the reference's budgets.
+  plane ([SEP 47](seps/sep-0047-run-ownership.md) section 5.5). After an observation
+  the next step evaluates its first stage afresh rather than recycle the crossing step's
+  last (FSAL), in the native session as in the bridge, which reloads the committed
+  state from its host copy: a recycled stage parted the two by up to 9e-8 in a norm,
+  and by 2e-10 in the positions after it, under some FFT plans and not others, and
+  measured planning makes the plans differ from process to process. Their trajectories
+  are now the same to the bit; their planes differ only in the flow's exponential (the
+  bridge's NumPy one, the session's native one), by 5.5e-16 of the peak.
 - **Floor**: a proposal below `dz_min` raises `ConvergenceError` at once (algorithms.md §3,
   traps). The default is `default_dz_min`, 1e-9 of the run length: a run that wants steps
   that small needs over a billion of them and would never finish, and the finest legitimate
